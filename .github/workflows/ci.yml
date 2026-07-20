@@ -26,13 +26,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      # pnpm 11 gates dependency build scripts behind interactive approval. Under
-      # --frozen-lockfile an unapproved build is FATAL, and every subsequent `pnpm run`
-      # re-runs the check — so the scripts must actually run here. This flag lets the
-      # committed, lockfile-pinned build scripts run non-interactively; in this tree the
-      # only one is esbuild's native-binary postinstall, which `vite build` needs.
-      # (Local, non-frozen installs scope this to esbuild via onlyBuiltDependencies.)
-      - run: pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true
+      # No build-permitting flag: the postinstall allowance is committed per-package in
+      # pnpm-workspace.yaml (allowBuilds: esbuild: true) and read from there, so ONLY
+      # esbuild is allowed to build — consistent with pinning the Actions above. A new
+      # dependency that adds a postinstall would be blocked here until reviewed and listed.
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
