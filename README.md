@@ -101,27 +101,26 @@ every control labelled for assistive tech (Radix roles + `aria-label`s).
 
 ---
 
-## The routing ramp — my read (reported, not decided)
+## The routing ramp — two steps
 
-Built and put in a dense table in the specimen (`Routing ramp — dense table`), reasoning from
-the constructed rows and the four tier hues (the pixel review is yours):
+The ramp was four distinct hues (cyan → green → amber → rose). It is now **two categories**:
+`cheap` (cool, `tier1`) and `capable` (warm, `tier3`). The four-hue version read as *busy /
+categorical, not ordered*: hue is categorical, not ordinal — four hues are four categories a
+reader cannot rank without a legend, and once a `Tier N` numeral was present to rank them, the
+hue was redundant chroma. Two well-separated hues (cool vs warm) are self-ranking, so:
 
-**Four steps read as BUSY / categorical, not ordered — and they need a legend to mean a rank.**
-The four tiers are four *distinct hues* (cyan → green → amber → rose), not one hue ramped by
-lightness. Hue is categorical, not ordinal: cyan/green/amber/rose carry no innate 1 < 2 < 3 < 4.
-There is a faint cool→warm drift that hints at "cheap → expensive," but a first-time reader
-would not reliably order them from colour alone; across many rows, four chroma points per row is
-the loudest thing on the screen.
+**Decision — the numeral is dropped.** With four hues the numeral made the hue redundant; with a
+binary the inverse holds — two separated hues carry the order themselves (cool reads before
+warm), so a `Tier N` numeral is unnecessary. `TierDot` takes `tier="cheap" | "capable"` and an
+optional **word** label (`cheap` / `capable`) that carries meaning and the accessible name — not
+a numeral.
 
-I mitigated it in the specimen by pairing each dot with a **`Tier N` numeral** — so the *number*
-carries the rank and the hue is decoration. But that exposes the real tension: **if the numeral
-already orders them, the four hues are redundant chroma that only adds busyness.**
+**The durable rule, so nobody re-derives four hues later:**
 
-My honest recommendation: for dense tables, **two steps (cheap / capable) would read as clearly
-ordered** — a binary is trivially ranked, and two hues (one cool, one warm) are legible at a
-glance with no legend. Keep four only where density is low and a legend is present. If you want
-to keep four in tables, drop the dot and keep the numeral + a single accent, so the rank comes
-from the number, not from four competing hues.
+> **Hue encodes CATEGORY; lightness encodes ORDER.** Colour categories are unordered by nature.
+> If more than two tiers are ever genuinely needed, the ordinal-correct form is **one hue at N
+> lightness steps** (a pale-to-dark ramp of a single hue), **never N distinct hues**. Distinct
+> hues may only be used where the axis is a small set of *categories*, not a rank.
 
 ---
 

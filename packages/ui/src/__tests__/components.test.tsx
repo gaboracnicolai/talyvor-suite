@@ -35,8 +35,8 @@ describe('components render + carry accessible semantics', () => {
     expect(screen.getByText('1d left')).toBeInTheDocument()
   })
 
-  it('TierDot carries an accessible label', () => {
-    render(<TierDot tier={2} />)
-    expect(screen.getByRole('img', { name: 'Tier 2' })).toBeInTheDocument()
+  it('TierDot carries an accessible label (two categories, no numeral)', () => {
+    render(<TierDot tier="capable" />)
+    expect(screen.getByRole('img', { name: 'capable' })).toBeInTheDocument()
   })
 })

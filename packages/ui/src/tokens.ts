@@ -10,7 +10,9 @@ export const tokens = {
     ink: '#1B1D1F', muted: '#6B6E73', faint: '#8B8F94',
     accent: '#0B7A85', 'accent-hover': '#096570', 'accent-ink': '#FFFFFF',
     lens: '#A85A2C', lxc: '#42688C',
-    tier1: '#3E8E9C', tier2: '#6B8A54', tier3: '#B07F38', tier4: '#A5576C',
+    // The routing ramp is TWO CATEGORIES, not four: tier1 = cheap/fast (cool),
+    // tier3 = capable/expensive (warm). Hue encodes category; see README §The ramp.
+    tier1: '#3E8E9C', tier3: '#B07F38',
     settled: '#1D7A45', held: '#8A6A12', slashed: '#BF3B2E',
   },
   dark: {
@@ -19,7 +21,7 @@ export const tokens = {
     ink: '#EDEFF1', muted: '#9CA1A6', faint: '#767B80',
     accent: '#3ABDC9', 'accent-hover': '#55CDD8', 'accent-ink': '#08191B',
     lens: '#D08A5C', lxc: '#7FA6CC',
-    tier1: '#54B4C2', tier2: '#8FB073', tier3: '#D6A85C', tier4: '#CC8095',
+    tier1: '#54B4C2', tier3: '#D6A85C',
     settled: '#45C77F', held: '#D6A93C', slashed: '#F0685C',
   },
 } as const

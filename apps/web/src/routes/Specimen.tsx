@@ -28,16 +28,16 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-// A dense routing table — the highest colour density in the system, for judging the
-// four-step ramp.
+// A dense routing table. The ramp is two categories — cool (cheap) vs warm (capable) —
+// which read as ordered without a legend and without a numeral.
 const routes: { model: string; tier: Tier; status: 'settled' | 'held' | 'idle' | 'slashed' }[] = [
-  { model: 'haiku-4.5', tier: 1, status: 'settled' },
-  { model: 'llama-3.3-70b', tier: 1, status: 'settled' },
-  { model: 'mistral-large', tier: 2, status: 'held' },
-  { model: 'sonnet-5', tier: 2, status: 'settled' },
-  { model: 'gpt-5.1', tier: 3, status: 'held' },
-  { model: 'opus-4.8', tier: 4, status: 'idle' },
-  { model: 'o5-pro', tier: 4, status: 'slashed' },
+  { model: 'haiku-4.5', tier: 'cheap', status: 'settled' },
+  { model: 'llama-3.3-70b', tier: 'cheap', status: 'settled' },
+  { model: 'mistral-large', tier: 'cheap', status: 'held' },
+  { model: 'sonnet-5', tier: 'capable', status: 'settled' },
+  { model: 'gpt-5.1', tier: 'capable', status: 'held' },
+  { model: 'opus-4.8', tier: 'capable', status: 'idle' },
+  { model: 'o5-pro', tier: 'capable', status: 'slashed' },
 ]
 
 function Gallery() {
@@ -129,7 +129,7 @@ function Gallery() {
           {routes.map((r) => (
             <div key={r.model} role="row" className="flex min-h-row items-center gap-gutter border-b border-rule last:border-b-0">
               <span role="cell" className="w-32 truncate font-mono text-body text-ink">{r.model}</span>
-              <span role="cell" className="w-24"><TierDot tier={r.tier} label={`Tier ${r.tier}`} /></span>
+              <span role="cell" className="w-24"><TierDot tier={r.tier} label={r.tier} /></span>
               <span role="cell"><Pill status={r.status}>{r.status}</Pill></span>
             </div>
           ))}

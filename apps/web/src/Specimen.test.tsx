@@ -17,6 +17,6 @@ describe('specimen renders every component in both themes', () => {
     expect(within(dark).getByRole('button', { name: 'Primary' })).toBeInTheDocument()
     // the µ-numeral tail and routing ramp render too
     expect(within(dark).getAllByText(/\.340567/).length).toBeGreaterThan(0)
-    expect(within(light).getAllByRole('img', { name: /Tier/ }).length).toBeGreaterThan(0)
+    expect(within(light).getAllByRole('img', { name: /cheap|capable/ }).length).toBeGreaterThan(0)
   })
 })

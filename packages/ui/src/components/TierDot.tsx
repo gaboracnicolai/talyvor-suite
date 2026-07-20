@@ -1,19 +1,21 @@
 import { cn } from '../lib/cn'
 
-export type Tier = 1 | 2 | 3 | 4
+export type Tier = 'cheap' | 'capable'
 
 export interface TierDotProps extends React.HTMLAttributes<HTMLSpanElement> {
   tier: Tier
+  /** Optional text label; defaults to the tier name for the accessible label. */
   label?: string
 }
 
-// The routing ramp. Four hues — the densest colour in the system. The dot is the
-// affordance; any label is muted ink.
+// The routing ramp — TWO categories, not four. Hue encodes CATEGORY: cool = cheap/fast
+// (tier1), warm = capable/expensive (tier3). Two well-separated hues are self-ranking
+// (cool reads before warm), so a numeral is UNNECESSARY — the dot plus an optional
+// word carries it. (The inverse of the four-hue case, where the numeral made the hue
+// redundant.) See README §The ramp.
 const hue: Record<Tier, string> = {
-  1: 'bg-tier1',
-  2: 'bg-tier2',
-  3: 'bg-tier3',
-  4: 'bg-tier4',
+  cheap: 'bg-tier1',
+  capable: 'bg-tier3',
 }
 
 export function TierDot({ tier, label, className, ...props }: TierDotProps) {
@@ -21,7 +23,7 @@ export function TierDot({ tier, label, className, ...props }: TierDotProps) {
     <span
       className={cn('inline-flex items-center gap-1.5', className)}
       role="img"
-      aria-label={label ?? `Tier ${tier}`}
+      aria-label={label ?? tier}
       {...props}
     >
       <span className={cn('h-2 w-2 shrink-0 rounded-pill', hue[tier])} />
