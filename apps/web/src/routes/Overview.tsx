@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, MuNumeral, Pill, Row } from '@talyvor/ui'
-import { api, type LedgerEntry } from '../lib/api'
+import { api, type Bond, type LedgerEntry } from '../lib/api'
+import { CapabilityOff } from '../components/Capability'
 import { formatUSD, formatWhen, humanizeType, ledgerStatus } from '../lib/ledger'
 
 // Overview: the two token balances and recent activity, driven entirely by the BFF
@@ -100,6 +101,28 @@ function RecentActivity() {
   )
 }
 
+// Bonds is a capability-gated feature (H5). When off, the BFF reports { enabled: false }
+// and this reads as OFF — calm information — never as an error. When on, it lists bonds.
+function BondsCard() {
+  const q = useQuery({ queryKey: ['bonds'], queryFn: api.bonds })
+  return (
+    <Card>
+      <CardHeader>Bonds</CardHeader>
+      {q.isLoading ? (
+        <Loading />
+      ) : q.isError || !q.data ? (
+        <Failed what="bonds" />
+      ) : !q.data.enabled ? (
+        <CapabilityOff name="Reputation bonds" note="Turned off in this workspace (H5 bonds is disabled)." />
+      ) : q.data.data.length === 0 ? (
+        <div className="px-gutter py-3 text-body text-muted">No bonds yet.</div>
+      ) : (
+        q.data.data.map((b: Bond) => <Row key={b.id} label={b.id} hint={b.kind} />)
+      )}
+    </Card>
+  )
+}
+
 export function Overview() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-gutter">
@@ -108,6 +131,7 @@ export function Overview() {
         <LensCard />
       </div>
       <RecentActivity />
+      <BondsCard />
     </div>
   )
 }

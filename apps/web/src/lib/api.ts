@@ -36,10 +36,40 @@ export interface LedgerEntry {
   created_at: string
 }
 
+/** GET /v1/workspaces/{ws}/lxc/history → []economy.LXCLedgerEntry. Same shape as the LENS
+ *  ledger but for the pegged token: the µ-fields are `_ulxc`, not `_ulens`. */
+export interface LXCLedgerEntry {
+  id: string
+  workspace_id: string
+  amount_ulxc: number
+  balance_after_ulxc: number
+  type: string
+  description: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 /** GET /api/context — BFF-originated; never contains the key. */
 export interface BffContext {
   workspace_id: string
   lens_base_url: string
+}
+
+/** Which token a ledger/numeral belongs to. Drives the unit tick (copper LENS / steel LXC). */
+export type Token = 'lens' | 'lxc'
+
+/** A ledger row normalized across both tokens. `amount`/`balanceAfter` are µ-units of the
+ *  row's token — the ONLY per-token difference between the two Lens ledgers is the field
+ *  name (`_ulens` vs `_ulxc`) and the unit tick, so one normalized shape lets one table
+ *  render either ledger. `type`/`description` are shown verbatim (see the mislabeled
+ *  bootstrap `purchase` row — the data is wrong, not the display). */
+export interface LedgerRow {
+  id: string
+  amount: number
+  balanceAfter: number
+  type: string
+  description: string
+  created_at: string
 }
 
 export class ApiError extends Error {
@@ -58,10 +88,64 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
+/**
+ * A capability-gated read: either the feature is off, or it's on with a payload. Lens
+ * makes a flag-off route wire-identical to a real not-found, so the BFF resolves the
+ * ambiguity (it knows which endpoints are gated) and returns this envelope. The client
+ * discriminates on `enabled` — never on a status code, so a disabled capability never
+ * touches the error path. A genuine failure (5xx/auth) still throws ApiError.
+ */
+export type Capability<T> = { enabled: false } | { enabled: true; data: T }
+
+async function getCapability<T>(path: string): Promise<Capability<T>> {
+  const res = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new ApiError(res.status, path)
+  const body = (await res.json()) as { enabled: boolean; data?: T }
+  return body.enabled ? { enabled: true, data: body.data as T } : { enabled: false }
+}
+
+/** A reputation bond (H5). Shape is intentionally loose — this increment only proves the
+ *  gate; the field set firms up when bonds are actually built. */
+export interface Bond {
+  id: string
+  kind?: string
+  [k: string]: unknown
+}
+
 export const api = {
   context: () => getJSON<BffContext>('/api/context'),
   lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance'),
   lensBalance: () => getJSON<LensBalance>('/api/tokens/balance'),
   tokensHistory: (limit: number, offset: number) =>
     getJSON<LedgerEntry[]>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
+  /** Capability-gated (H5 bonds). Off in the trial config today → { enabled: false }. */
+  bonds: () => getCapability<Bond[]>('/api/bonds'),
+
+  /** The LENS mint ledger, normalized. */
+  lensLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>
+    getJSON<LedgerEntry[]>(`/api/tokens/history?limit=${limit}&offset=${offset}`).then((rs) =>
+      rs.map((r) => ({
+        id: r.id,
+        amount: r.amount_ulens,
+        balanceAfter: r.balance_after_ulens,
+        type: r.type,
+        description: r.description,
+        created_at: r.created_at,
+      })),
+    ),
+  /** The LXC (pegged) ledger, normalized. */
+  lxcLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>
+    getJSON<LXCLedgerEntry[]>(`/api/lxc/history?limit=${limit}&offset=${offset}`).then((rs) =>
+      rs.map((r) => ({
+        id: r.id,
+        amount: r.amount_ulxc,
+        balanceAfter: r.balance_after_ulxc,
+        type: r.type,
+        description: r.description,
+        created_at: r.created_at,
+      })),
+    ),
+  /** One ledger fetch keyed by token — feeds the one LedgerTable. */
+  ledger: (token: Token, limit: number, offset: number): Promise<LedgerRow[]> =>
+    token === 'lxc' ? api.lxcLedger(limit, offset) : api.lensLedger(limit, offset),
 }

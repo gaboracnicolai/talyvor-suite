@@ -1,59 +1,92 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, MuNumeral, Pill } from '@talyvor/ui'
-import { api, type LedgerEntry } from '../lib/api'
+import { api, type LedgerRow, type Token } from '../lib/api'
 import { formatWhen, humanizeType, ledgerStatus } from '../lib/ledger'
 
 const PAGE = 20
 
-// Ledger: the LENS token ledger (tokens/history), paginated by limit/offset. This is
-// the mint ledger — the rows that actually exercise the settled/held/slashed vocabulary.
-// The API returns a bare array with no total, so "next" is inferred from a full page.
+// The Ledger renders EITHER token ledger. The two are structurally identical — same
+// columns (when / status / description / amount / balance) — and differ only in the µ-field
+// name (normalized away in api.ledger) and the unit tick. So this is ONE table component
+// taking a `token` discriminator, not two wrappers that would duplicate the whole
+// table + pagination + status logic to vary one enum. And it is ONE screen with a
+// LENS/LXC switch, not two routes: it is the same view of two ledgers, so one mental model
+// and one URL. The unit tick follows the token (copper LENS / steel LXC) via MuNumeral —
+// the two-token colour signature that keeps them from being confused.
 
 function StatusCell({ type }: { type: string }) {
   const status = ledgerStatus(type)
   if (status) return <Pill status={status}>{status}</Pill>
-  // An account movement (grant/purchase/spend/convert) has no lifecycle status → plain label.
+  // Movements (grant/purchase/spend) have no lifecycle status → a plain ink label. The
+  // mislabeled bootstrap `purchase` shows verbatim: the data is wrong, not the display.
   return <span className="text-caption uppercase tracking-wide text-muted">{humanizeType(type)}</span>
 }
 
-function LedgerRow({ e }: { e: LedgerEntry }) {
+function LedgerTableRow({ r, token }: { r: LedgerRow; token: Token }) {
   return (
     <tr className="border-b border-rule last:border-b-0">
-      <td className="whitespace-nowrap px-gutter py-2 text-caption tabular-nums text-muted">{formatWhen(e.created_at)}</td>
+      <td className="whitespace-nowrap px-gutter py-2 text-caption tabular-nums text-muted">{formatWhen(r.created_at)}</td>
       <td className="px-gutter py-2">
-        <StatusCell type={e.type} />
+        <StatusCell type={r.type} />
       </td>
-      <td className="px-gutter py-2 text-body text-ink">{e.description || humanizeType(e.type)}</td>
+      <td className="px-gutter py-2 text-body text-ink">{r.description || humanizeType(r.type)}</td>
       <td className="px-gutter py-2 text-right">
         <div className="flex justify-end">
-          <MuNumeral micros={e.amount_ulens} unit="lens" />
+          <MuNumeral micros={r.amount} unit={token} />
         </div>
       </td>
       <td className="px-gutter py-2 text-right">
         <div className="flex justify-end">
-          <MuNumeral micros={e.balance_after_ulens} unit="lens" />
+          <MuNumeral micros={r.balanceAfter} unit={token} />
         </div>
       </td>
     </tr>
   )
 }
 
+const TOKENS: { id: Token; label: string }[] = [
+  { id: 'lens', label: 'LENS' },
+  { id: 'lxc', label: 'LXC' },
+]
+
 export function Ledger() {
+  const [token, setTokenRaw] = useState<Token>('lens')
   const [offset, setOffset] = useState(0)
+  const setToken = (t: Token) => {
+    setTokenRaw(t)
+    setOffset(0) // a different ledger starts at its own first page
+  }
+
   const q = useQuery({
-    queryKey: ['tokens-history', PAGE, offset],
-    queryFn: () => api.tokensHistory(PAGE, offset),
+    queryKey: ['ledger', token, offset],
+    queryFn: () => api.ledger(token, PAGE, offset),
     placeholderData: keepPreviousData,
   })
   const rows = q.data ?? []
   const hasPrev = offset > 0
-  const hasNext = rows.length === PAGE // a full page implies there may be more
+  const hasNext = rows.length === PAGE
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-gutter">
+      <div className="flex items-center justify-between gap-gutter">
+        <div className="flex gap-1" role="group" aria-label="Ledger token">
+          {TOKENS.map((t) => (
+            <Button
+              key={t.id}
+              variant={token === t.id ? 'primary' : 'default'}
+              aria-pressed={token === t.id}
+              onClick={() => setToken(t.id)}
+            >
+              {t.label}
+            </Button>
+          ))}
+        </div>
+        <span className="text-caption tabular-nums text-muted">newest first</span>
+      </div>
+
       <Card>
-        <CardHeader>LENS token ledger</CardHeader>
+        <CardHeader>{token === 'lxc' ? 'LXC ledger' : 'LENS token ledger'}</CardHeader>
         {q.isLoading ? (
           <div className="px-gutter py-3 text-body text-muted">Loading…</div>
         ) : q.isError ? (
@@ -75,8 +108,8 @@ export function Ledger() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((e) => (
-                  <LedgerRow key={e.id} e={e} />
+                {rows.map((r) => (
+                  <LedgerTableRow key={r.id} r={r} token={token} />
                 ))}
               </tbody>
             </table>

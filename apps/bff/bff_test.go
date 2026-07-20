@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,6 +51,7 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		"/api/tokens/history?limit=5&offset=0",
 		"/api/lxc/history?limit=5&offset=0",
 		"/api/workspaces",
+		"/api/bonds",
 	}
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()
@@ -74,6 +76,78 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 	// actually attaching it server-side, not simply dropping it.
 	if gotAuth != "Bearer "+testKey {
 		t.Fatalf("upstream did not receive the key server-side: got %q", gotAuth)
+	}
+}
+
+// gatedApp points /api/bonds at an upstream that returns the given status/body, so the
+// capability-gating translation can be exercised without the real Lens.
+func gatedApp(t *testing.T, status int, body string) *app {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(upstream.Close)
+	return newApp(config{lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir()})
+}
+
+// TestGatedCapabilityDisabled: a flag-off Lens route returns a generic 404 (indistinguishable
+// from a real not-found). The BFF must translate that into an explicit "disabled" signal —
+// a 200 the client can read as OFF — NOT pass a 404 the browser renders as a fault.
+func TestGatedCapabilityDisabled(t *testing.T) {
+	a := gatedApp(t, http.StatusNotFound, "404 page not found")
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/bonds", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("gated 404 must become 200 (a normal state), got %d", rec.Code)
+	}
+	var got struct {
+		Capability string `json:"capability"`
+		Enabled    bool   `json:"enabled"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body is not the disabled envelope: %v (%s)", err, rec.Body.String())
+	}
+	if got.Enabled || got.Capability != "bonds" {
+		t.Fatalf("expected {capability:bonds, enabled:false}, got %+v", got)
+	}
+}
+
+// TestGatedCapabilityEnabled: when the capability is on, the upstream payload is wrapped in
+// {enabled:true, data:<upstream>} so the client discriminates on `enabled`, never on shape.
+func TestGatedCapabilityEnabled(t *testing.T) {
+	a := gatedApp(t, http.StatusOK, `[{"id":"b1","kind":"reputation"}]`)
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/bonds", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d", rec.Code)
+	}
+	var got struct {
+		Enabled bool              `json:"enabled"`
+		Data    []json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body is not the enabled envelope: %v (%s)", err, rec.Body.String())
+	}
+	if !got.Enabled || len(got.Data) != 1 {
+		t.Fatalf("expected {enabled:true, data:[1 bond]}, got %+v", got)
+	}
+}
+
+// TestGatedRealErrorStillErrors: a genuine upstream failure (5xx) must NOT be laundered into
+// "disabled" — only a 404 means disabled. Everything else stays an error.
+func TestGatedRealErrorStillErrors(t *testing.T) {
+	a := gatedApp(t, http.StatusInternalServerError, `{"error":"boom"}`)
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/bonds", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("a real 500 must stay an error, got %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "\"enabled\":false") {
+		t.Fatalf("a 500 must not be laundered into disabled: %s", rec.Body.String())
 	}
 }
 
