@@ -1,5 +1,12 @@
 packages:
   - packages/*
   - apps/*
+# pnpm 11 gates dependency postinstall build scripts. `allowBuilds` is the record that
+# `pnpm approve-builds` writes and that `pnpm install --frozen-lockfile` reads — so CI needs
+# no build-permitting flag. It is SCOPED per-package: esbuild (its native binary, required
+# by vite) is allowed; any other dependency that later adds a postinstall stays blocked
+# until it is listed here and reviewed. (This is what the earlier `set this to true or
+# false` placeholder was meant to become. Note: `onlyBuiltDependencies` is NOT honoured in
+# pnpm 11.1.1 — verified — so `allowBuilds` is the correct key.)
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true

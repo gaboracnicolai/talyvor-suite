@@ -21,11 +21,25 @@ describe('components render + carry accessible semantics', () => {
     expect(container.querySelector('.bg-settled')).toHaveAttribute('aria-hidden', 'true')
   })
 
-  it('MuNumeral splits whole units from the µ-tail', () => {
+  it('MuNumeral splits whole units from the µ-tail (≥ 1 unit)', () => {
     const { container } = render(<MuNumeral micros={12_340567} unit="lens" />)
     expect(container.textContent).toContain('12')
     expect(container.textContent).toContain('.340567')
     expect(container.textContent?.toLowerCase()).toContain('lens')
+  })
+
+  it('MuNumeral switches to the µ-integer below one unit (whole === 0)', () => {
+    const { container } = render(<MuNumeral micros={64} unit="lxc" />)
+    // the µ-integer the ledger stores, not a dimmed decimal tail
+    expect(container.textContent).toContain('64')
+    expect(container.textContent).not.toContain('.000064')
+    // the unit switches to µLXC (µ + lxc; CSS uppercases the letters, not the DOM text)
+    expect(container.textContent?.toLowerCase()).toContain('µlxc')
+  })
+
+  it('MuNumeral keeps the sign on a sub-unit µ-integer', () => {
+    const { container } = render(<MuNumeral micros={-64} unit="lxc" />)
+    expect(container.textContent).toContain('-64')
   })
 
   it('HoldBar is a labelled progressbar', () => {
