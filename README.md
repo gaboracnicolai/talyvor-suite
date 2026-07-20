@@ -90,10 +90,41 @@ machinery in increment 1).
 
 `Shell` (sidebar + content, sticky nav, stacks under the `wide` 840 px breakpoint) · `NavItem` ·
 `Card` (+ `proof` rule variant) · `Row` · `Button` (default / primary / danger) · `Switch` ·
-`Select` · `Input` · `Pill` (settled / held / slashed / idle / lens / lxc) · `MuNumeral`
-(the µ-split) · `HoldBar` (the hold hairline) · `TierDot` (the routing ramp) · `ThemeToggle`.
+`Select` · `Input` · `Pill` (settled / held / slashed / lens / lxc) · `MuNumeral`
+(the µ-split, two scales) · `HoldBar` (the hold hairline — **blocked, see below**) ·
+`TierDot` (the routing ramp) · `ThemeToggle`.
 Reviewed at **`/specimen`** — every component, both themes. That route is the contract, not a
 throwaway.
+
+### MuNumeral — two scales, one rule
+
+Money is stored as an integer count of µ-units (1e-6). MuNumeral renders it so that **the
+meaningful part is always the emphasised part**:
+
+- **≥ 1 unit:** whole units at head weight + a dimmed, underscored six-digit µ-tail —
+  `12.340567 LENS` → `12` · `.340567`. The whole part carries the magnitude.
+- **< 1 unit (`whole === 0`):** the decimal form would put *every* significant digit into the
+  recessive tail (`0.000064 LXC`), so it switches units and renders the µ-integer the ledger
+  actually stores — `64 µLXC`, `1,000 µLENS`. Same "meaning lives in the whole part" rule, at
+  both scales; no second visual treatment of the decimal form.
+
+The crossover is exactly `whole === 0` because that is precisely the set of values for which
+the decimal form has nothing in its emphasised slot.
+
+### Blocked components
+
+**`HoldBar` is blocked — do not wire it.** It renders *how far through a hold window* a held
+reward is, so it needs a window: a start and end, or a remaining duration. **The Lens ledger
+exposes no such window.** A held row (`type` ending `_held`) carries only an amount, a `type`,
+a `description`, `metadata`, and `created_at`; the `lens_token_ledger` schema has no window
+column, and `metadata` is provenance (model, latency), not timing. The window data exists in
+Lens's separate `*_held` minter tables (`finalize_after`), but those have **no workspace read
+endpoint**.
+
+So HoldBar **stays unused until Lens exposes a hold window on a read path**. It is wired into
+no screen; the held *state* surfaces as a `Pill` (`held`) — which is all the ledger supports.
+`/specimen` shows it with illustrative values only, clearly labelled. Wire it to the ledger
+and you get nothing — that's why this is written down rather than left to be discovered.
 
 **Quality floor:** a 2 px accent focus ring at 2 px offset on every interactive element
 (`focus-visible` only); `prefers-reduced-motion` respected globally; responsive to mobile;

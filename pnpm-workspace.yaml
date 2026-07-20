@@ -1,5 +1,9 @@
 packages:
   - packages/*
   - apps/*
-allowBuilds:
-  esbuild: set this to true or false
+# esbuild ships a native binary it builds in a postinstall. pnpm 11 gates dependency
+# build scripts; this allowlist scopes local (non-frozen) installs to just esbuild. CI
+# uses `--frozen-lockfile`, where the gate is fatal and this allowlist is not enough — it
+# passes --config.dangerouslyAllowAllBuilds=true instead (see .github/workflows/ci.yml).
+onlyBuiltDependencies:
+  - esbuild

@@ -23,8 +23,8 @@ const MOVEMENTS = new Set([
  *   otherwise  → 'settled'  (a counted mint in circulation: pattern_mine, pool_royalty…)
  *
  * Two honest gaps this encodes:
- *  - 'idle' is never returned. No ledger row is ever "idle"; idle is a UI-only resting
- *    state, so that Pill variant has no data source in the ledger.
+ *  - There is no 'idle' — that Pill variant was cut, because no ledger row (and no other
+ *    screen) could ever produce it. See Pill.tsx.
  *  - 'held' marks the row, but the ledger exposes no hold WINDOW, so a held row can wear
  *    the Pill yet cannot drive a HoldBar. The two are decoupled on purpose.
  */

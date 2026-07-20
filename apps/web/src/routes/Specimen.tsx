@@ -30,13 +30,13 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // A dense routing table. The ramp is two categories — cool (cheap) vs warm (capable) —
 // which read as ordered without a legend and without a numeral.
-const routes: { model: string; tier: Tier; status: 'settled' | 'held' | 'idle' | 'slashed' }[] = [
+const routes: { model: string; tier: Tier; status: 'settled' | 'held' | 'slashed' }[] = [
   { model: 'haiku-4.5', tier: 'cheap', status: 'settled' },
   { model: 'llama-3.3-70b', tier: 'cheap', status: 'settled' },
   { model: 'mistral-large', tier: 'cheap', status: 'held' },
   { model: 'sonnet-5', tier: 'capable', status: 'settled' },
   { model: 'gpt-5.1', tier: 'capable', status: 'held' },
-  { model: 'opus-4.8', tier: 'capable', status: 'idle' },
+  { model: 'opus-4.8', tier: 'capable', status: 'settled' },
   { model: 'o5-pro', tier: 'capable', status: 'slashed' },
 ]
 
@@ -91,28 +91,37 @@ function Gallery() {
           <Pill status="settled">Settled</Pill>
           <Pill status="held">Held</Pill>
           <Pill status="slashed">Slashed</Pill>
-          <Pill status="idle">Idle</Pill>
           <Pill status="lens">Lens</Pill>
           <Pill status="lxc">LXC</Pill>
         </div>
       </Section>
 
-      <Section title="µ-numerals">
-        <Row label="Mined this epoch">
+      <Section title="µ-numerals — two scales">
+        <Row label="Mined this epoch" hint="≥ 1 unit: whole units + dimmed µ-tail.">
           <MuNumeral micros={12_340567} unit="lens" />
         </Row>
-        <Row label="Pegged balance">
+        <Row label="Pegged balance" hint="≥ 1 unit.">
           <MuNumeral micros={1_004200} unit="lxc" />
+        </Row>
+        <Row label="Sub-unit spend" hint="< 1 unit: the µ-integer, unit switches to µLXC.">
+          <MuNumeral micros={64} unit="lxc" />
+        </Row>
+        <Row label="Dust balance" hint="< 1 unit: 1,000 µLENS, not 0.001000 LENS.">
+          <MuNumeral micros={1000} unit="lens" />
         </Row>
       </Section>
 
-      <Section title="Hold bars">
-        <Row label="Compute reward" hint="Held until the epoch settles.">
+      <Section title="Hold bars — BLOCKED (illustrative values only)">
+        <div className="text-caption text-muted">
+          The Lens ledger exposes no hold window, so HoldBar cannot be driven by real data
+          yet — these are illustrative values, not live. See the README (Blocked components).
+        </div>
+        <Row label="Compute reward" hint="Illustrative — not real data.">
           <div className="w-52">
             <HoldBar elapsed={9} total={14} remainingLabel="5d left" />
           </div>
         </Row>
-        <Row label="Pattern royalty" hint="Half-way through the hold.">
+        <Row label="Pattern royalty" hint="Illustrative — not real data.">
           <div className="w-52">
             <HoldBar elapsed={7} total={14} remainingLabel="7d left" />
           </div>

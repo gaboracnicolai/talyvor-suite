@@ -65,8 +65,9 @@ describe('Ledger renders the real tokens/history shape', () => {
     expect(screen.getByText('held')).toBeInTheDocument()
     expect(screen.getByText('settled')).toBeInTheDocument()
 
-    // the µ-amount renders through MuNumeral: 1000 µLENS → whole 0 + tail .001000
-    expect(screen.getAllByText('.001000').length).toBeGreaterThan(0)
+    // 1000 µLENS is sub-unit, so MuNumeral shows the µ-integer "1,000", not "0.001000"
+    expect(screen.getAllByText('1,000').length).toBeGreaterThan(0)
+    expect(screen.queryByText('.001000')).toBeNull()
   })
 
   it('surfaces an upstream failure honestly rather than faking rows', async () => {

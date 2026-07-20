@@ -1,6 +1,9 @@
 import { cn } from '../lib/cn'
 
-export type PillStatus = 'settled' | 'held' | 'slashed' | 'idle' | 'lens' | 'lxc'
+// 'idle' was removed: nothing could produce it. No ledger row is ever "idle" (it would be
+// a UI-only resting state), and no screen used it — a variant nothing can produce is dead
+// surface. Re-add it only alongside a real state that needs it.
+export type PillStatus = 'settled' | 'held' | 'slashed' | 'lens' | 'lxc'
 
 export interface PillProps extends React.HTMLAttributes<HTMLSpanElement> {
   status: PillStatus
@@ -13,7 +16,6 @@ const dot: Record<PillStatus, string> = {
   settled: 'bg-settled',
   held: 'bg-held',
   slashed: 'bg-slashed',
-  idle: 'bg-faint',
   lens: 'bg-lens',
   lxc: 'bg-lxc',
 }

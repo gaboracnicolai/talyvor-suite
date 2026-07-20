@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: CI only reads the repo.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The frontend gates. `lint` runs the local/no-arbitrary-value rule, so an arbitrary
+  # Tailwind value (text-[#fff], p-[13px]) fails CI here — the design-system lock is
+  # enforced by the pipeline, not by remembering to run it.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      # pnpm 11 gates dependency build scripts behind interactive approval. Under
+      # --frozen-lockfile an unapproved build is FATAL, and every subsequent `pnpm run`
+      # re-runs the check — so the scripts must actually run here. This flag lets the
+      # committed, lockfile-pinned build scripts run non-interactively; in this tree the
+      # only one is esbuild's native-binary postinstall, which `vite build` needs.
+      # (Local, non-frozen installs scope this to esbuild via onlyBuiltDependencies.)
+      - run: pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+
+  # The BFF gates. Stdlib-only, so no module cache (no go.sum).
+  bff:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/bff
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
+        with:
+          go-version: '1.23'
+          cache: false
+      - run: go vet ./...
+      - run: go test -race ./...

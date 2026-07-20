@@ -10,6 +10,11 @@ export interface HoldBarProps extends React.HTMLAttributes<HTMLDivElement> {
 
 // The hold hairline: a 2px track that fills by elapsed fraction in the held hue, with
 // a muted remaining-time label. Colour lives in the 2px bar only.
+//
+// ⚠ BLOCKED — not wired into any screen. It needs a hold window (elapsed/total), and the
+// Lens ledger exposes none: a held row has no start/end/finalize_after. The window lives in
+// Lens's *_held minter tables, which have no read endpoint. Stays unused until Lens exposes
+// it; the held STATE surfaces via <Pill status="held">. See README §Blocked components.
 export function HoldBar({ elapsed, total, remainingLabel, className, ...props }: HoldBarProps) {
   const safeTotal = total > 0 ? total : 1
   const fraction = Math.min(1, Math.max(0, elapsed / safeTotal))
