@@ -43,7 +43,7 @@ const routes: { model: string; tier: Tier; status: 'settled' | 'held' | 'slashed
 function Gallery() {
   const [checked, setChecked] = useState(true)
   return (
-    <div className="flex flex-col gap-gutter text-[#ff0000]">
+    <div className="flex flex-col gap-gutter">
       <Section title="Buttons">
         <div className="flex flex-wrap items-center gap-2">
           <Button>Default</Button>
