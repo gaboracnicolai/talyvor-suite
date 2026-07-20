@@ -58,10 +58,36 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
+/**
+ * A capability-gated read: either the feature is off, or it's on with a payload. Lens
+ * makes a flag-off route wire-identical to a real not-found, so the BFF resolves the
+ * ambiguity (it knows which endpoints are gated) and returns this envelope. The client
+ * discriminates on `enabled` — never on a status code, so a disabled capability never
+ * touches the error path. A genuine failure (5xx/auth) still throws ApiError.
+ */
+export type Capability<T> = { enabled: false } | { enabled: true; data: T }
+
+async function getCapability<T>(path: string): Promise<Capability<T>> {
+  const res = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new ApiError(res.status, path)
+  const body = (await res.json()) as { enabled: boolean; data?: T }
+  return body.enabled ? { enabled: true, data: body.data as T } : { enabled: false }
+}
+
+/** A reputation bond (H5). Shape is intentionally loose — this increment only proves the
+ *  gate; the field set firms up when bonds are actually built. */
+export interface Bond {
+  id: string
+  kind?: string
+  [k: string]: unknown
+}
+
 export const api = {
   context: () => getJSON<BffContext>('/api/context'),
   lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance'),
   lensBalance: () => getJSON<LensBalance>('/api/tokens/balance'),
   tokensHistory: (limit: number, offset: number) =>
     getJSON<LedgerEntry[]>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
+  /** Capability-gated (H5 bonds). Off in the trial config today → { enabled: false }. */
+  bonds: () => getCapability<Bond[]>('/api/bonds'),
 }
