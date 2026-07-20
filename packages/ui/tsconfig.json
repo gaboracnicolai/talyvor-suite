@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals", "@testing-library/jest-dom"],
+    "noEmit": true
+  },
+  "include": ["src"],
+  "exclude": ["fixtures", "node_modules", "dist"]
+}

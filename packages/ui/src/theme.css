@@ -1,0 +1,81 @@
+/* Design tokens as CSS variables. Mirrors tokens.ts (tokens.test.ts guards drift).
+   A single set of Tailwind classes (bg-surface, text-ink, border-rule, …) themes
+   automatically because every colour resolves to a var() that flips on
+   :root[data-theme="dark"]. */
+:root {
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "JetBrains Mono", monospace;
+}
+
+/* Themes are scopable: set data-theme on <html> for the whole app, or on any element
+   to theme just its subtree (the specimen renders light and dark side by side). */
+:root,
+[data-theme='light'] {
+  --canvas: #F4F5F6;
+  --surface: #FFFFFF;
+  --sidebar: #ECEEF0;
+  --rule: rgba(0, 0, 0, .085);
+  --rule-strong: rgba(0, 0, 0, .14);
+  --ink: #1B1D1F;
+  --muted: #6B6E73;
+  --faint: #8B8F94;
+  --accent: #0B7A85;
+  --accent-hover: #096570;
+  --accent-ink: #FFFFFF;
+  --lens: #A85A2C;
+  --lxc: #42688C;
+  --tier1: #3E8E9C;
+  --tier2: #6B8A54;
+  --tier3: #B07F38;
+  --tier4: #A5576C;
+  --settled: #1D7A45;
+  --held: #8A6A12;
+  --slashed: #BF3B2E;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --canvas: #141618;
+  --surface: #1D2023;
+  --sidebar: #0F1113;
+  --rule: rgba(255, 255, 255, .085);
+  --rule-strong: rgba(255, 255, 255, .155);
+  --ink: #EDEFF1;
+  --muted: #9CA1A6;
+  --faint: #767B80;
+  --accent: #3ABDC9;
+  --accent-hover: #55CDD8;
+  --accent-ink: #08191B;
+  --lens: #D08A5C;
+  --lxc: #7FA6CC;
+  --tier1: #54B4C2;
+  --tier2: #8FB073;
+  --tier3: #D6A85C;
+  --tier4: #CC8095;
+  --settled: #45C77F;
+  --held: #D6A93C;
+  --slashed: #F0685C;
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Quality floor: honour reduced-motion everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
