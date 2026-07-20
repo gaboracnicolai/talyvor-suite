@@ -36,10 +36,40 @@ export interface LedgerEntry {
   created_at: string
 }
 
+/** GET /v1/workspaces/{ws}/lxc/history → []economy.LXCLedgerEntry. Same shape as the LENS
+ *  ledger but for the pegged token: the µ-fields are `_ulxc`, not `_ulens`. */
+export interface LXCLedgerEntry {
+  id: string
+  workspace_id: string
+  amount_ulxc: number
+  balance_after_ulxc: number
+  type: string
+  description: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
 /** GET /api/context — BFF-originated; never contains the key. */
 export interface BffContext {
   workspace_id: string
   lens_base_url: string
+}
+
+/** Which token a ledger/numeral belongs to. Drives the unit tick (copper LENS / steel LXC). */
+export type Token = 'lens' | 'lxc'
+
+/** A ledger row normalized across both tokens. `amount`/`balanceAfter` are µ-units of the
+ *  row's token — the ONLY per-token difference between the two Lens ledgers is the field
+ *  name (`_ulens` vs `_ulxc`) and the unit tick, so one normalized shape lets one table
+ *  render either ledger. `type`/`description` are shown verbatim (see the mislabeled
+ *  bootstrap `purchase` row — the data is wrong, not the display). */
+export interface LedgerRow {
+  id: string
+  amount: number
+  balanceAfter: number
+  type: string
+  description: string
+  created_at: string
 }
 
 export class ApiError extends Error {
@@ -90,4 +120,32 @@ export const api = {
     getJSON<LedgerEntry[]>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
   /** Capability-gated (H5 bonds). Off in the trial config today → { enabled: false }. */
   bonds: () => getCapability<Bond[]>('/api/bonds'),
+
+  /** The LENS mint ledger, normalized. */
+  lensLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>
+    getJSON<LedgerEntry[]>(`/api/tokens/history?limit=${limit}&offset=${offset}`).then((rs) =>
+      rs.map((r) => ({
+        id: r.id,
+        amount: r.amount_ulens,
+        balanceAfter: r.balance_after_ulens,
+        type: r.type,
+        description: r.description,
+        created_at: r.created_at,
+      })),
+    ),
+  /** The LXC (pegged) ledger, normalized. */
+  lxcLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>
+    getJSON<LXCLedgerEntry[]>(`/api/lxc/history?limit=${limit}&offset=${offset}`).then((rs) =>
+      rs.map((r) => ({
+        id: r.id,
+        amount: r.amount_ulxc,
+        balanceAfter: r.balance_after_ulxc,
+        type: r.type,
+        description: r.description,
+        created_at: r.created_at,
+      })),
+    ),
+  /** One ledger fetch keyed by token — feeds the one LedgerTable. */
+  ledger: (token: Token, limit: number, offset: number): Promise<LedgerRow[]> =>
+    token === 'lxc' ? api.lxcLedger(limit, offset) : api.lensLedger(limit, offset),
 }
