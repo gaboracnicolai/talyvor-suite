@@ -91,6 +91,13 @@ func loadConfig() (config, error) {
 	if cfg.workspaceID == "" {
 		return cfg, errors.New("LENS_WORKSPACE_ID is required (the workspace whose reads are served); refusing to start")
 	}
+	// The workspace key rides EVERY request to this URL as a bearer header, so
+	// it obeys the same transport rule as the OIDC URLs: https anywhere, http
+	// only on loopback (dev). A remote http Lens would put the credential on
+	// the wire in clear — refuse to boot instead.
+	if _, err := parseHTTPSOrLoopback("LENS_BASE_URL", cfg.lensBaseURL); err != nil {
+		return cfg, err
+	}
 
 	var perr error
 	cfg, perr = loadProductConfig(cfg)
@@ -217,6 +224,11 @@ func loadProductConfig(cfg config) (config, error) {
 			return cfg, fmt.Errorf("Track upstream partially configured: missing %s — set all three "+
 				"(TRACK_BASE_URL, TRACK_GATEWAY_SECRET, TRACK_WORKSPACE_ID), or none", strings.Join(missing, ", "))
 		}
+		// The gateway secret rides every request to this URL as X-Gateway-Auth —
+		// same transport rule as LENS_BASE_URL: https anywhere, http only loopback.
+		if _, err := parseHTTPSOrLoopback("TRACK_BASE_URL", cfg.trackBaseURL); err != nil {
+			return cfg, err
+		}
 	}
 
 	docsAny := cfg.docsBaseURL != "" || cfg.docsGatewaySecret != "" || cfg.docsWorkspaceID != ""
@@ -234,6 +246,10 @@ func loadProductConfig(cfg config) (config, error) {
 		if len(missing) > 0 {
 			return cfg, fmt.Errorf("Docs upstream partially configured: missing %s — set all three "+
 				"(DOCS_BASE_URL, DOCS_GATEWAY_SECRET, DOCS_WORKSPACE_ID), or none", strings.Join(missing, ", "))
+		}
+		// Same transport rule as TRACK_BASE_URL: the secret must not travel in clear.
+		if _, err := parseHTTPSOrLoopback("DOCS_BASE_URL", cfg.docsBaseURL); err != nil {
+			return cfg, err
 		}
 	}
 	return cfg, nil

@@ -331,3 +331,49 @@ func TestLoadConfigFailClosed(t *testing.T) {
 		t.Fatalf("loadConfig with key+id+loopback+mode should succeed: %v", err)
 	}
 }
+
+// TestLoadConfigLensBaseURLTransport proves LENS_BASE_URL obeys the same
+// transport rule as the OIDC URLs (https anywhere; http only on loopback, for
+// dev). The workspace key rides EVERY upstream request as a bearer header, so
+// a remote http URL would put the credential on the wire in clear — that must
+// be a boot refusal, not a footnote in the deploy docs.
+func TestLoadConfigLensBaseURLTransport(t *testing.T) {
+	cases := []struct {
+		name    string
+		lensURL string
+		wantErr string
+	}{
+		{
+			name:    "remote http refuses — the key would travel in clear",
+			lensURL: "http://lens.internal:8080",
+			wantErr: "LENS_BASE_URL",
+		},
+		{name: "loopback http boots (dev)", lensURL: "http://127.0.0.1:8080"},
+		{name: "localhost http boots (dev)", lensURL: "http://localhost:8080"},
+		{name: "https boots anywhere", lensURL: "https://lens.example.com"},
+		{name: "unset boots — the default is loopback dev", lensURL: ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clearBFFEnv(t, map[string]string{
+				"LENS_WORKSPACE_KEY": testKey,
+				"LENS_WORKSPACE_ID":  "trial-ws-1",
+				"BFF_AUTH_MODE":      "disabled",
+				"LENS_BASE_URL":      c.lensURL,
+			})
+			_, err := loadConfig()
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("want success, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("want error containing %q, got success", c.wantErr)
+			}
+			if !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("want error containing %q, got: %v", c.wantErr, err)
+			}
+		})
+	}
+}

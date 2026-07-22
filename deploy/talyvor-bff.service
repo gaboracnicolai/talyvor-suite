@@ -1,0 +1,40 @@
+# Talyvor suite BFF — loopback service behind Caddy (see deploy/README.md).
+# Install: /etc/systemd/system/talyvor-bff.service
+# Env:     /etc/talyvor/bff.env (mode 0600 — holds the Lens key, the OIDC
+#          client secret, and any gateway secrets)
+[Unit]
+Description=Talyvor suite BFF (loopback; Caddy is the ingress)
+Documentation=https://github.com/gaboracnicolai/talyvor-suite/tree/main/deploy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=talyvor
+Group=talyvor
+EnvironmentFile=/etc/talyvor/bff.env
+ExecStart=/opt/talyvor/bin/bff
+# The BFF fails closed on any config error; let systemd retry (covers the IdP
+# being briefly unreachable at boot — OIDC discovery runs at startup).
+Restart=on-failure
+RestartSec=2
+
+# Hardening. The BFF binds loopback, reads /opt/talyvor, and writes nothing
+# (sessions are in-memory) — so almost everything can be taken away.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/opt/talyvor
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
