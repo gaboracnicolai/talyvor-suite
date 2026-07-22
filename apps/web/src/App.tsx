@@ -1,12 +1,31 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { NavItem, Shell, ThemeToggle } from '@talyvor/ui'
+import { AuthGate, SessionChip } from './components/AuthGate'
+import { ApiError } from './lib/api'
 import { Overview } from './routes/Overview'
 import { Ledger } from './routes/Ledger'
 import { Specimen } from './routes/Specimen'
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false } },
+const queryClient: QueryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (err) => {
+      // A 401 mid-session (expiry, signed out elsewhere) re-probes the gate, so
+      // the sign-in card appears instead of a screen of silent per-card failures.
+      if (err instanceof ApiError && err.status === 401) {
+        void queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+      }
+    },
+  }),
+  defaultOptions: {
+    queries: {
+      staleTime: 15_000,
+      refetchOnWindowFocus: false,
+      // A 401 is a verdict, not a flake — retrying it just delays the gate.
+      retry: (failureCount, error) =>
+        failureCount < 1 && !(error instanceof ApiError && error.status === 401),
+    },
+  },
 })
 
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
@@ -65,7 +84,10 @@ function AppShell() {
       nav={
         <>
           <div className="text-head text-ink">{title}</div>
-          <ThemeToggle />
+          <div className="flex items-center gap-3">
+            <SessionChip />
+            <ThemeToggle />
+          </div>
         </>
       }
     >
@@ -82,7 +104,9 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AppShell />
+        <AuthGate>
+          <AppShell />
+        </AuthGate>
       </BrowserRouter>
     </QueryClientProvider>
   )

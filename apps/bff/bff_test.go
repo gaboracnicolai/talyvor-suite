@@ -34,7 +34,8 @@ func newTestApp(t *testing.T, gotAuth *string) *app {
 		workspaceKey: testKey,
 		workspaceID:  "trial-ws-1",
 		webDist:      t.TempDir(), // no bundle; SPA-specific tests set their own
-	})
+		authMode:     authModeDisabled,
+	}, nil)
 }
 
 // TestKeyNeverReachesResponse is THE assertion of this increment: the Lens key is
@@ -89,7 +90,7 @@ func gatedApp(t *testing.T, status int, body string) *app {
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(upstream.Close)
-	return newApp(config{lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir()})
+	return newApp(config{lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir(), authMode: authModeDisabled}, nil)
 }
 
 // TestGatedCapabilityDisabled: a flag-off Lens route returns a generic 404 (indistinguishable
@@ -196,10 +197,10 @@ func TestReadOnly(t *testing.T) {
 func TestLimitOffsetSanitised(t *testing.T) {
 	a := newTestApp(t, nil)
 	cases := []struct{ in, wantQuery string }{
-		{"/api/tokens/history", "limit=20&offset=0"},                 // defaults
-		{"/api/tokens/history?limit=5&offset=10", "limit=5&offset=10"}, // passthrough
-		{"/api/tokens/history?limit=9999&offset=-4", "limit=200&offset=0"}, // clamped
-		{"/api/tokens/history?limit=abc", "limit=20&offset=0"},         // junk → default
+		{"/api/tokens/history", "limit=20&offset=0"},                        // defaults
+		{"/api/tokens/history?limit=5&offset=10", "limit=5&offset=10"},      // passthrough
+		{"/api/tokens/history?limit=9999&offset=-4", "limit=200&offset=0"},  // clamped
+		{"/api/tokens/history?limit=abc", "limit=20&offset=0"},              // junk → default
 		{"/api/tokens/history?evil=DROP+TABLE&limit=3", "limit=3&offset=0"}, // extra param dropped
 	}
 	for _, c := range cases {
@@ -223,7 +224,7 @@ func TestUpstreamStatusPassthrough(t *testing.T) {
 		http.Error(w, "404 page not found", http.StatusNotFound)
 	}))
 	t.Cleanup(upstream.Close)
-	a := newApp(config{lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir()})
+	a := newApp(config{lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir(), authMode: authModeDisabled}, nil)
 
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/lxc/history", nil))
@@ -239,7 +240,8 @@ func TestUpstreamUnreachable(t *testing.T) {
 		workspaceKey: testKey,
 		workspaceID:  "trial-ws-1",
 		webDist:      t.TempDir(),
-	})
+		authMode:     authModeDisabled,
+	}, nil)
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tokens/balance", nil))
 	if rec.Code != http.StatusBadGateway {
@@ -263,7 +265,7 @@ func TestSPAFallback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dist, "assets", "app.js"), []byte("console.log(1)"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := newApp(config{lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: dist})
+	a := newApp(config{lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: dist, authMode: authModeDisabled}, nil)
 
 	// A real asset is served as itself.
 	rec := httptest.NewRecorder()
@@ -315,7 +317,12 @@ func TestLoadConfigFailClosed(t *testing.T) {
 		t.Fatal("loadConfig with a non-loopback bind should fail")
 	}
 	t.Setenv("BFF_ADDR", "127.0.0.1:8787")
+	// inc5: an auth mode is now REQUIRED — key+id+loopback alone no longer boots.
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("loadConfig without BFF_AUTH_MODE should fail (silence is not a mode)")
+	}
+	t.Setenv("BFF_AUTH_MODE", "disabled")
 	if _, err := loadConfig(); err != nil {
-		t.Fatalf("loadConfig with key+id+loopback should succeed: %v", err)
+		t.Fatalf("loadConfig with key+id+loopback+mode should succeed: %v", err)
 	}
 }

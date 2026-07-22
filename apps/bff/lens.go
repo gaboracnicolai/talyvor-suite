@@ -13,33 +13,44 @@ import (
 	"time"
 )
 
-// app is the whole HTTP surface: a read-only Lens proxy under /api, plus the built
-// web bundle for everything else — one origin, no CORS.
+// app is the whole HTTP surface: a session-gated read-only Lens proxy under /api,
+// the auth endpoints under /auth, plus the built web bundle for everything else —
+// one origin, no CORS.
 type app struct {
 	cfg    config
+	auth   *authenticator // nil ⇔ authMode=disabled (loopback-only, inc2 posture)
 	mux    *http.ServeMux
 	client *http.Client
 }
 
-func newApp(cfg config) *app {
+func newApp(cfg config, auth *authenticator) *app {
 	a := &app{
 		cfg:    cfg,
+		auth:   auth,
 		mux:    http.NewServeMux(),
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
 
+	// The auth surface. Registered in every mode: in disabled mode the login
+	// machinery answers an explicit 404 (not a silent SPA fallback) and /auth/me
+	// reports the mode so the UI can tell the difference.
+	a.mux.HandleFunc("/auth/login", a.handleLogin)
+	a.mux.HandleFunc("/auth/callback", a.handleCallback)
+	a.mux.HandleFunc("/auth/logout", a.handleLogout)
+	a.mux.HandleFunc("/auth/me", a.handleMe)
+
 	// /api/context is the only endpoint that never calls upstream and never touches the
 	// key: it tells the UI which workspace it is looking at, and nothing more.
-	a.mux.HandleFunc("/api/context", a.handleContext)
+	a.mux.HandleFunc("/api/context", a.requireSession(a.handleContext))
 
-	// The read-only Lens proxies. Each is pinned to a fixed upstream path built from the
-	// CONFIGURED workspace id — never from client input — so this can never be turned
-	// into an open proxy. Only limit/offset pass through, sanitised.
-	a.mux.HandleFunc("/api/lxc/balance", a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/lxc/balance"))
-	a.mux.HandleFunc("/api/tokens/balance", a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/tokens/balance"))
-	a.mux.HandleFunc("/api/tokens/history", a.proxyPaged("/v1/workspaces/"+cfg.workspaceID+"/tokens/history"))
-	a.mux.HandleFunc("/api/lxc/history", a.proxyPaged("/v1/workspaces/"+cfg.workspaceID+"/lxc/history"))
-	a.mux.HandleFunc("/api/workspaces", a.proxyFixed("/v1/workspaces"))
+	// The read-only Lens proxies, ALL behind requireSession. Each is pinned to a fixed
+	// upstream path built from the CONFIGURED workspace id — never from client input — so
+	// this can never be turned into an open proxy. Only limit/offset pass through, sanitised.
+	a.mux.HandleFunc("/api/lxc/balance", a.requireSession(a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/lxc/balance")))
+	a.mux.HandleFunc("/api/tokens/balance", a.requireSession(a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/tokens/balance")))
+	a.mux.HandleFunc("/api/tokens/history", a.requireSession(a.proxyPaged("/v1/workspaces/"+cfg.workspaceID+"/tokens/history")))
+	a.mux.HandleFunc("/api/lxc/history", a.requireSession(a.proxyPaged("/v1/workspaces/"+cfg.workspaceID+"/lxc/history")))
+	a.mux.HandleFunc("/api/workspaces", a.requireSession(a.proxyFixed("/v1/workspaces")))
 
 	// CAPABILITY-GATED endpoints. Lens registers these routes only when their flag is on;
 	// when off the route is absent and Lens returns a generic 404 that is wire-identical to
@@ -47,10 +58,11 @@ func newApp(cfg config) *app {
 	// to a gated Lens feature, so it carries that knowledge and translates the 404 into an
 	// explicit "disabled" signal (see proxyGated). Others (economy, attestation, pattern
 	// mining) are added here the same way when a screen needs them.
-	a.mux.HandleFunc("/api/bonds", a.proxyGated("/v1/bonds", "bonds"))
+	a.mux.HandleFunc("/api/bonds", a.requireSession(a.proxyGated("/v1/bonds", "bonds")))
 
-	// Unknown /api/* → JSON 404 (never fall through to the SPA and hand back index.html).
-	a.mux.HandleFunc("/api/", a.handleAPINotFound)
+	// Unknown /api/* → 401 without a session, JSON 404 with one (never fall through to
+	// the SPA and hand back index.html).
+	a.mux.HandleFunc("/api/", a.requireSession(a.handleAPINotFound))
 
 	// Everything else is the SPA (client-side routes resolve to index.html).
 	a.mux.Handle("/", a.spaHandler())
@@ -69,7 +81,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (a *app) handleContext(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+		methodNotAllowed(w, http.MethodGet)
 		return
 	}
 	// Deliberately NOT the key — only the non-secret coordinates the UI needs.
@@ -81,22 +93,22 @@ func (a *app) handleContext(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleAPINotFound(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		methodNotAllowed(w)
+		methodNotAllowed(w, http.MethodGet)
 		return
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such endpoint"})
 }
 
-func methodNotAllowed(w http.ResponseWriter) {
-	w.Header().Set("Allow", "GET")
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "read-only: only GET is allowed"})
+func methodNotAllowed(w http.ResponseWriter, allow string) {
+	w.Header().Set("Allow", allow)
+	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed: only " + allow})
 }
 
 // proxyFixed forwards GET → a fixed upstream path with no query parameters.
 func (a *app) proxyFixed(upstreamPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			methodNotAllowed(w)
+			methodNotAllowed(w, http.MethodGet)
 			return
 		}
 		a.forward(w, r, upstreamPath, "")
@@ -108,7 +120,7 @@ func (a *app) proxyFixed(upstreamPath string) http.HandlerFunc {
 func (a *app) proxyPaged(upstreamPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			methodNotAllowed(w)
+			methodNotAllowed(w, http.MethodGet)
 			return
 		}
 		limit := clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
@@ -182,10 +194,18 @@ func (a *app) forward(w http.ResponseWriter, r *http.Request, upstreamPath, rawQ
 //	anything else → the upstream status as an error                // a genuine failure
 //
 // The client never special-cases a status code; it reads `enabled`.
+//
+// CAVEAT: this translation reads ANY upstream 404 as "capability off". That is safe
+// only while every gated endpoint proxies a PARAMETERLESS collection path (as all
+// current users do): a fixed path either exists (flag on) or is unregistered (flag
+// off), so 404 is unambiguous. The moment a gated endpoint takes a path parameter
+// (/v1/bonds/{id}), a genuine not-found — real feature, missing id — would be
+// laundered into "disabled". Such an endpoint must NOT use proxyGated; it needs a
+// discriminator (e.g. probe the collection root, or a Lens capability header).
 func (a *app) proxyGated(upstreamPath, capability string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			methodNotAllowed(w)
+			methodNotAllowed(w, http.MethodGet)
 			return
 		}
 		resp, err := a.doGet(r.Context(), upstreamPath, "")

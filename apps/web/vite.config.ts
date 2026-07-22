@@ -11,6 +11,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': { target: 'http://127.0.0.1:8787', changeOrigin: true },
+      // The auth surface lives on the BFF too. In oidc-mode dev, set the BFF's
+      // BFF_PUBLIC_BASE_URL to this vite origin (http://127.0.0.1:5173) so the
+      // OIDC redirect comes back through the proxy and the cookie lands on the
+      // origin the browser is actually using.
+      '/auth': { target: 'http://127.0.0.1:8787', changeOrigin: true },
     },
   },
 })
