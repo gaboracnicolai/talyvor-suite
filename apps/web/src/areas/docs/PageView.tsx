@@ -6,7 +6,8 @@ import { Card } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { docsApi } from './api'
 import { PMDoc } from './pm'
-import { Chip, Crumbs, FixtureChip, FixtureNote, formatDay } from './components'
+import { formatDay } from '@talyvor/ui'
+import { Chip, Crumbs, FixtureChip, FixtureNote } from './components'
 
 export function PageView() {
   const { spaceId = '', pageId = '' } = useParams()

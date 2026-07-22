@@ -32,13 +32,6 @@ export function FixtureNote() {
   )
 }
 
-/** Date-only, UTC, deterministic in every timezone (tests included). */
-export function formatDay(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(d)
-}
-
 /** Breadcrumb trail: caption links, current leaf in ink. */
 export function Crumbs({ trail }: { trail: Array<{ label: string; to?: string }> }) {
   return (
