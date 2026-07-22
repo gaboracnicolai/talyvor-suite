@@ -7,3 +7,4 @@ coverage/
 
 # Go build artifact (go build in apps/bff drops the binary in-place)
 apps/bff/bff
+.vitest-report.json

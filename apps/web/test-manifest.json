@@ -1,0 +1,17 @@
+{
+  "src/areas/admin/AdminArea.test.tsx": 1,
+  "src/areas/docs/DocsArea.test.tsx": 10,
+  "src/areas/docs/pm.test.tsx": 3,
+  "src/areas/docs/tree.test.ts": 4,
+  "src/areas/lens/format.test.ts": 8,
+  "src/areas/lens/Keys.test.tsx": 6,
+  "src/areas/lens/Ledger.test.tsx": 3,
+  "src/areas/lens/Members.test.tsx": 2,
+  "src/areas/lens/Overview.test.tsx": 2,
+  "src/areas/lens/Spend.test.tsx": 5,
+  "src/areas/lens/spendMath.test.ts": 3,
+  "src/areas/marketing/Landing.test.tsx": 1,
+  "src/areas/track/TrackArea.test.tsx": 1,
+  "src/AuthGate.test.tsx": 3,
+  "src/Specimen.test.tsx": 1
+}
