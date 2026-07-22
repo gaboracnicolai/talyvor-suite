@@ -105,7 +105,7 @@ export function Topology() {
               }
               hint={`cluster ${clusterName.get(e.cluster_id) ?? e.cluster_id}`}
             >
-              <span className="text-caption font-normal tabular-nums text-muted">weight {e.weight}</span>
+              <span className="text-body tabular-nums text-muted">weight {e.weight}</span>
             </Row>
           ))}
         </Card>

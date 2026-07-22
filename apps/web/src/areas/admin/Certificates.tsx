@@ -36,7 +36,7 @@ function CertRow({ cert, nowMS }: { cert: CertificateEntry; nowMS: number }) {
       }
     >
       <Chip>{cert.kind}</Chip>
-      <span className="text-caption font-normal tabular-nums text-muted">
+      <span className="text-body tabular-nums text-muted">
         {formatDay(cert.not_after)}
         {days !== null ? (days >= 0 ? ` · ${days}d left` : ` · ${-days}d ago`) : ''}
       </span>

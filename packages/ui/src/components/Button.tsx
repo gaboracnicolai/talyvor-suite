@@ -15,9 +15,9 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 // hue). danger shows destructive intent with a slashed RING, never red text — the
 // invariant (text is never a hue) forbids a slashed label. See README §Danger.
 const variants: Record<ButtonVariant, string> = {
-  default: 'bg-surface text-ink border-rule hover:border-rule-strong active:bg-canvas',
-  primary: 'bg-accent text-accent-ink border-transparent hover:bg-accent-hover',
-  danger: 'bg-surface text-ink border-slashed hover:bg-canvas',
+  default: 'bg-surface text-ink border-rule hover:border-rule-strong active:bg-accent-tint',
+  primary: 'bg-accent text-accent-ink border-transparent hover:bg-accent-hover active:bg-accent-hover',
+  danger: 'bg-surface text-ink border-slashed hover:bg-canvas active:bg-accent-tint',
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(

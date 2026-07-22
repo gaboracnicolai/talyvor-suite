@@ -59,7 +59,7 @@ export function RevealOnce({
           <Button variant="primary" onClick={copy}>
             {copied ? 'Copied' : copyLabel}
           </Button>
-          <span className="text-caption text-muted">{storeWarning}</span>
+          <span className="text-body text-muted">{storeWarning}</span>
           <span aria-live="polite" className="sr-only">
             {copied ? 'Copied to clipboard' : ''}
           </span>
@@ -70,7 +70,7 @@ export function RevealOnce({
         <div className="text-caption font-semibold uppercase tracking-wide text-faint">{identifierLabel}</div>
         <div className="pt-1 text-caption text-muted">
           <span className="font-mono tabular-nums">{identifier}</span>
-          <span className="pl-2 text-faint">{identifierNote}</span>
+          <span className="pl-2 text-body font-normal text-faint">{identifierNote}</span>
         </div>
       </div>
 

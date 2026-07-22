@@ -57,7 +57,7 @@ export function SpaceList() {
           spaces.map((s) => <SpaceRow key={s.id} space={s} />)
         )}
       </Card>
-      <p className="px-gutter text-caption font-normal text-faint">
+      <p className="px-gutter text-body text-faint">
         Live from the BFF’s Docs proxy — the workspace is pinned server-side.
       </p>
     </div>

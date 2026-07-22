@@ -18,7 +18,7 @@ const preset = {
         ink: 'var(--ink)',
         muted: 'var(--muted)',
         faint: 'var(--faint)',
-        accent: { DEFAULT: 'var(--accent)', hover: 'var(--accent-hover)', ink: 'var(--accent-ink)' },
+        accent: { DEFAULT: 'var(--accent)', hover: 'var(--accent-hover)', ink: 'var(--accent-ink)', tint: 'var(--accent-tint)' },
         lens: 'var(--lens)',
         lxc: 'var(--lxc)',
         tier1: 'var(--tier1)',
@@ -32,12 +32,12 @@ const preset = {
         mono: ['var(--mono)'],
       },
       fontSize: {
-        title: ['22px', { lineHeight: '1.2', fontWeight: '640' }],
-        head: ['15px', { lineHeight: '1.3', fontWeight: '600' }],
-        body: ['13px', { lineHeight: '1.45', fontWeight: '400' }],
-        caption: ['11px', { lineHeight: '1.35', fontWeight: '600' }],
-        // the µ-tail: 11.5px, dimmed + underscored in MuNumeral.
-        micro: ['11.5px', { lineHeight: '1', fontWeight: '500' }],
+        title: ['24px', { lineHeight: '1.2', fontWeight: '640' }],
+        head: ['17px', { lineHeight: '1.3', fontWeight: '600' }],
+        body: ['14px', { lineHeight: '1.45', fontWeight: '400' }],
+        caption: ['12px', { lineHeight: '1.35', fontWeight: '600' }],
+        // the µ-tail: 12.5px, dimmed + underscored in MuNumeral (moves with the scale).
+        micro: ['12.5px', { lineHeight: '1', fontWeight: '500' }],
       },
       borderColor: { DEFAULT: 'var(--rule)' },
       borderRadius: { card: '10px', control: '6px', pill: '9999px' },

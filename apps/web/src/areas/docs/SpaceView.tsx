@@ -51,7 +51,7 @@ function TreeRow({ node, depth, spaceID }: { node: TreeNode; depth: number; spac
           </button>
           {p.locked ? <Chip title="Soft-locked by another member">locked</Chip> : null}
         </span>
-        <span className="shrink-0 text-caption font-normal tabular-nums text-faint">{formatDay(p.updated_at)}</span>
+        <span className="shrink-0 text-body tabular-nums text-faint">{formatDay(p.updated_at)}</span>
       </div>
       {open && hasKids
         ? node.children.map((c) => <TreeRow key={c.page.id} node={c} depth={depth + 1} spaceID={spaceID} />)
@@ -96,7 +96,7 @@ export function SpaceView() {
       {treeQ.data ? (
         <div className="flex items-center justify-between">
           <FixtureNote />
-          <span className="shrink-0 px-gutter text-caption font-normal tabular-nums text-faint">
+          <span className="shrink-0 px-gutter text-body tabular-nums text-faint">
             {countNodes(roots)} pages
           </span>
         </div>

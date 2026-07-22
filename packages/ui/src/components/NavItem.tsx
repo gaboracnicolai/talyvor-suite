@@ -22,9 +22,11 @@ export const NavItem = forwardRef<HTMLButtonElement, NavItemProps>(function NavI
       aria-current={active ? 'page' : undefined}
       className={cn(
         'flex w-full items-center gap-2 border-l-2 py-1.5 pl-3 pr-2 text-left text-body transition-colors',
+        // The accent appears on TOUCH and on SELECTION — as a background tint,
+        // never on the label (the invariant). The tick still marks selection.
         active
-          ? 'border-l-accent bg-surface text-ink'
-          : 'border-l-transparent text-muted hover:bg-surface hover:text-ink',
+          ? 'border-l-accent bg-accent-tint text-ink'
+          : 'border-l-transparent text-muted hover:bg-accent-tint hover:text-ink',
         focusRing,
         className,
       )}

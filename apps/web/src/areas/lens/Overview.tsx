@@ -28,7 +28,7 @@ function LxcCard() {
         <>
           <div className="flex items-baseline justify-between gap-gutter px-gutter py-3">
             <MuNumeral micros={q.data.balance_ulxc} unit="lxc" />
-            <span className="text-caption text-muted">≈ {formatUSD(q.data.usd_value_uusd)}</span>
+            <span className="text-body text-muted">≈ {formatUSD(q.data.usd_value_uusd)}</span>
           </div>
           <Row label="Lifetime minted">
             <MuNumeral micros={q.data.lifetime_minted_ulxc} unit="lxc" />

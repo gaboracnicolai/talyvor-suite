@@ -8,6 +8,7 @@ import {
   MuNumeral,
   NavItem,
   FixtureNotice,
+  Mark,
   Pill,
   RevealOnce,
   Row,
@@ -98,6 +99,16 @@ function Gallery() {
           <Pill status="lxc">LXC</Pill>
           <Pill status="idle">Todo</Pill>
           <Pill status="parked">Backlog</Pill>
+        </div>
+        {/* The mark: the hold indicator abstracted — a rounded hairline tile whose
+            accent fill sits deliberately past half. Sidebar size and display size. */}
+        <div className="flex items-center gap-4 pt-3">
+          <Mark size={24} />
+          <Mark size={32} />
+          <span className="flex items-center gap-2.5">
+            <Mark size={26} />
+            <span className="text-head text-ink">Talyvor</span>
+          </span>
         </div>
         {/* Promoted from the areas (ui-promotions PR): each must live here, in both
             themes, or it is not in the design system. */}

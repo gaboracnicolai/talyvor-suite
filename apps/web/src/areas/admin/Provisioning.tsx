@@ -40,7 +40,7 @@ export function Provisioning() {
             >
               <Chip>{s.team}</Chip>
               <Chip title="Route auth policy">{s.auth_policy}</Chip>
-              <span className="text-caption font-normal tabular-nums text-muted">upd {formatWhen(s.updated_at)}</span>
+              <span className="text-body tabular-nums text-muted">upd {formatWhen(s.updated_at)}</span>
             </Row>
           ))
         )}
@@ -51,7 +51,7 @@ export function Provisioning() {
           <CardHeader>
             <span className="inline-flex items-center gap-2">
               Requests
-              <span className="text-caption font-normal tabular-nums text-muted">
+              <span className="text-body tabular-nums text-muted">
                 newest first · server-capped at {data.request_limit}
               </span>
             </span>
@@ -72,7 +72,7 @@ export function Provisioning() {
                 hint={r.error ? r.error : `${formatWhen(r.created_at)}${r.completed_at ? ` → ${formatWhen(r.completed_at)}` : ''}`}
               >
                 {r.error ? (
-                  <span className="text-caption font-normal tabular-nums text-muted">{formatWhen(r.created_at)}</span>
+                  <span className="text-body tabular-nums text-muted">{formatWhen(r.created_at)}</span>
                 ) : null}
                 <Pill status={statusPill[r.status]}>{r.status.toLowerCase()}</Pill>
               </Row>

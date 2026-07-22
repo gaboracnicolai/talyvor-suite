@@ -25,7 +25,7 @@ export function FixtureChip() {
 /** Under-card footnote explaining the fixture chip, once per screen. */
 export function FixtureNote() {
   return (
-    <p className="px-gutter text-caption font-normal text-faint">
+    <p className="px-gutter text-body text-faint">
       All admin data on this screen is a local fixture shaped exactly like the edge Admin API
       (cmd/server/admin.go) — the BFF proxies none of it yet. The missing routes are enumerated in
       areas/admin/BFF-GAPS.md.
