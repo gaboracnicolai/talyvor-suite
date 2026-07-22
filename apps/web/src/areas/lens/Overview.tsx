@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, MuNumeral, Pill, Row } from '@talyvor/ui'
-import { api, type Bond, type LedgerEntry } from '../lib/api'
-import { CapabilityOff } from '../components/Capability'
-import { formatUSD, formatWhen, humanizeType, ledgerStatus } from '../lib/ledger'
+import { api, type Bond, type LedgerEntry } from '../../lib/api'
+import { CapabilityOff } from './Capability'
+import { formatUSD, formatWhen, humanizeType, ledgerStatus } from './format'
 
 // Overview: the two token balances and recent activity, driven entirely by the BFF
 // (which holds the Lens key). Numbers are MuNumerals; status is a Pill; nothing is faked.

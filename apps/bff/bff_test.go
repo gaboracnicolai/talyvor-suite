@@ -53,6 +53,8 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		"/api/lxc/history?limit=5&offset=0",
 		"/api/workspaces",
 		"/api/bonds",
+		"/api/track/workspaces", // unconfigured in disabled mode → 503, still swept
+		"/api/docs/spaces",
 	}
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()

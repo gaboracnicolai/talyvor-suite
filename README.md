@@ -195,3 +195,42 @@ Register `BFF_PUBLIC_BASE_URL` + `/auth/callback` as the client's redirect URI
 at the IdP. The browser holds one `__Host-` session cookie; tokens and the
 Lens key never leave the BFF. For the production posture behind Caddy on
 `app.talyvor.com`, see `deploy/README.md`.
+
+Optional product upstreams (oidc mode only — the BFF forwards the identity it
+authenticated): `TRACK_BASE_URL` + `TRACK_GATEWAY_SECRET`, and `DOCS_BASE_URL`
++ `DOCS_GATEWAY_SECRET` + `DOCS_WORKSPACE_ID`. Each secret is that service's
+`GATEWAY_AUTH_SECRET`; the BFF attaches it as `X-Gateway-Auth` (the transit
+proof) plus `X-User-Email`/`X-User-Id` from the session. Unconfigured →
+`/api/track/*` and `/api/docs/*` answer an explicit 503.
+
+## Directory ownership — the parallel-work contract
+
+One area = one directory. An area tab works ONLY inside its directory:
+
+```
+apps/web/src/areas/lens/        Lens + the Workspace section (Overview, Ledger, Keys, Spend, Members)
+apps/web/src/areas/track/       Track   (/track/*)
+apps/web/src/areas/docs/        Docs    (/docs/*)
+apps/web/src/areas/admin/       Admin   (/admin/*)
+apps/web/src/areas/marketing/   Marketing landing (/marketing, outside the auth gate)
+```
+
+`areas/lens/` is the worked example: the real Overview and Ledger screens live
+there, with their tests and lens-only helpers (`format.ts`, `Capability.tsx`).
+A new screen in an area = new files in that area's directory plus a `<Route>`
+already reserved for it here — nothing else.
+
+**SHARED files — off-limits to area work.** Changing any of these requires its
+own dedicated PR, because five parallel tracks depend on them not moving:
+
+- `apps/web/src/App.tsx` — routing, nav groups, the auth-gate mounting
+- `apps/web/src/components/` — the app shell chrome (AuthGate, SessionChip)
+- `apps/web/src/lib/` — the shared BFF client (`api.ts`)
+- `apps/web/src/routes/Specimen.tsx` and `src/styles.css`
+- `packages/ui/**` — the design system (components, tokens, preset, theme)
+- `eslint.config.js`, `tsconfig.base.json`, `pnpm-workspace.yaml`, CI
+- `apps/bff/**` — the BFF (new proxy routes are BFF PRs, not area commits)
+- `deploy/**` — the front door
+
+The design-system rules (text is never a hue; no arbitrary Tailwind values —
+CI enforces the latter) bind area work exactly as they bind everything else.

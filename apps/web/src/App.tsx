@@ -3,9 +3,21 @@ import { BrowserRouter, Route, Routes, useLocation, useNavigate } from 'react-ro
 import { NavItem, Shell, ThemeToggle } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { ApiError } from './lib/api'
-import { Overview } from './routes/Overview'
-import { Ledger } from './routes/Ledger'
+import { Overview } from './areas/lens/Overview'
+import { Ledger } from './areas/lens/Ledger'
+import { Keys } from './areas/lens/Keys'
+import { Spend } from './areas/lens/Spend'
+import { Members } from './areas/lens/Members'
+import { TrackArea } from './areas/track/TrackArea'
+import { DocsArea } from './areas/docs/DocsArea'
+import { AdminArea } from './areas/admin/AdminArea'
+import { Landing } from './areas/marketing/Landing'
 import { Specimen } from './routes/Specimen'
+
+// App.tsx is a SHARED file (see README §Directory ownership): it owns routing
+// and the nav for every area. Area work happens inside src/areas/<area>/ —
+// changing THIS file requires its own PR, because five parallel tracks depend
+// on it not moving under them.
 
 const queryClient: QueryClient = new QueryClient({
   queryCache: new QueryCache({
@@ -37,39 +49,53 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-const TITLES: Record<string, string> = { '/': 'Overview', '/ledger': 'Ledger', '/specimen': 'Specimen' }
+// Titles resolve by prefix so wildcard areas (/track/anything) title correctly.
+function titleFor(pathname: string): string {
+  if (pathname.startsWith('/track')) return 'Track'
+  if (pathname.startsWith('/docs')) return 'Docs'
+  if (pathname.startsWith('/admin')) return 'Admin'
+  const exact: Record<string, string> = {
+    '/': 'Overview',
+    '/ledger': 'Ledger',
+    '/keys': 'API keys',
+    '/spend': 'Spend & routing',
+    '/members': 'Members',
+    '/specimen': 'Specimen',
+  }
+  return exact[pathname] ?? 'Overview'
+}
 
 function Sidebar() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const item = (to: string, label: string, wildcard = false) => (
+    <NavItem
+      active={wildcard ? pathname.startsWith(to) : pathname === to}
+      onClick={() => navigate(to)}
+    >
+      {label}
+    </NavItem>
+  )
   return (
     <nav className="flex flex-col gap-4 pb-2" aria-label="Sections">
       <div className="px-3 pb-1 pt-2">
         <div className="text-head text-ink">Talyvor</div>
-        <div className="text-caption font-normal text-faint">Suite · Lens</div>
+        <div className="text-caption font-normal text-faint">Suite</div>
       </div>
-      <Group label="Lens">
-        <NavItem active={pathname === '/'} onClick={() => navigate('/')}>
-          Overview
-        </NavItem>
-        <NavItem active={pathname === '/ledger'} onClick={() => navigate('/ledger')}>
-          Ledger
-        </NavItem>
+      <Group label="Workspace">
+        {item('/', 'Overview')}
+        {item('/ledger', 'Ledger')}
+        {item('/keys', 'API keys')}
+        {item('/spend', 'Spend & routing')}
+        {item('/members', 'Members')}
       </Group>
       <Group label="Products">
-        {['Track', 'Docs', 'Code'].map((p) => (
-          <NavItem key={p} disabled title="Wired in a later increment">
-            {p}
-          </NavItem>
-        ))}
+        {item('/track', 'Track', true)}
+        {item('/docs', 'Docs', true)}
       </Group>
-      <Group label="System">
-        <NavItem active={pathname === '/specimen'} onClick={() => navigate('/specimen')}>
-          Specimen
-        </NavItem>
-        <NavItem disabled title="Wired in a later increment">
-          Admin
-        </NavItem>
+      <Group label="Operator">
+        {item('/admin', 'Admin', true)}
+        {item('/specimen', 'Specimen')}
       </Group>
     </nav>
   )
@@ -77,13 +103,12 @@ function Sidebar() {
 
 function AppShell() {
   const { pathname } = useLocation()
-  const title = TITLES[pathname] ?? 'Overview'
   return (
     <Shell
       sidebar={<Sidebar />}
       nav={
         <>
-          <div className="text-head text-ink">{title}</div>
+          <div className="text-head text-ink">{titleFor(pathname)}</div>
           <div className="flex items-center gap-3">
             <SessionChip />
             <ThemeToggle />
@@ -94,6 +119,12 @@ function AppShell() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/ledger" element={<Ledger />} />
+        <Route path="/keys" element={<Keys />} />
+        <Route path="/spend" element={<Spend />} />
+        <Route path="/members" element={<Members />} />
+        <Route path="/track/*" element={<TrackArea />} />
+        <Route path="/docs/*" element={<DocsArea />} />
+        <Route path="/admin/*" element={<AdminArea />} />
         <Route path="/specimen" element={<Specimen />} />
       </Routes>
     </Shell>
@@ -104,9 +135,18 @@ export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <AuthGate>
-          <AppShell />
-        </AuthGate>
+        <Routes>
+          {/* Public marketing landing — OUTSIDE the AuthGate by design. */}
+          <Route path="/marketing/*" element={<Landing />} />
+          <Route
+            path="/*"
+            element={
+              <AuthGate>
+                <AppShell />
+              </AuthGate>
+            }
+          />
+        </Routes>
       </BrowserRouter>
     </QueryClientProvider>
   )

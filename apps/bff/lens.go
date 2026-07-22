@@ -60,6 +60,20 @@ func newApp(cfg config, auth *authenticator) *app {
 	// mining) are added here the same way when a screen needs them.
 	a.mux.HandleFunc("/api/bonds", a.requireSession(a.proxyGated("/v1/bonds", "bonds")))
 
+	// PRODUCT UPSTREAMS (inc6). Track and Docs gate /v1 behind their gatewayauth
+	// boundary: a request must carry X-Gateway-Auth equal to their GATEWAY_AUTH_SECRET
+	// (verified constant-time) BEFORE any identity header is trusted; only then is
+	// X-User-Email — the workspace-membership join key — believed. The BFF plays the
+	// gateway's role for its session-authenticated user: transit proof + the SESSION's
+	// identity attached server-side, invisible to the browser. Membership and tier
+	// enforcement stay upstream — a Track/Docs 403 passes through honestly. Upstream
+	// paths are fixed at registration (Docs pinned to the CONFIGURED workspace id),
+	// so this cannot be turned into an open proxy — same rule as the Lens routes.
+	a.mux.HandleFunc("/api/track/workspaces", a.requireSession(a.proxyProduct(
+		"track", cfg.trackBaseURL, cfg.trackGatewaySecret, "/v1/workspaces")))
+	a.mux.HandleFunc("/api/docs/spaces", a.requireSession(a.proxyProduct(
+		"docs", cfg.docsBaseURL, cfg.docsGatewaySecret, "/v1/workspaces/"+cfg.docsWorkspaceID+"/spaces")))
+
 	// Unknown /api/* → 401 without a session, JSON 404 with one (never fall through to
 	// the SPA and hand back index.html).
 	a.mux.HandleFunc("/api/", a.requireSession(a.handleAPINotFound))
@@ -229,6 +243,61 @@ func (a *app) proxyGated(upstreamPath, capability string) http.HandlerFunc {
 		default:
 			writeJSON(w, resp.StatusCode, map[string]string{"error": "lens upstream error", "capability": capability})
 		}
+	}
+}
+
+// proxyProduct forwards GET → a fixed path on a gatewayauth-gated product upstream
+// (Track/Docs), attaching the transit proof and the SESSION's identity server-side.
+// An unconfigured upstream answers an explicit 503 — the route exists in every
+// deployment so the contract is visible; the environment decides which products are
+// wired. Config guarantees these upstreams exist only in oidc mode, so there is
+// always a real authenticated identity to forward.
+func (a *app) proxyProduct(product, baseURL, secret, upstreamPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		if baseURL == "" {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error": product + " upstream not configured on this BFF"})
+			return
+		}
+		if a.auth == nil {
+			// Unreachable by construction (loadConfig forbids products outside oidc
+			// mode); fail closed anyway rather than forward an invented identity.
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error": product + " upstream requires oidc auth"})
+			return
+		}
+		sess, ok := a.auth.sessionFrom(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error": "authentication required — sign in at /auth/login"})
+			return
+		}
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, baseURL+upstreamPath, nil)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream request"})
+			return
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Gateway-Auth", secret)   // ← transit proof, server-side only
+		req.Header.Set("X-User-Email", sess.email) // the workspace-membership join key
+		req.Header.Set("X-User-Id", sess.sub)
+		req.Header.Set("X-Auth-Iss", a.cfg.oidcIssuer)
+		resp, err := a.client.Do(req)
+		if err != nil {
+			log.Printf("bff: %s upstream %s: %v", product, upstreamPath, err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream unreachable"})
+			return
+		}
+		defer resp.Body.Close()
+		if ct := resp.Header.Get("Content-Type"); ct != "" {
+			w.Header().Set("Content-Type", ct)
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
 	}
 }
 
