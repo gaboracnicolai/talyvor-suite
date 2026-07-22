@@ -1,22 +1,31 @@
-# talyvor-suite front door — the only network-facing process on the box.
+# ⚠ REFERENCE COPY — THE SERVER DOES NOT RUN THIS FILE.
 #
-# This file is the repo-owned source of truth for what previously lived only on
-# the server, where app.talyvor.com served a `respond` placeholder over its own
-# certificate. Deploying this wholesale preserves the live behaviour (apex 301,
-# app host, same certificates — Caddy's issued certs persist across reloads)
-# and swaps the placeholder for the real app: a reverse_proxy to the BFF on
-# loopback.
+# The live front door is the Lens stack's containerised Caddy: the file Caddy
+# actually reads is  talyvor-lens/deploy/caddy/Caddyfile  (mounted read-only
+# into the compose `caddy` service). Editing THIS file changes nothing on the
+# server — make front-door changes there, then reload the container
+# (deploy/README.md §7). This copy exists so the suite repo records what the
+# talyvor site blocks should say.
 #
-# The BFF side of this contract (see apps/bff):
-#   BFF_ADDR=127.0.0.1:8787                        ← loopback; Caddy is the ingress
-#   BFF_AUTH_MODE=oidc                             ← public posture requires auth
-#   BFF_PUBLIC_BASE_URL=https://app.talyvor.com    ← derives the OIDC redirect URI
-#                                                     and scopes the __Host- cookie
+# Because Caddy is a container, the BFF is reached over the Docker bridge —
+# host.docker.internal (requires `extra_hosts: ["host.docker.internal:
+# host-gateway"]` on the caddy service), NOT 127.0.0.1: inside the container,
+# loopback is the container itself, and a loopback target fails with
+# "dial tcp 172.17.0.1:8787: i/o timeout".
+#
+# The BFF side of this contract (see apps/bff and deploy/README.md §4):
+#   BFF_ADDR=0.0.0.0:8787                          ← bridge-reachable; ufw scopes
+#                                                    :8787 to 172.16.0.0/12
+#   BFF_AUTH_MODE=oidc                             ← the ONLY mode that permits a
+#                                                    non-loopback bind…
+#   BFF_PUBLIC_BASE_URL=https://app.talyvor.com    ← …and only with an https
+#                                                    public origin. Also derives
+#                                                    the OIDC redirect URI and
+#                                                    scopes the __Host- cookie.
 # The BFF refuses to start if that posture is inconsistent (see loadConfig).
 
-# The apex already 301s to the app host today; owning the redirect here keeps it
-# true when this file replaces the server's config. Assumes talyvor.com's DNS
-# points at this server — which is what makes the current 301 work.
+# The apex 301s to the app host. Assumes talyvor.com's DNS points at this
+# server — which is what makes the redirect work.
 talyvor.com {
 	redir https://app.talyvor.com{uri} 301
 }
@@ -26,5 +35,5 @@ app.talyvor.com {
 	# pin browsers to https for the host outright.
 	header Strict-Transport-Security "max-age=31536000"
 
-	reverse_proxy 127.0.0.1:8787
+	reverse_proxy host.docker.internal:8787
 }

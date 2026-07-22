@@ -1,8 +1,12 @@
-# Rollback front door — the pre-launch behaviour of the box (apex 301 + holding
-# page), reconstructed in-repo so the deploy/Caddyfile swap is reversible even
-# if the on-server snapshot step was skipped (deploy/README.md, Rollback).
-# Serving this file restores "coming soon" without touching certificates:
-# Caddy reuses its already-issued certs across config reloads.
+# Rollback front door — the pre-launch behaviour (apex 301 + holding page),
+# reconstructed in-repo so the front-door swap is reversible even if the
+# on-server snapshot step was skipped (deploy/README.md, Rollback).
+#
+# ⚠ Like deploy/Caddyfile, this is a REFERENCE: the live file the containerised
+# Caddy reads is talyvor-lens/deploy/caddy/Caddyfile. To roll back, put these
+# two site blocks THERE (replacing the talyvor blocks) and reload the caddy
+# container. Certificates live in the caddy_data volume and persist across
+# reloads — nothing re-issues.
 
 talyvor.com {
 	redir https://app.talyvor.com{uri} 301
