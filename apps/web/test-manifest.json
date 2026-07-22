@@ -11,7 +11,11 @@
   "src/areas/lens/Spend.test.tsx": 5,
   "src/areas/lens/spendMath.test.ts": 3,
   "src/areas/marketing/Landing.test.tsx": 1,
-  "src/areas/track/TrackArea.test.tsx": 1,
+  "src/areas/track/data.test.ts": 8,
+  "src/areas/track/format.test.ts": 4,
+  "src/areas/track/IssueDetail.test.tsx": 5,
+  "src/areas/track/IssueList.test.tsx": 8,
+  "src/areas/track/TrackArea.test.tsx": 4,
   "src/AuthGate.test.tsx": 3,
   "src/Specimen.test.tsx": 1
 }
