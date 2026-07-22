@@ -55,6 +55,9 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		"/api/bonds",
 		"/api/track/workspaces", // unconfigured in disabled mode → 503, still swept
 		"/api/docs/spaces",
+		"/api/keys", // GET list only here — the POST mint has its own tight test
+		"/api/spend/month",
+		"/api/members",
 	}
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()

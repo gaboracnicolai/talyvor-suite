@@ -122,8 +122,15 @@ export interface AuthMe {
   user: { sub: string; email: string } | null
 }
 
+/** GET /api/spend/month — Lens spend/current-month. A float upstream, so the
+ *  UI dresses it as derived (≈), never as a numeral. */
+export interface MonthSpend {
+  current_month_usd: number
+}
+
 export const api = {
   me: () => getJSON<AuthMe>('/auth/me'),
+  spendMonth: () => getJSON<MonthSpend>('/api/spend/month'),
   context: () => getJSON<BffContext>('/api/context'),
   lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance'),
   lensBalance: () => getJSON<LensBalance>('/api/tokens/balance'),

@@ -74,6 +74,19 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/docs/spaces", a.requireSession(a.proxyProduct(
 		"docs", cfg.docsBaseURL, cfg.docsGatewaySecret, "/v1/workspaces/"+cfg.docsWorkspaceID+"/spaces")))
 
+	// Key management (shared-unblock PR). GET lists by prefix — Lens's list shape
+	// carries no secret (KeyHash is json:"-" upstream). POST is THE BFF'S FIRST
+	// WRITE PATH: it mints a credential and deliberately returns it exactly once.
+	// See keys.go for the CSRF posture (Lax + strict same-Origin) and the
+	// no-store / never-logged discipline around that one response.
+	a.mux.HandleFunc("/api/keys", a.requireSession(a.handleKeys))
+
+	// The Track roster and Lens month-spend, both pinned at registration from
+	// config — client input never shapes an upstream path.
+	a.mux.HandleFunc("/api/members", a.requireSession(a.proxyProduct(
+		"track", cfg.trackBaseURL, cfg.trackGatewaySecret, "/v1/workspaces/"+cfg.trackWorkspaceID+"/members")))
+	a.mux.HandleFunc("/api/spend/month", a.requireSession(a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/spend/current-month")))
+
 	// Unknown /api/* → 401 without a session, JSON 404 with one (never fall through to
 	// the SPA and hand back index.html).
 	a.mux.HandleFunc("/api/", a.requireSession(a.handleAPINotFound))

@@ -38,10 +38,20 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "track pair on oidc boots",
+			name: "track triple on oidc boots",
+			env: with(with(with(validOIDCEnv(),
+				"TRACK_BASE_URL", "http://127.0.0.1:8081"),
+				"TRACK_GATEWAY_SECRET", testTrackSecret),
+				"TRACK_WORKSPACE_ID", "track-ws-7"),
+		},
+		{
+			// inc "shared-unblock": /api/members pins its upstream path to a
+			// CONFIGURED Track workspace, exactly like DOCS_WORKSPACE_ID.
+			name: "track pair without workspace id refuses",
 			env: with(with(validOIDCEnv(),
 				"TRACK_BASE_URL", "http://127.0.0.1:8081"),
 				"TRACK_GATEWAY_SECRET", testTrackSecret),
+			wantErr: "TRACK_WORKSPACE_ID",
 		},
 		{
 			name:    "track base URL without secret refuses",
@@ -74,12 +84,13 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 		},
 		{
 			// Identity forwarding requires an authenticated identity to forward.
-			name: "track pair in disabled mode refuses",
+			name: "track triple in disabled mode refuses",
 			env: map[string]string{
 				"LENS_WORKSPACE_KEY": testKey, "LENS_WORKSPACE_ID": "trial-ws-1",
 				"BFF_AUTH_MODE":        "disabled",
 				"TRACK_BASE_URL":       "http://127.0.0.1:8081",
 				"TRACK_GATEWAY_SECRET": testTrackSecret,
+				"TRACK_WORKSPACE_ID":   "track-ws-7",
 			},
 			wantErr: "oidc",
 		},
@@ -120,7 +131,7 @@ func clearProductEnv(t *testing.T, overrides map[string]string) {
 	t.Helper()
 	clearBFFEnv(t, nil)
 	for _, k := range []string{
-		"TRACK_BASE_URL", "TRACK_GATEWAY_SECRET",
+		"TRACK_BASE_URL", "TRACK_GATEWAY_SECRET", "TRACK_WORKSPACE_ID",
 		"DOCS_BASE_URL", "DOCS_GATEWAY_SECRET", "DOCS_WORKSPACE_ID",
 	} {
 		t.Setenv(k, "")
@@ -287,6 +298,7 @@ func TestGatewaySecretsNeverReachResponse(t *testing.T) {
 		"/api/context", "/api/lxc/balance", "/api/tokens/balance",
 		"/api/tokens/history", "/api/lxc/history", "/api/workspaces", "/api/bonds",
 		"/api/track/workspaces", "/api/docs/spaces", "/auth/me",
+		"/api/keys", "/api/members", "/api/spend/month", // GET sweeps; the POST mint is deliberately absent — see keys_test.go
 	}
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()
