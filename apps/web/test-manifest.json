@@ -1,5 +1,6 @@
 {
-  "src/areas/admin/AdminArea.test.tsx": 1,
+  "src/areas/admin/AdminArea.test.tsx": 8,
+  "src/areas/admin/certExpiry.test.ts": 5,
   "src/areas/docs/DocsArea.test.tsx": 10,
   "src/areas/docs/pm.test.tsx": 3,
   "src/areas/docs/tree.test.ts": 4,
