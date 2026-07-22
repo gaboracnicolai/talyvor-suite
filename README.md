@@ -164,3 +164,34 @@ pnpm lint       # eslint incl. local/no-arbitrary-value; fixture proves it fails
 pnpm test       # vitest — tokens drift, the invariant, renders, the lint proof, specimen both themes
 pnpm dev        # http://localhost:5173  →  /specimen
 ```
+
+## Running the app (BFF + web)
+
+The BFF requires an explicit auth mode — there is no default.
+
+**Dev, loopback only (no IdP):**
+
+```
+cd apps/bff
+BFF_AUTH_MODE=disabled LENS_WORKSPACE_KEY=tlv_ws_… LENS_WORKSPACE_ID=… go run .
+pnpm dev        # vite proxies /api and /auth → 127.0.0.1:8787
+```
+
+`disabled` means what it says: no authentication, so the BFF hard-refuses any
+non-loopback bind (unchanged from inc2).
+
+**Authenticated (any OIDC provider — Keycloak, Authentik, Dex, Clerk-as-IdP):**
+
+```
+BFF_AUTH_MODE=oidc \
+OIDC_ISSUER=https://your-idp.example.com \
+OIDC_CLIENT_ID=talyvor-suite OIDC_CLIENT_SECRET=… \
+OIDC_ALLOWED_EMAILS=you@example.com \
+BFF_PUBLIC_BASE_URL=http://127.0.0.1:8787 \
+LENS_WORKSPACE_KEY=tlv_ws_… LENS_WORKSPACE_ID=… go run .
+```
+
+Register `BFF_PUBLIC_BASE_URL` + `/auth/callback` as the client's redirect URI
+at the IdP. The browser holds one `__Host-` session cookie; tokens and the
+Lens key never leave the BFF. For the production posture behind Caddy on
+`app.talyvor.com`, see `deploy/README.md`.

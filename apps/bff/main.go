@@ -1,17 +1,23 @@
 // Command bff is the Talyvor suite's backend-for-frontend.
 //
-// It has exactly two jobs in this increment, and no authentication of its own:
+// Its jobs, in order of importance:
 //
 //  1. Hold the Lens workspace key (tlv_ws_…) server-side and attach it to every
 //     upstream read. THE KEY NEVER REACHES THE BROWSER — the whole point of the
 //     proxy. TestKeyNeverReachesResponse asserts it.
-//  2. Serve the built web app AND its read-only API from ONE origin, so CORS
+//  2. Authenticate the browser. BFF_AUTH_MODE=oidc runs an OIDC authorization-code
+//     + PKCE flow against ANY standards-compliant provider (Keycloak, Authentik,
+//     Dex, Clerk-as-OIDC-IdP, …) configured by environment — the product is
+//     self-hostable, so no hosted-SaaS dependency is baked in. The browser gets an
+//     opaque __Host- session cookie; tokens and the Lens key stay server-side.
+//  3. Serve the built web app AND its read-only API from ONE origin, so CORS
 //     never enters the picture.
 //
-// Because it has no auth yet, anything that can reach it is fully authorised. That
-// must be impossible to get wrong, so the process REFUSES TO START on a non-loopback
-// bind — the same shape as Lens's own loopback guard (agent/internal/mcp
-// IsLoopbackHost), but hard-failing instead of merely warning.
+// The bind guard from inc2 remains: BFF_AUTH_MODE=disabled (explicitly chosen — there
+// is no default mode) has no authentication, so it REFUSES TO START on a non-loopback
+// bind, exactly as before. Only oidc mode with an https public origin may bind beyond
+// loopback — that is the deliberate relaxation, made in loadConfig, not as a side
+// effect.
 package main
 
 import (
@@ -21,6 +27,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -28,15 +35,28 @@ import (
 	"time"
 )
 
+const (
+	authModeOIDC     = "oidc"
+	authModeDisabled = "disabled"
+)
+
 // config is the whole runtime surface, read from the environment. The key and the
 // workspace id are required: without the key the proxy is pointless, and without a
 // workspace the read paths cannot be built. Fail-closed on either.
 type config struct {
-	addr         string // BFF bind address; MUST be loopback (guarded)
+	addr         string // BFF bind address; loopback unless oidc+https (see loadConfig)
 	lensBaseURL  string // e.g. http://127.0.0.1:8080
 	workspaceKey string // tlv_ws_… — held here, never emitted
 	workspaceID  string // the workspace whose reads we serve, e.g. trial-ws-1
 	webDist      string // path to the built apps/web bundle to serve
+
+	authMode         string        // "oidc" | "disabled" — REQUIRED; silence is not a mode
+	publicBaseURL    string        // oidc: browser-facing origin (https://app.talyvor.com); no path
+	oidcIssuer       string        // oidc: discovery base, e.g. https://idp.example.com
+	oidcClientID     string        // oidc: this BFF's client id at the IdP
+	oidcClientSecret string        // oidc: confidential-client secret (PKCE is added on top)
+	allowedEmails    []string      // oidc: lower-cased allowlist; ["*"] = any issuer identity
+	sessionTTL       time.Duration // oidc: absolute session lifetime
 }
 
 func loadConfig() (config, error) {
@@ -46,6 +66,7 @@ func loadConfig() (config, error) {
 		workspaceKey: os.Getenv("LENS_WORKSPACE_KEY"),
 		workspaceID:  os.Getenv("LENS_WORKSPACE_ID"),
 		webDist:      envOr("WEB_DIST", "../web/dist"),
+		authMode:     os.Getenv("BFF_AUTH_MODE"),
 	}
 	if cfg.workspaceKey == "" {
 		return cfg, errors.New("LENS_WORKSPACE_KEY is required (the BFF's job is to hold it); refusing to start")
@@ -53,10 +74,153 @@ func loadConfig() (config, error) {
 	if cfg.workspaceID == "" {
 		return cfg, errors.New("LENS_WORKSPACE_ID is required (the workspace whose reads are served); refusing to start")
 	}
-	if err := requireLoopback(cfg.addr); err != nil {
+
+	switch cfg.authMode {
+	case authModeDisabled:
+		// inc2 posture, explicitly chosen: no auth ⇒ loopback is the only guard,
+		// so a non-loopback bind stays a hard startup failure. Unchanged.
+		if err := requireLoopback(cfg.addr); err != nil {
+			return cfg, err
+		}
+		return cfg, nil
+
+	case authModeOIDC:
+		return loadOIDCConfig(cfg)
+
+	default:
+		return cfg, fmt.Errorf(
+			"BFF_AUTH_MODE=%q: must be %q (OIDC login, sessions, /api requires auth) or %q "+
+				"(no auth, loopback bind only — dev). There is no default: say which one you mean",
+			cfg.authMode, authModeOIDC, authModeDisabled)
+	}
+}
+
+// loadOIDCConfig validates everything oidc mode needs. All of it is fail-closed:
+// a partially-configured IdP must never boot into an unauthenticated proxy.
+func loadOIDCConfig(cfg config) (config, error) {
+	cfg.oidcIssuer = os.Getenv("OIDC_ISSUER")
+	cfg.oidcClientID = os.Getenv("OIDC_CLIENT_ID")
+	cfg.oidcClientSecret = os.Getenv("OIDC_CLIENT_SECRET")
+
+	if cfg.oidcIssuer == "" {
+		return cfg, errors.New("BFF_AUTH_MODE=oidc: OIDC_ISSUER is required (the provider's discovery base URL)")
+	}
+	if _, err := parseHTTPSOrLoopback("OIDC_ISSUER", cfg.oidcIssuer); err != nil {
 		return cfg, err
 	}
+	if cfg.oidcClientID == "" {
+		return cfg, errors.New("BFF_AUTH_MODE=oidc: OIDC_CLIENT_ID is required")
+	}
+	if cfg.oidcClientSecret == "" {
+		return cfg, errors.New("BFF_AUTH_MODE=oidc: OIDC_CLIENT_SECRET is required — the BFF is a " +
+			"confidential client (server-side code exchange); PKCE supplements the secret, it does not replace it")
+	}
+
+	rawPublic := os.Getenv("BFF_PUBLIC_BASE_URL")
+	if rawPublic == "" {
+		return cfg, errors.New("BFF_AUTH_MODE=oidc: BFF_PUBLIC_BASE_URL is required (the browser-facing " +
+			"origin, e.g. https://app.talyvor.com — it derives the OIDC redirect URI and scopes the session cookie)")
+	}
+	pub, err := parseHTTPSOrLoopback("BFF_PUBLIC_BASE_URL", rawPublic)
+	if err != nil {
+		return cfg, err
+	}
+	if (pub.Path != "" && pub.Path != "/") || pub.RawQuery != "" || pub.Fragment != "" {
+		return cfg, fmt.Errorf("BFF_PUBLIC_BASE_URL %q must be a bare origin with no path: the __Host- "+
+			"session cookie is scoped Path=/, so a base path would silently mis-scope it", rawPublic)
+	}
+	cfg.publicBaseURL = strings.TrimRight(rawPublic, "/")
+
+	cfg.allowedEmails, err = parseAllowedEmails(os.Getenv("OIDC_ALLOWED_EMAILS"))
+	if err != nil {
+		return cfg, err
+	}
+
+	cfg.sessionTTL, err = parseSessionTTL(os.Getenv("BFF_SESSION_TTL"))
+	if err != nil {
+		return cfg, err
+	}
+
+	// THE DELIBERATE RELAXATION. Loopback binds are always fine. Binding beyond
+	// loopback is allowed only now that auth is proven on (this branch) AND the
+	// public origin is https — the posture where the __Host- Secure cookie and the
+	// IdP redirect actually work. An http public URL is a loopback dev posture and
+	// must not be reachable from the network.
+	if !bindsLoopback(cfg.addr) {
+		if pub.Scheme != "https" {
+			return cfg, fmt.Errorf(
+				"refusing to bind %q beyond loopback: BFF_PUBLIC_BASE_URL %q is not https. "+
+					"A public bind requires the https origin the Secure __Host- session cookie needs; "+
+					"http public URLs are for loopback dev only", cfg.addr, rawPublic)
+		}
+		log.Printf("bff: non-loopback bind %s permitted: BFF_AUTH_MODE=oidc with https public origin %s",
+			cfg.addr, cfg.publicBaseURL)
+	}
 	return cfg, nil
+}
+
+// parseHTTPSOrLoopback accepts an https URL anywhere, or an http URL on a loopback
+// host (dev). Anything else is refused with the reason.
+func parseHTTPSOrLoopback(name, raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s %q: %w", name, raw, err)
+	}
+	switch u.Scheme {
+	case "https":
+		return u, nil
+	case "http":
+		if isLoopbackHost(u.Hostname()) {
+			return u, nil
+		}
+		return nil, fmt.Errorf("%s %q: must be https (http is allowed only on loopback, for dev)", name, raw)
+	default:
+		return nil, fmt.Errorf("%s %q: must be an https URL (or http on loopback for dev)", name, raw)
+	}
+}
+
+// parseAllowedEmails parses the comma-separated allowlist. "*" (alone) means any
+// authenticated identity from the configured issuer — for IdPs whose whole user base
+// is trusted. Empty is refused: authorization must be stated, not implied.
+func parseAllowedEmails(raw string) ([]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, errors.New("BFF_AUTH_MODE=oidc: OIDC_ALLOWED_EMAILS is required — a comma-separated " +
+			"email allowlist, or \"*\" to allow every identity the issuer authenticates")
+	}
+	if raw == "*" {
+		return []string{"*"}, nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		e := strings.ToLower(strings.TrimSpace(part))
+		if e == "" {
+			continue
+		}
+		if e == "*" || !strings.Contains(e, "@") {
+			return nil, fmt.Errorf("OIDC_ALLOWED_EMAILS entry %q does not look like an email "+
+				"(\"*\" is only valid alone)", part)
+		}
+		out = append(out, e)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("OIDC_ALLOWED_EMAILS parsed to an empty list")
+	}
+	return out, nil
+}
+
+func parseSessionTTL(raw string) (time.Duration, error) {
+	if raw == "" {
+		return 12 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("BFF_SESSION_TTL %q: %w", raw, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("BFF_SESSION_TTL %q: must be positive", raw)
+	}
+	return d, nil
 }
 
 func envOr(key, fallback string) string {
@@ -81,9 +245,22 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
-// requireLoopback fails unless addr binds a loopback host. Unlike talyvor-code's serve
-// (which warns and continues, because it is still token-gated), the BFF has no auth, so
-// a non-loopback bind would hand fully-authorised access to the network. Hard-fail.
+// bindsLoopback reports whether addr binds a loopback host. A malformed addr counts
+// as non-loopback: it will be refused by the caller (fail closed) and the listener
+// would reject it anyway.
+func bindsLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	return isLoopbackHost(host)
+}
+
+// requireLoopback fails unless addr binds a loopback host. This is the whole guard for
+// BFF_AUTH_MODE=disabled: with no auth, a non-loopback bind would hand fully-authorised
+// access to the network, so — unlike talyvor-code's serve, which warns and continues
+// because it is still token-gated — the BFF hard-fails. oidc mode does NOT call this;
+// its bind rule (https public origin required) lives in loadOIDCConfig.
 func requireLoopback(addr string) error {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -91,9 +268,10 @@ func requireLoopback(addr string) error {
 	}
 	if !isLoopbackHost(host) {
 		return fmt.Errorf(
-			"refusing to bind %q: only loopback (127.0.0.1 / localhost / ::1) is allowed. "+
-				"This process has no authentication yet, so a non-loopback bind would expose "+
-				"fully-authorised access to every machine that can reach it",
+			"refusing to bind %q: only loopback (127.0.0.1 / localhost / ::1) is allowed while "+
+				"BFF_AUTH_MODE=disabled. This mode has no authentication, so a non-loopback bind "+
+				"would expose fully-authorised access to every machine that can reach it. "+
+				"To serve beyond loopback, configure BFF_AUTH_MODE=oidc with an https BFF_PUBLIC_BASE_URL",
 			addr,
 		)
 	}
@@ -107,7 +285,21 @@ func main() {
 		log.Fatalf("bff: %v", err)
 	}
 
-	app := newApp(cfg)
+	// oidc mode discovers the issuer at boot: an unreachable or misconfigured IdP
+	// refuses to start rather than booting into a proxy nobody can log in to.
+	var auth *authenticator
+	if cfg.authMode == authModeOIDC {
+		auth, err = newAuthenticator(context.Background(), cfg)
+		if err != nil {
+			log.Fatalf("bff: OIDC setup (issuer %s): %v", cfg.oidcIssuer, err)
+		}
+		log.Printf("bff: auth=oidc issuer=%s public=%s allowlist=%d entries",
+			cfg.oidcIssuer, cfg.publicBaseURL, len(cfg.allowedEmails))
+	} else {
+		log.Printf("bff: auth=DISABLED (explicit) — loopback bind is the only guard")
+	}
+
+	app := newApp(cfg, auth)
 
 	srv := &http.Server{
 		Addr:              cfg.addr,

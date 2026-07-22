@@ -112,7 +112,18 @@ export interface Bond {
   [k: string]: unknown
 }
 
+/** GET /auth/me — BFF-originated, always 200. `mode` says whether this BFF
+ *  authenticates at all ("disabled" = loopback dev); `authenticated` + `user`
+ *  describe the current session. The gate renders sign-in ONLY for
+ *  mode:"oidc" + authenticated:false — everything else is the app. */
+export interface AuthMe {
+  mode: 'oidc' | 'disabled'
+  authenticated: boolean
+  user: { sub: string; email: string } | null
+}
+
 export const api = {
+  me: () => getJSON<AuthMe>('/auth/me'),
   context: () => getJSON<BffContext>('/api/context'),
   lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance'),
   lensBalance: () => getJSON<LensBalance>('/api/tokens/balance'),
