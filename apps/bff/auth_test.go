@@ -782,6 +782,7 @@ func TestAPIRequiresSession(t *testing.T) {
 		"/api/context", "/api/lxc/balance", "/api/tokens/balance",
 		"/api/tokens/history", "/api/lxc/history", "/api/workspaces", "/api/bonds",
 		"/api/track/workspaces", "/api/docs/spaces", // inc6 product routes: same gate
+		"/api/keys", "/api/members", "/api/spend/month", // shared-unblock routes: same gate
 		"/api/anything-unknown",
 	}
 	for _, ep := range endpoints {

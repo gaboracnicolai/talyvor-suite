@@ -70,6 +70,7 @@ type config struct {
 	// the BFF forwards identities it authenticated, never ones it invented.
 	trackBaseURL       string // e.g. http://127.0.0.1:8081
 	trackGatewaySecret string // Track's GATEWAY_AUTH_SECRET — held here, never emitted
+	trackWorkspaceID   string // the Track workspace whose roster we serve (pinned, like Docs)
 	docsBaseURL        string // e.g. http://127.0.0.1:8082
 	docsGatewaySecret  string // Docs' GATEWAY_AUTH_SECRET — held here, never emitted
 	docsWorkspaceID    string // the Docs workspace whose reads we serve (pinned, like Lens)
@@ -199,15 +200,23 @@ func loadProductConfig(cfg config) (config, error) {
 	cfg.docsGatewaySecret = os.Getenv("DOCS_GATEWAY_SECRET")
 	cfg.docsWorkspaceID = os.Getenv("DOCS_WORKSPACE_ID")
 
-	if (cfg.trackBaseURL == "") != (cfg.trackGatewaySecret == "") {
-		var missing string
+	cfg.trackWorkspaceID = os.Getenv("TRACK_WORKSPACE_ID")
+	trackAny := cfg.trackBaseURL != "" || cfg.trackGatewaySecret != "" || cfg.trackWorkspaceID != ""
+	if trackAny {
+		var missing []string
 		if cfg.trackBaseURL == "" {
-			missing = "TRACK_BASE_URL"
-		} else {
-			missing = "TRACK_GATEWAY_SECRET"
+			missing = append(missing, "TRACK_BASE_URL")
 		}
-		return cfg, fmt.Errorf("Track upstream partially configured: %s is missing — set both TRACK_BASE_URL "+
-			"and TRACK_GATEWAY_SECRET (Track's GATEWAY_AUTH_SECRET), or neither", missing)
+		if cfg.trackGatewaySecret == "" {
+			missing = append(missing, "TRACK_GATEWAY_SECRET")
+		}
+		if cfg.trackWorkspaceID == "" {
+			missing = append(missing, "TRACK_WORKSPACE_ID")
+		}
+		if len(missing) > 0 {
+			return cfg, fmt.Errorf("Track upstream partially configured: missing %s — set all three "+
+				"(TRACK_BASE_URL, TRACK_GATEWAY_SECRET, TRACK_WORKSPACE_ID), or none", strings.Join(missing, ", "))
+		}
 	}
 
 	docsAny := cfg.docsBaseURL != "" || cfg.docsGatewaySecret != "" || cfg.docsWorkspaceID != ""

@@ -15,8 +15,9 @@ describe('Members', () => {
     expect(roles[0]).toHaveTextContent('owner')
   })
 
-  it('renders exactly one fixture notice', () => {
+  it('renders exactly one fixture notice, without placeholder wording', () => {
     render(<Members />)
-    expect(screen.getAllByText(/placeholder/i)).toHaveLength(1)
+    expect(screen.getAllByText(/sample data/i)).toHaveLength(1)
+    expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument()
   })
 })

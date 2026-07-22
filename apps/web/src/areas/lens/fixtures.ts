@@ -46,7 +46,7 @@ export interface SpendLedgerRow {
   amount_ulens: number
   type: string
   created_at: string
-  metadata: { model_used?: string; provider_used?: string; [k: string]: unknown }
+  metadata: Record<string, unknown> // lib/api.ts LedgerEntry.metadata — live rows feed the same functions
 }
 
 export const fixtureKeys: WorkspaceAPIKey[] = [
@@ -101,6 +101,3 @@ export const fixtureModelTiers: Record<string, 'cheap' | 'capable'> = {
  *  cache_hit_rate = hits/(hits+misses)) — no workspace endpoint serves this
  *  yet; entirely sample. */
 export const fixtureCache = { cache_hits: 1240, cache_lookups: 1421, cache_hit_rate: 0.8726 }
-
-/** Lens GET /v1/workspaces/{ws}/spend/current-month → {current_month_usd}. */
-export const fixtureMonthSpend = { current_month_usd: 4.31 }

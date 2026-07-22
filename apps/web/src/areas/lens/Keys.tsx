@@ -53,7 +53,7 @@ export function Keys() {
 
   return (
     <div className="flex flex-col gap-4 px-gutter py-4">
-      <FixtureNotice awaiting="BFF routes GET + POST /api/keys (minting is the BFF's first write path)" />
+      <FixtureNotice awaiting="live wiring in the lens area — the BFF routes (GET + POST /api/keys) landed with the shared-unblock PR" />
 
       {minted ? <RevealOnce minted={minted} onDone={dismiss} /> : null}
 

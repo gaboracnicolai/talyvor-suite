@@ -18,7 +18,7 @@ export function Members() {
   )
   return (
     <div className="flex flex-col gap-4 px-gutter py-4">
-      <FixtureNotice awaiting="a BFF proxy for Track GET /v1/workspaces/{wsID}/members" />
+      <FixtureNotice awaiting="live wiring in the lens area — GET /api/members landed with the shared-unblock PR" />
       <Card>
         <CardHeader>Members</CardHeader>
         {roster.map((m) => (

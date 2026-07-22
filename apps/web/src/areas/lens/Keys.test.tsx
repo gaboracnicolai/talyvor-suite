@@ -33,10 +33,10 @@ describe('Keys — list', () => {
     expect(screen.getByText(/proxy, earn/)).toBeInTheDocument()
   })
 
-  it('renders exactly one fixture notice (sample data is never silent)', () => {
+  it('renders exactly one fixture notice, without placeholder wording (the shared scaffold test is gone)', () => {
     render(<Keys />)
-    expect(screen.getAllByText(/placeholder/i)).toHaveLength(1)
-    expect(screen.getByText(/sample data/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/sample data/i)).toHaveLength(1)
+    expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument()
   })
 })
 

@@ -19,7 +19,7 @@ export interface ModelAgg {
 export function byModel(rows: SpendLedgerRow[]): ModelAgg[] {
   const agg = new Map<string, ModelAgg>()
   for (const r of rows) {
-    const model = r.metadata.model_used
+    const model = r.metadata['model_used']
     if (typeof model !== 'string' || model === '') continue
     const a = agg.get(model) ?? { model, requests: 0, ulens: 0 }
     a.requests += 1
