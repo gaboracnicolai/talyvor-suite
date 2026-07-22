@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -73,6 +74,18 @@ func newApp(cfg config, auth *authenticator) *app {
 		"track", cfg.trackBaseURL, cfg.trackGatewaySecret, "/v1/workspaces")))
 	a.mux.HandleFunc("/api/docs/spaces", a.requireSession(a.proxyProduct(
 		"docs", cfg.docsBaseURL, cfg.docsGatewaySecret, "/v1/workspaces/"+cfg.docsWorkspaceID+"/spaces")))
+
+	// Docs Tier-1 id-routes: space detail, page list, page detail. These take ids
+	// (client input), so the upstream path is BUILT from a validated segment, not
+	// pinned to a literal — and they use the PLAIN proxy path so a genuine 404
+	// stays a 404 (proxyGated would launder it into "capability off"; its doc
+	// comment flags exactly this case). Upstream scopes each id to the workspace by
+	// the session user's membership + View tier; a 403/404 passes through honestly.
+	// The page LIST projects away the heavy `content`/`content_text` fields (see
+	// docsPageList) — a tree view has no business transferring whole documents.
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}", a.requireSession(a.docsSpaceDetail()))
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(a.docsPageList()))
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}", a.requireSession(a.docsPageDetail()))
 
 	// Key management (shared-unblock PR). GET lists by prefix — Lens's list shape
 	// carries no secret (KeyHash is json:"-" upstream). POST is THE BFF'S FIRST
@@ -271,47 +284,196 @@ func (a *app) proxyProduct(product, baseURL, secret, upstreamPath string) http.H
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		if baseURL == "" {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"error": product + " upstream not configured on this BFF"})
-			return
-		}
-		if a.auth == nil {
-			// Unreachable by construction (loadConfig forbids products outside oidc
-			// mode); fail closed anyway rather than forward an invented identity.
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"error": product + " upstream requires oidc auth"})
-			return
-		}
-		sess, ok := a.auth.sessionFrom(r)
-		if !ok {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{
-				"error": "authentication required — sign in at /auth/login"})
-			return
-		}
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, baseURL+upstreamPath, nil)
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream request"})
-			return
-		}
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("X-Gateway-Auth", secret)   // ← transit proof, server-side only
-		req.Header.Set("X-User-Email", sess.email) // the workspace-membership join key
-		req.Header.Set("X-User-Id", sess.sub)
-		req.Header.Set("X-Auth-Iss", a.cfg.oidcIssuer)
-		resp, err := a.client.Do(req)
-		if err != nil {
-			log.Printf("bff: %s upstream %s: %v", product, upstreamPath, err)
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream unreachable"})
-			return
-		}
-		defer resp.Body.Close()
-		if ct := resp.Header.Get("Content-Type"); ct != "" {
-			w.Header().Set("Content-Type", ct)
-		}
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
+		a.forwardProduct(w, r, product, baseURL, secret, upstreamPath, "", nil)
 	}
+}
+
+// forwardProduct is the SINGLE credential-attaching path for every gatewayauth-gated
+// product route (Track/Docs). Keeping it one function means the transit-proof + identity
+// attachment — and the guarantee that neither reaches the browser — lives in exactly one
+// place. It attaches the proof + the SESSION's identity server-side, forwards
+// GET → baseURL+upstreamPath(+?rawQuery), and preserves the upstream status HONESTLY: a
+// 404 stays a 404, a 403 stays a 403 (NOT laundered — that is why these routes use this
+// and not proxyGated). When transform is non-nil and the upstream is 200, the body is
+// passed through it before being written (used only to project heavy fields off a list
+// row); otherwise the body is streamed verbatim.
+func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, baseURL, secret, upstreamPath, rawQuery string, transform func([]byte) ([]byte, error)) {
+	if baseURL == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": product + " upstream not configured on this BFF"})
+		return
+	}
+	if a.auth == nil {
+		// Unreachable by construction (loadConfig forbids products outside oidc
+		// mode); fail closed anyway rather than forward an invented identity.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": product + " upstream requires oidc auth"})
+		return
+	}
+	sess, ok := a.auth.sessionFrom(r)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "authentication required — sign in at /auth/login"})
+		return
+	}
+	u := baseURL + upstreamPath
+	if rawQuery != "" {
+		u += "?" + rawQuery
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u, nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream request"})
+		return
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Gateway-Auth", secret)   // ← transit proof, server-side only
+	req.Header.Set("X-User-Email", sess.email) // the workspace-membership join key
+	req.Header.Set("X-User-Id", sess.sub)
+	req.Header.Set("X-Auth-Iss", a.cfg.oidcIssuer)
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("bff: %s upstream %s: %v", product, upstreamPath, err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if transform != nil && resp.StatusCode == http.StatusOK {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream read"})
+			return
+		}
+		out, err := transform(body)
+		if err != nil {
+			// An unexpected upstream shape — answer a gateway error rather than
+			// forward something we could not project as intended.
+			log.Printf("bff: %s transform %s: %v", product, upstreamPath, err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream shape"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(out)
+		return
+	}
+
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+// docsPathID reads a Docs id path parameter and refuses shapes that could rewrite the
+// pinned upstream path — an empty segment, a traversal, or an embedded slash (the
+// segments are client input). ServeMux already splits on '/', but %2F / %2e%2e can decode
+// into one, so this is defence-in-depth; a valid opaque id then goes through
+// url.PathEscape at the call site. On rejection it answers 400 and reports false.
+func docsPathID(w http.ResponseWriter, name, v string) (string, bool) {
+	bad := v == "" || v == "." || v == ".." || strings.Contains(v, "..") || strings.ContainsAny(v, "/\\")
+	if !bad {
+		for _, c := range v {
+			if c < 0x20 || c == 0x7f {
+				bad = true
+				break
+			}
+		}
+	}
+	if bad {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid " + name})
+		return "", false
+	}
+	return v, true
+}
+
+// docsSpaceDetail — GET /api/docs/spaces/{spaceID} → GET /v1/spaces/{spaceID}. Space
+// detail is View-gated upstream and scoped to the pinned workspace by the session user's
+// membership; a 404 outside it stays a 404 (plain proxy, not proxyGated). Streamed verbatim.
+func (a *app) docsSpaceDetail() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		spaceID, ok := docsPathID(w, "spaceID", r.PathValue("spaceID"))
+		if !ok {
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			"/v1/spaces/"+url.PathEscape(spaceID), "", nil)
+	}
+}
+
+// docsPageList — GET /api/docs/spaces/{spaceID}/pages → GET /v1/spaces/{spaceID}/pages.
+// The upstream returns []model.Page carrying the FULL ProseMirror `content` (and the
+// `content_text` extraction) on EVERY row — listing a space would ship every page's whole
+// document to draw a sidebar tree. The BFF projects BOTH fields away here (stripPageContentList);
+// the full document is served by the page-DETAIL route. limit mirrors the upstream store's
+// own semantics (default 100, cap 500). NOTE: the upstream List HANDLER reads only `limit`
+// (offset is in its store filter but not wired to the query), so offset is forwarded for
+// contract-completeness but is a no-op upstream today — see the report.
+func (a *app) docsPageList() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		spaceID, ok := docsPathID(w, "spaceID", r.PathValue("spaceID"))
+		if !ok {
+			return
+		}
+		limit := clampInt(r.URL.Query().Get("limit"), 100, 1, 500)
+		offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<31-1)
+		raw := "limit=" + strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages", raw, stripPageContentList)
+	}
+}
+
+// docsPageDetail — GET /api/docs/spaces/{spaceID}/pages/{pageID} →
+// GET /v1/spaces/{spaceID}/pages/{pageID}. Page detail requires BOTH ids: there is no
+// top-level /v1/pages/{pageID} detail route upstream (only /v1/pages/{pageID}/links). This
+// is where the full page content legitimately belongs, so it streams verbatim. View-gated;
+// 404-not-403 outside the workspace stays a 404.
+func (a *app) docsPageDetail() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		spaceID, ok := docsPathID(w, "spaceID", r.PathValue("spaceID"))
+		if !ok {
+			return
+		}
+		pageID, ok := docsPathID(w, "pageID", r.PathValue("pageID"))
+		if !ok {
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID), "", nil)
+	}
+}
+
+// stripPageContentList projects the heavy `content` (full ProseMirror JSON) and
+// `content_text` (its plaintext extraction) off every row of a []model.Page list body,
+// preserving every other field byte-for-byte (json.RawMessage values are untouched). A
+// tree view needs title/depth/position/parent, never the document. Returns an error if the
+// body is not a JSON array — an unexpected upstream shape the caller turns into a 502
+// rather than forward. An empty list round-trips to `[]`.
+func stripPageContentList(body []byte) ([]byte, error) {
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		delete(row, "content")
+		delete(row, "content_text")
+	}
+	if rows == nil {
+		rows = []map[string]json.RawMessage{}
+	}
+	return json.Marshal(rows)
 }
 
 // spaHandler serves the built web bundle, falling back to index.html for any path that

@@ -141,21 +141,30 @@ func clearProductEnv(t *testing.T, overrides map[string]string) {
 	}
 }
 
-// captureUpstream is a fake Track/Docs: records the exact headers and path of
-// the last request and answers a fixed JSON body.
+// captureUpstream is a fake Track/Docs: records the exact headers, path and query
+// of the last request and answers a fixed JSON body (200 by default).
 type captureUpstream struct {
-	srv     *httptest.Server
-	path    string
-	headers http.Header
+	srv      *httptest.Server
+	path     string
+	rawQuery string
+	headers  http.Header
 }
 
 func newCaptureUpstream(t *testing.T, body string) *captureUpstream {
+	return newStatusUpstream(t, http.StatusOK, body)
+}
+
+// newStatusUpstream is captureUpstream with a chosen status — for the routes whose
+// contract turns on the upstream code (a 404 that must stay a 404, not become "off").
+func newStatusUpstream(t *testing.T, status int, body string) *captureUpstream {
 	t.Helper()
 	c := &captureUpstream{}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c.path = r.URL.Path
+		c.rawQuery = r.URL.RawQuery
 		c.headers = r.Header.Clone()
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(c.srv.Close)
@@ -299,6 +308,8 @@ func TestGatewaySecretsNeverReachResponse(t *testing.T) {
 		"/api/tokens/history", "/api/lxc/history", "/api/workspaces", "/api/bonds",
 		"/api/track/workspaces", "/api/docs/spaces", "/auth/me",
 		"/api/keys", "/api/members", "/api/spend/month", // GET sweeps; the POST mint is deliberately absent — see keys_test.go
+		// Docs Tier-1 id-routes (this PR): the never-leaks guarantee covers them too.
+		"/api/docs/spaces/sp-1", "/api/docs/spaces/sp-1/pages", "/api/docs/spaces/sp-1/pages/pg-1",
 	}
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()
@@ -326,5 +337,200 @@ func TestGatewaySecretsNeverReachResponse(t *testing.T) {
 	}
 	if docs.headers.Get("X-Gateway-Auth") != testDocsSecret {
 		t.Fatal("docs upstream never received its transit proof")
+	}
+}
+
+// ─── Docs Tier-1 id-routes (this PR) ──────────────────────────────────────────
+// Space detail, page list, page detail. Same non-negotiables as every product
+// route: requireSession, transit proof + session identity attached server-side,
+// upstream path built from the id (never the workspace from client input), no
+// secret in any response. Plus two things specific to id-routes: a genuine 404
+// stays a 404 (NOT laundered to "disabled"), and the page LIST projects away the
+// heavy content fields a tree view never needs.
+
+// TestDocsSpaceDetail_BuildsUpstreamPath: GET /api/docs/spaces/{id} →
+// GET /v1/spaces/{id} (no workspace in the path — upstream scopes by membership),
+// credentials attached server-side, body streamed, secret absent.
+func TestDocsSpaceDetail_BuildsUpstreamPath(t *testing.T) {
+	docs := newCaptureUpstream(t, `{"id":"sp-1","name":"Handbook"}`)
+	a, sess := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/docs/spaces/sp-1", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if docs.path != "/v1/spaces/sp-1" {
+		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1", docs.path)
+	}
+	if got := docs.headers.Get("X-Gateway-Auth"); got != testDocsSecret {
+		t.Fatalf("X-Gateway-Auth = %q — transit proof must be attached server-side", got)
+	}
+	if got := docs.headers.Get("X-User-Email"); got != "ng@example.com" {
+		t.Fatalf("X-User-Email = %q, want the session email", got)
+	}
+	if !strings.Contains(rec.Body.String(), "Handbook") {
+		t.Fatalf("upstream body not streamed: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "gwsecret_") {
+		t.Fatalf("gateway secret leaked: %s", rec.Body.String())
+	}
+}
+
+// TestDocsPageDetail_BuildsNestedPathAndStreamsFullContent: page detail needs BOTH
+// ids (there is no top-level /v1/pages/{id} upstream); the full page content is
+// served here verbatim — this is the route that legitimately carries the document.
+func TestDocsPageDetail_BuildsNestedPathAndStreamsFullContent(t *testing.T) {
+	docs := newCaptureUpstream(t, `{"id":"pg-1","title":"Home","content":"{\"type\":\"doc\"}"}`)
+	a, sess := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/docs/spaces/sp-1/pages/pg-1", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if docs.path != "/v1/spaces/sp-1/pages/pg-1" {
+		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1/pages/pg-1", docs.path)
+	}
+	if !strings.Contains(rec.Body.String(), `"content"`) {
+		t.Fatalf("page DETAIL must carry full content verbatim: %s", rec.Body.String())
+	}
+	if got := docs.headers.Get("X-Gateway-Auth"); got != testDocsSecret {
+		t.Fatalf("X-Gateway-Auth = %q", got)
+	}
+}
+
+// TestDocsPageList_ProjectsContentAway: the upstream ships every row's full
+// ProseMirror `content` (+ `content_text`); the BFF strips BOTH for the list so a
+// tree view doesn't transfer whole documents, while preserving every other field.
+func TestDocsPageList_ProjectsContentAway(t *testing.T) {
+	body := `[{"id":"pg-1","title":"Home","depth":0,"position":1,` +
+		`"content":"{\"type\":\"doc\",\"BIGDOC\":true}","content_text":"BIGPLAINTEXT"},` +
+		`{"id":"pg-2","title":"Sub","depth":1,"position":2,"content":"MORE","content_text":"MORE"}]`
+	docs := newCaptureUpstream(t, body)
+	a, sess := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/docs/spaces/sp-1/pages?limit=50", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if docs.path != "/v1/spaces/sp-1/pages" {
+		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1/pages", docs.path)
+	}
+	if !strings.Contains(docs.rawQuery, "limit=50") {
+		t.Fatalf("limit not forwarded: rawQuery=%q", docs.rawQuery)
+	}
+	out := rec.Body.String()
+	// The heavy fields are gone…
+	if strings.Contains(out, `"content"`) || strings.Contains(out, "content_text") ||
+		strings.Contains(out, "BIGDOC") || strings.Contains(out, "BIGPLAINTEXT") || strings.Contains(out, "MORE") {
+		t.Fatalf("list still ships page content: %s", out)
+	}
+	// …but the tree fields survive.
+	for _, keep := range []string{"pg-1", "pg-2", "Home", "Sub", `"depth"`, `"position"`} {
+		if !strings.Contains(out, keep) {
+			t.Fatalf("list dropped a tree field %q: %s", keep, out)
+		}
+	}
+}
+
+// TestDocsPageList_CapsLimitAt500 mirrors the upstream store's own cap so the BFF
+// never asks for an unbounded list.
+func TestDocsPageList_CapsLimitAt500(t *testing.T) {
+	docs := newCaptureUpstream(t, `[]`)
+	a, sess := productApp(t, nil, docs)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/docs/spaces/sp-1/pages?limit=99999", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+	if !strings.Contains(docs.rawQuery, "limit=500") {
+		t.Fatalf("limit not capped at 500: rawQuery=%q", docs.rawQuery)
+	}
+}
+
+// TestDocs404StaysNotFound is the case proxyGated's doc comment warned about: these
+// routes take ids, so a genuine not-found must surface as 404 — NOT be laundered
+// into a 200 {enabled:false}. The plain proxy path preserves the upstream status.
+func TestDocs404StaysNotFound(t *testing.T) {
+	docs := newStatusUpstream(t, http.StatusNotFound, `{"error":"not found","code":"PAGE_NOT_FOUND"}`)
+	a, sess := productApp(t, nil, docs)
+	for _, ep := range []string{"/api/docs/spaces/sp-x", "/api/docs/spaces/sp-1/pages/pg-x"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, ep, nil)
+		req.AddCookie(sess)
+		a.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: got %d, want 404 (a real not-found must NOT become 'disabled')", ep, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "enabled") {
+			t.Fatalf("%s: 404 laundered into a capability signal: %s", ep, rec.Body.String())
+		}
+	}
+}
+
+// TestDocs403StaysForbidden: a workspace member lacking the space tier gets the
+// upstream 403 honestly (the area distinguishes it), never masked.
+func TestDocs403StaysForbidden(t *testing.T) {
+	docs := newStatusUpstream(t, http.StatusForbidden, `{"error":"forbidden","code":"TIER"}`)
+	a, sess := productApp(t, nil, docs)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/docs/spaces/sp-1", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("got %d, want 403 passed through", rec.Code)
+	}
+}
+
+// TestDocsPathParamRejectsTraversal: the id segments are client input; a traversal
+// or slash-bearing id is refused at the BFF and never reaches the upstream, so the
+// pinned upstream path can't be rewritten.
+func TestDocsPathParamRejectsTraversal(t *testing.T) {
+	docs := newCaptureUpstream(t, `{}`)
+	a, sess := productApp(t, nil, docs)
+	// %2e%2e%2f = "../" — if it survived decoding into the upstream path it would escape.
+	for _, ep := range []string{
+		"/api/docs/spaces/%2e%2e",
+		"/api/docs/spaces/sp-1/pages/%2e%2e%2fadmin",
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, ep, nil)
+		req.AddCookie(sess)
+		a.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s: got %d, want 400 (a traversal id must be refused)", ep, rec.Code)
+		}
+	}
+	if docs.headers != nil {
+		t.Fatal("a rejected id must never reach the docs upstream")
+	}
+}
+
+// TestDocsIdRoutesRequireSession: the three id-routes sit behind requireSession
+// exactly like the collection routes.
+func TestDocsIdRoutesRequireSession(t *testing.T) {
+	docs := newCaptureUpstream(t, `{}`)
+	a, _ := productApp(t, nil, docs)
+	for _, ep := range []string{
+		"/api/docs/spaces/sp-1", "/api/docs/spaces/sp-1/pages", "/api/docs/spaces/sp-1/pages/pg-1",
+	} {
+		rec := httptest.NewRecorder()
+		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, ep, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s without session: got %d, want 401", ep, rec.Code)
+		}
+	}
+	if docs.headers != nil {
+		t.Fatal("an unauthenticated request must never reach the docs upstream")
 	}
 }
