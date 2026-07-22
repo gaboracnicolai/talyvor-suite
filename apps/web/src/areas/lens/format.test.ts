@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatUSD, formatWhen, humanizeType, ledgerStatus } from './ledger'
+import { formatUSD, formatWhen, humanizeType, ledgerStatus } from './format'
 
 // These assertions pin the honest type→status mapping (report §Pill). They encode the
 // two gaps deliberately: no ledger type is ever 'idle', and account movements get no pill.
