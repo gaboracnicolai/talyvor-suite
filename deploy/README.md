@@ -81,10 +81,11 @@ None of it can be skipped; the BFF fails closed without each one.
    host, and path must match to the character). Record the client id and
    secret. The issuer is `https://accounts.google.com`.
 2. **Lens:** the base URL of the Lens box (**must be `https://…`** — the
-   BFF does not police this URL, and the workspace key travels in a header on
-   every read, so a plain-http remote value would put the key on the wire in
-   clear), the workspace key (`tlv_ws_…`) and workspace id. These come from
-   Lens onboarding (the admin-minted trial workspace + key).
+   workspace key travels in a header on every read, and the BFF refuses to
+   boot on a remote plain-http URL for exactly that reason; http is allowed
+   only on loopback, for dev), the workspace key (`tlv_ws_…`) and workspace
+   id. These come from Lens onboarding (the admin-minted trial workspace +
+   key).
 3. **Track / Docs — optional at launch:** each needs its base URL *reachable
    from this box*, its `GATEWAY_AUTH_SECRET` (the exact value that product was
    started with — the BFF replays it as `X-Gateway-Auth`), and a workspace id.
@@ -154,7 +155,7 @@ Every variable the BFF reads, and what happens without it:
 |---|---|---|---|
 | `BFF_ADDR` | no | `127.0.0.1:8787` | Bind address. Keep the default: Caddy is the ingress. Non-loopback binds are refused unless oidc mode with an https public origin. |
 | `BFF_AUTH_MODE` | **yes** | — none, deliberately | `oidc` or `disabled`. Missing or anything else → **refuses to start** ("say which one you mean"). Production is `oidc`; `disabled` additionally hard-fails on any non-loopback bind and refuses Track/Docs upstreams outright. |
-| `LENS_BASE_URL` | no | `http://127.0.0.1:8080` | Lens API base. **Set `https://<lens-host>`** for the remote Lens box — this URL is *not* validated, and the workspace key rides every request to it. |
+| `LENS_BASE_URL` | no | `http://127.0.0.1:8080` | Lens API base. **Set `https://<lens-host>`** for the remote Lens box. Enforced at boot: the workspace key rides every request to it, so https anywhere / http only on loopback — a remote http value **refuses to start**. |
 | `LENS_WORKSPACE_KEY` | **yes** | — | The `tlv_ws_…` key, held server-side and attached to every Lens read; it never reaches the browser (test-enforced). Missing → refuses to start. |
 | `LENS_WORKSPACE_ID` | **yes** | — | The pinned workspace all Lens read paths are built from. Missing → refuses to start. |
 | `WEB_DIST` | no | `../web/dist` | Path to the built SPA. Set `/opt/talyvor/web-dist`. Wrong path won't stop boot — step 6's `curl /` catches it. |
@@ -174,7 +175,9 @@ Every variable the BFF reads, and what happens without it:
 † / ‡ — each product's trio is **all-or-nothing**: any one set without the
 other two → refuses to start, naming the missing ones. Both trios require
 `BFF_AUTH_MODE=oidc` (in disabled mode there is no authenticated identity to
-forward, and the BFF refuses to invent one). Fully unset → that product's
+forward, and the BFF refuses to invent one). Base URLs obey the same boot-time
+transport rule as `LENS_BASE_URL` — https anywhere, http only on loopback —
+because the gateway secret rides every request. Fully unset → that product's
 routes answer 503 and the rest of the app works.
 
 ## 5. Preflight boot — prove the env before touching systemd or Caddy

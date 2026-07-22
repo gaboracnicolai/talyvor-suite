@@ -83,6 +83,31 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 			wantErr: "DOCS_BASE_URL",
 		},
 		{
+			// The gateway secret rides every request as X-Gateway-Auth — the same
+			// transport rule as LENS_BASE_URL: https anywhere, http only loopback.
+			name: "track remote http base URL refuses — the secret would travel in clear",
+			env: with(with(with(validOIDCEnv(),
+				"TRACK_BASE_URL", "http://track.internal:8081"),
+				"TRACK_GATEWAY_SECRET", testTrackSecret),
+				"TRACK_WORKSPACE_ID", "track-ws-7"),
+			wantErr: "TRACK_BASE_URL",
+		},
+		{
+			name: "track https base URL boots",
+			env: with(with(with(validOIDCEnv(),
+				"TRACK_BASE_URL", "https://track.example.com"),
+				"TRACK_GATEWAY_SECRET", testTrackSecret),
+				"TRACK_WORKSPACE_ID", "track-ws-7"),
+		},
+		{
+			name: "docs remote http base URL refuses — the secret would travel in clear",
+			env: with(with(with(validOIDCEnv(),
+				"DOCS_BASE_URL", "http://docs.internal:8082"),
+				"DOCS_GATEWAY_SECRET", testDocsSecret),
+				"DOCS_WORKSPACE_ID", "docs-ws-9"),
+			wantErr: "DOCS_BASE_URL",
+		},
+		{
 			// Identity forwarding requires an authenticated identity to forward.
 			name: "track triple in disabled mode refuses",
 			env: map[string]string{
