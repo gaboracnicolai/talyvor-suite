@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { Button, Card, CardHeader, Row } from '@talyvor/ui'
-import { FixtureNotice } from './FixtureNotice'
+import { Button, Card, CardHeader, FixtureNotice, RevealOnce, Row } from '@talyvor/ui'
 import { fixtureKeys, fixtureMint, type MintResult, type WorkspaceAPIKey } from './fixtures'
 import { formatWhen } from './format'
 
@@ -55,7 +54,16 @@ export function Keys() {
     <div className="flex flex-col gap-4 px-gutter py-4">
       <FixtureNotice awaiting="live wiring in the lens area — the BFF routes (GET + POST /api/keys) landed with the shared-unblock PR" />
 
-      {minted ? <RevealOnce minted={minted} onDone={dismiss} /> : null}
+      {minted ? (
+        <RevealOnce
+          title="Workspace key — shown once"
+          secret={minted.key}
+          copyLabel="Copy key"
+          identifier={minted.prefix}
+          identifierNote="Safe to share; this is how the key appears in lists."
+          onDone={dismiss}
+        />
+      ) : null}
 
       <Card>
         <CardHeader>API keys</CardHeader>
@@ -74,53 +82,5 @@ export function Keys() {
         ))}
       </Card>
     </div>
-  )
-}
-
-// RevealOnce is the one place a credential is ever visible. Hierarchy does the
-// safety work: the key is the only body-size string on the card and owns the
-// only primary action; the identifier is caption-size, physically separated,
-// and labeled as not a credential — in type and in words, never by a hue.
-function RevealOnce({ minted, onDone }: { minted: MintResult; onDone: () => void }) {
-  const [copied, setCopied] = useState(false)
-
-  const copy = () => {
-    void navigator.clipboard.writeText(minted.key).then(() => {
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    })
-  }
-
-  return (
-    <Card>
-      <CardHeader>Workspace key — shown once</CardHeader>
-
-      <div className="flex flex-col gap-3 px-gutter py-3">
-        <div className="select-all break-all font-mono text-body font-medium text-ink">{minted.key}</div>
-        <div className="flex items-center gap-3">
-          <Button variant="primary" onClick={copy}>
-            {copied ? 'Copied' : 'Copy key'}
-          </Button>
-          <span className="text-caption text-muted">Store it now — it will not be shown again.</span>
-          <span aria-live="polite" className="sr-only">
-            {copied ? 'Key copied to clipboard' : ''}
-          </span>
-        </div>
-      </div>
-
-      <div className="border-t border-rule px-gutter py-3">
-        <div className="text-caption font-semibold uppercase tracking-wide text-faint">
-          Identifier — not a credential
-        </div>
-        <div className="pt-1 text-caption text-muted">
-          <span className="font-mono tabular-nums">{minted.prefix}</span>
-          <span className="pl-2 text-faint">Safe to share; this is how the key appears in lists.</span>
-        </div>
-      </div>
-
-      <div className="border-t border-rule px-gutter py-3">
-        <Button onClick={onDone}>Done — I stored it</Button>
-      </div>
-    </Card>
   )
 }

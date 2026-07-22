@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, CardHeader, MuNumeral, Row, TierDot } from '@talyvor/ui'
+import { Button, Card, CardHeader, FixtureNotice, MuNumeral, Row, TierDot } from '@talyvor/ui'
 import { api } from '../../lib/api'
-import { FixtureNotice } from './FixtureNotice'
 import { fixtureCache, fixtureModelTiers } from './fixtures'
 import { byModel, inWindow } from './spendMath'
 

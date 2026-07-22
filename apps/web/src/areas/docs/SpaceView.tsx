@@ -6,7 +6,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader } from '@talyvor/ui'
 import { docsApi } from './api'
 import { buildTree, countNodes, type TreeNode } from './tree'
-import { Chip, Crumbs, FixtureChip, FixtureNote, formatDay } from './components'
+import { formatDay } from '@talyvor/ui'
+import { Chip, Crumbs, FixtureChip, FixtureNote } from './components'
 
 // Indent per depth from the named spacing scale only. Server caps depth at 5;
 // anything deeper clamps to the last step rather than inventing a value.

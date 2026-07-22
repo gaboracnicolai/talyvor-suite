@@ -7,7 +7,9 @@ import {
   Input,
   MuNumeral,
   NavItem,
+  FixtureNotice,
   Pill,
+  RevealOnce,
   Row,
   Select,
   SelectContent,
@@ -18,6 +20,7 @@ import {
   TierDot,
 } from '@talyvor/ui'
 import type { Tier } from '@talyvor/ui'
+import { formatDay } from '@talyvor/ui'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -93,6 +96,23 @@ function Gallery() {
           <Pill status="slashed">Slashed</Pill>
           <Pill status="lens">Lens</Pill>
           <Pill status="lxc">LXC</Pill>
+          <Pill status="idle">Todo</Pill>
+          <Pill status="parked">Backlog</Pill>
+        </div>
+        {/* Promoted from the areas (ui-promotions PR): each must live here, in both
+            themes, or it is not in the design system. */}
+        <div className="flex flex-col gap-3 pt-3">
+          <FixtureNotice awaiting="GET /api/example (specimen sample)" />
+          <RevealOnce
+            title="Sample credential — shown once"
+            secret="tok_SAMPLE_not_a_real_credential_0000"
+            copyLabel="Copy token"
+            identifier="tok_5ample00"
+            onDone={() => {}}
+          />
+          <span className="text-caption font-normal text-muted">
+            formatDay(&quot;2026-07-22T23:59:00Z&quot;) → {formatDay('2026-07-22T23:59:00Z')} (UTC-deterministic)
+          </span>
         </div>
       </Section>
 

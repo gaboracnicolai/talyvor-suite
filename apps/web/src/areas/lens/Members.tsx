@@ -1,6 +1,5 @@
-import { Card, CardHeader, Row } from '@talyvor/ui'
+import { Card, CardHeader, FixtureNotice, Row } from '@talyvor/ui'
 import { cn } from '@talyvor/ui'
-import { FixtureNotice } from './FixtureNotice'
 import { fixtureRoster } from './fixtures'
 
 // Members — the workspace roster. Track owns identity (the BFF forwards the
