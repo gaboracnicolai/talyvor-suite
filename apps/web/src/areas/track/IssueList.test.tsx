@@ -35,7 +35,7 @@ describe('IssueList', () => {
   })
 
   it('?assignee_id narrows to that member', () => {
-    renderAt('/track?assignee_id=mem-jonas')
+    renderAt('/track?assignee_id=mem-alpha')
     expect(screen.getByText('3 issues')).toBeInTheDocument()
     expect(screen.getByText('Alert on webhook dedup table growth')).toBeInTheDocument()
   })
@@ -47,7 +47,7 @@ describe('IssueList', () => {
   })
 
   it('filters AND together and Clear resets to the full list', () => {
-    renderAt('/track?team_id=team-ops&assignee_id=mem-jonas')
+    renderAt('/track?team_id=team-ops&assignee_id=mem-alpha')
     expect(screen.getByText('1 issues')).toBeInTheDocument()
     expect(screen.getByText('OPS-14')).toBeInTheDocument()
 
