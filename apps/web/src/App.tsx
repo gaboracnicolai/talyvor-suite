@@ -1,6 +1,6 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { NavItem, Shell, ThemeToggle } from '@talyvor/ui'
+import { Mark, NavItem, Shell, ThemeToggle } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { ApiError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
@@ -78,9 +78,15 @@ function Sidebar() {
   )
   return (
     <nav className="flex flex-col gap-4 pb-2" aria-label="Sections">
-      <div className="px-3 pb-1 pt-2">
-        <div className="text-head text-ink">Talyvor</div>
-        <div className="text-caption font-normal text-faint">Suite</div>
+      {/* The corner carries a MARK, not only text: the hold indicator abstracted
+          (rounded hairline tile, accent fill) beside the wordmark, both themes free
+          via tokens. */}
+      <div className="flex items-center gap-2.5 px-3 pb-1 pt-2">
+        <Mark size={26} />
+        <div className="min-w-0">
+          <div className="text-head leading-tight text-ink">Talyvor</div>
+          <div className="text-caption font-normal leading-tight text-faint">Suite</div>
+        </div>
       </div>
       <Group label="Workspace">
         {item('/', 'Overview')}

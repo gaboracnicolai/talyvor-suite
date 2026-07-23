@@ -45,7 +45,12 @@ export function MuNumeral({ micros, unit, className, ...props }: MuNumeralProps)
   const micro = abs % MICRO
   const sign = negative ? '-' : ''
 
-  const wrap = 'inline-flex items-baseline gap-1 font-mono tabular-nums'
+  // SANS with tabular figures: columns align via font-variant-numeric, and the
+  // digits belong to the typeface around them. Mono is for IDENTIFIERS (SHAs,
+  // key prefixes, endpoints) — "machine string you might copy" is a message;
+  // "this is a number" is not. The µ-split and the ≈ marker carry the
+  // exact-vs-derived distinction; the font never did.
+  const wrap = 'inline-flex items-baseline gap-1 tabular-nums'
 
   if (whole === 0) {
     return (

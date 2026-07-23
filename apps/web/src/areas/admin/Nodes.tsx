@@ -27,7 +27,7 @@ export function Nodes() {
           </span>
         </CardHeader>
         {/* The server's own caveat, verbatim and always visible — not a tooltip. */}
-        <p className="border-b border-rule px-gutter py-2 text-caption font-normal text-muted">{data.note}</p>
+        <p className="border-b border-rule px-gutter py-2 text-body text-muted">{data.note}</p>
         <Row
           label="Published version"
           hint={`last reconcile ${formatWhen(new Date(data.last_reconcile_unix * 1000).toISOString())} · ${(
@@ -40,7 +40,7 @@ export function Nodes() {
           label={`${data.nodes.length} connected · ${inSync} in sync · ${data.nodes_behind} behind`}
           hint="of the connected set only — nothing here counts nodes that are not connected"
         >
-          <span className="text-caption font-normal tabular-nums text-muted">{data.active_streams} streams</span>
+          <span className="text-body tabular-nums text-muted">{data.active_streams} streams</span>
         </Row>
         {data.nodes.map((n) => (
           <Row key={n.node_id} label={<span className="font-mono text-body text-ink">{n.node_id}</span>} hint={<MonoId value={n.acked_version} />}>

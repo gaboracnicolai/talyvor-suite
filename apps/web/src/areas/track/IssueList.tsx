@@ -52,7 +52,7 @@ function IssueRow({ issue, assignee, team }: { issue: TrackIssue; assignee: stri
         {assignee}
       </td>
       <td className="whitespace-nowrap px-3 py-1.5 text-caption uppercase tracking-wide text-muted">{team}</td>
-      <td className="whitespace-nowrap px-3 py-1.5 text-right text-caption tabular-nums text-muted">
+      <td className="whitespace-nowrap px-3 py-1.5 text-right text-body tabular-nums text-muted">
         {formatWhen(issue.updated_at)}
       </td>
     </tr>
@@ -77,7 +77,7 @@ export function IssueList() {
           <span>Issues</span>
           <span className="flex items-center gap-2">
             <FixtureBadge standsInFor={issues.standsInFor} />
-            <span className="text-caption tabular-nums text-faint">{issues.data.length} issues</span>
+            <span className="text-body tabular-nums text-faint">{issues.data.length} issues</span>
           </span>
         </div>
       </CardHeader>

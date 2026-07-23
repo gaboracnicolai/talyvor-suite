@@ -40,7 +40,7 @@ export function Config() {
           <span className="inline-flex items-center gap-2">ext_authz</span>
         </CardHeader>
         {/* State without control, stated in words so nobody goes looking for the button. */}
-        <p className="border-b border-rule px-gutter py-2 text-caption font-normal text-muted">
+        <p className="border-b border-rule px-gutter py-2 text-body text-muted">
           Reported, not settable: the flip is an environment variable on the control plane, changed
           through the deploy pipeline — this surface shows state and offers no control.
         </p>

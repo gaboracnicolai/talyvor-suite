@@ -26,7 +26,7 @@ function StatusCell({ type }: { type: string }) {
 function LedgerTableRow({ r, token }: { r: LedgerRow; token: Token }) {
   return (
     <tr className="border-b border-rule last:border-b-0">
-      <td className="whitespace-nowrap px-gutter py-2 text-caption tabular-nums text-muted">{formatWhen(r.created_at)}</td>
+      <td className="whitespace-nowrap px-gutter py-2 text-body tabular-nums text-muted">{formatWhen(r.created_at)}</td>
       <td className="px-gutter py-2">
         <StatusCell type={r.type} />
       </td>
@@ -118,7 +118,7 @@ export function Ledger() {
       </Card>
 
       <div className="flex items-center justify-between">
-        <span className="text-caption tabular-nums text-muted">
+        <span className="text-body tabular-nums text-muted">
           Rows {rows.length ? offset + 1 : 0}–{offset + rows.length}
         </span>
         <div className="flex gap-2">

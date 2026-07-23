@@ -64,7 +64,7 @@ export function PageView() {
               {page.doc_status ? <Chip title="Approval workflow status">{page.doc_status}</Chip> : null}
             </span>
           </div>
-          <div className="text-caption font-normal tabular-nums text-faint">
+          <div className="text-body tabular-nums text-faint">
             Updated {formatDay(page.updated_at)} · {page.view_count} views
             {page.last_verified_at ? ` · verified ${formatDay(page.last_verified_at)}` : ''}
           </div>

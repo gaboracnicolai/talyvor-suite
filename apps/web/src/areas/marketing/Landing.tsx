@@ -27,7 +27,7 @@ function SectionLabel({ index, children }: { index: string; children: React.Reac
   return (
     <div className="flex items-center gap-2.5">
       <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />
-      <span className="font-mono text-caption text-faint">{index}</span>
+      <span className="text-caption tabular-nums text-faint">{index}</span>
       <span className="text-caption uppercase tracking-wide text-muted">{children}</span>
     </div>
   )
@@ -308,7 +308,7 @@ export function Landing() {
           <div className="text-caption uppercase tracking-wide text-faint">
             Talyvor · self-hosted AI development
           </div>
-          <div className="font-mono text-micro text-faint">pre-launch · 2026</div>
+          <div className="text-micro tabular-nums text-faint">pre-launch · 2026</div>
         </div>
       </footer>
     </div>

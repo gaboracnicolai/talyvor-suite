@@ -76,7 +76,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
           <FixtureNotice awaiting="a Lens workspace cache-rate endpoint (none exists yet)" />
         </div>
         <Row label="Hit rate" hint={`${fixtureCache.cache_lookups.toLocaleString('en-US')} lookups`}>
-          <span className="text-caption text-muted">≈ {Math.round(fixtureCache.cache_hit_rate * 100)}%</span>
+          <span className="text-body text-muted">≈ {Math.round(fixtureCache.cache_hit_rate * 100)}%</span>
         </Row>
       </Card>
 
@@ -84,11 +84,11 @@ export function Spend({ now = new Date() }: { now?: Date }) {
         <CardHeader>Month to date</CardHeader>
         <Row label="Provider spend" hint="Lens spend/current-month — a float upstream, so it dresses as derived">
           {month.isLoading ? (
-            <span className="text-caption text-muted">Loading…</span>
+            <span className="text-body text-muted">Loading…</span>
           ) : month.isError || !month.data ? (
-            <span className="text-caption text-muted">Couldn’t load</span>
+            <span className="text-body text-muted">Couldn’t load</span>
           ) : (
-            <span className="text-caption text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
+            <span className="text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
           )}
         </Row>
       </Card>

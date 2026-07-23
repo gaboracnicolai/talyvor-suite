@@ -16,7 +16,7 @@ function Comment({ c, members }: { c: TrackComment; members: TrackMember[] }) {
     <div className="border-b border-rule px-gutter py-3 last:border-b-0">
       <div className="flex items-baseline justify-between gap-gutter">
         <span className="text-body font-medium text-ink">{memberName(members, c.author_id)}</span>
-        <span className="whitespace-nowrap text-caption tabular-nums text-faint">
+        <span className="whitespace-nowrap text-body tabular-nums text-faint">
           {formatWhen(c.created_at)}
           {c.edited_at ? ' · edited' : ''}
         </span>
@@ -90,10 +90,10 @@ export function IssueDetail() {
           </Row>
         ) : null}
         <Row label="Created" hint={`by ${memberName(members.data, i.creator_id)}`}>
-          <span className="text-caption tabular-nums text-muted">{formatWhen(i.created_at)}</span>
+          <span className="text-body tabular-nums text-muted">{formatWhen(i.created_at)}</span>
         </Row>
         <Row label="Updated">
-          <span className="text-caption tabular-nums text-muted">{formatWhen(i.updated_at)}</span>
+          <span className="text-body tabular-nums text-muted">{formatWhen(i.updated_at)}</span>
         </Row>
       </Card>
 
@@ -112,7 +112,7 @@ export function IssueDetail() {
             <span>Comments</span>
             <span className="flex items-center gap-2">
               <FixtureBadge standsInFor={comments.standsInFor} />
-              <span className="text-caption tabular-nums text-faint">{comments.data.length}</span>
+              <span className="text-body tabular-nums text-faint">{comments.data.length}</span>
             </span>
           </div>
         </CardHeader>

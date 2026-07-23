@@ -25,7 +25,7 @@ export function FixtureChip() {
 /** Under-card footnote explaining the fixture chip, once per screen. */
 export function FixtureNote() {
   return (
-    <p className="px-gutter text-caption font-normal text-faint">
+    <p className="px-gutter text-body text-faint">
       Page tree and page content are local fixtures — the BFF serves only /api/docs/spaces today. The missing
       routes are enumerated in areas/docs/BFF-GAPS.md.
     </p>
