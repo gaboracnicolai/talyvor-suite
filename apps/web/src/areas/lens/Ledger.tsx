@@ -51,7 +51,12 @@ const TOKENS: { id: Token; label: string }[] = [
 ]
 
 export function Ledger() {
-  const [token, setTokenRaw] = useState<Token>('lens')
+  // Default to LXC — the ledger inference actually MOVES. LXC is what a request
+  // spends (grants, debits, purchases), so on any real workspace it has rows from
+  // the first request. LENS is the mint ledger, empty until the economy credits a
+  // workspace (never, for `default`) — landing there first tells a user who just
+  // made requests that "nothing happened". The toggle still reaches it in one click.
+  const [token, setTokenRaw] = useState<Token>('lxc')
   const [offset, setOffset] = useState(0)
   const setToken = (t: Token) => {
     setTokenRaw(t)

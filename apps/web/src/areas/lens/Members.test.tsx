@@ -20,4 +20,14 @@ describe('Members', () => {
     expect(screen.getAllByText(/sample data/i)).toHaveLength(1)
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument()
   })
+
+  // Regression lock for the review finding: this fixture MUST NOT impersonate a
+  // real person. Every address is on the RFC-2606 `.invalid` TLD (never a real
+  // mailbox), so no future edit can quietly reintroduce a real name/email behind
+  // the "sample data" label — the notice and the data can never disagree again.
+  it('the fixture roster is unmistakably synthetic — every email is unroutable .invalid', () => {
+    for (const m of fixtureRoster) {
+      expect(m.email).toMatch(/@example\.invalid$/)
+    }
+  })
 })

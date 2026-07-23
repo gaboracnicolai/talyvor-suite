@@ -5,28 +5,10 @@
 // presented as live. When the BFF routes land (see the lens-area report), these
 // types move next to api.ts calls and the fixtures die.
 
-/** Lens list row: internal/tenant/store.go WorkspaceAPIKey (KeyHash json:"-").
- *  GET /v1/workspaces/{ws}/api-keys → []WorkspaceAPIKey. */
-export interface WorkspaceAPIKey {
-  id: string
-  workspace_id: string
-  key_prefix: string
-  name: string
-  scopes: string[]
-  last_used_at?: string
-  expires_at?: string
-  created_at: string
-}
-
-/** Lens mint response: cmd/lens/main.go POST /v1/workspaces/{ws}/api-keys →
- *  201 {key, prefix, name, scopes, …} — `key` and `prefix` ADJACENT in one
- *  JSON object; the /keys screen exists to keep humans from confusing them. */
-export interface MintResult {
-  key: string
-  prefix: string
-  name: string
-  scopes: string[]
-}
+// The Keys types and fixtures that used to live here are GONE: /keys is now
+// wired to the real BFF routes (GET + POST /api/keys), so its shapes moved to
+// ./keysApi.ts next to the fetch calls — exactly the "the fixtures die" step the
+// header promised. Members is the only screen still fixture-backed below.
 
 /** Track roster row: internal/member/mgmt_handler.go memberView.
  *  GET /v1/workspaces/{wsID}/members → []memberView. Roles: owner | member. */
@@ -49,37 +31,15 @@ export interface SpendLedgerRow {
   metadata: Record<string, unknown> // lib/api.ts LedgerEntry.metadata — live rows feed the same functions
 }
 
-export const fixtureKeys: WorkspaceAPIKey[] = [
-  {
-    id: 'key_01',
-    workspace_id: 'trial-ws-1',
-    key_prefix: 'tlv_ws_9f21c4a0',
-    name: 'CI pipeline',
-    scopes: ['proxy'],
-    created_at: '2026-07-14T09:12:00Z',
-    last_used_at: '2026-07-22T07:41:00Z',
-  },
-  {
-    id: 'key_02',
-    workspace_id: 'trial-ws-1',
-    key_prefix: 'tlv_ws_b7e02d11',
-    name: 'Local development',
-    scopes: ['proxy', 'earn'],
-    created_at: '2026-07-19T16:03:00Z',
-  },
-]
-
-/** The sample mint. The key value is unmistakably a SAMPLE — it says so. */
-export const fixtureMint: MintResult = {
-  key: 'tlv_ws_SAMPLE_this_is_not_a_real_credential_0000000000000000',
-  prefix: 'tlv_ws_5ample00',
-  name: 'New key',
-  scopes: ['proxy'],
-}
-
+// UNMISTAKABLY SYNTHETIC. A fixture must never impersonate a real person — a
+// reviewer who recognises a real name or address on a "sample data"-labelled
+// screen stops trusting every number on every other screen (the review found
+// this file naming a real owner). Every address here is on the RFC-2606
+// `.invalid` TLD, which can never resolve to a real mailbox, and the names say
+// what they are. Members.test.tsx pins the `.invalid` rule so it cannot regress.
 export const fixtureRoster: RosterMember[] = [
-  { id: 'm_01', name: 'N. Gaborac', email: 'gaborac.nicolai@gmail.com', role: 'owner', avatar_url: '' },
-  { id: 'm_02', name: 'Trial Reviewer', email: 'reviewer@example.com', role: 'member', avatar_url: '' },
+  { id: 'm_01', name: 'Sample Owner', email: 'owner@example.invalid', role: 'owner', avatar_url: '' },
+  { id: 'm_02', name: 'Sample Member', email: 'member@example.invalid', role: 'member', avatar_url: '' },
 ]
 
 /** Rows shaped exactly like the live mint ledger (metadata.model_used is real:
