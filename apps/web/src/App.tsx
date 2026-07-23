@@ -101,7 +101,10 @@ function Sidebar() {
       </Group>
       <Group label="Operator">
         {item('/admin', 'Admin', true)}
-        {item('/specimen', 'Specimen')}
+        {/* /specimen (the design-system gallery) is deliberately NOT in the nav:
+            it is an internal review tool, and a trial user clicking it sees a
+            work-in-progress page. The ROUTE stays (see <Routes>) — reviews open
+            it by URL; unlinked, it costs nothing. Don't re-add the item. */}
       </Group>
     </nav>
   )
