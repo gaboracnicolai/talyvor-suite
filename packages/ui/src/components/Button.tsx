@@ -30,7 +30,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={asChild ? undefined : (type ?? 'button')}
       className={cn(
-        'inline-flex h-8 items-center justify-center gap-1.5 rounded-control border px-3',
+        'inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-control border px-3',
         'text-body font-medium transition-colors',
         'disabled:pointer-events-none disabled:opacity-50',
         focusRing,
