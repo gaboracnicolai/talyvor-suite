@@ -16,7 +16,7 @@
   "src/areas/track/format.test.ts": 4,
   "src/areas/track/IssueDetail.test.tsx": 5,
   "src/areas/track/IssueList.test.tsx": 8,
-  "src/areas/track/TrackArea.test.tsx": 4,
+  "src/areas/track/TrackArea.test.tsx": 5,
   "src/AuthGate.test.tsx": 3,
   "src/Specimen.test.tsx": 1
 }

@@ -46,12 +46,31 @@ describe('TrackArea', () => {
     expect(screen.getByText('14 issues')).toBeInTheDocument()
   })
 
-  it('names the fault honestly when the proxy is unreachable — and the fixtures stay usable', async () => {
+  // The strip must tell the truth in three states, matching Docs' SpaceList:
+  // 503/404 is INFORMATION (unconfigured — off, not broken), everything else is
+  // a real failure named as such, and liveness wording only under live data.
+  it('renders an unconfigured upstream (503) as off — never as an outage', async () => {
+    mockWorkspaces(() => new Response('{"error":"track upstream not configured on this BFF"}', { status: 503 }))
+    renderArea()
+
+    expect(await screen.findByText('Track is not configured on this BFF deployment')).toBeInTheDocument()
+    expect(screen.getByText(/TRACK_\* trio is unset/)).toBeInTheDocument()
+    expect(screen.getByText(/off, not broken/)).toBeInTheDocument()
+    expect(screen.queryByText(/unreachable/)).not.toBeInTheDocument()
+    expect(screen.queryByText('live · membership-scoped')).not.toBeInTheDocument()
+    // the fixture screens are a design preview and stay fully usable
+    expect(screen.getByText(/design preview on marked sample data/)).toBeInTheDocument()
+    expect(screen.getByText('14 issues')).toBeInTheDocument()
+  })
+
+  it('names a real failure as a failure — without claiming to know why', async () => {
     mockWorkspaces(() => new Response('bad gateway', { status: 502 }))
     renderArea()
 
-    expect(await screen.findByText('Track upstream unreachable')).toBeInTheDocument()
-    expect(screen.getByText(/TRACK_BASE_URL and TRACK_GATEWAY_SECRET/)).toBeInTheDocument()
+    expect(await screen.findByText('Couldn’t load workspaces')).toBeInTheDocument()
+    expect(screen.queryByText(/unreachable/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/not configured/)).not.toBeInTheDocument()
+    expect(screen.queryByText('live · membership-scoped')).not.toBeInTheDocument()
     expect(screen.getByText('14 issues')).toBeInTheDocument()
   })
 
