@@ -67,6 +67,22 @@ describe('correction 3 — the accent appears on interaction (never on text)', (
   })
 })
 
+describe('button-fit — a fixed-height control must never let its label wrap', () => {
+  // The defect (measured in a real browser vs the emitted CSS): Button/Select are
+  // fixed-height (h-8, for row alignment with Inputs) but had no whitespace-nowrap,
+  // so a long label in a constrained slot wrapped to two lines and the second line
+  // rendered through the bottom border (scrollHeight 35 > clientHeight 30). The 13→14
+  // scale widened labels and exposed it. Fix = forbid the wrap, keep the height.
+  it('Button carries whitespace-nowrap', () => {
+    render(<Button>Regenerate token</Button>)
+    expect(screen.getByRole('button', { name: 'Regenerate token' }).className).toContain('whitespace-nowrap')
+  })
+  it('Button keeps its fixed h-8 (alignment with h-8 inputs is a design choice, not the bug)', () => {
+    render(<Button>x</Button>)
+    expect(screen.getByRole('button', { name: 'x' }).className).toContain('h-8')
+  })
+})
+
 describe('correction 4 — the mark', () => {
   it('renders a rounded tile holding a partially-filled hairline (the hold indicator abstracted)', () => {
     render(<Mark />)
