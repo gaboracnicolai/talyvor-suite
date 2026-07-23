@@ -38,32 +38,20 @@ function renderLedger() {
 afterEach(() => vi.restoreAllMocks())
 
 describe('Ledger renders both real token ledgers', () => {
-  it('defaults to the LENS ledger: held + settled pills, µ-integer amounts', async () => {
-    mockBothLedgers()
-    renderLedger()
-
-    expect(await screen.findByText('pattern shared (held)')).toBeInTheDocument()
-    expect(screen.getByText('held')).toBeInTheDocument()
-    expect(screen.getByText('settled')).toBeInTheDocument()
-    expect(screen.getAllByText('1,000').length).toBeGreaterThan(0) // sub-unit → µLENS integer
-  })
-
-  it('switches to the LXC ledger: 3 movement rows, steel tick, no pills, purchase shown verbatim', async () => {
+  it('defaults to the LXC ledger — the one inference moves — with the real movement rows, steel tick, no pills', async () => {
     mockBothLedgers()
     const { container } = renderLedger()
-    await screen.findByText('pattern shared') // LENS loaded first
 
-    fireEvent.click(screen.getByRole('button', { name: 'LXC' }))
-
-    // the three real LXC rows, including the mislabeled bootstrap grant, verbatim
+    // Lands on LXC: the three real movements, including the mislabeled bootstrap
+    // grant, shown verbatim (the data is wrong, not the display). This is the fix
+    // for the review's "first five minutes say nothing happened" — a real
+    // workspace has LXC rows from its first request, LENS mint rows never.
     expect(await screen.findByText('closed-test bootstrap grant (manual admin act, no fiat)')).toBeInTheDocument()
     expect(screen.getByText('trial top-up via admin grant')).toBeInTheDocument()
-    // the type is shown faithfully as a plain label — NOT re-interpreted
     expect(screen.getByText('purchase')).toBeInTheDocument()
     expect(screen.getByText('admin grant')).toBeInTheDocument()
     expect(screen.getByText('spend')).toBeInTheDocument()
-    // the sub-unit spend renders as a signed µ-integer
-    expect(screen.getByText('-64')).toBeInTheDocument()
+    expect(screen.getByText('-64')).toBeInTheDocument() // signed µ-integer
 
     // movements carry NO economic pill …
     expect(screen.queryByText('held')).toBeNull()
@@ -71,6 +59,19 @@ describe('Ledger renders both real token ledgers', () => {
     // … and the unit tick is STEEL (lxc), not copper (lens) — the two-token signature
     expect(container.querySelector('.bg-lxc')).not.toBeNull()
     expect(container.querySelector('.bg-lens')).toBeNull()
+  })
+
+  it('switches to the LENS mint ledger: held + settled pills, µ-integer amounts', async () => {
+    mockBothLedgers()
+    renderLedger()
+    await screen.findByText('trial top-up via admin grant') // LXC loaded first (default)
+
+    fireEvent.click(screen.getByRole('button', { name: 'LENS' }))
+
+    expect(await screen.findByText('pattern shared (held)')).toBeInTheDocument()
+    expect(screen.getByText('held')).toBeInTheDocument()
+    expect(screen.getByText('settled')).toBeInTheDocument()
+    expect(screen.getAllByText('1,000').length).toBeGreaterThan(0) // sub-unit → µLENS integer
   })
 
   it('surfaces an upstream failure honestly rather than faking rows', async () => {
