@@ -8,7 +8,7 @@ export const tokens = {
     canvas: '#F4F5F6', surface: '#FFFFFF', sidebar: '#ECEEF0',
     rule: 'rgba(0,0,0,.085)', 'rule-strong': 'rgba(0,0,0,.14)',
     ink: '#1B1D1F', muted: '#6B6E73', faint: '#8B8F94',
-    accent: '#0B7A85', 'accent-hover': '#096570', 'accent-ink': '#FFFFFF', 'accent-tint': '#E4F0F1',
+    accent: '#0B7A85', 'accent-hover': '#096570', 'accent-ink': '#FFFFFF', 'accent-tint': '#CDE5E8',
     lens: '#A85A2C', lxc: '#42688C',
     // The routing ramp is TWO CATEGORIES, not four: tier1 = cheap/fast (cool),
     // tier3 = capable/expensive (warm). Hue encodes category; see README §The ramp.

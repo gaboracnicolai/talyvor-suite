@@ -39,10 +39,15 @@ describe('correction 2 — the scale steps up one', () => {
 })
 
 describe('correction 3 — the accent appears on interaction (never on text)', () => {
-  it('an accent-tint background token exists in BOTH themes', () => {
-    expect(tokens.light['accent-tint']).toMatch(/^#/)
-    expect(tokens.dark['accent-tint']).toMatch(/^#/)
-    expect(tokens.light['accent-tint']).not.toBe(tokens.dark['accent-tint'])
+  it('the tint values are PINNED — chosen against the surfaces, not symmetrically', () => {
+    // Light was #E4F0F1: 1.07:1 against the #F4F5F6 sidebar — under the
+    // threshold where a hover reads as a hover. #CDE5E8 mirrors dark's
+    // working deltas (1.20:1 vs canvas, 1.32:1 vs surface ≈ dark's 1.21/1.35)
+    // while staying a pale tint: ink on it is 12.9:1, and it sits 3.9:1 away
+    // from the full accent fill. Dark was already correct; it is pinned so a
+    // future "symmetry" cleanup cannot quietly reintroduce the mistake.
+    expect(tokens.light['accent-tint']).toBe('#CDE5E8')
+    expect(tokens.dark['accent-tint']).toBe('#11333A')
   })
   it('nav hover and selection are accent-tinted; the label stays ink', () => {
     render(<NavItem active>Ledger</NavItem>)
