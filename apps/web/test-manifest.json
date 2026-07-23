@@ -6,7 +6,7 @@
   "src/areas/docs/tree.test.ts": 4,
   "src/areas/lens/format.test.ts": 8,
   "src/areas/lens/Keys.test.tsx": 7,
-  "src/areas/lens/Ledger.test.tsx": 3,
+  "src/areas/lens/Ledger.test.tsx": 6,
   "src/areas/lens/Members.test.tsx": 3,
   "src/areas/lens/Overview.test.tsx": 7,
   "src/areas/lens/Spend.test.tsx": 6,
