@@ -3,7 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
 import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
-import { useTrackWorkspaces } from './data'
+import { TrackApiError, useTrackWorkspaces } from './data'
 
 // The Track area root. App.tsx mounts this under /track/* (wildcard), so ALL Track
 // sub-routing lives here — the area owns its URL space, per the ownership contract.
@@ -25,16 +25,30 @@ function WorkspaceStrip() {
     return <div className="px-gutter py-2 text-body text-muted">Loading workspaces…</div>
   }
   if (q.isError || !q.data) {
-    // A dead upstream is a fault to name, not to dress up: the BFF proxies Track only
-    // when TRACK_BASE_URL + TRACK_GATEWAY_SECRET are both set (apps/bff/main.go
-    // fail-closed pairing). Say so, keep the fixtures below usable.
-    return (
+    // Three states, matching Docs' SpaceList exactly: a 503 is the BFF's
+    // proxyProduct saying "upstream not configured on this BFF", and a 404 is a
+    // BFF built before the Track routes — both are INFORMATION, not faults (the
+    // same reading Overview's product probe uses). Everything else is a real
+    // failure, named as such without claiming to know why. Either way the
+    // fixture screens below are a design preview and keep working.
+    const off =
+      q.error instanceof TrackApiError && (q.error.status === 503 || q.error.status === 404)
+    return off ? (
       <Card>
-        <CardHeader>Track upstream unreachable</CardHeader>
+        <CardHeader>Track is not configured on this BFF deployment</CardHeader>
         <p className="px-gutter py-3 text-body text-muted">
-          /api/track/workspaces did not answer. If this BFF should serve Track, set both
-          TRACK_BASE_URL and TRACK_GATEWAY_SECRET on it (they fail closed as a pair). The
-          screens below run on marked fixtures either way.
+          The BFF has no Track upstream wired (its TRACK_* trio is unset) — off, not
+          broken. The screens below are a design preview on marked sample data; they
+          don’t depend on this upstream.
+        </p>
+      </Card>
+    ) : (
+      <Card>
+        <CardHeader>Couldn’t load workspaces</CardHeader>
+        <p className="px-gutter py-3 text-body text-muted">
+          The Track proxy answered with an error — nothing is shown rather than
+          something stale. The screens below are a design preview on marked sample
+          data; they don’t depend on this upstream.
         </p>
       </Card>
     )
