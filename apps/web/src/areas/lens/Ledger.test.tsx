@@ -80,3 +80,48 @@ describe('Ledger renders both real token ledgers', () => {
     expect(await screen.findByText(/Couldn’t load the ledger/)).toBeInTheDocument()
   })
 })
+
+// THE NULL EMPTY-STATE BUG (third instance of the shape today): Lens serialises an
+// empty slice as JSON `null`, not `[]`. GetHistory/GetLXCHistory return a nil slice
+// on a genuinely-empty workspace, so tokens/history and lxc/history answer 200 with
+// body `null`. The client mapped over it (`rs.map`), threw, and a TRUE empty state
+// rendered as "Couldn't load". Assert on what RENDERS — the status was 200 the whole
+// time, which is why this was invisible to any status-code check.
+describe('a null body (empty ledger) renders the empty state, not the error state', () => {
+  const mockNull = (which: 'tokens' | 'lxc' | 'both') =>
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const isTokens = url.startsWith('/api/tokens/history')
+      const isLxc = url.startsWith('/api/lxc/history')
+      const nulls = which === 'both' || (which === 'tokens' && isTokens) || (which === 'lxc' && isLxc)
+      if ((isTokens || isLxc) && nulls) {
+        return new Response('null', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (isTokens) return new Response(JSON.stringify(LENS_ROWS), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (isLxc) return new Response(JSON.stringify(LXC_ROWS), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      return new Response('null', { status: 404 })
+    })
+
+  it('LENS: 200 + null → "No ledger entries yet.", never "Couldn’t load"', async () => {
+    mockNull('tokens')
+    renderLedger()
+    fireEvent.click(screen.getByRole('button', { name: 'LENS' })) // the tab the user reported
+    expect(await screen.findByText(/no ledger entries yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/couldn.t load/i)).not.toBeInTheDocument()
+  })
+
+  it('LXC keeps working exactly as now (real rows) while LENS is null', async () => {
+    mockNull('tokens')
+    renderLedger()
+    fireEvent.click(screen.getByRole('button', { name: 'LXC' }))
+    expect(await screen.findByText(/trial top-up via admin grant/i)).toBeInTheDocument()
+  })
+
+  it('LXC: 200 + null also renders the empty state (a fresh workspace nulls here too)', async () => {
+    mockNull('lxc')
+    renderLedger()
+    fireEvent.click(screen.getByRole('button', { name: 'LXC' }))
+    expect(await screen.findByText(/no ledger entries yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/couldn.t load/i)).not.toBeInTheDocument()
+  })
+})

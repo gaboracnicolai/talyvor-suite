@@ -16,7 +16,7 @@
 // The one failure mode, and it is correct-by-design: if the app is ever loaded
 // from a hostname other than the configured public origin (a raw IP, an alias),
 // the mint 403s — a CSRF refusal, not a bug. GET (list) needs no Origin.
-import { ApiError } from '../../lib/api'
+import { ApiError, getJSONArray } from '../../lib/api'
 
 /** Lens list row: internal/tenant/store.go WorkspaceAPIKey (KeyHash json:"-").
  *  GET /v1/workspaces/{ws}/api-keys → []WorkspaceAPIKey. The list NEVER carries a
@@ -44,18 +44,10 @@ export interface MintResult {
   scopes: string[]
 }
 
-async function getJSON<T>(path: string): Promise<T> {
-  // The shared ApiError, so a 401 trips App.tsx's QueryCache handler and
-  // re-probes the auth gate exactly like every other live area.
-  const res = await fetch(path, { headers: { Accept: 'application/json' } })
-  if (!res.ok) throw new ApiError(res.status, path)
-  return (await res.json()) as T
-}
-
 export const keysApi = {
   /** LIVE — the workspace's keys, newest as the server orders them. */
   list: (): Promise<WorkspaceAPIKey[]> => keysApi._list(),
-  _list: (): Promise<WorkspaceAPIKey[]> => getJSON<WorkspaceAPIKey[]>('/api/keys'),
+  _list: (): Promise<WorkspaceAPIKey[]> => getJSONArray<WorkspaceAPIKey>('/api/keys'),
 
   /** LIVE WRITE — mint a key. Relative path ⇒ same-origin ⇒ the browser supplies
    *  the Origin the BFF requires (see the file header). The returned `key` is the

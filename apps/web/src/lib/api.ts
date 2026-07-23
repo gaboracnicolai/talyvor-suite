@@ -89,12 +89,35 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 /**
+ * A LIST read that tolerates an empty result serialised as JSON `null`.
+ *
+ * Lens builds list responses with the Go idiom `var out []T; for rows.Next()…;
+ * return out`, so a genuinely-empty result is a nil slice → `null` on the wire,
+ * NOT `[]`. THREE suite endpoints do this (verified in Lens source): tokens/history,
+ * lxc/history and api-keys. A caller that maps or reads .length on `null` throws,
+ * and a TRUE empty state (a new workspace with no rows) renders as a FAILURE — the
+ * bug this fixes, and the third instance of that shape in the suite.
+ *
+ * Normalise ONCE here rather than let every screen guard with `?? []`: null and []
+ * are identical for a list. This is deliberately array-scoped — object reads keep
+ * getJSON, so a null that MEANS something (a missing object) still surfaces. The
+ * one Lens list that must never be null (`/v1/workspaces`, "ALWAYS a JSON array")
+ * loses nothing by passing through.
+ */
+async function getJSONArray<T>(path: string): Promise<T[]> {
+  const body = await getJSON<T[] | null>(path)
+  return body ?? []
+}
+
+/**
  * A capability-gated read: either the feature is off, or it's on with a payload. Lens
  * makes a flag-off route wire-identical to a real not-found, so the BFF resolves the
  * ambiguity (it knows which endpoints are gated) and returns this envelope. The client
  * discriminates on `enabled` — never on a status code, so a disabled capability never
  * touches the error path. A genuine failure (5xx/auth) still throws ApiError.
  */
+export { getJSONArray }
+
 export type Capability<T> = { enabled: false } | { enabled: true; data: T }
 
 async function getCapability<T>(path: string): Promise<Capability<T>> {
@@ -135,13 +158,13 @@ export const api = {
   lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance'),
   lensBalance: () => getJSON<LensBalance>('/api/tokens/balance'),
   tokensHistory: (limit: number, offset: number) =>
-    getJSON<LedgerEntry[]>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
+    getJSONArray<LedgerEntry>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
   /** Capability-gated (H5 bonds). Off in the trial config today → { enabled: false }. */
   bonds: () => getCapability<Bond[]>('/api/bonds'),
 
   /** The LENS mint ledger, normalized. */
   lensLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>
-    getJSON<LedgerEntry[]>(`/api/tokens/history?limit=${limit}&offset=${offset}`).then((rs) =>
+    getJSONArray<LedgerEntry>(`/api/tokens/history?limit=${limit}&offset=${offset}`).then((rs) =>
       rs.map((r) => ({
         id: r.id,
         amount: r.amount_ulens,
@@ -153,7 +176,7 @@ export const api = {
     ),
   /** The LXC (pegged) ledger, normalized. */
   lxcLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>
-    getJSON<LXCLedgerEntry[]>(`/api/lxc/history?limit=${limit}&offset=${offset}`).then((rs) =>
+    getJSONArray<LXCLedgerEntry>(`/api/lxc/history?limit=${limit}&offset=${offset}`).then((rs) =>
       rs.map((r) => ({
         id: r.id,
         amount: r.amount_ulxc,
