@@ -39,3 +39,24 @@ export function inWindow(rows: SpendLedgerRow[], days: number, now: Date): Spend
     return Number.isFinite(t) && t >= cutoff
   })
 }
+
+/** A row with a signed µ amount — either token's normalized ledger shape. */
+export interface SignedRow {
+  amount: number
+  created_at: string
+}
+
+// debitTotal sums the DEBITS (negative amounts) inside the window and returns
+// the total as a POSITIVE µ count — "how much left the balance". Credits
+// (grants, purchases, conversions) are excluded by SIGN, not by type string,
+// which stays correct if a new credit type appears. Exact integer µ, no float.
+export function debitTotal(rows: SignedRow[], days: number, now: Date): number {
+  const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000
+  let total = 0
+  for (const r of rows) {
+    const t = Date.parse(r.created_at)
+    if (!Number.isFinite(t) || t < cutoff) continue
+    if (r.amount < 0) total += -r.amount
+  }
+  return total
+}

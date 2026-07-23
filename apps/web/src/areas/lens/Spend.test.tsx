@@ -22,6 +22,13 @@ function stubFetch() {
         new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } })
       if (path.includes('/api/tokens/history')) return json(fixtureSpendRows)
       if (path.includes('/api/spend/month')) return json({ current_month_usd: 4.31 })
+      // The LXC ledger — inference debits (negative) + a grant credit. Raw wire
+      // shape; no model metadata (no LXC writer attaches one).
+      if (path.includes('/api/lxc/history'))
+        return json([
+          { id: 'x1', workspace_id: 'w', amount_ulxc: -640000, balance_after_ulxc: 49360000, type: 'spend', description: 'proof-of-agent-allocation: pre-serve estimate debit', metadata: {}, created_at: '2026-07-21T10:00:05Z' },
+          { id: 'x2', workspace_id: 'w', amount_ulxc: 50000000, balance_after_ulxc: 50000000, type: 'admin_grant', description: 'trial onboarding', metadata: {}, created_at: '2026-07-19T08:00:00Z' },
+        ])
       throw new Error(`unexpected fetch: ${path}`)
     }),
   )
@@ -78,7 +85,9 @@ describe('Spend (live)', () => {
       }),
     )
     renderSpend()
-    await waitFor(() => expect(screen.getByText(/couldn.t load/i)).toBeInTheDocument())
+    // that stub also feeds the LXC row garbage, so MORE THAN ONE failure shows —
+    // the point stands either way: a dead route is visible, never silently empty
+    await waitFor(() => expect(screen.getAllByText(/couldn.t load/i).length).toBeGreaterThan(0))
   })
 
   it('only the cache card is still a sample, and it says so without placeholder wording', async () => {
@@ -87,5 +96,19 @@ describe('Spend (live)', () => {
     await screen.findByText('claude-sonnet-5')
     expect(screen.getAllByText(/sample/i)).toHaveLength(1)
     expect(screen.queryByText(/placeholder/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('the inversion fix: earned is copper, spent is steel', () => {
+  it('labels the by-model table as MINT ATTRIBUTION and shows spend as an LXC debit total', async () => {
+    stubFetch()
+    renderSpend()
+    // the by-model table is EARNED (the mined token), never labelled spend
+    expect(await screen.findByText('Earned by model — LENS mint attribution')).toBeInTheDocument()
+    // the spent card: LXC debits at window granularity, with the reason there
+    // is no per-model split (no LXC ledger writer attaches a model)
+    expect(screen.getByText('Spent — LXC')).toBeInTheDocument()
+    expect(screen.getByText(/Inference debits — 7d/)).toBeInTheDocument()
+    expect(screen.getByText(/no model attribution/)).toBeInTheDocument()
   })
 })

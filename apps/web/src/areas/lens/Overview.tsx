@@ -4,13 +4,14 @@ import { api, ApiError, type Bond, type LedgerEntry } from '../../lib/api'
 import { CapabilityOff } from './Capability'
 import { fixtureCache, fixtureModelTiers } from './fixtures'
 import { formatUSD, formatWhen, humanizeType, ledgerStatus } from './format'
-import { byModel, inWindow } from './spendMath'
+import { byModel, debitTotal, inWindow } from './spendMath'
 
 // Overview: the first screen a trial user sees. It answers, in order:
 //   1. What have I got?            — the two balances (live).
-//   2. What am I spending, where?  — month ≈ + by-model over 30d, derived LIVE
-//                                    from the mint ledger via spendMath (the
-//                                    same pure functions /spend runs).
+//   2. What am I spending — and what am I earning? — the TWO token economies,
+//      plainly separated and wearing their own metals: LXC debits (steel; the
+//      lxc_ledger is what inference SPENDS) + month ≈USD, then LENS mint
+//      attribution by model (copper; lens_token_ledger is what mining EARNS).
 //   3. Is the cache earning me anything? — the product's claim. SAMPLE today,
 //      visibly marked: no Lens per-workspace cache endpoint exists, and
 //      cache-hit ledger visibility (lens #339) is not deployed. See the report.
@@ -93,31 +94,66 @@ function LensCard() {
   )
 }
 
-/* ── 2 · Spend (live: month ≈ + by-model over the shared ledger fetch) ──── */
+/* ── 2 · Spend & earnings (the two token economies, plainly separated) ──── */
+//
+// THE INVERSION THIS FIXES: /api/tokens/history reads lens_token_ledger — LENS
+// EARNED by pattern mining. /api/lxc/history reads lxc_ledger — LXC SPENT on
+// inference. The first version of this card presented mint attribution labelled
+// as spend. Now each economy wears its own metal: steel (lxc) for what left the
+// balance, copper (lens) for what mining credited.
+//
+// Per-model granularity is asymmetric BY THE DATA: LENS mint rows carry
+// metadata.model_used; LXC ledger rows carry NO model on any writer (the agent
+// allocator debit — the live spend lane — writes metadata=nil, verified at lens
+// 8c70d9e), so per-model spend is not derivable and the row says so.
+
+function TokenSection({ token, children }: { token: 'lxc' | 'lens'; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5 border-b border-rule bg-canvas px-gutter py-1.5">
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-pill ${token === 'lxc' ? 'bg-lxc' : 'bg-lens'}`}
+        aria-hidden="true"
+      />
+      <span className="text-caption uppercase tracking-wide text-muted">{children}</span>
+    </div>
+  )
+}
 
 function SpendCard({ now }: { now: Date }) {
   const ledger = useHistory()
+  const lxc = useQuery({ queryKey: ['lxc-history', 200, 0], queryFn: () => api.lxcLedger(200, 0) })
   const month = useQuery({ queryKey: ['spend-month'], queryFn: api.spendMonth })
   const agg = ledger.data ? byModel(inWindow(ledger.data, 30, now)).slice(0, 5) : []
   return (
     <Card>
-      <CardHeader>Spend — last 30 days</CardHeader>
+      <CardHeader>Spend &amp; earnings — last 30 days</CardHeader>
+      <TokenSection token="lxc">Spent — LXC</TokenSection>
       <Row label="This month" hint="provider spend — a float upstream, so it dresses as derived">
         {month.isLoading ? (
-          <span className="text-caption text-muted">Loading…</span>
+          <span className="text-body text-muted">Loading…</span>
         ) : month.isError || !month.data ? (
-          <span className="text-caption text-muted">Couldn’t load</span>
+          <span className="text-body text-muted">Couldn’t load</span>
         ) : (
-          <span className="text-caption text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
+          <span className="text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
         )}
       </Row>
+      <Row label="Inference debits" hint="all models — LXC ledger rows carry no model attribution">
+        {lxc.isLoading ? (
+          <span className="text-body text-muted">Loading…</span>
+        ) : lxc.isError || !lxc.data ? (
+          <span className="text-body text-muted">Couldn’t load</span>
+        ) : (
+          <MuNumeral micros={debitTotal(lxc.data, 30, now)} unit="lxc" />
+        )}
+      </Row>
+      <TokenSection token="lens">Earned — LENS · mint attribution</TokenSection>
       {ledger.isLoading ? (
         <Loading />
       ) : ledger.isError ? (
-        <Failed what="the ledger" />
+        <Failed what="the mint ledger" />
       ) : agg.length === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">
-          No model-attributed ledger rows in the window yet.
+          No mint-attributed LENS rows in the window yet.
         </div>
       ) : (
         agg.map((a) => (
@@ -146,7 +182,7 @@ function CacheCard() {
     <Card>
       <CardHeader>Cache</CardHeader>
       <div className="flex flex-col gap-1.5 px-gutter pb-1 pt-2.5">
-        <FixtureNotice awaiting="a Lens per-workspace cache endpoint (none exists; cache-hit ledger visibility is lens #339, not yet deployed)" />
+        <FixtureNotice awaiting="a Lens per-workspace cache endpoint (none exists; lens #339's per-request visibility is merged upstream but not deployed here)" />
         <div className="text-caption font-normal text-muted">
           A cache hit serves the response without calling the provider.
         </div>
@@ -157,7 +193,7 @@ function CacheCard() {
         </span>
       </Row>
       <Row label="Hit rate" hint={`${fixtureCache.cache_lookups.toLocaleString('en-US')} lookups`}>
-        <span className="text-caption text-muted">
+        <span className="text-body text-muted">
           ≈ {Math.round(fixtureCache.cache_hit_rate * 100)}%
         </span>
       </Row>

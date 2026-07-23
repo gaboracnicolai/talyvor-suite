@@ -31,6 +31,14 @@ const ROUTES: Record<string, unknown> = {
   },
   '/api/tokens/history': HISTORY,
   '/api/spend/month': { current_month_usd: 12.3456 },
+  // The LXC ledger — what inference SPENDS. Raw wire shape (amount_ulxc); the
+  // client normalizes. Debits are negative; the grant credit must be excluded
+  // from any spend total by sign. No model metadata — no LXC writer attaches one.
+  '/api/lxc/history': [
+    { id: 'x1', workspace_id: 'trial-ws-1', amount_ulxc: -640000, balance_after_ulxc: 49360000, type: 'spend', description: 'proof-of-agent-allocation: pre-serve estimate debit', metadata: {}, created_at: '2026-07-21T10:00:05Z' },
+    { id: 'x2', workspace_id: 'trial-ws-1', amount_ulxc: -1360000, balance_after_ulxc: 48000000, type: 'spend', description: 'proof-of-agent-allocation: pre-serve estimate debit', metadata: {}, created_at: '2026-07-20T09:15:05Z' },
+    { id: 'x3', workspace_id: 'trial-ws-1', amount_ulxc: 50000000, balance_after_ulxc: 50000000, type: 'admin_grant', description: 'trial onboarding', metadata: {}, created_at: '2026-07-19T08:00:00Z' },
+  ],
 }
 
 interface Stub {
@@ -93,17 +101,32 @@ describe('capability-gated bonds render as state, not fault', () => {
   })
 })
 
-describe('spend answers "on what?" from the LIVE ledger', () => {
-  it('derives by-model rows from /api/tokens/history and ≈-marks the month float', async () => {
+describe('the two token economies are separated and correctly labelled', () => {
+  it('derives EARNED-by-model from the mint ledger and ≈-marks the month float', async () => {
     mockBff()
     renderOverview()
 
-    // by-model rows, largest µ first, request counts as hints
+    // mint-attribution rows, largest µ first, request counts as hints
     expect(await screen.findByText('claude-sonnet-5')).toBeInTheDocument()
     expect(screen.getByText('claude-haiku-4-5')).toBeInTheDocument()
     expect(screen.getByText('2 requests')).toBeInTheDocument()
     // the month number is derived upstream → dressed as ≈, never a numeral
     expect(screen.getByText('≈ $12.35')).toBeInTheDocument()
+  })
+
+  it('SPENT is LXC (window debit total, no per-model split) and EARNED is LENS — never inverted', async () => {
+    mockBff()
+    renderOverview()
+
+    // the two section markers, each side wearing its own metal
+    expect(await screen.findByText('Spent — LXC')).toBeInTheDocument()
+    expect(screen.getByText('Earned — LENS · mint attribution')).toBeInTheDocument()
+    // the debits row exists and states WHY there is no per-model spend split:
+    // no LXC ledger writer attaches a model (verified at lens 8c70d9e)
+    expect(screen.getByText('Inference debits')).toBeInTheDocument()
+    expect(screen.getByText(/LXC ledger rows carry no model attribution/)).toBeInTheDocument()
+    // the word "Spend" never labels the mint table: the card header carries both
+    expect(screen.getByText('Spend & earnings — last 30 days')).toBeInTheDocument()
   })
 })
 
