@@ -207,6 +207,9 @@ func productApp(t *testing.T, track, docs *captureUpstream) (*app, *http.Cookie)
 	if track != nil {
 		cfg.trackBaseURL = track.srv.URL
 		cfg.trackGatewaySecret = testTrackSecret
+		// The full triple, as loadConfig requires it (the matrix refuses a pair):
+		// Track Tier-1 routes pin their upstream paths to this id.
+		cfg.trackWorkspaceID = "track-ws-7"
 	}
 	if docs != nil {
 		cfg.docsBaseURL = docs.srv.URL
@@ -333,8 +336,10 @@ func TestGatewaySecretsNeverReachResponse(t *testing.T) {
 		"/api/tokens/history", "/api/lxc/history", "/api/workspaces", "/api/bonds",
 		"/api/track/workspaces", "/api/docs/spaces", "/auth/me",
 		"/api/keys", "/api/members", "/api/spend/month", // GET sweeps; the POST mint is deliberately absent — see keys_test.go
-		// Docs Tier-1 id-routes (this PR): the never-leaks guarantee covers them too.
+		// Docs Tier-1 id-routes: the never-leaks guarantee covers them too.
 		"/api/docs/spaces/sp-1", "/api/docs/spaces/sp-1/pages", "/api/docs/spaces/sp-1/pages/pg-1",
+		// Track Tier-1 routes (this PR): same guarantee, same sweep.
+		"/api/track/issues", "/api/track/issues/isu-1", "/api/track/issues/isu-1/comments", "/api/track/teams",
 	}
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()

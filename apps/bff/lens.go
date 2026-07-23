@@ -94,6 +94,18 @@ func newApp(cfg config, auth *authenticator) *app {
 	// no-store / never-logged discipline around that one response.
 	a.mux.HandleFunc("/api/keys", a.requireSession(a.handleKeys))
 
+	// Track Tier-1 (this PR): issues list + issue detail + comments + teams,
+	// completing the track area's gap list (its item 4, the roster, is
+	// /api/members below). All pinned to the CONFIGURED track workspace; the
+	// issues LIST forwards a DECIDED query allowlist (see track.go — unknown
+	// keys, duplicates and the upstream's documented-but-unparsed `labels`
+	// are refused, not silently dropped); id-routes guard the segment before
+	// any dial and use the PLAIN proxy so a genuine 404 stays a 404.
+	a.mux.HandleFunc("/api/track/issues", a.requireSession(a.trackIssues()))
+	a.mux.HandleFunc("/api/track/issues/{id}", a.requireSession(a.trackIssueDetail()))
+	a.mux.HandleFunc("/api/track/issues/{id}/comments", a.requireSession(a.trackIssueComments()))
+	a.mux.HandleFunc("/api/track/teams", a.requireSession(a.trackTeams()))
+
 	// The Track roster and Lens month-spend, both pinned at registration from
 	// config — client input never shapes an upstream path.
 	a.mux.HandleFunc("/api/members", a.requireSession(a.proxyProduct(
@@ -365,12 +377,12 @@ func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, ba
 	_, _ = io.Copy(w, resp.Body)
 }
 
-// docsPathID reads a Docs id path parameter and refuses shapes that could rewrite the
+// pathID reads a product (Track/Docs) id path parameter and refuses shapes that could rewrite the
 // pinned upstream path — an empty segment, a traversal, or an embedded slash (the
 // segments are client input). ServeMux already splits on '/', but %2F / %2e%2e can decode
 // into one, so this is defence-in-depth; a valid opaque id then goes through
 // url.PathEscape at the call site. On rejection it answers 400 and reports false.
-func docsPathID(w http.ResponseWriter, name, v string) (string, bool) {
+func pathID(w http.ResponseWriter, name, v string) (string, bool) {
 	bad := v == "" || v == "." || v == ".." || strings.Contains(v, "..") || strings.ContainsAny(v, "/\\")
 	if !bad {
 		for _, c := range v {
@@ -396,7 +408,7 @@ func (a *app) docsSpaceDetail() http.HandlerFunc {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		spaceID, ok := docsPathID(w, "spaceID", r.PathValue("spaceID"))
+		spaceID, ok := pathID(w, "spaceID", r.PathValue("spaceID"))
 		if !ok {
 			return
 		}
@@ -419,7 +431,7 @@ func (a *app) docsPageList() http.HandlerFunc {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		spaceID, ok := docsPathID(w, "spaceID", r.PathValue("spaceID"))
+		spaceID, ok := pathID(w, "spaceID", r.PathValue("spaceID"))
 		if !ok {
 			return
 		}
@@ -442,11 +454,11 @@ func (a *app) docsPageDetail() http.HandlerFunc {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		spaceID, ok := docsPathID(w, "spaceID", r.PathValue("spaceID"))
+		spaceID, ok := pathID(w, "spaceID", r.PathValue("spaceID"))
 		if !ok {
 			return
 		}
-		pageID, ok := docsPathID(w, "pageID", r.PathValue("pageID"))
+		pageID, ok := pathID(w, "pageID", r.PathValue("pageID"))
 		if !ok {
 			return
 		}
