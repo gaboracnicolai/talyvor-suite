@@ -155,3 +155,31 @@ describe('unmatched /docs routes', () => {
     expect(await screen.findByRole('link', { name: 'Back to spaces' })).toBeInTheDocument()
   })
 })
+
+// ── The caption must tell the truth in all three states ──────────────────────
+// The review's worst finding: "Live from the BFF's Docs proxy" rendered
+// UNCONDITIONALLY — including under "Couldn't load spaces." A failure state
+// carrying a liveness claim is the one thing a technical reader never forgives.
+describe('SpaceList captions tell the truth', () => {
+  it('claims liveness only when data actually loaded', async () => {
+    mockSpaces(200)
+    renderAt('/docs')
+    expect(await screen.findByText('Engineering')).toBeInTheDocument()
+    expect(screen.getByText(/Live from the BFF’s Docs proxy/)).toBeInTheDocument()
+  })
+
+  it('renders an unconfigured upstream (503) as off — never as broken, never as live', async () => {
+    mockSpaces(503)
+    renderAt('/docs')
+    expect(await screen.findByText('Docs is not configured on this BFF deployment.')).toBeInTheDocument()
+    expect(screen.queryByText(/Live from the BFF/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Couldn’t load spaces.')).not.toBeInTheDocument()
+  })
+
+  it('drops the liveness claim on a real failure', async () => {
+    mockSpaces(500)
+    renderAt('/docs')
+    expect(await screen.findByText('Couldn’t load spaces.')).toBeInTheDocument()
+    expect(screen.queryByText(/Live from the BFF/)).not.toBeInTheDocument()
+  })
+})
