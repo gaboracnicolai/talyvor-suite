@@ -22,6 +22,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"strings"
@@ -259,9 +260,14 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
 		expires:  time.Now().Add(pendingTTL),
 	})
 	setCookie(w, pendingCookieName, pendingID, int(pendingTTL.Seconds()))
-	http.Redirect(w, r,
-		a.auth.oauth.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)),
-		http.StatusFound)
+	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oidc.Nonce(nonce)}
+	// The denied page's "sign in with a different account" restart. Gated to this
+	// ONE literal — arbitrary client input never reaches the IdP URL. Standard
+	// OIDC prompt value; providers that don't support it ignore it harmlessly.
+	if r.URL.Query().Get("prompt") == "select_account" {
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "select_account"))
+	}
+	http.Redirect(w, r, a.auth.oauth.AuthCodeURL(state, opts...), http.StatusFound)
 }
 
 // handleCallback finishes the flow: consume the pending login (single use),
@@ -346,9 +352,11 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if reason, allowed := authorizeIdentity(a.cfg.allowedEmails, idt.Subject, claims.Email, claims.EmailVerified); !allowed {
+		// The precise cause goes to the LOG ONLY. The human gets the uniform
+		// denied page: their identity echoed (authentication worked), the
+		// refusal, the way forward — and nothing that distinguishes WHY.
 		log.Printf("bff: login DENIED for sub=%s: %s", idt.Subject, reason)
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "authenticated, but not authorised: " + reason})
+		writeDeniedPage(w, claims.Email)
 		return
 	}
 
@@ -370,6 +378,67 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	setCookie(w, sessionCookieName, sid, int(a.cfg.sessionTTL.Seconds()))
 	log.Printf("bff: session created for sub=%s", idt.Subject)
 	http.Redirect(w, r, p.returnTo, http.StatusFound)
+}
+
+// deniedPageTmpl is the ENTIRE first impression for an authenticated-but-unauthorised identity —
+// the second trial user's whole experience when the operator forgot to extend the allowlist. It is
+// served BY THE BFF, mid-redirect from the IdP, because no alternative works without weakening
+// something: the SPA cannot know WHO was refused (no session exists — that is the security
+// property), a query-string echo would put the identity in histories and logs, and a cookie is
+// exactly what a refusal must not set. Self-contained (inline style, no assets): it must render
+// even when the web bundle was never built.
+//
+// SAYS, in order: you are signed in as <identity> (the login WORKED; this is authorisation, not a
+// broken password) → this workspace has not granted you access → contact whoever runs it (there is
+// no self-service path; pretending otherwise would be worse) → sign in with a different account.
+//
+// LEAKS NOTHING: no allowlist name, size, membership, or refusal cause. Every refusal cause —
+// not-on-list, empty list, issuer-unverified email — renders this same page, so a refused
+// stranger learns only that they were refused. The precise cause stays in the server log.
+var deniedPageTmpl = template.Must(template.New("denied").Parse(`<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Access not granted — Talyvor</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center;
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: #fafaf9; color: #1c1917; }
+  @media (prefers-color-scheme: dark) { body { background: #131110; color: #e7e5e4; } }
+  main { max-width: 26rem; padding: 2.5rem 1.5rem; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; letter-spacing: -0.01em; }
+  p { margin: 0 0 0.85rem; }
+  .muted { opacity: 0.72; }
+  strong { font-weight: 600; overflow-wrap: anywhere; }
+  a.switch { display: inline-block; margin-top: 1rem; padding: 0.55rem 1rem;
+             border: 1px solid currentColor; border-radius: 0.5rem;
+             color: inherit; text-decoration: none; font-weight: 500; }
+</style>
+<main>
+  <h1>Access not granted</h1>
+  {{if .Email}}<p>You are signed in as <strong>{{.Email}}</strong> — the sign-in itself worked.</p>
+  {{else}}<p>Your sign-in itself worked.</p>{{end}}
+  <p>This workspace has not granted you access.</p>
+  <p class="muted">If you believe you should have access, contact the person who runs this
+  workspace and ask them to add you. There is no self-service signup.</p>
+  <a class="switch" href="/auth/login?prompt=select_account">Sign in with a different account</a>
+</main>
+</html>
+`))
+
+// writeDeniedPage renders the refusal. 403 stays 403 — the page is for the human, the status for
+// the tooling. No session was created and none of this response's headers may set one (the only
+// Set-Cookie a refusal carries is the pending-flow CLEAR the callback already wrote). no-store:
+// a shared machine must not cache someone else's identity echo.
+func writeDeniedPage(w http.ResponseWriter, email string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusForbidden)
+	if err := deniedPageTmpl.Execute(w, struct{ Email string }{Email: email}); err != nil {
+		log.Printf("bff: denied page render: %v", err)
+	}
 }
 
 // authorizeIdentity is OUR authorization on top of the IdP's authentication.
