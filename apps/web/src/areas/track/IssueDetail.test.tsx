@@ -19,14 +19,14 @@ describe('IssueDetail', () => {
     expect(screen.getByText('ENG-42')).toBeInTheDocument()
     expect(screen.getByText('Gateway 502s on cold start when the upstream pool is empty')).toBeInTheDocument()
     expect(screen.getByText('In progress')).toBeInTheDocument()
-    // "Jonas Weber" appears twice by design: as the assignee Row AND as a comment
+    // The assignee appears twice by design: as the assignee Row AND as a comment
     // author — both resolved from the same roster read, which is the point.
-    expect(screen.getAllByText('Jonas Weber').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Sample Teammate Alpha').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText(/First request after a deploy/)).toBeInTheDocument()
 
     // the thread: three comments, authors resolved by roster id, edit marker verbatim
     expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.getByText('Amara Okafor')).toBeInTheDocument()
+    expect(screen.getByText('Sample Owner')).toBeInTheDocument()
     expect(screen.getByText(/Careful with the hold/)).toBeInTheDocument()
     expect(screen.getByText(/· edited/)).toBeInTheDocument()
   })

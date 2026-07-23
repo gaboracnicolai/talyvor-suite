@@ -1,32 +1,31 @@
+import { Pill, type PillStatus } from '@talyvor/ui'
 import { statusLabel } from './format'
 import type { IssueStatus } from './types'
 
-// The issue-status pill, in the system's pill grammar: hue on the DOT, label in muted
-// ink — text is never a hue (packages/ui README §The invariant).
+// Track's six-value issue status, rendered as a design-system Pill. This used to
+// hand-roll the pill markup because ui.Pill had no neutral status — but #13 gave
+// Pill exactly the two neutrals Track needs (idle, parked), so that rationale is
+// gone and this collapses to a pure mapping IssueStatus → PillStatus. The hues
+// now live in ONE place (ui.Pill); the label carries the exact status.
 //
-// This is track-LOCAL because packages/ui's Pill deliberately has no neutral status
-// ('idle' was removed as dead surface, and packages/ui is another tab's file). Track is
-// the real state that needs a neutral: backlog/todo issues are alive but unstarted.
+//   backlog → parked  (shelved, dimmest — not dead, that is slashed)
+//   todo    → idle    (present but unstarted)
+//   in_progress / in_review → held (in flight; the label disambiguates the two)
+//   done    → settled (landed)
+//   cancelled → slashed (dead)
 //
-// The dot encodes the status CATEGORY, not the exact status — deliberately mirroring
-// Track's own workflow model (workflow/engine.go StatusCategory: backlog / unstarted /
-// started / completed / cancelled). The label carries the exact status; the hue carries
-// only its lifecycle stage, reusing the system's existing lifecycle vocabulary
-// (held = in flight, settled = landed, slashed = dead) plus the two neutral greys.
-const DOT: Record<IssueStatus, string> = {
-  backlog: 'bg-faint', //     CategoryBacklog   — dimmest: parked
-  todo: 'bg-muted', //        CategoryUnstarted — present, not started
-  in_progress: 'bg-held', //  CategoryStarted   — in flight
-  in_review: 'bg-held', //    CategoryStarted   — in flight (label disambiguates)
-  done: 'bg-settled', //      CategoryCompleted — landed
-  cancelled: 'bg-slashed', // CategoryCancelled — dead
+// This mirrors Track's own workflow model (workflow/engine.go StatusCategory:
+// backlog / unstarted / started / completed / cancelled) — hue = category,
+// label = the exact status.
+const TO_PILL: Record<IssueStatus, PillStatus> = {
+  backlog: 'parked',
+  todo: 'idle',
+  in_progress: 'held',
+  in_review: 'held',
+  done: 'settled',
+  cancelled: 'slashed',
 }
 
 export function StatusPill({ status }: { status: IssueStatus }) {
-  return (
-    <span className="inline-flex h-5 items-center gap-1.5 whitespace-nowrap rounded-pill border border-rule bg-surface px-2 text-caption uppercase tracking-wide text-muted">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-pill ${DOT[status]}`} aria-hidden="true" />
-      {statusLabel(status)}
-    </span>
-  )
+  return <Pill status={TO_PILL[status]}>{statusLabel(status)}</Pill>
 }

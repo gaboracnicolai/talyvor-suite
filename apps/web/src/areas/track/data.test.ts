@@ -25,9 +25,9 @@ describe('filterIssues', () => {
   })
 
   it('assignee narrows to exactly that member and never matches the unassigned', () => {
-    const out = filterIssues(FIXTURE_ISSUES, { ...none, assignee_id: 'mem-jonas' })
+    const out = filterIssues(FIXTURE_ISSUES, { ...none, assignee_id: 'mem-alpha' })
     expect(out.length).toBeGreaterThan(0)
-    expect(out.every((i) => i.assignee_id === 'mem-jonas')).toBe(true)
+    expect(out.every((i) => i.assignee_id === 'mem-alpha')).toBe(true)
   })
 
   it('team narrows to exactly that team', () => {
@@ -37,7 +37,7 @@ describe('filterIssues', () => {
   })
 
   it('filters AND together', () => {
-    const out = filterIssues(FIXTURE_ISSUES, { status: 'done', assignee_id: 'mem-jonas', team_id: 'team-ops' })
+    const out = filterIssues(FIXTURE_ISSUES, { status: 'done', assignee_id: 'mem-alpha', team_id: 'team-ops' })
     expect(out.map((i) => i.identifier)).toEqual(['OPS-14'])
   })
 
@@ -48,7 +48,7 @@ describe('filterIssues', () => {
 
 describe('roster resolution', () => {
   it('resolves a member id to the roster name and dashes the unknown/unassigned', () => {
-    expect(memberName(FIXTURE_MEMBERS, 'mem-amara')).toBe('Amara Okafor')
+    expect(memberName(FIXTURE_MEMBERS, 'mem-owner')).toBe('Sample Owner')
     expect(memberName(FIXTURE_MEMBERS, undefined)).toBe('—')
     expect(memberName(FIXTURE_MEMBERS, 'mem-ghost')).toBe('—')
   })
