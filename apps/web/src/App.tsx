@@ -8,6 +8,8 @@ import { Ledger } from './areas/lens/Ledger'
 import { Keys } from './areas/lens/Keys'
 import { Spend } from './areas/lens/Spend'
 import { Members } from './areas/lens/Members'
+import { TopUp } from './areas/lens/TopUp'
+import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
 import { AdminArea } from './areas/admin/AdminArea'
@@ -54,6 +56,9 @@ function titleFor(pathname: string): string {
   if (pathname.startsWith('/track')) return 'Track'
   if (pathname.startsWith('/docs')) return 'Docs'
   if (pathname.startsWith('/admin')) return 'Admin'
+  // /billing, /billing/success, /billing/cancel — the last two are where Stripe
+  // returns a customer, so they must title as Billing too, not fall to Overview.
+  if (pathname.startsWith('/billing')) return 'Billing'
   const exact: Record<string, string> = {
     '/': 'Overview',
     '/ledger': 'Ledger',
@@ -91,6 +96,9 @@ function Sidebar() {
       <Group label="Workspace">
         {item('/', 'Overview')}
         {item('/ledger', 'Ledger')}
+        {/* Buying LXC has to be findable, not a URL you have to be told. The
+            wildcard keeps it highlighted on the Stripe return pages too. */}
+        {item('/billing', 'Billing', true)}
         {item('/keys', 'API keys')}
         {item('/spend', 'Spend & routing')}
         {item('/members', 'Members')}
@@ -128,6 +136,14 @@ function AppShell() {
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/ledger" element={<Ledger />} />
+        {/* THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect
+            targets already default to app.talyvor.com/billing/success?session_id=
+            {'{CHECKOUT_SESSION_ID}'} and /billing/cancel — the design assumed the
+            suite owned them. A customer arrives here by full page load from
+            Stripe, so both must resolve on a cold navigation, not only in-app. */}
+        <Route path="/billing" element={<TopUp />} />
+        <Route path="/billing/success" element={<BillingSuccess />} />
+        <Route path="/billing/cancel" element={<BillingCancel />} />
         <Route path="/keys" element={<Keys />} />
         <Route path="/spend" element={<Spend />} />
         <Route path="/members" element={<Members />} />

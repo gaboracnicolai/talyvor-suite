@@ -94,6 +94,16 @@ func newApp(cfg config, auth *authenticator) *app {
 	// no-store / never-logged discipline around that one response.
 	a.mux.HandleFunc("/api/keys", a.requireSession(a.handleKeys))
 
+	// LXC top-up (this PR) — the BFF's SECOND write path, and the front door for
+	// the only way a customer can buy LXC. GET serves the allowed amounts (so the
+	// screen hardcodes no price); POST starts a Stripe Checkout Session against
+	// the CONFIGURED workspace and hands back the session URL. Same posture as the
+	// mint above — session-gated, strict same-Origin, key attached server-side,
+	// no-store on the response. See billing.go for the allow-list mirroring and
+	// for why a 404 from Lens means "billing is off" on this route specifically.
+	a.mux.HandleFunc("/api/lxc/topup-options", a.requireSession(a.handleTopUpOptions))
+	a.mux.HandleFunc("/api/lxc/checkout", a.requireSession(a.handleLXCCheckout))
+
 	// Track Tier-1 (this PR): issues list + issue detail + comments + teams,
 	// completing the track area's gap list (its item 4, the roster, is
 	// /api/members below). All pinned to the CONFIGURED track workspace; the
