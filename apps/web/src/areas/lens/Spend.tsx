@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, CardHeader, FixtureNotice, MuNumeral, Row, TierDot } from '@talyvor/ui'
+import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
-import { fixtureCache, fixtureModelTiers } from './fixtures'
-import { byModel, debitTotal, inWindow } from './spendMath'
+import { CacheCard } from './CacheCard'
+import { ModelTier } from './ModelTier'
+import { byModel, debitTotal, inWindow, lxcDebitsByModel } from './spendMath'
 
 // Spend & routing — LIVE. The screen the design system's central distinction
 // was built for:
@@ -27,6 +28,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
   const lxc = useQuery({ queryKey: ['lxc-history', 200, 0], queryFn: () => api.lxcLedger(200, 0) })
   const month = useQuery({ queryKey: ['spend-month'], queryFn: api.spendMonth })
   const agg = ledger.data ? byModel(inWindow(ledger.data, days, now)) : []
+  const lxcSplit = lxc.data ? lxcDebitsByModel(lxc.data, days, now) : []
 
   return (
     <div className="flex flex-col gap-4 px-gutter py-4">
@@ -52,20 +54,22 @@ export function Spend({ now = new Date() }: { now?: Date }) {
           <div className="px-gutter py-3 text-body text-muted">Couldn’t load the ledger.</div>
         ) : (
           <>
-            {agg.map((a) => (
-              <Row
-                key={a.model}
-                label={
-                  <span className="inline-flex items-center gap-2">
-                    <TierDot tier={fixtureModelTiers[a.model] ?? 'cheap'} />
-                    {a.model}
-                  </span>
-                }
-                hint={`${a.requests} request${a.requests === 1 ? '' : 's'}`}
-              >
-                <MuNumeral micros={a.ulens} unit="lens" />
-              </Row>
-            ))}
+            <div data-testid="lens-by-model">
+              {agg.map((a) => (
+                <Row
+                  key={a.model}
+                  label={
+                    <span className="inline-flex items-center gap-2">
+                      <ModelTier model={a.model} />
+                      {a.model}
+                    </span>
+                  }
+                  hint={`${a.requests} request${a.requests === 1 ? '' : 's'}`}
+                >
+                  <MuNumeral micros={a.ulens} unit="lens" />
+                </Row>
+              ))}
+            </div>
             {agg.length === 0 ? (
               <div className="px-gutter py-3 text-body text-muted">No ledger rows in this window.</div>
             ) : null}
@@ -73,15 +77,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
         )}
       </Card>
 
-      <Card>
-        <CardHeader>Cache</CardHeader>
-        <div className="px-gutter pt-2">
-          <FixtureNotice awaiting="a Lens workspace cache-rate endpoint (none exists yet)" />
-        </div>
-        <Row label="Hit rate" hint={`${fixtureCache.cache_lookups.toLocaleString('en-US')} lookups`}>
-          <span className="text-body text-muted">≈ {Math.round(fixtureCache.cache_hit_rate * 100)}%</span>
-        </Row>
-      </Card>
+      <CacheCard days={days} />
 
       <Card>
         <CardHeader>Spent — LXC</CardHeader>
@@ -96,7 +92,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
         </Row>
         <Row
           label={`Inference debits — ${days}d`}
-          hint="all models — LXC ledger rows carry no model attribution, so spend has no per-model split"
+          hint="every model — the window total that left the balance"
         >
           {lxc.isLoading ? (
             <span className="text-body text-muted">Loading…</span>
@@ -106,6 +102,28 @@ export function Spend({ now = new Date() }: { now?: Date }) {
             <MuNumeral micros={debitTotal(lxc.data, days, now)} unit="lxc" />
           )}
         </Row>
+        {/* The per-model split of that total — attributed to the model that SERVED,
+            falling back to the requested one. The caption this replaces said the split
+            was impossible; it had been possible since #343, and api.lxcLedger was
+            dropping the field so nothing could contradict it. */}
+        {lxcSplit.length > 0 ? (
+          <div data-testid="lxc-by-model">
+            {lxcSplit.map((a) => (
+              <Row
+                key={a.model}
+                label={
+                  <span className="inline-flex items-center gap-2">
+                    <ModelTier model={a.model} />
+                    {a.model}
+                  </span>
+                }
+                hint={`${a.requests} charge${a.requests === 1 ? '' : 's'}`}
+              >
+                <MuNumeral micros={a.ulxc} unit="lxc" />
+              </Row>
+            ))}
+          </div>
+        ) : null}
       </Card>
     </div>
   )

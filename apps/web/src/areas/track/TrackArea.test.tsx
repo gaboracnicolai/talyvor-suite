@@ -1,33 +1,35 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TrackArea } from './TrackArea'
 
-// The area root: the live workspace strip (/api/track/workspaces — the ONE proxied
-// route) above the fixture-backed screens. Mounted exactly as App.tsx mounts it
-// (path="/track/*") so index/sub-route resolution is tested for real.
+// The Track area on a deployment that runs no Track. Every sentence it shows must come from a
+// RESPONSE, so that the day the TRACK_* trio appears the area changes what it says without
+// anyone editing this app. That is the whole difference between this and the fixture screens it
+// replaces, whose "the BFF proxies exactly ONE Track route today" header was false for weeks.
 
-const WORKSPACES = [
-  { id: 'ws-talyvor', name: 'Talyvor', slug: 'talyvor', logo_url: '', plan: 'trial', created_at: '2026-06-01T08:00:00Z', updated_at: '2026-07-01T08:00:00Z' },
-]
+const WORKSPACES = [{ id: 'ws-1', name: 'Acme', slug: 'acme', created_at: '', updated_at: '' }]
 
-function mockWorkspaces(response: () => Response) {
+function mock(handler: (path: string) => { status?: number; body: unknown }) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const url = String(input)
-    if (url.startsWith('/api/track/workspaces')) return response()
-    return new Response('null', { status: 404 })
+    const { status, body } = handler(String(input))
+    return new Response(JSON.stringify(body), {
+      status: status ?? 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
   })
 }
 
-function renderArea(url = '/track') {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+/** Both Track reads unconfigured — this deployment, today. */
+const allUnconfigured = () => ({ status: 503, body: { error: 'track upstream not configured on this BFF' } })
+
+function renderArea(route = '/track') {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[url]}>
-        <Routes>
-          <Route path="/track/*" element={<TrackArea />} />
-        </Routes>
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[route]}>
+        <TrackArea />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -35,57 +37,49 @@ function renderArea(url = '/track') {
 
 afterEach(() => vi.restoreAllMocks())
 
-describe('TrackArea', () => {
-  it('renders the live workspace strip and the issue list at /track', async () => {
-    mockWorkspaces(() => new Response(JSON.stringify(WORKSPACES), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+describe('an unconfigured Track reads as off, everywhere, from the response', () => {
+  it('names the deployment state and shows no invented issues', async () => {
+    mock(allUnconfigured)
     renderArea()
 
-    expect(await screen.findByText('Talyvor')).toBeInTheDocument()
-    expect(screen.getByText('live · membership-scoped')).toBeInTheDocument()
-    // the core screen below the strip
-    expect(screen.getByText('14 issues')).toBeInTheDocument()
+    expect(await screen.findByText('Track is not configured on this deployment')).toBeInTheDocument()
+    expect(await screen.findByText(/no upstream is wired/)).toBeInTheDocument()
+    // the fourteen fixture issues are gone, along with their badge and their filter rail
+    expect(screen.queryByText(/Gateway 502s on cold start/)).toBeNull()
+    expect(screen.queryByText(/Fixture/i)).toBeNull()
+    expect(screen.queryByRole('combobox')).toBeNull()
   })
 
-  // The strip must tell the truth in three states, matching Docs' SpaceList:
-  // 503/404 is INFORMATION (unconfigured — off, not broken), everything else is
-  // a real failure named as such, and liveness wording only under live data.
-  it('renders an unconfigured upstream (503) as off — never as an outage', async () => {
-    mockWorkspaces(() => new Response('{"error":"track upstream not configured on this BFF"}', { status: 503 }))
+  it('an unknown sub-route still lands on the issues view, never a dead end', async () => {
+    mock(allUnconfigured)
+    // the retired detail route is the realistic case: an old link or bookmark
+    renderArea('/track/issues/iss-1')
+    expect(await screen.findByText('Issues')).toBeInTheDocument()
+  })
+})
+
+describe('a configured Track is detected, not assumed', () => {
+  it('a 200 replaces the off state with the honest not-yet-wired one', async () => {
+    mock((path) => (path.includes('/api/track/workspaces') ? { body: WORKSPACES } : { body: [] }))
     renderArea()
 
-    expect(await screen.findByText('Track is not configured on this BFF deployment')).toBeInTheDocument()
-    expect(screen.getByText(/TRACK_\* trio is unset/)).toBeInTheDocument()
-    expect(screen.getByText(/off, not broken/)).toBeInTheDocument()
-    expect(screen.queryByText(/unreachable/)).not.toBeInTheDocument()
-    expect(screen.queryByText('live · membership-scoped')).not.toBeInTheDocument()
-    // the fixture screens are a design preview and stay fully usable
-    expect(screen.getByText(/design preview on marked sample data/)).toBeInTheDocument()
-    expect(screen.getByText('14 issues')).toBeInTheDocument()
+    // the strip goes live …
+    expect(await screen.findByText('Acme')).toBeInTheDocument()
+    // … and the issues view says the data is reachable but unread, naming the route.
+    expect(await screen.findByText(/does not read it yet/)).toBeInTheDocument()
+    expect(screen.getByText('GET /api/track/issues')).toBeInTheDocument()
+    // THE ANTI-ROT ASSERTION: "not configured" is unreachable once the upstream answers.
+    expect(screen.queryByText(/is not configured on this deployment/)).toBeNull()
   })
+})
 
-  it('names a real failure as a failure — without claiming to know why', async () => {
-    mockWorkspaces(() => new Response('bad gateway', { status: 502 }))
+describe('a real failure stays a failure', () => {
+  it('500 is named as an error and never laundered into "off"', async () => {
+    mock(() => ({ status: 500, body: { error: 'boom' } }))
     renderArea()
 
     expect(await screen.findByText('Couldn’t load workspaces')).toBeInTheDocument()
-    expect(screen.queryByText(/unreachable/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/not configured/)).not.toBeInTheDocument()
-    expect(screen.queryByText('live · membership-scoped')).not.toBeInTheDocument()
-    expect(screen.getByText('14 issues')).toBeInTheDocument()
-  })
-
-  it('routes /track/issues/:id to the detail screen', async () => {
-    mockWorkspaces(() => new Response(JSON.stringify(WORKSPACES), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    renderArea('/track/issues/iss-1')
-
-    expect(await screen.findByText('Gateway 502s on cold start when the upstream pool is empty')).toBeInTheDocument()
-    expect(screen.getByText('Description')).toBeInTheDocument()
-  })
-
-  it('an unknown sub-route falls back to the list, never a dead end', async () => {
-    mockWorkspaces(() => new Response(JSON.stringify(WORKSPACES), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    renderArea('/track/definitely-not-a-route')
-
-    expect(await screen.findByText('14 issues')).toBeInTheDocument()
+    expect(await screen.findAllByText(/answered with an error/)).toHaveLength(2)
+    expect(screen.queryByText(/not configured/)).toBeNull()
   })
 })

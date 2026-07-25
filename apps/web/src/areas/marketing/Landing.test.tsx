@@ -25,19 +25,25 @@ describe('Landing', () => {
     expect(screen.getByRole('link', { name: /open the app/i })).toHaveAttribute('href', '/')
   })
 
-  it('wires every contact CTA to the one flagged address constant', () => {
+  // THE DEAD-CTA GUARD. The page used to hardcode hello@talyvor.com as its only call to
+  // action while a comment beside it said the alias did not route. A comment cannot fail a
+  // build, so it shipped. Now the address is configuration, and the page renders its absence.
+  it('draws NO mailto when no contact address is configured', () => {
+    expect(CONTACT_EMAIL).toBe('') // the default in this build — no alias yet
     render(<Landing />)
-    // ⚠ hello@ does not route yet (see the constant's comment in Landing.tsx —
-    // the alias must exist before this page ships anywhere public). This test is
-    // the "one place to check": every mailto on the page must be the constant,
-    // so changing the address is one edit and one assertion.
     const mailtos = screen
       .getAllByRole('link')
       .filter((a) => a.getAttribute('href')?.startsWith('mailto:'))
-    expect(mailtos.length).toBeGreaterThan(0)
-    for (const a of mailtos) {
-      expect(a).toHaveAttribute('href', `mailto:${CONTACT_EMAIL}`)
-    }
+    // A dead contact link is worse than none: better to offer no inbox than one that
+    // silently drops a buyer's first message.
+    expect(mailtos).toHaveLength(0)
+    // and the page still has an action to take
+    expect(screen.getByRole('link', { name: /see the suite/i })).toBeInTheDocument()
+  })
+
+  it('says plainly that there is no inbox yet, rather than implying one', () => {
+    render(<Landing />)
+    expect(screen.getByText(/no inbox to write to yet/)).toBeInTheDocument()
   })
 
   it('makes no quantitative marketing claims — no percentage anywhere on the page', () => {

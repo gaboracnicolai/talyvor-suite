@@ -1,8 +1,15 @@
 # Docs BFF gaps — the one PR that unblocks this area
 
-Enumerated from **talyvor-docs @ `e0cf605`** (origin/main), read-only. The BFF serves exactly one
-Docs route today (`/api/docs/spaces`); everything below does not exist on the BFF. `apps/bff/**` is
-another tab's territory — this file is the spec for that PR, not a change to it.
+Enumerated from **talyvor-docs @ `e0cf605`** (origin/main), read-only.
+
+> **STATUS — Tier 1 is DONE.** All four Tier-1 routes now exist in `apps/bff/lens.go`. This file
+> said "the BFF serves exactly one Docs route today" long after that stopped being true, and the
+> area's screens repeated the claim to users. Tier 2 and Tier 3 below are still genuinely absent.
+>
+> Tier 1 landing did NOT make the screens live: this deployment runs no Docs upstream (no `DOCS_*`
+> variables, not in the compose stack), so all four routes answer 503. The tree and reader
+> therefore probe and report what the deployment says — see `lib/productState.ts`. When a Docs
+> upstream appears they light up without an edit here.
 
 **Proxy mechanics (same as the existing route, `apps/bff/lens.go:74`):** upstream base
 `cfg.docsBaseURL`, transit proof `X-Gateway-Auth: cfg.docsGatewaySecret`, identity headers from the
@@ -21,10 +28,10 @@ upstream-scoped to the pinned workspace by membership + tier checks).
 
 | BFF route | Upstream (all under `/v1`) | Returns |
 |---|---|---|
-| `GET /api/docs/spaces` | `GET /v1/workspaces/{ws}/spaces` | `[]model.Space` — **exists already** |
-| `GET /api/docs/spaces/{spaceID}` | `GET /v1/spaces/{spaceID}` | `model.Space` (View-gated; 404 outside workspace) |
-| `GET /api/docs/spaces/{spaceID}/pages?limit=&offset=` | `GET /v1/spaces/{spaceID}/pages` | `[]model.Page` ordered `depth, position, created_at`; limit default 100, cap 500. ⚠ rows include full `content` — fine at doc scale, but the BFF PR may want to note it |
-| `GET /api/docs/spaces/{spaceID}/pages/{pageID}` | `GET /v1/spaces/{spaceID}/pages/{pageID}` | `model.Page` (View; 404-not-403 outside workspace) |
+| `GET /api/docs/spaces` | `GET /v1/workspaces/{ws}/spaces` | `[]model.Space` — **EXISTS** |
+| `GET /api/docs/spaces/{spaceID}` | `GET /v1/spaces/{spaceID}` | `model.Space` (View-gated; 404 outside workspace) — **EXISTS** (`docsSpaceDetail`) |
+| `GET /api/docs/spaces/{spaceID}/pages?limit=&offset=` | `GET /v1/spaces/{spaceID}/pages` | `[]model.Page` ordered `depth, position, created_at`; limit default 100, cap 500 — **EXISTS** (`docsPageList`, which also projects the heavy `content`/`content_text` off every list row) |
+| `GET /api/docs/spaces/{spaceID}/pages/{pageID}` | `GET /v1/spaces/{spaceID}/pages/{pageID}` | `model.Page` (View; 404-not-403 outside workspace) — **EXISTS** (`docsPageDetail`) |
 
 `model.Page` / `model.Space` field sets are mirrored verbatim in `./api.ts` (`DocsPage`, `DocsSpace`).
 

@@ -1,16 +1,23 @@
-// Docs-area API layer. ONE route is live today — the BFF proxies
-// GET /api/docs/spaces → talyvor-docs GET /v1/workspaces/{ws}/spaces (body verbatim,
-// workspace pinned server-side). Everything else a read-only Docs UI needs does NOT
-// exist on the BFF yet; those reads resolve from local fixtures and say so via the
-// Sourced envelope so every screen can mark fixture data honestly. The exhaustive
-// list of missing routes is ./BFF-GAPS.md — the one BFF PR that unblocks this area.
+// Docs-area API layer.
 //
-// Shapes mirror talyvor-docs internal/model/model.go VERBATIM (field-for-field, at
-// e0cf605), so the day a BFF route lands, the fixture body of the matching function
-// is deleted and nothing else changes — types, screens and tests already speak the
-// upstream shape.
+// ── THE CLAIM THIS FILE USED TO MAKE ─────────────────────────────────────────
+//
+// "ONE route is live today … everything else a read-only Docs UI needs does NOT exist on the
+// BFF yet". Both halves were false: the BFF registers /api/docs/spaces/{spaceID},
+// /api/docs/spaces/{spaceID}/pages and /api/docs/spaces/{spaceID}/pages/{pageID} — the exact
+// two reads the tree and the reader claimed were missing. The page tree and page reader ran on
+// seven fabricated pages (with view counts of 128, 64, 31, …) under a footnote asserting the
+// routes did not exist.
+//
+// The routes exist. What does not exist is a Docs UPSTREAM on this deployment: no DOCS_*
+// variables, and the service is not in the compose stack, so all four routes answer 503. So
+// the fixtures are deleted rather than re-captioned, and the screens probe instead — see
+// lib/productState.ts for why the "not configured" state must be detected rather than written
+// down, and areas/docs/BFF-GAPS.md for the Tier-2/3 reads that genuinely do not exist yet.
+//
+// Shapes mirror talyvor-docs internal/model/model.go VERBATIM (field-for-field, at e0cf605),
+// so wiring the tree and reader is adding a fetch — the types already speak the upstream shape.
 import { ApiError } from '../../lib/api'
-import { FIXTURE_PAGES } from './fixtures'
 
 /** talyvor-docs model.Space (model.go), verbatim. */
 export interface DocsSpace {
@@ -65,15 +72,6 @@ export interface DocsPage {
   updated_at: string
 }
 
-/** Where a payload came from. 'fixture' renders a visible chip on every screen that
- *  shows the data — fixture-backed reads are never allowed to look live. */
-export type DataSource = 'live' | 'fixture'
-
-export interface Sourced<T> {
-  source: DataSource
-  data: T
-}
-
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
   // The shared ApiError, so a 401 here trips App.tsx's QueryCache handler and
@@ -83,26 +81,6 @@ async function getJSON<T>(path: string): Promise<T> {
 }
 
 export const docsApi = {
-  /** LIVE — the one Docs route the BFF serves today. Bare array, upstream body verbatim. */
+  /** LIVE — spaces. Bare array, upstream body verbatim, workspace pinned server-side. */
   spaces: (): Promise<DocsSpace[]> => getJSON<DocsSpace[]>('/api/docs/spaces'),
-
-  /** FIXTURE — needs BFF `GET /api/docs/spaces/{spaceID}/pages` (upstream:
-   *  `GET /v1/spaces/{spaceID}/pages`, → []model.Page ordered by depth, position,
-   *  created_at). The fixture serves ONE deterministic tree for every space so
-   *  browsing works against whatever real spaces exist. */
-  pageTree: (spaceID: string): Promise<Sourced<DocsPage[]>> =>
-    Promise.resolve({
-      source: 'fixture',
-      data: FIXTURE_PAGES.map((p) => ({ ...p, space_id: spaceID })),
-    }),
-
-  /** FIXTURE — needs BFF `GET /api/docs/spaces/{spaceID}/pages/{pageID}` (upstream:
-   *  `GET /v1/spaces/{spaceID}/pages/{pageID}`, → model.Page). Resolves from the same
-   *  fixture set; an unknown id rejects with the upstream-shaped 404 so the screen's
-   *  error path is exercised now, not on BFF day. */
-  page: (spaceID: string, pageID: string): Promise<Sourced<DocsPage>> => {
-    const hit = FIXTURE_PAGES.find((p) => p.id === pageID)
-    if (!hit) return Promise.reject(new ApiError(404, `fixture:/api/docs/spaces/${spaceID}/pages/${pageID}`))
-    return Promise.resolve({ source: 'fixture', data: { ...hit, space_id: spaceID } })
-  },
 }

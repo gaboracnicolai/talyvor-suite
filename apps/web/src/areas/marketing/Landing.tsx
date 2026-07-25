@@ -15,11 +15,24 @@ import { Button, Card, ThemeToggle } from '@talyvor/ui'
 // testimonials, and deliberately NO cache-hit percentage — we haven't measured one,
 // and Landing.test.tsx fails if anyone adds a % later.
 
-// ⚠ The single place the contact address lives. hello@ is NOT ROUTING YET — the
-// alias must be created before this page ships anywhere public. One place to
-// change; Landing.test.tsx is the one place that checks the wiring.
-export const CONTACT_EMAIL = 'hello@talyvor.com'
+// ── THE CONTACT ADDRESS ──────────────────────────────────────────────────────
+//
+// This page used to hardcode hello@talyvor.com as its only call to action, in two places,
+// under a comment reading "hello@ is NOT ROUTING YET — the alias must be created before this
+// page ships anywhere public". It shipped anyway. A buyer's first action on the one page they
+// read went nowhere, and no gate could catch it because a comment cannot be executed.
+//
+// So the address is now CONFIGURATION, and its absence is a state the page renders rather than
+// a warning someone has to remember. Unset ⇒ no email CTA is drawn at all: an absent contact
+// route is better than a dead one, and the page keeps its other action ("See the suite"). Set
+// VITE_CONTACT_EMAIL at build time once the alias actually delivers, and both CTAs appear with
+// no code change.
+//
+// Deliberately NOT a default: a fallback address is how the dead link survived in the first
+// place. Empty is the honest default, and it is visible.
+export const CONTACT_EMAIL: string = import.meta.env.VITE_CONTACT_EMAIL ?? ''
 const CONTACT_MAILTO = `mailto:${CONTACT_EMAIL}`
+const HAS_CONTACT = CONTACT_EMAIL !== ''
 
 /** Numbered section label: the 2px accent tick (colour on a tick, never on text),
  *  a mono index, and a muted caption — the page's recurring instrument marking. */
@@ -135,10 +148,12 @@ export function Landing() {
               provider keys.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Button asChild variant="primary">
-                <a href={CONTACT_MAILTO}>Get in touch</a>
-              </Button>
-              <Button asChild>
+              {HAS_CONTACT ? (
+                <Button asChild variant="primary">
+                  <a href={CONTACT_MAILTO}>Get in touch</a>
+                </Button>
+              ) : null}
+              <Button asChild variant={HAS_CONTACT ? 'default' : 'primary'}>
                 <a href="#suite">See the suite</a>
               </Button>
             </div>
@@ -286,16 +301,20 @@ export function Landing() {
             </h2>
             <p className="mt-5 max-w-xl text-body text-muted">
               The suite runs today, and we are onboarding a small number of engineering teams to
-              trial it on real workloads. If you want to be one of them — or you just want the
-              honest state of things — write to us.
+              trial it on real workloads.
+              {HAS_CONTACT
+                ? ' If you want to be one of them — or you just want the honest state of things — write to us.'
+                : ' Introductions are happening directly for now, so there is no inbox to write to yet — this page will carry one the moment there is.'}
             </p>
-            <div className="mt-8">
-              <Button asChild variant="primary">
-                <a href={CONTACT_MAILTO} className="font-mono">
-                  {CONTACT_EMAIL}
-                </a>
-              </Button>
-            </div>
+            {HAS_CONTACT ? (
+              <div className="mt-8">
+                <Button asChild variant="primary">
+                  <a href={CONTACT_MAILTO} className="font-mono">
+                    {CONTACT_EMAIL}
+                  </a>
+                </Button>
+              </div>
+            ) : null}
           </div>
         </section>
       </main>
