@@ -56,6 +56,7 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		"/api/track/workspaces", // unconfigured in disabled mode → 503, still swept
 		"/api/docs/spaces",
 		"/api/keys", // GET list only here — the POST mint has its own tight test
+		"/api/lxc/topup-options",
 		"/api/spend/month",
 		"/api/members",
 	}

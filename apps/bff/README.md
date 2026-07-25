@@ -40,10 +40,19 @@ go run .
 | `LENS_WORKSPACE_ID` | — | **required** |
 | `WEB_DIST` | `../web/dist` | built app to serve |
 
-## Endpoints (all `GET`, read-only)
+## Endpoints
 
-`/api/context` (workspace id + base url; never the key) · `/api/lxc/balance` · `/api/tokens/balance` ·
-`/api/tokens/history?limit&offset` · `/api/lxc/history?limit&offset` · `/api/workspaces`.
+Reads (`GET`): `/api/context` (workspace id + base url; never the key) · `/api/lxc/balance` ·
+`/api/tokens/balance` · `/api/tokens/history?limit&offset` · `/api/lxc/history?limit&offset` ·
+`/api/workspaces` · `/api/keys` · `/api/lxc/topup-options` (the top-up amounts on offer).
+
+Writes (`POST`) — **both session-gated AND same-Origin-checked**, see `keys.go` for the CSRF
+argument they share: `/api/keys` (mint a workspace key, returned exactly once) ·
+`/api/lxc/checkout` (start a Stripe Checkout Session to buy LXC; charges nothing itself —
+the LXC credit lands later, when Stripe's webhook reaches Lens). `/api/lxc/checkout` answers
+`503 {billing_enabled:false}` when Lens runs without `LENS_BILLING_ENABLED`; `billing.go`
+argues why a 404 from Lens is unambiguous on that route.
+
 Everything else is the SPA (client routes fall back to `index.html`).
 
 `go vet ./... && go test -race ./...`

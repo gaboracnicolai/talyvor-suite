@@ -4,6 +4,7 @@
   "src/areas/docs/DocsArea.test.tsx": 13,
   "src/areas/docs/pm.test.tsx": 3,
   "src/areas/docs/tree.test.ts": 4,
+  "src/areas/lens/BillingReturn.test.tsx": 11,
   "src/areas/lens/format.test.ts": 8,
   "src/areas/lens/Keys.test.tsx": 7,
   "src/areas/lens/Ledger.test.tsx": 6,
@@ -11,6 +12,7 @@
   "src/areas/lens/Overview.test.tsx": 7,
   "src/areas/lens/Spend.test.tsx": 6,
   "src/areas/lens/spendMath.test.ts": 4,
+  "src/areas/lens/TopUp.test.tsx": 16,
   "src/areas/marketing/Landing.test.tsx": 4,
   "src/areas/track/data.test.ts": 8,
   "src/areas/track/format.test.ts": 4,
@@ -18,5 +20,6 @@
   "src/areas/track/IssueList.test.tsx": 8,
   "src/areas/track/TrackArea.test.tsx": 5,
   "src/AuthGate.test.tsx": 3,
+  "src/BillingRoutes.test.tsx": 4,
   "src/Specimen.test.tsx": 1
 }
