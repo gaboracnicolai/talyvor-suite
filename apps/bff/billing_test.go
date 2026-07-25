@@ -283,6 +283,132 @@ func TestTopUpOptionsServesTheAllowList(t *testing.T) {
 	}
 }
 
+/* ── The capability probe: can this deployment sell at all? ──────────────── */
+//
+// A deployment with LENS_BILLING_ENABLED unset cannot sell LXC, and the screen
+// has to know that BEFORE it draws a row of buy buttons — a page offering a
+// purchase that cannot happen is worse than a page that says so. Lens only
+// reveals the state by 404-ing an unregistered route, so the options read
+// probes it server-side and reports the answer alongside the amounts.
+
+func TestTopUpOptionsReportsBillingOffWhenLensHasNoCheckoutRoute(t *testing.T) {
+	up := newCheckoutUpstream(t)
+	up.nextStatus = http.StatusNotFound // Lens with billing disabled: route never registered
+	up.nextBody = `{"error":"404 page not found"}`
+	a, sess := checkoutApp(t, up)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/lxc/topup-options", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d (%s) — a disabled capability is information, answered 200", rec.Code, rec.Body.String())
+	}
+	if got := decodeBody(t, rec)["billing_enabled"]; got != false {
+		t.Fatalf("billing_enabled = %v, want false — the screen must be able to hide the buttons", got)
+	}
+}
+
+func TestTopUpOptionsReportsBillingOnWhenLensAnswersTheProbe(t *testing.T) {
+	up := newCheckoutUpstream(t)
+	up.nextStatus = http.StatusBadRequest // Lens with billing ON: route registered, body refused
+	up.nextBody = `{"error":"invalid JSON: EOF"}`
+	a, sess := checkoutApp(t, up)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/lxc/topup-options", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if got := decodeBody(t, rec)["billing_enabled"]; got != true {
+		t.Fatalf("billing_enabled = %v, want true", got)
+	}
+}
+
+// TestTopUpOptionsProbeCannotStartAPurchase is the assertion that makes the
+// probe acceptable at all: it must be impossible for it to charge anyone or
+// leave anything behind. It sends an EMPTY body to the checkout route, which
+// Lens decodes BEFORE any billing work happens (json decode → 400), so
+// CreateCheckout — and therefore ensureCustomer and the Stripe session call —
+// never runs. A second, independent guard backs it up: CreateCheckout rejects a
+// non-allow-listed amount (0) on its first statement, before ensureCustomer.
+func TestTopUpOptionsProbeCannotStartAPurchase(t *testing.T) {
+	up := newCheckoutUpstream(t)
+	up.nextStatus = http.StatusBadRequest
+	a, sess := checkoutApp(t, up)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/lxc/topup-options", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if up.gotPath != "/v1/workspaces/trial-ws-1/billing/checkout" {
+		t.Fatalf("probe path = %q — must probe the very route the button uses, pinned to the "+
+			"configured workspace", up.gotPath)
+	}
+	// The body is what keeps this harmless: empty, so Lens's handler refuses at
+	// the JSON decode. A body carrying a valid amount would create a real
+	// Stripe Checkout Session on every page view.
+	if up.gotBody != "" {
+		t.Fatalf("probe body = %q — it MUST be empty; anything Lens can decode risks "+
+			"starting a real purchase", up.gotBody)
+	}
+	if up.gotAuth != "Bearer "+testKey {
+		t.Fatalf("probe did not carry the workspace key: %q", up.gotAuth)
+	}
+}
+
+// TestTopUpOptionsAssumesOnWhenTheProbeIsInconclusive: only a definitive 404
+// means "off". Anything else — a Lens 500, an unreachable Lens — must NOT be
+// reported as billing being disabled: a false "off" hides a working paid feature
+// from a customer who wants to pay, while a false "on" is caught by the
+// click-time 503 that already exists. The bias is deliberate.
+func TestTopUpOptionsAssumesOnWhenTheProbeIsInconclusive(t *testing.T) {
+	t.Run("lens 500", func(t *testing.T) {
+		up := newCheckoutUpstream(t)
+		up.nextStatus = http.StatusInternalServerError
+		a, sess := checkoutApp(t, up)
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/lxc/topup-options", nil)
+		req.AddCookie(sess)
+		a.ServeHTTP(rec, req)
+
+		if got := decodeBody(t, rec)["billing_enabled"]; got == false {
+			t.Fatal("a Lens 500 must not be reported as billing disabled")
+		}
+	})
+
+	t.Run("lens unreachable", func(t *testing.T) {
+		cfg := config{
+			lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1",
+			authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
+			publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
+		}
+		auth := newSessionOnlyAuthenticator(cfg)
+		auth.sessions.put("bill-sid", session{sub: "u1", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+		a := newApp(cfg, auth)
+		a.cfg.webDist = t.TempDir()
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/lxc/topup-options", nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "bill-sid"})
+		a.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d — the amounts are BFF-held, so they survive an unreachable Lens", rec.Code)
+		}
+		body := decodeBody(t, rec)
+		if body["billing_enabled"] == false {
+			t.Fatal("an unreachable Lens must not be reported as billing disabled")
+		}
+		if body["allowed_usd_cents"] == nil {
+			t.Fatal("the amounts must still be served — they do not come from Lens")
+		}
+	})
+}
+
 func TestTopUpOptionsRequiresSession(t *testing.T) {
 	up := newCheckoutUpstream(t)
 	a, _ := checkoutApp(t, up)

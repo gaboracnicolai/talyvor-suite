@@ -12,7 +12,7 @@
   "src/areas/lens/Overview.test.tsx": 7,
   "src/areas/lens/Spend.test.tsx": 6,
   "src/areas/lens/spendMath.test.ts": 4,
-  "src/areas/lens/TopUp.test.tsx": 12,
+  "src/areas/lens/TopUp.test.tsx": 16,
   "src/areas/marketing/Landing.test.tsx": 4,
   "src/areas/track/data.test.ts": 8,
   "src/areas/track/format.test.ts": 4,

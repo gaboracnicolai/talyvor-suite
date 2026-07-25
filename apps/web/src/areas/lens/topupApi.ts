@@ -21,9 +21,19 @@
 
 import { ApiError } from '../../lib/api'
 
-/** GET /api/lxc/topup-options — the amounts this deployment will accept. */
+/**
+ * GET /api/lxc/topup-options — what the screen needs before it draws anything.
+ *
+ * `billing_enabled` is the BFF's PROBED answer to "can this deployment sell at
+ * all?" (Lens reveals it only by not registering the route). It matters because
+ * the flag is off by default: without it, a deployment that cannot take money
+ * would still render a full row of buy buttons and only admit it on click.
+ * Optimistic by construction — only a definitive Lens 404 makes it false, so an
+ * outage never hides a feature that works.
+ */
 export interface TopUpOptions {
   allowed_usd_cents: number[]
+  billing_enabled: boolean
 }
 
 /** POST /api/lxc/checkout — a Stripe Checkout Session to send the browser to. */

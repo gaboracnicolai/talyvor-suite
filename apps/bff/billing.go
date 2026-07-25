@@ -107,16 +107,74 @@ func allowedList() string {
 	return strings.Join(parts, ", ")
 }
 
-// handleTopUpOptions — GET /api/lxc/topup-options. The amounts the UI may offer,
-// served from the ONE declaration the write path also enforces. This exists so
-// the screen has no reason to hardcode a price; a button it draws is a button
-// this BFF accepts, by construction.
+// handleTopUpOptions — GET /api/lxc/topup-options. Two facts the screen needs
+// BEFORE it draws anything: which amounts it may offer, and whether this
+// deployment can sell at all.
+//
+//	{"allowed_usd_cents":[…], "billing_enabled":true|false}
+//
+// The amounts come from the ONE declaration the write path also enforces, so a
+// button the screen draws is a button this BFF accepts, by construction — and
+// they are BFF-held, so they survive an unreachable Lens.
+//
+// `billing_enabled` is PROBED, because it cannot be read: Lens exposes the state
+// only by not registering the route (see probeBillingEnabled). Without it, a
+// deployment running without LENS_BILLING_ENABLED would render a full row of buy
+// buttons that cannot work — and the customer would only find out by clicking.
+// The click-time 503 stays as the backstop; this makes it rare instead of certain.
 func (a *app) handleTopUpOptions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"allowed_usd_cents": allowedTopUpCents})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"allowed_usd_cents": allowedTopUpCents,
+		"billing_enabled":   a.probeBillingEnabled(r),
+	})
+}
+
+// probeBillingEnabled asks Lens whether its checkout route exists, WITHOUT being
+// able to start a purchase.
+//
+// HOW IT CANNOT CHARGE ANYONE. It POSTs an EMPTY body. Lens's checkout handler
+// decodes the JSON body as its FIRST action and answers 400 on failure, so
+// CreateCheckout — and with it ensureCustomer and the Stripe session call — never
+// runs. A second, independent guard backs that up: CreateCheckout rejects a
+// non-allow-listed amount on its first statement, before ensureCustomer, so even
+// if decoding ever moved later, a zero-value amount still stops short of Stripe.
+// Both guards must fail before this probe could leave anything behind.
+//
+// WHAT THE ANSWER MEANS. The route is registered only under LENS_BILLING_ENABLED,
+// the path is pinned from config (no client input, so no genuine not-found to
+// confuse it with), and Lens's own middlewares answer 401/403 rather than 404 —
+// the argument in this file's header. So:
+//
+//	404       → false (billing off: the route was never registered)
+//	400       → true  (the route exists and refused the empty body, as designed)
+//	anything  → true  (INCONCLUSIVE — and deliberately optimistic)
+//
+// The optimism is the point. A false "off" would hide a working paid feature from
+// a customer trying to give us money; a false "on" costs one click and lands on
+// the 503 explanation that already exists. Only a definitive 404 turns it off.
+func (a *app) probeBillingEnabled(r *http.Request) bool {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		a.cfg.lensBaseURL+"/v1/workspaces/"+a.cfg.workspaceID+"/billing/checkout", nil)
+	if err != nil {
+		return true
+	}
+	req.Header.Set("Authorization", "Bearer "+a.cfg.workspaceKey) // server-side only, as everywhere
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		// Lens unreachable — a fault, not a capability answer. The balance card on
+		// the same screen already surfaces the outage honestly.
+		return true
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body) // drain so the connection is reusable
+	return resp.StatusCode != http.StatusNotFound
 }
 
 // handleLXCCheckout — POST /api/lxc/checkout. Starts a Stripe Checkout Session

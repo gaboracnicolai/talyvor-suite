@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
+import { CapabilityOff } from './Capability'
 import { formatUSD } from './format'
 import {
   CheckoutError,
@@ -98,6 +99,9 @@ export function TopUp({
   })
 
   const amounts = options.data?.allowed_usd_cents ?? []
+  // Only a loaded, explicit false hides the buttons — never a loading or failed
+  // read, which would wrongly tell a paying customer they cannot buy.
+  const billingOff = options.data?.billing_enabled === false
   const failure = start.error instanceof CheckoutError ? start.error : null
 
   return (
@@ -118,6 +122,24 @@ export function TopUp({
           )}
         </Row>
 
+        {/* A deployment that cannot sell says so INSTEAD of drawing buttons.
+            Billing is off by default, so without this the common case is a full
+            row of buy buttons that cannot work, discoverable only by clicking. */}
+        {billingOff ? (
+          <>
+            <CapabilityOff
+              name="Top up"
+              note="Top-up isn’t available on this deployment — no payment can be started here."
+            />
+            <div className="px-gutter py-3">
+              <p className="text-caption font-normal text-faint">
+                LXC can still be spent and its balance read; only buying more is unavailable.
+                It becomes available when Lens is run with billing enabled
+                (LENS_BILLING_ENABLED, plus its Stripe keys).
+              </p>
+            </div>
+          </>
+        ) : (
         <Row label="Add credit" hint="Paid by card at Stripe; the credit is applied to this workspace">
           {options.isLoading ? (
             <span className="text-body text-muted">Loading…</span>
@@ -138,6 +160,7 @@ export function TopUp({
             </div>
           )}
         </Row>
+        )}
 
         {failure ? (
           <div className="px-gutter py-3">
@@ -145,13 +168,15 @@ export function TopUp({
           </div>
         ) : null}
 
-        <div className="px-gutter py-3">
-          <p className="text-caption font-normal text-faint">
-            You’ll be sent to Stripe to pay, then returned here. The credit is applied by
-            Stripe notifying Lens, which usually takes a few seconds — the confirmation page
-            waits for it rather than assuming it.
-          </p>
-        </div>
+        {billingOff ? null : (
+          <div className="px-gutter py-3">
+            <p className="text-caption font-normal text-faint">
+              You’ll be sent to Stripe to pay, then returned here. The credit is applied by
+              Stripe notifying Lens, which usually takes a few seconds — the confirmation page
+              waits for it rather than assuming it.
+            </p>
+          </div>
+        )}
       </Card>
     </div>
   )

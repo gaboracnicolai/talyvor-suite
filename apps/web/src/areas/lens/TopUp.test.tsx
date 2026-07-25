@@ -105,6 +105,54 @@ describe('TopUp — the amounts come from the server', () => {
   })
 })
 
+describe('TopUp — a deployment that cannot sell says so up front', () => {
+  // This ships to a box with LENS_BILLING_ENABLED unset. Offering three buy
+  // buttons that cannot work — and only revealing it on click — is the thing
+  // this must not do. The state is known before anything is drawn.
+  function mockBillingOff() {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/lxc/topup-options') {
+        return new Response(
+          JSON.stringify({ allowed_usd_cents: [1000, 5000, 10000], billing_enabled: false }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      if (url === '/api/lxc/balance') return new Response(JSON.stringify(BALANCE), { status: 200 })
+      return new Response('null', { status: 404 })
+    })
+  }
+
+  it('draws no buy buttons at all when billing is off on this deployment', async () => {
+    mockBillingOff()
+    renderTopUp()
+    await screen.findByText(/isn’t available on this deployment/i)
+    expect(screen.queryByRole('button', { name: '$10' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '$50' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '$100' })).not.toBeInTheDocument()
+  })
+
+  it('says top-up is unavailable here and names the flag that turns it on', async () => {
+    mockBillingOff()
+    renderTopUp()
+    expect(await screen.findByText(/isn’t available on this deployment/i)).toBeInTheDocument()
+    expect(screen.getByText(/LENS_BILLING_ENABLED/)).toBeInTheDocument()
+  })
+
+  it('still shows the balance — the account is readable even when nothing can be bought', async () => {
+    mockBillingOff()
+    renderTopUp()
+    expect(await screen.findByText(/42/)).toBeInTheDocument()
+  })
+
+  it('reads as a calm off-state, not as a failure to load', async () => {
+    mockBillingOff()
+    renderTopUp()
+    await screen.findByText(/isn’t available on this deployment/i)
+    expect(screen.queryByText(/couldn’t load/i)).not.toBeInTheDocument()
+  })
+})
+
 describe('TopUp — starting a purchase', () => {
   it('posts the chosen amount in cents and sends the browser to the Stripe URL', async () => {
     const { post } = mockBff()
