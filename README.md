@@ -211,7 +211,6 @@ One area = one directory. An area tab works ONLY inside its directory:
 apps/web/src/areas/lens/        Lens + the Workspace section (Overview, Ledger, Billing, Keys, Spend, Members)
 apps/web/src/areas/track/       Track   (/track/*)
 apps/web/src/areas/docs/        Docs    (/docs/*)
-apps/web/src/areas/admin/       Admin   (/admin/*)
 apps/web/src/areas/marketing/   Marketing landing (/marketing, outside the auth gate)
 ```
 

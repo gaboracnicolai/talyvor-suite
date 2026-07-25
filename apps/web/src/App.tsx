@@ -12,7 +12,6 @@ import { TopUp } from './areas/lens/TopUp'
 import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
-import { AdminArea } from './areas/admin/AdminArea'
 import { Landing } from './areas/marketing/Landing'
 import { Specimen } from './routes/Specimen'
 
@@ -55,7 +54,6 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 function titleFor(pathname: string): string {
   if (pathname.startsWith('/track')) return 'Track'
   if (pathname.startsWith('/docs')) return 'Docs'
-  if (pathname.startsWith('/admin')) return 'Admin'
   // /billing, /billing/success, /billing/cancel — the last two are where Stripe
   // returns a customer, so they must title as Billing too, not fall to Overview.
   if (pathname.startsWith('/billing')) return 'Billing'
@@ -107,13 +105,16 @@ function Sidebar() {
         {item('/track', 'Track', true)}
         {item('/docs', 'Docs', true)}
       </Group>
-      <Group label="Operator">
-        {item('/admin', 'Admin', true)}
-        {/* /specimen (the design-system gallery) is deliberately NOT in the nav:
-            it is an internal review tool, and a trial user clicking it sees a
-            work-in-progress page. The ROUTE stays (see <Routes>) — reviews open
-            it by URL; unlinked, it costs nothing. Don't re-add the item. */}
-      </Group>
+      {/* The "Operator" group held one item, /admin, and is gone with it: an operator
+          console whose five screens were entirely fabricated (invented node ids, IPs,
+          certificate fingerprints, a Let's Encrypt issuer string) with no BFF route and no
+          path to real data in this deployment. A fixture badge cannot carry that content —
+          a cert expiring in 17 days is not a placeholder to whoever is reading it.
+
+          /specimen (the design-system gallery) is deliberately NOT in the nav either: it is
+          an internal review tool, and a trial user clicking it sees a work-in-progress page.
+          Its ROUTE stays (see <Routes>) — reviews open it by URL; unlinked, it costs
+          nothing. Don't re-add the item. */}
     </nav>
   )
 }
@@ -149,8 +150,20 @@ function AppShell() {
         <Route path="/members" element={<Members />} />
         <Route path="/track/*" element={<TrackArea />} />
         <Route path="/docs/*" element={<DocsArea />} />
-        <Route path="/admin/*" element={<AdminArea />} />
         <Route path="/specimen" element={<Specimen />} />
+        {/* A catch-all, added when /admin was removed. Before it, an unmatched in-app path
+            rendered the shell with an EMPTY content area and no explanation — so an
+            operator's /admin bookmark would have shown a blank page. A silent blank is the
+            same failure class as an invented number: the page says nothing true about what
+            happened. This covers every mistyped or retired path, not just that one. */}
+        <Route
+          path="*"
+          element={
+            <div className="mx-auto max-w-3xl px-gutter py-4 text-body text-muted">
+              Nothing at this address — pick a section from the sidebar.
+            </div>
+          }
+        />
       </Routes>
     </Shell>
   )
