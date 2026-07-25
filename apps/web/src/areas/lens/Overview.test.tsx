@@ -31,14 +31,33 @@ const ROUTES: Record<string, unknown> = {
   },
   '/api/tokens/history': HISTORY,
   '/api/spend/month': { current_month_usd: 12.3456 },
-  // The LXC ledger — what inference SPENDS. Raw wire shape (amount_ulxc); the
-  // client normalizes. Debits are negative; the grant credit must be excluded
-  // from any spend total by sign. No model metadata — no LXC writer attaches one.
+  // The LXC ledger — what inference SPENDS. Raw wire shape (amount_ulxc); the client
+  // normalizes. Debits are negative; the grant credit must be excluded from any spend total
+  // by sign. Rows DO carry model metadata: Lens stamps requested_model on every agent-lane
+  // writer (#343) and served_model on the delivered-charge spend row (#355). This fixture
+  // used to say "no model metadata — no LXC writer attaches one", which was true at lens
+  // 8c70d9e and had been false for weeks.
   '/api/lxc/history': [
-    { id: 'x1', workspace_id: 'trial-ws-1', amount_ulxc: -640000, balance_after_ulxc: 49360000, type: 'spend', description: 'proof-of-agent-allocation: pre-serve estimate debit', metadata: {}, created_at: '2026-07-21T10:00:05Z' },
-    { id: 'x2', workspace_id: 'trial-ws-1', amount_ulxc: -1360000, balance_after_ulxc: 48000000, type: 'spend', description: 'proof-of-agent-allocation: pre-serve estimate debit', metadata: {}, created_at: '2026-07-20T09:15:05Z' },
+    { id: 'x1', workspace_id: 'trial-ws-1', amount_ulxc: -640000, balance_after_ulxc: 49360000, type: 'spend', description: 'reservation settle: delivered charge', metadata: { requested_model: 'claude-sonnet-5', served_model: 'claude-haiku-4-5', request_id: 'rq1' }, created_at: '2026-07-21T10:00:05Z' },
+    { id: 'x2', workspace_id: 'trial-ws-1', amount_ulxc: -1360000, balance_after_ulxc: 48000000, type: 'spend', description: 'reservation settle: delivered charge', metadata: { requested_model: 'claude-sonnet-5', served_model: 'claude-sonnet-5', request_id: 'rq2' }, created_at: '2026-07-20T09:15:05Z' },
     { id: 'x3', workspace_id: 'trial-ws-1', amount_ulxc: 50000000, balance_after_ulxc: 50000000, type: 'admin_grant', description: 'trial onboarding', metadata: {}, created_at: '2026-07-19T08:00:00Z' },
   ],
+  // GET /api/usage → Lens /v1/api/usage. REAL numbers on a trial workspace are single
+  // digits; the fixture this replaces claimed 1,240 serves at an 87% hit rate.
+  '/api/usage': {
+    period_days: 30,
+    models: [
+      { model: 'claude-haiku-4-5', requests: 5, input_tokens: 900, output_tokens: 300, cost_usd: 0.0021, cache_hits: 2 },
+      { model: 'claude-sonnet-5', requests: 3, input_tokens: 400, output_tokens: 150, cost_usd: 0.0140, cache_hits: 0 },
+    ],
+    cache: {
+      total_requests: 8,
+      cache_hits: 2,
+      misses: 6,
+      hit_rate: 0.25,
+      by_source: { upstream: 6, cache_hit_exact: 2 },
+    },
+  },
 }
 
 interface Stub {
@@ -48,10 +67,11 @@ interface Stub {
 
 // Route mocked BFF responses by path. Bonds and the two product probes are
 // per-test decisions; on this deployment Track/Docs answer 503 (unconfigured).
-function mockBff(opts: { bonds?: Stub; track?: Stub; docs?: Stub } = {}) {
+function mockBff(opts: { bonds?: Stub; track?: Stub; docs?: Stub; usage?: Stub } = {}) {
   const bonds = opts.bonds ?? { body: { capability: 'bonds', enabled: false } }
   const track = opts.track ?? { status: 503, body: { error: 'track upstream not configured on this BFF' } }
   const docs = opts.docs ?? { status: 503, body: { error: 'docs upstream not configured on this BFF' } }
+  const usage = opts.usage ?? { body: ROUTES['/api/usage'] }
   const stub = (s: Stub) =>
     new Response(JSON.stringify(s.body), {
       status: s.status ?? 200,
@@ -60,6 +80,7 @@ function mockBff(opts: { bonds?: Stub; track?: Stub; docs?: Stub } = {}) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
     if (url.startsWith('/api/bonds')) return stub(bonds)
+    if (url.startsWith('/api/usage')) return stub(usage)
     if (url.startsWith('/api/track/')) return stub(track)
     if (url.startsWith('/api/docs/')) return stub(docs)
     for (const [path, body] of Object.entries(ROUTES)) {
@@ -67,6 +88,17 @@ function mockBff(opts: { bonds?: Stub; track?: Stub; docs?: Stub } = {}) {
     }
     return new Response('null', { status: 404 })
   })
+}
+
+/** A usage body with a chosen cache rollup — for the empty-window case. */
+function usageWith(cache: Partial<{ total_requests: number; cache_hits: number; misses: number; hit_rate: number }>): Stub {
+  return {
+    body: {
+      period_days: 30,
+      models: [],
+      cache: { total_requests: 0, cache_hits: 0, misses: 0, hit_rate: 0, by_source: {}, ...cache },
+    },
+  }
 }
 
 function renderOverview() {
@@ -106,39 +138,78 @@ describe('the two token economies are separated and correctly labelled', () => {
     mockBff()
     renderOverview()
 
-    // mint-attribution rows, largest µ first, request counts as hints
-    expect(await screen.findByText('claude-sonnet-5')).toBeInTheDocument()
-    expect(screen.getByText('claude-haiku-4-5')).toBeInTheDocument()
-    expect(screen.getByText('2 requests')).toBeInTheDocument()
+    // mint-attribution rows, largest µ first, request counts as hints. SCOPED to the mint
+    // table: the same model now also appears in the LXC spend split, and an unscoped query
+    // would resolve to the first match and stop testing the table it names.
+    const mint = await screen.findByTestId('lens-by-model')
+    expect(mint).toHaveTextContent('claude-sonnet-5')
+    expect(mint).toHaveTextContent('claude-haiku-4-5')
+    expect(mint).toHaveTextContent('2 requests')
     // the month number is derived upstream → dressed as ≈, never a numeral
     expect(screen.getByText('≈ $12.35')).toBeInTheDocument()
   })
 
-  it('SPENT is LXC (window debit total, no per-model split) and EARNED is LENS — never inverted', async () => {
+  it('SPENT is LXC and EARNED is LENS — never inverted', async () => {
     mockBff()
     renderOverview()
 
     // the two section markers, each side wearing its own metal
     expect(await screen.findByText('Spent — LXC')).toBeInTheDocument()
     expect(screen.getByText('Earned — LENS · mint attribution')).toBeInTheDocument()
-    // the debits row exists and states WHY there is no per-model spend split:
-    // no LXC ledger writer attaches a model (verified at lens 8c70d9e)
     expect(screen.getByText('Inference debits')).toBeInTheDocument()
-    expect(screen.getByText(/LXC ledger rows carry no model attribution/)).toBeInTheDocument()
     // the word "Spend" never labels the mint table: the card header carries both
     expect(screen.getByText('Spend & earnings — last 30 days')).toBeInTheDocument()
   })
-})
 
-describe('the cache card is honest about being a sample', () => {
-  it('wears its FixtureNotice — sample data is never silent', async () => {
+  it('splits LXC spend per model — and no longer claims it cannot', async () => {
     mockBff()
     renderOverview()
 
-    expect(await screen.findByText(/Sample data — awaiting/)).toBeInTheDocument()
-    // the claim's mechanism is stated; the rate is ≈-marked derived
-    expect(screen.getByText(/without calling the provider/)).toBeInTheDocument()
-    expect(screen.getByText(/≈ 87%/)).toBeInTheDocument()
+    // x1 was REQUESTED as sonnet and SERVED by haiku, so its charge is attributed to
+    // haiku; x2 was served by sonnet. The grant credit (x3) is excluded by sign.
+    await waitFor(() => expect(screen.getByText('Spend by model — LXC')).toBeInTheDocument())
+    const split = screen.getByTestId('lxc-by-model')
+    expect(split).toHaveTextContent('claude-sonnet-5')
+    expect(split).toHaveTextContent('claude-haiku-4-5')
+
+    // THE STALE CLAIM IS GONE. It was true at lens 8c70d9e and false from #343 onward.
+    expect(screen.queryByText(/carry no model attribution/)).toBeNull()
+    expect(screen.queryByText(/no per-model split/)).toBeNull()
+  })
+})
+
+describe('the cache card reads MEASURED numbers, or says why it cannot', () => {
+  it('shows the hits, the ≈-marked rate and the denominator from /api/usage', async () => {
+    mockBff()
+    renderOverview()
+
+    // 2 hits of 8 recorded requests = 25%. The fixture this replaces said 1,240 / 87%.
+    expect(await screen.findByText('2')).toBeInTheDocument()
+    expect(screen.getByText(/≈ 25%/)).toBeInTheDocument()
+    expect(screen.getByText(/8 requests recorded/)).toBeInTheDocument()
+    // and it is no longer sample data
+    expect(screen.queryByText(/Sample data — awaiting/)).toBeNull()
+    expect(screen.queryByText(/≈ 87%/)).toBeNull()
+  })
+
+  it('an empty window says so — never 0%, which reads as a measured failure', async () => {
+    mockBff({ usage: usageWith({ total_requests: 0 }) })
+    renderOverview()
+
+    expect(await screen.findByText(/No requests recorded in this window yet/)).toBeInTheDocument()
+    // A 0% hit rate is a real measurement of nothing; showing it would claim the cache
+    // never hits. With no denominator there is no rate to show at all.
+    expect(screen.queryByText(/≈ 0%/)).toBeNull()
+    expect(screen.queryByText(/%/)).toBeNull()
+  })
+
+  it('a failed read says it could not load — never a plausible number', async () => {
+    mockBff({ usage: { status: 500, body: { error: 'boom' } } })
+    renderOverview()
+
+    expect(await screen.findByText(/Couldn’t load the cache rate/)).toBeInTheDocument()
+    expect(screen.queryByText(/%/)).toBeNull()
+    expect(screen.queryByText(/requests recorded/)).toBeNull()
   })
 })
 

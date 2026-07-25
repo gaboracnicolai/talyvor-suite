@@ -1,21 +1,22 @@
 import { useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
-import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
-import { TrackApiError, useTrackWorkspaces } from './data'
+import { useTrackWorkspaces } from './data'
+import { isUnconfigured } from '../../lib/productState'
 
 // The Track area root. App.tsx mounts this under /track/* (wildcard), so ALL Track
 // sub-routing lives here — the area owns its URL space, per the ownership contract.
 //
-//   /track                  → the issue list (the core screen)
-//   /track/issues/:issueId  → read-only issue detail
+//   /track  → the issues view
 //
-// The workspace strip at the top is the area's ONE live read (/api/track/workspaces —
-// the only Track route the BFF proxies today, membership-scoped upstream). Everything
-// below it is fixture-backed and says so per-card; see data.ts and the PR's BFF gap
-// list. The strip is deliberately un-badged: the contrast between the live strip and
-// the badged cards is itself the honest signal of where the seam is.
+// The /track/issues/:issueId route is GONE with the fixture it read. A detail screen whose
+// only data source was four invented comments is a dead route, not a placeholder; it returns
+// with the live wiring.
+//
+// The workspace strip is a live read (/api/track/workspaces, membership-scoped upstream).
+// Below it, the issues view PROBES its route and reports what this deployment answers — see
+// data.ts for why the fourteen fixture issues were deleted rather than re-badged.
 
 function WorkspaceStrip() {
   const q = useTrackWorkspaces()
@@ -25,30 +26,26 @@ function WorkspaceStrip() {
     return <div className="px-gutter py-2 text-body text-muted">Loading workspaces…</div>
   }
   if (q.isError || !q.data) {
-    // Three states, matching Docs' SpaceList exactly: a 503 is the BFF's
-    // proxyProduct saying "upstream not configured on this BFF", and a 404 is a
-    // BFF built before the Track routes — both are INFORMATION, not faults (the
-    // same reading Overview's product probe uses). Everything else is a real
-    // failure, named as such without claiming to know why. Either way the
-    // fixture screens below are a design preview and keep working.
-    const off =
-      q.error instanceof TrackApiError && (q.error.status === 503 || q.error.status === 404)
-    return off ? (
+    // Three states, matching Docs' SpaceList exactly: a 503 is the BFF's proxyProduct
+    // saying "upstream not configured on this BFF", and a 404 is a BFF built before the
+    // Track routes — both are INFORMATION, not faults (the same reading Overview's product
+    // probe uses, and the shared rule in lib/productState). Everything else is a real
+    // failure, named as such without claiming to know why.
+    //
+    // Both messages used to end by promising "a design preview on marked sample data" below.
+    // There is no sample data below any more, so the promise is gone with it.
+    return isUnconfigured(q.error) ? (
       <Card>
-        <CardHeader>Track is not configured on this BFF deployment</CardHeader>
+        <CardHeader>Track is not configured on this deployment</CardHeader>
         <p className="px-gutter py-3 text-body text-muted">
-          The BFF has no Track upstream wired (its TRACK_* trio is unset) — off, not
-          broken. The screens below are a design preview on marked sample data; they
-          don’t depend on this upstream.
+          The BFF has no Track upstream wired (its TRACK_* trio is unset) — off, not broken.
         </p>
       </Card>
     ) : (
       <Card>
         <CardHeader>Couldn’t load workspaces</CardHeader>
         <p className="px-gutter py-3 text-body text-muted">
-          The Track proxy answered with an error — nothing is shown rather than
-          something stale. The screens below are a design preview on marked sample
-          data; they don’t depend on this upstream.
+          The Track proxy answered with an error — nothing is shown rather than something stale.
         </p>
       </Card>
     )
@@ -90,8 +87,9 @@ export function TrackArea() {
       <WorkspaceStrip />
       <Routes>
         <Route index element={<IssueList />} />
-        <Route path="issues/:issueId" element={<IssueDetail />} />
-        {/* Anything else under /track/* is this area's to answer: fall back to the list. */}
+        {/* Anything else under /track/* is this area's to answer: fall back to the list.
+            That includes the retired /track/issues/:id — an old link lands somewhere real
+            rather than on a dead end. */}
         <Route path="*" element={<IssueList />} />
       </Routes>
     </div>

@@ -59,6 +59,7 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		"/api/lxc/topup-options",
 		"/api/spend/month",
 		"/api/members",
+		"/api/usage?days=7", // the cache panel's read — swept like every other key-bearing route
 	}
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()

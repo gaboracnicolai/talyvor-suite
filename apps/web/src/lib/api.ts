@@ -70,6 +70,16 @@ export interface LedgerRow {
   type: string
   description: string
   created_at: string
+  /** The row's metadata document, PRESERVED rather than dropped.
+   *
+   *  This mapper used to discard it, which is how two screens ended up captioned "LXC ledger
+   *  rows carry no model attribution, so spend has no per-model split" while the model was
+   *  sitting in the response body: Lens stamps requested_model on every agent-lane writer
+   *  (#343) and served_model on the delivered-charge spend row (#355), GetLXCHistory selects
+   *  the column, and the BFF streams it verbatim. The claim was true of this function, not of
+   *  the data. Kept as an opaque map — spendMath.lxcDebitsByModel reads the two model keys and
+   *  nothing else, so a new key upstream cannot change what any screen renders. */
+  metadata: Record<string, unknown>
 }
 
 export class ApiError extends Error {
@@ -151,6 +161,43 @@ export interface MonthSpend {
   current_month_usd: number
 }
 
+/** GET /api/usage → Lens GET /v1/api/usage. Per-model usage plus the cache rollup, one call.
+ *
+ *  THE CACHE NUMBERS ARE MEASURED, from token_events.serve_source (Lens migration 0100). The
+ *  legacy `cached` boolean is NOT used upstream and never was written true — reading it gave a
+ *  structural zero reported as a measurement, which is why Lens switched to serve_source.
+ *
+ *  DENOMINATOR CAVEAT, carried from the Lens handler's own doc comment: a node-routed serve
+ *  writes no token_events row, so node serves are absent from BOTH numerator and denominator
+ *  and the rate would read HIGH if node routing were ever enabled (default-off today, and a
+ *  reader can see it: `by_source` carries only 'upstream' and cache_hit_* keys, never 'node').
+ *  Fixing that is Lens-side work in tryNodeRouting, not something this UI can correct. */
+export interface UsageModelRow {
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  /** Provider USD COGS from token_events — NOT the µLXC the workspace was charged. */
+  cost_usd: number
+  cache_hits: number
+}
+
+export interface UsageCache {
+  total_requests: number
+  cache_hits: number
+  misses: number
+  /** 0..1. Derived, so the UI ≈-marks it and never renders it as an exact numeral. */
+  hit_rate: number
+  /** serve_source composition, e.g. {upstream: 12, cache_hit_exact: 3}. */
+  by_source: Record<string, number>
+}
+
+export interface Usage {
+  period_days: number
+  models: UsageModelRow[]
+  cache: UsageCache
+}
+
 export const api = {
   me: () => getJSON<AuthMe>('/auth/me'),
   spendMonth: () => getJSON<MonthSpend>('/api/spend/month'),
@@ -161,6 +208,8 @@ export const api = {
     getJSONArray<LedgerEntry>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
   /** Capability-gated (H5 bonds). Off in the trial config today → { enabled: false }. */
   bonds: () => getCapability<Bond[]>('/api/bonds'),
+  /** Per-model usage + the measured cache rollup for a window. Replaces the cache fixture. */
+  usage: (days: number) => getJSON<Usage>(`/api/usage?days=${days}`),
 
   /** The LENS mint ledger, normalized. */
   lensLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>
@@ -172,6 +221,7 @@ export const api = {
         type: r.type,
         description: r.description,
         created_at: r.created_at,
+        metadata: r.metadata ?? {},
       })),
     ),
   /** The LXC (pegged) ledger, normalized. */
@@ -184,6 +234,7 @@ export const api = {
         type: r.type,
         description: r.description,
         created_at: r.created_at,
+        metadata: r.metadata ?? {},
       })),
     ),
   /** One ledger fetch keyed by token — feeds the one LedgerTable. */

@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import { Card, CardHeader, FixtureNotice, MuNumeral, Pill, Row, TierDot } from '@talyvor/ui'
+import { Card, CardHeader, MuNumeral, Pill, Row } from '@talyvor/ui'
 import { api, ApiError, type Bond, type LedgerEntry } from '../../lib/api'
+import { CacheCard } from './CacheCard'
 import { CapabilityOff } from './Capability'
-import { fixtureCache, fixtureModelTiers } from './fixtures'
+import { ModelTier } from './ModelTier'
 import { formatUSD, formatWhen, humanizeType, ledgerStatus } from './format'
-import { byModel, debitTotal, inWindow } from './spendMath'
+import { byModel, debitTotal, inWindow, lxcDebitsByModel } from './spendMath'
 
 // Overview: the first screen a trial user sees. It answers, in order:
 //   1. What have I got?            — the two balances (live).
@@ -12,9 +13,10 @@ import { byModel, debitTotal, inWindow } from './spendMath'
 //      plainly separated and wearing their own metals: LXC debits (steel; the
 //      lxc_ledger is what inference SPENDS) + month ≈USD, then LENS mint
 //      attribution by model (copper; lens_token_ledger is what mining EARNS).
-//   3. Is the cache earning me anything? — the product's claim. SAMPLE today,
-//      visibly marked: no Lens per-workspace cache endpoint exists, and
-//      cache-hit ledger visibility (lens #339) is not deployed. See the report.
+//   3. Is the cache earning me anything? — the product's claim, on MEASURED
+//      numbers from /api/usage (Lens serve_source). This was a fixture reading
+//      1,240 serves at 87% under a caption explaining that no endpoint served
+//      it; the endpoint existed all along. See CacheCard.tsx.
 //   4. Is anything wrong?          — the products strip. An unconfigured
 //                                    product (BFF 503) reads as calm state,
 //                                    never as an error.
@@ -102,10 +104,13 @@ function LensCard() {
 // as spend. Now each economy wears its own metal: steel (lxc) for what left the
 // balance, copper (lens) for what mining credited.
 //
-// Per-model granularity is asymmetric BY THE DATA: LENS mint rows carry
-// metadata.model_used; LXC ledger rows carry NO model on any writer (the agent
-// allocator debit — the live spend lane — writes metadata=nil, verified at lens
-// 8c70d9e), so per-model spend is not derivable and the row says so.
+// BOTH ledgers now split per model, from their own metadata: LENS mint rows carry
+// metadata.model_used, and LXC rows carry requested_model on every agent-lane writer
+// (#343) plus served_model on the delivered-charge row (#355). This card used to say
+// per-model LXC spend was "not derivable" — true at lens 8c70d9e, false from #343, and
+// it survived because api.lxcLedger discarded the field so nothing could contradict it.
+// The two splits are kept in SEPARATE sections and never summed: µLXC charged to the
+// workspace is not provider USD COGS.
 
 function TokenSection({ token, children }: { token: 'lxc' | 'lens'; children: React.ReactNode }) {
   return (
@@ -124,6 +129,7 @@ function SpendCard({ now }: { now: Date }) {
   const lxc = useQuery({ queryKey: ['lxc-history', 200, 0], queryFn: () => api.lxcLedger(200, 0) })
   const month = useQuery({ queryKey: ['spend-month'], queryFn: api.spendMonth })
   const agg = ledger.data ? byModel(inWindow(ledger.data, 30, now)).slice(0, 5) : []
+  const lxcSplit = lxc.data ? lxcDebitsByModel(lxc.data, 30, now).slice(0, 5) : []
   return (
     <Card>
       <CardHeader>Spend &amp; earnings — last 30 days</CardHeader>
@@ -137,7 +143,7 @@ function SpendCard({ now }: { now: Date }) {
           <span className="text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
         )}
       </Row>
-      <Row label="Inference debits" hint="all models — LXC ledger rows carry no model attribution">
+      <Row label="Inference debits" hint="every model — the window total that left the balance">
         {lxc.isLoading ? (
           <span className="text-body text-muted">Loading…</span>
         ) : lxc.isError || !lxc.data ? (
@@ -146,6 +152,32 @@ function SpendCard({ now }: { now: Date }) {
           <MuNumeral micros={debitTotal(lxc.data, 30, now)} unit="lxc" />
         )}
       </Row>
+      {/* The per-model split of that total. This row is the correction of a caption that
+          said it was impossible: Lens stamps requested_model on every agent-lane writer
+          and served_model on the delivered-charge row, and api.lxcLedger was discarding
+          the field before any screen could read it. Attribution is to the model that
+          SERVED, falling back to the requested one (a hold predates routing). */}
+      {lxcSplit.length > 0 ? (
+        <>
+          <TokenSection token="lxc">Spend by model — LXC</TokenSection>
+          <div data-testid="lxc-by-model">
+            {lxcSplit.map((a) => (
+              <Row
+                key={a.model}
+                label={
+                  <span className="inline-flex items-center gap-2">
+                    <ModelTier model={a.model} />
+                    {a.model}
+                  </span>
+                }
+                hint={`${a.requests} charge${a.requests === 1 ? '' : 's'}`}
+              >
+                <MuNumeral micros={a.ulxc} unit="lxc" />
+              </Row>
+            ))}
+          </div>
+        </>
+      ) : null}
       <TokenSection token="lens">Earned — LENS · mint attribution</TokenSection>
       {ledger.isLoading ? (
         <Loading />
@@ -156,47 +188,27 @@ function SpendCard({ now }: { now: Date }) {
           No mint-attributed LENS rows in the window yet.
         </div>
       ) : (
-        agg.map((a) => (
-          <Row
-            key={a.model}
-            label={
-              <span className="inline-flex items-center gap-2">
-                <TierDot tier={fixtureModelTiers[a.model] ?? 'cheap'} />
-                {a.model}
-              </span>
-            }
-            hint={`${a.requests} request${a.requests === 1 ? '' : 's'}`}
-          >
-            <MuNumeral micros={a.ulens} unit="lens" />
-          </Row>
-        ))
-      )}
-    </Card>
-  )
-}
-
-/* ── 3 · Cache (the claim — SAMPLE, and it says so) ─────────────────────── */
-
-function CacheCard() {
-  return (
-    <Card>
-      <CardHeader>Cache</CardHeader>
-      <div className="flex flex-col gap-1.5 px-gutter pb-1 pt-2.5">
-        <FixtureNotice awaiting="a Lens per-workspace cache endpoint (none exists; lens #339's per-request visibility is merged upstream but not deployed here)" />
-        <div className="text-caption font-normal text-muted">
-          A cache hit serves the response without calling the provider.
+        // Scoped like the LXC split above: the same model name legitimately appears in
+        // BOTH sections now (earned here, charged there), so a test asserting "the mint
+        // table lists sonnet" must say WHICH table — an unscoped getByText would resolve
+        // to whichever came first and quietly stop testing what it names.
+        <div data-testid="lens-by-model">
+          {agg.map((a) => (
+            <Row
+              key={a.model}
+              label={
+                <span className="inline-flex items-center gap-2">
+                  <ModelTier model={a.model} />
+                  {a.model}
+                </span>
+              }
+              hint={`${a.requests} request${a.requests === 1 ? '' : 's'}`}
+            >
+              <MuNumeral micros={a.ulens} unit="lens" />
+            </Row>
+          ))}
         </div>
-      </div>
-      <Row label="Cached serves" hint="responses answered from cache">
-        <span className="font-mono text-body text-ink">
-          {fixtureCache.cache_hits.toLocaleString('en-US')}
-        </span>
-      </Row>
-      <Row label="Hit rate" hint={`${fixtureCache.cache_lookups.toLocaleString('en-US')} lookups`}>
-        <span className="text-body text-muted">
-          ≈ {Math.round(fixtureCache.cache_hit_rate * 100)}%
-        </span>
-      </Row>
+      )}
     </Card>
   )
 }
@@ -325,7 +337,7 @@ export function Overview({ now = new Date() }: { now?: Date } = {}) {
       <LxcCard />
       <LensCard />
       <SpendCard now={now} />
-      <CacheCard />
+      <CacheCard days={30} />
       <ProductsCard />
       <RecentActivity />
     </div>

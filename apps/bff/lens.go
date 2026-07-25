@@ -104,6 +104,22 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/lxc/topup-options", a.requireSession(a.handleTopUpOptions))
 	a.mux.HandleFunc("/api/lxc/checkout", a.requireSession(a.handleLXCCheckout))
 
+	// USAGE — the cache panel's real numbers, and per-model usage in the same call.
+	// Lens has served this all along (internal/api/server.go: "per-model usage +
+	// serve_source cache hit rate (trial core), one call"); nothing here called it, so two
+	// screens drew an invented hit rate from a fixture instead. Wiring it deletes the only
+	// fabricated numbers left on the Lens screens.
+	//
+	// NOTE the upstream path carries NO workspace segment, unlike every other Lens route
+	// above. /v1/api/usage scopes itself from the AUTHENTICATED KEY (its effectiveWorkspaceID),
+	// and the key is precisely what this BFF attaches server-side — so the tenant pinning is
+	// done by the credential rather than by a config-built path. Client input never reaches
+	// the upstream path OR its query: only `days` passes, clamped (proxyWindowed). In
+	// particular ?workspace_id= — the parameter an ADMIN key would use upstream to target
+	// another tenant — is DROPPED, so this route cannot be aimed elsewhere even if the
+	// deployment's key were ever upgraded to an admin one.
+	a.mux.HandleFunc("/api/usage", a.requireSession(a.proxyWindowed("/v1/api/usage")))
+
 	// Track Tier-1 (this PR): issues list + issue detail + comments + teams,
 	// completing the track area's gap list (its item 4, the roster, is
 	// /api/members below). All pinned to the CONFIGURED track workspace; the
@@ -189,6 +205,25 @@ func (a *app) proxyPaged(upstreamPath string) http.HandlerFunc {
 		offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<31-1)
 		raw := "limit=" + strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
 		a.forward(w, r, upstreamPath, raw)
+	}
+}
+
+// proxyWindowed forwards GET → a fixed upstream path, passing through ONLY `days`,
+// clamped. A windowed read needs its window to reach the upstream or the caption above the
+// number ("last 30 days") describes a different window than the one measured — so the
+// parameter is forwarded rather than fixed, and clamped rather than trusted. Everything
+// else the client sends is dropped, exactly as proxyPaged drops all but limit/offset.
+func (a *app) proxyWindowed(upstreamPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		// Lens's own default is 30 days (queryInt(r, "days", 30)); mirroring it here means
+		// the BFF contract states the upstream's truth rather than a second opinion. The
+		// 365 cap is this BFF's: a year is the longest window any screen offers.
+		days := clampInt(r.URL.Query().Get("days"), 30, 1, 365)
+		a.forward(w, r, upstreamPath, "days="+strconv.Itoa(days))
 	}
 }
 

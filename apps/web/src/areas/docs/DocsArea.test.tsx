@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DocsArea } from './DocsArea'
 
@@ -41,6 +41,22 @@ function mockSpaces(status = 200) {
       if (status !== 200) return new Response('{"error":"boom"}', { status })
       return new Response(JSON.stringify(SPACES), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
+    return new Response('null', { status: 404 })
+  })
+}
+
+/** Spaces answers one way, every other Docs route another — the shape of a deployment where
+ *  the routes exist but the upstream does not. */
+function mockDocs(opts: { spaces: { status?: number; body: unknown }; other: { status?: number; body: unknown } }) {
+  const stub = (s: { status?: number; body: unknown }) =>
+    new Response(JSON.stringify(s.body), {
+      status: s.status ?? 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    if (url === '/api/docs/spaces') return stub(opts.spaces)
+    if (url.startsWith('/api/docs/')) return stub(opts.other)
     return new Response('null', { status: 404 })
   })
 }
@@ -94,57 +110,47 @@ describe('space list (LIVE /api/docs/spaces)', () => {
   })
 })
 
-describe('page tree (fixtures until the BFF route exists)', () => {
-  it('opens a space from the list and shows the fixture-marked tree', async () => {
-    mockSpaces()
-    renderAt('/docs')
-    fireEvent.click(await screen.findByRole('link', { name: 'Open space Engineering' }))
-
-    expect(await screen.findByText('Getting started')).toBeInTheDocument()
-    expect(screen.getByText('fixture')).toBeInTheDocument()
-    // nested children render expanded by default
-    expect(screen.getByText('Collaboration protocol')).toBeInTheDocument()
-    expect(screen.getByText('The collab tier gate')).toBeInTheDocument()
-    expect(screen.getByText('7 pages')).toBeInTheDocument()
-  })
-
-  it('collapse hides a branch; expand restores it', async () => {
-    mockSpaces()
+describe('the tree and the reader PROBE their route, and report what came back', () => {
+  // These two screens used to render seven fabricated pages with view counts (128, 64, 31, …)
+  // under a footnote claiming "the BFF serves only /api/docs/spaces today" — while the BFF
+  // served four Docs routes. The fixtures are gone; the copy now requires a response.
+  it('an unconfigured Docs upstream reads as off, with no invented pages', async () => {
+    mockDocs({ spaces: { body: SPACES }, other: { status: 503, body: { error: 'docs upstream not configured on this BFF' } } })
     renderAt('/docs/spaces/sp-eng')
-    await screen.findByText('Architecture')
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Architecture' }))
-    expect(screen.queryByText('Collaboration protocol')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Architecture' }))
-    expect(screen.getByText('Collaboration protocol')).toBeInTheDocument()
-  })
-})
 
-describe('page reader (fixtures until the BFF route exists)', () => {
-  it('renders the stored ProseMirror content with meta and chips', async () => {
-    mockSpaces()
-    renderAt('/docs/spaces/sp-eng/pages/fx-getting-started')
-
-    expect(await screen.findByRole('heading', { level: 1, name: /Getting started/ })).toBeInTheDocument()
-    expect(screen.getByText('fixture')).toBeInTheDocument()
-    expect(screen.getByText(/128 views/)).toBeInTheDocument()
-    expect(screen.getByText(/verified Jul 14, 2026/)).toBeInTheDocument()
-    // content really rendered, not just the title
-    expect(screen.getByText('ProseMirror JSON').tagName).toBe('STRONG')
-    expect(screen.getByText('curl -s /api/docs/spaces | jq length')).toBeInTheDocument()
-    // breadcrumb resolves the space name from the live list
-    expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toHaveTextContent('Engineering')
+    expect(await screen.findByText(/Docs is not configured on this deployment/)).toBeInTheDocument()
+    expect(screen.queryByText('Getting started')).toBeNull()
+    expect(screen.queryByText(/128 views/)).toBeNull()
+    expect(screen.queryByText('fixture')).toBeNull()
   })
 
-  it('a locked fixture page wears the locked chip', async () => {
-    mockSpaces()
-    renderAt('/docs/spaces/sp-eng/pages/fx-oncall')
-    expect(await screen.findByText('locked')).toBeInTheDocument()
+  it('a configured upstream flips it to the honest not-yet-wired state, naming the read', async () => {
+    mockDocs({ spaces: { body: SPACES }, other: { body: [] } })
+    renderAt('/docs/spaces/sp-eng')
+
+    expect(await screen.findByText(/does not read it yet/)).toBeInTheDocument()
+    expect(screen.getByText('GET /api/docs/spaces/{spaceID}/pages')).toBeInTheDocument()
+    // the anti-rot assertion: "not configured" cannot be reached once it answers
+    expect(screen.queryByText(/is not configured on this deployment/)).toBeNull()
   })
 
-  it('an unknown page id is an honest not-found, not a crash', async () => {
-    mockSpaces()
-    renderAt('/docs/spaces/sp-eng/pages/nope')
-    expect(await screen.findByText('No such page in this space.')).toBeInTheDocument()
+  it('the reader probes the PAGE route, not the tree route', async () => {
+    mockDocs({ spaces: { body: SPACES }, other: { body: {} } })
+    renderAt('/docs/spaces/sp-eng/pages/pg-1')
+    expect(await screen.findByText('GET /api/docs/spaces/{spaceID}/pages/{pageID}')).toBeInTheDocument()
+  })
+
+  it('a real failure on the tree route is an error, never laundered into off', async () => {
+    mockDocs({ spaces: { body: SPACES }, other: { status: 500, body: { error: 'boom' } } })
+    renderAt('/docs/spaces/sp-eng')
+    expect(await screen.findByText(/answered with an error/)).toBeInTheDocument()
+    expect(screen.queryByText(/not configured/)).toBeNull()
+  })
+
+  it('keeps the way back to spaces', async () => {
+    mockDocs({ spaces: { body: SPACES }, other: { status: 503, body: {} } })
+    renderAt('/docs/spaces/sp-eng')
+    expect(await screen.findByRole('link', { name: 'Spaces' })).toHaveAttribute('href', '/docs')
   })
 })
 

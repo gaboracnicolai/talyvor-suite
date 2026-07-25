@@ -16,21 +16,10 @@ export function Chip({ title, children }: { title?: string; children: React.Reac
   )
 }
 
-/** Marks fixture-backed data on every screen that renders it. The BFF serves only
- *  /api/docs/spaces today; the tree + reader run on local fixtures (BFF-GAPS.md). */
-export function FixtureChip() {
-  return <Chip title="Local fixture data — the BFF does not serve this read yet (see BFF-GAPS.md)">fixture</Chip>
-}
-
-/** Under-card footnote explaining the fixture chip, once per screen. */
-export function FixtureNote() {
-  return (
-    <p className="px-gutter text-body text-faint">
-      Page tree and page content are local fixtures — the BFF serves only /api/docs/spaces today. The missing
-      routes are enumerated in areas/docs/BFF-GAPS.md.
-    </p>
-  )
-}
+// FixtureChip and FixtureNote are GONE. Their own doctrine required it: the shared
+// FixtureNotice carries a "REMOVAL CONDITION — the day no screen renders one, delete it; an
+// unproducible marker is dead surface". No Docs screen renders fixture data any more, and the
+// note's text ("the BFF serves only /api/docs/spaces today") had become false besides.
 
 /** Breadcrumb trail: caption links, current leaf in ink. */
 export function Crumbs({ trail }: { trail: Array<{ label: string; to?: string }> }) {
