@@ -145,8 +145,22 @@ func newApp(cfg config, auth *authenticator) *app {
 	// keys, duplicates and the upstream's documented-but-unparsed `labels`
 	// are refused, not silently dropped); id-routes guard the segment before
 	// any dial and use the PLAIN proxy so a genuine 404 stays a 404.
-	a.mux.HandleFunc("/api/track/issues", a.requireSession(a.trackIssues()))
-	a.mux.HandleFunc("/api/track/issues/{id}", a.requireSession(a.trackIssueDetail()))
+	// GET lists, POST creates — one path, method-dispatched inside each handler so an
+	// unsupported verb answers 405 rather than falling through to the other product's route.
+	a.mux.HandleFunc("/api/track/issues", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			a.trackCreateIssue()(w, r)
+			return
+		}
+		a.trackIssues()(w, r)
+	}))
+	a.mux.HandleFunc("/api/track/issues/{id}", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			a.trackUpdateIssue()(w, r)
+			return
+		}
+		a.trackIssueDetail()(w, r)
+	}))
 	a.mux.HandleFunc("/api/track/issues/{id}/comments", a.requireSession(a.trackIssueComments()))
 	a.mux.HandleFunc("/api/track/teams", a.requireSession(a.trackTeams()))
 
@@ -366,7 +380,7 @@ func (a *app) proxyProduct(product, baseURL, secret, upstreamPath string) http.H
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		a.forwardProduct(w, r, product, baseURL, secret, upstreamPath, "", nil)
+		a.forwardProduct(w, r, product, baseURL, secret, upstreamPath, "", http.MethodGet, nil, nil)
 	}
 }
 
@@ -379,7 +393,15 @@ func (a *app) proxyProduct(product, baseURL, secret, upstreamPath string) http.H
 // and not proxyGated). When transform is non-nil and the upstream is 200, the body is
 // passed through it before being written (used only to project heavy fields off a list
 // row); otherwise the body is streamed verbatim.
-func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, baseURL, secret, upstreamPath, rawQuery string, transform func([]byte) ([]byte, error)) {
+// forwardProduct is the ONE place a product credential is attached. It now carries the METHOD and
+// an optional BODY so a write goes through the same path as a read: a sibling helper would have
+// meant two places that attach X-Gateway-Auth and the session identity, and the whole argument for
+// this function is that there is exactly one.
+//
+// method is the verb sent upstream. body is nil for reads; for writes it is the caller's request
+// body, forwarded VERBATIM — the upstream owns its own validation, and re-encoding here would
+// invent a second schema to drift from.
+func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, baseURL, secret, upstreamPath, rawQuery, method string, body io.Reader, transform func([]byte) ([]byte, error)) {
 	if baseURL == "" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": product + " upstream not configured on this BFF"})
@@ -402,7 +424,7 @@ func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, ba
 	if rawQuery != "" {
 		u += "?" + rawQuery
 	}
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(r.Context(), method, u, body)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream request"})
 		return
@@ -483,7 +505,7 @@ func (a *app) docsSpaceDetail() http.HandlerFunc {
 			return
 		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			"/v1/spaces/"+url.PathEscape(spaceID), "", nil)
+			"/v1/spaces/"+url.PathEscape(spaceID), "", http.MethodGet, nil, nil)
 	}
 }
 
@@ -509,7 +531,7 @@ func (a *app) docsPageList() http.HandlerFunc {
 		offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<31-1)
 		raw := "limit=" + strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages", raw, stripPageContentList)
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages", raw, http.MethodGet, nil, stripPageContentList)
 	}
 }
 
@@ -533,7 +555,7 @@ func (a *app) docsPageDetail() http.HandlerFunc {
 			return
 		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID), "", nil)
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID), "", http.MethodGet, nil, nil)
 	}
 }
 

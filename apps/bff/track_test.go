@@ -231,27 +231,41 @@ func TestTrackIdRoutesRequireSession(t *testing.T) {
 	}
 }
 
-// TestTrackRoutesReadOnly: the new routes are GET-only — POST/PUT/DELETE answer
-// 405 with Allow, and never dial upstream.
-func TestTrackRoutesReadOnly(t *testing.T) {
+// TestTrackRoutesRefuseUnsupportedVerbs — the read routes stay read-only, and the two WRITE
+// routes accept exactly one verb each.
+//
+// This used to assert every Track route was GET-only. That contract was deliberately narrowed when
+// create-issue and status-patch landed: read-only products under a heading called "Products" are
+// worse than absent ones, because the expectation forms before the gap appears. What is still
+// pinned is that nothing ELSE became writable — a widened proxy must not quietly open verbs nobody
+// asked for, which is the failure a blanket "GET-only" test used to catch and this one still does.
+func TestTrackRoutesRefuseUnsupportedVerbs(t *testing.T) {
 	track := newCaptureUpstream(t, `[]`)
 	a, sess := productApp(t, track, nil)
-	for _, ep := range []string{
-		"/api/track/issues", "/api/track/issues/isu-1",
-		"/api/track/issues/isu-1/comments", "/api/track/teams",
+	for _, tc := range []struct {
+		ep      string
+		refused []string
+	}{
+		// POST creates here; PUT/DELETE do not.
+		{"/api/track/issues", []string{http.MethodPut, http.MethodDelete}},
+		// PATCH edits here; POST/PUT/DELETE do not.
+		{"/api/track/issues/isu-1", []string{http.MethodPost, http.MethodPut, http.MethodDelete}},
+		// Still entirely read-only.
+		{"/api/track/issues/isu-1/comments", []string{http.MethodPost, http.MethodPut, http.MethodDelete}},
+		{"/api/track/teams", []string{http.MethodPost, http.MethodPut, http.MethodDelete}},
 	} {
-		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		for _, method := range tc.refused {
 			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(method, ep, strings.NewReader("{}"))
+			req := httptest.NewRequest(method, tc.ep, strings.NewReader("{}"))
 			req.AddCookie(sess)
 			a.ServeHTTP(rec, req)
 			if rec.Code != http.StatusMethodNotAllowed {
-				t.Errorf("%s %s: got %d, want 405", method, ep, rec.Code)
+				t.Errorf("%s %s: got %d, want 405", method, tc.ep, rec.Code)
 			}
 		}
 	}
 	if track.headers != nil {
-		t.Fatal("a non-GET must never reach the track upstream")
+		t.Fatal("a refused verb must never reach the track upstream")
 	}
 }
 

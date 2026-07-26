@@ -111,7 +111,20 @@ function Sidebar() {
       </Group>
       <Group label="Products">
         {item('/track', 'Track', true)}
-        {item('/docs', 'Docs', true)}
+        {/* DOCS IS DELIBERATELY NOT LISTED, and this is not an oversight — do not re-add it.
+            Docs still serves ONE PINNED workspace shared by every signed-in person
+            (apps/bff/main.go, docsWorkspaceID). Reading someone else's page behind a disclosure is
+            one thing; a trial user filling a shared wiki with their own company's content, in front
+            of the next trial user, is another — and writes to a shared space are the hardest thing
+            to un-ship, because the content persists and there is no per-tenant boundary to clean up
+            along. Listing it under "Products" forms the expectation before that gap appears.
+
+            IT COMES BACK when Docs gets the same per-identity bootstrap Track just got — a workspace
+            resolved from the SESSION rather than pinned at startup. At that point create-page is the
+            same small job, in a space the tester owns.
+
+            The ROUTE stays (see <Routes>): /docs still works by URL for review, exactly the
+            treatment /specimen gets. Pinned by DocsNotInNav.test.tsx. */}
       </Group>
       {/* The "Operator" group held one item, /admin, and is gone with it: an operator
           console whose five screens were entirely fabricated (invented node ids, IPs,

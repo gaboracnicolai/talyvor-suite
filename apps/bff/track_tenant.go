@@ -174,6 +174,6 @@ func (a *app) trackWorkspaceProxy(suffix string, rawQuery func(*http.Request) st
 			q = rawQuery(r)
 		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			trackWorkspacePath(ws, suffix), q, transform)
+			trackWorkspacePath(ws, suffix), q, http.MethodGet, nil, transform)
 	})
 }

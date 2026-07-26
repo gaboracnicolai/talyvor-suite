@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -447,5 +448,172 @@ func TestAuthMeDocsSharedIsDerivedNotHardcoded(t *testing.T) {
 				t.Errorf("docs_shared = %v, want %v — it must be DERIVED from the config pin", got, c.want)
 			}
 		})
+	}
+}
+
+/* ── Writes follow the session too ───────────────────────────────────────── */
+
+// trackWriteUpstream records METHOD + PATH + BODY, which the read-only harness above does not:
+// a write that reaches the right workspace with the wrong verb, or with the body dropped, is a
+// silent no-op upstream rather than an error here.
+type trackWriteUpstream struct {
+	srv   *httptest.Server
+	mu    sync.Mutex
+	calls []writeCall
+}
+
+type writeCall struct {
+	method string
+	path   string
+	body   string
+}
+
+func newTrackWriteUpstream(t *testing.T, workspaceFor func(email string) string) *trackWriteUpstream {
+	t.Helper()
+	u := &trackWriteUpstream{}
+	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/bootstrap" {
+			ws := workspaceFor(r.Header.Get("X-User-Email"))
+			_, _ = io.WriteString(w, `{"workspace_id":"`+ws+`","slug":"s-`+ws+`","created":true}`)
+			return
+		}
+		b, _ := io.ReadAll(r.Body)
+		u.mu.Lock()
+		u.calls = append(u.calls, writeCall{method: r.Method, path: r.URL.Path, body: string(b)})
+		u.mu.Unlock()
+		// Echo the addressed workspace so a read can prove WHICH tenant it saw.
+		_, _ = io.WriteString(w, `{"id":"iss-1","path":"`+r.URL.Path+`"}`)
+	}))
+	t.Cleanup(u.srv.Close)
+	return u
+}
+
+func (u *trackWriteUpstream) since(n int) []writeCall {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return append([]writeCall(nil), u.calls[n:]...)
+}
+
+func (u *trackWriteUpstream) count() int {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return len(u.calls)
+}
+
+func trackWriteApp(t *testing.T, up *trackWriteUpstream) *app {
+	t.Helper()
+	cfg := config{
+		lensBaseURL: "http://127.0.0.1:1", provisionSecret: "provision-secret",
+		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
+		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
+		trackBaseURL: up.srv.URL, trackGatewaySecret: testTrackSecret,
+		docsBaseURL: "http://127.0.0.1:1", docsGatewaySecret: "gwsecret_docs", docsWorkspaceID: "docs-pinned",
+	}
+	a := newApp(cfg, newSessionOnlyAuthenticator(cfg))
+	a.cfg.webDist = t.TempDir()
+	return a
+}
+
+func sendAs(t *testing.T, a *app, sess *http.Cookie, method, target, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sess)
+	rec := httptest.NewRecorder()
+	a.mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// ⚠ THE CLAIM A TESTER CARES ABOUT: an issue I create lands in MY workspace, and the other
+// tester's session cannot reach it. Asserted on what the BFF sends upstream and what the API
+// returns — never on what a component renders, because a form that posts to the wrong tenant
+// looks identical on screen.
+func TestTrack_CreateLandsInTheSessionsOwnWorkspace(t *testing.T) {
+	up := newTrackWriteUpstream(t, func(email string) string {
+		if strings.HasPrefix(email, "alice") {
+			return "ws-alice"
+		}
+		return "ws-bob"
+	})
+	a := trackWriteApp(t, up)
+	alice := signIn(t, a, "sid-alice", "alice@example.com", "ws-alice")
+	bob := signIn(t, a, "sid-bob", "bob@example.com", "ws-bob")
+
+	mark := up.count()
+	if rec := sendAs(t, a, alice, http.MethodPost, "/api/track/issues",
+		`{"title":"Alice's issue","team_id":"team-1"}`); rec.Code >= 400 {
+		t.Fatalf("alice create: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	aliceCalls := up.since(mark)
+	if len(aliceCalls) != 1 {
+		t.Fatalf("expected exactly one upstream call, got %d: %+v", len(aliceCalls), aliceCalls)
+	}
+	got := aliceCalls[0]
+	if got.method != http.MethodPost {
+		t.Errorf("upstream method = %q, want POST — a write forwarded as GET is a silent no-op", got.method)
+	}
+	if got.path != "/v1/workspaces/ws-alice/issues" {
+		t.Errorf("upstream path = %q, want /v1/workspaces/ws-alice/issues (the SESSION's workspace)", got.path)
+	}
+	if !strings.Contains(got.body, "Alice's issue") {
+		t.Errorf("upstream body = %q — the caller's JSON must be forwarded, not dropped", got.body)
+	}
+
+	// ⚠ The isolation half: bob's session must not address alice's workspace.
+	mark = up.count()
+	if rec := sendAs(t, a, bob, http.MethodPost, "/api/track/issues",
+		`{"title":"Bob's issue","team_id":"team-1"}`); rec.Code >= 400 {
+		t.Fatalf("bob create: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, c := range up.since(mark) {
+		if strings.Contains(c.path, "ws-alice") {
+			t.Fatalf("bob's write addressed alice's workspace (%s) — the workspace must come from the "+
+				"SESSION, so one tester can never write into another's tracker", c.path)
+		}
+	}
+}
+
+// A status change is the smallest useful edit. Track's Update decodes map[string]any, so a bare
+// {"status":…} is a valid patch — verified against talyvor-track internal/issue/handler.go:302.
+func TestTrack_StatusPatchFollowsTheSession(t *testing.T) {
+	up := newTrackWriteUpstream(t, func(string) string { return "ws-alice" })
+	a := trackWriteApp(t, up)
+	alice := signIn(t, a, "sid-alice", "alice@example.com", "ws-alice")
+
+	mark := up.count()
+	if rec := sendAs(t, a, alice, http.MethodPatch, "/api/track/issues/iss-1",
+		`{"status":"in_progress"}`); rec.Code >= 400 {
+		t.Fatalf("patch: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	calls := up.since(mark)
+	if len(calls) != 1 {
+		t.Fatalf("expected one upstream call, got %+v", calls)
+	}
+	if calls[0].method != http.MethodPatch {
+		t.Errorf("upstream method = %q, want PATCH", calls[0].method)
+	}
+	if calls[0].path != "/v1/workspaces/ws-alice/issues/iss-1" {
+		t.Errorf("upstream path = %q, want the session's workspace", calls[0].path)
+	}
+	if !strings.Contains(calls[0].body, "in_progress") {
+		t.Errorf("upstream body = %q — the status must reach Track", calls[0].body)
+	}
+}
+
+// Writes are session-gated like every other product route.
+func TestTrack_WritesRequireASession(t *testing.T) {
+	up := newTrackWriteUpstream(t, func(string) string { return "ws-alice" })
+	a := trackWriteApp(t, up)
+	for _, tc := range []struct{ method, target string }{
+		{http.MethodPost, "/api/track/issues"},
+		{http.MethodPatch, "/api/track/issues/iss-1"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.target, strings.NewReader(`{"title":"x"}`))
+		rec := httptest.NewRecorder()
+		a.mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s without a session = %d, want 401", tc.method, tc.target, rec.Code)
+		}
 	}
 }

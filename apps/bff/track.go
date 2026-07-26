@@ -162,7 +162,7 @@ func (a *app) trackIssues() http.HandlerFunc {
 			return
 		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			trackWorkspacePath(ws, "/issues"), raw, nil)
+			trackWorkspacePath(ws, "/issues"), raw, http.MethodGet, nil, nil)
 	})
 }
 
@@ -184,7 +184,7 @@ func (a *app) trackIssueDetail() http.HandlerFunc {
 			return
 		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)), "", nil)
+			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)), "", http.MethodGet, nil, nil)
 	})
 }
 
@@ -206,7 +206,7 @@ func (a *app) trackIssueComments() http.HandlerFunc {
 			return
 		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)+"/comments"), "", nil)
+			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)+"/comments"), "", http.MethodGet, nil, nil)
 	})
 }
 
@@ -223,6 +223,59 @@ func (a *app) trackTeams() http.HandlerFunc {
 			return
 		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			trackWorkspacePath(ws, "/teams"), "", nil)
+			trackWorkspacePath(ws, "/teams"), "", http.MethodGet, nil, nil)
+	})
+}
+
+// maxIssueBody caps what the BFF will relay upstream. Track validates its own payload; this only
+// stops an unbounded body from being buffered on the way through.
+const maxIssueBody = 64 << 10
+
+// trackCreateIssue — POST /api/track/issues → creates in the SESSION's workspace.
+//
+// The body is forwarded VERBATIM. Track owns the schema (createBody embeds model.Issue:
+// title/description/status/priority/team_id, with creator_id resolved server-side from the verified
+// session member and never read from the body), so re-encoding here would invent a second schema to
+// drift from — and a field this BFF failed to copy would fail as a silently-ignored default rather
+// than an error, which is the failure mode worth engineering against.
+func (a *app) trackCreateIssue() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		ws, ok := a.trackWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
+			trackWorkspacePath(ws, "/issues"), "", http.MethodPost,
+			http.MaxBytesReader(w, r.Body, maxIssueBody), nil)
+	})
+}
+
+// trackUpdateIssue — PATCH /api/track/issues/{id} → the smallest useful edit (status, assignee).
+// Track's Update decodes map[string]any and rejects an empty object with EMPTY_UPDATE, so a bare
+// {"status":"in_progress"} is a valid patch and the BFF does not need to know the field set.
+//
+// A foreign or unknown id is a 404 upstream (foreign ≡ unknown) and passes through untouched — the
+// workspace in the path already comes from the session, so there is nothing here for a caller to aim.
+func (a *app) trackUpdateIssue() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			methodNotAllowed(w, http.MethodPatch)
+			return
+		}
+		id, ok := pathID(w, "id", r.PathValue("id"))
+		if !ok {
+			return
+		}
+		ws, ok := a.trackWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
+			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)), "", http.MethodPatch,
+			http.MaxBytesReader(w, r.Body, maxIssueBody), nil)
 	})
 }
