@@ -65,11 +65,14 @@ describe('a configured Track is detected, not assumed', () => {
 
     // the strip goes live …
     expect(await screen.findByText('Acme')).toBeInTheDocument()
-    // … and the issues view says the data is reachable but unread, naming the route.
-    expect(await screen.findByText(/does not read it yet/)).toBeInTheDocument()
-    expect(screen.getByText('GET /api/track/issues')).toBeInTheDocument()
-    // THE ANTI-ROT ASSERTION: "not configured" is unreachable once the upstream answers.
+    // … and the issues view now READS the route rather than announcing that it does not. The old
+    // copy ("the BFF does not read it yet") became false the moment the list landed; a 200 with an
+    // empty body is an empty TRACKER, and saying so is the honest output for a new workspace.
+    expect(await screen.findByText(/No issues yet/i)).toBeInTheDocument()
+    // THE ANTI-ROT ASSERTION, unchanged in spirit: "not configured" is unreachable once the
+    // upstream answers, and neither is the superseded not-yet-wired copy.
     expect(screen.queryByText(/is not configured on this deployment/)).toBeNull()
+    expect(screen.queryByText(/does not read it yet/)).toBeNull()
   })
 })
 
@@ -79,7 +82,13 @@ describe('a real failure stays a failure', () => {
     renderArea()
 
     expect(await screen.findByText('Couldn’t load workspaces')).toBeInTheDocument()
-    expect(await screen.findAllByText(/answered with an error/)).toHaveLength(2)
+    // The workspace strip still names the error. The issues view now has its own error state
+    // instead of a second identical card, so the COUNT changed while the guarantee did not: a 500
+    // must read as a fault, never as "off" and never as an empty tracker — those three states mean
+    // different things to a tester and conflating them says their work vanished.
+    expect(await screen.findByText(/answered with an error/)).toBeInTheDocument()
+    expect(await screen.findByText(/This is a fault, not an empty tracker/)).toBeInTheDocument()
     expect(screen.queryByText(/not configured/)).toBeNull()
+    expect(screen.queryByText(/No issues yet/i)).toBeNull()
   })
 })
