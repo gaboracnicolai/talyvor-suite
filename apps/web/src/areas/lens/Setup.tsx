@@ -56,6 +56,14 @@ function ToolCard({ tool }: { tool: Tool }) {
     <Card>
       <CardHeader>{tool.name}</CardHeader>
       <div className="space-y-3 px-gutter py-3">
+        {/* The hazard renders ABOVE the snippet, inside this tool's own card. A page-level
+            warning banner is the thing nobody reads before pasting; this one sits between the
+            reader and the instruction it qualifies. */}
+        {tool.hazard ? (
+          <p className="rounded border border-negative/40 bg-negative/5 px-3 py-2 text-body text-ink">
+            <strong>Before you paste this:</strong> {tool.hazard}
+          </p>
+        ) : null}
         {tool.kind === 'env' ? (
           <CopyBlock text={tool.copyText} label="the two lines" />
         ) : (
@@ -68,6 +76,12 @@ function ToolCard({ tool }: { tool: Tool }) {
             <CopyBlock text={tool.copyText} label="the URL" />
           </>
         )}
+        {tool.alternative ? (
+          <div className="space-y-1">
+            <p className="text-caption text-ink">{tool.alternative.title}</p>
+            <CopyBlock text={tool.alternative.code} label="the example" />
+          </div>
+        ) : null}
         {tool.note ? <p className="text-caption text-muted">{tool.note}</p> : null}
       </div>
     </Card>
@@ -80,6 +94,8 @@ export function Setup() {
 
   const ctx = useQuery({ queryKey: ['context'], queryFn: api.context, staleTime: 60_000 })
   const keys = useQuery({ queryKey: ['keys'], queryFn: keysApi.list })
+  // Same query key the Settings screen uses, so the two never disagree.
+  const me = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
 
   const mint = useMutation({
     mutationFn: () => keysApi.mint('Setup', ['proxy']),
@@ -92,6 +108,15 @@ export function Setup() {
   // The customer-facing origin. NOT ctx.data.lens_base_url — see the header note.
   const publicBase = ctx.data?.lens_public_base_url ?? ''
   const existing: WorkspaceAPIKey[] = keys.data ?? []
+  // The RECORDED sharing consent, read from Lens via /auth/me — never a hardcoded default.
+  //
+  // This page first shipped asserting "cross-tenant pooling is OFF unless you turn it on". #33
+  // then reversed the default (the BFF sends no field at provision, so Lens's default of true
+  // applies), and that sentence became false — in a privacy disclosure, shown to someone deciding
+  // whether to route their company's traffic through us. Rendering the recorded value instead of
+  // either default is the only version that cannot go stale when the default moves again.
+  // undefined ⇒ say nothing and point at the setting; do not guess.
+  const sharing = me.data?.cache_poolable
 
   // The credential to inline. Only a key minted in THIS session has plaintext; anything else is
   // a hash server-side, so the placeholder stands in and the page explains why.
@@ -136,10 +161,20 @@ export function Setup() {
               off the cache, and we would rather say so than let you find out.
             </li>
             <li>
-              <strong>Cross-tenant pooling is OFF unless you turn it on.</strong> By default
-              nothing of yours is reachable by another company. Pooling is a per-workspace opt-in:{' '}
+              <strong>
+                {sharing === true
+                  ? 'Sharing is currently ON for this workspace.'
+                  : sharing === false
+                    ? 'Sharing is currently OFF for this workspace.'
+                    : 'Sharing: check the setting for this workspace.'}
+              </strong>{' '}
+              {sharing === true
+                ? 'Answers generated here may be served to other companies. One click turns it off.'
+                : sharing === false
+                  ? 'Nothing generated here is reachable by another company.'
+                  : 'We could not read the recorded value, so we will not guess at it.'}{' '}
               <Link className="underline" to="/settings">
-                review the setting
+                {sharing === undefined ? 'See the setting' : 'Change it'}
               </Link>
               .
             </li>

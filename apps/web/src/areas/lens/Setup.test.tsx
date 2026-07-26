@@ -232,3 +232,108 @@ describe('Setup — what Talyvor does with their traffic', () => {
     expect(container.textContent).not.toMatch(/\d+\s?%/)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Two corrections found after the page was first written. Both are the same class
+// of defect the page exists to avoid: text asserting a state the system does not have.
+
+describe('Setup — sharing state is READ, not asserted', () => {
+  // #33 reversed the default: the BFF now sends no field at provision, so Lens's default
+  // (true) applies and sharing is ON for a new workspace. The page shipped saying
+  // "Cross-tenant pooling is OFF unless you turn it on" — false the moment #33 merged, and
+  // it is a privacy claim shown to someone deciding whether to route their company's
+  // traffic through us. The fix is to render the RECORDED value from /auth/me rather than
+  // hardcode either default, so it cannot go stale again.
+  function mockWithSharing(cachePoolable: boolean | undefined) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/context')
+        return json({ workspace_id: 'u7kq2mfa', lens_base_url: 'http://127.0.0.1:8080', lens_public_base_url: 'https://lens.talyvor.com' })
+      if (url === '/auth/me') return json({ cache_poolable: cachePoolable })
+      if (url === '/api/keys' && method === 'POST') return json(MINTED, 201)
+      if (url === '/api/keys') return json([])
+      return json({})
+    })
+  }
+
+  it('says sharing is ON when the workspace records it on', async () => {
+    mockWithSharing(true)
+    const { container } = renderSetup()
+    await waitFor(() => expect(container.textContent).toMatch(/sharing is (currently )?on/i))
+    // And must NOT carry the old, now-false absolute claim.
+    expect(container.textContent).not.toMatch(/pooling is OFF unless/i)
+    expect(container.textContent).not.toMatch(/By default nothing of yours/i)
+  })
+
+  it('says sharing is OFF when the workspace records it off', async () => {
+    mockWithSharing(false)
+    const { container } = renderSetup()
+    await waitFor(() => expect(container.textContent).toMatch(/sharing is (currently )?off/i))
+  })
+
+  it('does not guess when the recorded value is unknown', async () => {
+    mockWithSharing(undefined)
+    const { container } = renderSetup()
+    await waitFor(() => expect(container.textContent).toContain('ANTHROPIC_AUTH_TOKEN'))
+    // Neither state may be asserted from an absent value.
+    expect(container.textContent).not.toMatch(/sharing is (currently )?on\b/i)
+    expect(container.textContent).not.toMatch(/sharing is (currently )?off\b/i)
+    expect(container.textContent).toMatch(/check the setting|see the setting|unknown/i)
+  })
+
+  it('still says prompts are never shared, which is true either way', async () => {
+    mockWithSharing(true)
+    const { container } = renderSetup()
+    await waitFor(() => expect(container.textContent).toMatch(/sharing is (currently )?on/i))
+    expect(container.textContent).toMatch(/prompt/i)
+  })
+})
+
+describe('Setup — the embeddings hazard', () => {
+  it('warns INSIDE the OpenAI SDK card, where the unsafe instruction is', async () => {
+    mockBff()
+    renderSetup()
+    // Scoped to the card, not a page-level banner: a warning somewhere else is a warning
+    // nobody reads before pasting.
+    await waitFor(() => expect(screen.getAllByText(/Before you paste this/i).length).toBeGreaterThan(0))
+    const heading = await screen.findByText(/OpenAI SDK/i)
+    // Walk up to the ancestor that also holds the snippet — that element IS the card, and it is
+    // what "inside the card" means. Fixed-depth parentElement chains break on markup changes.
+    let card: HTMLElement | null = heading
+    while (card && !card.querySelector('pre')) card = card.parentElement
+    expect(card, 'could not find the OpenAI SDK card').toBeTruthy()
+    expect(card!.textContent).toMatch(/embedding/i)
+    // …and the warning must be in THIS card, not merely somewhere on the page.
+    expect(card!.textContent).toMatch(/Before you paste this/i)
+  })
+
+  it('explains that OPENAI_BASE_URL is global to the SDK', async () => {
+    mockBff()
+    const { container } = renderSetup()
+    // Wait on the HAZARD text specifically: /embedding/i also matches the caveat list, which
+    // renders before the tool cards, so waiting on that passed vacuously.
+    await waitFor(() => expect(container.textContent).toMatch(/Before you paste this/i))
+    expect(container.textContent).toMatch(/every call|all calls|global/i)
+  })
+
+  it('gives a per-client example so chat routes through Lens and embeddings do not', async () => {
+    mockBff()
+    const { container } = renderSetup()
+    await waitFor(() => expect(container.textContent).toMatch(/Before you paste this/i))
+    const snippets = Array.from(container.querySelectorAll('pre')).map((n) => n.textContent ?? '')
+    const perCall = snippets.find((s) => s.includes('base_url') || s.includes('baseURL'))
+    expect(perCall, 'a per-client snippet must exist, not just prose').toBeTruthy()
+    // Two clients: one pointed at Lens, one left on the provider default.
+    expect(perCall!).toMatch(/lens\.talyvor\.com\/v1\/proxy\/openai/)
+  })
+
+  it('does not claim embeddings work through the proxy', async () => {
+    mockBff()
+    const { container } = renderSetup()
+    await waitFor(() => expect(container.textContent).toMatch(/embedding/i))
+    expect(container.textContent).toMatch(/not proxied|are not|do not|cannot/i)
+  })
+})

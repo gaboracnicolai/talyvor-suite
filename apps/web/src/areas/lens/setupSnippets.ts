@@ -60,6 +60,12 @@ export interface Tool {
   note?: string
   /** Exactly what the copy button puts on the clipboard. */
   copyText: string
+  /** A hazard that must be read BEFORE the snippet above is pasted. Rendered inside this
+   *  tool's own card, above its block — a page-level banner is the thing nobody reads. */
+  hazard?: string
+  /** An alternative, safer form. Present when the env-var route has a hazard that a
+   *  per-call form avoids. */
+  alternative?: { title: string; code: string }
 }
 
 /** normalise strips trailing slashes so a base URL ending in '/' cannot produce '//v1/proxy'. */
@@ -121,10 +127,37 @@ export function toolsFor(base: string, key: string): Tool[] {
       name: 'OpenAI SDK — Python, Node, LangChain, any script',
       kind: 'env',
       env: openaiSDK,
+      // ⚠ READ BEFORE PASTING. OPENAI_BASE_URL is global to the SDK client, so it redirects
+      // EVERY call — including embeddings. Lens's proxy sends whatever it receives to the
+      // provider's CHAT endpoint (the upstream URL is fixed in config, not derived from the
+      // request path), so an embeddings call arrives at chat/completions and the provider
+      // rejects it. Verified end to end, and the good news is that it fails LOUDLY rather
+      // than quietly: the cache write is gated on a 200, so nothing is stored and no vector
+      // store is poisoned. But a RAG app breaks, and the error names the wrong endpoint.
+      hazard:
+        'If this app also creates embeddings, do NOT set these as environment variables. ' +
+        'OPENAI_BASE_URL applies to every call the SDK makes, and embeddings are not proxied ' +
+        'yet — they would be sent to the chat endpoint and rejected. Use the per-client form ' +
+        'below instead, which routes only chat through Lens.',
+      alternative: {
+        title: 'Route only chat — two clients (use this if you embed)',
+        code:
+          `from openai import OpenAI\n` +
+          `\n` +
+          `# Chat goes through Lens.\n` +
+          `lens = OpenAI(base_url="${openaiBase}", api_key="${cred}")\n` +
+          `\n` +
+          `# Embeddings keep talking to the provider directly, for now.\n` +
+          `direct = OpenAI(api_key="YOUR_OPENAI_KEY")\n` +
+          `\n` +
+          `lens.chat.completions.create(model="gpt-4o", messages=[...])\n` +
+          `direct.embeddings.create(model="text-embedding-3-small", input="…")`,
+      },
       note:
         'Works for the official openai package in Python and Node, and for anything built on ' +
         'it. LangChain reads OPENAI_API_BASE first if you already have that set — unset it, ' +
-        'or pass base_url= explicitly.',
+        'or pass base_url= explicitly (and note the embeddings caveat above applies to ' +
+        'LangChain retrieval too).',
       copyText: shellExport(openaiSDK),
     },
     {
@@ -153,8 +186,9 @@ export function toolsFor(base: string, key: string): Tool[] {
         'Set apiKey to your Talyvor key.',
       ],
       note:
-        'Continue is configured by file, not environment. apiBase is per-model, so a config ' +
-        'with several models routes only the ones you change.',
+        'Continue is configured by file, not environment. apiBase is per-model — which helps ' +
+        'here: set it only on your chat model and an embeddings model in the same config keeps ' +
+        'talking to the provider directly.',
       copyText: openaiBase,
     },
   ]
@@ -163,7 +197,7 @@ export function toolsFor(base: string, key: string): Tool[] {
 /** What Lens does and does not forward, stated once so the page can render it verbatim.
  *  Derived from the route table + config, not from marketing copy. */
 export const MECHANISM_CAVEATS: string[] = [
-  'Chat-completions-shaped calls only. Lens forwards to the provider’s chat endpoint regardless of the path your client appends, so embeddings and other endpoints will not work through these URLs yet.',
+  'Chat completions only, for now. Lens forwards to the provider’s chat endpoint regardless of the path your client appends, so an embeddings call is rejected rather than proxied. It fails loudly — nothing is cached and no vector store is affected — but a retrieval app will break if you route it here.',
   'POST only. No GET route is mounted, so a client that probes GET /models on startup sees 405 — that alone does not mean your key is wrong.',
   'Your existing model names keep working. You are changing where the request goes, not what you ask for.',
 ]
