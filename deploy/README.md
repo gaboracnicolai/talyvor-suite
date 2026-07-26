@@ -363,8 +363,16 @@ includes loopback):**
 journalctl -u talyvor-bff -n 20 --no-pager        # the same boot lines as step 5
 curl -s http://127.0.0.1:8787/auth/me             # {"authenticated":false,"mode":"oidc","user":null}
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/api/context   # 401 — the auth gate is on
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/              # 200 — the SPA is served
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/              # 200 — index.html exists
 ```
+
+⚠ **That last 200 proves only that `index.html` exists** — not that the bundle is
+complete or current. Assets are separate files, so a stale or half-copied
+`web-dist` answers 200 at `/` just the same. And because the SPA falls back to
+`index.html` for any path that is not a real file, **a status code cannot verify
+any other path on this origin either** — `curl -f /version.json`, `/ledger`,
+`/billing/success` all succeed whether or not the thing exists. Prove content,
+not status; for "is this the bundle I built?", use `/api/version` below.
 
 ### Which commit is actually running?
 
