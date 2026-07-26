@@ -9,7 +9,16 @@
 > alone: the BFF now **refuses to boot** if `LENS_API_KEY` is set, and it no longer
 > reads `LENS_WORKSPACE_KEY` / `LENS_WORKSPACE_ID` — it requires
 > `LENS_PROVISION_SECRET`, the same value Lens boots with. **§1.2 and §4's Lens
-> block below are out of date on that point**; `bff.env.example` has been corrected.
+> block below are out of date on that point** — §4's rows now say so inline.
+> `bff.env.example` is correct: it carries `LENS_PROVISION_SECRET` and marks the two
+> workspace variables as inert-but-retained (they are kept so one env file boots either
+> binary, which is what makes rollback a binary swap).
+>
+> ⚠ This claimed `bff.env.example` "has been corrected" while the file still omitted
+> `LENS_PROVISION_SECRET` entirely — so anyone who trusted the claim and built the env
+> file from the example got a BFF that refused to start, and had been told the likeliest
+> cause was already ruled out. A status claim about another file is a second source of
+> truth; this one was wrong for hours.
 
 **This document describes the deploy as it actually runs**, corrected against
 the first real deployment (2026-07-23). The single most important topology
@@ -299,8 +308,9 @@ Every variable the BFF reads, and what happens without it:
 | `BFF_ADDR` | **yes, here** | `127.0.0.1:8787` | **On this server: `0.0.0.0:8787`.** The loopback default is a host-Caddy assumption — Caddy is a *container* here, and from inside it `127.0.0.1` is the container itself; it reaches the host only via the Docker bridge (`host.docker.internal` → `172.17.0.1`), so a loopback-bound BFF is unreachable and Caddy fails with `dial tcp 172.17.0.1:8787: i/o timeout` (this happened). The bind guard permits a non-loopback bind **only** in oidc mode with an https public origin — exactly this posture; in `disabled` mode the same bind hard-fails. The step-3a ufw rule keeps `:8787` off the internet. |
 | `BFF_AUTH_MODE` | **yes** | — none, deliberately | `oidc` or `disabled`. Missing or anything else → **refuses to start** ("say which one you mean"). Production is `oidc`; `disabled` additionally hard-fails on any non-loopback bind and refuses Track/Docs upstreams outright. |
 | `LENS_BASE_URL` | no | `http://127.0.0.1:8080` | Lens API base. **Set `https://<lens-host>`** for the remote Lens box. Enforced at boot: the workspace key rides every request to it, so https anywhere / http only on loopback — a remote http value **refuses to start**. |
-| `LENS_WORKSPACE_KEY` | **yes** | — | The `tlv_ws_…` key, held server-side and attached to every Lens read; it never reaches the browser (test-enforced). Missing → refuses to start. |
-| `LENS_WORKSPACE_ID` | **yes** | — | The pinned workspace all Lens read paths are built from. Missing → refuses to start. |
+| `LENS_PROVISION_SECRET` | **yes** | — | ⚠ **The required one.** Gates Lens's `POST /v1/provision`, which turns a login into that person's own workspace + session token. Missing → **refuses to start, naming itself**. Must equal Lens's own `LENS_PROVISION_SECRET` (same name both sides). Deliberately **not** `LENS_API_KEY` — the admin key authorises every workspace and ~30 admin routes; setting it here is also a boot refusal. |
+| `LENS_WORKSPACE_KEY` | no — **inert** | — | ⚠ Read by **nothing** since per-user signup (#30): `grep -c LENS_WORKSPACE apps/bff/main.go` = 0. Kept in `bff.env.example` on purpose — the **pre-#30 binary requires it**, so one env file boots either binary and rollback stays a binary swap. Tolerated silently by the current BFF. |
+| `LENS_WORKSPACE_ID` | no — **inert** | — | As above. Both were previously documented here as required with "Missing → refuses to start"; that was true of the old binary and false of this one, in the direction that wastes the most time — it sends you looking at a working variable while the real refusal names a different one. |
 | `WEB_DIST` | **yes, here** | `../web/dist` | Path to the built SPA — `/opt/talyvor/web-dist`. The default is a repo-relative dev path that means nothing under systemd; the unit deliberately does not set it, so **it must be in the env file** (it is in the template now — it wasn't, and that cost a round-trip). Wrong path won't stop boot — step 6's `curl /` catches it. |
 | `BFF_PUBLIC_BASE_URL` | **yes** (oidc) | — | Browser-facing origin, `https://app.talyvor.com`. Derives the OIDC redirect URI (`<origin>/auth/callback`) and scopes the `__Host-` cookie. Must be a **bare origin** — any path/query → refuses to start; non-https public → refuses a non-loopback bind. |
 | `OIDC_ISSUER` | **yes** (oidc) | — | Discovery base (`https://accounts.google.com`). Missing → refuses to start. Reachable but wrong / IdP down → **boot-time discovery fails** and the process exits (systemd retries). Must be https (http only on loopback, dev). |
