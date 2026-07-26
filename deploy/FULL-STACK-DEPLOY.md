@@ -20,7 +20,7 @@ Read from `origin` at the time of writing, not from a local checkout:
 | Repo | `origin/main` |
 |---|---|
 | talyvor-suite | `2d239d7` feat(notice): tell testers Docs is shared, and refuse TRACK_WORKSPACE_ID (#37) |
-| talyvor-lens | `bcd82b8` fix(deploy): forward lens.env, not .env (#377) |
+| talyvor-lens | `2f1b95e` fix(cache): bind every stored vector to the embedder that produced it (#379) |
 | talyvor-track | `98d0f6c` feat(workspace): idempotent per-identity bootstrap (#63) |
 | talyvor-docs | `c8d9053` test(testutil): FAIL without a database instead of skipping (#44) |
 
@@ -40,7 +40,7 @@ trust this table.
 | BFF **refuses to boot** if `LENS_API_KEY` is set | `apps/bff/main.go:96` | Refuses to start, names itself |
 | BFF no longer reads `LENS_WORKSPACE_KEY` / `_ID` | absent from `apps/bff/*.go` | Silently ignored — they do nothing now |
 | Lens fails **closed** without `LENS_PROVISION_SECRET` | `cmd/lens/provision_handler.go` `mountProvisionRoute` returns early on `""` | Route not registered → provisioning 404 → **every login fails** |
-| Lens is at **107** migrations | `ls migrations/*.sql \| wc -l` = 107 | — |
+| Lens migration count is **derived, never quoted** | `ls migrations/*.sql \| wc -l` in the checkout | A number written here goes stale on the next merge and then STEP 2b fails for the wrong reason |
 | Track migrates by **subcommand** | `cmd/track/main.go:132` (`os.Args[1] == "migrate"`) | Empty schema, every call 500s |
 | Docs migrates **on boot**, fail-closed | `cmd/docs/main.go:162` `migrate.Apply` before serving | — (it self-applies; a failure is a boot failure) |
 | Track/Docs **reject published placeholder secrets** | `internal/config/config.go:137` in both | Refuses to boot |
@@ -72,6 +72,12 @@ stand in for one.
 
 This is the single generalisation behind most of the traps in this document. It is
 stated here once instead of five times.
+
+> ⚠ **Before you read any log in this document, read the EXPECTED NOISE section near the end.**
+> It is placed there for reference, but several steps below tell you to open the logs —
+> STEP 3a's reconcile, STEP 6b's pooling line — and two of the lines you will find there
+> are permanent and harmless while one is a real fault wearing the same shape. Reading it
+> only when you reach it means reading it after you have already drawn a conclusion.
 
 ---
 
@@ -281,6 +287,13 @@ build, but only because it also touched test files under `cmd/**`. Do not rely o
 
 ## STEP 1 — generate the three shared secrets, once
 
+⚠ **Run this on the WORKSTATION** (its verify step sshes to both boxes, so it cannot be
+run on either). That matters more than it looks: **STEP 2a-bis writes `.env` on the LENS
+BOX using `$PROVISION_SECRET`**, and a shell variable exported here does not exist there.
+Paste the value, or re-export it in the shell you use on the Lens box — an unset variable
+writes `LENS_PROVISION_SECRET=` (empty), which fails closed at STEP 2b's 404 check, three
+steps later. The guard in 2a-bis refuses to write an empty value for this reason.
+
 Three couplings, each one value under two names. Generate them together so they
 cannot drift, and hold them somewhere you can paste from twice.
 
@@ -307,7 +320,7 @@ them. Never prints a secret.
 # Run after you have written all three into their destinations.
 dig() { printf '%s' "$1" | sha256sum | cut -c1-16; }
 echo "provision  local=$(dig "$PROVISION_SECRET")"
-ssh <lens-box>  "grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /path/to/lens/lens.env" | sha256sum | cut -c1-16
+ssh <lens-box>  "grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /path/to/lens/.env" | sha256sum | cut -c1-16
 echo "track      local=$(dig "$TRACK_SECRET")"
 ssh <app-box>   "grep -oP '(?<=^TRACK_GATEWAY_SECRET=).*' /etc/talyvor/bff.env" | sha256sum | cut -c1-16
 echo "docs       local=$(dig "$DOCS_SECRET")"
@@ -448,8 +461,12 @@ grep -qE "^\s+- ${VAR}(=|$)" docker-compose.yaml && echo ".env" || echo "lens.en
 
 ```sh
 # On the Lens box, in the talyvor-lens checkout, NEXT TO docker-compose.yaml.
+# ⚠ $PROVISION_SECRET was exported on the WORKSTATION in STEP 1. If this shell is on the
+#    Lens box it is UNSET here, and an unguarded append writes an empty value that then
+#    satisfies every `grep -q` below. Refuse instead of writing a lie:
+[ -n "$PROVISION_SECRET" ] || { echo "PROVISION_SECRET is empty in this shell — paste it before continuing"; }
 # CURATED — these belong in .env:
-grep -q '^LENS_PROVISION_SECRET=' .env || echo "LENS_PROVISION_SECRET=$PROVISION_SECRET" >> .env
+[ -n "$PROVISION_SECRET" ] && { grep -q '^LENS_PROVISION_SECRET=' .env || echo "LENS_PROVISION_SECRET=$PROVISION_SECRET" >> .env; }
 grep -q '^LENS_CACHE_POOLABLE_ENABLED=' .env || echo "LENS_CACHE_POOLABLE_ENABLED=true" >> .env
 grep -q '^LENS_ECONOMY_ENABLED=' .env || echo "LENS_ECONOMY_ENABLED=true" >> .env
 grep -q '^LENS_POOL_ROYALTY_MINTING_ENABLED=' .env || echo "LENS_POOL_ROYALTY_MINTING_ENABLED=true" >> .env
@@ -469,6 +486,13 @@ chmod 600 lens.env
 > for its precondition.
 
 #### ⚠ Verify against the PROCESS, and make the check able to FAIL
+
+⚠ **This starts Lens before STEP 2b pulls.** That is fine for what it checks — the
+environment is assembled by compose, not baked into the image — but be aware the container
+it starts is the *current local* image against an *unmigrated* database, so its own logs
+will be noisy and are not worth reading yet. STEP 2b pulls, migrates and recreates it.
+If your checkout predates the STEP 2a compose fix, `git pull --ff-only` first or this
+check reports a variable that will not exist after 2b.
 
 ```sh
 docker compose up -d lens && sleep 5
@@ -520,7 +544,8 @@ docker compose exec -T lens printenv LENS_PROVISION_SECRET | sha256sum | cut -c1
 
 **Verify — migrations match the checkout.** Derived, never hardcoded: a number
 written here goes stale the next time a migration lands, and then this step fails
-for the wrong reason. (It was pinned at 107; main is at 109 today.)
+for the wrong reason. (It has been pinned at 107 and at 109 in this file already; both
+were wrong within a day. `want` below is computed from the checkout for that reason.)
 ```sh
 want=$(ls migrations/*.sql | wc -l | tr -d ' ')
 got=$(docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
@@ -797,7 +822,7 @@ curl -s https://<lens-host>/v1/messages \
        "messages":[{"role":"user","content":"deploy canary"}]}' -o /dev/null -w '%{http_code}\n'
 # expect: 200
 
-docker compose exec -T postgres psql -U lens -d lens -tAc \
+docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
   "SELECT status FROM lxc_reservations ORDER BY created_at DESC LIMIT 1"
 # expect: settled     ← the go/no-go. 'held' or no row means the money path is broken.
 ```
@@ -831,7 +856,7 @@ curl -s https://app.talyvor.com/auth/me -b <your session cookie> | jq .
 ```
 ```sh
 # And on the Lens box — the workspace really exists, and it is not 'default':
-docker compose exec -T postgres psql -U lens -d lens -tAc \
+docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
   "SELECT id, cache_poolable FROM workspaces WHERE id LIKE 'u%' ORDER BY created_at DESC LIMIT 3"
 # expect: one row per person who has signed in, each id starting 'u',
 #         cache_poolable = f   ← created DECLINED; consent is opt-in
@@ -839,7 +864,7 @@ docker compose exec -T postgres psql -U lens -d lens -tAc \
 
 **Two people, two workspaces** — the property the whole change exists for:
 ```sh
-docker compose exec -T postgres psql -U lens -d lens -tAc \
+docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
   "SELECT count(DISTINCT id) FROM workspaces WHERE id LIKE 'u%'"
 # expect: equal to the number of distinct people who have signed in.
 #         1 when two people have signed in = provisioning is collapsing them. STOP.
@@ -884,8 +909,15 @@ gate 1b in STEP 6c.
 **Confirm it actually opened** — the gateway log is the authority:
 
 ```sh
-docker compose logs lens --since 2m | grep -E 'POOLING (ENABLED|FORCED OFF)' | tail -1
+# ⚠ NO --since. The gateway logs this line only when the decision CHANGES (steady state is
+# deliberately silent, or a 30s ticker would flood the log). A time-windowed grep therefore
+# returns NOTHING once things have settled, and empty output is not a verdict. The LAST such
+# line is the current state.
+docker compose logs lens 2>&1 | grep -E 'POOLING (ENABLED|FORCED OFF)' | tail -1
 # want: POOLING ENABLED: the live embedding configuration matches the last passing poolcheck
+# ⚠ NO OUTPUT AT ALL ⇒ this proved nothing. Either the container was recreated (logs start
+#   fresh) or pooling is off in config so the gate never ran. Check gate 1a first, then
+#   `docker compose restart lens` and read again — boot always emits one.
 ```
 
 If it still says `FORCED OFF` after 30 seconds, the `reason` field on that line names the
@@ -953,7 +985,15 @@ CONTRIB=u...   # whose cached answer is reused
 REQUESTER=u... # who reuses it
 
 echo "GATE 1a (global flag, as the PROCESS sees it — not as .env claims):"
-docker compose exec -T lens printenv LENS_CACHE_POOLABLE_ENABLED || echo "  <empty>  ⇒ SHUT"
+# ⚠ Compare the VALUE. `printenv VAR` exits 0 and prints a blank line when the variable is
+# set-but-empty, so `printenv ... || echo SHUT` cannot see the one outcome the STEP 2a-bis
+# trap produces (curated name, no value ⇒ empty). Tested: exit 0, empty output.
+v=$(docker compose exec -T lens printenv LENS_CACHE_POOLABLE_ENABLED 2>/dev/null | tr -d '\r\n')
+case "$v" in
+  true) echo "  true  ⇒ OPEN" ;;
+  "")   echo "  <EMPTY or ABSENT>  ⇒ SHUT — see STEP 2a-bis: a curated name in lens.env arrives empty" ;;
+  *)    echo "  '$v'  ⇒ SHUT" ;;
+esac
 
 echo "GATE 1b (pool-safety attestation — the flag alone is NOT enough):"
 docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc "
@@ -964,8 +1004,12 @@ FROM pool_safety_attestation;"
 docker compose exec -T lens printenv LENS_EMBEDDING_MODEL LENS_SEMANTIC_THRESHOLD
 
 echo "GATE 1b, the authoritative read — what the PROCESS decided:"
-docker compose logs lens --since 10m | grep -E 'POOLING (ENABLED|FORCED OFF)' | tail -1
+# ⚠ No --since: this line is emitted only on a CHANGE, so any time window goes empty once
+# the deploy has settled and empty would read as "fine". The last line is the live state.
+docker compose logs lens 2>&1 | grep -E 'POOLING (ENABLED|FORCED OFF)' | tail -1 \
+  || true
 # want: POOLING ENABLED: ...
+# NO OUTPUT ⇒ proved nothing (recreated container, or pooling off in config). Not a pass.
 # FORCED OFF carries a "reason" naming the cause exactly. It is never a bare "off".
 
 echo "GATE 2+3 (per workspace):"
@@ -1116,7 +1160,8 @@ This is a property of the app origin generally, not of `/version.json` — see
 
 Only once one of the two checks above passes:
 ```sh
-# add LENS_SHADOW_MINTS_ENABLED=true to lens.env, then
+# add LENS_SHADOW_MINTS_ENABLED=true to .env — it is CURATED (STEP 2a-bis), so lens.env
+# would deliver it EMPTY. Then:
 docker compose up -d lens
 docker compose exec -T lens printenv LENS_SHADOW_MINTS_ENABLED   # expect: true
 ```
@@ -1130,7 +1175,9 @@ nothing recorded on our side: Stripe takes the money, the webhook fails, and no 
 is credited. The sequence below never has money in flight before the recording path
 is proven.
 
-**1. Put all five values in `lens.env` with billing still OFF:**
+**1. Put all five values in `.env` with billing still OFF.** ⚠ **All five are CURATED** —
+they appear in `docker-compose.yaml`'s `environment:` list (STEP 2a-bis), so putting them in
+`lens.env` delivers them **empty** and Stripe calls fail with a blank key:
 ```sh
 LENS_STRIPE_SECRET_KEY=sk_live_...
 LENS_STRIPE_WEBHOOK_SECRET=whsec_...
@@ -1159,7 +1206,7 @@ docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
 
 **4. Only now enable:**
 ```sh
-# LENS_BILLING_ENABLED=true in lens.env
+# LENS_BILLING_ENABLED=true in .env  (curated — NOT lens.env)
 docker compose up -d lens
 docker compose exec -T lens printenv LENS_BILLING_ENABLED   # expect: true
 ```
