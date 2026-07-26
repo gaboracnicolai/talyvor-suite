@@ -110,7 +110,7 @@ outage.
 | Needed by | Prerequisite | If missing |
 |---|---|---|
 | STEP 0 | `gh auth login`; `docker login ghcr.io` | every verdict is `UNKNOWN` |
-| STEP 2a-bis | the `talyvor-lens` checkout on the app box | `lens.env` has nowhere to live |
+| STEP 2a-bis | the `talyvor-lens` checkout on the app box | the long-tail settings have nowhere to live — and a curated variable put in `lens.env` is silently discarded |
 | STEP 3 | ⚠ **the `talyvor-track` and `talyvor-docs` checkouts ARE needed on the box** — not for the images (those are pulled), but because the migration checks compare against `ls migrations/*.sql`. Clone them, or read the two numbers on your workstation and substitute them. | the count check cannot run, and `> 0` is not a substitute — it passes on a partial migration |
 | STEP 5 | the suite checkout on the workstation (build host) | nothing to ship |
 | STEP 7 | the `stripe` CLI **on the workstation**, logged in | the webhook-records proof cannot be run; do NOT enable billing without it |
@@ -305,42 +305,122 @@ also matches the comment explaining it, so it reports 1 when the line is gone.
 talyvor-lens and held by `cmd/lens/compose_env_reach_test.go`; if you deploy a
 Lens older than that fix, check each one with the pattern above.
 
-### ⚠ 2a-bis. CREATE `lens.env`. It does not exist on the box, and its absence is SILENT.
+### ⚠ 2a-bis. `lens.env` — and the trap that will bite you if you skip this section
 
-`#377` changed the lens service from `env_file: .env` to `env_file: lens.env`,
-because `.env` also holds the **Track and Docs gateway secrets** — which would
-otherwise be loaded into the Lens process, giving it two other services' credentials
-for no reason.
+`#377` changed the lens service from `env_file: .env` to `env_file: lens.env`, because `.env` also
+holds the **Track and Docs gateway secrets** (this document's own step writes them there), which
+would otherwise be loaded into the Lens process.
 
-⚠ **The mapping is `required: false`** (verified, `docker-compose.yaml:64-66`). A
-missing `lens.env` therefore does **not** fail the boot. Lens starts healthy with every
-value from that file unset: provisioning off, pooling off, billing off — silently. This
-is the same shape as the mute-variable class, arriving through a different door.
+#### ⚠ FIRST — CORRECTION. The previous version of this step was wrong, in the direction that matters.
+
+It said a missing `lens.env` leaves **provisioning, pooling and billing silently off**. That is
+**false**, and was verified by rendering the compose project with the file absent: `LENS_PROVISION_SECRET`,
+`LENS_BILLING_ENABLED`, `LENS_CACHE_POOLABLE_ENABLED` and `LENS_ECONOMY_ENABLED` **all reach the
+container**, because they are named in `docker-compose.yaml`'s `environment:` list and take their
+values from `.env`.
+
+**What a missing `lens.env` actually costs** is the *long tail* — the mint caps, the embedding model,
+the reservation/settlement toggles. Real, but not the headline failure the old text described.
+
+#### ⚠⚠ SECOND — THE ACTUAL TRAP, AND IT IS A STEP, NOT A NOTE
+
+**A variable set in BOTH `.env`'s curated list and `lens.env` arrives EMPTY.**
+
+Compose's `environment:` **overrides** `env_file`. The curated entries are written
+`- LENS_X=${LENS_X:-}`, which resolves from `.env` / the shell — and if neither defines it, that
+resolves to **empty**, and the empty wins over whatever `lens.env` says. Verified in a real container;
+there is no spelling of `environment:` that defers to `env_file`.
+
+⚠ **The previous version of this step told you to put six such variables into `lens.env`**:
+`LENS_PROVISION_SECRET`, `LENS_CACHE_POOLABLE_ENABLED`, `LENS_ECONOMY_ENABLED`,
+`LENS_POOL_ROYALTY_MINTING_ENABLED`, `LENS_POOL_ROYALTY_SHARE`, `LENS_SHADOW_MINTS_ENABLED`. **All six
+would have arrived empty.** `lens.env.example` invited the same mistake until #378 removed them.
+
+**If you followed this document before #378, do this now:**
 
 ```sh
-# On the Lens box, in the talyvor-lens checkout, NEXT TO docker-compose.yaml:
+cd <talyvor-lens checkout>
+# Anything in BOTH files is being discarded. Expect NO output.
+comm -12 <(grep -oE '^[A-Z_]+' lens.env 2>/dev/null | sort -u) \
+         <(grep -oE '^\s+- (LENS_[A-Z_]+)' docker-compose.yaml | grep -oE 'LENS_[A-Z_]+' | sort -u)
+```
+
+Every name it prints must be **moved out of `lens.env` and into `.env`**.
+
+#### Which file does a variable go in?
+
+⚠ **There is no rule to apply — the split is by mechanism, not by importance, and it does not follow
+any category.** Two mint caps are curated while six others are not; secrets split 16 to 1. So this is
+enumerated rather than explained, because a rule nobody can apply is worse than a list.
+
+**These 44 go in `.env`** (they are named in `docker-compose.yaml`; putting them in `lens.env` yields
+an empty value):
+
+```
+LENS_ADMIN_LXC_GRANT_ENABLED     LENS_ANTHROPIC_API_KEY            LENS_API_KEY
+LENS_AWS_ACCESS_KEY_ID           LENS_AWS_REGION                   LENS_AWS_SECRET_ACCESS_KEY
+LENS_BILLING_CANCEL_URL          LENS_BILLING_ENABLED              LENS_BILLING_SUCCESS_URL
+LENS_CACHE_POOLABLE_ENABLED      LENS_DATABASE_URL                 LENS_DB_MAX_CONNS
+LENS_DB_PGBOUNCER                LENS_DISTILL_POOLABLE_ENABLED     LENS_ECONOMY_ENABLED
+LENS_GOOGLE_API_KEY              LENS_GROQ_API_KEY                 LENS_JWT_PRIVATE_KEY
+LENS_LOG_LEVEL                   LENS_MINT_RATE_CAP_LENS_24H       LENS_MISTRAL_API_KEY
+LENS_MODEL_CATALOG_OVERRIDES     LENS_MODEL_WATCH_ENABLED          LENS_MODEL_WATCH_INTERVAL
+LENS_NATS_URL                    LENS_OLLAMA_URL                   LENS_OPENAI_API_KEY
+LENS_OPERATOR_ALERT_WEBHOOK_SECRET  LENS_OPERATOR_ALERT_WEBHOOK_URL  LENS_PATTERN_CAPTURE_ENABLED
+LENS_PATTERN_EARNING_ENABLED     LENS_PATTERN_MINING_ENABLED       LENS_POOL_ROYALTY_MINTING_ENABLED
+LENS_POOL_ROYALTY_SHARE          LENS_POVI_CHALLENGE_KEY           LENS_PROVISION_SECRET
+LENS_REDIS_URL                   LENS_SHADOW_MINTS_ENABLED         LENS_STRIPE_SECRET_KEY
+LENS_STRIPE_WEBHOOK_SECRET       LENS_TRACK_WEBHOOK_SECRET         LENS_TRACK_WEBHOOK_URL
+LENS_VLLM_API_KEY                LENS_VLLM_BASE_URL
+```
+
+**Everything else goes in `lens.env`** — see `lens.env.example` in the Lens checkout for the ones
+worth setting (mint caps, `LENS_EMBEDDING_MODEL`, the reservation and settlement toggles).
+
+For any variable not on either list, this decides it mechanically:
+
+```sh
+grep -qE "^\s+- ${VAR}(=|$)" docker-compose.yaml && echo ".env" || echo "lens.env"
+```
+
+#### Create the files
+
+```sh
+# On the Lens box, in the talyvor-lens checkout, NEXT TO docker-compose.yaml.
+# CURATED — these belong in .env:
+grep -q '^LENS_PROVISION_SECRET=' .env || echo "LENS_PROVISION_SECRET=$PROVISION_SECRET" >> .env
+grep -q '^LENS_CACHE_POOLABLE_ENABLED=' .env || echo "LENS_CACHE_POOLABLE_ENABLED=true" >> .env
+grep -q '^LENS_ECONOMY_ENABLED=' .env || echo "LENS_ECONOMY_ENABLED=true" >> .env
+grep -q '^LENS_POOL_ROYALTY_MINTING_ENABLED=' .env || echo "LENS_POOL_ROYALTY_MINTING_ENABLED=true" >> .env
+grep -q '^LENS_POOL_ROYALTY_SHARE=' .env || echo "LENS_POOL_ROYALTY_SHARE=0.5" >> .env
+chmod 600 .env
+
+# LONG TAIL — these belong in lens.env. Optional; the file itself is optional too.
 cat > lens.env <<'ENV'
-LENS_PROVISION_SECRET=<same value as the BFF>
-LENS_CACHE_POOLABLE_ENABLED=true
-LENS_ECONOMY_ENABLED=true
-LENS_POOL_ROYALTY_MINTING_ENABLED=true
-LENS_POOL_ROYALTY_SHARE=0.5
 # EARN GATE — leave UNSET for the comped trial (a vouch is enough to earn).
 # Set true before OPEN SIGNUP, so earning requires a real completed purchase.
 #LENS_EARN_REQUIRE_LIVE_PURCHASE=true
-# SHADOW MINTS — do NOT set yet. See step 6d: it has a precondition.
-#LENS_SHADOW_MINTS_ENABLED=true
 ENV
 chmod 600 lens.env
 ```
 
-**Verify it reached the PROCESS, which is the only thing that counts:**
+> `LENS_SHADOW_MINTS_ENABLED` is **curated**, so it goes in `.env` — and do NOT set it yet; see step 6d
+> for its precondition.
+
+#### ⚠ Verify against the PROCESS, and make the check able to FAIL
+
 ```sh
 docker compose up -d lens && sleep 5
-docker compose exec -T lens printenv LENS_PROVISION_SECRET | wc -c
-# expect: >1.  A 1 (just the newline) or empty means lens.env was not read —
-# check it sits beside docker-compose.yaml, not in deploy/ or your home directory.
+# 1. The curated secret arrived:
+docker compose exec -T lens printenv LENS_PROVISION_SECRET | wc -c   # expect >1
+# 2. ⚠ POSITIVE CONTROL — a variable you did NOT set must be absent. If this also prints a value,
+#    you are reading a stale container and check 1 proves nothing.
+docker compose exec -T lens printenv LENS_NOT_A_REAL_VAR || echo "correctly absent"
 ```
+
+⚠ Note that the old verify step could not detect the trap it was next to: it read
+`LENS_PROVISION_SECRET`, which step 2b *also* appends to `.env`. So the `.env` copy satisfied the check
+while the `lens.env` line sat inert — a green that proved the wrong thing.
 
 ### 2b. Deploy
 
