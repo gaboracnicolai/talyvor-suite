@@ -553,9 +553,15 @@ docker compose run --rm track-migrate
 **Success:** the run exits 0 and the schema exists.
 
 ```bash
-docker compose exec -T postgres psql -U lens -d talyvor_track -tAc \
-  "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
-# expect: a number > 0 (0 means the migration did not run — do not continue)
+# Compare against the checkout, NEVER a number written here: a hardcoded count goes
+# stale the next time a migration lands, and then this step fails for the wrong
+# reason — which is the exact failure this runbook exists to prevent.
+want=$(ls talyvor-track/migrations/*.sql | wc -l | tr -d ' ')
+got=$(docker compose exec -T postgres psql -U lens -d talyvor_track -tAc \
+  "SELECT count(*) FROM schema_migrations" | tr -d ' ')
+echo "track schema_migrations: got=$got want=$want"; [ "$got" = "$want" ] && echo OK || echo MISMATCH
+# expect: OK.  A number > 0 is NOT sufficient — a partial run leaves tables behind
+# and would pass the old check.
 ```
 
 Docs needs nothing here: its server applies pending migrations before serving,
@@ -573,6 +579,14 @@ migration actually ran.
 ```bash
 docker compose ps track docs
 docker compose logs docs | grep -E "migrations (applied|up to date)"   # expect one of these
+
+# And check the COUNT, not just the log line: "up to date" is also what a Docs that
+# already migrated says, so on a redeploy the grep passes without proving the NEW
+# migrations landed. Derived from the checkout so it cannot go stale.
+want=$(ls talyvor-docs/migrations/*.sql | wc -l | tr -d ' ')
+got=$(docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
+  "SELECT count(*) FROM schema_migrations" | tr -d ' ')
+echo "docs schema_migrations: got=$got want=$want"; [ "$got" = "$want" ] && echo OK || echo MISMATCH
 docker compose logs track | tail -5
 ```
 

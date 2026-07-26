@@ -65,22 +65,26 @@ track `ci.yaml:203-205`, docs `ci.yaml:163-165`).
 
 ```sh
 # Run on your workstation. Needs: docker logged in to ghcr.io (read:packages).
-for svc in lens track docs; do
-  repo="ghcr.io/gaboracnicolai/talyvor-$svc"
-  sha=$(git ls-remote "https://github.com/gaboracnicolai/talyvor-$svc.git" refs/heads/main | cut -f1)
-
-  by_sha=$(docker buildx imagetools inspect "$repo:$sha"    --format '{{.Manifest.Digest}}' 2>/dev/null)
-  latest=$(docker buildx imagetools inspect "$repo:latest"  --format '{{.Manifest.Digest}}' 2>/dev/null)
-
-  if   [ -z "$by_sha" ]; then verdict="MISSING  — no image was ever published for this commit"
-  elif [ -z "$latest" ]; then verdict="NO-LATEST— :sha exists but :latest is absent"
-  elif [ "$by_sha" != "$latest" ]; then verdict="STALE    — :latest points at a DIFFERENT build"
-  else verdict="OK"
-  fi
-  printf '%-6s %s\n         main=%s\n         :sha=%s\n         :latest=%s\n' \
-    "$svc" "$verdict" "${sha:0:12}" "${by_sha:-<none>}" "${latest:-<none>}"
-done
+bash deploy/check-images.sh    # exits non-zero unless all three are OK
 ```
+
+**Tested against the live registry, not written from the API docs.** Three things
+that only showed up by running it, each of which would have made the check lie:
+
+1. **`<none>` as a shell placeholder breaks under zsh** — it is parsed as a
+   redirection inside `${var:-<none>}`, so every lookup reported absent. The
+   script uses bare words.
+2. **A registry hiccup is indistinguishable from an absent tag** if you only test
+   for empty output. A transient failure and a genuinely missing image both give
+   you nothing. The script reads stderr and separates them: `not found` /
+   `MANIFEST_UNKNOWN` ⇒ **MISSING**, anything else ⇒ **UNKNOWN**. Treating a
+   hiccup as MISSING is how you re-run a build you already have — or worse,
+   conclude an image is fine when the lookup never happened.
+3. **Image tags are the FULL 40-character SHA.** A short SHA silently resolves to
+   nothing, which reads as MISSING. The script takes the SHA from `git ls-remote`
+   so it cannot be truncated by hand.
+
+
 
 **Expect: `OK` on all three lines.** Anything else, and what to do:
 
@@ -89,6 +93,7 @@ done
 | `MISSING` | The image workflow never succeeded for this commit (the Docker Hub timeout case). | Re-run the image workflow **for that exact SHA**: `gh workflow run images.yaml --repo gaboracnicolai/talyvor-lens --ref main`. Wait, then re-run STEP 0. |
 | `STALE` | An image for this commit exists, but `:latest` was overwritten by a later re-run of an **older** commit — exactly what happened today. | **Do not deploy `:latest`.** Pin the compose/unit to `:<sha>` for that service (see the note under each service's step), or re-run the workflow so `:latest` is re-pushed from this commit. |
 | `NO-LATEST` | Tag missing entirely. | Same as `MISSING` — re-run the workflow. |
+| `UNKNOWN` | The **lookup** failed — network, auth, or rate limit. **Not** the same as MISSING. | Retry. Do not re-run a build on the strength of this, and do not deploy: you have learned nothing about the image either way. |
 
 Why digests and not `docker pull`: pulling `:latest` and reading its labels
 tells you what you *got*, not whether it *matches main*. Comparing the two tags'
