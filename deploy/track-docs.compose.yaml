@@ -1,0 +1,115 @@
+# Track + Docs — compose services for the existing talyvor-lens stack.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHERE THIS BELONGS. The deployed compose project is `talyvor-lens`, from
+# talyvor-lens/docker-compose.yaml (+ its docker-compose.override.yml) — verified
+# on the running box:
+#
+#   docker inspect talyvor-lens-lens-1 \
+#     --format '{{index .Config.Labels "com.docker.compose.project.config_files"}}'
+#
+# This file is the reviewed SOURCE for those additions, kept beside the BFF whose
+# env they pair with (same arrangement as deploy/Caddyfile, which is a reference
+# copy of the live front door). Two ways to apply it — see deploy/README.md
+# §"Deploying Track and Docs" for the argument:
+#
+#   A. RECOMMENDED — paste these services into talyvor-lens/docker-compose.yaml.
+#      They are then picked up by the operator's habitual `docker compose up -d`.
+#   B. Overlay with an extra `-f`. Works, but every future `up -d` that forgets
+#      the third -f silently drops Track and Docs. That is a half-deploy that
+#      looks like a success, which is the failure mode this runbook exists to
+#      prevent.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# THREE THINGS THAT ARE NOT PREFERENCES — each was verified against source, and
+# each produces a silent or confusing failure if changed:
+#
+# 1. PORTS PUBLISH TO HOST LOOPBACK, and the BFF reaches them at 127.0.0.1.
+#    The BFF is NOT a container: deploy/talyvor-bff.service runs
+#    /opt/talyvor/bin/bff as a host systemd process. A host process does not use
+#    Docker's embedded resolver, so `http://track:3000` does not resolve for it.
+#    It is also refused at boot: apps/bff/main.go:229/251 run every product base
+#    URL through parseHTTPSOrLoopback, which permits http ONLY on a loopback
+#    host (main.go:275). So `http://track:3000` fails the BFF's own config check
+#    with "must be https (http is allowed only on loopback, for dev)" — the
+#    service would not start at all. 127.0.0.1 publishing is both what works and
+#    what the guard allows, and it is NOT a public port: it is unreachable from
+#    off-box, exactly like lens's own "127.0.0.1:8080:8080".
+#
+# 2. THEY TALK TO POSTGRES DIRECTLY, NOT THROUGH PGBOUNCER. The pgbouncer service
+#    is pinned to a single database (DB_NAME=talyvor_lens) and runs
+#    POOL_MODE=transaction. It cannot serve a second database without a real
+#    pgbouncer.ini, and transaction pooling breaks the session-scoped advisory
+#    locks a migration runner uses — which is why the lens stack's own `migrate`
+#    service also goes direct to postgres. Same reasoning, same destination.
+#
+# 3. TRACK GETS A SEPARATE MIGRATE SERVICE; DOCS DOES NOT. Verified in both
+#    entrypoints, because guessing here means a service that boots happily
+#    against an empty schema and fails at the first request:
+#      · Track  — cmd/track/main.go: `migrate.Up` is reachable ONLY from the
+#        `track migrate` subcommand. The server path goes config → db → serve and
+#        never migrates. It REQUIRES a separate step.
+#      · Docs   — cmd/docs/main.go:162: the SERVER path calls migrate.Apply
+#        before serving, fail-closed (a migration error exits non-zero). A plain
+#        `docs` is self-sufficient. `docs migrate` exists for k8s-style
+#        init-container rollouts; it is not needed here.
+
+services:
+  # ── Track ──────────────────────────────────────────────────────────────────
+  # Schema first. restart:"no" + service_completed_successfully is the same
+  # gate the lens stack uses for its own `migrate` service, so `up -d` cannot
+  # start the API against an unmigrated database.
+  track-migrate:
+    image: ghcr.io/gaboracnicolai/talyvor-track:latest
+    command: ["migrate", "up"]
+    environment:
+      TRACK_DATABASE_URL: postgres://lens:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/talyvor_track?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  track:
+    image: ghcr.io/gaboracnicolai/talyvor-track:latest
+    environment:
+      TRACK_DATABASE_URL: postgres://lens:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/talyvor_track?sslmode=disable
+      TRACK_LISTEN_ADDR: 0.0.0.0:3000
+      # Track's copy of the transit proof. MUST equal the BFF's
+      # TRACK_GATEWAY_SECRET — different names, one value. Boot-required and
+      # >= 16 chars (internal/config/config.go:106).
+      GATEWAY_AUTH_SECRET: ${TRACK_GATEWAY_AUTH_SECRET:?TRACK_GATEWAY_AUTH_SECRET must be set — see deploy/README.md}
+      TRACK_LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      track-migrate:
+        condition: service_completed_successfully
+    # Host loopback only. Not internet-facing, no Caddy hostname.
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+  # ── Docs ───────────────────────────────────────────────────────────────────
+  # No migrate service: Docs applies pending migrations on boot, fail-closed.
+  docs:
+    image: ghcr.io/gaboracnicolai/talyvor-docs:latest
+    environment:
+      DOCS_DATABASE_URL: postgres://lens:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/talyvor_docs?sslmode=disable
+      DOCS_LISTEN_ADDR: 0.0.0.0:4000
+      # Docs' copy of the transit proof. MUST equal the BFF's DOCS_GATEWAY_SECRET.
+      # Boot-required, >= 16 chars, AND permanently rejects the published
+      # placeholder "dev-only-insecure-gateway-secret-change-me" regardless of
+      # length (internal/config/config.go:137,196) — it is in git history, so it
+      # is public forever.
+      GATEWAY_AUTH_SECRET: ${DOCS_GATEWAY_AUTH_SECRET:?DOCS_GATEWAY_AUTH_SECRET must be set — see deploy/README.md}
+      # Must equal the BFF's DOCS_WORKSPACE_ID: the BFF pins its upstream path to
+      # /v1/workspaces/<DOCS_WORKSPACE_ID>/spaces (apps/bff/lens.go:75). Defaults
+      # to "default" on the Docs side; set both explicitly so they cannot drift.
+      DOCS_DEFAULT_WORKSPACE: ${DOCS_WORKSPACE_ID:-default}
+      DOCS_LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:4000:4000"
+    restart: unless-stopped
