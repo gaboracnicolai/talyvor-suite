@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -64,6 +65,12 @@ type session struct {
 	// the pooling question is put to the person.
 	cachePoolable      bool
 	needsPoolingChoice bool
+
+	// trackWorkspaceID is this person's Track workspace, resolved at login by Track's
+	// idempotent POST /v1/bootstrap. EMPTY IS A VALID STATE, not an error: a Track failure
+	// must not fail login, and the emptiness must not be trusted for the session's lifetime —
+	// trackWorkspaceFor re-asks. See track_tenant.go for both rules.
+	trackWorkspaceID string
 }
 
 func (s session) expiresAt() time.Time { return s.expires }
@@ -405,6 +412,16 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 			"error": "could not provision your workspace — try again shortly"})
 		return
 	}
+	// TRACK: bootstrap this identity's Track workspace too. Deliberately NOT a hard stop,
+	// unlike the Lens provisioning above — Lens is the tenancy root, Track is one product of
+	// several, and a Track blip taking out Lens access is worse than no Track workspace. An
+	// empty result is stored as empty and re-asked on first use, never treated as settled.
+	trackWS, terr := a.bootstrapTrackWorkspace(ctx, strings.ToLower(claims.Email), idt.Subject, a.cfg.oidcIssuer)
+	if terr != nil && !errors.Is(terr, errTrackNotConfigured) {
+		log.Printf("bff: track bootstrap FAILED for sub=%s (login continues): %s",
+			idt.Subject, redactSecret(terr.Error()))
+	}
+
 	a.auth.sessions.put(sid, session{
 		sub:     idt.Subject,
 		email:   strings.ToLower(claims.Email),
@@ -413,6 +430,8 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		workspaceID:  prov.WorkspaceID,
 		lensToken:    prov.Token,
 		lensTokenExp: parseExpiry(prov.ExpiresAt),
+
+		trackWorkspaceID: trackWS,
 
 		cachePoolable: prov.CachePoolable,
 		// Ask the pooling question exactly once: on the login that CREATED the workspace.
@@ -552,6 +571,13 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 			"workspace_id":         s.workspaceID,
 			"cache_poolable":       s.cachePoolable,
 			"needs_pooling_choice": s.needsPoolingChoice,
+			// Whether THIS deployment's Docs is one workspace shared by everyone. Derived from
+			// the BFF's OWN config, never hardcoded: docsWorkspaceID is the pin, and when Docs
+			// gains its own tenancy root that field goes the way trackWorkspaceID just did — the
+			// field stops compiling, the notice stops rendering, and the copy cannot outlive the
+			// fact it describes. docsBaseURL is required too: with no Docs upstream there is no
+			// Docs to warn about, and a notice about an absent product is noise.
+			"docs_shared": a.cfg.docsBaseURL != "" && a.cfg.docsWorkspaceID != "",
 		})
 		return
 	}

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Ledger } from './Ledger'
+import { UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
 
 // REAL data captured live from trial-ws-1. LENS ledger: a held mint + a settled mint.
 const LENS_ROWS = [
@@ -123,5 +124,48 @@ describe('a null body (empty ledger) renders the empty state, not the error stat
     fireEvent.click(screen.getByRole('button', { name: 'LXC' }))
     expect(await screen.findByText(/no ledger entries yet/i)).toBeInTheDocument()
     expect(screen.queryByText(/couldn.t load/i)).not.toBeInTheDocument()
+  })
+})
+
+// ── The unpaid-contribution notice, at the POINT OF ABSENCE ───────────────────
+//
+// The disclosure screen is read once, at signup. The question it answers — "I contributed, so why
+// is there no row?" — arrives later, here, and has to be answered where it is asked. A shadowed
+// mint produces no ledger row BY DESIGN, so this empty state is the exact place a tester forms a
+// wrong conclusion.
+//
+// The wording is pinned in unpaidNotice.test.ts; what is checked here is that it reaches the LENS
+// ledger's empty state, and that it does NOT clutter the LXC ledger, which is fiat credit and has
+// nothing to do with unpaid mints.
+describe('Ledger — the unpaid-contribution notice', () => {
+  function mockEmpty() {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+  }
+
+  it('explains the absence when the LENS ledger is empty', async () => {
+    mockEmpty()
+    const { container } = renderLedger()
+    fireEvent.click(screen.getByRole('button', { name: /LENS/i }))
+    await screen.findByText(/No ledger entries yet/i)
+    expect(container.textContent).toContain(UNPAID_NOTICE_HEADLINE)
+    expect(container.textContent).toMatch(/never credited/i)
+  })
+
+  it('does not show it on the LXC ledger, which is fiat credit', async () => {
+    mockEmpty()
+    const { container } = renderLedger()
+    // Default tab is LXC.
+    await screen.findByText(/No ledger entries yet/i)
+    expect(container.textContent).not.toContain(UNPAID_NOTICE_HEADLINE)
+  })
+
+  it('does not show it when the LENS ledger HAS entries — it explains an absence, not a presence', async () => {
+    mockBothLedgers()
+    const { container } = renderLedger()
+    fireEvent.click(screen.getByRole('button', { name: /LENS/i }))
+    await screen.findByText(/pattern shared \(held\)/i)
+    expect(container.textContent).not.toContain(UNPAID_NOTICE_HEADLINE)
   })
 })

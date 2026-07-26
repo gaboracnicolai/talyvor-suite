@@ -1,5 +1,13 @@
 import { Card, CardHeader } from '@talyvor/ui'
 import { SharingChoice, SharingFacts } from '../areas/lens/Sharing'
+import { useQuery } from '@tanstack/react-query'
+import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from '../areas/lens/unpaidNotice'
+import {
+  DOCS_SHARED_GUIDANCE,
+  DOCS_SHARED_HEADLINE,
+  DOCS_SHARED_NOTICE,
+} from '../areas/docs/sharedDocsNotice'
+import { api } from '../lib/api'
 
 // PoolingConsent — the signup DISCLOSURE, shown once: on the login that created the workspace.
 //
@@ -23,6 +31,13 @@ import { SharingChoice, SharingFacts } from '../areas/lens/Sharing'
 // uses. One source, deliberately: the first draft carried its own copy and promised a settings
 // screen that did not exist. A claim about consent must not be able to drift.
 export function PoolingConsent({ onDone }: { onDone: () => void }) {
+  // Whether Docs is one workspace shared by everyone here. Read from /auth/me — the same query
+  // the gate already ran, so no extra request — and derived by the BFF from its own config.
+  // Unlike the unpaid-contribution notice above, this value CAN be read live: it is the BFF's own
+  // configuration, not another service's admin-gated operator setting, so there is no trust
+  // boundary to cross. See areas/docs/sharedDocsNotice.ts for that comparison in full.
+  const me = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
+  const docsShared = me.data?.docs_shared === true
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-gutter py-8">
       <Card className="w-full max-w-2xl">
@@ -38,6 +53,29 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
             You can turn it off below — one click, and nothing of yours is shared.
           </p>
           <SharingFacts />
+          {/* ⚠ THE UNPAID-CONTRIBUTION NOTICE, and it sits ABOVE the choice deliberately: a tester
+              who reads as far as the first control and clicks must already have passed it.
+              Enabling shadow mode in Lens (LENS_SHADOW_MINTS_ENABLED) is a statement to testers
+              rather than a config value, so this copy is a PRECONDITION for that flag — if it
+              ships first we run unpaid mints without having said so.
+              Words come from areas/lens/unpaidNotice, shared with the ledger, for the same reason
+              the sharing copy is shared with settings: a claim about payment must not be able to
+              drift between the two places it appears. */}
+          <p className="text-body text-ink">
+            <strong>{UNPAID_NOTICE_HEADLINE}</strong> {UNPAID_CONTRIBUTION_NOTICE}
+          </p>
+          {/* ⚠ THE SHARED-DOCS NOTICE. Above the choice for the same reason the notice above it
+              is: a tester who reads as far as the first control and clicks must already have
+              passed both. It is a DIFFERENT fact from the unpaid notice — that one is about what
+              earns, this is about who can read what — and it renders ONLY when this deployment
+              actually pins Docs, so it cannot outlive the arrangement it describes. Words come
+              from areas/docs/sharedDocsNotice, one source, so they cannot drift. */}
+          {docsShared ? (
+            <p className="text-body text-ink">
+              <strong>{DOCS_SHARED_HEADLINE}</strong> {DOCS_SHARED_NOTICE}{' '}
+              <strong>{DOCS_SHARED_GUIDANCE}</strong>
+            </p>
+          ) : null}
           <SharingChoice onDone={onDone} />
         </div>
       </Card>

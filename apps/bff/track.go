@@ -140,7 +140,7 @@ func trackIssuesQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return strings.Join(parts, "&"), true
 }
 
-// trackIssues — GET /api/track/issues → GET /v1/workspaces/{pin}/issues with the
+// trackIssues — GET /api/track/issues → the SESSION's Track workspace, with the
 // decided query contract above. Returns Track's bare []model.Issue verbatim.
 // NOTE (confirmed from source, not papered over): the upstream list carries NO
 // total count — no COUNT query exists in Track's issue store — so this route
@@ -148,7 +148,7 @@ func trackIssuesQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
 // the BFF paging the entire result set per render; that is a Track-side change
 // (count endpoint, window column, or a total header), not a proxy trick.
 func (a *app) trackIssues() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
@@ -157,16 +157,20 @@ func (a *app) trackIssues() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		ws, ok := a.trackWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			"/v1/workspaces/"+a.cfg.trackWorkspaceID+"/issues", raw, nil)
-	}
+			trackWorkspacePath(ws, "/issues"), raw, nil)
+	})
 }
 
-// trackIssueDetail — GET /api/track/issues/{id} → GET /v1/workspaces/{pin}/issues/{id}.
+// trackIssueDetail — GET /api/track/issues/{id} → the issue in the SESSION's workspace.
 // Foreign or unknown ids are a 404 upstream (SEC-5: foreign ≡ unknown) and the 404
 // passes through untouched. Query is dropped: the upstream detail reads none.
 func (a *app) trackIssueDetail() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
@@ -175,16 +179,20 @@ func (a *app) trackIssueDetail() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		ws, ok := a.trackWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			"/v1/workspaces/"+a.cfg.trackWorkspaceID+"/issues/"+url.PathEscape(id), "", nil)
-	}
+			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)), "", nil)
+	})
 }
 
 // trackIssueComments — GET /api/track/issues/{id}/comments → the issue's comment
 // thread, []model.Comment verbatim (author names resolve client-side via the
 // roster from /api/members).
 func (a *app) trackIssueComments() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
@@ -193,20 +201,28 @@ func (a *app) trackIssueComments() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		ws, ok := a.trackWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			"/v1/workspaces/"+a.cfg.trackWorkspaceID+"/issues/"+url.PathEscape(id)+"/comments", "", nil)
-	}
+			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)+"/comments"), "", nil)
+	})
 }
 
-// trackTeams — GET /api/track/teams → GET /v1/workspaces/{pin}/teams,
+// trackTeams — GET /api/track/teams → the SESSION's Track workspace teams,
 // []model.Team verbatim. The upstream list reads no parameters; none forward.
 func (a *app) trackTeams() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
+		ws, ok := a.trackWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			"/v1/workspaces/"+a.cfg.trackWorkspaceID+"/teams", "", nil)
-	}
+			trackWorkspacePath(ws, "/teams"), "", nil)
+	})
 }

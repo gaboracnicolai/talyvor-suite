@@ -82,10 +82,14 @@ type config struct {
 	// the BFF forwards identities it authenticated, never ones it invented.
 	trackBaseURL       string // e.g. http://127.0.0.1:8081
 	trackGatewaySecret string // Track's GATEWAY_AUTH_SECRET — held here, never emitted
-	trackWorkspaceID   string // the Track workspace whose roster we serve (pinned, like Docs)
-	docsBaseURL        string // e.g. http://127.0.0.1:8082
-	docsGatewaySecret  string // Docs' GATEWAY_AUTH_SECRET — held here, never emitted
-	docsWorkspaceID    string // the Docs workspace whose reads we serve (pinned, like Lens)
+	// NO trackWorkspaceID. Track is per-session now: the workspace is resolved at login by
+	// Track's idempotent bootstrap and read from the session per request (track_tenant.go).
+	// A field here would let a handler close over one workspace at registration, which is how
+	// every signed-in person came to share one — guarded by
+	// TestConfigCarriesNoStartupWorkspaceIdentity.
+	docsBaseURL       string // e.g. http://127.0.0.1:8082
+	docsGatewaySecret string // Docs' GATEWAY_AUTH_SECRET — held here, never emitted
+	docsWorkspaceID   string // the Docs workspace whose reads we serve (pinned, like Lens)
 }
 
 func loadConfig() (config, error) {
@@ -101,6 +105,12 @@ func loadConfig() (config, error) {
 	// it: silently falling back to one shared workspace is exactly the state this replaced.
 	if cfg.provisionSecret == "" {
 		return cfg, errors.New("LENS_PROVISION_SECRET is required (each signed-in person is provisioned their own Lens workspace); refusing to start")
+	}
+	// An IGNORED variable is the mute class inverted: set, read by nobody, and meaningless —
+	// whoever set it believes something that is not true. Track became per-session (#36), so a
+	// pinned workspace has no effect; refusing is the only way the operator finds out.
+	if os.Getenv("TRACK_WORKSPACE_ID") != "" {
+		return cfg, errors.New("TRACK_WORKSPACE_ID must not be set: Track is per-session — each signed-in person is bootstrapped their own Track workspace at login, and this variable is not read. Remove it; leaving it set would state a pinning that does not happen")
 	}
 	if os.Getenv("LENS_API_KEY") != "" {
 		return cfg, errors.New("LENS_API_KEY must not be set on the BFF: the Lens admin key authorises every workspace and ~30 admin routes; use LENS_PROVISION_SECRET, which can only create a workspace and mint its session token")
@@ -221,8 +231,9 @@ func loadProductConfig(cfg config) (config, error) {
 	cfg.docsGatewaySecret = os.Getenv("DOCS_GATEWAY_SECRET")
 	cfg.docsWorkspaceID = os.Getenv("DOCS_WORKSPACE_ID")
 
-	cfg.trackWorkspaceID = os.Getenv("TRACK_WORKSPACE_ID")
-	trackAny := cfg.trackBaseURL != "" || cfg.trackGatewaySecret != "" || cfg.trackWorkspaceID != ""
+	// TRACK_WORKSPACE_ID is deliberately NOT read: Track is per-session (track_tenant.go). The
+	// pair below is all-or-none; the workspace is no longer part of the trio.
+	trackAny := cfg.trackBaseURL != "" || cfg.trackGatewaySecret != ""
 	if trackAny {
 		var missing []string
 		if cfg.trackBaseURL == "" {
@@ -231,12 +242,10 @@ func loadProductConfig(cfg config) (config, error) {
 		if cfg.trackGatewaySecret == "" {
 			missing = append(missing, "TRACK_GATEWAY_SECRET")
 		}
-		if cfg.trackWorkspaceID == "" {
-			missing = append(missing, "TRACK_WORKSPACE_ID")
-		}
+
 		if len(missing) > 0 {
 			return cfg, fmt.Errorf("Track upstream partially configured: missing %s — set all three "+
-				"(TRACK_BASE_URL, TRACK_GATEWAY_SECRET, TRACK_WORKSPACE_ID), or none", strings.Join(missing, ", "))
+				"(TRACK_BASE_URL, TRACK_GATEWAY_SECRET), or none", strings.Join(missing, ", "))
 		}
 		// The gateway secret rides every request to this URL as X-Gateway-Auth —
 		// same transport rule as LENS_BASE_URL: https anywhere, http only loopback.
