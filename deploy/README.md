@@ -1,5 +1,16 @@
 # Deploying app.talyvor.com
 
+> ### ⚠ Deploying everything at once? Start with [`FULL-STACK-DEPLOY.md`](./FULL-STACK-DEPLOY.md).
+>
+> This document is still correct for the box, systemd, Caddy and the Track/Docs
+> mechanics. What it predates is **per-user signup** (suite #30), which makes the
+> BFF's Lens environment a hard prerequisite rather than an optional extra and puts
+> **Lens first** in the order. Two specifics that will bite if you follow this file
+> alone: the BFF now **refuses to boot** if `LENS_API_KEY` is set, and it no longer
+> reads `LENS_WORKSPACE_KEY` / `LENS_WORKSPACE_ID` — it requires
+> `LENS_PROVISION_SECRET`, the same value Lens boots with. **§1.2 and §4's Lens
+> block below are out of date on that point**; `bff.env.example` has been corrected.
+
 **This document describes the deploy as it actually runs**, corrected against
 the first real deployment (2026-07-23). The single most important topology
 fact, learned the hard way: **Caddy on this box is a Docker container from the
@@ -201,7 +212,7 @@ Every variable the BFF reads, and what happens without it:
 | `BFF_SESSION_TTL` | no | `12h` | Absolute session lifetime (Go duration). Unparseable or ≤0 → refuses to start. Sessions are **in-memory**: every BFF restart signs everyone out (they just re-login). |
 | `TRACK_BASE_URL` | no† | — | Track upstream base (reachable from this box). |
 | `TRACK_GATEWAY_SECRET` | no† | — | Track's own `GATEWAY_AUTH_SECRET`, replayed as the `X-Gateway-Auth` transit proof. Held server-side, never emitted. |
-| `TRACK_WORKSPACE_ID` | no† | — | The Track workspace served. |
+| ~~`TRACK_WORKSPACE_ID`~~ | **MUST BE ABSENT** | — | ⚠ **The BFF now REFUSES TO START if this is set** (`apps/bff/main.go:112`). Track is per-session: each person is bootstrapped their own workspace at login. Delete the line from any existing env file. |
 | `DOCS_BASE_URL` | no‡ | — | Docs upstream base. |
 | `DOCS_GATEWAY_SECRET` | no‡ | — | Docs' `GATEWAY_AUTH_SECRET`, as above. |
 | `DOCS_WORKSPACE_ID` | no‡ | — | The Docs workspace served. |
@@ -380,3 +391,300 @@ live in the `caddy_data` volume and persist across reloads.
 Optionally stop the BFF: `sudo systemctl stop talyvor-bff`. Rolling back the
 front door alone is already a complete rollback from the internet's point of
 view.
+
+---
+
+## Deploying Track and Docs
+
+Neither has ever run on this box. The stack today is lens, postgres, pgbouncer,
+redis, nats, caddy, autoheal — nothing else.
+
+**Read this section start to finish before running step 1.** Two failures here are
+silent: a gateway secret that differs between a product and the BFF 401s only that
+product's routes, and a Track container started against an unmigrated database
+boots fine and fails at the first query. Each step below therefore states what
+success looks like, and §8 verifies reachability *from the BFF* rather than merely
+that a container is running.
+
+### What you are adding
+
+| | Track | Docs |
+|---|---|---|
+| Image | `ghcr.io/gaboracnicolai/talyvor-track:latest` | `ghcr.io/gaboracnicolai/talyvor-docs:latest` |
+| Published on | merge to `main` | merge to `main` |
+| Database | `talyvor_track` | `talyvor_docs` |
+| Migrations | **separate step — does NOT migrate on boot** | **on boot, fail-closed** |
+| Listens | `0.0.0.0:3000` in-container | `0.0.0.0:4000` in-container |
+| Published as | `127.0.0.1:3000` | `127.0.0.1:4000` |
+| Caddy hostname | none | none |
+
+### Why separate databases, not schemas in `talyvor_lens`
+
+1. **Two migration runners, one table name.** Track and Docs each own a migration
+   runner writing its own `schema_migrations`. In one database they collide unless
+   every runner is schema-qualified — which neither is. This alone settles it.
+2. **Blast radius.** Lens's own test and maintenance paths do destructive resets
+   (`TRUNCATE`s guarded by triggers). A separate database means the worst case for
+   a Lens mistake is Lens.
+3. **Backup and restore granularity.** `pg_dump talyvor_docs` restores Docs without
+   touching a money ledger. With schemas, restore is all-or-nothing.
+4. **Least privilege later.** Per-database roles are a one-line change; carving
+   equivalent isolation out of schemas in a shared database is not.
+
+They share the postgres *server* — one instance, three databases. That is the
+level of sharing worth having (one thing to back up, patch and monitor); sharing
+the database itself buys nothing and costs the four points above.
+
+### Order, and why it is this order
+
+Databases → migrations → services → BFF. Each step depends on the previous one
+having actually happened, not merely having been attempted.
+
+---
+
+#### 1. Generate the two gateway secrets
+
+**You run these — no secret value is written down in this repo, and none should
+be committed anywhere.** Two DIFFERENT secrets: one per product, so compromising
+one does not grant the other.
+
+```bash
+export TRACK_GATEWAY_AUTH_SECRET="$(openssl rand -base64 32)"
+export DOCS_GATEWAY_AUTH_SECRET="$(openssl rand -base64 32)"
+```
+
+**Success:** both are 44 characters and unequal.
+
+```bash
+printf 'track=%s docs=%s equal=%s\n' \
+  "${#TRACK_GATEWAY_AUTH_SECRET}" "${#DOCS_GATEWAY_AUTH_SECRET}" \
+  "$([ "$TRACK_GATEWAY_AUTH_SECRET" = "$DOCS_GATEWAY_AUTH_SECRET" ] && echo YES-REGENERATE || echo no)"
+```
+
+Both products require ≥ 16 chars and refuse to boot below that. Docs additionally
+rejects `dev-only-insecure-gateway-secret-change-me` **permanently** — it shipped
+in that repo's compose file and env template, so it is in git history and public
+forever. `openssl rand` cannot produce it; do not hand-write a value.
+
+Persist them where the compose stack reads its environment (the same
+`.env` the lens stack already uses for `POSTGRES_PASSWORD`), mode `0600`:
+
+```bash
+cd /Users/ng/talyvor-lens
+printf 'TRACK_GATEWAY_AUTH_SECRET=%s\nDOCS_GATEWAY_AUTH_SECRET=%s\n' \
+  "$TRACK_GATEWAY_AUTH_SECRET" "$DOCS_GATEWAY_AUTH_SECRET" >> .env
+chmod 600 .env
+grep -c GATEWAY_AUTH_SECRET .env    # expect: 2
+```
+
+> **The same two values go into the BFF's env in step 7, under different names.**
+> `GATEWAY_AUTH_SECRET` (product side) ↔ `TRACK_GATEWAY_SECRET` / `DOCS_GATEWAY_SECRET`
+> (BFF side). Keep this shell open until step 7, or you will be generating a
+> second pair by accident.
+
+#### 2. Create the two databases
+
+```bash
+docker compose exec -T postgres psql -U lens -d talyvor_lens \
+  -c 'CREATE DATABASE talyvor_track OWNER lens' \
+  -c 'CREATE DATABASE talyvor_docs  OWNER lens'
+```
+
+**Success:** both listed, owned by `lens`.
+
+```bash
+docker compose exec -T postgres psql -U lens -d postgres -tAc \
+  "SELECT datname FROM pg_database WHERE datname IN ('talyvor_track','talyvor_docs') ORDER BY 1"
+# expect exactly:
+#   talyvor_docs
+#   talyvor_track
+```
+
+Both connect **directly to `postgres:5432`, not through pgbouncer** — pgbouncer is
+pinned to `DB_NAME=talyvor_lens` and runs `POOL_MODE=transaction`, which breaks the
+session-scoped advisory locks a migration runner needs. This is the same reason the
+lens stack's own `migrate` service bypasses it.
+
+#### 3. Add the services
+
+Paste the services from `deploy/track-docs.compose.yaml` into
+`talyvor-lens/docker-compose.yaml`. That file explains the two placement options;
+pasting is recommended so the services are picked up by your habitual
+`docker compose up -d` rather than depending on remembering a third `-f`.
+
+**Success:** compose resolves with no interpolation errors and shows the new services.
+
+```bash
+cd /Users/ng/talyvor-lens
+docker compose config --services | sort
+# expect the existing seven PLUS: docs, track, track-migrate
+```
+
+If this errors with `TRACK_GATEWAY_AUTH_SECRET must be set`, step 1 did not persist
+— fix it here rather than exporting a shell variable, or the next `up -d` from a
+fresh shell will fail the same way.
+
+#### 4. Pull the images
+
+```bash
+docker compose pull track docs
+```
+
+**Success:** both pull. If either 401s, `docker login ghcr.io` first — these are
+private packages, same as the lens image.
+
+Confirm you actually got a current image rather than a stale `:latest` from a
+previous pull:
+
+```bash
+docker image inspect ghcr.io/gaboracnicolai/talyvor-track:latest \
+  --format '{{index .Config.Labels "org.opencontainers.image.revision"}}{{"\n"}}{{.Created}}'
+```
+
+#### 5. Migrate Track — separately, because Track does not migrate on boot
+
+This is the step that has no equivalent for Docs, and skipping it produces a Track
+that starts cleanly and fails at the first request.
+
+```bash
+docker compose run --rm track-migrate
+```
+
+**Success:** the run exits 0 and the schema exists.
+
+```bash
+# Compare against the checkout, NEVER a number written here: a hardcoded count goes
+# stale the next time a migration lands, and then this step fails for the wrong
+# reason — which is the exact failure this runbook exists to prevent.
+want=$(ls talyvor-track/migrations/*.sql | wc -l | tr -d ' ')
+got=$(docker compose exec -T postgres psql -U lens -d talyvor_track -tAc \
+  "SELECT count(*) FROM schema_migrations" | tr -d ' ')
+echo "track schema_migrations: got=$got want=$want"; [ "$got" = "$want" ] && echo OK || echo MISMATCH
+# expect: OK.  A number > 0 is NOT sufficient — a partial run leaves tables behind
+# and would pass the old check.
+```
+
+Docs needs nothing here: its server applies pending migrations before serving,
+and exits non-zero if they fail.
+
+#### 6. Start both services
+
+```bash
+docker compose up -d track docs
+```
+
+**Success:** both healthy or running, and — for Docs — the boot log shows the
+migration actually ran.
+
+```bash
+docker compose ps track docs
+docker compose logs docs | grep -E "migrations (applied|up to date)"   # expect one of these
+
+# And check the COUNT, not just the log line: "up to date" is also what a Docs that
+# already migrated says, so on a redeploy the grep passes without proving the NEW
+# migrations landed. Derived from the checkout so it cannot go stale.
+want=$(ls talyvor-docs/migrations/*.sql | wc -l | tr -d ' ')
+got=$(docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
+  "SELECT count(*) FROM schema_migrations" | tr -d ' ')
+echo "docs schema_migrations: got=$got want=$want"; [ "$got" = "$want" ] && echo OK || echo MISMATCH
+docker compose logs track | tail -5
+```
+
+**Failure to expect here if step 1 went wrong:** a boot loop with
+`missing required environment variable: GATEWAY_AUTH_SECRET must be set and >= 16 chars`,
+or for Docs, `GATEWAY_AUTH_SECRET is a PUBLISHED placeholder`. Both are fail-closed
+and loud — this is the *good* failure.
+
+Confirm they are bound to loopback only, not the internet:
+
+```bash
+ss -ltnp | grep -E ':3000|:4000'   # expect 127.0.0.1:3000 and 127.0.0.1:4000, NOT 0.0.0.0
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/healthz   # 200
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4000/healthz   # 200
+```
+
+#### 7. Wire the BFF — the second half of the secret
+
+Edit `/etc/talyvor/bff.env` and set both trios. **The secrets are the same two
+values from step 1, under the BFF's names:**
+
+```
+TRACK_BASE_URL=http://127.0.0.1:3000
+TRACK_GATEWAY_SECRET=<the TRACK_GATEWAY_AUTH_SECRET from step 1>
+
+DOCS_BASE_URL=http://127.0.0.1:4000
+DOCS_GATEWAY_SECRET=<the DOCS_GATEWAY_AUTH_SECRET from step 1>
+DOCS_WORKSPACE_ID=default
+```
+
+`http://127.0.0.1:…`, **not** a docker service name: the BFF is a host systemd
+process, so Docker DNS does not apply to it, and its config check refuses any URL
+that is neither https nor loopback — `http://track:3000` fails startup outright.
+
+Each trio is all-three-or-none, and oidc mode only; a partial trio refuses to boot
+and names the missing variable.
+
+**Success — verify the two sides match before restarting anything:**
+
+```bash
+# Run as a user who can read both. Compares digests, never prints a secret.
+sudo sh -c '
+  . /etc/talyvor/bff.env
+  cd /Users/ng/talyvor-lens; . ./.env
+  for p in TRACK DOCS; do
+    eval bff=\$${p}_GATEWAY_SECRET
+    eval svc=\$${p}_GATEWAY_AUTH_SECRET
+    if [ -n "$bff" ] && [ "$bff" = "$svc" ]; then echo "$p: MATCH"; else echo "$p: MISMATCH — /api/${p} will 401"; fi
+  done'
+# expect: TRACK: MATCH   DOCS: MATCH
+```
+
+#### 8. Restart the BFF, and verify reachability *through* it
+
+```bash
+sudo systemctl restart talyvor-bff && sudo systemctl status talyvor-bff --no-pager
+journalctl -u talyvor-bff -n 20 --no-pager | grep "product upstreams"
+# expect: track=http://127.0.0.1:3000 docs=http://127.0.0.1:4000  (NOT "(unset)")
+```
+
+**A running container is not a reachable one.** These call the products *through*
+the BFF, with a real session, which is the only test that exercises the whole
+chain — session → gateway secret → identity header → workspace membership:
+
+```bash
+# In a signed-in browser at https://app.talyvor.com, or with a session cookie:
+curl -s -o /dev/null -w 'track %{http_code}\n' -b "$COOKIE" https://app.talyvor.com/api/track/workspaces
+curl -s -o /dev/null -w 'docs  %{http_code}\n' -b "$COOKIE" https://app.talyvor.com/api/docs/spaces
+```
+
+Reading the result — each code means one specific thing:
+
+| Code | Meaning | Where to look |
+|---|---|---|
+| `200` | working end to end | done |
+| `503` | the BFF has no upstream configured | step 7 trio incomplete, or the BFF was not restarted |
+| `401` | **the gateway secrets do not match** | step 7 — the two names, one value |
+| `403` | secret fine; your email is not a member of that workspace | add the membership |
+| `404` | secret and membership fine; wrong workspace id | `DOCS_WORKSPACE_ID` (Track has no pinned id — it is per-session) |
+| `502` | the BFF cannot reach the container | step 6 — check the loopback publish |
+
+Finally, confirm neither product became internet-facing:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://<public-ip>:3000/healthz   # expect: timeout/refused
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://<public-ip>:4000/healthz   # expect: timeout/refused
+```
+
+### Rollback
+
+Both are additive; nothing existing changes.
+
+```bash
+docker compose stop track docs && docker compose rm -f track docs track-migrate
+# then comment the two trios out of /etc/talyvor/bff.env and:
+sudo systemctl restart talyvor-bff
+```
+
+The BFF returns to answering 503 on `/api/track/*` and `/api/docs/*`, and every
+other screen is unaffected. The databases are left in place — dropping them is a
+separate, deliberate act.
