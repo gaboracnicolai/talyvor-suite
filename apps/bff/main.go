@@ -106,6 +106,12 @@ func loadConfig() (config, error) {
 	if cfg.provisionSecret == "" {
 		return cfg, errors.New("LENS_PROVISION_SECRET is required (each signed-in person is provisioned their own Lens workspace); refusing to start")
 	}
+	// An IGNORED variable is the mute class inverted: set, read by nobody, and meaningless —
+	// whoever set it believes something that is not true. Track became per-session (#36), so a
+	// pinned workspace has no effect; refusing is the only way the operator finds out.
+	if os.Getenv("TRACK_WORKSPACE_ID") != "" {
+		return cfg, errors.New("TRACK_WORKSPACE_ID must not be set: Track is per-session — each signed-in person is bootstrapped their own Track workspace at login, and this variable is not read. Remove it; leaving it set would state a pinning that does not happen")
+	}
 	if os.Getenv("LENS_API_KEY") != "" {
 		return cfg, errors.New("LENS_API_KEY must not be set on the BFF: the Lens admin key authorises every workspace and ~30 admin routes; use LENS_PROVISION_SECRET, which can only create a workspace and mint its session token")
 	}
