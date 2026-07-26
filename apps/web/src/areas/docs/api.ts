@@ -80,7 +80,40 @@ async function getJSON<T>(path: string): Promise<T> {
   return (await res.json()) as T
 }
 
+/** A page as the list route returns it (content projected away by the BFF). */
+export interface DocsPageRow {
+  id: string
+  title: string
+}
+
+async function send<T>(path: string, method: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new ApiError(res.status, path)
+  return res.json() as Promise<T>
+}
+
 export const docsApi = {
-  /** LIVE — spaces. Bare array, upstream body verbatim, workspace pinned server-side. */
+  /** LIVE — spaces in the SESSION's workspace (the BFF no longer pins one). */
   spaces: (): Promise<DocsSpace[]> => getJSON<DocsSpace[]>('/api/docs/spaces'),
+
+  page: (spaceId: string, pageId: string): Promise<DocsPageRow & { content_text?: string }> =>
+    getJSON(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`),
+
+  pages: (spaceId: string): Promise<DocsPageRow[]> =>
+    getJSON<DocsPageRow[]>(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`),
+
+  /** Docs owns the schema; the BFF forwards this body verbatim. */
+  createPage: (spaceId: string, title: string) =>
+    send<DocsPageRow>(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`, 'POST', { title }),
+
+  updatePage: (spaceId: string, pageId: string, patch: { title?: string; content_text?: string }) =>
+    send<DocsPageRow>(
+      `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`,
+      'PATCH',
+      patch,
+    ),
 }

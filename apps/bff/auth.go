@@ -627,8 +627,6 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 			// gains its own tenancy root that field goes the way trackWorkspaceID just did — the
 			// field stops compiling, the notice stops rendering, and the copy cannot outlive the
 			// fact it describes. docsBaseURL is required too: with no Docs upstream there is no
-			// Docs to warn about, and a notice about an absent product is noise.
-			"docs_shared": a.cfg.docsBaseURL != "" && a.cfg.docsWorkspaceID != "",
 			"signup_open": signupIsOpen(a.cfg.allowedEmails),
 		})
 		return

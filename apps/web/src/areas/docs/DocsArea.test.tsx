@@ -124,27 +124,36 @@ describe('the tree and the reader PROBE their route, and report what came back',
     expect(screen.queryByText('fixture')).toBeNull()
   })
 
-  it('a configured upstream flips it to the honest not-yet-wired state, naming the read', async () => {
+  it('a configured upstream READS the space, and an empty one is an empty space', async () => {
     mockDocs({ spaces: { body: SPACES }, other: { body: [] } })
     renderAt('/docs/spaces/sp-eng')
 
-    expect(await screen.findByText(/does not read it yet/)).toBeInTheDocument()
-    expect(screen.getByText('GET /api/docs/spaces/{spaceID}/pages')).toBeInTheDocument()
-    // the anti-rot assertion: "not configured" cannot be reached once it answers
+    // The old copy ("the BFF does not read it yet") became FALSE when the tree started reading and
+    // the create form started writing. A 200 with an empty body is an empty SPACE, and saying so is
+    // the honest output — the fabricated seven-page tree is gone and does not come back.
+    expect(await screen.findByText(/No pages yet/i)).toBeInTheDocument()
+    // the anti-rot assertions: neither "not configured" nor the superseded copy can be reached
     expect(screen.queryByText(/is not configured on this deployment/)).toBeNull()
+    expect(screen.queryByText(/does not read it yet/)).toBeNull()
   })
 
-  it('the reader probes the PAGE route, not the tree route', async () => {
-    mockDocs({ spaces: { body: SPACES }, other: { body: {} } })
+  it('the reader opens the PAGE, not the tree', async () => {
+    mockDocs({ spaces: { body: SPACES }, other: { body: { id: 'pg-1', title: 'Runbook', content_text: 'draft' } } })
     renderAt('/docs/spaces/sp-eng/pages/pg-1')
-    expect(await screen.findByText('GET /api/docs/spaces/{spaceID}/pages/{pageID}')).toBeInTheDocument()
+    // It reads the page and offers the editor, rather than naming the route it has not called.
+    expect(await screen.findByText('Runbook')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /save/i })).toBeInTheDocument()
   })
 
   it('a real failure on the tree route is an error, never laundered into off', async () => {
     mockDocs({ spaces: { body: SPACES }, other: { status: 500, body: { error: 'boom' } } })
     renderAt('/docs/spaces/sp-eng')
-    expect(await screen.findByText(/answered with an error/)).toBeInTheDocument()
+    // The guarantee is unchanged and the wording is not: a 500 must read as a FAULT, never as
+    // "off" and never as an empty space. Those three states mean different things to whoever wrote
+    // the page, and conflating them says their work vanished.
+    expect(await screen.findByText(/This is a fault, not an empty space/)).toBeInTheDocument()
     expect(screen.queryByText(/not configured/)).toBeNull()
+    expect(screen.queryByText(/No pages yet/i)).toBeNull()
   })
 
   it('keeps the way back to spaces', async () => {

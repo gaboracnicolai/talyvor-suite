@@ -1,13 +1,6 @@
 import { Card, CardHeader } from '@talyvor/ui'
 import { SharingChoice, SharingFacts } from '../areas/lens/Sharing'
-import { useQuery } from '@tanstack/react-query'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from '../areas/lens/unpaidNotice'
-import {
-  DOCS_SHARED_GUIDANCE,
-  DOCS_SHARED_HEADLINE,
-  DOCS_SHARED_NOTICE,
-} from '../areas/docs/sharedDocsNotice'
-import { api } from '../lib/api'
 
 // PoolingConsent — the signup DISCLOSURE, shown once: on the login that created the workspace.
 //
@@ -36,8 +29,6 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
   // Unlike the unpaid-contribution notice above, this value CAN be read live: it is the BFF's own
   // configuration, not another service's admin-gated operator setting, so there is no trust
   // boundary to cross. See areas/docs/sharedDocsNotice.ts for that comparison in full.
-  const me = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
-  const docsShared = me.data?.docs_shared === true
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-gutter py-8">
       <Card className="w-full max-w-2xl">
@@ -64,18 +55,13 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
           <p className="text-body text-ink">
             <strong>{UNPAID_NOTICE_HEADLINE}</strong> {UNPAID_CONTRIBUTION_NOTICE}
           </p>
-          {/* ⚠ THE SHARED-DOCS NOTICE. Above the choice for the same reason the notice above it
-              is: a tester who reads as far as the first control and clicks must already have
-              passed both. It is a DIFFERENT fact from the unpaid notice — that one is about what
-              earns, this is about who can read what — and it renders ONLY when this deployment
-              actually pins Docs, so it cannot outlive the arrangement it describes. Words come
-              from areas/docs/sharedDocsNotice, one source, so they cannot drift. */}
-          {docsShared ? (
-            <p className="text-body text-ink">
-              <strong>{DOCS_SHARED_HEADLINE}</strong> {DOCS_SHARED_NOTICE}{' '}
-              <strong>{DOCS_SHARED_GUIDANCE}</strong>
-            </p>
-          ) : null}
+          {/* THE SHARED-DOCS NOTICE IS GONE, and its absence is the point: it said Docs was one
+              wiki every signed-in person shared, and that stopped being true when Docs started
+              taking the SESSION's workspace (see apps/bff docsWorkspaceFor). It was built to be
+              derived — `docs_shared` came from whether DOCS_WORKSPACE_ID was set — and removing
+              that pin did not merely make the flag false, it made the field fail to COMPILE, which
+              is how a disclosure should expire. A notice that outlives the arrangement it
+              describes is a false claim in the one place a person is being asked to consent. */}
           <SharingChoice onDone={onDone} />
         </div>
       </Card>

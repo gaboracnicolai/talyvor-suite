@@ -177,3 +177,25 @@ func (a *app) trackWorkspaceProxy(suffix string, rawQuery func(*http.Request) st
 			trackWorkspacePath(ws, suffix), q, http.MethodGet, nil, transform)
 	})
 }
+
+// docsWorkspacePath builds a Docs upstream path for a workspace. Docs takes the SAME id as Track:
+// Track is the tenancy source of truth and mints a workspace per identity at login, and Docs
+// enumerates workspaces from Track (GET /v1/service/workspaces, talyvor-track bf60842 +
+// talyvor-docs c970329) rather than from the workspaces it already holds content for. That
+// enumeration change is what broke the cold-start deadlock — no content ⇒ not enumerated ⇒ no
+// roster ⇒ every write 403s ⇒ no content — so a brand-new identity can now write to Docs on its
+// first visit.
+//
+// One helper per product rather than a shared one: they happen to take the same id today because
+// Docs derives its tenancy from Track, and collapsing them would hide that dependency the day it
+// stops being true.
+func docsWorkspacePath(workspaceID, suffix string) string {
+	return "/v1/workspaces/" + workspaceID + suffix
+}
+
+// docsWorkspaceFor resolves the caller's Docs workspace from the SESSION. It is trackWorkspaceFor
+// by construction — see docsWorkspacePath for why the id is shared — and exists as its own name so
+// a call site reads as "the Docs workspace", not "borrow Track's".
+func (a *app) docsWorkspaceFor(w http.ResponseWriter, r *http.Request) (string, bool) {
+	return a.trackWorkspaceFor(w, r)
+}
