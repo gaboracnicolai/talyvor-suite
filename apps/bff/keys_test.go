@@ -280,18 +280,24 @@ func TestSpendMonthProxies(t *testing.T) {
 	}
 }
 
-// TestMembersProxiesPinnedTrackWorkspace: GET /api/members → Track members,
-// pinned to TRACK_WORKSPACE_ID (config, never client input), gateway
-// credentials + session identity attached server-side.
-func TestMembersProxiesPinnedTrackWorkspace(t *testing.T) {
+// TestMembersUsesTheSessionsTrackWorkspace. This replaces
+// TestMembersProxiesPinnedTrackWorkspace, which asserted the route was pinned to
+// TRACK_WORKSPACE_ID — correct while Track was one shared workspace, and the defect
+// once Lens went per-user. The guarantee it was really defending is unchanged and
+// still asserted: the addressed workspace never comes from client input. It now
+// comes from the SESSION rather than from config.
+func TestMembersUsesTheSessionsTrackWorkspace(t *testing.T) {
 	track := newCaptureUpstream(t, `[{"id":"m1","name":"N","email":"ng@example.com","role":"owner","avatar_url":""}]`)
 	cfg := config{
 		lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com", sessionTTL: time.Hour,
-		trackBaseURL: track.srv.URL, trackGatewaySecret: testTrackSecret, trackWorkspaceID: "track-ws-7",
+		trackBaseURL: track.srv.URL, trackGatewaySecret: testTrackSecret,
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
 	seedProvisionedSession(auth, "mb-sid", "u1", "ng@example.com", "u-test-workspace")
+	sess, _ := auth.sessions.get("mb-sid")
+	sess.trackWorkspaceID = "track-ws-7" // resolved at login by Track's bootstrap
+	auth.sessions.put("mb-sid", sess)
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 
@@ -304,7 +310,8 @@ func TestMembersProxiesPinnedTrackWorkspace(t *testing.T) {
 		t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
 	}
 	if track.path != "/v1/workspaces/track-ws-7/members" {
-		t.Fatalf("upstream path = %q — must be pinned to TRACK_WORKSPACE_ID", track.path)
+		t.Fatalf("upstream path = %q — must address the SESSION's Track workspace, and the "+
+			"?workspace_id= above must be ignored", track.path)
 	}
 	if track.headers.Get("X-Gateway-Auth") != testTrackSecret {
 		t.Fatal("transit proof missing")

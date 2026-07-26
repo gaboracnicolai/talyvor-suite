@@ -146,8 +146,8 @@ func newApp(cfg config, auth *authenticator) *app {
 
 	// The Track roster and Lens month-spend, both pinned at registration from
 	// config — client input never shapes an upstream path.
-	a.mux.HandleFunc("/api/members", a.requireSession(a.proxyProduct(
-		"track", cfg.trackBaseURL, cfg.trackGatewaySecret, "/v1/workspaces/"+cfg.trackWorkspaceID+"/members")))
+	// The roster of the SESSION's Track workspace — no longer a workspace pinned at startup.
+	a.mux.HandleFunc("/api/members", a.trackWorkspaceProxy("/members", nil, nil))
 	a.mux.HandleFunc("/api/spend/month", a.wsProxyFixed("/spend/current-month"))
 
 	// Unknown /api/* → 401 without a session, JSON 404 with one (never fall through to

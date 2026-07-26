@@ -67,6 +67,9 @@ func TestConfigCarriesNoStartupWorkspaceIdentity(t *testing.T) {
 	banned := map[string]string{
 		"workspaceID":  "a startup-scoped Lens workspace id — routes would close over it at registration and every session would share one workspace",
 		"workspaceKey": "a single shared Lens workspace key — each session must present its OWN provisioned token",
+		// Added when Track went per-session. Docs is NOT here: it has no workspaces table, it
+		// mirrors Track's roster, and it stays pinned by design — see TestDocs_RemainsPinnedByDesign.
+		"trackWorkspaceID": "a startup-scoped TRACK workspace id — every signed-in person would share one Track and read each other's issues",
 	}
 	for name, file := range bffSourceFiles(t) {
 		ast.Inspect(file, func(n ast.Node) bool {
@@ -98,12 +101,17 @@ func TestConfigCarriesNoStartupWorkspaceIdentity(t *testing.T) {
 // "/v1/workspaces/" anywhere else is a path being built from something else — which is how the
 // original defect was written.
 //
-// Track and Docs are SEPARATE UPSTREAMS with their own pinned workspaces — different services,
-// different tenancy, not Lens. Their files are exempt by name, which is precise: the exemption
-// names exactly what is not Lens rather than pattern-matching a call shape.
+// DOCS is a separate upstream with its own PINNED workspace and is exempt. TRACK IS NO LONGER
+// EXEMPT: it became per-session, so a "/v1/workspaces/" literal in track.go is now exactly the
+// hazard this guard exists to catch — a path built from something other than the session. The
+// exemption was correct while Track was legitimately pinned and became wrong the moment it was
+// not, which is the kind of staleness an exemption list acquires silently.
 func TestLensWorkspacePathBuiltInExactlyOnePlace(t *testing.T) {
 	const prefix = "/v1/workspaces/"
-	const sanctioned = "lensWorkspacePath"
+	// One sanctioned builder PER TENANCY, each taking the workspace from the session. Sanctioning
+	// the builder rather than the file is what let track.go come off the exemption list: a stray
+	// literal in track.go is now caught, while the deliberate builder beside it is not.
+	sanctioned := map[string]bool{"lensWorkspacePath": true, "trackWorkspacePath": true}
 
 	found := 0
 	for name, file := range bffSourceFiles(t) {
@@ -122,7 +130,7 @@ func TestLensWorkspacePathBuiltInExactlyOnePlace(t *testing.T) {
 				if !strings.Contains(lit.Value, prefix) {
 					return true
 				}
-				if fn.Name.Name == sanctioned {
+				if sanctioned[fn.Name.Name] {
 					found++
 					return true
 				}
@@ -132,25 +140,28 @@ func TestLensWorkspacePathBuiltInExactlyOnePlace(t *testing.T) {
 				if nonLensUpstreamFile[name] || productProxyLits[lit] {
 					return true
 				}
-				t.Errorf("%s: %s() builds a %q path directly. Build it with %s(t, suffix) so the "+
-					"workspace comes from the session — a path assembled anywhere else is how every "+
-					"user ended up sharing one workspace.", name, fn.Name.Name, prefix, sanctioned)
+				t.Errorf("%s: %s() builds a %q path directly. Build it with lensWorkspacePath / "+
+					"trackWorkspacePath so the workspace comes from the session — a path assembled "+
+					"anywhere else is how every user ended up sharing one workspace.",
+					name, fn.Name.Name, prefix)
 				return true
 			})
 			return true
 		})
 	}
-	if found == 0 {
-		t.Fatalf("%s() no longer builds the %q prefix — this guard has drifted from the code it protects",
-			sanctioned, prefix)
+	if found < len(sanctioned) {
+		t.Fatalf("only %d of %d sanctioned builders still build the %q prefix — this guard has "+
+			"drifted from the code it protects", found, len(sanctioned), prefix)
 	}
 }
 
-// nonLensUpstreamFile lists files whose "/v1/workspaces/" literals address Track or Docs — other
-// services with their own pinned workspaces — rather than Lens tenancy.
-var nonLensUpstreamFile = map[string]bool{
-	"track.go": true,
-}
+// nonLensUpstreamFile lists files whose "/v1/workspaces/" literals address a STILL-PINNED
+// upstream rather than Lens tenancy.
+//
+// track.go was removed from this list when Track went per-session (#33): its paths are now built
+// by trackWorkspacePath from the session, and a literal there would be a regression. The list is
+// empty rather than deleted so that adding a genuinely pinned upstream is a visible, argued edit.
+var nonLensUpstreamFile = map[string]bool{}
 
 // collectProductProxyLiterals returns every string literal appearing inside a proxyProduct(...)
 // call — i.e. a path addressed at Track or Docs, not at Lens.

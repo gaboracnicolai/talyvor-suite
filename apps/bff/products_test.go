@@ -38,20 +38,10 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "track triple on oidc boots",
-			env: with(with(with(validOIDCEnv(),
-				"TRACK_BASE_URL", "http://127.0.0.1:8081"),
-				"TRACK_GATEWAY_SECRET", testTrackSecret),
-				"TRACK_WORKSPACE_ID", "track-ws-7"),
-		},
-		{
-			// inc "shared-unblock": /api/members pins its upstream path to a
-			// CONFIGURED Track workspace, exactly like DOCS_WORKSPACE_ID.
-			name: "track pair without workspace id refuses",
+			name: "track PAIR on oidc boots — TRACK_WORKSPACE_ID is no longer part of it",
 			env: with(with(validOIDCEnv(),
 				"TRACK_BASE_URL", "http://127.0.0.1:8081"),
 				"TRACK_GATEWAY_SECRET", testTrackSecret),
-			wantErr: "TRACK_WORKSPACE_ID",
 		},
 		{
 			name:    "track base URL without secret refuses",
@@ -86,18 +76,16 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 			// The gateway secret rides every request as X-Gateway-Auth — the same
 			// transport rule as LENS_BASE_URL: https anywhere, http only loopback.
 			name: "track remote http base URL refuses — the secret would travel in clear",
-			env: with(with(with(validOIDCEnv(),
+			env: with(with(validOIDCEnv(),
 				"TRACK_BASE_URL", "http://track.internal:8081"),
 				"TRACK_GATEWAY_SECRET", testTrackSecret),
-				"TRACK_WORKSPACE_ID", "track-ws-7"),
 			wantErr: "TRACK_BASE_URL",
 		},
 		{
 			name: "track https base URL boots",
-			env: with(with(with(validOIDCEnv(),
+			env: with(with(validOIDCEnv(),
 				"TRACK_BASE_URL", "https://track.example.com"),
 				"TRACK_GATEWAY_SECRET", testTrackSecret),
-				"TRACK_WORKSPACE_ID", "track-ws-7"),
 		},
 		{
 			name: "docs remote http base URL refuses — the secret would travel in clear",
@@ -109,13 +97,12 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 		},
 		{
 			// Identity forwarding requires an authenticated identity to forward.
-			name: "track triple in disabled mode refuses",
+			name: "track pair in disabled mode refuses",
 			env: map[string]string{
 				"LENS_PROVISION_SECRET": testProvisionSecret,
 				"BFF_AUTH_MODE":         "disabled",
 				"TRACK_BASE_URL":        "http://127.0.0.1:8081",
 				"TRACK_GATEWAY_SECRET":  testTrackSecret,
-				"TRACK_WORKSPACE_ID":    "track-ws-7",
 			},
 			wantErr: "oidc",
 		},
@@ -156,6 +143,8 @@ func clearProductEnv(t *testing.T, overrides map[string]string) {
 	t.Helper()
 	clearBFFEnv(t, nil)
 	for _, k := range []string{
+		// TRACK_WORKSPACE_ID is no longer read (Track is per-session), but it is still cleared:
+		// a developer with it exported must not get different behaviour from CI.
 		"TRACK_BASE_URL", "TRACK_GATEWAY_SECRET", "TRACK_WORKSPACE_ID",
 		"DOCS_BASE_URL", "DOCS_GATEWAY_SECRET", "DOCS_WORKSPACE_ID",
 	} {
@@ -211,9 +200,8 @@ func productApp(t *testing.T, track, docs *captureUpstream) (*app, *http.Cookie)
 	if track != nil {
 		cfg.trackBaseURL = track.srv.URL
 		cfg.trackGatewaySecret = testTrackSecret
-		// The full triple, as loadConfig requires it (the matrix refuses a pair):
-		// Track Tier-1 routes pin their upstream paths to this id.
-		cfg.trackWorkspaceID = "track-ws-7"
+		// A PAIR now, not a triple: TRACK_WORKSPACE_ID is gone. Track's workspace comes from
+		// the session, seeded below — see track_tenant.go.
 	}
 	if docs != nil {
 		cfg.docsBaseURL = docs.srv.URL
@@ -222,6 +210,12 @@ func productApp(t *testing.T, track, docs *captureUpstream) (*app, *http.Cookie)
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
 	seedProvisionedSession(auth, "prod-sid", "user-123", "ng@example.com", "u-test-workspace")
+	if track != nil {
+		// The session's Track workspace, as a completed login leaves it.
+		s, _ := auth.sessions.get("prod-sid")
+		s.trackWorkspaceID = "track-ws-7"
+		auth.sessions.put("prod-sid", s)
+	}
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 	return a, &http.Cookie{Name: sessionCookieName, Value: "prod-sid"}
