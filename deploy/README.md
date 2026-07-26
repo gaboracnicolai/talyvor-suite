@@ -556,6 +556,8 @@ docker compose run --rm track-migrate
 # Compare against the checkout, NEVER a number written here: a hardcoded count goes
 # stale the next time a migration lands, and then this step fails for the wrong
 # reason — which is the exact failure this runbook exists to prevent.
+# `want` comes from the talyvor-track REPO. If it is not cloned on this box, run the
+# `ls` on your workstation and paste the number — do not skip the comparison.
 want=$(ls talyvor-track/migrations/*.sql | wc -l | tr -d ' ')
 got=$(docker compose exec -T postgres psql -U lens -d talyvor_track -tAc \
   "SELECT count(*) FROM schema_migrations" | tr -d ' ')
@@ -583,6 +585,8 @@ docker compose logs docs | grep -E "migrations (applied|up to date)"   # expect 
 # And check the COUNT, not just the log line: "up to date" is also what a Docs that
 # already migrated says, so on a redeploy the grep passes without proving the NEW
 # migrations landed. Derived from the checkout so it cannot go stale.
+# `want` comes from the talyvor-docs REPO. If it is not cloned on this box, run the
+# `ls` on your workstation and paste the number — do not skip the comparison.
 want=$(ls talyvor-docs/migrations/*.sql | wc -l | tr -d ' ')
 got=$(docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
   "SELECT count(*) FROM schema_migrations" | tr -d ' ')

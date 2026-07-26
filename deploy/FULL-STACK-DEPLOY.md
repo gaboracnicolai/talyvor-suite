@@ -51,6 +51,77 @@ trust this table.
 
 ---
 
+## ⚠ Read this once, before step 0: status is not capability
+
+Every `docker compose ps`, every `/healthz`, every "healthy" in this deploy is a claim
+about a **process**: it started, it is listening, it has not crashed. None of them is a
+claim about a **capability**.
+
+Lens passes every liveness check in this document with provisioning off, pooling off,
+billing off and `lens.env` missing entirely. That is not a bug in the healthcheck — a
+healthcheck that went red because an optional feature was unconfigured would take the
+gateway out of rotation for no reason. It is simply answering a different question from
+the one you are asking.
+
+**So: never read `ps`, `healthy` or a 200 from `/healthz` as a deploy verdict.** Each
+capability below has its own check that *exercises the capability* — provisioning is
+proven by a 401 from the route, pooling by three gates and a similarity margin, billing
+by a row count that increases. Where a step has no such check, it says so in
+"Steps that cannot be fully verified" near the end, rather than letting a green status
+stand in for one.
+
+This is the single generalisation behind most of the traps in this document. It is
+stated here once instead of five times.
+
+---
+
+## ⚠ Where each command runs, and what that host must already have
+
+A runbook that fails at step one is worse than one that fails at step ten. **Three
+different hosts** appear below and the commands are not interchangeable.
+
+| Host | What it is | Must already have |
+|---|---|---|
+| **workstation** | your laptop | `git`, `docker` (logged in to `ghcr.io`, `read:packages`), **`gh`** (authenticated), `pnpm`, `go`, `ssh`, `shasum` |
+| **app box** | runs the BFF (host systemd) + the Caddy/Lens compose stack | `docker compose`, `psql` via the postgres container, `ss`, `sudo` |
+| **lens box** | in this deployment, the **same machine** as the app box — Caddy and Lens are containers there | the `talyvor-lens` checkout, beside which `lens.env` must live |
+
+### ⚠ `check-images.sh` runs on the WORKSTATION, from the suite checkout
+
+You already clone the suite there to build the BFF (README §2), so **no extra clone is
+needed** — it is the same checkout:
+
+```sh
+git clone https://github.com/gaboracnicolai/talyvor-suite.git && cd talyvor-suite
+bash deploy/check-images.sh
+```
+
+It does **not** need lens/track/docs checked out. It asks the GitHub API for each
+commit's file list rather than reading a local repo, precisely because the workstation
+is unlikely to have all four. It needs **`gh` authenticated** — without it every
+service reports `UNKNOWN`, not a false OK.
+
+**Do not run it on the app box.** That machine has the lens checkout but typically no
+`gh` and no ghcr login, so it would report `UNKNOWN` across the board and read as an
+outage.
+
+### Prerequisites the steps below assume, and where to get them
+
+| Needed by | Prerequisite | If missing |
+|---|---|---|
+| STEP 0 | `gh auth login`; `docker login ghcr.io` | every verdict is `UNKNOWN` |
+| STEP 2a-bis | the `talyvor-lens` checkout on the app box | `lens.env` has nowhere to live |
+| STEP 3 | ⚠ **the `talyvor-track` and `talyvor-docs` checkouts ARE needed on the box** — not for the images (those are pulled), but because the migration checks compare against `ls migrations/*.sql`. Clone them, or read the two numbers on your workstation and substitute them. | the count check cannot run, and `> 0` is not a substitute — it passes on a partial migration |
+| STEP 5 | the suite checkout on the workstation (build host) | nothing to ship |
+| STEP 7 | the `stripe` CLI **on the workstation**, logged in | the webhook-records proof cannot be run; do NOT enable billing without it |
+| 6c / 7 | `psql` is reached via `docker compose exec postgres`, so no host psql is needed | — |
+
+⚠ **The `stripe` CLI is the one prerequisite that is easy to discover too late** — it
+is needed in the middle of the billing sequence, after the values are already in place.
+Install and `stripe login` before starting STEP 7.
+
+---
+
 ## STEP 0 — image preflight. Do this before touching the server.
 
 **Nothing else in this document is safe to start until this passes.** Today a
@@ -166,7 +237,25 @@ printf 'provision=%s\ntrack=%s\ndocs=%s\n' \
 | `TRACK_SECRET` | Track container: `GATEWAY_AUTH_SECRET` | BFF env: `TRACK_GATEWAY_SECRET` (**different name**) |
 | `DOCS_SECRET` | Docs container: `GATEWAY_AUTH_SECRET` | BFF env: `DOCS_GATEWAY_SECRET` (**different name**) |
 
-**Verify:** each is ≥32 chars and is not the published placeholder
+**Verify — prove all three MATCH now, not three steps later.** Previously a mismatch
+surfaced only as a 401 from Track/Docs or a 404 on login, which is loud but late: you
+have already deployed four services by then. Compare digests at the moment you set
+them. Never prints a secret.
+
+```sh
+# Run after you have written all three into their destinations.
+dig() { printf '%s' "$1" | sha256sum | cut -c1-16; }
+echo "provision  local=$(dig "$PROVISION_SECRET")"
+ssh <lens-box>  "grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /path/to/lens/lens.env" | sha256sum | cut -c1-16
+echo "track      local=$(dig "$TRACK_SECRET")"
+ssh <app-box>   "grep -oP '(?<=^TRACK_GATEWAY_SECRET=).*' /etc/talyvor/bff.env" | sha256sum | cut -c1-16
+echo "docs       local=$(dig "$DOCS_SECRET")"
+ssh <app-box>   "grep -oP '(?<=^DOCS_GATEWAY_SECRET=).*' /etc/talyvor/bff.env" | sha256sum | cut -c1-16
+# expect: each pair of 16-char digests IDENTICAL. Any mismatch = fix it here,
+# before a single service starts.
+```
+
+**Also verify:** each is ≥32 chars and is not the published placeholder
 `dev-only-insecure-gateway-secret-change-me` — Track and Docs both reject that
 string at boot regardless of length, because it is in git history and therefore
 public (`internal/config/config.go:137` in each).
@@ -425,6 +514,24 @@ docker compose exec -T postgres psql -U lens -d lens -tAc \
 # expect: settled     ← the go/no-go. 'held' or no row means the money path is broken.
 ```
 
+⚠ **6a ALONE IS NOT A PASS, and this is proven rather than cautionary.** The BFF no
+longer touches `default` at all — every request carries the signed-in person's own
+token. So 6a can be fully green while provisioning is completely broken: it exercises
+Lens directly with your own key and never goes near the code path the suite uses.
+**Treat 6a and 6b as one gate; neither result means anything without the other.**
+
+```sh
+# The combined gate. Both halves, one verdict — so a green 6a cannot be mistaken
+# for a deploy that works.
+LENS_OK=$(docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
+  "SELECT status FROM lxc_reservations ORDER BY created_at DESC LIMIT 1" | tr -d ' ')
+WS_N=$(docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
+  "SELECT count(*) FROM workspaces WHERE id LIKE 'u%'" | tr -d ' ')
+echo "lens settles: $LENS_OK    derived workspaces: $WS_N"
+[ "$LENS_OK" = "settled" ] && [ "$WS_N" -ge 1 ] && echo "DEPLOY OK" || echo "NOT OK — do not proceed"
+# expect: DEPLOY OK.  'settled' with 0 workspaces = Lens is fine and signup is broken.
+```
+
 **6b. Per-user provisioning works** — this is the new one, and it is the one
 that proves the *suite* deploy:
 ```sh
@@ -624,22 +731,62 @@ docker compose exec -T lens printenv LENS_BILLING_ENABLED   # expect: true
 
 ---
 
-## ⚠ Steps that do NOT fully meet the "prove it, don't believe it" bar
+## ⚠ Steps that cannot be fully verified — and what to watch instead
 
-Read as an operator who was not in the conversation. These are the places where a
-step can still look like it worked. Named rather than left for you to discover.
+Five steps were named as reading like verification without being it. Four are now
+fixed; the fifth cannot be fixed on a single box, and says so.
 
-| Step | What is not proven | What to do instead |
+| Step | Was | Now |
 |---|---|---|
-| **STEP 3 (Track/Docs)** | This document delegates to `README.md`'s Track/Docs section rather than restating its checks. Two documents means one can drift. | Follow README's section directly; its migration checks are now count-derived. If the two ever disagree, README is authoritative for Track/Docs mechanics. |
-| **STEP 1 (secrets)** | "≥32 chars and not the placeholder" is checkable, but nothing here proves the two sides *match* until step 4 and step 3's digest compare. | A mismatch surfaces as a 401 from Track/Docs and a 404 on login — both loud, but LATE. If you want it early, run the step-4 digest compare for all three secrets before starting any service. |
-| **STEP 6a (Lens canary)** | Proves the money path settles. It does **not** prove the *suite* works — the BFF no longer touches `default`. | Always run 6a **and** 6b/6c. 6a passing alone is compatible with provisioning being entirely broken. |
-| **Caddy (README §7)** | The `curl` checks prove the front door serves. They do not prove the BFF behind it is the *build you just shipped*. | Compare `shasum -a 256` of the shipped binary against the one recorded in STEP 5 before restarting. |
-| **`docker compose ps` anywhere** | "healthy" is a liveness probe. Lens passes it with provisioning off, pooling off and billing off. | Never treat `ps` as a deploy verdict. Every capability has its own explicit check in this document; run those. |
+| `docker compose ps` everywhere | A green status read as a deploy verdict | **Fixed by statement, once**, at the top: *status is not capability*. Every capability has its own exercising check. |
+| Secret matching | Mismatch surfaced as a 401/404 three steps later | **Fixed**: STEP 1 compares all three digests at the moment you set them, before any service starts. |
+| Lens canary alone | Passed while provisioning was broken | **Fixed**: 6a and 6b are one combined gate printing a single `DEPLOY OK`; `settled` with zero derived workspaces now reads as NOT OK. |
+| Caddy front door | Proved the door serves, not *which* binary is behind it | **Fixed** below. |
+| Track/Docs delegation | Two documents that can drift | **Partly fixed** below — and the residue is stated. |
 
-The general shape, since it recurred all day: **a green status is a claim about the
-process, not about the capability.** Every step above that matters has a command
-whose output distinguishes "running" from "actually doing the thing".
+### Which binary is behind Caddy — fixed
+
+The `curl` checks in README §7 prove the front door serves. They do not prove the BFF
+behind it is the build you just shipped; a failed `scp` or a `systemctl` that never
+restarted leaves the old binary answering, healthily.
+
+```sh
+# On your workstation, after STEP 5 recorded the checksum:
+LOCAL=$(shasum -a 256 bff-linux-amd64 | cut -d' ' -f1)
+REMOTE=$(ssh <app-box> 'shasum -a 256 /opt/talyvor/bin/bff' | cut -d' ' -f1)
+RUNNING=$(ssh <app-box> 'shasum -a 256 /proc/$(pgrep -f /opt/talyvor/bin/bff | head -1)/exe' | cut -d' ' -f1)
+echo "built  =$LOCAL"; echo "on disk=$REMOTE"; echo "RUNNING=$RUNNING"
+# expect: all three IDENTICAL.
+# on-disk matches but RUNNING differs ⇒ the file was replaced and the service never
+# restarted — the exact case a healthy front door hides.
+```
+
+`/proc/<pid>/exe` is the authority: it is the image the kernel actually loaded, so it
+cannot be fooled by a file that was copied over after the process started.
+
+### Track/Docs delegation — partly fixed, residue stated
+
+README's Track/Docs section is now the **single authority** for their mechanics, and
+its migration checks are count-derived rather than "> 0". STEP 3 here no longer
+restates any check — it points, so there is one place to change.
+
+**What is not fixed:** two files can still disagree in *prose*. Nothing enforces that
+STEP 3's summary stays true to README. **What to watch:** if the two ever conflict,
+README wins for Track/Docs mechanics, and this line is your tie-breaker. A test could
+enforce it, but a test that greps documentation for agreement is the kind of guard
+that passes on its own comment — see `cmd/lens/compose_env_reach_test.go` in
+talyvor-lens for how that failed in practice.
+
+### Genuinely unverifiable on one box
+
+- **Certificate renewal.** Caddy auto-renews from its `caddy_data` volume. Nothing in
+  a deploy proves a renewal 60 days out will succeed. **Watch instead:**
+  `curl -sI https://app.talyvor.com | grep -i strict-transport` today, and set a
+  calendar reminder to re-check before expiry. There is no deploy-time check for a
+  future event, and pretending otherwise would be the failure this document is about.
+- **The IdP staying reachable.** Google is in the login path. A deploy-time login proves
+  today. **Watch instead:** the BFF logs `bff: session created for sub=…` on every
+  success; its absence over a period is the signal.
 
 ---
 

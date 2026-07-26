@@ -57,12 +57,26 @@ for svc in lens track docs; do
       # (cmd/ internal/ migrations/ go.mod go.sum Dockerfile .github/workflows/images.yaml),
       # so a docs- or LICENSE-only merge legitimately produces nothing. Verified against this
       # repo's history: a41dd89, cc67661 and 6e78c37 have no image and needed none.
-      if git -C "${CHECKOUT_DIR:-.}" rev-parse --verify -q "$sha" >/dev/null 2>&1 && \
-         ! git -C "${CHECKOUT_DIR:-.}" show --stat --format='' "$sha" 2>/dev/null \
-           | grep -qE '^ +(cmd/|internal/|migrations/|go\.(mod|sum)|Dockerfile|\.github/workflows/images\.yaml)'; then
-        v="NO-BUILD no image expected — this commit touches no watched path; :latest correctly lags"
+      # No image AND no run in flight. Is one even expected? images.yaml is path-filtered
+      # (cmd/ internal/ migrations/ go.mod go.sum Dockerfile .github/workflows/images.yaml),
+      # so a docs- or LICENSE-only merge legitimately produces nothing. Verified against this
+      # repo's history: a41dd89, cc67661 and 6e78c37 have no image and needed none.
+      #
+      # Asked via the API, NOT a local checkout: this script runs on a workstation that has the
+      # SUITE cloned (you build the BFF from it) and very likely not lens/track/docs. A check
+      # that silently needs a checkout you do not have is the same class of failure it exists
+      # to catch.
+      # Capture the EXIT CODE, not just the output: a failed `gh api` prints an error object,
+      # which is non-empty and would otherwise be read as "no watched paths" — i.e. as the
+      # reassuring NO-BUILD verdict. An error is not data.
+      if changed=$(gh api "repos/$owner/talyvor-$svc/commits/$sha" \
+                     --jq '[.files[].filename] | join(" ")' 2>/dev/null); then :; else changed=""; fi
+      if [ -z "$changed" ]; then
+        v="UNKNOWN  no image, no run, and the commit's file list could not be read — check by hand"; status=1
+      elif printf '%s' "$changed" | grep -qE '(^| )(cmd/|internal/|migrations/|go\.(mod|sum)|Dockerfile|\.github/workflows/images\.yaml)'; then
+        v="MISSING  no image and no run in flight, but this commit DOES touch a watched path"; status=1
       else
-        v="MISSING  no image and no run in flight — check images.yaml on GitHub"; status=1
+        v="NO-BUILD no image expected — this commit touches no watched path; :latest correctly lags"
       fi ;;
     *:ABSENT)        v="MISSING  :sha exists but :latest is absent — re-run the image workflow"       ; status=1 ;;
     *) if [ "$bysha" = "$latest" ]; then v="OK"
