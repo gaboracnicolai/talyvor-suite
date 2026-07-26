@@ -46,6 +46,10 @@ func newKeysUpstream(t *testing.T) *keysUpstream {
 	t.Helper()
 	u := &keysUpstream{}
 	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		u.gotAuth = r.Header.Get("Authorization")
 		u.gotMethod = r.Method
 		u.gotPath = r.URL.Path
@@ -72,12 +76,12 @@ func newKeysUpstream(t *testing.T) *keysUpstream {
 func keysApp(t *testing.T, up *keysUpstream) (*app, *http.Cookie) {
 	t.Helper()
 	cfg := config{
-		lensBaseURL: up.srv.URL, workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: up.srv.URL, provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
 		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
-	auth.sessions.put("keys-sid", session{sub: "u1", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+	seedProvisionedSession(auth, "keys-sid", "u1", "ng@example.com", "u-test-workspace")
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 	return a, &http.Cookie{Name: sessionCookieName, Value: "keys-sid"}
@@ -95,11 +99,11 @@ func TestKeysListProxiesPrefixesNotSecrets(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if up.gotPath != "/v1/workspaces/trial-ws-1/api-keys" {
-		t.Fatalf("upstream path = %q — must be pinned to the configured workspace", up.gotPath)
+	if up.gotPath != "/v1/workspaces/u-test-workspace/api-keys" {
+		t.Fatalf("upstream path = %q — must be scoped to the SESSION's workspace", up.gotPath)
 	}
-	if up.gotAuth != "Bearer "+testKey {
-		t.Fatalf("workspace key not attached server-side: %q", up.gotAuth)
+	if !strings.HasPrefix(up.gotAuth, "Bearer ") || up.gotAuth == "Bearer " {
+		t.Fatalf("session's workspace token not attached server-side: %q", up.gotAuth)
 	}
 	if !strings.Contains(rec.Body.String(), "tlv_ws_9f21c4a0") {
 		t.Fatalf("list should carry prefixes: %s", rec.Body.String())
@@ -240,6 +244,10 @@ func TestKeysMethodSurface(t *testing.T) {
 func TestSpendMonthProxies(t *testing.T) {
 	var gotAuth, gotPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		gotAuth = r.Header.Get("Authorization")
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
@@ -248,11 +256,11 @@ func TestSpendMonthProxies(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	cfg := config{
-		lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: upstream.URL, provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, sessionTTL: time.Hour,
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
-	auth.sessions.put("sm-sid", session{sub: "u1", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+	seedProvisionedSession(auth, "sm-sid", "u1", "ng@example.com", "u-test-workspace")
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 
@@ -264,11 +272,11 @@ func TestSpendMonthProxies(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "current_month_usd") {
 		t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
 	}
-	if gotPath != "/v1/workspaces/trial-ws-1/spend/current-month" {
+	if gotPath != "/v1/workspaces/u-test-workspace/spend/current-month" {
 		t.Fatalf("upstream path = %q", gotPath)
 	}
-	if gotAuth != "Bearer "+testKey {
-		t.Fatalf("key not attached: %q", gotAuth)
+	if !strings.HasPrefix(gotAuth, "Bearer ") || gotAuth == "Bearer " {
+		t.Fatalf("session's workspace token not attached: %q", gotAuth)
 	}
 }
 
@@ -278,12 +286,12 @@ func TestSpendMonthProxies(t *testing.T) {
 func TestMembersProxiesPinnedTrackWorkspace(t *testing.T) {
 	track := newCaptureUpstream(t, `[{"id":"m1","name":"N","email":"ng@example.com","role":"owner","avatar_url":""}]`)
 	cfg := config{
-		lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com", sessionTTL: time.Hour,
 		trackBaseURL: track.srv.URL, trackGatewaySecret: testTrackSecret, trackWorkspaceID: "track-ws-7",
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
-	auth.sessions.put("mb-sid", session{sub: "u1", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+	seedProvisionedSession(auth, "mb-sid", "u1", "ng@example.com", "u-test-workspace")
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 

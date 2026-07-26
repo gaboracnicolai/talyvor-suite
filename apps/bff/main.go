@@ -48,11 +48,15 @@ const (
 // workspace id are required: without the key the proxy is pointless, and without a
 // workspace the read paths cannot be built. Fail-closed on either.
 type config struct {
-	addr         string // BFF bind address; loopback unless oidc+https (see loadConfig)
-	lensBaseURL  string // e.g. http://127.0.0.1:8080
-	workspaceKey string // tlv_ws_… — held here, never emitted
-	workspaceID  string // the workspace whose reads we serve, e.g. trial-ws-1
-	webDist      string // path to the built apps/web bundle to serve
+	addr        string // BFF bind address; loopback unless oidc+https (see loadConfig)
+	lensBaseURL string // e.g. http://127.0.0.1:8080
+	// provisionSecret gates Lens's POST /v1/provision — the narrow route that turns an
+	// authenticated identity into a tenant. This is deliberately NOT LENS_API_KEY: the admin key
+	// makes workspaceAuthorized true for EVERY workspace and unlocks ~30 admin routes, so a BFF
+	// compromise would escalate from one tenant's data to control of every tenant. This secret can
+	// create a workspace and mint a session token for it, and nothing else. Held here, never emitted.
+	provisionSecret string
+	webDist         string // path to the built apps/web bundle to serve
 
 	authMode         string        // "oidc" | "disabled" — REQUIRED; silence is not a mode
 	publicBaseURL    string        // oidc: browser-facing origin (https://app.talyvor.com); no path
@@ -78,18 +82,19 @@ type config struct {
 
 func loadConfig() (config, error) {
 	cfg := config{
-		addr:         envOr("BFF_ADDR", "127.0.0.1:8787"),
-		lensBaseURL:  strings.TrimRight(envOr("LENS_BASE_URL", "http://127.0.0.1:8080"), "/"),
-		workspaceKey: os.Getenv("LENS_WORKSPACE_KEY"),
-		workspaceID:  os.Getenv("LENS_WORKSPACE_ID"),
-		webDist:      envOr("WEB_DIST", "../web/dist"),
-		authMode:     os.Getenv("BFF_AUTH_MODE"),
+		addr:            envOr("BFF_ADDR", "127.0.0.1:8787"),
+		lensBaseURL:     strings.TrimRight(envOr("LENS_BASE_URL", "http://127.0.0.1:8080"), "/"),
+		provisionSecret: os.Getenv("LENS_PROVISION_SECRET"),
+		webDist:         envOr("WEB_DIST", "../web/dist"),
+		authMode:        os.Getenv("BFF_AUTH_MODE"),
 	}
-	if cfg.workspaceKey == "" {
-		return cfg, errors.New("LENS_WORKSPACE_KEY is required (the BFF's job is to hold it); refusing to start")
+	// Per-tenant provisioning replaces the single shared workspace key. Refuse to start without
+	// it: silently falling back to one shared workspace is exactly the state this replaced.
+	if cfg.provisionSecret == "" {
+		return cfg, errors.New("LENS_PROVISION_SECRET is required (each signed-in person is provisioned their own Lens workspace); refusing to start")
 	}
-	if cfg.workspaceID == "" {
-		return cfg, errors.New("LENS_WORKSPACE_ID is required (the workspace whose reads are served); refusing to start")
+	if os.Getenv("LENS_API_KEY") != "" {
+		return cfg, errors.New("LENS_API_KEY must not be set on the BFF: the Lens admin key authorises every workspace and ~30 admin routes; use LENS_PROVISION_SECRET, which can only create a workspace and mint its session token")
 	}
 	// The workspace key rides EVERY request to this URL as a bearer header, so
 	// it obeys the same transport rule as the OIDC URLs: https anywhere, http
@@ -425,7 +430,7 @@ func main() {
 		log.Fatalf("bff: listen %s: %v", cfg.addr, err)
 	}
 	log.Printf("bff: serving %s → Lens %s (workspace %s); web bundle from %s",
-		ln.Addr(), cfg.lensBaseURL, cfg.workspaceID, cfg.webDist)
+		ln.Addr(), cfg.lensBaseURL, "per-session (provisioned)", cfg.webDist)
 	log.Printf("bff: the Lens key is held server-side and never sent to the browser")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

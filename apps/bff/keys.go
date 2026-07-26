@@ -48,18 +48,18 @@ func (a *app) requireSameOrigin(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-func (a *app) handleKeys(w http.ResponseWriter, r *http.Request) {
+func (a *app) handleKeys(w http.ResponseWriter, r *http.Request, t tenant) {
 	switch r.Method {
 	case http.MethodGet:
-		a.forward(w, r, "/v1/workspaces/"+a.cfg.workspaceID+"/api-keys", "")
+		a.forward(w, r, t, lensWorkspacePath(t, "/api-keys"), "")
 	case http.MethodPost:
-		a.handleMintKey(w, r)
+		a.handleMintKey(w, r, t)
 	default:
 		methodNotAllowed(w, "GET, POST")
 	}
 }
 
-func (a *app) handleMintKey(w http.ResponseWriter, r *http.Request) {
+func (a *app) handleMintKey(w http.ResponseWriter, r *http.Request, t tenant) {
 	if !a.requireSameOrigin(w, r) {
 		return
 	}
@@ -88,12 +88,12 @@ func (a *app) handleMintKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		a.cfg.lensBaseURL+"/v1/workspaces/"+a.cfg.workspaceID+"/api-keys", bytes.NewReader(body))
+		a.cfg.lensBaseURL+lensWorkspacePath(t, "/api-keys"), bytes.NewReader(body))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+a.cfg.workspaceKey) // server-side only, as everywhere
+	req.Header.Set("Authorization", "Bearer "+t.token) // the SESSION's workspace token, server-side only
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 

@@ -51,6 +51,19 @@ type session struct {
 	sub     string
 	email   string
 	expires time.Time
+
+	// The tenant this person is, resolved ONCE at login by Lens's POST /v1/provision and cached
+	// here SERVER-SIDE. The token never reaches the browser: the cookie carries only an opaque
+	// session id, and these fields live in the BFF's own session map.
+	workspaceID  string
+	lensToken    string
+	lensTokenExp time.Time
+
+	// cachePoolable is the consent Lens RECORDED for this workspace (not what was requested).
+	// needsPoolingChoice is true only for a workspace this login just created — the one moment
+	// the pooling question is put to the person.
+	cachePoolable      bool
+	needsPoolingChoice bool
 }
 
 func (s session) expiresAt() time.Time { return s.expires }
@@ -163,6 +176,17 @@ func newAuthenticator(ctx context.Context, cfg config) (*authenticator, error) {
 // directly by tests; production always goes through newAuthenticator.
 func newSessionOnlyAuthenticator(cfg config) *authenticator {
 	return &authenticator{cfg: cfg, pending: newTTLMap[pendingLogin](), sessions: newTTLMap[session]()}
+}
+
+// sessionAndIDFrom is sessionFrom plus the session id, for callers that must write the session
+// back (the pooling choice).
+func (auth *authenticator) sessionAndIDFrom(r *http.Request) (string, session, bool) {
+	ck, err := r.Cookie(sessionCookieName)
+	if err != nil || ck.Value == "" {
+		return "", session{}, false
+	}
+	s, ok := auth.sessions.get(ck.Value)
+	return ck.Value, s, ok
 }
 
 func (auth *authenticator) sessionFrom(r *http.Request) (session, bool) {
@@ -370,10 +394,29 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "entropy unavailable"})
 		return
 	}
+	// PROVISION: turn this identity into a tenant before the session exists. The workspace id is
+	// derived by LENS from the identity we present — the BFF never names a workspace, so no bug
+	// here can aim at another tenant. A provisioning failure is a hard stop: falling back to a
+	// shared workspace is the exact state this replaced, so there is no fallback path at all.
+	prov, perr := a.provisionForSession(ctx, provisionIdentity(a.cfg.oidcIssuer, idt.Subject))
+	if perr != nil {
+		log.Printf("bff: provisioning FAILED for sub=%s: %s", idt.Subject, redactSecret(perr.Error()))
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error": "could not provision your workspace — try again shortly"})
+		return
+	}
 	a.auth.sessions.put(sid, session{
 		sub:     idt.Subject,
 		email:   strings.ToLower(claims.Email),
 		expires: time.Now().Add(a.cfg.sessionTTL),
+
+		workspaceID:  prov.WorkspaceID,
+		lensToken:    prov.Token,
+		lensTokenExp: parseExpiry(prov.ExpiresAt),
+
+		cachePoolable: prov.CachePoolable,
+		// Ask the pooling question exactly once: on the login that CREATED the workspace.
+		needsPoolingChoice: prov.Created,
 	})
 	setCookie(w, sessionCookieName, sid, int(a.cfg.sessionTTL.Seconds()))
 	log.Printf("bff: session created for sub=%s", idt.Subject)
@@ -501,9 +544,15 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s, ok := a.auth.sessionFrom(r); ok {
+		// workspace_id is this person's OWN derived id — safe to show, and useful when two
+		// people compare screens. The token is never included: it stays server-side.
 		writeJSON(w, http.StatusOK, map[string]any{
 			"mode": authModeOIDC, "authenticated": true,
-			"user": map[string]string{"sub": s.sub, "email": s.email}})
+			"user":                 map[string]string{"sub": s.sub, "email": s.email},
+			"workspace_id":         s.workspaceID,
+			"cache_poolable":       s.cachePoolable,
+			"needs_pooling_choice": s.needsPoolingChoice,
+		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

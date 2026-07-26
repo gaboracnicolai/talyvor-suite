@@ -122,14 +122,14 @@ func allowedList() string {
 // deployment running without LENS_BILLING_ENABLED would render a full row of buy
 // buttons that cannot work — and the customer would only find out by clicking.
 // The click-time 503 stays as the backstop; this makes it rare instead of certain.
-func (a *app) handleTopUpOptions(w http.ResponseWriter, r *http.Request) {
+func (a *app) handleTopUpOptions(w http.ResponseWriter, r *http.Request, t tenant) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"allowed_usd_cents": allowedTopUpCents,
-		"billing_enabled":   a.probeBillingEnabled(r),
+		"billing_enabled":   a.probeBillingEnabled(r, t),
 	})
 }
 
@@ -156,13 +156,13 @@ func (a *app) handleTopUpOptions(w http.ResponseWriter, r *http.Request) {
 // The optimism is the point. A false "off" would hide a working paid feature from
 // a customer trying to give us money; a false "on" costs one click and lands on
 // the 503 explanation that already exists. Only a definitive 404 turns it off.
-func (a *app) probeBillingEnabled(r *http.Request) bool {
+func (a *app) probeBillingEnabled(r *http.Request, t tenant) bool {
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		a.cfg.lensBaseURL+"/v1/workspaces/"+a.cfg.workspaceID+"/billing/checkout", nil)
+		a.cfg.lensBaseURL+lensWorkspacePath(t, "/billing/checkout"), nil)
 	if err != nil {
 		return true
 	}
-	req.Header.Set("Authorization", "Bearer "+a.cfg.workspaceKey) // server-side only, as everywhere
+	req.Header.Set("Authorization", "Bearer "+t.token) // the SESSION's workspace token, server-side only
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
@@ -181,7 +181,7 @@ func (a *app) probeBillingEnabled(r *http.Request) bool {
 // for the CONFIGURED workspace and returns the session URL for the browser to be
 // sent to. Nothing is charged here and no credit is written here: payment
 // happens at Stripe, and the LXC credit lands later via Lens's webhook.
-func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request) {
+func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, http.MethodPost)
 		return
@@ -222,12 +222,12 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
-		a.cfg.lensBaseURL+"/v1/workspaces/"+a.cfg.workspaceID+"/billing/checkout", bytes.NewReader(body))
+		a.cfg.lensBaseURL+lensWorkspacePath(t, "/billing/checkout"), bytes.NewReader(body))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "lens upstream request"})
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+a.cfg.workspaceKey) // server-side only, as everywhere
+	req.Header.Set("Authorization", "Bearer "+t.token) // the SESSION's workspace token, server-side only
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 

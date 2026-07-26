@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { api } from '../lib/api'
+import { PoolingConsent } from './PoolingConsent'
 
 // The auth gate: one probe (/auth/me) decides whether the app or the sign-in
 // card renders. ONLY an oidc-mode BFF reporting "no session" gates — disabled
@@ -9,12 +10,20 @@ import { api } from '../lib/api'
 // failure states (a dead BFF is a fault, not a sign-in prompt).
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const q = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
+  const qc = useQueryClient()
   if (q.isLoading) {
     // One quiet beat while the probe answers; no spinner theatre for ~20ms.
     return null
   }
   if (q.data && q.data.mode === 'oidc' && !q.data.authenticated) {
     return <SignedOut />
+  }
+  // A workspace that this login just CREATED has been provisioned with sharing OFF, and its owner
+  // has not been asked yet. Ask before the app renders: cross-tenant pooling sends the content of
+  // this workspace's answers to other companies, and that is not a thing to discover later in a
+  // settings page. Consent is never granted by inaction.
+  if (q.data?.authenticated && q.data.needs_pooling_choice) {
+    return <PoolingConsent onDone={() => void qc.invalidateQueries({ queryKey: ['auth-me'] })} />
   }
   return <>{children}</>
 }

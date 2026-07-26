@@ -111,22 +111,22 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 			// Identity forwarding requires an authenticated identity to forward.
 			name: "track triple in disabled mode refuses",
 			env: map[string]string{
-				"LENS_WORKSPACE_KEY": testKey, "LENS_WORKSPACE_ID": "trial-ws-1",
-				"BFF_AUTH_MODE":        "disabled",
-				"TRACK_BASE_URL":       "http://127.0.0.1:8081",
-				"TRACK_GATEWAY_SECRET": testTrackSecret,
-				"TRACK_WORKSPACE_ID":   "track-ws-7",
+				"LENS_PROVISION_SECRET": testProvisionSecret,
+				"BFF_AUTH_MODE":         "disabled",
+				"TRACK_BASE_URL":        "http://127.0.0.1:8081",
+				"TRACK_GATEWAY_SECRET":  testTrackSecret,
+				"TRACK_WORKSPACE_ID":    "track-ws-7",
 			},
 			wantErr: "oidc",
 		},
 		{
 			name: "docs triple in disabled mode refuses",
 			env: map[string]string{
-				"LENS_WORKSPACE_KEY": testKey, "LENS_WORKSPACE_ID": "trial-ws-1",
-				"BFF_AUTH_MODE":       "disabled",
-				"DOCS_BASE_URL":       "http://127.0.0.1:8082",
-				"DOCS_GATEWAY_SECRET": testDocsSecret,
-				"DOCS_WORKSPACE_ID":   "docs-ws-9",
+				"LENS_PROVISION_SECRET": testProvisionSecret,
+				"BFF_AUTH_MODE":         "disabled",
+				"DOCS_BASE_URL":         "http://127.0.0.1:8082",
+				"DOCS_GATEWAY_SECRET":   testDocsSecret,
+				"DOCS_WORKSPACE_ID":     "docs-ws-9",
 			},
 			wantErr: "oidc",
 		},
@@ -185,6 +185,10 @@ func newStatusUpstream(t *testing.T, status int, body string) *captureUpstream {
 	t.Helper()
 	c := &captureUpstream{}
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		c.path = r.URL.Path
 		c.rawQuery = r.URL.RawQuery
 		c.headers = r.Header.Clone()
@@ -201,7 +205,7 @@ func newStatusUpstream(t *testing.T, status int, body string) *captureUpstream {
 func productApp(t *testing.T, track, docs *captureUpstream) (*app, *http.Cookie) {
 	t.Helper()
 	cfg := config{
-		lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com", sessionTTL: time.Hour,
 	}
 	if track != nil {
@@ -217,7 +221,7 @@ func productApp(t *testing.T, track, docs *captureUpstream) (*app, *http.Cookie)
 		cfg.docsWorkspaceID = "docs-ws-9"
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
-	auth.sessions.put("prod-sid", session{sub: "user-123", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+	seedProvisionedSession(auth, "prod-sid", "user-123", "ng@example.com", "u-test-workspace")
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 	return a, &http.Cookie{Name: sessionCookieName, Value: "prod-sid"}

@@ -32,8 +32,8 @@ func TestUsageForwardsToLensUsage(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"path":"/v1/api/usage"`) {
 		t.Errorf("upstream path = %s, want /v1/api/usage", rec.Body.String())
 	}
-	if gotAuth != "Bearer "+testKey {
-		t.Errorf("upstream Authorization = %q, want the workspace key", gotAuth)
+	if !strings.HasPrefix(gotAuth, "Bearer ") || gotAuth == "Bearer " {
+		t.Errorf("upstream Authorization = %q, want the session's workspace-scoped bearer token", gotAuth)
 	}
 }
 
@@ -42,9 +42,9 @@ func TestUsageForwardsToLensUsage(t *testing.T) {
 // caption ("last 30 days") would describe a different number than the one shown.
 func TestUsageDaysSanitised(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{
-		{"", "days=30"},          // default matches the Overview caption
-		{"?days=7", "days=7"},    // the Spend screen's 7d window
-		{"?days=0", "days=1"},    // a zero window is not a window
+		{"", "days=30"},       // default matches the Overview caption
+		{"?days=7", "days=7"}, // the Spend screen's 7d window
+		{"?days=0", "days=1"}, // a zero window is not a window
 		{"?days=9999", "days=365"},
 		{"?days=abc", "days=30"}, // unparseable → the default, never a raw passthrough
 		{"?days=-5", "days=1"},
