@@ -157,9 +157,18 @@ existing fail-closed behaviour.
 
 **Verify before deploying:**
 ```sh
-grep -c 'LENS_PROVISION_SECRET' docker-compose.yaml
-# expect: 1 or more.  0 = the secret cannot reach the container; STOP.
+grep -cE '^\s*- LENS_PROVISION_SECRET=' docker-compose.yaml
+# expect: 1.  0 = the secret cannot reach the container; STOP.
 ```
+
+Count the **forwarding entry**, not any mention: a `grep -c LENS_PROVISION_SECRET`
+also matches the comment explaining it, so it reports 1 when the line is gone.
+(That exact mistake made the first version of the repo-side guard useless.)
+
+⚠ **The same trap applies to ten more variables**, including
+`LENS_CACHE_POOLABLE_ENABLED` — the global gate on pooling. Both are fixed in
+talyvor-lens and held by `cmd/lens/compose_env_reach_test.go`; if you deploy a
+Lens older than that fix, check each one with the pattern above.
 
 ### 2b. Deploy
 
@@ -401,3 +410,72 @@ the ones your deploy was verified against, all stay). But a user who signs in,
 sees an empty ledger, and asks where their data went is asking a fair question,
 and the answer is "it was never yours individually" — worth saying to trial users
 before they discover it.
+
+---
+
+## STEP 6c — the three pooling gates, in one query
+
+⚠ **Cross-tenant pooling has THREE gates and all three must be satisfied before a
+single royalty can mint.** Setting one is the natural thing to do and is not
+enough; nothing anywhere reports which of the three is shut. Run the royalty test
+with one still closed and you see no mint, with no way to tell *not implemented*
+from *not switched on*. Check all three at once, before you conclude anything.
+
+| # | Gate | Where it lives | Shut by default? |
+|---|---|---|---|
+| 1 | `LENS_CACHE_POOLABLE_ENABLED` | Lens process env — **must be forwarded by compose**, see STEP 2a | **yes** |
+| 2 | `workspaces.cache_poolable` | per workspace, in the Lens database | no — new workspaces are created ON |
+| 3 | `earn_verified` **on both sides** | derived: an admin vouch **or** a completed `lxc_purchases` row | **yes** for a comped trial |
+
+Gate 3 is the one that surprises: it is not a flag you set, it is
+`earn_verified = true` **OR** a completed real-money purchase
+(`internal/earnverify/verify.go`). A comped trial user satisfies neither, so a
+trial with no payments mints nothing **even with gates 1 and 2 open** — by
+design, it is the Sybil floor.
+
+```sh
+# On the Lens box. Prints all three gates for the pair you are testing.
+# Replace the two ids with the contributor and requester workspaces.
+CONTRIB=u...   # whose cached answer is reused
+REQUESTER=u... # who reuses it
+
+echo "GATE 1 (global flag, as the PROCESS sees it — not as .env claims):"
+docker compose exec -T lens printenv LENS_CACHE_POOLABLE_ENABLED || echo "  <empty>  ⇒ SHUT"
+
+echo "GATE 2+3 (per workspace):"
+docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc "
+SELECT w.id,
+       w.cache_poolable                                   AS gate2_poolable,
+       (w.earn_verified
+        OR EXISTS (SELECT 1 FROM lxc_purchases p
+                   WHERE p.workspace_id = w.id
+                     AND p.status = 'completed' AND p.lxc_amount > 0)) AS gate3_may_earn
+FROM workspaces w WHERE w.id IN ('$CONTRIB','$REQUESTER');"
+```
+
+**Expect, for a royalty to be able to fire:**
+
+```
+GATE 1: true
+GATE 2+3:
+  u<contributor>|t|t
+  u<requester>  |t|t
+```
+
+Read it as: **any `f`, or an empty gate 1, and no royalty will mint** — and that
+is a configuration state, not a bug. Specifically:
+
+- **gate 1 empty** → the flag never reached the process. Check STEP 2a: it must be
+  in the lens service's `environment:`, not only in `.env`. `printenv` above is the
+  authority; the file is not.
+- **gate 2 `f`** → that workspace declined at signup, or was set off by hand. It is
+  consent; do not flip it in SQL on a customer's behalf.
+- **gate 3 `f`** → no payment and no vouch. On a comped trial this is expected and
+  correct. To exercise the royalty path deliberately, use the admin vouch
+  (`earn_verified`) rather than faking a purchase row — a fabricated
+  `lxc_purchases` row is money that was never collected.
+
+> **Do not conclude "royalties are broken" until this query shows `true / t / t`
+> on both sides.** Setting `default`'s `cache_poolable` by hand satisfies gate 2
+> for one workspace and nothing else — it is one of three, and the other two are
+> shut by default.
