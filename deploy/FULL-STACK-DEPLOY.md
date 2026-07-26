@@ -542,6 +542,14 @@ docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
 
 **Success:** every tester you seeded is still listed, each with `source = seed`.
 
+> ⚠ **Make sure this check can fail.** If member sync is not configured
+> (`syncer.go:74-86` — no Track client, no store, or `MemberSyncConfigured()` false) the syncer
+> no-ops and nothing prunes, so the rows survive **for the wrong reason** and a `source = 'track'`
+> mistake would pass this test. Confirm the sync actually ran before trusting the result: the
+> `member sync — pull failed, skipping workspace` WARN in the *Expected noise* section is the
+> evidence that it did. No sync line in the logs after a restart means this verification proved
+> nothing.
+
 #### ⚠⚠ THE FAILURE MODE — omitting `source` looks fine and reverts ~15 minutes later
 
 `source` **defaults to `'track'`**, so a seed written without that column is
@@ -997,6 +1005,15 @@ deployment. They are listed because a warning that repeats forever and means
 nothing is how people learn to stop reading logs, and the next warning will be a
 real one.
 
+⚠ **THE SET IS CLOSED. A line that is not listed here is a finding**, not noise, until
+someone adds a row for it with a reason. An open-ended "probably harmless" list trains
+people to dismiss exactly the line that mattered — which is the failure this section is
+trying to prevent, arrived at from the other direction.
+
+⚠ **And one entry below is NOT harmless.** The Lens `environment hygiene` ERROR is a
+secret-leak regression that happens to look like expected noise. It is listed here so it
+is not mistaken for one of these, not because it can be ignored.
+
 ### `docs` — member sync warns every 15 minutes, forever
 
 ```json
@@ -1031,6 +1048,39 @@ from the Docs container, which *is* a deploy problem and also breaks
 Normal. Worth one look though: **`pruned` should be `0` for your seeded
 workspace.** A non-zero prune there means rows were written with `source =
 'track'` and are being deleted — see step 3a's failure mode.
+
+### ⚠ `lens` — `environment hygiene` ERROR. THIS ONE IS NOT NOISE.
+
+```json
+{"level":"ERROR","msg":"environment hygiene: this container holds CREDENTIAL-SHAPED variables
+ that are not Lens's...","variables":"DOCS_GATEWAY_AUTH_SECRET,TRACK_GATEWAY_AUTH_SECRET"}
+```
+
+⚠ **If you see this, stop and fix it.** It means the lens service is forwarding the project
+`.env` instead of `lens.env`, so Track's and Docs's gateway secrets are loaded into the Lens
+process — the regression lens#377 removed. Check `env_file:` in `talyvor-lens/docker-compose.yaml`:
+it must read `- path: lens.env`.
+
+It is in this section *because* it wears the shape of expected noise — a recurring boot-time
+ERROR naming variables an operator recognises as legitimately theirs. It is the one line here
+you must act on.
+
+### `lens` — `modelwatch: NO ALERT SINK CONFIGURED` ERROR at boot
+
+**Expected today.** `LENS_OPERATOR_ALERT_WEBHOOK_URL` is unset, and that is currently correct:
+nothing on the box accepts the `catalog_drift` payload it would send. Track's `/v1/lens/webhook`
+returns `200` for unknown types, which the client would read as delivered — so pointing it at
+Track is worse than leaving it unset.
+
+It is deliberately an ERROR rather than a WARN so the gap stays visible instead of decaying into
+background. Once per instance per deploy; in an HA set, once per instance.
+
+### `lens` — WARN naming `lens poolcheck`
+
+**Only appears if `LENS_EMBEDDING_MODEL` was changed** while cross-tenant pooling is on. Not a
+failure, but not nothing: the pooling safety margin is a property of the configured embedder, so
+run `lens poolcheck` against this configuration before trusting it. Absent this line, the shipped
+default is in use and the measured margin applies.
 
 ---
 
