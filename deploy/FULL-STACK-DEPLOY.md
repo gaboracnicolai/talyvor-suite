@@ -584,8 +584,15 @@ to hold in mind while you do:
 
 - **Track migrates by subcommand** (`cmd/track/main.go:132`): the
   `track-migrate` one-shot service in the compose fragment is what applies its
-  schema. Its verify step (README: "expect a number > 0") is not optional — a
-  Track that boots against an empty schema 500s on every call.
+  schema. **Run README's verify step for it** — it is not optional; a Track that
+  boots against an empty schema 500s on every call.
+  ⚠ This used to say the check was *"expect a number > 0"*. It is not, and `> 0`
+  would be the wrong check: README derives the expected count from
+  `ls talyvor-track/migrations/*.sql` and compares for equality, because — in its
+  own words — *"a number > 0 is NOT sufficient; a partial run leaves tables
+  behind"* (`deploy/README.md:170-179`). That misquote pointed at a check this
+  document elsewhere calls inadequate. Follow README, do not follow the old
+  paraphrase.
 - **Docs migrates itself on boot** (`cmd/docs/main.go:162`), fail-closed and
   advisory-locked, so a re-run is a no-op and there is no separate step. A
   migration failure is a boot failure; you will see it in `docker compose logs
@@ -798,8 +805,9 @@ Both halves matter, and they were verified from source rather than reasoned abou
 
 - **Against Lens directly — unchanged.** Nothing in the signup work touched
   Lens's key validation: `ValidateAPIKey` still resolves a `tlv_` key to its own
-  workspace row (`internal/auth/manager.go:283-289`), no migration in 0104–0107
-  touches `api_keys`, and `default` is still registered unconditionally at every
+  workspace row (`internal/auth/manager.go:283-289`), no migration since 0104
+  touches `api_keys` (checked to 0110; re-check with
+  `grep -l api_keys migrations/*.sql` if you need it current), and `default` is still registered unconditionally at every
   Lens boot (`cmd/lens/main.go:349`). Your key authenticates, resolves to
   `default`, and its balance and ledger are exactly where you left them.
 - **Through the BFF — it is not used at all any more.** The BFF no longer holds
@@ -1250,7 +1258,10 @@ cannot be fooled by a file that was copied over after the process started.
 
 README's Track/Docs section is now the **single authority** for their mechanics, and
 its migration checks are count-derived rather than "> 0". STEP 3 here no longer
-restates any check — it points, so there is one place to change.
+restates any check — it points, so there is one place to change. (One exception,
+deliberate: STEP 3 characterises README's Track check well enough to warn that an
+earlier paraphrase of it — "expect a number > 0" — was wrong and weaker. That is a
+correction to a misquote, not a second copy of the check.)
 
 **What is not fixed:** two files can still disagree in *prose*. Nothing enforces that
 STEP 3's summary stays true to README. **What to watch:** if the two ever conflict,
@@ -1343,7 +1354,7 @@ workspace.** A non-zero prune there means rows were written with `source =
 | Step | Reversible? | How |
 |---|---|---|
 | STEP 0 image preflight | n/a | Nothing changed. |
-| STEP 2 Lens image | **Yes** | `docker compose` pinned to the previous `:<sha>`, `up -d`. Verified safe: migrations 0104–0107 are all `ADD COLUMN` / `CREATE INDEX`, zero destructive statements, so the old binary runs against the new schema. |
+| STEP 2 Lens image | **Yes, if nothing schema-breaking landed since your target** | `docker compose` pinned to the previous `:<sha>`, `up -d`. Safe when the migrations added **between that image and now** are additive, so the old binary still finds the columns and tables it queries. ⚠ **Derive that from your rollback target — do not trust a written range**; the one that used to be here (`0104–0107`) was three migrations stale within hours. See "Checking the rollback invariant" below. |
 | STEP 2 Lens **migrations** | **NO** | Forward-only; there are no down-migrations. This is fine *because* they are additive — but you cannot un-apply them. |
 | STEP 3 Track image | **Yes** | Previous `:<sha>`. Verified: **0 destructive statements** across all Track migrations — I checked rather than assuming Lens's property transfers. |
 | STEP 3 Docs image | **Yes** | Previous `:<sha>`. Verified: **0 destructive statements**. Note Docs migrates on boot, so an older image simply finds its schema already ahead — additive, so it runs. |
@@ -1351,6 +1362,53 @@ workspace.** A non-zero prune there means rows were written with `source =
 | **STEP 4 BFF environment** | **⚠ ONE-WAY IN PRACTICE** | See below. |
 | STEP 5 BFF binary | Yes, **only with step 4's file** | Restore `/opt/talyvor/bin/bff` *and* `/etc/talyvor/bff.env.pre-signup` together, then restart. |
 | STEP 7 Caddy | Yes | README's placeholder rollback, unchanged. |
+
+### ⚠ Checking the rollback invariant — derived from YOUR target, not from a written range
+
+The row above used to read *"migrations 0104–0107 are all additive"*. Lens was at **110** within
+hours, so the audited range was three short — **in the row you consult while deciding whether to roll
+back under pressure.** A number in a safety claim expires silently.
+
+⚠ **And the obvious replacement is false.** "Every Lens migration is additive" is not true: `0034`
+renames a table for partitioning and `0082`/`0083` change column types. Those do not matter for a
+one-release rollback — they are far behind any image you would pin — which is exactly why the
+question is **"what landed since my target"**, not "is the whole history additive".
+
+```sh
+# On the Lens box, in the talyvor-lens checkout. TARGET = the image tag you would roll back to.
+TARGET=<the previous :sha>
+since=$(git diff --name-only "$TARGET"..HEAD -- migrations/ | grep '\.sql$')
+
+if [ -z "$since" ]; then
+  echo "NO migrations landed since $TARGET — image rollback is schema-safe."
+else
+  echo "$(printf '%s\n' "$since" | wc -l | tr -d ' ') migration(s) landed since $TARGET:"
+  printf '   %s\n' $since
+  echo "--- statements that could break an older binary (empty = none) ---"
+  grep -nHiE '(DROP[[:space:]]+TABLE|DROP[[:space:]]+COLUMN|ALTER[[:space:]]+COLUMN[^,;]*TYPE|RENAME[[:space:]]+TO|RENAME[[:space:]]+COLUMN)' $since || true
+  echo "--- end. Any line above: READ IT before rolling back. ---"
+fi
+```
+
+**Read the output; it is not a verdict.** The grep can match the same words inside a comment, so a hit
+means *"a human looks at this file"*, not *"rollback is unsafe"*. `DROP INDEX`, `DROP VIEW … CREATE OR
+REPLACE` and `DROP TRIGGER … CREATE` are deliberately **not** matched — an older binary is unaffected
+by a missing index or a recreated view, and flagging them produced a **false "unsafe" on 16 of 110
+files**, which would have blocked a legitimate rollback at the worst moment.
+
+**What it prints in each failure state, and whether that is distinguishable from a pass:**
+
+| state | prints | mistakable for a pass? |
+|---|---|---|
+| nothing landed since target | `NO migrations landed since <target>` | — (the pass, and it names the target) |
+| migrations landed, none breaking | the file list, then an empty statement section | No — the file list is always printed, so silence never stands alone |
+| a breaking statement | `file:line:` with the statement | No |
+| `$TARGET` unset or wrong | `git diff` errors to stderr; `since` is empty ⇒ **prints the pass line naming an empty target** | ⚠ **YES — this is the one to watch.** Confirm the target in the message is the SHA you meant. |
+
+⚠ That last row is the residual, and it is stated rather than hidden: a mistyped `TARGET` yields a
+pass. The mitigation is that the pass line **echoes the target back**, so the check is only as good as
+reading its own output — which is the honest limit of a one-line shell check against a variable the
+operator supplies.
 
 ### ⚠ Why the BFF env change is one-way
 
