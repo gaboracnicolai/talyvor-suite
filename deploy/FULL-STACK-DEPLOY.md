@@ -73,6 +73,31 @@ stand in for one.
 This is the single generalisation behind most of the traps in this document. It is
 stated here once instead of five times.
 
+### ⚠ THE TEST FOR ANY CHECK YOU ADD TO THIS DOCUMENT
+
+> **What does this check print in the FAILURE state, and is that distinguishable from
+> success?**
+
+Apply it before adding a step. Five checks in this file have failed it — enough that the
+next one will too unless the rule sits where people are working. Every one had the same
+shape: **the failure branch was unreachable for the state the check was written to
+detect.**
+
+| The check | What it printed when the thing was broken |
+|---|---|
+| `printenv VAR \|\| echo SHUT` | `printenv` exits **0** and prints a blank line for a variable that is set-but-**empty** — which is exactly what the `lens.env` trap produces. The `\|\|` branch never ran. |
+| `sha256sum` on both sides of a secret compare | Two **missing** values both digest to `e3b0c44298fc1c14`, so the comparison printed **MATCH** with nothing configured anywhere. |
+| `docker compose logs --since 2m \| grep POOLING` | That line is emitted only when the decision **changes**, so the window is empty in steady state — and empty read as fine. |
+| Seed rows confirmed right after the `INSERT` | They always exist right after an INSERT; the prune that deletes them runs later, and if sync is unconfigured it never runs at all. |
+| `count(*) … # expect a number that INCREASED` | No baseline was ever captured, so the check could not be evaluated — and a check that cannot be evaluated cannot fail. |
+
+Three habits that come out of it, and they are cheap:
+
+1. **Compare values, not exit codes** — and print the value you got.
+2. **Make "absent" its own word.** Never let a digest, a count or a blank line stand in
+   for it; `ABSENT` is not `e3b0c442…`.
+3. **Capture the baseline before the action**, whenever the expectation is "it changed".
+
 > ⚠ **Before you read any log in this document, read the EXPECTED NOISE section near the end.**
 > It is placed there for reference, but several steps below tell you to open the logs —
 > STEP 3a's reconcile, STEP 6b's pooling line — and two of the lines you will find there
@@ -318,16 +343,42 @@ them. Never prints a secret.
 
 ```sh
 # Run after you have written all three into their destinations.
-dig() { printf '%s' "$1" | sha256sum | cut -c1-16; }
-echo "provision  local=$(dig "$PROVISION_SECRET")"
-ssh <lens-box>  "grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /path/to/lens/.env" | sha256sum | cut -c1-16
-echo "track      local=$(dig "$TRACK_SECRET")"
-ssh <app-box>   "grep -oP '(?<=^TRACK_GATEWAY_SECRET=).*' /etc/talyvor/bff.env" | sha256sum | cut -c1-16
-echo "docs       local=$(dig "$DOCS_SECRET")"
-ssh <app-box>   "grep -oP '(?<=^DOCS_GATEWAY_SECRET=).*' /etc/talyvor/bff.env" | sha256sum | cut -c1-16
-# expect: each pair of 16-char digests IDENTICAL. Any mismatch = fix it here,
-# before a single service starts.
+# ⚠ `dig16` prints ABSENT rather than a digest of nothing. sha256sum('') is a
+#   valid-LOOKING 16 chars (e3b0c44298fc1c14), so a naive compare of two MISSING
+#   values prints MATCH with nothing configured on either side. Tested; that is
+#   how this check used to pass on an empty deploy.
+dig16() { v=$(cat); [ -n "$v" ] || { printf 'ABSENT\n'; return; }; printf '%s' "$v" | sha256sum | cut -c1-16; }
+cmp3() { # $1=label $2=local-digest $3=remote-digest
+  case "$2$3" in
+    *ABSENT*) echo "$1: NOT SET on at least one side ($2 vs $3) — this is NOT a match" ;;
+    *) [ "$2" = "$3" ] && echo "$1: MATCH" || echo "$1: MISMATCH ($2 vs $3) — fix it here" ;;
+  esac
+}
+
+cmp3 provision "$(printf '%s' "$PROVISION_SECRET" | dig16)" \
+  "$(ssh <lens-box> "grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /path/to/lens/.env" | dig16)"
+cmp3 track "$(printf '%s' "$TRACK_SECRET" | dig16)" \
+  "$(ssh <app-box> "grep -oP '(?<=^TRACK_GATEWAY_SECRET=).*' /etc/talyvor/bff.env" | dig16)"
+cmp3 docs "$(printf '%s' "$DOCS_SECRET" | dig16)" \
+  "$(ssh <app-box> "grep -oP '(?<=^DOCS_GATEWAY_SECRET=).*' /etc/talyvor/bff.env" | dig16)"
+# expect: three lines, all MATCH. ABSENT on either side is a FAILURE, not a mismatch —
+# it means nothing is configured there yet. Fix before a single service starts.
 ```
+
+#### ⚠ WHERE `LENS_PROVISION_SECRET` LIVES — settled, because two steps used to disagree
+
+**One value, two files, and neither of them is `lens.env`.** They are different files
+because they are read by **different processes**, not by accident:
+
+| Side | File | Why that file |
+|---|---|---|
+| **Lens** | `<talyvor-lens checkout>/.env` | `LENS_PROVISION_SECRET` is on the **CURATED** list — it is named in `docker-compose.yaml`'s `environment:`, so compose resolves it from `.env`. In `lens.env` it arrives **EMPTY** (STEP 2a-bis). |
+| **BFF** | `/etc/talyvor/bff.env` | The BFF is a host systemd unit, not a container. It never reads the Lens checkout at all. |
+
+⚠ **Do not "fix" the fact that the two checks read different paths — that is correct.**
+What was wrong is that STEP 1 used to read the Lens side from `lens.env`; it now reads
+`.env`, the same file STEP 4 compares against. Both steps verify the same file for the
+Lens side, and `/etc/talyvor/bff.env` for the BFF side.
 
 **Also verify:** each is ≥32 chars and is not the published placeholder
 `dev-only-insecure-gateway-secret-change-me` — Track and Docs both reject that
@@ -538,8 +589,13 @@ That is the correct state, not a fault. STEP 6b clears it **without a restart**.
 
 **Verify the secret actually reached the process** — not just the file:
 ```sh
-docker compose exec -T lens printenv LENS_PROVISION_SECRET | sha256sum | cut -c1-16
-# expect: the same 16 chars as the BFF side in step 4. Empty output = not plumbed.
+# ⚠ Do NOT pipe printenv straight into sha256sum. It never yields empty output: an
+#   ABSENT variable digests to e3b0c44298fc1c14 and an EMPTY one to 01ba4719c80b6fe9 —
+#   both look like a perfectly good secret digest. Tested in a real container.
+v=$(docker compose exec -T lens printenv LENS_PROVISION_SECRET 2>/dev/null | tr -d '\r\n')
+[ -n "$v" ] && printf '%s' "$v" | sha256sum | cut -c1-16 \
+             || echo "ABSENT or EMPTY in the process — not plumbed; see STEP 2a-bis"
+# expect: the same 16 chars as the BFF side in step 4.
 ```
 
 **Verify — migrations match the checkout.** Derived, never hardcoded: a number
@@ -763,10 +819,17 @@ Edit `/etc/talyvor/bff.env`:
 
 **Verify — the two sides match** (compares digests, never prints a secret):
 ```sh
-a=$(sudo grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /etc/talyvor/bff.env | sha256sum | cut -c1-16)
-b=$(ssh <lens-box> "grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /path/to/lens/.env" | sha256sum | cut -c1-16)
-[ "$a" = "$b" ] && echo "PROVISION: MATCH" || echo "PROVISION: MISMATCH — logins will fail"
-# expect: PROVISION: MATCH
+# Same ABSENT-aware helper as STEP 1 — two MISSING values both hash to e3b0c44298fc1c14
+# and would otherwise compare EQUAL, printing MATCH on a deploy with no secret at all.
+dig16() { v=$(cat); [ -n "$v" ] || { printf 'ABSENT\n'; return; }; printf '%s' "$v" | sha256sum | cut -c1-16; }
+a=$(sudo grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /etc/talyvor/bff.env | dig16)   # BFF side
+b=$(ssh <lens-box> "grep -oP '(?<=^LENS_PROVISION_SECRET=).*' /path/to/lens/.env" | dig16)  # Lens side
+echo "bff=$a  lens=$b"
+case "$a$b" in
+  *ABSENT*) echo "PROVISION: NOT SET on at least one side — NOT a match; logins will fail" ;;
+  *) [ "$a" = "$b" ] && echo "PROVISION: MATCH" || echo "PROVISION: MISMATCH — logins will fail" ;;
+esac
+# expect: PROVISION: MATCH.  The two paths differ ON PURPOSE — see STEP 1's settlement box.
 ```
 
 **Verify — `LENS_API_KEY` is absent:**
@@ -1171,7 +1234,9 @@ Only once one of the two checks above passes:
 # add LENS_SHADOW_MINTS_ENABLED=true to .env — it is CURATED (STEP 2a-bis), so lens.env
 # would deliver it EMPTY. Then:
 docker compose up -d lens
-docker compose exec -T lens printenv LENS_SHADOW_MINTS_ENABLED   # expect: true
+# Compare the VALUE: printenv prints a blank line and exits 0 for a set-but-empty var.
+[ "$(docker compose exec -T lens printenv LENS_SHADOW_MINTS_ENABLED 2>/dev/null | tr -d '\r\n')" = true ] \
+  && echo "shadow mints: ON" || echo "shadow mints: NOT true — check .env (curated), not lens.env"
 ```
 
 ---
@@ -1204,19 +1269,29 @@ curl -s -o /dev/null -w '%{http_code}\n' https://<lens-host>/v1/billing/webhook 
 
 **3. Prove the webhook records, using Stripe's own replay — still with billing off:**
 ```sh
+# ⚠ CAPTURE THE BASELINE FIRST. "a number that INCREASED" cannot be evaluated without
+#   one, and a check that cannot be evaluated cannot fail.
+count() { docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
+  "SELECT count(*) FROM lxc_purchases WHERE status='completed'" | tr -d ' \r'; }
+before=$(count); echo "before=$before"
+
 stripe trigger checkout.session.completed --forward-to https://<lens-host>/v1/billing/webhook
 # expect: 200 from the endpoint, and:
-docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc \
-  "SELECT count(*) FROM lxc_purchases WHERE status='completed'"
-# expect: a number that INCREASED by 1. Unchanged ⇒ the signature or the handler is
-# wrong — stop here, with no real card involved.
+
+after=$(count); echo "after=$after"
+[ -n "$before" ] && [ -n "$after" ] && [ "$after" -eq $((before + 1)) ] \
+  && echo "WEBHOOK RECORDS: OK" \
+  || echo "WEBHOOK DID NOT RECORD (before=$before after=$after) — signature or handler is wrong"
+# expect: WEBHOOK RECORDS: OK. Anything else ⇒ stop here, with no real card involved.
+# An empty before/after means psql itself failed — also not a pass.
 ```
 
 **4. Only now enable:**
 ```sh
 # LENS_BILLING_ENABLED=true in .env  (curated — NOT lens.env)
 docker compose up -d lens
-docker compose exec -T lens printenv LENS_BILLING_ENABLED   # expect: true
+[ "$(docker compose exec -T lens printenv LENS_BILLING_ENABLED 2>/dev/null | tr -d '\r\n')" = true ] \
+  && echo "billing: ON" || echo "billing: NOT true — check .env (curated), not lens.env"
 ```
 
 ---
@@ -1229,7 +1304,7 @@ fixed; the fifth cannot be fixed on a single box, and says so.
 | Step | Was | Now |
 |---|---|---|
 | `docker compose ps` everywhere | A green status read as a deploy verdict | **Fixed by statement, once**, at the top: *status is not capability*. Every capability has its own exercising check. |
-| Secret matching | Mismatch surfaced as a 401/404 three steps later | **Fixed**: STEP 1 compares all three digests at the moment you set them, before any service starts. |
+| Secret matching | Mismatch surfaced as a 401/404 three steps later | **Fixed twice.** STEP 1 compares all three digests at the moment you set them — and the first version of that fix printed MATCH when BOTH sides were missing, because two absent values hash alike. It reports `ABSENT` distinctly now. |
 | Lens canary alone | Passed while provisioning was broken | **Fixed**: 6a and 6b are one combined gate printing a single `DEPLOY OK`; `settled` with zero derived workspaces now reads as NOT OK. |
 | Caddy front door | Proved the door serves, not *which* binary is behind it | **Fixed** below. |
 | Track/Docs delegation | Two documents that can drift | **Partly fixed** below — and the residue is stated. |
