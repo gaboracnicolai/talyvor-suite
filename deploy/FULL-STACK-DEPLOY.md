@@ -310,7 +310,7 @@ build, but only because it also touched test files under `cmd/**`. Do not rely o
 
 ---
 
-## STEP 1 — generate the three shared secrets, once
+## STEP 1 — generate the four shared secrets, once
 
 ⚠ **Run this on the WORKSTATION** (its verify step sshes to both boxes, so it cannot be
 run on either). That matters more than it looks: **STEP 2a-bis writes `.env` on the LENS
@@ -319,15 +319,16 @@ Paste the value, or re-export it in the shell you use on the Lens box — an uns
 writes `LENS_PROVISION_SECRET=` (empty), which fails closed at STEP 2b's 404 check, three
 steps later. The guard in 2a-bis refuses to write an empty value for this reason.
 
-Three couplings, each one value under two names. Generate them together so they
+Four couplings, each one value under two names. Generate them together so they
 cannot drift, and hold them somewhere you can paste from twice.
 
 ```sh
 export PROVISION_SECRET=$(openssl rand -base64 48 | tr -d '\n')
 export TRACK_SECRET=$(openssl rand -base64 48 | tr -d '\n')
 export DOCS_SECRET=$(openssl rand -base64 48 | tr -d '\n')
-printf 'provision=%s\ntrack=%s\ndocs=%s\n' \
-  "${PROVISION_SECRET:0:8}…" "${TRACK_SECRET:0:8}…" "${DOCS_SECRET:0:8}…"
+export MEMBER_SYNC_SECRET=$(openssl rand -base64 48 | tr -d '\n')
+printf 'provision=%s\ntrack=%s\ndocs=%s\nmember-sync=%s\n' \
+  "${PROVISION_SECRET:0:8}…" "${TRACK_SECRET:0:8}…" "${DOCS_SECRET:0:8}…" "${MEMBER_SYNC_SECRET:0:8}…"
 ```
 
 | Secret | Goes into | And into |
@@ -335,6 +336,19 @@ printf 'provision=%s\ntrack=%s\ndocs=%s\n' \
 | `PROVISION_SECRET` | Lens stack: `LENS_PROVISION_SECRET` | BFF env: `LENS_PROVISION_SECRET` (**same name**) |
 | `TRACK_SECRET` | Track container: `GATEWAY_AUTH_SECRET` | BFF env: `TRACK_GATEWAY_SECRET` (**different name**) |
 | `DOCS_SECRET` | Docs container: `GATEWAY_AUTH_SECRET` | BFF env: `DOCS_GATEWAY_SECRET` (**different name**) |
+| `MEMBER_SYNC_SECRET` | Track container: `TRACK_MEMBER_SYNC_SECRET` | Docs container: `DOCS_TRACK_MEMBER_SYNC_SECRET` |
+
+⚠ **The fourth is new, and it is the one the BFF never sees.** The other three are
+BFF↔service couplings; this one is **Docs↔Track directly**, gating the two service
+endpoints Docs pulls (`GET /v1/service/members` and `GET /v1/service/workspaces` — one
+secret for both, `talyvor-track internal/member/workspaces.go`). Put it in the compose
+project's `.env` as `MEMBER_SYNC_SECRET`; the track-docs fragment feeds **both** services
+from that one key, so they cannot drift and the digest compare below is a formality rather
+than a real risk.
+
+⚠ Track enforces **≥ 16 chars** if it is set at all (`internal/config/config.go`
+`MinMemberSyncSecretLen`), and refuses to boot below that. `openssl rand -base64 48` is
+64 chars, so this is only a hazard if you substitute a hand-typed value.
 
 **Verify — prove all three MATCH now, not three steps later.** Previously a mismatch
 surfaced only as a 401 from Track/Docs or a 404 on login, which is loud but late: you
@@ -690,79 +704,139 @@ docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
    ON CONFLICT (workspace_id, email) DO NOTHING;"
 ```
 
-#### ⚠ DECISION: the Docs→Track member sync is OFF in this deploy, and stays off
+#### ⚠ DECISION REVERSED: the member sync is ON. Wire it, and KEEP the seed.
 
-**It is not merely unconfigured — it is not wirable from here.** The three variables that
-would switch it on appear **nowhere** in this repo's deploy surface:
+**This step said OFF until 2026-07-27. The reasoning was sound and the premise moved.** Off
+was correct while Docs enumerated the workspaces to sync from **its own content** — it would
+have pulled the pinned id, which Track cannot name, so the sync could change no row. Two
+merges landed within a minute of each other and changed exactly that:
+
+| merge | what changed |
+|---|---|
+| `talyvor-track bf60842` (#64) | adds `GET /v1/service/workspaces` — Track answers **which workspaces exist**, since it mints one per identity at login |
+| `talyvor-docs c970329` (#46) | `SyncMembers` now enumerates from **Track**, falling back to content-derived only when Track is unreachable |
+
+Docs no longer pulls a pinned id at all, so the old argument no longer applies and the
+runbook was telling you to leave off the thing that makes Docs tenancy work.
+
+**Wire it in `.env` (the fragment does the rest):**
 
 ```sh
-# CONFIG files only — not the markdown, which discusses these names in prose.
-grep -rn 'MEMBER_SYNC_SECRET\|DOCS_TRACK_URL' deploy/*.yaml deploy/*.example
-# expect: NOTHING printed (grep exits 1). Any line = someone wired the sync on;
-#         re-read this step, because the prune is then armed.
+MEMBER_SYNC_SECRET=<the fourth secret from STEP 1>
 ```
 
-⚠ Scoped to `*.yaml` / `*.example` deliberately. `grep -rn … deploy/` — the obvious
-version — matches **this section's own prose** five times and reports the sync as wired no
-matter what the configuration says. That is the failure the test at the top of this document
-asks about, and it was found by running the command rather than reading it.
+`track-docs.compose.yaml` feeds that one key to **both** sides — Track's
+`TRACK_MEMBER_SYNC_SECRET` and Docs' `DOCS_TRACK_MEMBER_SYNC_SECRET` — plus
+`DOCS_TRACK_URL: http://track:3000`. One key, so they cannot drift.
 
-And they cannot arrive unseen: the `docs` service in `track-docs.compose.yaml` has
-**`environment:` and no `env_file:`**, so a variable reaches that container if and only if
-it is named in the fragment. `DOCS_TRACK_URL`, `DOCS_TRACK_API_KEY` and
-`DOCS_TRACK_MEMBER_SYNC_SECRET` are not.
+**Auth, read from source rather than inferred:** both service endpoints take
+`Authorization: Bearer <secret>`, constant-time-compared, and **fail closed on an unset
+secret** (`talyvor-track internal/member/workspaces.go` `authorized`, and the same shape in
+`handler.go`). Both sit under `/v1/service/`, which is **gwExempt**
+(`cmd/track/main.go`), so a bearer-only call reaches them without the gateway proof.
+`DOCS_TRACK_API_KEY` is **not** required — `MemberSyncConfigured()` is
+`trackURL && memberSyncSecret` only; the API key gates the separate cost sync.
 
-Consequence chain, from source: `IsConfigured()` false **and** `memberSyncOn()` false ⇒
-`Start` returns **before** the boot pass (`talyvor-docs internal/trackintegration/syncer.go`
-`Start`) ⇒ **no reconcile ever runs, and nothing is logged.**
+**Verify it is wired:**
 
-**Why off is the right answer, not just the current one.** Turning it on cannot achieve
-anything:
+```sh
+# ASSIGNMENTS only, in the compose fragment.
+grep -rnE '^\s+(TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_URL):' deploy/*.yaml
+# expect: exactly 3 lines — Track's secret, Docs' URL, Docs' secret.
+# FEWER ⇒ the fragment lost one, and SyncMembers is a SILENT no-op in that state.
+```
 
-- Docs would pull `GET /v1/service/members?workspace_id=$WS`, and `$WS` is
-  `default` — Track's workspace ids are **DB-generated** (`talyvor-track
-  internal/workspace/store.go` inserts `(name, slug, logo_url, plan)` and never an id), so
-  **no Track workspace is ever named `default`**.
-- Track answers an unknown workspace with **`200` and `[]`**, not an error
-  (`internal/member/handler.go` — "a non-existent workspace_id simply yields an empty
-  roster").
-- Docs' empty-pull safety then returns immediately: `if len(refs) == 0 { return 0,0,nil }`
-  (`internal/membership/store.go`). Nothing upserted, nothing pruned.
+⚠ **Two things this check is deliberately narrow about**, both found by running it rather
+than reading it. `grep -rn … deploy/` matches this section's **own prose** and reports
+"wired" whatever the configuration says. And a looser pattern over the fragment counts the
+**comment** that names `TRACK_MEMBER_SYNC_SECRET` too, giving 4 where the answer is 3 — a
+count you would then have to distrust. Anchoring on `^\s+NAME:` counts assignments only;
+verified by deleting one line and watching the count drop to 2.
 
-So enabling it buys **one HTTP round trip every 15 minutes, forever, that changes no row** —
-and it arms the prune. The only way the roster becomes non-empty is pointing
-`DOCS_WORKSPACE_ID` at a real Track workspace, i.e. mirroring one person's *private
-per-session* Track roster into the workspace every tester shares. Enabling therefore adds
-exactly one new capability: **deleting testers' access.** The mirror premise died with #36;
-Docs' own tenancy root is the recorded fix (talyvor-docs #45), and that is the reopening
-condition.
+#### ⚠ KEEP THE SEED. It is not a wait-skipper — it is the only grant for the pinned workspace.
 
-⚠ **The honest cost of off, stated rather than buried: Docs membership is seed-only, and
-Docs has no member-management route of its own.** Adding or removing a Docs member is this
-`INSERT` — manual SQL — for as long as Docs stays pinned. Budget for it; it will be needed
-mid-trial.
+**The suggestion to remove it, with a "tester may 403 once until the next sync" caveat, does
+not hold while the BFF pins Docs.** The 403 would be permanent, not one cycle. Traced end to
+end:
 
-#### Verify the seed by EXERCISING it, because the reconcile will not run
+1. The sync enumerates **Track's** workspace ids and writes
+   `workspace_members(workspace_id = <a Track id>, …)`.
+2. The BFF asks Docs for `/v1/workspaces/<DOCS_WORKSPACE_ID>/spaces` —
+   `apps/bff/lens.go` builds that path from the **pin**, and the Docs trio still requires
+   `DOCS_WORKSPACE_ID` (`apps/bff/main.go`).
+3. Docs authorizes with `AuthorizeWorkspace(ctx, workspaceID)`, which requires an **exact
+   match**: `for _, m := range ms { if m.WorkspaceID == workspaceID }`
+   (`talyvor-docs internal/authz/authz.go`). Memberships come from
+   `SELECT … FROM workspace_members WHERE email = $1`.
+4. `DOCS_WORKSPACE_ID` is `default`; Track's ids are DB-generated, so **no synced row will
+   ever carry `workspace_id = 'default'`**.
 
-The previous version of this step said to restart Docs and confirm the rows survived a
-reconcile. **Apply the test at the top of this document to that check: what does it print
-when the thing it tests is broken?** Nothing prunes, so a `source = 'track'` mistake
-survives too, and the check prints a pass in both states. It also told you to confirm the
-sync ran by finding a `member sync` line in the logs — a line that **cannot appear**, so the
-instruction could only ever conclude "this proved nothing".
+⇒ A membership in a Track workspace does not authorize a request for the pinned one. **Remove
+the seed and every tester 403s on Docs forever.** Keep it, and keep writing `source = 'seed'`.
 
-The check that can fail is the capability one: **have a seeded tester create a space.** A
-`403` means the seed did not take (wrong `$WS`, or the BFF's `DOCS_WORKSPACE_ID` disagrees
-with the container's); `201` means it did. Then confirm what you wrote:
+The removal advice becomes correct the moment the BFF stops pinning Docs and asks for the
+caller's own workspace — that is the reopening condition, and it is a suite change, not a
+Docs one.
+
+#### ⚠ The prune is now armed. Here is what it does to a seed row — and why it is still safe.
+
+Enabling the sync does arm the prune, so the previous "one new capability: deleting testers'
+access" line needs answering rather than repeating. A `source = 'seed'` row in the pinned
+workspace is protected **three** times over, and any one of them suffices:
+
+| # | protection | source |
+|---|---|---|
+| 1 | **`default` is never enumerated** on the happy path — Track's answer does not contain it | `enumerate.go` returns Track's list as-is |
+| 2 | If the content fallback *does* enumerate it (Track unreachable), the roster pull for `default` returns `200 []` or errors ⇒ `if len(refs) == 0 { return 0,0,nil }`, or the workspace is skipped entirely | `internal/membership/store.go`, `syncer.go` |
+| 3 | Even with a non-empty roster, the prune is `WHERE workspace_id = $1 AND source = 'track' AND email <> ALL($2)` — a `'seed'` row is out of scope, and `source` is **not** in the `DO UPDATE SET`, so Track reporting the same person cannot seize the row | `internal/membership/store.go` |
+
+⚠ What the prune **will** now do, correctly: delete `source = 'track'` rows from a **Track**
+workspace when that person is no longer in Track's roster. That is the feature. It is scoped
+to workspaces Docs successfully pulled a roster for, so a Track outage removes nobody.
+
+⚠ **The honest cost that has not changed: Docs has no member-management route.** For the
+*pinned* workspace, adding or removing a member is still this `INSERT` — manual SQL — for as
+long as Docs stays pinned.
+
+#### Verify: the seed grants access, and the sync is running
+
+**Two checks, and they answer different questions.** The capability one is the pass/fail;
+the sync one proves the sync is actually running now that it should be.
+
+**1. Capability — have a seeded tester create a space.** `201` means the seed took; `403`
+means it did not (wrong `$WS`, or the BFF's `DOCS_WORKSPACE_ID` disagrees with the
+container's). Then confirm what you wrote:
 
 ```sh
 docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
   "SELECT email, role, source FROM workspace_members WHERE workspace_id = '$WS';"
 # expect: one row per tester, each with source = seed.
-# ZERO ROWS ⇒ the INSERT did not land (check $WS above), NOT a prune — nothing prunes here.
+# ZERO ROWS ⇒ the INSERT did not land — check $WS above.
 ```
 
-#### ⚠⚠ STILL WRITE `source` EXPLICITLY — the failure is deferred, not removed
+**2. The sync is running.** Now that it is wired, silence is a fault rather than the
+expected state. Restart Docs to force the boot pass instead of waiting out the 15-minute
+ticker, and read the enumeration:
+
+```sh
+docker compose restart docs && sleep 20
+docker compose logs docs --since 2m | grep -F 'member sync'
+# expect: one `workspace reconciled` line PER TRACK WORKSPACE, with upserted/pruned counts.
+# ⚠ NO OUTPUT AT ALL ⇒ the sync did not run: MEMBER_SYNC_SECRET or DOCS_TRACK_URL is
+#   missing from the fragment, and SyncMembers returns SILENTLY in that state. Not a pass.
+```
+
+⚠ **`pruned` should be `0` on a fresh deploy.** A non-zero prune on the first pass means
+rows existed that Track's roster does not contain — expected only if you are re-deploying
+over an older database.
+
+⚠ **The pinned workspace `default` will NOT appear in those lines**, and that is correct —
+Track does not know it, so it is not enumerated. Its membership is the seed, and nothing in
+this sync touches it. If you *do* see `workspace_id=default` reconciled, Track has been
+given a workspace with that id and the seed row is now sharing a workspace with a live
+roster — still safe (it is `source = 'seed'`), but not what this deploy intends.
+
+#### ⚠⚠ STILL WRITE `source` EXPLICITLY
 
 `source` **defaults to `'track'`**, so a seed written without that column is
 marked as Track's own row. The roster prune is
@@ -770,21 +844,11 @@ marked as Track's own row. The roster prune is
 `track`-owned rows that Track's roster does not contain, and Track has never
 heard of your testers.
 
-⚠ **With sync off (above), that prune never runs, so a mis-marked row survives — today.**
-That makes the mistake *less* visible, not safer:
-
-| when | mis-marked row (`source` omitted) |
-|---|---|
-| this deploy, sync off | **survives.** Nothing prunes. No symptom, no log line, no clue. |
-| the day someone sets the three sync variables | **deleted on the first pass**, and every tester drops to `403` — with nothing connecting the outage to a config change made weeks earlier by someone else |
-
-So the rule is unchanged and the reason is stronger: writing `source = 'seed'` costs one
-word, and it is the difference between a deploy that survives enabling the sync and one that
-silently revokes every tester the moment it is enabled. **Do not treat "sync is off" as
-permission to skip it.**
-
-The behaviour was tested both ways against a real empty database **with sync configured** —
-which is the state this table describes, and the state this deploy is not in:
+With the sync ON, a mis-marked row in a workspace that Track *does* enumerate is deleted on
+the first pass. In the pinned workspace it survives — `default` is not enumerated — but
+writing `source` explicitly costs one word and removes the need to reason about which of
+those two cases you are in. The behaviour was tested both ways against a real empty
+database, **with sync configured** — which, since 2026-07-27, is the state this deploy is in:
 
 | Seed | First create | After the first reconcile |
 |---|---|---|
@@ -1449,42 +1513,75 @@ everything listed is safe.
 
 | What you will see | Where | Harmless? | Why |
 |---|---|---|---|
-| ⚠ **NO `member sync` lines at all, ever** | `docker compose logs docs` | **Yes — expected** | The member sync is **off and not wirable** from this deploy (STEP 3a). `Start` returns before the boot pass, so there is no WARN, no INFO, and no ticker. **Silence here is the correct state, not a fault.** Detail below. |
+| `member sync — workspace reconciled` (INFO), one per Track workspace, every 15 min | `docker compose logs docs` | **Yes — but read `pruned`** | Normal output now the sync is ON (STEP 3a). Detail below. |
+| ⚠ **NO `member sync` lines at all** | `docker compose logs docs` | **NO — fix it** | The sync is wired as of 2026-07-27, so silence means it is NOT running: `MEMBER_SYNC_SECRET` or `DOCS_TRACK_URL` missing from the fragment. `SyncMembers` returns **silently** in that state — no error, no warning. Detail below. |
 | `environment hygiene: this container holds CREDENTIAL-SHAPED variables that are not Lens's` (ERROR), naming e.g. `TRACK_GATEWAY_AUTH_SECRET` / `DOCS_GATEWAY_AUTH_SECRET` | `docker compose logs lens` | **NO — fix it** | Lens is being handed another service's secrets. It means `env_file:` is forwarding the project `.env` instead of `lens.env`, i.e. the leak lens#377/#378 closed has returned. A Lens crash dump would carry Track's and Docs's gateway secrets. Fires only when the unexpected variable name ends in `SECRET`/`KEY`/`TOKEN`/`PASSWORD`/`CREDENTIALS` (`cmd/lens/env_hygiene.go:98`). |
 | `modelwatch: NO ALERT SINK CONFIGURED` (ERROR) at Lens boot | `docker compose logs lens` | **Yes** | `LENS_OPERATOR_ALERT_WEBHOOK_URL` is unset, which is currently correct — nothing accepts that payload yet. Logged at ERROR deliberately so the gap stays visible (`internal/modelwatch/modelwatch.go:197`). Expect it once per boot. |
 | Lens WARN: *"the embedding model has been changed while cross-tenant pooling is ENABLED … Run `lens poolcheck`"* | `docker compose logs lens` | **Only if you meant it** | Fires only when `LENS_EMBEDDING_MODEL` differs from the default **and** pooling is on (`cmd/lens/env_hygiene.go:127`). It does not judge the model and does not block boot — but the cross-tenant margin is a property of the embedder, so run `lens poolcheck` before trusting it. If you did not change the model, something else did. |
 
 The Docs member-sync silence is what this deploy introduces, so it gets the detail:
 
-### `docs` — ⚠ NO member-sync lines at all. That is correct.
+### `docs` — the member-sync lines, and which of them are faults
 
-**This section previously described a WARN "every 15 minutes, forever" and an INFO
-`workspace reconciled` line. Neither can occur in this deploy, and the stated mechanism was
-wrong twice over.** Corrected here rather than deleted, because someone will go looking for
-those lines on the strength of the old text.
+The sync was OFF until 2026-07-27 and this section said so. It is now wired (STEP 3a), so
+these lines are expected and their **absence** is the fault. Taken from
+`talyvor-docs internal/trackintegration/{syncer,enumerate}.go` rather than from a previous
+deploy's memory.
 
-**Why no lines.** With `DOCS_TRACK_URL` / `DOCS_TRACK_API_KEY` /
-`DOCS_TRACK_MEMBER_SYNC_SECRET` all unset — and they are not in the compose fragment, which
-has no `env_file:` — both `IsConfigured()` and `memberSyncOn()` are false, so `Start` returns
-**before** the boot pass and no ticker is created. And `SyncMembers` begins
-`if !s.memberSyncOn() { return }`, a **silent** return: even with cost-sync on it would log
-nothing.
+**Normal — one per Track workspace, at boot and every 15 minutes:**
 
-**Why the old `404` was wrong even if the sync did run.** Track's roster route has no 404
-branch — `internal/member/handler.go` answers `401` (bad/absent bearer), `400` (missing
-`workspace_id`), `500` (query failure), or **`200` with `[]`** for a workspace it has never
-heard of, which is the case here. The route is mounted unconditionally, so it cannot 404
-either. An unknown workspace produces an empty roster and the empty-pull guard no-ops; it
-does not produce an error.
+```json
+{"level":"INFO","msg":"trackintegration: member sync — workspace reconciled",
+ "workspace_id":"<a Track workspace id>","upserted":1,"pruned":0}
+```
 
-**So: silence is the expected state.** If you *do* see a `member sync` line, someone wired
-the three variables into the deploy — go and read STEP 3a, because the prune is now armed and
-any row seeded without `source = 'seed'` is deletable.
+⚠ **Read `pruned`.** `0` is the steady state. Non-zero means rows were deleted because
+Track's roster no longer lists them — correct behaviour when someone leaves, and a surprise
+on a fresh deploy. Prune is scoped `source = 'track'`, so your seeded rows are never counted
+here.
 
-**And a real fault in the same area still looks like this:** a `403` from Docs for a tester
-who worked yesterday means their `workspace_members` row is gone. With sync off there is only
-one way for that to happen — someone deleted it, or `DOCS_WORKSPACE_ID` changed on one side
-of the two files that must agree.
+⚠ **The pinned workspace does not appear in these lines**, because Track has never heard of
+it. That is expected — its membership is the seed (STEP 3a), which nothing in this sync
+touches.
+
+**Harmless and self-healing:**
+
+```json
+{"level":"WARN","msg":"trackintegration: member sync — pull failed, skipping workspace",
+ "workspace_id":"…","err":"…"}
+```
+
+One workspace's roster pull failed; that workspace is **skipped**, its existing roster left
+intact rather than pruned. A handful during a Track restart is normal. The same line
+repeating for **every** workspace, forever, is a real fault — a wrong
+`DOCS_TRACK_MEMBER_SYNC_SECRET` shows up here as `401 Unauthorized`.
+
+**Degraded, and it names itself:**
+
+```json
+{"level":"WARN","msg":"trackintegration: workspace enumeration — Track unreachable, falling back to content-derived",
+ "err":"…","effect":"workspaces with no content yet are not synced this cycle; existing rosters are unaffected"}
+```
+
+Track could not answer "which workspaces exist", so Docs fell back to its own content. **Not
+dangerous** — the fallback can only shorten the list, and a workspace that is not enumerated
+is not pruned. But a brand-new tenant gets no roster while this persists, which is the
+deadlock the fix exists to prevent. If it repeats, fix Track's reachability.
+
+**A real fault:**
+
+```json
+{"level":"WARN","msg":"trackintegration: member sync — enumerate workspaces","err":"…"}
+```
+
+**Both** Track and the content fallback failed, so the cycle did nothing. Deliberately an
+error rather than an empty list — an empty list would have read as a clean run forever.
+
+```json
+{"level":"WARN","msg":"trackintegration: member sync — reconcile failed","workspace_id":"…","err":"…"}
+```
+
+The pull succeeded and the database write did not. Check Postgres.
 
 ---
 

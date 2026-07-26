@@ -78,6 +78,12 @@ services:
       # TRACK_GATEWAY_SECRET — different names, one value. Boot-required and
       # >= 16 chars (internal/config/config.go:106).
       GATEWAY_AUTH_SECRET: ${TRACK_GATEWAY_AUTH_SECRET:?TRACK_GATEWAY_AUTH_SECRET must be set — see deploy/README.md}
+      # Serves the two gwExempt service endpoints Docs pulls: GET /v1/service/members
+      # (rosters) and GET /v1/service/workspaces (which workspaces exist — track #64).
+      # ONE secret gates both; Docs sends it as `Authorization: Bearer`.
+      # OPTIONAL to Track (unset ⇒ Track boots and both endpoints 401 everything), but
+      # REQUIRED for Docs membership to work at all. >= 16 chars, enforced at boot.
+      TRACK_MEMBER_SYNC_SECRET: ${MEMBER_SYNC_SECRET:?MEMBER_SYNC_SECRET must be set — see FULL-STACK-DEPLOY.md STEP 1}
       TRACK_LOG_LEVEL: info
     depends_on:
       postgres:
@@ -106,6 +112,19 @@ services:
       # /v1/workspaces/<DOCS_WORKSPACE_ID>/spaces (apps/bff/lens.go:75). Defaults
       # to "default" on the Docs side; set both explicitly so they cannot drift.
       DOCS_DEFAULT_WORKSPACE: ${DOCS_WORKSPACE_ID:-default}
+      # ── Member sync: Docs pulls tenancy from Track ────────────────────────────
+      # Track is the tenancy source of truth (it mints a workspace per identity at
+      # login), so Docs asks it which workspaces exist rather than deriving the set
+      # from its own content — the cold-start deadlock docs #46 / track #64 closed.
+      # Both are required together: MemberSyncConfigured() is trackURL && secret, and
+      # either one missing makes SyncMembers a SILENT no-op.
+      # ⚠ THE SAME VALUE as the track service's TRACK_MEMBER_SYNC_SECRET above — one
+      # .env key feeds both, so they cannot drift.
+      DOCS_TRACK_URL: http://track:3000
+      DOCS_TRACK_MEMBER_SYNC_SECRET: ${MEMBER_SYNC_SECRET:?MEMBER_SYNC_SECRET must be set — see FULL-STACK-DEPLOY.md STEP 1}
+      # NOT set: DOCS_TRACK_API_KEY. It gates the COST sync (page ai_cost roll-up),
+      # not membership — MemberSyncConfigured() does not look at it. Leaving it unset
+      # keeps SyncPageCosts off, which is deliberate for the trial.
       DOCS_LOG_LEVEL: info
     depends_on:
       postgres:
