@@ -114,6 +114,52 @@ SaaS account when Google is already in hand.
    Caddy already holds certificates for both in its `caddy_data` volume (they
    persist across config reloads; nothing here re-issues).
 
+## ⚠ Before you build — confirm the commit was actually TESTED
+
+**The rule: assert a run EXISTS for the head SHA, then read its conclusion.**
+Never poll for "conclusion == success" without first establishing that a run
+exists. Those are two checks, and skipping the first turns a specific, dangerous
+state into something that looks like patience.
+
+**Zero runs is a distinct verdict.** It means **NOT TESTED** — not "not
+finished". Three outcomes, not two:
+
+| runs at the head SHA | verdict |
+|---|---|
+| ≥1, all `success` | tested and green — proceed |
+| ≥1, any other | tested and not green — stop |
+| **0** | ⚠ **NOT TESTED.** No CI ever ran on this code. Indistinguishable from "pending" if you only watch conclusions. |
+
+**Why zero happens, and why it is easy to miss.** `pull_request` workflows run
+from the **merge commit**, so a PR that conflicts with its base has no merge ref
+and therefore **no run at all**. `gh pr view` reports `mergeable=UNKNOWN`, not
+`CONFLICTING`, and `gh pr checks` says *"no checks reported"* — which reads like
+a delay. Observed on suite #39: the pre-rebase head had **0 runs**; the same tree
+rebased had 1. Nothing was red; nothing had run.
+
+```sh
+REPO=gaboracnicolai/talyvor-suite
+SHA=$(git rev-parse HEAD)          # ⚠ FULL 40 chars — see the trap below
+
+N=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA" --jq '.total_count')
+if [ "$N" -eq 0 ]; then
+  echo "NOT TESTED — no run exists for $SHA. Do not deploy this commit."
+else
+  gh api "repos/$REPO/actions/runs?head_sha=$SHA" \
+    --jq '.workflow_runs[] | "\(.name) \(.status)/\(.conclusion)"'
+fi
+```
+
+⚠ **THE TRAP INSIDE THE TRAP: `head_sha` must be the full 40-character SHA.**
+Pass an abbreviated one and the API returns `total_count: 0` — **no error, no
+warning** — which is indistinguishable from "never tested". A check written with
+`git rev-parse --short HEAD` reports every commit as untested, and it will look
+like a real finding. Use `git rev-parse HEAD`.
+
+*(This bit me while auditing: an abbreviated SHA made all 35 of today's merges
+appear untested. Re-run with full SHAs, all 35 had a run at their own head SHA
+and all were green.)*
+
 ## 2. Build (on your workstation)
 
 ```sh
@@ -453,10 +499,10 @@ the console, no server change needed.
 The whole of steps 0–7 is one-time. A routine redeploy is only this:
 
 ```sh
-# workstation
-pnpm install --frozen-lockfile && pnpm --filter @talyvor/web build
-( cd apps/bff && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-    go build -trimpath -ldflags="-s -w" -o ../../bff-linux-amd64 . )
+# workstation — the SAME script as step 2. Do not hand-roll the two builds here:
+# this is the path that actually runs on every redeploy, so an unstamped build
+# here is an unidentifiable deployment every time.
+pnpm install --frozen-lockfile && scripts/build-release.sh
 scp bff-linux-amd64 <server>:/tmp/bff
 rsync -r --delete apps/web/dist/ <server>:/tmp/web-dist/
 
@@ -469,8 +515,22 @@ ssh <server> '
 '
 ```
 
-**Verify:** `curl -s https://app.talyvor.com/auth/me` answers, and the journal
-shows the fresh boot lines. Caddy, the env file, the unit, the user, ufw — all
+**Verify — one request, and read `verdict` first:**
+
+```sh
+ssh <server> "curl -s http://127.0.0.1:8787/api/version" | jq '{commit, bundle: .bundle.commit, agree, verdict}'
+```
+
+`agree: true` and both commits equal to what the script printed ⇒ **both halves
+landed**. This is the check that catches the characteristic failure of *this*
+section: the two artifacts are shipped by two separate commands above, and
+`scp`-then-forget-the-`rsync` (or a restart that did not happen) leaves the
+service serving one old half. `agree: false` names which half is stale;
+`agree: null` means at least one side is unstamped, so **nothing was
+established** — do not read it as a match.
+
+Also: `curl -s https://app.talyvor.com/auth/me` answers, and the journal shows
+the fresh boot lines. Caddy, the env file, the unit, the user, ufw — all
 untouched. Note: sessions are in-memory, so a restart signs everyone out
 (they re-login; nothing else is lost).
 
