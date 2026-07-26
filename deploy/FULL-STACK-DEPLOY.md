@@ -529,18 +529,23 @@ docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
    ON CONFLICT (workspace_id, email) DO NOTHING;"
 ```
 
-Then **restart Docs** — its sync runs a boot pass before the 15-minute ticker, so
-a restart forces the first reconcile immediately instead of leaving you to
-discover the result twenty minutes after you have moved on:
+#### Verify by FORCING the reconcile, not by waiting for it
+
+**Confirming the rows exist immediately after the `INSERT` proves nothing — they
+always do.** The check has to survive a sync, and the sync is what deletes a
+wrongly-marked row. Docs runs a boot pass before its 15-minute ticker
+(`cmd/docs/main.go:224`), so a restart forces the first reconcile now instead of
+leaving you to discover the result a quarter of an hour after you have moved on:
 
 ```sh
-docker compose restart docs
-sleep 20
-docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
-  "SELECT email, role, source FROM workspace_members WHERE workspace_id = '$WS';"
-```
+docker compose restart docs && sleep 30
 
-**Success:** every tester you seeded is still listed, each with `source = seed`.
+docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
+  "SELECT email, role, source FROM workspace_members WHERE workspace_id = '$WS';"
+# expect: every tester you seeded, each with source = seed.
+# ⚠ ZERO ROWS means source was omitted (defaulted to 'track') and the reconcile
+#   deleted them. Re-run the INSERT with source = 'seed', then repeat this check.
+```
 
 #### ⚠⚠ THE FAILURE MODE — omitting `source` looks fine and reverts ~15 minutes later
 
@@ -990,12 +995,27 @@ talyvor-lens for how that failed in practice.
 
 ---
 
-## Expected noise — log lines that are NOT failures
+## ⚠ EXPECTED NOISE — read this BEFORE you read the logs
 
-Read this before you read the logs. Each line below is emitted by a healthy
-deployment. They are listed because a warning that repeats forever and means
-nothing is how people learn to stop reading logs, and the next warning will be a
-real one.
+Whoever opens the logs first will find these and reasonably conclude the deploy is
+broken. Most of them are not. This section exists so a known-harmless line does not
+trigger the rollback of a working deploy — **and so that anything NOT listed here is
+treated as real.** A warning that repeats forever and means nothing is how people
+learn to stop reading logs, and the next warning will be a real one.
+
+**One row below is deliberately not harmless.** A regression can wear the same shape
+as expected noise, so the table says which is which rather than implying that
+everything listed is safe.
+
+| What you will see | Where | Harmless? | Why |
+|---|---|---|---|
+| `member sync — pull failed, skipping workspace`, **every 15 minutes, forever** | `docker compose logs docs` | **Yes** | The Docs workspace id has no Track counterpart — Track is per-session since #36 — so Track answers `404` and the syncer skips that workspace. Detail below; it is also what protects your seeded rows. |
+| `member sync — workspace reconciled` at INFO | `docker compose logs docs` | **Yes, but read `pruned`** | Normal sync output. `pruned` should be `0` for your seeded workspace — detail below. |
+| `environment hygiene: this container holds CREDENTIAL-SHAPED variables that are not Lens's` (ERROR), naming e.g. `TRACK_GATEWAY_AUTH_SECRET` / `DOCS_GATEWAY_AUTH_SECRET` | `docker compose logs lens` | **NO — fix it** | Lens is being handed another service's secrets. It means `env_file:` is forwarding the project `.env` instead of `lens.env`, i.e. the leak lens#377/#378 closed has returned. A Lens crash dump would carry Track's and Docs's gateway secrets. Fires only when the unexpected variable name ends in `SECRET`/`KEY`/`TOKEN`/`PASSWORD`/`CREDENTIALS` (`cmd/lens/env_hygiene.go:98`). |
+| `modelwatch: NO ALERT SINK CONFIGURED` (ERROR) at Lens boot | `docker compose logs lens` | **Yes** | `LENS_OPERATOR_ALERT_WEBHOOK_URL` is unset, which is currently correct — nothing accepts that payload yet. Logged at ERROR deliberately so the gap stays visible (`internal/modelwatch/modelwatch.go:197`). Expect it once per boot. |
+| Lens WARN: *"the embedding model has been changed while cross-tenant pooling is ENABLED … Run `lens poolcheck`"* | `docker compose logs lens` | **Only if you meant it** | Fires only when `LENS_EMBEDDING_MODEL` differs from the default **and** pooling is on (`cmd/lens/env_hygiene.go:127`). It does not judge the model and does not block boot — but the cross-tenant margin is a property of the embedder, so run `lens poolcheck` before trusting it. If you did not change the model, something else did. |
+
+The two Docs lines are the ones this deploy introduces, so they get the detail:
 
 ### `docs` — member sync warns every 15 minutes, forever
 
