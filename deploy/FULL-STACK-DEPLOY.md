@@ -75,6 +75,67 @@ stated here once instead of five times.
 
 ---
 
+## ⚠ Reading verification output: on the app origin, 200 does not mean "it is there"
+
+A sibling of the above, for a different reason, and it changes how you write checks
+against `app.talyvor.com` / `127.0.0.1:8787`.
+
+**The BFF serves the SPA, and falls back to `index.html` for any path that is not a real
+file.** So on that origin:
+
+| path | what a 200 means |
+|---|---|
+| `/api/…`, `/auth/…` | a real handler answered — the code is meaningful |
+| anything else | **`index.html` was served.** Says nothing about the path existing. |
+
+**Measured** against a `web-dist` containing *only* `index.html` — no assets, no
+`version.json`:
+
+| request | code | content-type | `curl -f` exit |
+|---|---|---|---|
+| `/` | 200 | text/html | **0** |
+| `/version.json` | 200 | **text/html** | **0** |
+| `/billing/success` | 200 | text/html | **0** |
+| `/ledger` | 200 | text/html | **0** |
+| `/assets/index-nope.js` | 200 | **text/html** | **0** |
+| `/api/version` | 200 | application/json | 0 |
+| `/api/nope` | **404** | application/json | 22 |
+
+Consequences, in order of how easy they are to get wrong:
+
+1. **`curl -f` and `-w '%{http_code}'` cannot verify that a client-side route or a
+   static file exists** on this origin. They succeed unconditionally — see every `0` in
+   the last column. That includes `/version.json` and every SPA route: `/ledger`,
+   `/setup`, and the `LENS_BILLING_SUCCESS_URL` landing page `/billing/success`. A
+   post-purchase page that was never built into the bundle answers 200 exactly like one
+   that was.
+2. ⚠ **A MISSING JS ASSET ALSO ANSWERS 200 WITH HTML** — row five. This is the failure
+   mode of a partial `rsync`: `index.html` lands, `assets/` does not, **every curl check
+   in this document passes, and the app is a white screen.** The browser requests a
+   content-hashed `.js` file, receives HTML, and fails to parse it. Nothing on the server
+   side reports anything wrong. Check the asset actually referenced by `index.html`:
+   ```sh
+   JS=$(curl -s http://127.0.0.1:8787/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)
+   curl -s -o /dev/null -w "%{content_type}\n" "http://127.0.0.1:8787$JS"
+   # expect: text/javascript.  text/html ⇒ the asset is MISSING and the app is broken.
+   ```
+3. **`curl / → 200` proves `index.html` exists, not that the bundle is complete or
+   current.** See (2).
+4. **Require content, not status.** `| jq -e '.field'` for JSON, a content-type or
+   `grep -o` for everything else. Where what you want to prove is "the deployed bundle is
+   the one I built", use the version comparison in STEP 6d — that is what it is for.
+
+`/api/…` is the exception, and the last two rows show why: the `/api/` catch-all returns
+a genuine **404**, so codes on `/api/…` routes discriminate real states. STEP 6's
+Track/Docs table (200 / 401 / 403 / 404 / 502 / 503 → one cause each) is correct as
+written for exactly that reason.
+
+This does **not** apply to Lens, Track or Docs: they have no SPA fallback, so a 404 there
+genuinely means "not mounted" (STEP 7's `400` vs `404` on the webhook route depends on
+exactly that, and is correct as written).
+
+---
+
 ## ⚠ Where each command runs, and what that host must already have
 
 A runbook that fails at step one is worse than one that fails at step ten. **Three
@@ -875,8 +936,60 @@ running unpaid contribution without having said so.
 contains the notice".** A built-but-not-shipped bundle passes the first and fails
 the second.
 
+### The check — a version comparison, with the content grep as fallback
+
+Suite `619e27a` (#39) stamps the commit into every bundle, so this is now a version
+question rather than a content probe. **Both checks are here on purpose** — see the
+transition note below for which one applies to you.
+
+**1. What commit is the SERVED bundle?**
+
 ```sh
-# On the app host. Greps the bundle that is actually being served.
+# On the app host. Either works; the first also reports the BFF for comparison.
+curl -s http://127.0.0.1:8787/api/version | jq -r '.bundle.commit // "UNSTAMPED"'
+jq -r '.commit // "UNSTAMPED"' /opt/talyvor/web-dist/version.json
+```
+
+⚠ **Read `.bundle.commit`, NOT `.commit`.** `.commit` is the **BFF's** version and says
+nothing about whether a web copy is serving. The two are shipped by separate commands
+and can differ; only the bundle's commit answers "can a tester see this?". Reading the
+wrong field passes this precondition on the strength of a *backend* deploy.
+
+**2. Is the notice in that commit?** Ancestry, in a checkout of `talyvor-suite`:
+
+```sh
+NOTICE=b41ea4d          # the commit that added the tester notice (#34)
+DEPLOYED=$(curl -s http://127.0.0.1:8787/api/version | jq -r '.bundle.commit')
+git merge-base --is-ancestor "$NOTICE" "${DEPLOYED%-dirty}" \
+  && echo "notice IS in the served bundle" \
+  || echo "notice is NOT — do not set LENS_SHADOW_MINTS_ENABLED"
+```
+
+Controlled both ways before being written here: `f010599` (the commit immediately
+before the notice) reports **ABSENT**; `b41ea4d` and everything after report PRESENT.
+`${DEPLOYED%-dirty}` strips the marker a workstation build adds when its tree had
+uncommitted changes — if you see `-dirty`, the deployed bundle does not correspond to
+any pushed commit and the ancestry answer is approximate.
+
+Why this beats the grep: it generalises to every future precondition instead of needing
+a new string each time, it survives a copy reword, and it cannot pass because the string
+happens to appear somewhere unrelated.
+
+### ⚠ THE TRANSITION — the grep stays for now
+
+**`version.json` exists only in bundles built from #39 onward, so the first
+script-built bundle is the one being deployed tonight.** Until one is actually serving,
+the version check has nothing to read and reports `UNSTAMPED` / `readable: false`.
+
+- **Bundle predates #39** (or the check says `UNSTAMPED`) → use the grep below. It is
+  the only check available.
+- **Bundle built with `scripts/build-release.sh`** → use the version comparison above,
+  and `.bundle.commit` also answers "did my deploy land?" in the same request.
+
+Do not delete the grep in the same change that adds the version check.
+
+```sh
+# FALLBACK. On the app host. Greps the bundle that is actually being served.
 grep -l 'Not every kind of contribution earns LENS' /opt/talyvor/web-dist/assets/*.js
 # expect: one filename.  NO OUTPUT ⇒ the served bundle predates the notice —
 # DO NOT set LENS_SHADOW_MINTS_ENABLED. Ship the web bundle first.
@@ -884,7 +997,30 @@ grep -l 'Not every kind of contribution earns LENS' /opt/talyvor/web-dist/assets
 *(Verified against a real `pnpm build` of suite `2d239d7`: the string survives
 minification and appears exactly once.)*
 
-Only once that prints a filename:
+### ⚠ DO NOT VERIFY THIS WITH A STATUS CODE — `curl -f` PASSES ON A BUNDLE WITH NO VERSION
+
+`GET /version.json` on a bundle that predates #39 returns **HTTP 200 with HTML**, not a
+404, because the BFF serves the SPA and falls back to `index.html` for any path that is
+not a real file. Measured:
+
+```
+GET /version.json on a bundle with NO version.json → 200, content-type: text/html, body: <!doctype html>…
+```
+
+So `curl -f $APP/version.json` **succeeds against a bundle carrying no version at
+all** — absence read as success, a green check sitting next to the exact condition it
+was meant to detect. **Require the response to parse as JSON**, never the exit code:
+
+```sh
+curl -s http://127.0.0.1:8787/version.json | jq -e '.commit' >/dev/null \
+  && echo "bundle reports a commit" \
+  || echo "NO VERSION — pre-#39 bundle, or not the app you think. Use the grep."
+```
+
+This is a property of the app origin generally, not of `/version.json` — see
+**Reading verification output** at the top of this document.
+
+Only once one of the two checks above passes:
 ```sh
 # add LENS_SHADOW_MINTS_ENABLED=true to lens.env, then
 docker compose up -d lens
