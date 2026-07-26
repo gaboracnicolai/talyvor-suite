@@ -111,7 +111,15 @@ func TestLensWorkspacePathBuiltInExactlyOnePlace(t *testing.T) {
 	// One sanctioned builder PER TENANCY, each taking the workspace from the session. Sanctioning
 	// the builder rather than the file is what let track.go come off the exemption list: a stray
 	// literal in track.go is now caught, while the deliberate builder beside it is not.
-	sanctioned := map[string]bool{"lensWorkspacePath": true, "trackWorkspacePath": true}
+	// The ONLY functions allowed to assemble a workspace-scoped upstream path. docsWorkspacePath
+	// joined them when Docs stopped serving a pinned workspace: it takes the id the SESSION carries,
+	// which is exactly the property this guard exists to force. The guard caught it on the way in —
+	// a new builder is sanctioned deliberately here, never by loosening the check.
+	sanctioned := map[string]bool{
+		"lensWorkspacePath":  true,
+		"trackWorkspacePath": true,
+		"docsWorkspacePath":  true,
+	}
 
 	found := 0
 	for name, file := range bffSourceFiles(t) {

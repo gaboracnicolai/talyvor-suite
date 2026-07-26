@@ -18,7 +18,6 @@ package main
 //      outage, so the bootstrap is retried on demand instead.
 
 import (
-	"encoding/json"
 	"go/ast"
 	"io"
 	"net/http"
@@ -75,7 +74,7 @@ func trackApp(t *testing.T, up *trackUpstream) *app {
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
 		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
 		trackBaseURL: up.srv.URL, trackGatewaySecret: testTrackSecret,
-		docsBaseURL: "http://127.0.0.1:1", docsGatewaySecret: "gwsecret_docs", docsWorkspaceID: "docs-pinned",
+		docsBaseURL: "http://127.0.0.1:1", docsGatewaySecret: "gwsecret_docs",
 	}
 	a := newApp(cfg, newSessionOnlyAuthenticator(cfg))
 	a.cfg.webDist = t.TempDir()
@@ -359,19 +358,25 @@ func TestTrack_BootstrapForwardsTheVerifiedIdentity(t *testing.T) {
 
 /* ── Docs stays pinned, deliberately ─────────────────────────────────────── */
 
-// TestDocs_RemainsPinnedByDesign. Docs has NO workspaces table: its tenancy is a mirror of
-// Track's roster, full-pulled by its syncer, and giving it its own root is a parked decision
-// with a stated reopening condition (talyvor-docs internal/membership/store.go). So Docs stays
-// single-workspace here BY DESIGN, and this test exists so that reads as intentional rather
-// than forgotten — and so that removing the pin is a deliberate act that fails a test first.
+// ⚠ THIS TEST WAS INVERTED, NOT DELETED. It used to assert docsWorkspaceID STAYED on the config —
+// deliberately, so that removing the pin "is a deliberate act that fails a test first". It did
+// exactly that: removing DOCS_WORKSPACE_ID failed this test before anything else noticed, which is
+// the mechanism working rather than an obstacle to route around.
 //
-// THE CONSEQUENCE FOR A TESTER, stated plainly because people are about to be handed keys:
-// every trial user shares ONE Docs workspace and can see each other's pages.
-func TestDocs_RemainsPinnedByDesign(t *testing.T) {
-	if !configHasField(t, "docsWorkspaceID") {
-		t.Error("docsWorkspaceID was removed from the config. Docs has no workspaces table — it " +
-			"mirrors Track's roster — so a per-session Docs workspace needs Docs to have a tenancy " +
-			"root first. See the parked decision and its reopening condition.")
+// The condition it named has been MET. Docs had no tenancy root of its own, so a per-session Docs
+// workspace needed one; Track now answers "which workspaces exist" (GET /v1/service/workspaces,
+// talyvor-track bf60842) and Docs enumerates from it instead of from the workspaces it already
+// holds content for (talyvor-docs c970329), which broke the cold-start deadlock that made a
+// brand-new identity's first page 403. A Docs workspace IS a Track workspace id, so the session
+// already carries it.
+//
+// THE CONSEQUENCE FOR A TESTER, stated as plainly as the old one was: trial users no longer share
+// one Docs workspace, and cannot see each other's pages.
+func TestDocs_IsPerSessionNotPinned(t *testing.T) {
+	if configHasField(t, "docsWorkspaceID") {
+		t.Error("docsWorkspaceID is back on the config: a pinned id would put every signed-in " +
+			"person back in ONE shared Docs workspace, able to read and edit each other's pages. " +
+			"The workspace comes from the session (docsWorkspaceFor).")
 	}
 	if configHasField(t, "trackWorkspaceID") {
 		t.Error("trackWorkspaceID is back on the config: Track is per-session now, and a pinned " +
@@ -415,41 +420,15 @@ func configHasField(t *testing.T, field string) bool {
 	return found
 }
 
-// TestAuthMeDocsSharedIsDerivedNotHardcoded. The tester-facing notice renders from this field, so
-// it must be computed from the pin rather than asserted. Hardcode it true and the notice outlives
-// the arrangement it describes; hardcode it false and testers are never told they share a Docs.
-func TestAuthMeDocsSharedIsDerivedNotHardcoded(t *testing.T) {
-	for _, c := range []struct {
-		name          string
-		baseURL, wsID string
-		want          bool
-	}{
-		{"docs pinned — the trial today", "http://127.0.0.1:4000", "default", true},
-		{"docs configured but NOT pinned — per-user Docs", "http://127.0.0.1:4000", "", false},
-		{"no docs upstream at all — nothing to warn about", "", "", false},
-		{"pin without an upstream is not a shared Docs", "", "default", false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			cfg := config{
-				lensBaseURL: "http://127.0.0.1:1", authMode: authModeOIDC,
-				oidcIssuer: "https://idp.example.com", publicBaseURL: "https://app.talyvor.com",
-				sessionTTL: time.Hour, docsBaseURL: c.baseURL, docsWorkspaceID: c.wsID,
-			}
-			a := newApp(cfg, newSessionOnlyAuthenticator(cfg))
-			a.cfg.webDist = t.TempDir()
-			signIn(t, a, "sid", "a@example.com", "ws")
-
-			rec := getAs(t, a, &http.Cookie{Name: sessionCookieName, Value: "sid"}, "/auth/me")
-			var me map[string]any
-			if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
-				t.Fatalf("bad /auth/me body: %s", rec.Body.String())
-			}
-			if got := me["docs_shared"]; got != c.want {
-				t.Errorf("docs_shared = %v, want %v — it must be DERIVED from the config pin", got, c.want)
-			}
-		})
-	}
-}
+// ⚠ TestAuthMeDocsSharedIsDerivedNotHardcoded IS GONE, and its deletion is the point rather than a
+// convenience. It asserted that /auth/me's `docs_shared` was DERIVED from whether the config held a
+// Docs pin, so the shared-wiki disclosure could not outlive the arrangement it described.
+//
+// The design worked exactly as intended. Removing the pin did not merely make the flag false — the
+// field it derived from stopped existing, so `docs_shared` FAILED TO COMPILE, and the disclosure,
+// its copy module and its three tests came out with it. A test whose subject no longer exists is
+// not evidence of anything; keeping a stub asserting `false` would pin a fact about a field nobody
+// has. What replaces it is TestDocs_IsPerSessionNotPinned above, which fails if the pin returns.
 
 /* ── Writes follow the session too ───────────────────────────────────────── */
 
@@ -508,7 +487,7 @@ func trackWriteApp(t *testing.T, up *trackWriteUpstream) *app {
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
 		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
 		trackBaseURL: up.srv.URL, trackGatewaySecret: testTrackSecret,
-		docsBaseURL: "http://127.0.0.1:1", docsGatewaySecret: "gwsecret_docs", docsWorkspaceID: "docs-pinned",
+		docsBaseURL: up.srv.URL, docsGatewaySecret: testTrackSecret,
 	}
 	a := newApp(cfg, newSessionOnlyAuthenticator(cfg))
 	a.cfg.webDist = t.TempDir()
@@ -608,6 +587,114 @@ func TestTrack_WritesRequireASession(t *testing.T) {
 	for _, tc := range []struct{ method, target string }{
 		{http.MethodPost, "/api/track/issues"},
 		{http.MethodPatch, "/api/track/issues/iss-1"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.target, strings.NewReader(`{"title":"x"}`))
+		rec := httptest.NewRecorder()
+		a.mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s without a session = %d, want 401", tc.method, tc.target, rec.Code)
+		}
+	}
+}
+
+/* ── Docs follows the SESSION, not a pinned workspace ────────────────────── */
+
+// ⚠ THE SEQUENCE THAT 403s TODAY. A brand-new identity with no content anywhere creates a Docs
+// page, and a second identity cannot see it.
+//
+// Docs used to serve one PINNED workspace (DOCS_WORKSPACE_ID), so every signed-in person shared one
+// wiki — and a new tenant could not write at all: Docs enumerated workspaces it held CONTENT for,
+// so no content meant no roster, which meant no membership row, which meant every write 403'd,
+// which meant no content. Track now answers "which workspaces exist" (GET /v1/service/workspaces,
+// talyvor-track bf60842) and Docs enumerates from it (talyvor-docs c970329), so a Docs workspace IS
+// a Track workspace id. The BFF's half is to stop sending the pin and send the SESSION's id.
+//
+// Asserted on the upstream path, not on a screen: a page created into the wrong workspace renders
+// identically for the person who created it.
+func TestDocs_WritesAndReadsFollowTheSession(t *testing.T) {
+	up := newTrackWriteUpstream(t, func(email string) string {
+		if strings.HasPrefix(email, "alice") {
+			return "ws-alice"
+		}
+		return "ws-bob"
+	})
+	// Docs shares the fake upstream: this test is about which WORKSPACE the BFF addresses.
+	a := trackWriteApp(t, up)
+	alice := signIn(t, a, "sid-alice", "alice@example.com", "ws-alice")
+	bob := signIn(t, a, "sid-bob", "bob@example.com", "ws-bob")
+
+	// 1. A brand-new identity lists spaces — in THEIR workspace, not a pin.
+	mark := up.count()
+	if rec := sendAs(t, a, alice, http.MethodGet, "/api/docs/spaces", ""); rec.Code >= 400 {
+		t.Fatalf("alice list spaces: %d %s", rec.Code, rec.Body.String())
+	}
+	calls := up.since(mark)
+	if len(calls) != 1 || !strings.Contains(calls[0].path, "/v1/workspaces/ws-alice/spaces") {
+		t.Fatalf("space list addressed %+v, want /v1/workspaces/ws-alice/spaces — the pinned "+
+			"DOCS_WORKSPACE_ID must be gone", calls)
+	}
+
+	// 2. She creates a page. This is the call that 403'd before the deadlock fix.
+	mark = up.count()
+	rec := sendAs(t, a, alice, http.MethodPost, "/api/docs/spaces/spc-1/pages",
+		`{"title":"Runbook","content":"first draft"}`)
+	if rec.Code >= 400 {
+		t.Fatalf("alice create page: %d %s", rec.Code, rec.Body.String())
+	}
+	created := up.since(mark)
+	if len(created) != 1 {
+		t.Fatalf("expected one upstream call, got %+v", created)
+	}
+	if created[0].method != http.MethodPost {
+		t.Errorf("method = %q, want POST — a write forwarded as GET is a silent no-op", created[0].method)
+	}
+	if created[0].path != "/v1/workspaces/ws-alice/spaces/spc-1/pages" {
+		t.Errorf("path = %q, want the SESSION's workspace", created[0].path)
+	}
+	if !strings.Contains(created[0].body, "Runbook") {
+		t.Errorf("body = %q — the caller's JSON must be forwarded", created[0].body)
+	}
+
+	// 3. She edits it.
+	mark = up.count()
+	if rec := sendAs(t, a, alice, http.MethodPatch, "/api/docs/spaces/spc-1/pages/pg-1",
+		`{"content":"second draft"}`); rec.Code >= 400 {
+		t.Fatalf("alice edit page: %d %s", rec.Code, rec.Body.String())
+	}
+	edited := up.since(mark)
+	if len(edited) != 1 || edited[0].method != http.MethodPatch ||
+		edited[0].path != "/v1/workspaces/ws-alice/spaces/spc-1/pages/pg-1" {
+		t.Fatalf("edit addressed %+v, want PATCH on the session's workspace", edited)
+	}
+
+	// 4. ⚠ AND BOB CANNOT SEE IT. Every route he touches must address ws-bob.
+	mark = up.count()
+	for _, tc := range []struct{ method, target, body string }{
+		{http.MethodGet, "/api/docs/spaces", ""},
+		{http.MethodGet, "/api/docs/spaces/spc-1/pages", ""},
+		{http.MethodGet, "/api/docs/spaces/spc-1/pages/pg-1", ""},
+		{http.MethodPost, "/api/docs/spaces/spc-1/pages", `{"title":"Bob"}`},
+	} {
+		sendAs(t, a, bob, tc.method, tc.target, tc.body)
+	}
+	for _, c := range up.since(mark) {
+		if strings.Contains(c.path, "ws-alice") {
+			t.Fatalf("bob's %s %s addressed alice's workspace (%s) — one tester must never reach "+
+				"another's Docs content", c.method, c.path, c.path)
+		}
+		if !strings.Contains(c.path, "ws-bob") {
+			t.Errorf("bob's call addressed %q, which is neither session workspace", c.path)
+		}
+	}
+}
+
+// Docs writes are session-gated like every other product route.
+func TestDocs_WritesRequireASession(t *testing.T) {
+	up := newTrackWriteUpstream(t, func(string) string { return "ws-alice" })
+	a := trackWriteApp(t, up)
+	for _, tc := range []struct{ method, target string }{
+		{http.MethodPost, "/api/docs/spaces/spc-1/pages"},
+		{http.MethodPatch, "/api/docs/spaces/spc-1/pages/pg-1"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.target, strings.NewReader(`{"title":"x"}`))
 		rec := httptest.NewRecorder()

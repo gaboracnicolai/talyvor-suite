@@ -84,8 +84,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	// so this cannot be turned into an open proxy — same rule as the Lens routes.
 	a.mux.HandleFunc("/api/track/workspaces", a.requireSession(a.proxyProduct(
 		"track", cfg.trackBaseURL, cfg.trackGatewaySecret, "/v1/workspaces")))
-	a.mux.HandleFunc("/api/docs/spaces", a.requireSession(a.proxyProduct(
-		"docs", cfg.docsBaseURL, cfg.docsGatewaySecret, "/v1/workspaces/"+cfg.docsWorkspaceID+"/spaces")))
+	a.mux.HandleFunc("/api/docs/spaces", a.requireSession(a.docsSpaces()))
 
 	// Docs Tier-1 id-routes: space detail, page list, page detail. These take ids
 	// (client input), so the upstream path is BUILT from a validated segment, not
@@ -96,8 +95,20 @@ func newApp(cfg config, auth *authenticator) *app {
 	// The page LIST projects away the heavy `content`/`content_text` fields (see
 	// docsPageList) — a tree view has no business transferring whole documents.
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}", a.requireSession(a.docsSpaceDetail()))
-	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(a.docsPageList()))
-	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}", a.requireSession(a.docsPageDetail()))
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			a.docsCreatePage()(w, r)
+			return
+		}
+		a.docsPageList()(w, r)
+	}))
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			a.docsUpdatePage()(w, r)
+			return
+		}
+		a.docsPageDetail()(w, r)
+	}))
 
 	// Key management (shared-unblock PR). GET lists by prefix — Lens's list shape
 	// carries no secret (KeyHash is json:"-" upstream). POST is THE BFF'S FIRST
@@ -504,8 +515,12 @@ func (a *app) docsSpaceDetail() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			"/v1/spaces/"+url.PathEscape(spaceID), "", http.MethodGet, nil, nil)
+			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)), "", http.MethodGet, nil, nil)
 	}
 }
 
@@ -530,8 +545,12 @@ func (a *app) docsPageList() http.HandlerFunc {
 		limit := clampInt(r.URL.Query().Get("limit"), 100, 1, 500)
 		offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<31-1)
 		raw := "limit=" + strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages", raw, http.MethodGet, nil, stripPageContentList)
+			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages"), raw, http.MethodGet, nil, stripPageContentList)
 	}
 }
 
@@ -554,8 +573,12 @@ func (a *app) docsPageDetail() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID), "", http.MethodGet, nil, nil)
+			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID)), "", http.MethodGet, nil, nil)
 	}
 }
 
@@ -602,5 +625,68 @@ func (a *app) spaHandler() http.Handler {
 			return
 		}
 		http.ServeFile(w, r, index) // client route (or missing bundle → 404 from ServeFile)
+	})
+}
+
+// maxDocsBody caps a page body relayed upstream. Docs validates its own payload; this only stops
+// an unbounded body being buffered on the way through.
+const maxDocsBody = 512 << 10
+
+// docsSpaces — GET /api/docs/spaces in the SESSION's workspace. This replaced a path built ONCE at
+// registration from the pinned DOCS_WORKSPACE_ID, which meant every signed-in person read one
+// shared wiki.
+func (a *app) docsSpaces() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/spaces"), "", http.MethodGet, nil, nil)
+	})
+}
+
+// docsCreatePage — POST /api/docs/spaces/{spaceID}/pages. Body forwarded VERBATIM: Docs owns its
+// schema (Create requires AccessEdit on the space), and re-encoding here would invent a second
+// schema to drift from.
+func (a *app) docsCreatePage() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		spaceID, ok := pathID(w, "spaceID", r.PathValue("spaceID"))
+		if !ok {
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages"), "",
+			http.MethodPost, http.MaxBytesReader(w, r.Body, maxDocsBody), nil)
+	})
+}
+
+// docsUpdatePage — PATCH /api/docs/spaces/{spaceID}/pages/{pageID}. Requires AccessEdit upstream;
+// a foreign id is a 404 there and passes through untouched.
+func (a *app) docsUpdatePage() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		spaceID, ok := pathID(w, "spaceID", r.PathValue("spaceID"))
+		if !ok {
+			return
+		}
+		pageID, ok := pathID(w, "pageID", r.PathValue("pageID"))
+		if !ok {
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID)),
+			"", http.MethodPatch, http.MaxBytesReader(w, r.Body, maxDocsBody), nil)
 	})
 }

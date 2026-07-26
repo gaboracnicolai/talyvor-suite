@@ -89,7 +89,6 @@ type config struct {
 	// TestConfigCarriesNoStartupWorkspaceIdentity.
 	docsBaseURL       string // e.g. http://127.0.0.1:8082
 	docsGatewaySecret string // Docs' GATEWAY_AUTH_SECRET — held here, never emitted
-	docsWorkspaceID   string // the Docs workspace whose reads we serve (pinned, like Lens)
 }
 
 func loadConfig() (config, error) {
@@ -229,7 +228,6 @@ func loadProductConfig(cfg config) (config, error) {
 	cfg.trackGatewaySecret = os.Getenv("TRACK_GATEWAY_SECRET")
 	cfg.docsBaseURL = strings.TrimRight(os.Getenv("DOCS_BASE_URL"), "/")
 	cfg.docsGatewaySecret = os.Getenv("DOCS_GATEWAY_SECRET")
-	cfg.docsWorkspaceID = os.Getenv("DOCS_WORKSPACE_ID")
 
 	// TRACK_WORKSPACE_ID is deliberately NOT read: Track is per-session (track_tenant.go). The
 	// pair below is all-or-none; the workspace is no longer part of the trio.
@@ -254,7 +252,10 @@ func loadProductConfig(cfg config) (config, error) {
 		}
 	}
 
-	docsAny := cfg.docsBaseURL != "" || cfg.docsGatewaySecret != "" || cfg.docsWorkspaceID != ""
+	// DOCS_WORKSPACE_ID IS GONE. It pinned one workspace for every signed-in person; the workspace
+	// now comes from the SESSION (docsWorkspaceFor), the same way Track's does. Two variables, not
+	// three.
+	docsAny := cfg.docsBaseURL != "" || cfg.docsGatewaySecret != ""
 	if docsAny {
 		var missing []string
 		if cfg.docsBaseURL == "" {
@@ -263,12 +264,9 @@ func loadProductConfig(cfg config) (config, error) {
 		if cfg.docsGatewaySecret == "" {
 			missing = append(missing, "DOCS_GATEWAY_SECRET")
 		}
-		if cfg.docsWorkspaceID == "" {
-			missing = append(missing, "DOCS_WORKSPACE_ID")
-		}
 		if len(missing) > 0 {
-			return cfg, fmt.Errorf("Docs upstream partially configured: missing %s — set all three "+
-				"(DOCS_BASE_URL, DOCS_GATEWAY_SECRET, DOCS_WORKSPACE_ID), or none", strings.Join(missing, ", "))
+			return cfg, fmt.Errorf("Docs upstream partially configured: missing %s — set both "+
+				"(DOCS_BASE_URL, DOCS_GATEWAY_SECRET), or neither", strings.Join(missing, ", "))
 		}
 		// Same transport rule as TRACK_BASE_URL: the secret must not travel in clear.
 		if _, err := parseHTTPSOrLoopback("DOCS_BASE_URL", cfg.docsBaseURL); err != nil {

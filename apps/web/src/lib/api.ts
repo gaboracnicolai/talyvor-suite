@@ -168,7 +168,6 @@ export interface AuthMe {
    *  so it goes false by construction the day Docs gains its own tenancy root, and the notice
    *  that depends on it stops rendering rather than becoming a false claim.
    *  Absent (older BFF) is treated as false: silence must not manufacture a warning. */
-  docs_shared?: boolean
   /** The consent Lens RECORDED for this workspace — not what was requested. */
   cache_poolable?: boolean
   /** True only for the login that CREATED the workspace: the one moment the pooling question is

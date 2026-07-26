@@ -55,17 +55,17 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 		},
 		{
 			name: "docs triple on oidc boots",
-			env: with(with(with(validOIDCEnv(),
-				"DOCS_BASE_URL", "http://127.0.0.1:8082"),
-				"DOCS_GATEWAY_SECRET", testDocsSecret),
-				"DOCS_WORKSPACE_ID", "docs-ws-9"),
-		},
-		{
-			name: "docs pair without workspace id refuses",
 			env: with(with(validOIDCEnv(),
 				"DOCS_BASE_URL", "http://127.0.0.1:8082"),
 				"DOCS_GATEWAY_SECRET", testDocsSecret),
-			wantErr: "DOCS_WORKSPACE_ID",
+		},
+		{
+			// DOCS_WORKSPACE_ID is gone — the workspace comes from the session — so the pair rule
+			// is now two variables, not three, and a lone base URL is what refuses.
+			name: "docs base url without the gateway secret refuses",
+			env: with(validOIDCEnv(),
+				"DOCS_BASE_URL", "http://127.0.0.1:8082"),
+			wantErr: "DOCS_GATEWAY_SECRET",
 		},
 		{
 			name:    "docs secret alone refuses",
@@ -89,10 +89,9 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 		},
 		{
 			name: "docs remote http base URL refuses — the secret would travel in clear",
-			env: with(with(with(validOIDCEnv(),
+			env: with(with(validOIDCEnv(),
 				"DOCS_BASE_URL", "http://docs.internal:8082"),
 				"DOCS_GATEWAY_SECRET", testDocsSecret),
-				"DOCS_WORKSPACE_ID", "docs-ws-9"),
 			wantErr: "DOCS_BASE_URL",
 		},
 		{
@@ -113,7 +112,6 @@ func TestLoadConfigProductMatrix(t *testing.T) {
 				"BFF_AUTH_MODE":         "disabled",
 				"DOCS_BASE_URL":         "http://127.0.0.1:8082",
 				"DOCS_GATEWAY_SECRET":   testDocsSecret,
-				"DOCS_WORKSPACE_ID":     "docs-ws-9",
 			},
 			wantErr: "oidc",
 		},
@@ -206,12 +204,22 @@ func productApp(t *testing.T, track, docs *captureUpstream) (*app, *http.Cookie)
 	if docs != nil {
 		cfg.docsBaseURL = docs.srv.URL
 		cfg.docsGatewaySecret = testDocsSecret
-		cfg.docsWorkspaceID = "docs-ws-9"
+		// DOCS NOW DEPENDS ON TRACK. The Docs workspace comes from the session, which Track
+		// bootstraps at login — Docs derives its tenancy from Track upstream too (it enumerates
+		// workspaces from GET /v1/service/workspaces). A Docs-only deployment cannot resolve a
+		// workspace, so these harnesses point Track at the same capture server when the test only
+		// cares about Docs.
+		if cfg.trackBaseURL == "" {
+			cfg.trackBaseURL = docs.srv.URL
+			cfg.trackGatewaySecret = testTrackSecret
+		}
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
 	seedProvisionedSession(auth, "prod-sid", "user-123", "ng@example.com", "u-test-workspace")
-	if track != nil {
-		// The session's Track workspace, as a completed login leaves it.
+	if track != nil || docs != nil {
+		// The session's Track workspace, as a completed login leaves it. DOCS NEEDS IT TOO now:
+		// its workspace is the session's, which Track mints — so a Docs test without one would be
+		// exercising the bootstrap-retry path rather than the route under test.
 		s, _ := auth.sessions.get("prod-sid")
 		s.trackWorkspaceID = "track-ws-7"
 		auth.sessions.put("prod-sid", s)
@@ -261,7 +269,7 @@ func TestTrackProxyAttachesGatewayCredentials(t *testing.T) {
 
 // TestDocsProxyPinsWorkspaceAndAttachesCredentials: same contract for Docs, and
 // the upstream path is built from the CONFIGURED workspace id — never client input.
-func TestDocsProxyPinsWorkspaceAndAttachesCredentials(t *testing.T) {
+func TestDocsProxyScopesToTheSessionWorkspaceAndAttachesCredentials(t *testing.T) {
 	docs := newCaptureUpstream(t, `[{"id":"sp-1","name":"Handbook"}]`)
 	a, sess := productApp(t, nil, docs)
 
@@ -273,7 +281,7 @@ func TestDocsProxyPinsWorkspaceAndAttachesCredentials(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	if docs.path != "/v1/workspaces/docs-ws-9/spaces" {
+	if docs.path != "/v1/workspaces/track-ws-7/spaces" {
 		t.Fatalf("upstream path = %q — must be pinned to the CONFIGURED docs workspace", docs.path)
 	}
 	if got := docs.headers.Get("X-Gateway-Auth"); got != testDocsSecret {
@@ -391,7 +399,7 @@ func TestDocsSpaceDetail_BuildsUpstreamPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	if docs.path != "/v1/spaces/sp-1" {
+	if docs.path != "/v1/workspaces/track-ws-7/spaces/sp-1" {
 		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1", docs.path)
 	}
 	if got := docs.headers.Get("X-Gateway-Auth"); got != testDocsSecret {
@@ -423,7 +431,7 @@ func TestDocsPageDetail_BuildsNestedPathAndStreamsFullContent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	if docs.path != "/v1/spaces/sp-1/pages/pg-1" {
+	if docs.path != "/v1/workspaces/track-ws-7/spaces/sp-1/pages/pg-1" {
 		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1/pages/pg-1", docs.path)
 	}
 	if !strings.Contains(rec.Body.String(), `"content"`) {
@@ -452,7 +460,7 @@ func TestDocsPageList_ProjectsContentAway(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	if docs.path != "/v1/spaces/sp-1/pages" {
+	if docs.path != "/v1/workspaces/track-ws-7/spaces/sp-1/pages" {
 		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1/pages", docs.path)
 	}
 	if !strings.Contains(docs.rawQuery, "limit=50") {
