@@ -1,0 +1,273 @@
+package main
+
+// tenant_callsite_test.go — guards the CALL SITES, not just the property.
+//
+// The behavioural tests in tenant_boundary_test.go prove that two sessions reach two workspaces.
+// But they build their own request against the routes that exist TODAY. If a later refactor
+// reintroduces a startup-scoped workspace — a config field, a path assembled at registration, a
+// handler closing over a captured id — those tests keep passing for every route they happen to
+// name, and say nothing about a new one.
+//
+// That is exactly the failure mode found on the Lens side: a behavioural test that documented the
+// hazard could not notice the production mount moving, because it never read the production file.
+// So this reads the source.
+//
+// THREE THINGS ARE ASSERTED, all of them about shape rather than behaviour — deliberately,
+// because the hazard IS a property of the call site:
+//
+//  1. The config carries no Lens workspace id or workspace key. If neither exists, no handler can
+//     close over one.
+//  2. The Lens workspace path prefix is assembled in exactly ONE place (lensWorkspacePath), which
+//     takes the workspace from a tenant. Everywhere else must go through it.
+//  3. LENS_API_KEY is never read. The BFF must hold the narrow provisioning secret, never the
+//     admin key that authorises every workspace.
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// bffSourceFiles returns this package's non-test .go files, parsed.
+func bffSourceFiles(t *testing.T) map[string]*ast.File {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read package dir: %v", err)
+	}
+	fset := token.NewFileSet()
+	out := map[string]*ast.File{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		out[name] = f
+	}
+	if len(out) == 0 {
+		t.Fatal("no source files found — this guard has drifted from the code it protects")
+	}
+	return out
+}
+
+// 1. No startup-scoped Lens workspace id or key may exist on the config.
+//
+// This is the direct guard on the defect: eight routes used to close over cfg.workspaceID at
+// registration, so every signed-in person shared one workspace. Removing the field is what makes
+// that unrepresentable — so the field must stay removed.
+func TestConfigCarriesNoStartupWorkspaceIdentity(t *testing.T) {
+	banned := map[string]string{
+		"workspaceID":  "a startup-scoped Lens workspace id — routes would close over it at registration and every session would share one workspace",
+		"workspaceKey": "a single shared Lens workspace key — each session must present its OWN provisioned token",
+	}
+	for name, file := range bffSourceFiles(t) {
+		ast.Inspect(file, func(n ast.Node) bool {
+			ts, ok := n.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != "config" {
+				return true
+			}
+			st, ok := ts.Type.(*ast.StructType)
+			if !ok {
+				return true
+			}
+			for _, f := range st.Fields.List {
+				for _, id := range f.Names {
+					if why, bad := banned[id.Name]; bad {
+						t.Errorf("%s: config.%s reintroduces %s. Provision per session instead "+
+							"(tenant.go), and read the workspace from the session per request.",
+							name, id.Name, why)
+					}
+				}
+			}
+			return true
+		})
+	}
+}
+
+// 2. The Lens workspace path prefix may be assembled in exactly one place.
+//
+// lensWorkspacePath takes a tenant, so the workspace can only come from a session. A literal
+// "/v1/workspaces/" anywhere else is a path being built from something else — which is how the
+// original defect was written.
+//
+// Track and Docs are SEPARATE UPSTREAMS with their own pinned workspaces — different services,
+// different tenancy, not Lens. Their files are exempt by name, which is precise: the exemption
+// names exactly what is not Lens rather than pattern-matching a call shape.
+func TestLensWorkspacePathBuiltInExactlyOnePlace(t *testing.T) {
+	const prefix = "/v1/workspaces/"
+	const sanctioned = "lensWorkspacePath"
+
+	found := 0
+	for name, file := range bffSourceFiles(t) {
+		productProxyLits := collectProductProxyLiterals(file)
+		// Which function does each literal sit in?
+		ast.Inspect(file, func(n ast.Node) bool {
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok {
+				return true
+			}
+			ast.Inspect(fn.Body, func(m ast.Node) bool {
+				lit, ok := m.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				if !strings.Contains(lit.Value, prefix) {
+					return true
+				}
+				if fn.Name.Name == sanctioned {
+					found++
+					return true
+				}
+				// Track/Docs upstreams pin their own workspaces and are not Lens tenancy. Exempt
+				// PER LITERAL — a literal handed to proxyProduct addresses another service — rather
+				// than per file or per function, so a Lens path added beside one is still caught.
+				if nonLensUpstreamFile[name] || productProxyLits[lit] {
+					return true
+				}
+				t.Errorf("%s: %s() builds a %q path directly. Build it with %s(t, suffix) so the "+
+					"workspace comes from the session — a path assembled anywhere else is how every "+
+					"user ended up sharing one workspace.", name, fn.Name.Name, prefix, sanctioned)
+				return true
+			})
+			return true
+		})
+	}
+	if found == 0 {
+		t.Fatalf("%s() no longer builds the %q prefix — this guard has drifted from the code it protects",
+			sanctioned, prefix)
+	}
+}
+
+// nonLensUpstreamFile lists files whose "/v1/workspaces/" literals address Track or Docs — other
+// services with their own pinned workspaces — rather than Lens tenancy.
+var nonLensUpstreamFile = map[string]bool{
+	"track.go": true,
+}
+
+// collectProductProxyLiterals returns every string literal appearing inside a proxyProduct(...)
+// call — i.e. a path addressed at Track or Docs, not at Lens.
+func collectProductProxyLiterals(file *ast.File) map[*ast.BasicLit]bool {
+	out := map[*ast.BasicLit]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || !strings.HasPrefix(sel.Sel.Name, "proxyProduct") {
+			return true
+		}
+		for _, a := range call.Args {
+			ast.Inspect(a, func(m ast.Node) bool {
+				if lit, ok := m.(*ast.BasicLit); ok {
+					out[lit] = true
+				}
+				return true
+			})
+		}
+		return true
+	})
+	return out
+}
+
+// 3. The BFF must never read LENS_API_KEY.
+//
+// The admin key makes workspaceAuthorized true for EVERY workspace and unlocks ~30 admin routes; a
+// BFF compromise would escalate from one tenant's data to control of every tenant. The narrow
+// provisioning secret can create a workspace and mint its session token, and nothing else.
+// loadConfig also refuses to start if the variable is set in the environment — this guards the
+// source, that guards the deployment.
+func TestBFFNeverReadsTheLensAdminKey(t *testing.T) {
+	for name, file := range bffSourceFiles(t) {
+		ast.Inspect(file, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			// The refusal in loadConfig names the variable on purpose; that mention is the guard,
+			// not a use. Distinguish by looking for an os.Getenv around it.
+			if strings.Contains(lit.Value, "LENS_API_KEY") && isGetenvArg(file, lit) &&
+				!inFunc(file, lit, "loadConfig") {
+				t.Errorf("%s reads LENS_API_KEY outside loadConfig's refusal. The BFF must hold "+
+					"LENS_PROVISION_SECRET instead: the admin key authorises every workspace and "+
+					"~30 admin routes.", name)
+			}
+			return true
+		})
+	}
+}
+
+// inFunc reports whether lit sits inside the named function. loadConfig READS LENS_API_KEY on
+// purpose — to refuse to start if it is set — and that refusal must not trip the guard that
+// enforces it.
+func inFunc(file *ast.File, lit *ast.BasicLit, fnName string) bool {
+	hit := false
+	for _, d := range file.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != fnName || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if n == ast.Node(lit) {
+				hit = true
+			}
+			return true
+		})
+	}
+	return hit
+}
+
+// isGetenvArg reports whether lit is an argument to os.Getenv / os.LookupEnv.
+func isGetenvArg(file *ast.File, lit *ast.BasicLit) bool {
+	hit := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || (sel.Sel.Name != "Getenv" && sel.Sel.Name != "LookupEnv") {
+			return true
+		}
+		for _, a := range call.Args {
+			if a == ast.Node(lit) {
+				hit = true
+			}
+		}
+		return true
+	})
+	return hit
+}
+
+// A belt-and-braces check that the sanctioned builder really does read the workspace from a
+// tenant, so the guard above cannot be satisfied by a builder that takes a plain string.
+func TestLensWorkspacePathTakesATenant(t *testing.T) {
+	for name, file := range bffSourceFiles(t) {
+		for _, d := range file.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "lensWorkspacePath" {
+				continue
+			}
+			if fn.Type.Params == nil || len(fn.Type.Params.List) == 0 {
+				t.Fatalf("%s: lensWorkspacePath takes no parameters", name)
+			}
+			first := fn.Type.Params.List[0]
+			id, ok := first.Type.(*ast.Ident)
+			if !ok || id.Name != "tenant" {
+				t.Errorf("%s: lensWorkspacePath's first parameter must be a tenant (the session's "+
+					"workspace), got %v — otherwise a caller can pass any workspace id it likes",
+					name, first.Type)
+			}
+			return
+		}
+	}
+	t.Fatalf("lensWorkspacePath not found in %v", filepath.Base("."))
+}

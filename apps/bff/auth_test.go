@@ -48,14 +48,14 @@ func clearBFFEnv(t *testing.T, overrides map[string]string) {
 // bind: https issuer, https public base URL with an empty path, allowlist set.
 func validOIDCEnv() map[string]string {
 	return map[string]string{
-		"LENS_WORKSPACE_KEY":  testKey,
-		"LENS_WORKSPACE_ID":   "trial-ws-1",
-		"BFF_AUTH_MODE":       "oidc",
-		"OIDC_ISSUER":         "https://idp.example.com",
-		"OIDC_CLIENT_ID":      "talyvor-suite",
-		"OIDC_CLIENT_SECRET":  "s3cret",
-		"BFF_PUBLIC_BASE_URL": "https://app.talyvor.com",
-		"OIDC_ALLOWED_EMAILS": "ng@example.com",
+		"LENS_PROVISION_SECRET": testProvisionSecret,
+		"LENS_WORKSPACE_ID":     "trial-ws-1",
+		"BFF_AUTH_MODE":         "oidc",
+		"OIDC_ISSUER":           "https://idp.example.com",
+		"OIDC_CLIENT_ID":        "talyvor-suite",
+		"OIDC_CLIENT_SECRET":    "s3cret",
+		"BFF_PUBLIC_BASE_URL":   "https://app.talyvor.com",
+		"OIDC_ALLOWED_EMAILS":   "ng@example.com",
 	}
 }
 
@@ -70,14 +70,14 @@ func TestLoadConfigAuthMatrix(t *testing.T) {
 			// (key + id + loopback) must now REFUSE to start until the operator
 			// declares an auth mode. Silence is not a mode.
 			name:    "no auth mode refuses",
-			env:     map[string]string{"LENS_WORKSPACE_KEY": testKey, "LENS_WORKSPACE_ID": "trial-ws-1"},
+			env:     map[string]string{"LENS_PROVISION_SECRET": testProvisionSecret},
 			wantErr: "BFF_AUTH_MODE",
 		},
 		{
 			name: "unknown auth mode refuses",
 			env: map[string]string{
-				"LENS_WORKSPACE_KEY": testKey, "LENS_WORKSPACE_ID": "trial-ws-1",
-				"BFF_AUTH_MODE": "clerk",
+				"LENS_PROVISION_SECRET": testProvisionSecret,
+				"BFF_AUTH_MODE":         "clerk",
 			},
 			wantErr: "BFF_AUTH_MODE",
 		},
@@ -85,8 +85,8 @@ func TestLoadConfigAuthMatrix(t *testing.T) {
 			// disabled == inc2 behaviour, explicitly chosen: loopback only.
 			name: "disabled on loopback boots",
 			env: map[string]string{
-				"LENS_WORKSPACE_KEY": testKey, "LENS_WORKSPACE_ID": "trial-ws-1",
-				"BFF_AUTH_MODE": "disabled",
+				"LENS_PROVISION_SECRET": testProvisionSecret,
+				"BFF_AUTH_MODE":         "disabled",
 			},
 		},
 		{
@@ -95,8 +95,8 @@ func TestLoadConfigAuthMatrix(t *testing.T) {
 			// not relax this as a side effect.
 			name: "disabled on non-loopback still refuses",
 			env: map[string]string{
-				"LENS_WORKSPACE_KEY": testKey, "LENS_WORKSPACE_ID": "trial-ws-1",
-				"BFF_AUTH_MODE": "disabled", "BFF_ADDR": "0.0.0.0:8787",
+				"LENS_PROVISION_SECRET": testProvisionSecret,
+				"BFF_AUTH_MODE":         "disabled", "BFF_ADDR": "0.0.0.0:8787",
 			},
 			wantErr: "loopback",
 		},
@@ -403,6 +403,10 @@ func boolPtr(b bool) *bool { return &b }
 func startOIDCBFF(t *testing.T, idp *fakeIDP, gotAuth *string, mutate func(*config)) (*app, *httptest.Server, *http.Client) {
 	t.Helper()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		if gotAuth != nil {
 			*gotAuth = r.Header.Get("Authorization")
 		}
@@ -419,7 +423,7 @@ func startOIDCBFF(t *testing.T, idp *fakeIDP, gotAuth *string, mutate func(*conf
 	}
 	cfg := config{
 		addr: "127.0.0.1:0", lensBaseURL: upstream.URL,
-		workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir(),
+		provisionSecret: testProvisionSecret, webDist: t.TempDir(),
 		authMode: authModeOIDC, oidcIssuer: idp.srv.URL,
 		oidcClientID: idp.clientID, oidcClientSecret: idp.clientSecret,
 		publicBaseURL: "https://" + ln.Addr().String(),
@@ -610,8 +614,8 @@ func TestFullLoginFlowSetsSessionAndAuthorizesAPI(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("/api with session: got %d (%s)", resp.StatusCode, body)
 	}
-	if gotAuth != "Bearer "+testKey {
-		t.Fatalf("upstream did not receive the key: %q", gotAuth)
+	if !strings.HasPrefix(gotAuth, "Bearer ") || gotAuth == "Bearer " {
+		t.Fatalf("upstream did not receive a bearer credential: %q", gotAuth)
 	}
 	if strings.Contains(body, "tlv_ws_") {
 		t.Fatalf("key leaked: %s", body)
@@ -771,7 +775,7 @@ func TestAllowlistWildcard(t *testing.T) {
 // session — missing, garbage, and expired cookies all refuse explicitly.
 func TestAPIRequiresSession(t *testing.T) {
 	cfg := config{
-		lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, sessionTTL: time.Hour,
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
@@ -818,7 +822,7 @@ func TestAPIRequiresSession(t *testing.T) {
 	}
 
 	// Valid session: through.
-	auth.sessions.put("valid-sid", session{sub: "u", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+	seedProvisionedSession(auth, "valid-sid", "u", "ng@example.com", "u-test-workspace")
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodGet, "/api/context", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "valid-sid"})
@@ -957,7 +961,7 @@ func TestReturnToSanitised(t *testing.T) {
 // and /api needs no session — the loopback bind is the guard, as in inc2.
 func TestAuthEndpointsInDisabledMode(t *testing.T) {
 	a := newApp(config{
-		lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret,
 		webDist: t.TempDir(), authMode: authModeDisabled,
 	}, nil)
 
@@ -1022,7 +1026,7 @@ func TestKeyNeverReachesResponseOIDC(t *testing.T) {
 		resp, body := doReq(t, client, http.MethodGet, ts.URL+ep)
 		sweep(ep, resp, body)
 	}
-	if gotAuth != "Bearer "+testKey {
-		t.Fatalf("upstream never received the key: %q", gotAuth)
+	if !strings.HasPrefix(gotAuth, "Bearer ") || gotAuth == "Bearer " {
+		t.Fatalf("upstream never received a bearer credential: %q", gotAuth)
 	}
 }

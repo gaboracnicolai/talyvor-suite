@@ -153,6 +153,15 @@ export interface AuthMe {
   mode: 'oidc' | 'disabled'
   authenticated: boolean
   user: { sub: string; email: string } | null
+  /** This session's OWN Lens workspace, derived by Lens from the identity. Opaque to the client;
+   *  shown only so two people can tell their screens apart. The session's token never appears
+   *  here — it stays server-side in the BFF. */
+  workspace_id?: string
+  /** The consent Lens RECORDED for this workspace — not what was requested. */
+  cache_poolable?: boolean
+  /** True only for the login that CREATED the workspace: the one moment the pooling question is
+   *  put to the person, before anything of theirs could be shared. */
+  needs_pooling_choice?: boolean
 }
 
 /** GET /api/spend/month — Lens spend/current-month. A float upstream, so the

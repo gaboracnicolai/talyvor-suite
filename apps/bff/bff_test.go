@@ -20,6 +20,10 @@ const testKey = "tlv_ws_SECRET0000_must_never_reach_the_browser_0123456789"
 func newTestApp(t *testing.T, gotAuth *string) *app {
 	t.Helper()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		if gotAuth != nil {
 			*gotAuth = r.Header.Get("Authorization")
 		}
@@ -29,12 +33,11 @@ func newTestApp(t *testing.T, gotAuth *string) *app {
 	}))
 	t.Cleanup(upstream.Close)
 	return newApp(config{
-		addr:         "127.0.0.1:0",
-		lensBaseURL:  upstream.URL,
-		workspaceKey: testKey,
-		workspaceID:  "trial-ws-1",
-		webDist:      t.TempDir(), // no bundle; SPA-specific tests set their own
-		authMode:     authModeDisabled,
+		addr:            "127.0.0.1:0",
+		lensBaseURL:     upstream.URL,
+		provisionSecret: testProvisionSecret,
+		webDist:         t.TempDir(), // no bundle; SPA-specific tests set their own
+		authMode:        authModeDisabled,
 	}, nil)
 }
 
@@ -82,7 +85,7 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 
 	// And the flip side: the upstream MUST have received the key — proving the proxy is
 	// actually attaching it server-side, not simply dropping it.
-	if gotAuth != "Bearer "+testKey {
+	if !strings.HasPrefix(gotAuth, "Bearer ") || gotAuth == "Bearer " {
 		t.Fatalf("upstream did not receive the key server-side: got %q", gotAuth)
 	}
 }
@@ -92,12 +95,16 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 func gatedApp(t *testing.T, status int, body string) *app {
 	t.Helper()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(upstream.Close)
-	return newApp(config{lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir(), authMode: authModeDisabled}, nil)
+	return newApp(config{lensBaseURL: upstream.URL, provisionSecret: testProvisionSecret, webDist: t.TempDir(), authMode: authModeDisabled}, nil)
 }
 
 // TestGatedCapabilityDisabled: a flag-off Lens route returns a generic 404 (indistinguishable
@@ -169,8 +176,11 @@ func TestContextExposesWorkspaceNotKey(t *testing.T) {
 		t.Fatalf("context: got %d", rec.Code)
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "trial-ws-1") {
-		t.Fatalf("context: missing workspace id: %s", body)
+	// /api/context reports THIS session's workspace — a derived u<base32> id, not a configured
+	// one. Any non-empty derived id is correct; what matters is that it is present and that no
+	// credential rode along with it.
+	if !strings.Contains(body, `"workspace_id":"u`) {
+		t.Fatalf("context: missing this session's derived workspace id: %s", body)
 	}
 	if strings.Contains(body, "tlv_ws_") {
 		t.Fatalf("context: leaked a key: %s", body)
@@ -228,10 +238,14 @@ func TestLimitOffsetSanitised(t *testing.T) {
 // masked as a 200).
 func TestUpstreamStatusPassthrough(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		http.Error(w, "404 page not found", http.StatusNotFound)
 	}))
 	t.Cleanup(upstream.Close)
-	a := newApp(config{lensBaseURL: upstream.URL, workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: t.TempDir(), authMode: authModeDisabled}, nil)
+	a := newApp(config{lensBaseURL: upstream.URL, provisionSecret: testProvisionSecret, webDist: t.TempDir(), authMode: authModeDisabled}, nil)
 
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/lxc/history", nil))
@@ -243,11 +257,10 @@ func TestUpstreamStatusPassthrough(t *testing.T) {
 // TestUpstreamUnreachable proves a dead Lens becomes a clean 502, not a panic or a leak.
 func TestUpstreamUnreachable(t *testing.T) {
 	a := newApp(config{
-		lensBaseURL:  "http://127.0.0.1:1", // nothing listens
-		workspaceKey: testKey,
-		workspaceID:  "trial-ws-1",
-		webDist:      t.TempDir(),
-		authMode:     authModeDisabled,
+		lensBaseURL:     "http://127.0.0.1:1", // nothing listens
+		provisionSecret: testProvisionSecret,
+		webDist:         t.TempDir(),
+		authMode:        authModeDisabled,
 	}, nil)
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tokens/balance", nil))
@@ -272,7 +285,7 @@ func TestSPAFallback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dist, "assets", "app.js"), []byte("console.log(1)"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	a := newApp(config{lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1", webDist: dist, authMode: authModeDisabled}, nil)
+	a := newApp(config{lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret, webDist: dist, authMode: authModeDisabled}, nil)
 
 	// A real asset is served as itself.
 	rec := httptest.NewRecorder()
@@ -308,17 +321,17 @@ func TestRequireLoopback(t *testing.T) {
 
 // TestLoadConfigFailClosed proves the process refuses to start without a key or workspace.
 func TestLoadConfigFailClosed(t *testing.T) {
-	for _, k := range []string{"BFF_ADDR", "LENS_BASE_URL", "LENS_WORKSPACE_KEY", "LENS_WORKSPACE_ID", "WEB_DIST"} {
+	for _, k := range []string{"BFF_ADDR", "LENS_BASE_URL", "LENS_PROVISION_SECRET", "LENS_UNUSED_ID", "WEB_DIST"} {
 		t.Setenv(k, "")
 	}
 	if _, err := loadConfig(); err == nil {
 		t.Fatal("loadConfig with no key should fail")
 	}
-	t.Setenv("LENS_WORKSPACE_KEY", testKey)
+	t.Setenv("LENS_PROVISION_SECRET", testKey)
 	if _, err := loadConfig(); err == nil {
 		t.Fatal("loadConfig with no workspace id should fail")
 	}
-	t.Setenv("LENS_WORKSPACE_ID", "trial-ws-1")
+	t.Setenv("LENS_UNUSED_ID", "trial-ws-1")
 	t.Setenv("BFF_ADDR", "0.0.0.0:8787")
 	if _, err := loadConfig(); err == nil {
 		t.Fatal("loadConfig with a non-loopback bind should fail")
@@ -358,10 +371,10 @@ func TestLoadConfigLensBaseURLTransport(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			clearBFFEnv(t, map[string]string{
-				"LENS_WORKSPACE_KEY": testKey,
-				"LENS_WORKSPACE_ID":  "trial-ws-1",
-				"BFF_AUTH_MODE":      "disabled",
-				"LENS_BASE_URL":      c.lensURL,
+				"LENS_PROVISION_SECRET": testKey,
+				"LENS_UNUSED_ID":        "trial-ws-1",
+				"BFF_AUTH_MODE":         "disabled",
+				"LENS_BASE_URL":         c.lensURL,
 			})
 			_, err := loadConfig()
 			if c.wantErr == "" {

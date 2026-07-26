@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,11 @@ type app struct {
 	auth   *authenticator // nil ⇔ authMode=disabled (loopback-only, inc2 posture)
 	mux    *http.ServeMux
 	client *http.Client
+
+	// devMu/devCached hold the loopback-dev tenant (authMode=disabled only). In oidc mode every
+	// tenant comes from a session and these are never touched.
+	devMu     sync.Mutex
+	devCached tenant
 }
 
 func newApp(cfg config, auth *authenticator) *app {
@@ -47,10 +53,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	// The read-only Lens proxies, ALL behind requireSession. Each is pinned to a fixed
 	// upstream path built from the CONFIGURED workspace id — never from client input — so
 	// this can never be turned into an open proxy. Only limit/offset pass through, sanitised.
-	a.mux.HandleFunc("/api/lxc/balance", a.requireSession(a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/lxc/balance")))
-	a.mux.HandleFunc("/api/tokens/balance", a.requireSession(a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/tokens/balance")))
-	a.mux.HandleFunc("/api/tokens/history", a.requireSession(a.proxyPaged("/v1/workspaces/"+cfg.workspaceID+"/tokens/history")))
-	a.mux.HandleFunc("/api/lxc/history", a.requireSession(a.proxyPaged("/v1/workspaces/"+cfg.workspaceID+"/lxc/history")))
+	a.mux.HandleFunc("/api/lxc/balance", a.wsProxyFixed("/lxc/balance"))
+	a.mux.HandleFunc("/api/tokens/balance", a.wsProxyFixed("/tokens/balance"))
+	a.mux.HandleFunc("/api/tokens/history", a.wsProxyPaged("/tokens/history"))
+	a.mux.HandleFunc("/api/lxc/history", a.wsProxyPaged("/lxc/history"))
 	a.mux.HandleFunc("/api/workspaces", a.requireSession(a.proxyFixed("/v1/workspaces")))
 
 	// CAPABILITY-GATED endpoints. Lens registers these routes only when their flag is on;
@@ -92,7 +98,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	// WRITE PATH: it mints a credential and deliberately returns it exactly once.
 	// See keys.go for the CSRF posture (Lax + strict same-Origin) and the
 	// no-store / never-logged discipline around that one response.
-	a.mux.HandleFunc("/api/keys", a.requireSession(a.handleKeys))
+	a.mux.HandleFunc("/api/keys", a.requireTenant(a.handleKeys))
+
+	// SIGNUP: the cross-tenant pooling choice. A workspace is created DECLINED and the person is
+	// asked whether to turn sharing on, so nobody's answers can be served to another company
+	// before they have been told. See tenant.go's provisionForSession.
+	a.mux.HandleFunc("/api/signup/pooling", a.requireTenant(a.handlePoolingChoice))
 
 	// LXC top-up (this PR) — the BFF's SECOND write path, and the front door for
 	// the only way a customer can buy LXC. GET serves the allowed amounts (so the
@@ -101,8 +112,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	// mint above — session-gated, strict same-Origin, key attached server-side,
 	// no-store on the response. See billing.go for the allow-list mirroring and
 	// for why a 404 from Lens means "billing is off" on this route specifically.
-	a.mux.HandleFunc("/api/lxc/topup-options", a.requireSession(a.handleTopUpOptions))
-	a.mux.HandleFunc("/api/lxc/checkout", a.requireSession(a.handleLXCCheckout))
+	a.mux.HandleFunc("/api/lxc/topup-options", a.requireTenant(a.handleTopUpOptions))
+	a.mux.HandleFunc("/api/lxc/checkout", a.requireTenant(a.handleLXCCheckout))
 
 	// USAGE — the cache panel's real numbers, and per-model usage in the same call.
 	// Lens has served this all along (internal/api/server.go: "per-model usage +
@@ -136,7 +147,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	// config — client input never shapes an upstream path.
 	a.mux.HandleFunc("/api/members", a.requireSession(a.proxyProduct(
 		"track", cfg.trackBaseURL, cfg.trackGatewaySecret, "/v1/workspaces/"+cfg.trackWorkspaceID+"/members")))
-	a.mux.HandleFunc("/api/spend/month", a.requireSession(a.proxyFixed("/v1/workspaces/"+cfg.workspaceID+"/spend/current-month")))
+	a.mux.HandleFunc("/api/spend/month", a.wsProxyFixed("/spend/current-month"))
 
 	// Unknown /api/* → 401 without a session, JSON 404 with one (never fall through to
 	// the SPA and hand back index.html).
@@ -164,7 +175,7 @@ func (a *app) handleContext(w http.ResponseWriter, r *http.Request) {
 	}
 	// Deliberately NOT the key — only the non-secret coordinates the UI needs.
 	writeJSON(w, http.StatusOK, map[string]string{
-		"workspace_id":  a.cfg.workspaceID,
+		"workspace_id":  sessionWorkspaceID(a, r),
 		"lens_base_url": a.cfg.lensBaseURL,
 	})
 }
@@ -184,19 +195,19 @@ func methodNotAllowed(w http.ResponseWriter, allow string) {
 
 // proxyFixed forwards GET → a fixed upstream path with no query parameters.
 func (a *app) proxyFixed(upstreamPath string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireTenant(func(w http.ResponseWriter, r *http.Request, t tenant) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		a.forward(w, r, upstreamPath, "")
-	}
+		a.forward(w, r, t, upstreamPath, "")
+	})
 }
 
 // proxyPaged forwards GET → a fixed upstream path, passing through ONLY limit and
 // offset, each sanitised. No other client query parameter reaches Lens.
 func (a *app) proxyPaged(upstreamPath string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireTenant(func(w http.ResponseWriter, r *http.Request, t tenant) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
@@ -204,8 +215,8 @@ func (a *app) proxyPaged(upstreamPath string) http.HandlerFunc {
 		limit := clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
 		offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<31-1)
 		raw := "limit=" + strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
-		a.forward(w, r, upstreamPath, raw)
-	}
+		a.forward(w, r, t, upstreamPath, raw)
+	})
 }
 
 // proxyWindowed forwards GET → a fixed upstream path, passing through ONLY `days`,
@@ -214,7 +225,7 @@ func (a *app) proxyPaged(upstreamPath string) http.HandlerFunc {
 // parameter is forwarded rather than fixed, and clamped rather than trusted. Everything
 // else the client sends is dropped, exactly as proxyPaged drops all but limit/offset.
 func (a *app) proxyWindowed(upstreamPath string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireTenant(func(w http.ResponseWriter, r *http.Request, t tenant) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
@@ -223,8 +234,8 @@ func (a *app) proxyWindowed(upstreamPath string) http.HandlerFunc {
 		// the BFF contract states the upstream's truth rather than a second opinion. The
 		// 365 cap is this BFF's: a year is the longest window any screen offers.
 		days := clampInt(r.URL.Query().Get("days"), 30, 1, 365)
-		a.forward(w, r, upstreamPath, "days="+strconv.Itoa(days))
-	}
+		a.forward(w, r, t, upstreamPath, "days="+strconv.Itoa(days))
+	})
 }
 
 // clampInt parses s and clamps it to [lo, hi]; a missing or unparseable value yields def.
@@ -247,7 +258,7 @@ func clampInt(s string, def, lo, hi int) int {
 
 // doGet issues the upstream GET with the workspace key attached server-side. The key is
 // set on the OUTBOUND request only; it is never written to any response.
-func (a *app) doGet(ctx context.Context, upstreamPath, rawQuery string) (*http.Response, error) {
+func (a *app) doGet(ctx context.Context, t tenant, upstreamPath, rawQuery string) (*http.Response, error) {
 	u := a.cfg.lensBaseURL + upstreamPath
 	if rawQuery != "" {
 		u += "?" + rawQuery
@@ -256,7 +267,10 @@ func (a *app) doGet(ctx context.Context, upstreamPath, rawQuery string) (*http.R
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+a.cfg.workspaceKey) // ← the key, server-side only
+	// The SESSION's workspace-scoped JWT — minted by Lens for this person's workspace only, held
+	// server-side, never emitted. Lens resolves the workspace from the signed claim, so this
+	// credential cannot read another tenant even if a path were built wrongly.
+	req.Header.Set("Authorization", "Bearer "+t.token)
 	req.Header.Set("Accept", "application/json")
 	return a.client.Do(req)
 }
@@ -265,8 +279,8 @@ func (a *app) doGet(ctx context.Context, upstreamPath, rawQuery string) (*http.R
 // status is preserved so a real not-found or error surfaces honestly rather than masked.
 // (Capability-gated endpoints use proxyGated instead — a 404 there is "disabled", not a
 // fault.)
-func (a *app) forward(w http.ResponseWriter, r *http.Request, upstreamPath, rawQuery string) {
-	resp, err := a.doGet(r.Context(), upstreamPath, rawQuery)
+func (a *app) forward(w http.ResponseWriter, r *http.Request, t tenant, upstreamPath, rawQuery string) {
+	resp, err := a.doGet(r.Context(), t, upstreamPath, rawQuery)
 	if err != nil {
 		log.Printf("bff: upstream %s: %v", upstreamPath, err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
@@ -300,12 +314,12 @@ func (a *app) forward(w http.ResponseWriter, r *http.Request, upstreamPath, rawQ
 // laundered into "disabled". Such an endpoint must NOT use proxyGated; it needs a
 // discriminator (e.g. probe the collection root, or a Lens capability header).
 func (a *app) proxyGated(upstreamPath, capability string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return a.requireTenant(func(w http.ResponseWriter, r *http.Request, t tenant) {
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		resp, err := a.doGet(r.Context(), upstreamPath, "")
+		resp, err := a.doGet(r.Context(), t, upstreamPath, "")
 		if err != nil {
 			log.Printf("bff: upstream %s: %v", upstreamPath, err)
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
@@ -326,7 +340,7 @@ func (a *app) proxyGated(upstreamPath, capability string) http.HandlerFunc {
 		default:
 			writeJSON(w, resp.StatusCode, map[string]string{"error": "lens upstream error", "capability": capability})
 		}
-	}
+	})
 }
 
 // proxyProduct forwards GET → a fixed path on a gatewayauth-gated product upstream

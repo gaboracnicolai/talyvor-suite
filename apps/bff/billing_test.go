@@ -39,6 +39,10 @@ func newCheckoutUpstream(t *testing.T) *checkoutUpstream {
 	t.Helper()
 	u := &checkoutUpstream{}
 	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
 		u.gotAuth = r.Header.Get("Authorization")
 		u.gotMethod = r.Method
 		u.gotPath = r.URL.Path
@@ -65,12 +69,12 @@ func newCheckoutUpstream(t *testing.T) *checkoutUpstream {
 func checkoutApp(t *testing.T, up *checkoutUpstream) (*app, *http.Cookie) {
 	t.Helper()
 	cfg := config{
-		lensBaseURL: up.srv.URL, workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: up.srv.URL, provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
 		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
-	auth.sessions.put("bill-sid", session{sub: "u1", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+	seedProvisionedSession(auth, "bill-sid", "u1", "ng@example.com", "u-test-workspace")
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 	return a, &http.Cookie{Name: sessionCookieName, Value: "bill-sid"}
@@ -167,11 +171,11 @@ func TestCheckoutForwardsToPinnedWorkspaceWithKeyAndReturnsTheURL(t *testing.T) 
 	if up.gotMethod != http.MethodPost {
 		t.Fatalf("upstream method = %q, want POST", up.gotMethod)
 	}
-	if up.gotPath != "/v1/workspaces/trial-ws-1/billing/checkout" {
-		t.Fatalf("upstream path = %q — must be pinned to the CONFIGURED workspace", up.gotPath)
+	if up.gotPath != "/v1/workspaces/u-test-workspace/billing/checkout" {
+		t.Fatalf("upstream path = %q — must be scoped to the SESSION's workspace", up.gotPath)
 	}
-	if up.gotAuth != "Bearer "+testKey {
-		t.Fatalf("workspace key not attached server-side: %q", up.gotAuth)
+	if !strings.HasPrefix(up.gotAuth, "Bearer ") || up.gotAuth == "Bearer " {
+		t.Fatalf("session's workspace token not attached server-side: %q", up.gotAuth)
 	}
 	// Sanitise by reconstruction: ONLY usd_cents crosses to Lens.
 	var sent map[string]any
@@ -343,7 +347,7 @@ func TestTopUpOptionsProbeCannotStartAPurchase(t *testing.T) {
 	req.AddCookie(sess)
 	a.ServeHTTP(rec, req)
 
-	if up.gotPath != "/v1/workspaces/trial-ws-1/billing/checkout" {
+	if up.gotPath != "/v1/workspaces/u-test-workspace/billing/checkout" {
 		t.Fatalf("probe path = %q — must probe the very route the button uses, pinned to the "+
 			"configured workspace", up.gotPath)
 	}
@@ -354,8 +358,8 @@ func TestTopUpOptionsProbeCannotStartAPurchase(t *testing.T) {
 		t.Fatalf("probe body = %q — it MUST be empty; anything Lens can decode risks "+
 			"starting a real purchase", up.gotBody)
 	}
-	if up.gotAuth != "Bearer "+testKey {
-		t.Fatalf("probe did not carry the workspace key: %q", up.gotAuth)
+	if !strings.HasPrefix(up.gotAuth, "Bearer ") || up.gotAuth == "Bearer " {
+		t.Fatalf("probe did not carry the session's workspace token: %q", up.gotAuth)
 	}
 }
 
@@ -382,12 +386,12 @@ func TestTopUpOptionsAssumesOnWhenTheProbeIsInconclusive(t *testing.T) {
 
 	t.Run("lens unreachable", func(t *testing.T) {
 		cfg := config{
-			lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1",
+			lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret,
 			authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
 			publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
 		}
 		auth := newSessionOnlyAuthenticator(cfg)
-		auth.sessions.put("bill-sid", session{sub: "u1", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+		seedProvisionedSession(auth, "bill-sid", "u1", "ng@example.com", "u-test-workspace")
 		a := newApp(cfg, auth)
 		a.cfg.webDist = t.TempDir()
 
@@ -473,12 +477,12 @@ func TestCheckoutSurfacesLensAmountRefusalDistinctly(t *testing.T) {
 
 func TestCheckoutSurfacesUnreachableLens(t *testing.T) {
 	cfg := config{
-		lensBaseURL: "http://127.0.0.1:1", workspaceKey: testKey, workspaceID: "trial-ws-1",
+		lensBaseURL: "http://127.0.0.1:1", provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
 		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
-	auth.sessions.put("bill-sid", session{sub: "u1", email: "ng@example.com", expires: time.Now().Add(time.Hour)})
+	seedProvisionedSession(auth, "bill-sid", "u1", "ng@example.com", "u-test-workspace")
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
 
