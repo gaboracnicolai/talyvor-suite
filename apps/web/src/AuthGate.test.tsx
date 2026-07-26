@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { AuthGate } from './components/AuthGate'
 import type { AuthMe } from './lib/api'
 
@@ -27,11 +28,17 @@ function stubMe(me: AuthMe) {
 
 function renderGate() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // MemoryRouter is not scaffolding: AuthGate routes a first-time user to /setup after the
+  // pooling choice, so it now needs a router — exactly as it has in App, where it has always
+  // been inside BrowserRouter. Rendering it outside one was testing an arrangement that does
+  // not exist in production.
   return render(
     <QueryClientProvider client={qc}>
-      <AuthGate>
-        <div data-testid="the-app">app content</div>
-      </AuthGate>
+      <MemoryRouter>
+        <AuthGate>
+          <div data-testid="the-app">app content</div>
+        </AuthGate>
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }

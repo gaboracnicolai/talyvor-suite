@@ -147,16 +147,56 @@ export function Landing() {
               agent — four tools that behave as one system, on your infrastructure, with your
               provider keys.
             </p>
+            {/* ── THE PRIMARY ACTION, and why it says "Sign in" ────────────────────────
+                This was a mailto: — the weakest link on the page for a product with a working
+                checkout behind it. It now points at /auth/login, the BFF's OIDC entry point.
+
+                THE WORDING IS THE DECISION, not the destination. Three candidates:
+
+                  "Get started free" / "Sign up free" — promises a stranger can complete the
+                    flow. They cannot: the Google OAuth app is in Testing mode, so anyone not on
+                    the test-user list is stopped AT GOOGLE, on a screen we do not control and
+                    cannot explain ourselves on. A button that bounces someone off a third
+                    party's error is worse than no button, because they blame us and leave.
+                  "Request access" — honest, but it routes everyone through email even though
+                    the login works perfectly for the people who do have access.
+                  "Sign in" — accurate today in both directions: it is exactly what the flow
+                    does, it works for everyone entitled to use it, and it promises nothing to
+                    anyone who is not.
+
+                So: "Sign in", with the contact route kept ADJACENT and labelled for the people
+                it is actually for. Honest is not the same as unhelpful — a stranger must not be
+                left guessing, so the line below tells them what to do instead.
+
+                ⚠ WHEN THE OAUTH APP IS PUBLISHED, this is the thing to revisit: at that point
+                "Get started free" becomes true and this argument expires.
+                FirstRunGaps.test.tsx pins both halves — that the action reaches /auth/login,
+                and that no self-serve promise appears while the IdP still gates entry. */}
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              {HAS_CONTACT ? (
-                <Button asChild variant="primary">
-                  <a href={CONTACT_MAILTO}>Get in touch</a>
-                </Button>
-              ) : null}
-              <Button asChild variant={HAS_CONTACT ? 'default' : 'primary'}>
+              <Button asChild variant="primary">
+                <a href="/auth/login">Sign in</a>
+              </Button>
+              <Button asChild>
                 <a href="#suite">See the suite</a>
               </Button>
             </div>
+            {/* Rendered whether or not a contact address is configured: a stranger who clicks
+                Sign in and is stopped at the identity provider needs to know WHY regardless.
+                Without an address the sentence still explains; with one it also offers a route. */}
+            <p className="mt-4 text-body text-muted">
+              Don’t have access yet? Talyvor is in a closed trial, so accounts are set up by hand
+              {HAS_CONTACT ? (
+                <>
+                  {' — '}
+                  <a href={CONTACT_MAILTO} className="underline">
+                    get in touch
+                  </a>
+                  .
+                </>
+              ) : (
+                '.'
+              )}
+            </p>
             <p className="mt-4 text-micro text-faint">
               Pre-launch — onboarding a small number of engineering teams.
             </p>
