@@ -6,6 +6,7 @@ import { ApiError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
 import { Ledger } from './areas/lens/Ledger'
 import { Keys } from './areas/lens/Keys'
+import { Setup } from './areas/lens/Setup'
 import { Spend } from './areas/lens/Spend'
 import { Members } from './areas/lens/Members'
 import { Settings } from './areas/lens/Sharing'
@@ -64,6 +65,7 @@ function titleFor(pathname: string): string {
     '/': 'Overview',
     '/ledger': 'Ledger',
     '/keys': 'API keys',
+    '/setup': 'Setup',
     '/spend': 'Spend & routing',
     '/members': 'Members',
     '/settings': 'Settings',
@@ -101,6 +103,9 @@ function Sidebar() {
         {/* Buying LXC has to be findable, not a URL you have to be told. The
             wildcard keeps it highlighted on the Stripe return pages too. */}
         {item('/billing', 'Billing', true)}
+        {/* Setup sits beside Keys because minting a key and being told what to do with it
+            are one task; a trial user who finds only Keys is stuck holding a credential. */}
+        {item('/setup', 'Setup')}
         {item('/keys', 'API keys')}
         {item('/spend', 'Spend & routing')}
         {item('/members', 'Members')}
@@ -151,6 +156,7 @@ function AppShell() {
         <Route path="/billing/success" element={<BillingSuccess />} />
         <Route path="/billing/cancel" element={<BillingCancel />} />
         <Route path="/keys" element={<Keys />} />
+        <Route path="/setup" element={<Setup />} />
         <Route path="/spend" element={<Spend />} />
         <Route path="/members" element={<Members />} />
         <Route path="/settings" element={<Settings />} />

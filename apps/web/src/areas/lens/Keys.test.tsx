@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Keys } from './Keys'
 
@@ -50,10 +51,15 @@ function mockKeys({ postStatus = 201 }: { postStatus?: number } = {}) {
 
 function renderKeys() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // MemoryRouter: the screen now links to /setup, so a router context is required. Wrapping
+  // here rather than dropping the link — someone who mints a key on this screen and is told
+  // nothing about using it is the exact gap /setup exists to close.
   return render(
-    <QueryClientProvider client={client}>
-      <Keys />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <Keys />
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 

@@ -9,6 +9,8 @@
   "src/areas/lens/Ledger.test.tsx": 6,
   "src/areas/lens/Members.test.tsx": 6,
   "src/areas/lens/Overview.test.tsx": 10,
+  "src/areas/lens/Setup.test.tsx": 15,
+  "src/areas/lens/setupSnippets.test.ts": 14,
   "src/areas/lens/Spend.test.tsx": 7,
   "src/areas/lens/spendMath.test.ts": 9,
   "src/areas/lens/TopUp.test.tsx": 16,

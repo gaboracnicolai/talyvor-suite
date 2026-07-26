@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input, RevealOnce, Row } from '@talyvor/ui'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
@@ -67,6 +68,15 @@ export function Keys() {
 
       <Card>
         <CardHeader>API keys</CardHeader>
+          {/* The gap this closes: someone mints a key here and has nowhere to learn what to do
+              with it. Setup is where the two environment variables live. */}
+          <div className="px-gutter pt-3 text-caption text-muted">
+            Got a key and not sure what to do with it?{' '}
+            <Link className="underline" to="/setup">
+              Setup
+            </Link>{' '}
+            has the two lines for Claude Code, Cursor, and anything on the OpenAI SDK.
+          </div>
         <Row
           label="Create a key"
           hint="Minted server-side with the proxy scope; the key is shown once, then only its identifier remains"

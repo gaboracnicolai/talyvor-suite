@@ -52,7 +52,13 @@ export interface LXCLedgerEntry {
 /** GET /api/context — BFF-originated; never contains the key. */
 export interface BffContext {
   workspace_id: string
+  /** How the BFF reaches Lens — a loopback/compose address. NOT for display: a customer
+   *  cannot resolve it. */
   lens_base_url: string
+  /** How a CUSTOMER reaches Lens — the origin for OPENAI_BASE_URL / ANTHROPIC_BASE_URL.
+   *  Empty when LENS_PUBLIC_BASE_URL is unset; callers must branch on that rather than fall
+   *  back to lens_base_url. */
+  lens_public_base_url: string
 }
 
 /** Which token a ledger/numeral belongs to. Drives the unit tick (copper LENS / steel LXC). */

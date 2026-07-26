@@ -49,7 +49,15 @@ const (
 // workspace the read paths cannot be built. Fail-closed on either.
 type config struct {
 	addr        string // BFF bind address; loopback unless oidc+https (see loadConfig)
-	lensBaseURL string // e.g. http://127.0.0.1:8080
+	lensBaseURL string // e.g. http://127.0.0.1:8080 — how the BFF REACHES Lens
+	// lensPublicBaseURL is how a CUSTOMER reaches Lens: the origin they put in
+	// OPENAI_BASE_URL / ANTHROPIC_BASE_URL. Deliberately separate from lensBaseURL, which is a
+	// loopback or compose-internal address — printing that on the setup page would hand every
+	// trial user a URL that cannot resolve from their machine.
+	//
+	// NO DEFAULT, on purpose. Unset surfaces as empty so the setup page can say "ask your
+	// operator" instead of silently falling back to the internal address.
+	lensPublicBaseURL string
 	// provisionSecret gates Lens's POST /v1/provision — the narrow route that turns an
 	// authenticated identity into a tenant. This is deliberately NOT LENS_API_KEY: the admin key
 	// makes workspaceAuthorized true for EVERY workspace and unlocks ~30 admin routes, so a BFF
@@ -82,11 +90,12 @@ type config struct {
 
 func loadConfig() (config, error) {
 	cfg := config{
-		addr:            envOr("BFF_ADDR", "127.0.0.1:8787"),
-		lensBaseURL:     strings.TrimRight(envOr("LENS_BASE_URL", "http://127.0.0.1:8080"), "/"),
-		provisionSecret: os.Getenv("LENS_PROVISION_SECRET"),
-		webDist:         envOr("WEB_DIST", "../web/dist"),
-		authMode:        os.Getenv("BFF_AUTH_MODE"),
+		addr:              envOr("BFF_ADDR", "127.0.0.1:8787"),
+		lensBaseURL:       strings.TrimRight(envOr("LENS_BASE_URL", "http://127.0.0.1:8080"), "/"),
+		lensPublicBaseURL: strings.TrimRight(os.Getenv("LENS_PUBLIC_BASE_URL"), "/"),
+		provisionSecret:   os.Getenv("LENS_PROVISION_SECRET"),
+		webDist:           envOr("WEB_DIST", "../web/dist"),
+		authMode:          os.Getenv("BFF_AUTH_MODE"),
 	}
 	// Per-tenant provisioning replaces the single shared workspace key. Refuse to start without
 	// it: silently falling back to one shared workspace is exactly the state this replaced.
