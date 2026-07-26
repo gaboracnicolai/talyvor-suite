@@ -620,6 +620,16 @@ docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
 #   deleted them. Re-run the INSERT with source = 'seed', then repeat this check.
 ```
 
+> ⚠ **AND MAKE SURE THIS CHECK CAN FAIL.** If member sync is not configured the syncer
+> returns before reconciling at all (`internal/trackintegration/syncer.go:74-86` — no Track
+> client, no store, or `MemberSyncConfigured()` false). Then **nothing prunes**, the rows
+> survive for the wrong reason, and a `source = 'track'` mistake passes this test silently.
+>
+> The step above is correct *and* its check can pass without testing anything — two different
+> facts. Confirm the sync actually ran before trusting a pass: the `member sync — pull failed,
+> skipping workspace` WARN in *Expected noise* is the evidence. **No sync line in the logs
+> after the restart means this verification proved nothing.**
+
 #### ⚠⚠ THE FAILURE MODE — omitting `source` looks fine and reverts ~15 minutes later
 
 `source` **defaults to `'track'`**, so a seed written without that column is
@@ -1222,6 +1232,13 @@ broken. Most of them are not. This section exists so a known-harmless line does 
 trigger the rollback of a working deploy — **and so that anything NOT listed here is
 treated as real.** A warning that repeats forever and means nothing is how people
 learn to stop reading logs, and the next warning will be a real one.
+
+⚠ **THE SET IS CLOSED, AND THAT IS ONLY TRUE IF ADDING TO IT COSTS SOMETHING.** A line
+gets a row here by someone establishing *why* it is emitted and *why* it is harmless —
+ideally with the code reference, as the rows below have. "I have seen it before and
+nothing broke" is not a reason, and a table that grows that way stops meaning anything:
+it becomes a list of things nobody investigated, which is worse than no list, because it
+launders an unexamined line into an expected one.
 
 **One row below is deliberately not harmless.** A regression can wear the same shape
 as expected noise, so the table says which is which rather than implying that
