@@ -1,4 +1,5 @@
 import { Button, Card, ThemeToggle } from '@talyvor/ui'
+import { useSignupProbe } from '../../lib/signupOpen'
 
 // The marketing landing (/marketing, OUTSIDE the AuthGate — see App.tsx). It must
 // render with no session, no router context, and no providers: Landing.test.tsx
@@ -115,6 +116,11 @@ const POSTURE: Array<{ title: string; body: string }> = [
 ]
 
 export function Landing() {
+  // The ONE piece of server state this page reads: whether a stranger may sign up. Deliberately
+  // a bare-fetch hook rather than react-query — this page renders with no providers at all (see
+  // the header comment), and a probe that failed to answer leaves the page saying nothing about
+  // access rather than guessing.
+  const { signup } = useSignupProbe()
   return (
     <div className="flex min-h-full flex-col bg-canvas text-ink">
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
@@ -147,56 +153,65 @@ export function Landing() {
               agent — four tools that behave as one system, on your infrastructure, with your
               provider keys.
             </p>
-            {/* ── THE PRIMARY ACTION, and why it says "Sign in" ────────────────────────
-                This was a mailto: — the weakest link on the page for a product with a working
-                checkout behind it. It now points at /auth/login, the BFF's OIDC entry point.
+            {/* ── THE PRIMARY ACTION ───────────────────────────────────────────────────
+                First a mailto:, then "Sign in" — the weakest and the second-weakest link a
+                page for a product with working checkout can carry. It is now "Get started",
+                pointing at /signup.
 
-                THE WORDING IS THE DECISION, not the destination. Three candidates:
+                THE ARGUMENT THAT PUT "SIGN IN" HERE HAS BEEN REFUTED, not merely revisited.
+                It read: "Get started free" promises a stranger can complete the flow, and they
+                cannot, because the Google OAuth app is in Testing mode and anyone not on the
+                test-user list is stopped AT GOOGLE. That premise was inferred from config and
+                never checked. Google's own current documentation (OAuth app state overview)
+                says of the Testing state: "Only users explicitly added to the test user
+                allowlist can access the app (limited to a hard cap of 100 test users).
+                Exception: If the app only requests basic identity scopes (openid, email,
+                profile), any user can access without being on the allowlist." We request
+                exactly openid, email and profile (apps/bff/auth.go) and nothing else. Nobody is
+                stopped at Google. The wall was ours, and it is OIDC_ALLOWED_EMAILS.
 
-                  "Get started free" / "Sign up free" — promises a stranger can complete the
-                    flow. They cannot: the Google OAuth app is in Testing mode, so anyone not on
-                    the test-user list is stopped AT GOOGLE, on a screen we do not control and
-                    cannot explain ourselves on. A button that bounces someone off a third
-                    party's error is worse than no button, because they blame us and leave.
-                  "Request access" — honest, but it routes everyone through email even though
-                    the login works perfectly for the people who do have access.
-                  "Sign in" — accurate today in both directions: it is exactly what the flow
-                    does, it works for everyone entitled to use it, and it promises nothing to
-                    anyone who is not.
-
-                So: "Sign in", with the contact route kept ADJACENT and labelled for the people
-                it is actually for. Honest is not the same as unhelpful — a stranger must not be
-                left guessing, so the line below tells them what to do instead.
-
-                ⚠ WHEN THE OAUTH APP IS PUBLISHED, this is the thing to revisit: at that point
-                "Get started free" becomes true and this argument expires.
-                FirstRunGaps.test.tsx pins both halves — that the action reaches /auth/login,
-                and that no self-serve promise appears while the IdP still gates entry. */}
+                So the destination is the SIGNUP PAGE rather than /auth/login directly: a
+                stranger gets told what this is and what happens next before being redirected to
+                a third party, and the signup page carries the one sentence about who may enter
+                — DERIVED from the gate, so it is right in both configurations. Two links for
+                two readers: "Get started" here, "Open the app" in the header for people who
+                already have a workspace. */}
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild variant="primary">
-                <a href="/auth/login">Sign in</a>
+                <a href="/signup">Get started</a>
               </Button>
               <Button asChild>
                 <a href="#suite">See the suite</a>
               </Button>
             </div>
-            {/* Rendered whether or not a contact address is configured: a stranger who clicks
-                Sign in and is stopped at the identity provider needs to know WHY regardless.
-                Without an address the sentence still explains; with one it also offers a route. */}
-            <p className="mt-4 text-body text-muted">
-              Don’t have access yet? Talyvor is in a closed trial, so accounts are set up by hand
-              {HAS_CONTACT ? (
-                <>
-                  {' — '}
-                  <a href={CONTACT_MAILTO} className="underline">
-                    get in touch
-                  </a>
-                  .
-                </>
-              ) : (
-                '.'
-              )}
-            </p>
+            {/* THE ACCESS SENTENCE IS THE SERVER'S, not the bundle's. It used to read "Talyvor
+                is in a closed trial, so accounts are set up by hand" — true when written, and a
+                lie from the moment an operator sets OIDC_ALLOWED_EMAILS=*, with nothing in the
+                build able to notice. It now renders what the BFF reports, and renders NOTHING
+                while the answer is unknown (first paint, BFF unreachable, older BFF): an
+                unverified promise is not printed in either direction. */}
+            {signup === 'closed' ? (
+              <p className="mt-4 text-body text-muted">
+                Talyvor is in a closed trial just now, so access is granted per address
+                {HAS_CONTACT ? (
+                  <>
+                    {' — '}
+                    <a href={CONTACT_MAILTO} className="underline">
+                      get in touch
+                    </a>
+                    .
+                  </>
+                ) : (
+                  '.'
+                )}
+              </p>
+            ) : null}
+            {signup === 'open' ? (
+              <p className="mt-4 text-body text-muted">
+                No invitation needed — sign in with an account you already have and you’ll have
+                your own workspace in a few seconds.
+              </p>
+            ) : null}
             <p className="mt-4 text-micro text-faint">
               Pre-launch — onboarding a small number of engineering teams.
             </p>

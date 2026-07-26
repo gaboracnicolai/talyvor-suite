@@ -72,18 +72,32 @@ standards-compliant, and `accounts.google.com` is the most battle-tested
 issuer in existence for this exact stack (go-oidc + authorization code + PKCE).
 
 - Zero new processes on the box; zero new config files beyond the env file.
-- ~15 minutes of one-time console work (step 1 below): consent screen in
-  **Testing** mode (≤100 test users — the shape of a closed trial), one OAuth
-  web client, one redirect URI.
-- The trial gate is enforced twice: `OIDC_ALLOWED_EMAILS` in the BFF
-  (authoritative) and Google's test-user list (non-test-users can't even
-  complete the Google prompt while the app is in Testing).
+- ~15 minutes of one-time console work (step 1 below): consent screen, one
+  OAuth web client, one redirect URI.
+- **THE TRIAL GATE IS `OIDC_ALLOWED_EMAILS`, AND ONLY THAT.** This list
+  previously claimed the gate was "enforced twice — `OIDC_ALLOWED_EMAILS` in
+  the BFF (authoritative) and Google's test-user list (non-test-users can't
+  even complete the Google prompt while the app is in Testing)". **The second
+  half is false**, and believing it would leave an operator thinking the door
+  is double-locked when it has one lock. Google's *OAuth app state overview*
+  says of the **Testing** state, verbatim: *"Only users explicitly added to the
+  test user allowlist can access the app (limited to a hard cap of 100 test
+  users). **Exception: If the app only requests basic identity scopes
+  (`openid`, `email`, `profile`), any user can access without being on the
+  allowlist.**"* The BFF requests exactly `openid email profile` and nothing
+  else (`apps/bff/auth.go`, pinned by `TestOnlyBasicIdentityScopesAreRequested`).
+  So **any Google account can complete the Google half of the flow today**,
+  test-user list or not, and the only thing standing between a stranger and a
+  workspace is `OIDC_ALLOWED_EMAILS`. Set it deliberately — see the variable
+  table.
 - Google sets `email_verified: true`; the BFF's verified-email rule is
   satisfied.
-- Costs, honestly: trial users need Google accounts; the consent screen says
-  the app is unverified (fine for a closed trial); Google is in the login
-  path's availability. Sessions are the BFF's own (no refresh tokens), so
-  Testing mode's 7-day refresh-token expiry is irrelevant.
+- Costs, honestly: trial users need Google accounts, and Google is in the login
+  path's availability. Sessions are the BFF's own (**no refresh tokens** — grep
+  `apps/bff` for `AccessTypeOffline`: zero hits), so Testing mode's 7-day
+  refresh-token expiry is irrelevant to us. An **unpublished** app shows a
+  consent screen without our name or logo; publishing fixes that and needs no
+  review for these scopes (step 1).
 
 **The self-contained alternative is Dex** on this box — choose it only if "no
 third party in the login path" outweighs the cost. Be clear about the cost:
@@ -98,12 +112,28 @@ SaaS account when Google is already in hand.
 ## 1. Obtain these BEFORE starting (nothing boots without them)
 
 1. **OIDC client (Google path):** in Google Cloud Console —
-   *APIs & Services → OAuth consent screen*: External, publishing status
-   **Testing**, add every trial email as a test user. Then *Credentials →
-   Create credentials → OAuth client ID → Web application*, with **Authorized
-   redirect URI exactly** `https://app.talyvor.com/auth/callback` (scheme,
-   host, and path must match to the character). Record the client id and
-   secret. The issuer is `https://accounts.google.com`.
+   *APIs & Services → OAuth consent screen* (newer console: *Google Auth
+   Platform*): **External**. Then *Credentials → Create credentials → OAuth
+   client ID → Web application*, with **Authorized redirect URI exactly**
+   `https://app.talyvor.com/auth/callback` (scheme, host, and path must match
+   to the character). Record the client id and secret. The issuer is
+   `https://accounts.google.com`.
+
+   **Scopes: leave them as the three prefilled non-sensitive ones**
+   (`openid`, `email`, `profile`) and add nothing. That choice is what keeps
+   this app out of verification entirely — see the ⚠ note below and
+   `TestOnlyBasicIdentityScopesAreRequested`.
+
+   **Publishing status — recommended, not required.** *Google Auth Platform →
+   Audience → **Publish app** → Confirm*. With only the three basic scopes
+   this is **instant and needs no review**: verification is required only for
+   sensitive/restricted scopes, and the 100-user cap and unverified-app
+   "Danger UI" both apply only to apps requesting those. Publishing buys one
+   thing — an app in **Testing** shows a consent screen without our name or
+   logo. **Test users already added are NOT locked out**: publishing widens
+   access from "the list" to "any Google Account", so everyone previously
+   admitted still is, and the test-user list simply stops being consulted.
+   Nobody is removed and nothing needs re-adding.
 2. **Lens:** the base URL of the Lens box (**must be `https://…`** — the
    workspace key travels in a header on every read, and the BFF refuses to
    boot on a remote plain-http URL for exactly that reason; http is allowed
@@ -316,7 +346,7 @@ Every variable the BFF reads, and what happens without it:
 | `OIDC_ISSUER` | **yes** (oidc) | — | Discovery base (`https://accounts.google.com`). Missing → refuses to start. Reachable but wrong / IdP down → **boot-time discovery fails** and the process exits (systemd retries). Must be https (http only on loopback, dev). |
 | `OIDC_CLIENT_ID` | **yes** (oidc) | — | The client registered at the IdP. Missing → refuses to start. |
 | `OIDC_CLIENT_SECRET` | **yes** (oidc) | — | Confidential-client secret; PKCE supplements it, never replaces it. Missing → refuses to start. |
-| `OIDC_ALLOWED_EMAILS` | **yes** (oidc) | — | Comma-separated allowlist (lower-cased match against the id_token email), or `*` alone to admit every identity the issuer authenticates. Empty → refuses to start ("authorization must be stated, not implied"). Identities whose email the issuer marks unverified are refused at login. |
+| `OIDC_ALLOWED_EMAILS` | **yes** (oidc) | — | **`*` for a public trial; a comma-separated list for a closed one.** See "Which value goes here" directly below — this is the only thing gating signup, so it is a decision, not a formality. Lower-cased match against the id_token email; `*` alone admits every identity the issuer authenticates. Empty → refuses to start ("authorization must be stated, not implied"). Identities whose email the issuer marks unverified are refused by a list, not by `*`. **Read at boot: changing it needs a BFF restart.** |
 | `BFF_SESSION_TTL` | no | `12h` | Absolute session lifetime (Go duration). Unparseable or ≤0 → refuses to start. Sessions are **in-memory**: every BFF restart signs everyone out (they just re-login). |
 | `TRACK_BASE_URL` | no† | — | Track upstream base (reachable from this box). |
 | `TRACK_GATEWAY_SECRET` | no† | — | Track's own `GATEWAY_AUTH_SECRET`, replayed as the `X-Gateway-Auth` transit proof. Held server-side, never emitted. |
@@ -332,6 +362,56 @@ forward, and the BFF refuses to invent one). Base URLs obey the same boot-time
 transport rule as `LENS_BASE_URL` — https anywhere, http only on loopback —
 because the gateway secret rides every request. Fully unset → that product's
 routes answer 503 and the rest of the app works.
+
+### Which value goes in `OIDC_ALLOWED_EMAILS`
+
+**There is no unsafe default, because there is no default** — the variable is
+required and the BFF refuses to start without it. So this is a decision about
+which trial you are running, not a risk to be hedged.
+
+**Running a PUBLIC trial → `OIDC_ALLOWED_EMAILS=*`.**
+
+Three facts make that safe, each of them checked rather than assumed:
+
+1. **Every identity gets its own workspace.** Lens derives the workspace id
+   from `(issuer, subject)` and the BFF never names one; Track bootstraps the
+   same way. Two unrelated strangers signing up reach two workspaces, and
+   neither can read the other's balance, keys, ledger, roster or spend —
+   asserted on the RESPONSE BODIES of every workspace-scoped route, not just
+   on the upstream paths (`apps/bff/stranger_signup_test.go`).
+2. **An open door does not open the wallet.** A newly provisioned workspace
+   has a zero LXC balance. The only two writers into an LXC balance in Lens are
+   the Stripe top-up (`internal/billing/billing.go`, a paid purchase) and an
+   admin grant route that is **default-off** behind
+   `LENS_ADMIN_LXC_GRANT_ENABLED` — `cmd/lens/provision_handler.go` credits
+   nothing. An unwanted signup therefore costs you one empty row, not money.
+3. **Google does not gate this for us.** See the section above: with only
+   `openid email profile`, any Google account completes the Google half
+   regardless of publishing status or test-user list. A list here is the whole
+   lock; `*` removes it deliberately rather than by accident.
+
+**Running a CLOSED trial → the comma-separated list.** Costs, plainly: adding
+someone means editing this file **and restarting the BFF** (config is read at
+boot), so every new tester waits for you to be awake. That is the real price of
+the list, and it is why `*` is the right value the moment you want strangers.
+
+Whichever you choose, a refusal is now something you can act on rather than
+hunt for. The person turned away gets a styled page that says the sign-in
+worked, that this workspace has not granted them access, and offers a
+different-account restart — it leaks nothing about the list. You get a log line
+that **names the address** and tells you what to do with it:
+
+```
+bff: login DENIED — email=newcomer@example.org sub=1180024… reason=the address is not on
+OIDC_ALLOWED_EMAILS | to admit them, add that address to OIDC_ALLOWED_EMAILS and RESTART the
+BFF (config is read at boot); or set OIDC_ALLOWED_EMAILS=* to admit every identity this
+issuer authenticates
+```
+
+An identity that carried **no** email claim renders as
+`email=(none — the id_token carried no email claim)`, never as a blank field:
+"the issuer sent no address" and "the address is not listed" are different
+problems and must not look identical at 2am.
 
 ## 5. Preflight boot — prove the env before touching systemd or Caddy
 
@@ -505,12 +585,28 @@ curl -s -o /dev/null -w '%{http_code} -> %{redirect_url}\n' https://talyvor.com/
 
 ## 8. The login round-trip (the only step that needs a browser)
 
-Open `https://app.talyvor.com` → sign in → Google prompt (as a test user, with
-an allowlisted email) → back at the app, signed in. Then confirm the areas:
-Lens screens live; Track/Docs live or a clean 503 state per what you wired in
-step 4. If Google bounces the redirect, the registered URI does not equal
-`https://app.talyvor.com/auth/callback` character-for-character — fix it at
-the console, no server change needed.
+Open `https://app.talyvor.com` → sign in → Google prompt → back at the app,
+signed in. Then confirm the areas: Lens screens live; Track/Docs live or a
+clean 503 state per what you wired in step 4. If Google bounces the redirect,
+the registered URI does not equal `https://app.talyvor.com/auth/callback`
+character-for-character — fix it at the console, no server change needed.
+
+**Then walk the stranger's path, which is the one the trial actually depends
+on.** Signing in as yourself proves user one; almost everything works for user
+one. In a private window, open `https://app.talyvor.com/marketing` → **Get
+started** → `/signup` → **Continue**, as a **second, different Google account
+that has never signed in here**:
+
+- The access line on `/signup` must match reality: "no invitation needed" if
+  you set `*`, the closed-trial sentence if you set a list. It is rendered from
+  the BFF's own gate (`signup_open` on `/auth/me`), so a mismatch means the BFF
+  you are talking to is not the one you configured.
+- The pooling disclosure must **block** before the app, then land on `/setup`.
+- `/setup` must show a workspace id **different** from your own account's, and
+  a key you mint there must work.
+- With a list configured, a third account not on it must get the styled
+  "Access not granted" page — and `journalctl -u talyvor-bff` must show a
+  `login DENIED — email=…` line naming that address.
 
 ---
 

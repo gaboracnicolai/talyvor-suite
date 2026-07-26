@@ -15,6 +15,7 @@ import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
 import { Landing } from './areas/marketing/Landing'
+import { SignIn, SignUp } from './areas/auth/Entry'
 
 // App.tsx is a SHARED file (see README §Directory ownership): it owns routing
 // and the nav for every area. Area work happens inside src/areas/<area>/ —
@@ -199,6 +200,11 @@ export function App() {
         <Routes>
           {/* Public marketing landing — OUTSIDE the AuthGate by design. */}
           <Route path="/marketing/*" element={<Landing />} />
+          {/* The two front doors, also OUTSIDE the gate — a signup page you must already be
+              signed in to read is not a signup page. Same mechanism (/auth/login), different
+              words: see areas/auth/Entry.tsx. */}
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/signin" element={<SignIn />} />
           <Route
             path="/*"
             element={

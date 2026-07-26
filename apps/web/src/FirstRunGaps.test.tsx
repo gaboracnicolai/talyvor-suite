@@ -15,7 +15,7 @@ import { queryClient } from './App'
 //     was routed to — the instructions for using the product, behind a nav item.
 //  3. /specimen DOES NOT RESOLVE. The internal component gallery was unlinked but routable.
 
-function mockBff(opts: { needsChoice?: boolean } = {}) {
+function mockBff(opts: { needsChoice?: boolean; signupOpen?: boolean } = {}) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
     if (url === '/auth/me') {
@@ -27,6 +27,9 @@ function mockBff(opts: { needsChoice?: boolean } = {}) {
           workspace_id: 'uabcdefghijklmnopqrstuvwxy',
           cache_poolable: true,
           needs_pooling_choice: opts.needsChoice ?? false,
+          // Whether a stranger may sign up unattended. Omitted unless a case states it, so the
+          // default path exercises the UNKNOWN branch — the one a stale BFF actually produces.
+          ...(opts.signupOpen === undefined ? {} : { signup_open: opts.signupOpen }),
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
@@ -60,33 +63,56 @@ afterEach(() => {
 // ─── 1. the marketing page offers a route into the app ──────────────────────
 
 describe('the marketing page offers a way in', () => {
-  it('has a sign-in action that goes to the login flow, not only an email link', async () => {
+  it('has a primary action that reaches the signup page, not only an email link', async () => {
     mockBff()
     at('/marketing')
-    const signIn = await screen.findByRole('link', { name: /sign in/i })
-    // /auth/login is the BFF's OIDC entry point. A mailto: or an in-app path is not a way in
-    // for someone who does not have a session yet.
-    expect(signIn.getAttribute('href')).toMatch(/^\/auth\/login/)
+    const cta = await screen.findByRole('link', { name: /get started/i })
+    // /signup, not /auth/login directly: a stranger is told what this is and what happens next
+    // BEFORE being redirected to a third party. A mailto: or an in-app path is not a way in for
+    // someone with no session; nor is a bare redirect they cannot evaluate.
+    expect(cta.getAttribute('href')).toBe('/signup')
   })
 
-  it('does not promise self-serve signup while the IdP gates who may enter', async () => {
-    mockBff()
+  // THE PREMISE OF THIS TEST CHANGED, so the test changed with it rather than being deleted.
+  //
+  // It used to assert that NO self-serve promise ever appears, on the grounds that "the Google
+  // app is in Testing mode, so a person not on the test-user list hits a wall at the IdP". That
+  // was inferred from config and never checked. Google's current documentation says of the
+  // Testing state: "Exception: If the app only requests basic identity scopes (openid, email,
+  // profile), any user can access without being on the allowlist" — and apps/bff/auth.go
+  // requests exactly those three. Nobody is stopped at Google.
+  //
+  // The wall is OURS: OIDC_ALLOWED_EMAILS. So the guard worth keeping is not "never promise" —
+  // it is "the promise must track the gate", asserted in BOTH directions, because a page that
+  // can only ever say one thing is a page that will be wrong half the time.
+  it('promises self-serve signup only when the gate actually allows it', async () => {
+    mockBff({ signupOpen: false })
     at('/marketing')
-    // "Get started free", "Sign up free", "Create your account" all promise a stranger can
-    // complete the flow. They cannot: the Google app is in Testing mode, so a person not on
-    // the test-user list hits a wall at the IdP. The page must not write a cheque the IdP
-    // will bounce. When the OAuth app is published, THIS test is the thing to revisit.
-    for (const promise of [/get started free/i, /sign up free/i, /create your account/i]) {
-      expect(screen.queryByText(promise)).toBeNull()
-    }
+    await screen.findByRole('link', { name: /get started/i })
+    await waitFor(() => {
+      expect(screen.getByText(/closed trial/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/no invitation needed/i)).toBeNull()
   })
 
-  it('tells someone without access what to do, next to the sign-in action', async () => {
+  it('says a stranger can just start, once the gate is open', async () => {
+    mockBff({ signupOpen: true })
+    at('/marketing')
+    await screen.findByRole('link', { name: /get started/i })
+    await waitFor(() => {
+      expect(screen.getByText(/no invitation needed/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/closed trial/i)).toBeNull()
+  })
+
+  it('claims NOTHING about access while the answer is unknown', async () => {
+    // An older BFF, or one that could not be reached. Guessing "closed" turns away someone who
+    // could have signed up; guessing "open" walks them into a refusal. Neither is printed.
     mockBff()
     at('/marketing')
-    // Honest ≠ unhelpful. A stranger who cannot sign in must not be left guessing; the
-    // contact route stays, adjacent, and says who it is for.
-    expect(await screen.findByText(/don’t have access|do not have access/i)).toBeInTheDocument()
+    await screen.findByRole('link', { name: /get started/i })
+    expect(screen.queryByText(/closed trial/i)).toBeNull()
+    expect(screen.queryByText(/no invitation needed/i)).toBeNull()
   })
 })
 
