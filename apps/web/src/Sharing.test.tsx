@@ -98,13 +98,40 @@ describe('sharing consent', () => {
     expect(screen.getByText(/never served another company/i)).toBeInTheDocument()
   })
 
-  it('shows the signup prompt before the app when the workspace was just created', async () => {
-    mockBff(false, true)
+  // ⚠ THE DISCLOSURE IS THE ONLY THING BETWEEN A PERSON AND SHARING, now that a new workspace is
+  // created with it ON. So these pin the properties that make an on-by-default defensible, not
+  // just that a screen exists.
+  it('BLOCKS the app — the product is not reachable around it', async () => {
+    mockBff(true, true)
     render(<App />)
     await waitFor(() => {
-      expect(screen.getByText(/One choice before you start/i)).toBeInTheDocument()
+      expect(screen.getByText(/Your answers are being shared/i)).toBeInTheDocument()
     })
-    // Created declined: the screen must say so, since consent is never granted by inaction.
-    expect(screen.getByText(/Nothing of yours has been shared/i)).toBeInTheDocument()
+    // The app shell must NOT be behind it. If any nav landmark renders, the disclosure is an
+    // overlay someone can navigate past rather than a gate.
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+  })
+
+  it('says the state plainly and first — on, and what that means', async () => {
+    mockBff(true, true)
+    render(<App />)
+    await waitFor(() => {
+      expect(screen.getByText(/Sharing is on for this workspace right now/i)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/may be served\s+to other companies/i)).toBeInTheDocument()
+  })
+
+  it('declining is one click of equal prominence to continuing', async () => {
+    mockBff(true, true)
+    render(<App />)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^Do not share my answers$/i })).toBeInTheDocument()
+    })
+    const decline = screen.getByRole('button', { name: /^Do not share my answers$/i })
+    const share = screen.getByRole('button', { name: /^Share my answers$/i })
+    // Same element type and same classes ⇒ same visual weight. A decline rendered as a link, or
+    // with a quieter variant, is not an equal choice.
+    expect(decline.tagName).toBe(share.tagName)
+    expect(decline.className).toBe(share.className)
   })
 })

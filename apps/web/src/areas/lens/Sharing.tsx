@@ -12,12 +12,15 @@ import { api, ApiError } from '../../lib/api'
 // the words and the control live together and are used by both screens.
 //
 // THE COPY STATES BOTH SIDES AND SELLS NEITHER. Sharing is what makes the earning half of the
-// product work: opt in and this workspace's answers earn LENS when another company reuses them,
-// and it is served instantly from theirs. It is also a real disclosure: the content of answers
-// leaves the workspace. Both facts are load-bearing, so both are stated, in parallel structure
-// and with the same weight. No recommendation, no default-highlighted button, no language that
-// makes one option feel like the sensible one. A consent screen that sells is worse than one that
-// only warns — the person has to be able to read it and decide.
+// product work: this workspace's answers earn LENS when another company reuses them, and it is
+// served instantly from theirs. It is also a real disclosure: the content of answers leaves the
+// workspace. Both facts are load-bearing, so both are stated, in parallel structure and with the
+// same weight. No recommendation, no default-highlighted button, no language that makes one
+// option feel like the sensible one. A consent screen that sells is worse than one that only
+// warns — the person has to be able to read it and decide.
+//
+// This matters more since sharing became ON by default: the screen is now the only thing standing
+// between a person and disclosure, so it has to be readable by someone who is not looking for it.
 
 /** SharingFacts — the whole description, used verbatim by both screens. */
 export function SharingFacts() {
