@@ -1,5 +1,6 @@
 {
   "src/AdminRemoved.test.tsx": 4,
+  "src/areas/auth/Entry.test.tsx": 14,
   "src/areas/docs/DocsArea.test.tsx": 13,
   "src/areas/docs/pm.test.tsx": 3,
   "src/areas/docs/sharedDocsNotice.test.ts": 7,
@@ -26,7 +27,7 @@
   "src/buildIdentity.test.ts": 9,
   "src/components/PoolingConsentDocsNotice.test.tsx": 3,
   "src/DocsNotInNav.test.tsx": 2,
-  "src/FirstRunGaps.test.tsx": 8,
+  "src/FirstRunGaps.test.tsx": 9,
   "src/lib/awaiting.test.ts": 7,
   "src/Sharing.test.tsx": 8
 }

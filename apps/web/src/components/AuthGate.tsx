@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Button, Card, CardHeader } from '@talyvor/ui'
+import { Button, Card } from '@talyvor/ui'
 import { api } from '../lib/api'
 import { PoolingConsent } from './PoolingConsent'
+import { SignInCard } from '../areas/auth/Entry'
 
 // The auth gate: one probe (/auth/me) decides whether the app or the sign-in
 // card renders. ONLY an oidc-mode BFF reporting "no session" gates — disabled
@@ -59,19 +60,18 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 function SignedOut() {
   // Land back where the user was heading; the BFF re-sanitises this server-side.
   const returnTo = window.location.pathname + window.location.search
+  // THE SAME WORDS AS /signin, from the same component. This card used to read "This workspace
+  // requires authentication. You'll be sent to your organisation's identity provider" — correct
+  // for an enterprise SSO rollout, and wrong for the person this trial is for: a stranger reads
+  // it as "you need a company account and an IT department". It also had no route out for
+  // someone who does not have a workspace yet, so a mistaken landing was a dead end.
+  //
+  // Sharing the component is the point: two places that render sign-in cannot drift into
+  // telling one reader something the other is not told.
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-gutter">
       <Card className="w-full max-w-sm">
-        <CardHeader>Talyvor</CardHeader>
-        <div className="flex flex-col gap-4 px-gutter py-4">
-          <p className="text-body text-muted">
-            This workspace requires authentication. You’ll be sent to your organisation’s
-            identity provider and returned here.
-          </p>
-          <Button asChild variant="primary">
-            <a href={`/auth/login?return_to=${encodeURIComponent(returnTo)}`}>Sign in</a>
-          </Button>
-        </div>
+        <SignInCard returnTo={returnTo} />
       </Card>
     </div>
   )

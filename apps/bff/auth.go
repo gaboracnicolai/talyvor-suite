@@ -386,7 +386,29 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		// The precise cause goes to the LOG ONLY. The human gets the uniform
 		// denied page: their identity echoed (authentication worked), the
 		// refusal, the way forward — and nothing that distinguishes WHY.
-		log.Printf("bff: login DENIED for sub=%s: %s", idt.Subject, reason)
+		//
+		// THE LOG LINE IS AN OPERATOR SURFACE and its job is to make admitting the
+		// person a copy-paste. So it leads with the ADDRESS: OIDC_ALLOWED_EMAILS is
+		// keyed on email, and an operator holding only `sub=1180024…` has nothing
+		// they can act on — they would have to decode an id_token they never see to
+		// find the one string the variable actually takes. It was the subject alone
+		// before, for every refusal cause; the address only ever appeared as an
+		// accident of one reason string's wording, and the two causes that name no
+		// address (unverified email, absent claim) named nothing at all.
+		//
+		// ABSENT IS ITS OWN WORD. An identity with no email claim must not render as
+		// `email=` — a blank field reads as a display bug, and "no address was sent"
+		// and "the address is not on the list" are different problems with different
+		// fixes. emailForLog says which one it is.
+		//
+		// THE REMEDY TRAVELS WITH IT, because the fix is not only "edit the variable":
+		// config is read once at boot, so an operator who adds the address and waits
+		// watches nothing happen. A line that names the variable but not the restart
+		// sends someone to do half a fix and conclude the product is broken.
+		log.Printf("bff: login DENIED — email=%s sub=%s reason=%s | to admit them, add that "+
+			"address to OIDC_ALLOWED_EMAILS and RESTART the BFF (config is read at boot); "+
+			"or set OIDC_ALLOWED_EMAILS=* to admit every identity this issuer authenticates",
+			emailForLog(claims.Email), idt.Subject, reason)
 		writeDeniedPage(w, claims.Email)
 		return
 	}
@@ -503,6 +525,30 @@ func writeDeniedPage(w http.ResponseWriter, email string) {
 	}
 }
 
+// signupIsOpen reports whether a person NOBODY HAS ADDED can complete signup on this
+// deployment — i.e. whether the allowlist delegates wholly to the issuer.
+//
+// It is the same predicate authorizeIdentity gates on, and authorizeIdentity calls it
+// rather than repeating it. That is deliberate: this one bit is now also rendered as
+// PROSE on the marketing and signup pages ("anyone can start" vs "access is by
+// invitation"), and a page whose sentence is computed from a second, parallel copy of
+// the rule is a page that will eventually contradict the door it describes. One
+// predicate, two readers.
+func signupIsOpen(allowed []string) bool {
+	return len(allowed) == 1 && allowed[0] == "*"
+}
+
+// emailForLog renders an address for the operator-facing refusal log, with an explicit
+// WORD for absence. A missing claim must never print as an empty field: `email=` reads
+// as a broken log line, and it collapses "the issuer sent no address" into the same
+// visual as "the address is not listed" — two different faults with two different fixes.
+func emailForLog(email string) string {
+	if strings.TrimSpace(email) == "" {
+		return "(none — the id_token carried no email claim)"
+	}
+	return email
+}
+
 // authorizeIdentity is OUR authorization on top of the IdP's authentication.
 // "*" delegates wholly to the issuer (any authenticated subject). Otherwise the
 // identity must carry an email on the allowlist, and an email the issuer itself
@@ -510,7 +556,7 @@ func writeDeniedPage(w http.ResponseWriter, email string) {
 // claim is accepted: the issuer asserted the email and did not dispute it, and
 // the issuer is the party the operator chose to trust.
 func authorizeIdentity(allowed []string, sub, email string, verified *bool) (reason string, ok bool) {
-	if len(allowed) == 1 && allowed[0] == "*" {
+	if signupIsOpen(allowed) {
 		if sub == "" {
 			return "issuer returned an empty subject", false
 		}
@@ -528,7 +574,10 @@ func authorizeIdentity(allowed []string, sub, email string, verified *bool) (rea
 			return "", true
 		}
 	}
-	return e + " is not in OIDC_ALLOWED_EMAILS", false
+	// The address itself is NOT repeated here: handleCallback logs it as its own `email=`
+	// field, and a line that prints it twice is a line an operator has to read twice to be
+	// sure they are looking at one refusal and not two.
+	return "the address is not on OIDC_ALLOWED_EMAILS", false
 }
 
 // handleLogout kills the session server-side and expires the cookie. POST only:
@@ -559,7 +608,9 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.cfg.authMode == authModeDisabled || a.auth == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"mode": authModeDisabled, "authenticated": false, "user": nil})
+			"mode": authModeDisabled, "authenticated": false, "user": nil,
+			// Loopback dev has no gate at all, so nothing is turned away.
+			"signup_open": true})
 		return
 	}
 	if s, ok := a.auth.sessionFrom(r); ok {
@@ -578,11 +629,27 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 			// fact it describes. docsBaseURL is required too: with no Docs upstream there is no
 			// Docs to warn about, and a notice about an absent product is noise.
 			"docs_shared": a.cfg.docsBaseURL != "" && a.cfg.docsWorkspaceID != "",
+			"signup_open": signupIsOpen(a.cfg.allowedEmails),
 		})
 		return
 	}
+	// THE UNAUTHENTICATED ANSWER IS THE IMPORTANT ONE. Everyone who needs signup_open is by
+	// definition not signed in: the marketing hero and the signup page have to tell a stranger,
+	// before any login, whether they can actually get in.
+	//
+	// Hardcoding that sentence in the bundle is how a page comes to read "closed trial, accounts
+	// set up by hand" for a month after the trial opened — or, far worse, "get started free"
+	// while the gate is still six addresses, which sends every visitor into a refusal. A status
+	// claim written in a static file reads as CURRENT to whoever is looking at it, and nothing
+	// makes it false when the world moves.
+	//
+	// So the fact is served from the gate itself and the page renders the server's answer. It is
+	// ONE BIT — whether the door is open — never who is behind it: no address, no count. A
+	// stranger learns exactly what they would learn by trying the door, which is what they are
+	// about to do anyway.
 	writeJSON(w, http.StatusOK, map[string]any{
-		"mode": authModeOIDC, "authenticated": false, "user": nil})
+		"mode": authModeOIDC, "authenticated": false, "user": nil,
+		"signup_open": signupIsOpen(a.cfg.allowedEmails)})
 }
 
 // requireSession gates every /api route. Disabled mode passes through — the

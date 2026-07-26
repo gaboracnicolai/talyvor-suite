@@ -174,6 +174,14 @@ export interface AuthMe {
   /** True only for the login that CREATED the workspace: the one moment the pooling question is
    *  put to the person, before anything of theirs could be shared. */
   needs_pooling_choice?: boolean
+  /** Whether an identity NOBODY HAS ADDED can complete signup on this deployment — i.e. whether
+   *  OIDC_ALLOWED_EMAILS is `*`. Reported on the UNAUTHENTICATED answer too, because everyone
+   *  who needs it is by definition not signed in: the marketing hero and the signup page have to
+   *  tell a stranger whether they may start, and a sentence hardcoded in the bundle goes stale
+   *  the moment an operator changes the variable. One bit — never who is on the list.
+   *  Absent (older BFF) is UNKNOWN, not false: see lib/signupOpen.ts for why that is its own
+   *  state rather than a boolean default. */
+  signup_open?: boolean
 }
 
 /** GET /api/spend/month — Lens spend/current-month. A float upstream, so the
