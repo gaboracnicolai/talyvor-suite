@@ -1,5 +1,16 @@
 # Deploying app.talyvor.com
 
+> ### ⚠ Deploying everything at once? Start with [`FULL-STACK-DEPLOY.md`](./FULL-STACK-DEPLOY.md).
+>
+> This document is still correct for the box, systemd, Caddy and the Track/Docs
+> mechanics. What it predates is **per-user signup** (suite #30), which makes the
+> BFF's Lens environment a hard prerequisite rather than an optional extra and puts
+> **Lens first** in the order. Two specifics that will bite if you follow this file
+> alone: the BFF now **refuses to boot** if `LENS_API_KEY` is set, and it no longer
+> reads `LENS_WORKSPACE_KEY` / `LENS_WORKSPACE_ID` — it requires
+> `LENS_PROVISION_SECRET`, the same value Lens boots with. **§1.2 and §4's Lens
+> block below are out of date on that point**; `bff.env.example` has been corrected.
+
 **This document describes the deploy as it actually runs**, corrected against
 the first real deployment (2026-07-23). The single most important topology
 fact, learned the hard way: **Caddy on this box is a Docker container from the
