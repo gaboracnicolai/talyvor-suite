@@ -212,7 +212,7 @@ Every variable the BFF reads, and what happens without it:
 | `BFF_SESSION_TTL` | no | `12h` | Absolute session lifetime (Go duration). Unparseable or ≤0 → refuses to start. Sessions are **in-memory**: every BFF restart signs everyone out (they just re-login). |
 | `TRACK_BASE_URL` | no† | — | Track upstream base (reachable from this box). |
 | `TRACK_GATEWAY_SECRET` | no† | — | Track's own `GATEWAY_AUTH_SECRET`, replayed as the `X-Gateway-Auth` transit proof. Held server-side, never emitted. |
-| `TRACK_WORKSPACE_ID` | no† | — | The Track workspace served. |
+| ~~`TRACK_WORKSPACE_ID`~~ | **MUST BE ABSENT** | — | ⚠ **The BFF now REFUSES TO START if this is set** (`apps/bff/main.go:112`). Track is per-session: each person is bootstrapped their own workspace at login. Delete the line from any existing env file. |
 | `DOCS_BASE_URL` | no‡ | — | Docs upstream base. |
 | `DOCS_GATEWAY_SECRET` | no‡ | — | Docs' `GATEWAY_AUTH_SECRET`, as above. |
 | `DOCS_WORKSPACE_ID` | no‡ | — | The Docs workspace served. |
@@ -611,7 +611,6 @@ values from step 1, under the BFF's names:**
 ```
 TRACK_BASE_URL=http://127.0.0.1:3000
 TRACK_GATEWAY_SECRET=<the TRACK_GATEWAY_AUTH_SECRET from step 1>
-TRACK_WORKSPACE_ID=<your Track workspace id>
 
 DOCS_BASE_URL=http://127.0.0.1:4000
 DOCS_GATEWAY_SECRET=<the DOCS_GATEWAY_AUTH_SECRET from step 1>
@@ -666,7 +665,7 @@ Reading the result — each code means one specific thing:
 | `503` | the BFF has no upstream configured | step 7 trio incomplete, or the BFF was not restarted |
 | `401` | **the gateway secrets do not match** | step 7 — the two names, one value |
 | `403` | secret fine; your email is not a member of that workspace | add the membership |
-| `404` | secret and membership fine; wrong workspace id | `TRACK_WORKSPACE_ID` / `DOCS_WORKSPACE_ID` |
+| `404` | secret and membership fine; wrong workspace id | `DOCS_WORKSPACE_ID` (Track has no pinned id — it is per-session) |
 | `502` | the BFF cannot reach the container | step 6 — check the loopback publish |
 
 Finally, confirm neither product became internet-facing:
