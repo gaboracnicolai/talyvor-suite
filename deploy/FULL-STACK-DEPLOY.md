@@ -690,35 +690,79 @@ docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
    ON CONFLICT (workspace_id, email) DO NOTHING;"
 ```
 
-#### Verify by FORCING the reconcile, not by waiting for it
+#### ⚠ DECISION: the Docs→Track member sync is OFF in this deploy, and stays off
 
-**Confirming the rows exist immediately after the `INSERT` proves nothing — they
-always do.** The check has to survive a sync, and the sync is what deletes a
-wrongly-marked row. Docs runs a boot pass before its 15-minute ticker
-(`cmd/docs/main.go:224`), so a restart forces the first reconcile now instead of
-leaving you to discover the result a quarter of an hour after you have moved on:
+**It is not merely unconfigured — it is not wirable from here.** The three variables that
+would switch it on appear **nowhere** in this repo's deploy surface:
 
 ```sh
-docker compose restart docs && sleep 30
-
-docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
-  "SELECT email, role, source FROM workspace_members WHERE workspace_id = '$WS';"
-# expect: every tester you seeded, each with source = seed.
-# ⚠ ZERO ROWS means source was omitted (defaulted to 'track') and the reconcile
-#   deleted them. Re-run the INSERT with source = 'seed', then repeat this check.
+# CONFIG files only — not the markdown, which discusses these names in prose.
+grep -rn 'MEMBER_SYNC_SECRET\|DOCS_TRACK_URL' deploy/*.yaml deploy/*.example
+# expect: NOTHING printed (grep exits 1). Any line = someone wired the sync on;
+#         re-read this step, because the prune is then armed.
 ```
 
-> ⚠ **AND MAKE SURE THIS CHECK CAN FAIL.** If member sync is not configured the syncer
-> returns before reconciling at all (`internal/trackintegration/syncer.go:74-86` — no Track
-> client, no store, or `MemberSyncConfigured()` false). Then **nothing prunes**, the rows
-> survive for the wrong reason, and a `source = 'track'` mistake passes this test silently.
->
-> The step above is correct *and* its check can pass without testing anything — two different
-> facts. Confirm the sync actually ran before trusting a pass: the `member sync — pull failed,
-> skipping workspace` WARN in *Expected noise* is the evidence. **No sync line in the logs
-> after the restart means this verification proved nothing.**
+⚠ Scoped to `*.yaml` / `*.example` deliberately. `grep -rn … deploy/` — the obvious
+version — matches **this section's own prose** five times and reports the sync as wired no
+matter what the configuration says. That is the failure the test at the top of this document
+asks about, and it was found by running the command rather than reading it.
 
-#### ⚠⚠ THE FAILURE MODE — omitting `source` looks fine and reverts ~15 minutes later
+And they cannot arrive unseen: the `docs` service in `track-docs.compose.yaml` has
+**`environment:` and no `env_file:`**, so a variable reaches that container if and only if
+it is named in the fragment. `DOCS_TRACK_URL`, `DOCS_TRACK_API_KEY` and
+`DOCS_TRACK_MEMBER_SYNC_SECRET` are not.
+
+Consequence chain, from source: `IsConfigured()` false **and** `memberSyncOn()` false ⇒
+`Start` returns **before** the boot pass (`talyvor-docs internal/trackintegration/syncer.go`
+`Start`) ⇒ **no reconcile ever runs, and nothing is logged.**
+
+**Why off is the right answer, not just the current one.** Turning it on cannot achieve
+anything:
+
+- Docs would pull `GET /v1/service/members?workspace_id=$WS`, and `$WS` is
+  `default` — Track's workspace ids are **DB-generated** (`talyvor-track
+  internal/workspace/store.go` inserts `(name, slug, logo_url, plan)` and never an id), so
+  **no Track workspace is ever named `default`**.
+- Track answers an unknown workspace with **`200` and `[]`**, not an error
+  (`internal/member/handler.go` — "a non-existent workspace_id simply yields an empty
+  roster").
+- Docs' empty-pull safety then returns immediately: `if len(refs) == 0 { return 0,0,nil }`
+  (`internal/membership/store.go`). Nothing upserted, nothing pruned.
+
+So enabling it buys **one HTTP round trip every 15 minutes, forever, that changes no row** —
+and it arms the prune. The only way the roster becomes non-empty is pointing
+`DOCS_WORKSPACE_ID` at a real Track workspace, i.e. mirroring one person's *private
+per-session* Track roster into the workspace every tester shares. Enabling therefore adds
+exactly one new capability: **deleting testers' access.** The mirror premise died with #36;
+Docs' own tenancy root is the recorded fix (talyvor-docs #45), and that is the reopening
+condition.
+
+⚠ **The honest cost of off, stated rather than buried: Docs membership is seed-only, and
+Docs has no member-management route of its own.** Adding or removing a Docs member is this
+`INSERT` — manual SQL — for as long as Docs stays pinned. Budget for it; it will be needed
+mid-trial.
+
+#### Verify the seed by EXERCISING it, because the reconcile will not run
+
+The previous version of this step said to restart Docs and confirm the rows survived a
+reconcile. **Apply the test at the top of this document to that check: what does it print
+when the thing it tests is broken?** Nothing prunes, so a `source = 'track'` mistake
+survives too, and the check prints a pass in both states. It also told you to confirm the
+sync ran by finding a `member sync` line in the logs — a line that **cannot appear**, so the
+instruction could only ever conclude "this proved nothing".
+
+The check that can fail is the capability one: **have a seeded tester create a space.** A
+`403` means the seed did not take (wrong `$WS`, or the BFF's `DOCS_WORKSPACE_ID` disagrees
+with the container's); `201` means it did. Then confirm what you wrote:
+
+```sh
+docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
+  "SELECT email, role, source FROM workspace_members WHERE workspace_id = '$WS';"
+# expect: one row per tester, each with source = seed.
+# ZERO ROWS ⇒ the INSERT did not land (check $WS above), NOT a prune — nothing prunes here.
+```
+
+#### ⚠⚠ STILL WRITE `source` EXPLICITLY — the failure is deferred, not removed
 
 `source` **defaults to `'track'`**, so a seed written without that column is
 marked as Track's own row. The roster prune is
@@ -726,10 +770,21 @@ marked as Track's own row. The roster prune is
 `track`-owned rows that Track's roster does not contain, and Track has never
 heard of your testers.
 
-So the naive seed **works**: the tester creates a space, everything looks correct,
-you move on. Then the first reconcile runs and deletes the row, and every tester
-is back to `403` with nothing in the deploy log to connect the two events. This
-was tested both ways against a real empty database:
+⚠ **With sync off (above), that prune never runs, so a mis-marked row survives — today.**
+That makes the mistake *less* visible, not safer:
+
+| when | mis-marked row (`source` omitted) |
+|---|---|
+| this deploy, sync off | **survives.** Nothing prunes. No symptom, no log line, no clue. |
+| the day someone sets the three sync variables | **deleted on the first pass**, and every tester drops to `403` — with nothing connecting the outage to a config change made weeks earlier by someone else |
+
+So the rule is unchanged and the reason is stronger: writing `source = 'seed'` costs one
+word, and it is the difference between a deploy that survives enabling the sync and one that
+silently revokes every tester the moment it is enabled. **Do not treat "sync is off" as
+permission to skip it.**
+
+The behaviour was tested both ways against a real empty database **with sync configured** —
+which is the state this table describes, and the state this deploy is not in:
 
 | Seed | First create | After the first reconcile |
 |---|---|---|
@@ -791,31 +846,46 @@ and distinct.
 
 ---
 
-## STEP 4 — the BFF environment. ⚠ THIS STEP IS ONE-WAY.
+## STEP 4 — the BFF environment. ⚠ ADD, DO NOT DELETE.
 
 **Read this before editing the file.**
 
-Once you remove `LENS_WORKSPACE_KEY` and `LENS_WORKSPACE_ID` and add
-`LENS_PROVISION_SECRET`, **the previous BFF binary will no longer start** — it
-requires the two variables you just deleted (old `main.go:89,92`). And the new
-binary will not start while the old variables are the only ones present.
+⚠ **This step was previously documented as ONE-WAY, requiring the env edit and the binary
+swap to be atomic. That is not true, and the correction makes rollback materially cheaper.**
+The old text argued *"there is no environment file that satisfies both binaries at once,
+because the new one also refuses to boot if `LENS_API_KEY` is set and the old one has no
+opinion about it"* — but "the old one has no opinion" is a reason you can simply **omit**
+`LENS_API_KEY`, which is what makes a both-satisfying file possible. The premise argued the
+opposite of its conclusion.
 
-There is no environment file that satisfies both binaries at once, because the
-new one *also* refuses to boot if `LENS_API_KEY` is set and the old one has no
-opinion about it. So:
+Read from both binaries rather than from memory (old = `0a35473^`, i.e. `84042af`):
 
-> **The env edit and the binary swap are a single atomic step.** Keep a copy of
-> the old file (`sudo cp /etc/talyvor/bff.env /etc/talyvor/bff.env.pre-signup`)
-> — rolling the BFF back means restoring **both** the old binary and that file,
-> together. See the rollback matrix.
+| variable | pre-#30 binary | current binary |
+|---|---|---|
+| `LENS_BASE_URL` | required | required |
+| `LENS_WORKSPACE_KEY` | **required** (old `main.go:89`) | **ignored** — `grep -c LENS_WORKSPACE apps/bff/main.go` = 0 |
+| `LENS_WORKSPACE_ID` | **required** (old `main.go:92`) | **ignored** |
+| `LENS_PROVISION_SECRET` | ignored (not read at all) | **required** — refuses to start |
+| `LENS_API_KEY` | ignored (**never read** by the old binary) | **refuses to start if set** |
 
-Edit `/etc/talyvor/bff.env`:
+The old binary contains no "must not be set" logic — its only two refusals are the two
+`is required` lines above. So **one file boots either binary**: keep the two workspace
+variables, add `LENS_PROVISION_SECRET`, and never set `LENS_API_KEY`.
+
+> **Rolling the BFF back is therefore a binary swap alone** — no env restore, no atomicity to
+> get right under pressure. Keeping a copy (`sudo cp /etc/talyvor/bff.env
+> /etc/talyvor/bff.env.pre-signup`) is still worth doing as cheap insurance, but it is no
+> longer load-bearing.
+
+Edit `/etc/talyvor/bff.env` — **an addition, not a swap:**
 
 ```diff
-- LENS_WORKSPACE_KEY=tlv_ws_…
-- LENS_WORKSPACE_ID=default
+  LENS_WORKSPACE_KEY=tlv_ws_…      # keep: inert now, still required by the old binary
+  LENS_WORKSPACE_ID=default        # keep: same reason
 + LENS_PROVISION_SECRET=<the PROVISION_SECRET from step 1 — same value Lens has>
 ```
+
+Delete the two only once rolling back to a pre-#30 binary is no longer a possibility.
 
 **Verify — the two sides match** (compares digests, never prints a secret):
 ```sh
@@ -1379,48 +1449,42 @@ everything listed is safe.
 
 | What you will see | Where | Harmless? | Why |
 |---|---|---|---|
-| `member sync — pull failed, skipping workspace`, **every 15 minutes, forever** | `docker compose logs docs` | **Yes** | The Docs workspace id has no Track counterpart — Track is per-session since #36 — so Track answers `404` and the syncer skips that workspace. Detail below; it is also what protects your seeded rows. |
-| `member sync — workspace reconciled` at INFO | `docker compose logs docs` | **Yes, but read `pruned`** | Normal sync output. `pruned` should be `0` for your seeded workspace — detail below. |
+| ⚠ **NO `member sync` lines at all, ever** | `docker compose logs docs` | **Yes — expected** | The member sync is **off and not wirable** from this deploy (STEP 3a). `Start` returns before the boot pass, so there is no WARN, no INFO, and no ticker. **Silence here is the correct state, not a fault.** Detail below. |
 | `environment hygiene: this container holds CREDENTIAL-SHAPED variables that are not Lens's` (ERROR), naming e.g. `TRACK_GATEWAY_AUTH_SECRET` / `DOCS_GATEWAY_AUTH_SECRET` | `docker compose logs lens` | **NO — fix it** | Lens is being handed another service's secrets. It means `env_file:` is forwarding the project `.env` instead of `lens.env`, i.e. the leak lens#377/#378 closed has returned. A Lens crash dump would carry Track's and Docs's gateway secrets. Fires only when the unexpected variable name ends in `SECRET`/`KEY`/`TOKEN`/`PASSWORD`/`CREDENTIALS` (`cmd/lens/env_hygiene.go:98`). |
 | `modelwatch: NO ALERT SINK CONFIGURED` (ERROR) at Lens boot | `docker compose logs lens` | **Yes** | `LENS_OPERATOR_ALERT_WEBHOOK_URL` is unset, which is currently correct — nothing accepts that payload yet. Logged at ERROR deliberately so the gap stays visible (`internal/modelwatch/modelwatch.go:197`). Expect it once per boot. |
 | Lens WARN: *"the embedding model has been changed while cross-tenant pooling is ENABLED … Run `lens poolcheck`"* | `docker compose logs lens` | **Only if you meant it** | Fires only when `LENS_EMBEDDING_MODEL` differs from the default **and** pooling is on (`cmd/lens/env_hygiene.go:127`). It does not judge the model and does not block boot — but the cross-tenant margin is a property of the embedder, so run `lens poolcheck` before trusting it. If you did not change the model, something else did. |
 
-The two Docs lines are the ones this deploy introduces, so they get the detail:
+The Docs member-sync silence is what this deploy introduces, so it gets the detail:
 
-### `docs` — member sync warns every 15 minutes, forever
+### `docs` — ⚠ NO member-sync lines at all. That is correct.
 
-```json
-{"level":"WARN","msg":"trackintegration: member sync — pull failed, skipping workspace",
- "workspace_id":"<DOCS_WORKSPACE_ID>",
- "err":"trackintegration: member pull for <DOCS_WORKSPACE_ID>: 404 Not Found"}
-```
+**This section previously described a WARN "every 15 minutes, forever" and an INFO
+`workspace reconciled` line. Neither can occur in this deploy, and the stated mechanism was
+wrong twice over.** Corrected here rather than deleted, because someone will go looking for
+those lines on the strength of the old text.
 
-**Expected, and permanent.** Docs asks Track for the roster of every workspace it
-holds content for. Its pinned workspace has no counterpart in Track — Track is
-per-session now (#36), so there is no shared Track workspace for it to match — and
-Track answers `404`. The syncer treats a failed pull as *skip this workspace*, so
-the existing roster is left intact rather than pruned. That is the branch you
-want: it is also what protects your seeded rows.
+**Why no lines.** With `DOCS_TRACK_URL` / `DOCS_TRACK_API_KEY` /
+`DOCS_TRACK_MEMBER_SYNC_SECRET` all unset — and they are not in the compose fragment, which
+has no `env_file:` — both `IsConfigured()` and `memberSyncOn()` are false, so `Start` returns
+**before** the boot pass and no ticker is created. And `SyncMembers` begins
+`if !s.memberSyncOn() { return }`, a **silent** return: even with cost-sync on it would log
+nothing.
 
-It repeats on the 15-minute sync interval and at every restart, and it will not
-stop until Docs is given a real Track workspace or the enumeration is inverted.
+**Why the old `404` was wrong even if the sync did run.** Track's roster route has no 404
+branch — `internal/member/handler.go` answers `401` (bad/absent bearer), `400` (missing
+`workspace_id`), `500` (query failure), or **`200` with `[]`** for a workspace it has never
+heard of, which is the case here. The route is mounted unconditionally, so it cannot 404
+either. An unknown workspace produces an empty roster and the empty-pull guard no-ops; it
+does not produce an error.
 
-**What would NOT be noise, in the same line:** a `workspace_id` you do not
-recognise (something enumerated that should not exist), or the same message with
-a connection error rather than `404 Not Found` — that is Track being unreachable
-from the Docs container, which *is* a deploy problem and also breaks
-`/api/track/*`.
+**So: silence is the expected state.** If you *do* see a `member sync` line, someone wired
+the three variables into the deploy — go and read STEP 3a, because the prune is now armed and
+any row seeded without `source = 'seed'` is deletable.
 
-### `docs` — `member sync — workspace reconciled` at INFO
-
-```json
-{"level":"INFO","msg":"trackintegration: member sync — workspace reconciled",
- "workspace_id":"…","upserted":1,"pruned":1}
-```
-
-Normal. Worth one look though: **`pruned` should be `0` for your seeded
-workspace.** A non-zero prune there means rows were written with `source =
-'track'` and are being deleted — see step 3a's failure mode.
+**And a real fault in the same area still looks like this:** a `403` from Docs for a tester
+who worked yesterday means their `workspace_members` row is gone. With sync off there is only
+one way for that to happen — someone deleted it, or `DOCS_WORKSPACE_ID` changed on one side
+of the two files that must agree.
 
 ---
 
@@ -1434,8 +1498,8 @@ workspace.** A non-zero prune there means rows were written with `source =
 | STEP 3 Track image | **Yes** | Previous `:<sha>`. Verified: **0 destructive statements** across all Track migrations — I checked rather than assuming Lens's property transfers. |
 | STEP 3 Docs image | **Yes** | Previous `:<sha>`. Verified: **0 destructive statements**. Note Docs migrates on boot, so an older image simply finds its schema already ahead — additive, so it runs. |
 | STEP 3 Track/Docs **databases** | **NO** | Forward-only, as above. Dropping the databases is the only "undo" and it destroys data. |
-| **STEP 4 BFF environment** | **⚠ ONE-WAY IN PRACTICE** | See below. |
-| STEP 5 BFF binary | Yes, **only with step 4's file** | Restore `/opt/talyvor/bin/bff` *and* `/etc/talyvor/bff.env.pre-signup` together, then restart. |
+| **STEP 4 BFF environment** | **Yes** — it is an ADD, not a swap | Nothing to undo: the old variables were never deleted, and the old binary ignores `LENS_PROVISION_SECRET`. See below. |
+| STEP 5 BFF binary | **Yes — binary swap alone** | Restore `/opt/talyvor/bin/bff` and restart. The env file needs no change, because step 4 kept the values the old binary requires. |
 | STEP 7 Caddy | Yes | README's placeholder rollback, unchanged. |
 
 ### ⚠ Checking the rollback invariant — derived from YOUR target, not from a written range
@@ -1485,18 +1549,23 @@ pass. The mitigation is that the pass line **echoes the target back**, so the ch
 reading its own output — which is the honest limit of a one-line shell check against a variable the
 operator supplies.
 
-### ⚠ Why the BFF env change is one-way
+### ⚠ Why the BFF env change is NOT one-way (corrected)
 
 The old binary **requires** `LENS_WORKSPACE_KEY` and `LENS_WORKSPACE_ID` and
 refuses to start without them. The new binary **requires** `LENS_PROVISION_SECRET`
-and refuses to start if `LENS_API_KEY` is present. A file containing all three
-starts *both* binaries — so a rollback is possible **only if you kept the old
-values**. That is the entire reason for `bff.env.pre-signup` in step 4.
+and refuses to start if `LENS_API_KEY` is present, while **ignoring** the two
+workspace variables entirely. A file carrying all three — and no `LENS_API_KEY` —
+therefore starts *both* binaries, which is why step 4 adds rather than swaps.
 
-**If you deleted the old values and did not keep a copy, you cannot roll the BFF
-back** — the previous binary will not boot, and the workspace key/id would have
-to be recovered from Lens (the key is hashed at rest; you would have to mint a
-new one and look the workspace id up).
+⚠ **This paragraph and step 4 used to disagree**: step 4 asserted no file could satisfy both
+and declared itself one-way, while this section correctly said a file with all three starts
+both. Step 4 was the wrong one, and it made rollback look like a two-artifact atomic restore
+when it is a binary swap.
+
+**If you do delete the old values**, rollback needs them back: the previous binary will not
+boot without them, and the workspace key is hashed at rest in Lens — you would have to mint a
+new one and look the workspace id up. `bff.env.pre-signup` is cheap insurance against exactly
+that, but following step 4 as written means you never need it.
 
 **Rolling the BFF back does not roll back the Lens workspaces.** Every workspace
 provisioned during the window keeps existing, keeps its balance, and keeps
