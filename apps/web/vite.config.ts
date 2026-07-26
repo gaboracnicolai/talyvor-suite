@@ -1,8 +1,59 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
+import { bundleVersionPayload, COMMIT_ENV_VAR, UNSTAMPED } from './src/buildIdentity'
+
+/**
+ * stampBuild writes the commit this bundle was built from into the build output, so the deployed
+ * web artifact can be identified WITHOUT asking the BFF. The two ship as separate operations
+ * against the same host (deploy/README.md step 3b), so the BFF's version is not evidence about
+ * the bundle's.
+ *
+ * It emits the same value twice, on purpose, because the two get read in different situations:
+ *
+ *   · dist/version.json — the operator surface. `curl $APP/version.json | jq` during a deploy,
+ *     and the file the BFF reads off disk to report which bundle it is serving.
+ *
+ *     ⚠ ON A BUNDLE THAT PREDATES THIS, THAT PATH RETURNS index.html WITH STATUS 200 — not a 404
+ *     — because the BFF's spaHandler falls back to index.html for any path that is not a real
+ *     file. So a check must require the response to PARSE AS JSON. A bare `curl -f`, or anything
+ *     that tests the status code, passes against a bundle carrying no version at all.
+ *
+ *   · a <meta name="talyvor-build"> in index.html — immune to that ambiguity, because index.html
+ *     IS the fallback: the tag is either there or it is not. Also readable from the DOM with no
+ *     network call at all, if a UI surface ever wants to show it.
+ *
+ * Both come from one `payload` computed once here, so they cannot disagree within a build.
+ *
+ * ⚠ NO GIT FALLBACK, DELIBERATELY. It is tempting to shell out to `git rev-parse` when
+ * SUITE_COMMIT is unset so that local builds are "stamped too". That would be a different lie: it
+ * names a commit while the working tree may hold uncommitted changes, and it would make an
+ * unstamped build indistinguishable from a real one. Unset stays unstamped and says so.
+ */
+function stampBuild(): Plugin {
+  const payload = bundleVersionPayload(process.env[COMMIT_ENV_VAR])
+  const json = `${JSON.stringify(payload, null, 2)}\n`
+
+  return {
+    name: 'talyvor:stamp-build',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: json })
+    },
+    transformIndexHtml() {
+      return [
+        {
+          tag: 'meta',
+          attrs: { name: 'talyvor-build', content: payload.commit ?? UNSTAMPED },
+          injectTo: 'head',
+        },
+      ]
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), stampBuild()],
   // @talyvor/ui is consumed as workspace SOURCE (TS/TSX); don't pre-bundle it.
   optimizeDeps: { exclude: ['@talyvor/ui'] },
   // In dev, the app and its API must share an origin (no CORS). vite serves the app on

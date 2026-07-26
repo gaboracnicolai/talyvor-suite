@@ -409,6 +409,19 @@ func requireLoopback(addr string) error {
 
 func main() {
 	log.SetFlags(0)
+
+	// `bff version` prints the build stamp and exits, BEFORE loadConfig.
+	//
+	// The ordering is the point: loadConfig can log.Fatalf, and in oidc mode boot performs
+	// network discovery against the IdP. Asking a binary what it is must not require it to be
+	// deployable — otherwise the version is unreadable in exactly the situation where you most
+	// want it. This is also how CI asserts the stamp was applied: it builds the binary and reads
+	// this output, which a unit test cannot do.
+	if len(os.Args) > 1 && os.Args[1] == "version" {
+		fmt.Println(bffVersion)
+		return
+	}
+
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Fatalf("bff: %v", err)

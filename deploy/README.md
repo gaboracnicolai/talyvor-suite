@@ -114,20 +114,87 @@ SaaS account when Google is already in hand.
    Caddy already holds certificates for both in its `caddy_data` volume (they
    persist across config reloads; nothing here re-issues).
 
+## ⚠ Before you build — confirm the commit was actually TESTED
+
+**The rule: assert a run EXISTS for the head SHA, then read its conclusion.**
+Never poll for "conclusion == success" without first establishing that a run
+exists. Those are two checks, and skipping the first turns a specific, dangerous
+state into something that looks like patience.
+
+**Zero runs is a distinct verdict.** It means **NOT TESTED** — not "not
+finished". Three outcomes, not two:
+
+| runs at the head SHA | verdict |
+|---|---|
+| ≥1, all `success` | tested and green — proceed |
+| ≥1, any other | tested and not green — stop |
+| **0** | ⚠ **NOT TESTED.** No CI ever ran on this code. Indistinguishable from "pending" if you only watch conclusions. |
+
+**Why zero happens, and why it is easy to miss.** `pull_request` workflows run
+from the **merge commit**, so a PR that conflicts with its base has no merge ref
+and therefore **no run at all**. `gh pr view` reports `mergeable=UNKNOWN`, not
+`CONFLICTING`, and `gh pr checks` says *"no checks reported"* — which reads like
+a delay. Observed on suite #39: the pre-rebase head had **0 runs**; the same tree
+rebased had 1. Nothing was red; nothing had run.
+
+```sh
+REPO=gaboracnicolai/talyvor-suite
+SHA=$(git rev-parse HEAD)          # ⚠ FULL 40 chars — see the trap below
+
+N=$(gh api "repos/$REPO/actions/runs?head_sha=$SHA" --jq '.total_count')
+if [ "$N" -eq 0 ]; then
+  echo "NOT TESTED — no run exists for $SHA. Do not deploy this commit."
+else
+  gh api "repos/$REPO/actions/runs?head_sha=$SHA" \
+    --jq '.workflow_runs[] | "\(.name) \(.status)/\(.conclusion)"'
+fi
+```
+
+⚠ **THE TRAP INSIDE THE TRAP: `head_sha` must be the full 40-character SHA.**
+Pass an abbreviated one and the API returns `total_count: 0` — **no error, no
+warning** — which is indistinguishable from "never tested". A check written with
+`git rev-parse --short HEAD` reports every commit as untested, and it will look
+like a real finding. Use `git rev-parse HEAD`.
+
+*(This bit me while auditing: an abbreviated SHA made all 35 of today's merges
+appear untested. Re-run with full SHAs, all 35 had a run at their own head SHA
+and all were green.)*
+
 ## 2. Build (on your workstation)
 
 ```sh
 git clone https://github.com/gaboracnicolai/talyvor-suite.git && cd talyvor-suite
 pnpm install --frozen-lockfile
-pnpm --filter @talyvor/web build          # → apps/web/dist
-( cd apps/bff && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-    go build -trimpath -ldflags="-s -w" -o ../../bff-linux-amd64 . )
+scripts/build-release.sh                  # → apps/web/dist + bff-linux-amd64
 ```
 
-**Verify:** `ls apps/web/dist/index.html` exists, and
-`file bff-linux-amd64` says `ELF 64-bit LSB executable, x86-64 … statically
-linked` (~7 MB). Record `shasum -a 256 bff-linux-amd64` — you will compare it
-on the server.
+**Use the script, not the two build commands directly.** It derives the commit
+once (`git rev-parse --short HEAD`) and stamps **both** artifacts with it, then
+asserts the stamp actually landed. CI runs the same script, so the thing the
+pipeline checks is the thing you run — a hand-rolled `go build` here would
+produce an unidentifiable binary that CI could never have caught.
+
+It prints the stamp it used. Read that line:
+
+```
+==> stamping both artifacts with: b41ea4d
+```
+
+**A `-dirty` suffix means your working tree had uncommitted changes**, so what
+you are about to deploy does not correspond to that commit as pushed. That is
+not a warning to click through — either commit the changes or accept that the
+deployed version is not reproducible from the repository.
+
+**Verify:** the script fails loudly if either stamp is missing, so a clean exit
+is the verification. Additionally: `ls apps/web/dist/index.html` exists,
+`cat apps/web/dist/version.json` names the commit, and `file bff-linux-amd64`
+says `ELF 64-bit LSB executable, x86-64 … statically linked` (~7 MB). Record
+`shasum -a 256 bff-linux-amd64` — you will compare it on the server.
+
+⚠ On a non-linux workstation the script **cannot execute** the linux binary it
+just built, so it verifies the `-X` plumbing on a host-native probe instead and
+says so. That probe is a different binary from the one you ship. The shipped
+one gets checked on the server in step 3b.
 
 ## 3a. First deploy ONLY — the service user, directories, firewall
 
@@ -179,6 +246,35 @@ read its own web bundle (this happened).
 **Verify:** on the server, `sha256sum /opt/talyvor/bin/bff` matches the local
 hash; `test -f /opt/talyvor/web-dist/index.html && echo bundle-ok` prints
 `bundle-ok`; `stat -c %U /opt/talyvor/bin/bff` prints `talyvor`.
+
+**And verify the versions — this is the shipped artifact, so this is the check
+that counts:**
+
+```sh
+ssh <server> '
+  /opt/talyvor/bin/bff version
+  cat /opt/talyvor/web-dist/version.json
+'
+```
+
+Both must name the commit you built. `dev` from the binary, or a
+`"stamped": false` from the bundle, means that half was built without the
+script — you cannot identify what is running, and that is worth fixing before
+continuing rather than after something goes wrong.
+
+⚠ **THESE TWO CAN DISAGREE, AND THAT IS THE FAILURE THIS EXISTS TO CATCH.** The
+binary and the bundle are shipped by two separate commands above (`scp` + a
+service restart; `rsync` of a directory). Either can succeed while the other
+fails or is skipped, and the service keeps serving whatever is on disk. A
+mismatch tells you which half is stale:
+
+| reading | what happened |
+|---|---|
+| binary newer than bundle | the `rsync`/`mv` of the bundle did not land — **the browser is running old code against a new backend** |
+| bundle newer than binary | the binary was not replaced, or the service was never restarted (step 6) |
+| they match | both halves of this deploy completed |
+
+Step 6 gets the same comparison from the running process in one request.
 
 ## 4. The environment — exhaustive
 
@@ -268,6 +364,63 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/api/context   # 4
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/              # 200 — the SPA is served
 ```
 
+### Which commit is actually running?
+
+```sh
+curl -s http://127.0.0.1:8787/api/version
+```
+
+This is the check to reach for whenever the question is "did my deploy land?".
+It answers from the **running process** and the bundle **currently on disk**, so
+it reflects reality rather than what the deploy was supposed to do. Read
+`verdict` first — it states the conclusion in words:
+
+```json
+{
+  "service": "bff",
+  "commit": "b41ea4d",
+  "stamped": true,
+  "bundle": { "readable": true, "commit": "b41ea4d", "stamped": true },
+  "agree": true,
+  "verdict": "MATCH — the BFF and the bundle it serves were built from b41ea4d."
+}
+```
+
+- **`agree: true`** — both halves of the deploy landed.
+- **`agree: false`** — a partial deploy. `verdict` names which half is stale.
+- **`agree: null`** — *not* a match and *not* a mismatch: at least one side is
+  unstamped or unreadable, so nothing was established. Never read `null` as
+  agreement.
+
+**It needs no authentication, deliberately.** Every other `/api/` route requires
+a session; this one does not, because the moment you most need it is when the
+IdP is misconfigured and nobody can log in — and because build identity is
+already public on this origin (`index.html` names its content-hashed asset
+files). Details and the reasoning are pinned in
+`TestVersionEndpointIsNotBehindTheSession`.
+
+`bff version` on the binary and `/api/version` from the running service answer
+different questions: the first identifies a **file**, the second identifies the
+**process** plus the bundle it is serving. After a deploy where you replaced the
+binary but the restart failed, the file says the new commit and the process says
+the old one — which is exactly the case worth catching.
+
+### Reading the bundle's version without the BFF
+
+The bundle carries its own stamp, so it can be identified even if the API is
+broken — and by anything that serves `dist/`, not just this BFF:
+
+```sh
+curl -s https://app.talyvor.com/version.json | jq .        # must PARSE as JSON
+curl -s https://app.talyvor.com/ | grep -o 'name="talyvor-build" content="[^"]*"'
+```
+
+⚠ **Do not test `/version.json` by status code.** The SPA falls back to
+`index.html` for any path that is not a real file, so on a bundle built before
+this existed the request returns **200 with HTML**. `curl -f` passes, `jq`
+fails — which is why the check above pipes to `jq`. The `<meta>` tag has no such
+ambiguity: it lives in `index.html` itself, so it is either there or it is not.
+
 ## 7. The front door — lives in the talyvor-lens repo, NOT here
 
 **⚠ The live Caddy is the Lens stack's compose service.** Its config is
@@ -346,10 +499,10 @@ the console, no server change needed.
 The whole of steps 0–7 is one-time. A routine redeploy is only this:
 
 ```sh
-# workstation
-pnpm install --frozen-lockfile && pnpm --filter @talyvor/web build
-( cd apps/bff && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-    go build -trimpath -ldflags="-s -w" -o ../../bff-linux-amd64 . )
+# workstation — the SAME script as step 2. Do not hand-roll the two builds here:
+# this is the path that actually runs on every redeploy, so an unstamped build
+# here is an unidentifiable deployment every time.
+pnpm install --frozen-lockfile && scripts/build-release.sh
 scp bff-linux-amd64 <server>:/tmp/bff
 rsync -r --delete apps/web/dist/ <server>:/tmp/web-dist/
 
@@ -362,8 +515,22 @@ ssh <server> '
 '
 ```
 
-**Verify:** `curl -s https://app.talyvor.com/auth/me` answers, and the journal
-shows the fresh boot lines. Caddy, the env file, the unit, the user, ufw — all
+**Verify — one request, and read `verdict` first:**
+
+```sh
+ssh <server> "curl -s http://127.0.0.1:8787/api/version" | jq '{commit, bundle: .bundle.commit, agree, verdict}'
+```
+
+`agree: true` and both commits equal to what the script printed ⇒ **both halves
+landed**. This is the check that catches the characteristic failure of *this*
+section: the two artifacts are shipped by two separate commands above, and
+`scp`-then-forget-the-`rsync` (or a restart that did not happen) leaves the
+service serving one old half. `agree: false` names which half is stale;
+`agree: null` means at least one side is unstamped, so **nothing was
+established** — do not read it as a match.
+
+Also: `curl -s https://app.talyvor.com/auth/me` answers, and the journal shows
+the fresh boot lines. Caddy, the env file, the unit, the user, ufw — all
 untouched. Note: sessions are in-memory, so a restart signs everyone out
 (they re-login; nothing else is lost).
 

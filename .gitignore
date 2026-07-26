@@ -8,3 +8,8 @@ coverage/
 # Go build artifact (go build in apps/bff drops the binary in-place)
 apps/bff/bff
 .vitest-report.json
+
+# Release artifacts from scripts/build-release.sh. Ignored not just for tidiness: an untracked
+# build output would make `git status --porcelain` dirty, and the script's dirty-tree check would
+# then stamp every subsequent build "-dirty" because of its own previous output.
+bff-*-*

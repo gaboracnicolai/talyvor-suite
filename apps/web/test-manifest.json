@@ -22,6 +22,7 @@
   "src/areas/track/TrackArea.test.tsx": 4,
   "src/AuthGate.test.tsx": 3,
   "src/BillingRoutes.test.tsx": 4,
+  "src/buildIdentity.test.ts": 9,
   "src/components/PoolingConsentDocsNotice.test.tsx": 3,
   "src/lib/awaiting.test.ts": 7,
   "src/Sharing.test.tsx": 8,
