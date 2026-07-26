@@ -109,7 +109,9 @@ SaaS account when Google is already in hand.
    trios refuse to boot. Note: the BFF forwards the session email as
    `X-User-Email`, which is the membership join key — a trial user must also
    be a **member** of the Track/Docs workspace or those products will refuse
-   them individually.
+   them individually. For Docs that membership does not create itself and no
+   step here makes one: see **FULL-STACK-DEPLOY.md step 3a**, which seeds it and
+   states the trap (a row written without `source` is deleted by the next sync).
 4. The DNS for both hosts already points at this box, and the containerised
    Caddy already holds certificates for both in its `caddy_data` volume (they
    persist across config reloads; nothing here re-issues).
@@ -835,7 +837,7 @@ Reading the result — each code means one specific thing:
 | `200` | working end to end | done |
 | `503` | the BFF has no upstream configured | step 7 trio incomplete, or the BFF was not restarted |
 | `401` | **the gateway secrets do not match** | step 7 — the two names, one value |
-| `403` | secret fine; your email is not a member of that workspace | add the membership |
+| `403` | secret fine; your email is not a member of that workspace | add the membership — for Docs that means **FULL-STACK-DEPLOY.md step 3a** (seed it with `source='seed'`; a row seeded without that column is pruned by the next sync, which looks exactly like this) |
 | `404` | secret and membership fine; wrong workspace id | `DOCS_WORKSPACE_ID` (Track has no pinned id — it is per-session) |
 | `502` | the BFF cannot reach the container | step 6 — check the loopback publish |
 

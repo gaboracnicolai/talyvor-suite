@@ -401,8 +401,8 @@ docker compose exec -T lens /lens --version 2>/dev/null || \
 ## STEP 3 — Track and Docs
 
 **README's "Deploying Track and Docs" section is still correct** — follow it for
-the databases, the compose fragment, the secret-digest comparison and the
-membership seeding. Two things to hold in mind while you do:
+the databases, the compose fragment and the secret-digest comparison. Two things
+to hold in mind while you do:
 
 - **Track migrates by subcommand** (`cmd/track/main.go:132`): the
   `track-migrate` one-shot service in the compose fragment is what applies its
@@ -412,6 +412,126 @@ membership seeding. Two things to hold in mind while you do:
   advisory-locked, so a re-run is a no-op and there is no separate step. A
   migration failure is a boot failure; you will see it in `docker compose logs
   docs`, not in a silent 500 later.
+
+**Then do 3a. README does not cover it** — it names the requirement ("a trial
+user must also be a **member**") and its troubleshooting table says `403` → "add
+the membership", but no step anywhere says how, because until now there was no
+mechanism.
+
+### ⚠ 3a. Seed the first Docs membership. WITHOUT THIS, DOCS 403s EVERY TESTER.
+
+**Docs cannot bootstrap its own tenancy.** Membership comes only from Track's
+roster sync, and that sync enumerates *the workspaces Docs already holds content
+for* (`SELECT workspace_id FROM spaces UNION SELECT workspace_id FROM pages`,
+`internal/membership/store.go`). A brand-new Docs database holds no content, so
+nothing is enumerated, so no roster is pulled, so nobody is a member, so
+`space.Create` 403s before its insert — and the space that would have made the
+workspace enumerable can never be created. **Content is needed to get a roster,
+and a roster to create content.** The parked decision and the fix shape are
+recorded on `DistinctWorkspaceIDs` in talyvor-docs (#45).
+
+The seed breaks the cycle. Run it after Docs' first boot (it migrates on boot, so
+the table exists), **one row per tester**. Same `docker compose exec postgres`
+route as every other database step here — no host `psql` needed:
+
+```sh
+# From the compose .env, which is what the docs container reads (the fragment maps
+# DOCS_DEFAULT_WORKSPACE: ${DOCS_WORKSPACE_ID:-default}). It must ALSO equal the
+# BFF's own DOCS_WORKSPACE_ID in /etc/talyvor/bff.env — that is a separate file and
+# a separate copy, and a mismatch is a 404 on every Docs route, not a 403.
+WS=$(grep -oP '(?<=^DOCS_WORKSPACE_ID=).*' .env 2>/dev/null || echo default)
+echo "seeding workspace: $WS"      # sanity-check this before continuing
+sudo grep -oP '(?<=^DOCS_WORKSPACE_ID=).*' /etc/talyvor/bff.env   # must print the same
+
+docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
+  "INSERT INTO workspace_members (workspace_id, email, role, member_id, source)
+   VALUES ('$WS', 'tester@example.com', 'admin', 'seed-tester@example.com', 'seed')
+   ON CONFLICT (workspace_id, email) DO NOTHING;"
+```
+
+Then **restart Docs** — its sync runs a boot pass before the 15-minute ticker, so
+a restart forces the first reconcile immediately instead of leaving you to
+discover the result twenty minutes after you have moved on:
+
+```sh
+docker compose restart docs
+sleep 20
+docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
+  "SELECT email, role, source FROM workspace_members WHERE workspace_id = '$WS';"
+```
+
+**Success:** every tester you seeded is still listed, each with `source = seed`.
+
+#### ⚠⚠ THE FAILURE MODE — omitting `source` looks fine and reverts ~15 minutes later
+
+`source` **defaults to `'track'`**, so a seed written without that column is
+marked as Track's own row. The roster prune is
+`WHERE workspace_id = $1 AND source = 'track' AND email <> ALL($2)` — it deletes
+`track`-owned rows that Track's roster does not contain, and Track has never
+heard of your testers.
+
+So the naive seed **works**: the tester creates a space, everything looks correct,
+you move on. Then the first reconcile runs and deletes the row, and every tester
+is back to `403` with nothing in the deploy log to connect the two events. This
+was tested both ways against a real empty database:
+
+| Seed | First create | After the first reconcile |
+|---|---|---|
+| `source = 'seed'` | `201` | survives — still `201` |
+| `source` omitted (defaults `'track'`) | `201` | **pruned** → back to `403` |
+
+**Always write `source` explicitly.** If a row vanishes, that is what happened —
+re-insert it with `'seed'`.
+
+#### The workspace id does NOT need to exist in Track
+
+Track is per-session now, so there is no shared Track workspace to point at, and
+you do not need one. `DOCS_WORKSPACE_ID` is just the id the BFF asks for; Docs
+authorizes it against the caller's memberships, which the seed supplies. All
+three things Track can answer were tested, and the seed survives every one: **404**
+(no such workspace — the pull errors, the syncer skips that workspace and leaves
+the roster untouched), **200 with an empty roster** (empty-pull safety no-ops),
+and **200 with a roster that does not contain the tester** (the prune skips rows
+that are not `source = 'track'`). Seeding also does not block the sync: a seeded
+row and a Track-owned row coexist in the same workspace.
+
+#### ⚠ What you do for each new tester: one row, by hand, every time
+
+**There is no self-service path.** Membership is keyed on the verified email, and
+nothing creates a row except this `INSERT` and Track's sync. A tester who signs in
+before you have seeded them gets `403` from Docs — the rest of the suite works.
+
+So the standing operational cost is: **run one `INSERT` per person, before their
+first visit, for as long as Docs is pinned.** Seed the batch you know about now
+rather than one at a time:
+
+This block is self-contained on purpose — you will be running it in a fresh shell
+weeks from now, from the compose project directory:
+
+```sh
+WS=$(grep -oP '(?<=^DOCS_WORKSPACE_ID=).*' .env 2>/dev/null || echo default)
+
+for e in alice@example.com bob@example.com carol@example.com; do
+  docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
+    "INSERT INTO workspace_members (workspace_id, email, role, member_id, source)
+     VALUES ('$WS', '$e', 'admin', 'seed-$e', 'seed')
+     ON CONFLICT (workspace_id, email) DO NOTHING;"
+done
+
+# Confirm — and confirm the source, because that is the column that bites:
+docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
+  "SELECT email, source FROM workspace_members WHERE workspace_id = '$WS' ORDER BY email;"
+```
+
+This ends when the enumeration is inverted to ask Track which workspaces exist
+(the recorded fix), not before. Until then it is a manual step that will be
+forgotten at least once — the symptom is a single tester getting `403` from Docs
+while everyone else is fine, which is this and nothing else.
+
+Notes on the values: `role` is stored and resolved but **never decides anything**
+in Docs today, so `'admin'` is a safe placeholder rather than a grant. `member_id`
+is free-form — Docs owns no members table, and this value only needs to be stable
+and distinct.
 
 ---
 
@@ -787,6 +907,50 @@ talyvor-lens for how that failed in practice.
 - **The IdP staying reachable.** Google is in the login path. A deploy-time login proves
   today. **Watch instead:** the BFF logs `bff: session created for sub=…` on every
   success; its absence over a period is the signal.
+
+---
+
+## Expected noise — log lines that are NOT failures
+
+Read this before you read the logs. Each line below is emitted by a healthy
+deployment. They are listed because a warning that repeats forever and means
+nothing is how people learn to stop reading logs, and the next warning will be a
+real one.
+
+### `docs` — member sync warns every 15 minutes, forever
+
+```json
+{"level":"WARN","msg":"trackintegration: member sync — pull failed, skipping workspace",
+ "workspace_id":"<DOCS_WORKSPACE_ID>",
+ "err":"trackintegration: member pull for <DOCS_WORKSPACE_ID>: 404 Not Found"}
+```
+
+**Expected, and permanent.** Docs asks Track for the roster of every workspace it
+holds content for. Its pinned workspace has no counterpart in Track — Track is
+per-session now (#36), so there is no shared Track workspace for it to match — and
+Track answers `404`. The syncer treats a failed pull as *skip this workspace*, so
+the existing roster is left intact rather than pruned. That is the branch you
+want: it is also what protects your seeded rows.
+
+It repeats on the 15-minute sync interval and at every restart, and it will not
+stop until Docs is given a real Track workspace or the enumeration is inverted.
+
+**What would NOT be noise, in the same line:** a `workspace_id` you do not
+recognise (something enumerated that should not exist), or the same message with
+a connection error rather than `404 Not Found` — that is Track being unreachable
+from the Docs container, which *is* a deploy problem and also breaks
+`/api/track/*`.
+
+### `docs` — `member sync — workspace reconciled` at INFO
+
+```json
+{"level":"INFO","msg":"trackintegration: member sync — workspace reconciled",
+ "workspace_id":"…","upserted":1,"pruned":1}
+```
+
+Normal. Worth one look though: **`pruned` should be `0` for your seeded
+workspace.** A non-zero prune there means rows were written with `source =
+'track'` and are being deleted — see step 3a's failure mode.
 
 ---
 
