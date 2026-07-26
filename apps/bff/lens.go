@@ -178,6 +178,10 @@ func (a *app) handleContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"workspace_id":  sessionWorkspaceID(a, r),
 		"lens_base_url": a.cfg.lensBaseURL,
+		// The customer-facing origin, for the setup page's copy-paste blocks. Empty when
+		// LENS_PUBLIC_BASE_URL is unset — the UI must branch on that rather than print
+		// lens_base_url, which is a loopback/compose address no customer can reach.
+		"lens_public_base_url": a.cfg.lensPublicBaseURL,
 	})
 }
 
