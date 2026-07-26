@@ -46,6 +46,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/auth/logout", a.handleLogout)
 	a.mux.HandleFunc("/auth/me", a.handleMe)
 
+	// /api/version is the ONLY /api/ route with no session gate. It reports which commit this
+	// binary was built from and which bundle it is serving, and it is deliberately readable
+	// without logging in — see handleVersion and TestVersionEndpointIsNotBehindTheSession. Go's
+	// ServeMux prefers the more specific pattern, so this wins over the /api/ catch-all below.
+	a.mux.HandleFunc("/api/version", a.handleVersion)
+
 	// /api/context is the only endpoint that never calls upstream and never touches the
 	// key: it tells the UI which workspace it is looking at, and nothing more.
 	a.mux.HandleFunc("/api/context", a.requireSession(a.handleContext))

@@ -34,7 +34,18 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
-      - run: pnpm build
+      # GUARD 2 FOR THE WEB HALF — and the reason it is not `pnpm build`.
+      #
+      # apps/web/src/buildIdentity.test.ts checks the DEFAULT placeholder is honest. NO unit test
+      # can check the stamp was APPLIED: nothing in a test can see whether the build step ran with
+      # SUITE_COMMIT set. So the check happens here, against the emitted artifact —
+      # scripts/build-release.sh runs the same `pnpm build` and then asserts
+      # apps/web/dist/version.json names this commit and reports stamped:true.
+      #
+      # It is the SAME script the deploy runbook runs (deploy/README.md step 2). That matters: if
+      # CI stamped via its own inline command and the runbook did not, this job would stay green
+      # while every real deploy shipped an unidentifiable bundle.
+      - run: scripts/build-release.sh web
 
   # The BFF gates. inc5 added the OIDC deps (go-oidc + x/oauth2), so there IS a
   # go.sum now — the module cache keys off it, and the Go version comes from
@@ -52,3 +63,14 @@ jobs:
           cache-dependency-path: apps/bff/go.sum
       - run: go vet ./...
       - run: go test -race ./...
+      # GUARD 2 FOR THE BFF HALF. version_test.go asserts bffVersion's default is an honest
+      # placeholder AND that it is declared `var` (a const silently ignores -X — that was the real
+      # bug in Lens #364). Neither can observe whether the link step actually ran, so this builds
+      # the release binary with the stamp and asks it: `bff version` must print this commit, not
+      # "dev". Drop the -X and this step fails.
+      #
+      # CI's runner IS linux/amd64, so this asserts the SHIPPED artifact directly rather than a
+      # host-native stand-in — the script falls back to a plumbing probe only when cross-compiling
+      # on a different host, and says so when it does.
+      - run: scripts/build-release.sh bff
+        working-directory: .
