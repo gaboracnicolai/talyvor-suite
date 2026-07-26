@@ -1,6 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
 import { App, queryClient } from './App'
+import { PoolingConsent } from './components/PoolingConsent'
+import { UNPAID_NOTICE_HEADLINE } from './areas/lens/unpaidNotice'
 
 // Sharing.test.tsx — the consent surface.
 //
@@ -135,3 +139,47 @@ describe('sharing consent', () => {
     expect(decline.className).toBe(share.className)
   })
 })
+
+// ── The unpaid-contribution notice on the DISCLOSURE screen ──────────────────
+//
+// This screen is the primary home for it: it BLOCKS (AuthGate renders it instead of the app), so
+// nobody generates a contribution before reading it, and it is already in the register of "here is
+// what happens to what you make" rather than asking permission. The wording itself is pinned in
+// areas/lens/unpaidNotice.test.ts; what is checked here is that it REACHES this surface.
+describe('PoolingConsent — the unpaid-contribution notice', () => {
+  it('shows the notice, from the shared source', async () => {
+    renderConsent()
+    expect(screen.getByText(new RegExp(escapeRe(UNPAID_NOTICE_HEADLINE)))).toBeTruthy()
+    // A distinctive fragment of the body, so a truncated or reworded copy fails here too.
+    expect(screen.getByText(/never credited/i)).toBeTruthy()
+  })
+
+  it('does not bury it below the sharing choice', () => {
+    const { container } = renderConsent()
+    const text = container.textContent ?? ''
+    // The notice must appear before the decline/accept buttons in document order: a tester who
+    // reads to the first control and clicks must already have passed it.
+    const notice = text.indexOf(UNPAID_NOTICE_HEADLINE)
+    const buttons = container.querySelectorAll('button')
+    expect(notice).toBeGreaterThanOrEqual(0)
+    expect(buttons.length).toBeGreaterThan(0)
+    const firstButtonText = buttons[0].textContent ?? ''
+    expect(text.indexOf(notice >= 0 ? UNPAID_NOTICE_HEADLINE : '')).toBeLessThan(
+      text.indexOf(firstButtonText),
+    )
+  })
+})
+
+// SharingChoice inside PoolingConsent uses useQuery, so a provider is required.
+function renderConsent() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <PoolingConsent onDone={() => {}} />
+    </QueryClientProvider>,
+  )
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}

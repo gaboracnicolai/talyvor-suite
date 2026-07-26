@@ -1,5 +1,6 @@
 import { Card, CardHeader } from '@talyvor/ui'
 import { SharingChoice, SharingFacts } from '../areas/lens/Sharing'
+import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from '../areas/lens/unpaidNotice'
 
 // PoolingConsent — the signup DISCLOSURE, shown once: on the login that created the workspace.
 //
@@ -38,6 +39,17 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
             You can turn it off below — one click, and nothing of yours is shared.
           </p>
           <SharingFacts />
+          {/* ⚠ THE UNPAID-CONTRIBUTION NOTICE, and it sits ABOVE the choice deliberately: a tester
+              who reads as far as the first control and clicks must already have passed it.
+              Enabling shadow mode in Lens (LENS_SHADOW_MINTS_ENABLED) is a statement to testers
+              rather than a config value, so this copy is a PRECONDITION for that flag — if it
+              ships first we run unpaid mints without having said so.
+              Words come from areas/lens/unpaidNotice, shared with the ledger, for the same reason
+              the sharing copy is shared with settings: a claim about payment must not be able to
+              drift between the two places it appears. */}
+          <p className="text-body text-ink">
+            <strong>{UNPAID_NOTICE_HEADLINE}</strong> {UNPAID_CONTRIBUTION_NOTICE}
+          </p>
           <SharingChoice onDone={onDone} />
         </div>
       </Card>

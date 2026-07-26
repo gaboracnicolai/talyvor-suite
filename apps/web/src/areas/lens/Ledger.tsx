@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, MuNumeral, Pill } from '@talyvor/ui'
+
+import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
 import { api, type LedgerRow, type Token } from '../../lib/api'
 import { formatWhen, humanizeType, ledgerStatus } from './format'
 
@@ -97,8 +99,24 @@ export function Ledger() {
         ) : q.isError ? (
           <div className="px-gutter py-3 text-body text-muted">Couldn’t load the ledger.</div>
         ) : rows.length === 0 ? (
-          <div className="px-gutter py-3 text-body text-muted">
-            {hasPrev ? 'No more entries.' : 'No ledger entries yet.'}
+          <div className="space-y-2 px-gutter py-3">
+            <div className="text-body text-muted">
+              {hasPrev ? 'No more entries.' : 'No ledger entries yet.'}
+            </div>
+            {/* ⚠ THE POINT OF ABSENCE. A contribution can be genuine and still produce no row — a
+                mechanism under evaluation records what it WOULD have paid and credits nothing — so
+                this empty state is exactly where a tester forms the wrong conclusion. The disclosure
+                screen says it once at signup; the question arrives here.
+            
+                LENS only, and only on the FIRST page: LXC is fiat credit and has nothing to do with
+                unpaid mints, and "no more entries" after paging is not the same as never having
+                earned. Words shared with the disclosure screen so the claim cannot drift. */}
+            {token === 'lens' && !hasPrev ? (
+              <p className="text-caption text-muted">
+                <strong className="text-ink">{UNPAID_NOTICE_HEADLINE}</strong>{' '}
+                {UNPAID_CONTRIBUTION_NOTICE}
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="overflow-x-auto">
