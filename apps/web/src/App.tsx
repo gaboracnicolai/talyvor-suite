@@ -8,6 +8,7 @@ import { Ledger } from './areas/lens/Ledger'
 import { Keys } from './areas/lens/Keys'
 import { Spend } from './areas/lens/Spend'
 import { Members } from './areas/lens/Members'
+import { Settings } from './areas/lens/Sharing'
 import { TopUp } from './areas/lens/TopUp'
 import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { TrackArea } from './areas/track/TrackArea'
@@ -20,7 +21,9 @@ import { Specimen } from './routes/Specimen'
 // changing THIS file requires its own PR, because five parallel tracks depend
 // on it not moving under them.
 
-const queryClient: QueryClient = new QueryClient({
+// Exported as a test seam: route-level tests need to clear cached probes between cases so one
+// test's /auth/me answer cannot be read as the next one's.
+export const queryClient: QueryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (err) => {
       // A 401 mid-session (expiry, signed out elsewhere) re-probes the gate, so
@@ -63,6 +66,7 @@ function titleFor(pathname: string): string {
     '/keys': 'API keys',
     '/spend': 'Spend & routing',
     '/members': 'Members',
+    '/settings': 'Settings',
     '/specimen': 'Specimen',
   }
   return exact[pathname] ?? 'Overview'
@@ -100,6 +104,7 @@ function Sidebar() {
         {item('/keys', 'API keys')}
         {item('/spend', 'Spend & routing')}
         {item('/members', 'Members')}
+        {item('/settings', 'Settings')}
       </Group>
       <Group label="Products">
         {item('/track', 'Track', true)}
@@ -148,6 +153,7 @@ function AppShell() {
         <Route path="/keys" element={<Keys />} />
         <Route path="/spend" element={<Spend />} />
         <Route path="/members" element={<Members />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/track/*" element={<TrackArea />} />
         <Route path="/docs/*" element={<DocsArea />} />
         <Route path="/specimen" element={<Specimen />} />

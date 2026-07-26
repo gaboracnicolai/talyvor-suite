@@ -262,7 +262,8 @@ func (a *app) setCachePoolable(ctx context.Context, t tenant, poolable bool) (bo
 	return out.CachePoolable, nil
 }
 
-// handlePoolingChoice records the signup pooling decision. POST {"cache_poolable": bool}.
+// handlePoolingChoice records the cross-tenant sharing decision, from either the signup prompt
+// or the settings control. POST {"cache_poolable": bool}.
 //
 // Same Origin discipline as the key mint: a state-changing POST must carry the configured public
 // origin. The response states the consent Lens RECORDED, so the screen renders the truth rather

@@ -100,10 +100,11 @@ func newApp(cfg config, auth *authenticator) *app {
 	// no-store / never-logged discipline around that one response.
 	a.mux.HandleFunc("/api/keys", a.requireTenant(a.handleKeys))
 
-	// SIGNUP: the cross-tenant pooling choice. A workspace is created DECLINED and the person is
-	// asked whether to turn sharing on, so nobody's answers can be served to another company
-	// before they have been told. See tenant.go's provisionForSession.
-	a.mux.HandleFunc("/api/signup/pooling", a.requireTenant(a.handlePoolingChoice))
+	// The cross-tenant sharing choice — ONE route for both the signup prompt and the settings
+	// control, so the two screens cannot drift into disagreeing about what is stored. A workspace
+	// is created DECLINED and the person is asked whether to turn sharing on, so nobody's answers
+	// can be served to another company before they have been told. See tenant.go.
+	a.mux.HandleFunc("/api/pooling", a.requireTenant(a.handlePoolingChoice))
 
 	// LXC top-up (this PR) — the BFF's SECOND write path, and the front door for
 	// the only way a customer can buy LXC. GET serves the allowed amounts (so the
