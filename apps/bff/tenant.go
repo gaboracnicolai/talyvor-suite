@@ -300,22 +300,27 @@ func (a *app) handlePoolingChoice(w http.ResponseWriter, r *http.Request, t tena
 	writeJSON(w, http.StatusOK, map[string]any{"cache_poolable": recorded})
 }
 
-// provisionForSession provisions a workspace for a freshly authenticated identity and returns the
-// session fields to store.
+// provisionForSession provisions a workspace for a freshly authenticated identity.
 //
-// ⚠ THE CHOICE IS PRE-DECLINED. A brand-new workspace is created with cache_poolable=false, and
-// the person is then asked whether to turn it ON. Lens's default is ON, and its consent model
-// records consent once at creation (only SetCachePoolable changes it afterwards) — so the only
-// way to guarantee nobody's answers are served to another company before they have been told is
-// to create declined and let them opt in. This is stronger than asking them to decline: consent
-// is never granted by inaction.
+// IT STATES NO PREFERENCE ABOUT POOLING, so Lens's own default (cross-tenant sharing ON) applies.
 //
-// It also gives the repeat-login behaviour for free. `created` is false on every subsequent
-// login, and Lens preserves the existing workspace's consent (our false is ignored for an
-// existing workspace), so the prompt appears exactly once — at signup.
+// This was briefly the other way round — created declined, then ask. That was the safer switch
+// position and the wrong product: cross-tenant sharing IS the product, and an economy that runs
+// only for people who find a settings screen and opt in does not run at all. Sharing off by
+// default is not a cautious default, it is the feature switched off.
+//
+// What protects the person is therefore not the switch position but the DISCLOSURE. The signup
+// screen blocks the app, states in the same breath that sharing is already on and that one click
+// turns it off, and gives both choices equal prominence. A person cannot reach the product
+// without seeing it, so there is no window in which they generate answers before deciding —
+// which is the property that makes an ON default defensible rather than merely convenient.
+//
+// SEND NO FIELD, rather than an explicit true. They look equivalent and are not: Lens records
+// consent once at creation and refuses to retroactively GRANT it, so an explicit true is silently
+// ignored on every login after the first — a value that means something different from what it
+// appears to say. nil reaches Lens as silence, which is exactly "take the default".
 func (a *app) provisionForSession(ctx context.Context, identity string) (provisionResult, error) {
-	declined := false
-	return a.provision(ctx, identity, &declined)
+	return a.provision(ctx, identity, nil)
 }
 
 // redactSecret keeps a provisioning failure's detail out of the log if it ever echoed the secret.

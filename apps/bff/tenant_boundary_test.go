@@ -55,6 +55,18 @@ func newTenantUpstream(t *testing.T) *tenantUpstream {
 		u.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 
+		if strings.HasSuffix(r.URL.Path, "/cache-poolable") {
+			var in struct {
+				CachePoolable bool `json:"cache_poolable"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			ws := wsSegment(r.URL.Path)
+			u.mu.Lock()
+			u.poolable[ws] = in.CachePoolable
+			u.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"cache_poolable": in.CachePoolable})
+			return
+		}
 		if r.URL.Path == provisionPath {
 			body, _ := io.ReadAll(r.Body)
 			u.mu.Lock()
@@ -426,30 +438,80 @@ func TestSecondLoginReusesTheSameWorkspace(t *testing.T) {
 	}
 }
 
-// ─── an explicit decline is STORED as declined ──────────────────────────────
+// ─── the pooling default, and the decline that must still work ──────────────
 
-// A brand-new workspace is created DECLINED, and the recorded consent is what the BFF reports.
-// Lens's default is ON, so creating declined is what guarantees nobody's answers can be served to
-// another company before they have been told.
-func TestSignupCreatesWorkspaceDeclinedAndReportsRecordedConsent(t *testing.T) {
+// A NEW WORKSPACE IS CREATED POOLABLE — Lens's own default applies.
+//
+// Cross-tenant sharing is the product: it is what makes reuse earn, and an economy that only runs
+// for people who find a screen and opt in does not run. So the BFF states no preference at
+// provision time and lets Lens's default (true) stand. What protects the person is not the switch
+// position but the DISCLOSURE: a blocking screen, before the app, saying plainly that this is on
+// and that one click turns it off.
+//
+// The BFF must send NO cache_poolable field at all. Sending `true` would look equivalent and is
+// not: Lens refuses to retroactively GRANT consent on an existing workspace, so an explicit true
+// is silently ignored on every login after the first — a field that means something different
+// from what it appears to say. Silence means "take the default", which is the actual intent.
+func TestSignupCreatesWorkspacePoolableByLensDefault(t *testing.T) {
 	up := newTenantUpstream(t)
 	a, _, _ := twoSessionApp(t, up)
 
 	prov, err := a.provisionForSession(context.Background(),
-		provisionIdentity(a.cfg.oidcIssuer, "sub-privacy"))
+		provisionIdentity(a.cfg.oidcIssuer, "sub-default-on"))
 	if err != nil {
 		t.Fatalf("provision: %v", err)
 	}
-	if prov.CachePoolable {
-		t.Errorf("a new workspace was created with pooling ON — its answers could be served to " +
-			"other companies before the person was ever asked")
+	if !prov.CachePoolable {
+		t.Errorf("a new workspace was created with pooling OFF — the earning half of the product " +
+			"would then run only for people who find the settings screen and opt in")
 	}
 
-	// The decline must be what was SENT, so Lens records it at creation rather than defaulting.
 	up.mu.Lock()
 	defer up.mu.Unlock()
 	last := up.provReqs[len(up.provReqs)-1]
-	if !strings.Contains(last, `"cache_poolable":false`) {
-		t.Errorf("provision body did not carry an explicit decline: %s", last)
+	if strings.Contains(last, `"cache_poolable"`) {
+		t.Errorf("provision body carries a cache_poolable field; it must say NOTHING so Lens's "+
+			"default applies (an explicit true is silently ignored on re-provision): %s", last)
+	}
+}
+
+// AND THE DECLINE MUST STILL BE HONOURED AND STORED. This is the half that must not regress when
+// the default flips: a person who reads the disclosure and declines ends up stored as declined,
+// and the write must reach LENS — a decline the BFF only remembers stops nothing being served.
+func TestExplicitDeclineIsHonouredAndStored(t *testing.T) {
+	up := newTenantUpstream(t)
+	a, alice, _ := twoSessionApp(t, up)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/pooling", strings.NewReader(`{"cache_poolable":false}`))
+	req.Header.Set("Origin", "https://app.talyvor.com")
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(alice)
+	rec := httptest.NewRecorder()
+	a.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("decline returned %d, want 200 (body %s)", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		CachePoolable bool `json:"cache_poolable"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.CachePoolable {
+		t.Errorf("declining reported cache_poolable=true — the screen would show the opposite of what was chosen")
+	}
+
+	mine := deriveWorkspaceIDLikeLens(provisionIdentity("https://idp.example.com", "sub-alice"))
+	up.mu.Lock()
+	defer up.mu.Unlock()
+	if !up.poolable[mine] || true {
+		wrote := false
+		for _, c := range up.seen {
+			if c.path == "/v1/workspaces/"+mine+"/cache-poolable" {
+				wrote = true
+			}
+		}
+		if !wrote {
+			t.Errorf("no cache-poolable write reached Lens for %s — the decline was not persisted", mine)
+		}
 	}
 }
