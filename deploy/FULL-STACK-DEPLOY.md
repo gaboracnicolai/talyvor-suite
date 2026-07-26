@@ -481,8 +481,14 @@ docker compose exec -T lens /lens --version 2>/dev/null || \
 ## STEP 3 — Track and Docs
 
 **README's "Deploying Track and Docs" section is still correct** — follow it for
-the databases, the compose fragment, the secret-digest comparison and the
-membership seeding. Two things to hold in mind while you do:
+the databases, the compose fragment and the secret-digest comparison.
+
+⚠ **It does NOT cover membership seeding**, despite this step previously saying so.
+Verified: `deploy/README.md` has no `workspace_members`, no `INSERT`, and no
+occurrence of "seed" in that section. The SQL is below instead of behind a
+cross-reference that does not lead anywhere.
+
+Two things to hold in mind while you do:
 
 - **Track migrates by subcommand** (`cmd/track/main.go:132`): the
   `track-migrate` one-shot service in the compose fragment is what applies its
@@ -493,7 +499,71 @@ membership seeding. Two things to hold in mind while you do:
   migration failure is a boot failure; you will see it in `docker compose logs
   docs`, not in a silent 500 later.
 
+### ⚠ 3a. SEED THE DOCS ROSTER — and `source` is the whole step
+
+A cold Docs database has an empty `workspace_members`, so every tester is locked
+out of a service that is otherwise healthy. Verified end-to-end against a real
+empty database:
+
+```sql
+INSERT INTO workspace_members (workspace_id, email, role, member_id, source)
+VALUES ('<DOCS_WORKSPACE_ID>', '<tester@email>', 'admin', 'seed-<tester@email>', 'seed')
+ON CONFLICT (workspace_id, email) DO NOTHING;
+```
+
+#### ⚠⚠ `source` DEFAULTS TO `'track'`, AND A `'track'` ROW IS DELETED BY THE FIRST ROSTER SYNC
+
+Omit `source` and the row is indistinguishable from one the Track sync owns. The sync
+reconciles Docs's roster against Track's, and a `'track'`-marked row with no Track
+counterpart is **deleted**.
+
+**The failure shape is the dangerous part: the deploy looks correct.** Testers log in,
+everything works, you finish the checklist — and roughly **twenty minutes later** the
+first reconcile runs and every seeded tester loses access. Nothing in the deploy output
+is wrong at the time you read it.
+
+`source = 'seed'` is what marks the row as not-Track-owned, so the sync leaves it alone.
+It is not optional and it is not a label; it is the entire mechanism.
+
+#### Verify by FORCING the reconcile, not by waiting for it
+
+Confirming the rows exist immediately after the INSERT proves nothing — they always do.
+The check has to survive a sync:
+
+```sh
+# Restart Docs: this forces the boot-pass reconcile rather than waiting ~20 minutes for the timer.
+docker compose restart docs && sleep 30
+
+# The rows must STILL be there, and still marked seed:
+docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
+  "SELECT email, source FROM workspace_members WHERE workspace_id = '<DOCS_WORKSPACE_ID>'"
+# expect: every tester, each with source = seed.
+# ⚠ ZERO ROWS means source was omitted (defaulted to 'track') and the reconcile deleted them.
+#   Re-run the INSERT with source = 'seed' explicitly, then repeat this check.
+```
+
+
 ---
+
+---
+
+## ⚠ EXPECTED NOISE — read this BEFORE you read the logs
+
+Whoever checks the logs first will find these and reasonably conclude the deploy is
+broken. They are not. This section exists so a known-harmless line does not trigger a
+rollback of a working deploy — and so that anything NOT listed here is treated as real.
+
+| What you will see | Where | Why it is expected |
+|---|---|---|
+| **`member-sync` warning for the Docs workspace, every 15 minutes, forever** | `docker compose logs docs` | The Docs workspace id has no Track counterpart. The sync looks for one, does not find it, and warns. It recurs on every timer tick indefinitely — it is not a startup transient and it will not clear on its own. Harmless: the seeded `source = 'seed'` rows are untouched (STEP 3a). |
+| `environment hygiene` ERROR naming `TRACK_GATEWAY_AUTH_SECRET` / `DOCS_GATEWAY_AUTH_SECRET` | `docker compose logs lens` | Only if the lens service is forwarding `.env` rather than `lens.env`. This one is **NOT** harmless — it means the leak lens#377 fixed has returned. Check `env_file:` in `docker-compose.yaml`. |
+| `modelwatch: NO ALERT SINK CONFIGURED` ERROR at Lens boot | `docker compose logs lens` | `LENS_OPERATOR_ALERT_WEBHOOK_URL` is unset, which is currently correct — no receiver accepts that payload yet. Deliberately an ERROR so the gap stays visible; expect it once per instance per deploy. |
+| Lens WARN naming `lens poolcheck` | `docker compose logs lens` | Only if `LENS_EMBEDDING_MODEL` was changed while pooling is on. Not an error, but do run `lens poolcheck` before trusting the cross-tenant margin. |
+
+⚠ **If a line is not in this table, do not assume it is noise.** The point of the table
+is that the set is closed: everything else is a finding until someone adds a row here
+with a reason.
+
 
 ## STEP 4 — the BFF environment. ⚠ THIS STEP IS ONE-WAY.
 
