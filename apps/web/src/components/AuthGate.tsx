@@ -18,10 +18,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   if (q.data && q.data.mode === 'oidc' && !q.data.authenticated) {
     return <SignedOut />
   }
-  // A workspace that this login just CREATED has been provisioned with sharing OFF, and its owner
-  // has not been asked yet. Ask before the app renders: cross-tenant pooling sends the content of
-  // this workspace's answers to other companies, and that is not a thing to discover later in a
-  // settings page. Consent is never granted by inaction.
+  // A workspace that this login just CREATED has sharing ON, and its owner has not been asked yet.
+  // (The BFF sends NO cache_poolable field at provision — provisionForSession passes nil — so Lens's
+  // default of true applies. This comment previously said "provisioned with sharing OFF", which was
+  // the opposite of what the code does and misled a reader within an hour of #33 landing.)
+  //
+  // Ask before the app renders: cross-tenant pooling sends the content of this workspace's answers
+  // to other companies, and that is not a thing to discover later in a settings page. Consent is
+  // never granted by inaction — so the disclosure blocks, rather than the switch starting off.
   if (q.data?.authenticated && q.data.needs_pooling_choice) {
     return <PoolingConsent onDone={() => void qc.invalidateQueries({ queryKey: ['auth-me'] })} />
   }
