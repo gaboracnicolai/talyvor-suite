@@ -696,11 +696,25 @@ If it still says `FORCED OFF` after 30 seconds, the `reason` field on that line 
 cause exactly — a model or threshold that does not match what was attested, or a database
 the gateway cannot read. It is never a bare "off".
 
-⚠ **The attestation is bound to the configuration, not to the deploy.** Change
-`LENS_EMBEDDING_MODEL` or lower `LENS_SEMANTIC_THRESHOLD` afterwards and the gateway closes
-pooling again on its own, within 30 seconds, naming what changed — you do not have to
-remember to re-run this step, though you do have to re-run `poolcheck` to reopen it.
-Raising the threshold is strictly safer and does **not** close the gate.
+⚠ **The attestation is bound to the configuration — but only the DATABASE side is re-read.**
+The refresh compares the attested row against the model and threshold **this process booted
+with**. Those come from the environment and cannot change while it runs (there is no config
+reload in Lens), so:
+
+- **Editing `LENS_EMBEDDING_MODEL` or `LENS_SEMANTIC_THRESHOLD` changes nothing until the
+  gateway restarts.** Do not expect the 30-second refresh to notice an env edit — it is not
+  watching the environment, and reading it as a live guard on config changes is the one
+  wrong conclusion to draw from this section. On the next restart the comparison runs
+  against the new values and pooling closes then, naming what changed.
+- **What the refresh does catch on its own** is the row moving underneath a running
+  gateway — `poolcheck` re-run with a different configuration, or against a restored
+  database. That is the shared-mutable-state case, and it is why re-reading exists.
+
+Direction matters and is deliberate: **lowering** the threshold voids the attestation
+(it widens what counts as a match beyond what was measured), while **raising** it does
+**not** — a stricter setting is already covered by a measurement that passed at a looser
+one, and forcing pooling off on the conservative change would be a false alarm
+(`internal/poolsafety/attestation.go`, `MatchesLive`).
 
 **Why it is a deploy step and not a CI gate:** it costs real embedding calls and needs
 a live `LENS_OPENAI_API_KEY`, and a gateway restart is the wrong moment to discover a
