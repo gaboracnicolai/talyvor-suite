@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { api } from '../lib/api'
 import { PoolingConsent } from './PoolingConsent'
@@ -11,6 +12,7 @@ import { PoolingConsent } from './PoolingConsent'
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const q = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
   const qc = useQueryClient()
+  const navigate = useNavigate()
   if (q.isLoading) {
     // One quiet beat while the probe answers; no spinner theatre for ~20ms.
     return null
@@ -27,7 +29,29 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   // to other companies, and that is not a thing to discover later in a settings page. Consent is
   // never granted by inaction — so the disclosure blocks, rather than the switch starting off.
   if (q.data?.authenticated && q.data.needs_pooling_choice) {
-    return <PoolingConsent onDone={() => void qc.invalidateQueries({ queryKey: ['auth-me'] })} />
+    // WHERE SETUP GOES, and why here. Setup is the only page that says how to point tools at
+    // Lens; it existed as a nav item nobody was routed to, so a new user could finish signup
+    // and land on an Overview of an empty workspace with no idea what to do next.
+    //
+    // It is placed AFTER the pooling choice, not before or beside it: the disclosure is about
+    // consent and must not compete for attention with instructions, and it must not be possible
+    // to skip it by reading Setup instead.
+    //
+    // It ROUTES rather than BLOCKS. The consent screen blocks because consent granted by
+    // inaction is not consent; Setup is instructional, so blocking it would trap someone who
+    // wants to look around first — worse than no step at all. Landing on /setup inside the
+    // normal shell means every nav destination stays one click away.
+    //
+    // Fires only on the login that CREATED the workspace: needs_pooling_choice is false on
+    // every later sign-in, so a returning user is never sent here again.
+    return (
+      <PoolingConsent
+        onDone={() => {
+          void qc.invalidateQueries({ queryKey: ['auth-me'] })
+          navigate('/setup', { replace: true })
+        }}
+      />
+    )
   }
   return <>{children}</>
 }

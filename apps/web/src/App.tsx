@@ -15,7 +15,6 @@ import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
 import { Landing } from './areas/marketing/Landing'
-import { Specimen } from './routes/Specimen'
 
 // App.tsx is a SHARED file (see README §Directory ownership): it owns routing
 // and the nav for every area. Area work happens inside src/areas/<area>/ —
@@ -69,7 +68,6 @@ function titleFor(pathname: string): string {
     '/spend': 'Spend & routing',
     '/members': 'Members',
     '/settings': 'Settings',
-    '/specimen': 'Specimen',
   }
   return exact[pathname] ?? 'Overview'
 }
@@ -121,10 +119,11 @@ function Sidebar() {
           path to real data in this deployment. A fixture badge cannot carry that content —
           a cert expiring in 17 days is not a placeholder to whoever is reading it.
 
-          /specimen (the design-system gallery) is deliberately NOT in the nav either: it is
-          an internal review tool, and a trial user clicking it sees a work-in-progress page.
-          Its ROUTE stays (see <Routes>) — reviews open it by URL; unlinked, it costs
-          nothing. Don't re-add the item. */}
+          /specimen (the design-system gallery) is GONE — route and component both. Unlinked
+          was not the same as unreachable: a trial user given the URL, or one guessing it, got
+          an internal work-in-progress component sheet. "Reviews open it by URL" was a reason to
+          keep it in git history, which deleting does, not to serve it to customers. Pinned by
+          FirstRunGaps.test.tsx. */}
     </nav>
   )
 }
@@ -162,7 +161,6 @@ function AppShell() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/track/*" element={<TrackArea />} />
         <Route path="/docs/*" element={<DocsArea />} />
-        <Route path="/specimen" element={<Specimen />} />
         {/* A catch-all, added when /admin was removed. Before it, an unmatched in-app path
             rendered the shell with an EMPTY content area and no explanation — so an
             operator's /admin bookmark would have shown a blank page. A silent blank is the
