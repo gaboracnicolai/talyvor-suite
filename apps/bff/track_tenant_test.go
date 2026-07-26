@@ -18,6 +18,7 @@ package main
 //      outage, so the bootstrap is retried on demand instead.
 
 import (
+	"encoding/json"
 	"go/ast"
 	"io"
 	"net/http"
@@ -411,4 +412,40 @@ func configHasField(t *testing.T, field string) bool {
 		})
 	}
 	return found
+}
+
+// TestAuthMeDocsSharedIsDerivedNotHardcoded. The tester-facing notice renders from this field, so
+// it must be computed from the pin rather than asserted. Hardcode it true and the notice outlives
+// the arrangement it describes; hardcode it false and testers are never told they share a Docs.
+func TestAuthMeDocsSharedIsDerivedNotHardcoded(t *testing.T) {
+	for _, c := range []struct {
+		name          string
+		baseURL, wsID string
+		want          bool
+	}{
+		{"docs pinned — the trial today", "http://127.0.0.1:4000", "default", true},
+		{"docs configured but NOT pinned — per-user Docs", "http://127.0.0.1:4000", "", false},
+		{"no docs upstream at all — nothing to warn about", "", "", false},
+		{"pin without an upstream is not a shared Docs", "", "default", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := config{
+				lensBaseURL: "http://127.0.0.1:1", authMode: authModeOIDC,
+				oidcIssuer: "https://idp.example.com", publicBaseURL: "https://app.talyvor.com",
+				sessionTTL: time.Hour, docsBaseURL: c.baseURL, docsWorkspaceID: c.wsID,
+			}
+			a := newApp(cfg, newSessionOnlyAuthenticator(cfg))
+			a.cfg.webDist = t.TempDir()
+			signIn(t, a, "sid", "a@example.com", "ws")
+
+			rec := getAs(t, a, &http.Cookie{Name: sessionCookieName, Value: "sid"}, "/auth/me")
+			var me map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+				t.Fatalf("bad /auth/me body: %s", rec.Body.String())
+			}
+			if got := me["docs_shared"]; got != c.want {
+				t.Errorf("docs_shared = %v, want %v — it must be DERIVED from the config pin", got, c.want)
+			}
+		})
+	}
 }
