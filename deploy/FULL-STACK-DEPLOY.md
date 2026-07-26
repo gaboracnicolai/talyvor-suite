@@ -500,6 +500,18 @@ key anywhere in the file) — it is an ordinary service with `restart: "no"`, so
 explicitly first so a migration failure stops you here rather than surfacing as a
 half-started stack.
 
+⚠ **Expect cross-tenant pooling to be OFF at this point, even with the flag set.** The
+gateway holds it off until `lens poolcheck` has recorded a pool-safety attestation for
+this database, which happens at STEP 6b — it cannot happen here, because `poolcheck`
+runs *inside* the container this step is starting. The boot log says so explicitly:
+
+```
+POOLING FORCED OFF: cross-tenant cache pooling is enabled in config but is NOT currently justified
+  reason: no pool-safety attestation has ever been recorded for this database ...
+```
+
+That is the correct state, not a fault. STEP 6b clears it **without a restart**.
+
 **Verify the secret actually reached the process** — not just the file:
 ```sh
 docker compose exec -T lens printenv LENS_PROVISION_SECRET | sha256sum | cut -c1-16
@@ -843,6 +855,53 @@ docker compose exec -T lens /lens poolcheck
 #                                   the pooling threshold" — DO NOT open gate 1.
 ```
 
+### ⚠ What running it actually changes — and why no restart is needed
+
+On success `poolcheck` **records an attestation**: a row naming the embedding model and
+threshold it just measured safe. The gateway re-reads that row **every 30 seconds** and
+opens or closes cross-tenant pooling to match. So:
+
+```
+STEP 2b  docker compose up -d      → no attestation yet → pooling FORCED OFF
+STEP 6b  lens poolcheck            → passes, records the attestation
+         ...within ~30s            → "POOLING ENABLED" in the gateway log. No restart.
+```
+
+⚠ **Do not restart the gateway to "apply" it.** You do not need to, and a restart here
+buys nothing: the gateway is already watching. Wait for the log line below, or check
+gate 1b in STEP 6c.
+
+**Confirm it actually opened** — the gateway log is the authority:
+
+```sh
+docker compose logs lens --since 2m | grep -E 'POOLING (ENABLED|FORCED OFF)' | tail -1
+# want: POOLING ENABLED: the live embedding configuration matches the last passing poolcheck
+```
+
+If it still says `FORCED OFF` after 30 seconds, the `reason` field on that line names the
+cause exactly — a model or threshold that does not match what was attested, or a database
+the gateway cannot read. It is never a bare "off".
+
+⚠ **The attestation is bound to the configuration — but only the DATABASE side is re-read.**
+The refresh compares the attested row against the model and threshold **this process booted
+with**. Those come from the environment and cannot change while it runs (there is no config
+reload in Lens), so:
+
+- **Editing `LENS_EMBEDDING_MODEL` or `LENS_SEMANTIC_THRESHOLD` changes nothing until the
+  gateway restarts.** Do not expect the 30-second refresh to notice an env edit — it is not
+  watching the environment, and reading it as a live guard on config changes is the one
+  wrong conclusion to draw from this section. On the next restart the comparison runs
+  against the new values and pooling closes then, naming what changed.
+- **What the refresh does catch on its own** is the row moving underneath a running
+  gateway — `poolcheck` re-run with a different configuration, or against a restored
+  database. That is the shared-mutable-state case, and it is why re-reading exists.
+
+Direction matters and is deliberate: **lowering** the threshold voids the attestation
+(it widens what counts as a match beyond what was measured), while **raising** it does
+**not** — a stricter setting is already covered by a measurement that passed at a looser
+one, and forcing pooling off on the conservative change would be a false alarm
+(`internal/poolsafety/attestation.go`, `MatchesLive`).
+
 **Why it is a deploy step and not a CI gate:** it costs real embedding calls and needs
 a live `LENS_OPENAI_API_KEY`, and a gateway restart is the wrong moment to discover a
 config problem *and* pay for it on every replica.
@@ -861,13 +920,13 @@ safe" and "we would notice if it stopped being".
 
 ⚠ **Cross-tenant pooling has THREE gates and all three must be satisfied before a
 single royalty can mint.** Setting one is the natural thing to do and is not
-enough; nothing anywhere reports which of the three is shut. Run the royalty test
-with one still closed and you see no mint, with no way to tell *not implemented*
+enough; gate 1 is now self-reporting (below) but gates 2 and 3 are not. Run the royalty
+test with one still closed and you see no mint, with no way to tell *not implemented*
 from *not switched on*. Check all three at once, before you conclude anything.
 
 | # | Gate | Where it lives | Shut by default? |
 |---|---|---|---|
-| 1 | `LENS_CACHE_POOLABLE_ENABLED` | Lens process env — **must be forwarded by compose**, see STEP 2a | **yes** |
+| 1 | `LENS_CACHE_POOLABLE_ENABLED` **AND** a current pool-safety attestation | Lens process env (see STEP 2a) **and** the `pool_safety_attestation` row written by STEP 6b | **yes**, both halves |
 | 2 | `workspaces.cache_poolable` | per workspace, in the Lens database | no — new workspaces are created ON |
 | 3 | `earn_verified` **on both sides** | derived: an admin vouch **or** a completed `lxc_purchases` row | **yes** for a comped trial |
 
@@ -883,8 +942,21 @@ design, it is the Sybil floor.
 CONTRIB=u...   # whose cached answer is reused
 REQUESTER=u... # who reuses it
 
-echo "GATE 1 (global flag, as the PROCESS sees it — not as .env claims):"
+echo "GATE 1a (global flag, as the PROCESS sees it — not as .env claims):"
 docker compose exec -T lens printenv LENS_CACHE_POOLABLE_ENABLED || echo "  <empty>  ⇒ SHUT"
+
+echo "GATE 1b (pool-safety attestation — the flag alone is NOT enough):"
+docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc "
+SELECT embedding_model, threshold, worst_score, checked_at
+FROM pool_safety_attestation;"
+# empty  ⇒ SHUT: poolcheck has never passed here. Run STEP 6b.
+# a row  ⇒ it must MATCH the live config, or the gateway still holds pooling off:
+docker compose exec -T lens printenv LENS_EMBEDDING_MODEL LENS_SEMANTIC_THRESHOLD
+
+echo "GATE 1b, the authoritative read — what the PROCESS decided:"
+docker compose logs lens --since 10m | grep -E 'POOLING (ENABLED|FORCED OFF)' | tail -1
+# want: POOLING ENABLED: ...
+# FORCED OFF carries a "reason" naming the cause exactly. It is never a bare "off".
 
 echo "GATE 2+3 (per workspace):"
 docker compose exec -T postgres psql -U lens -d talyvor_lens -tAc "
@@ -909,9 +981,21 @@ GATE 2+3:
 Read it as: **any `f`, or an empty gate 1, and no royalty will mint** — and that
 is a configuration state, not a bug. Specifically:
 
-- **gate 1 empty** → the flag never reached the process. Check STEP 2a: it must be
+- **gate 1a empty** → the flag never reached the process. Check STEP 2a: it must be
   in the lens service's `environment:`, not only in `.env`. `printenv` above is the
   authority; the file is not.
+- **gate 1b `POOLING FORCED OFF`** → the flag reached the process and the process is not
+  honouring it, because the live embedding configuration is not the one that passed
+  `poolcheck`. The `reason` on that log line names the cause. Re-run STEP 6b; pooling
+  reopens within 30 seconds with no restart. ⚠ Note that `printenv` says `true` in this
+  state — the env var is set and ineffective, which is exactly why gate 1a alone is not
+  an answer.
+
+  If you have the admin key, `GET /v1/admin/economy/flags` reports the same thing in one
+  place: `CachePoolableEnabled` comes back with `"state":"forced_off_at_runtime"`, the
+  configured value it is overriding, and a `note` carrying the reason. That endpoint is
+  admin-gated and this runbook never establishes an admin key, so the log above is the
+  check to use here.
 - **gate 2 `f`** → that workspace declined at signup, or was set off by hand. It is
   consent; do not flip it in SQL on a customer's behalf.
 - **gate 3 `f`** → no payment and no vouch. On a comped trial this is expected and
