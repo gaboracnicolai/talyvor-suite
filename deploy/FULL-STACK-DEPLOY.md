@@ -20,9 +20,9 @@ Read from `origin` at the time of writing, not from a local checkout:
 | Repo | `origin/main` |
 |---|---|
 | talyvor-suite | `0a35473` feat(signup): give every person their own Lens workspace (#30) |
-| talyvor-lens | `cc67661` chore(license): Business Source License 1.1 (#365) |
-| talyvor-track | `aa735a0` chore(license): Business Source License 1.1 (#61) |
-| talyvor-docs | `d785747` chore(license): Business Source License 1.1 (#41) |
+| talyvor-lens | `866f83e` feat(economy): observe every money-path flag on the live process (#373) |
+| talyvor-track | `98d0f6c` feat(workspace): idempotent per-identity bootstrap (#63) |
+| talyvor-docs | `f4ee6cf` fix(membership): the roster prune must refuse rows it did not sync (#43) |
 
 Re-run STEP 0 below before you start; if a SHA has moved, the image check is
 what catches it.
@@ -103,6 +103,47 @@ from a mismatch — which is the distinction that failed today.
 > **If you must proceed with `STALE`:** pin by digest, never by `:latest`.
 > `image: ghcr.io/gaboracnicolai/talyvor-lens@sha256:<by_sha digest>` is
 > unambiguous and immune to a later re-push.
+
+### ⚠ STEP 0b — after the LAST merge, wait for the image. This is a step, not a note.
+
+**Every merge leaves a window of roughly 8-13 minutes in which main is ahead of the
+registry.** Deploy inside it and `docker compose pull` fetches `:latest` from the
+*previous* commit — which is how a stale image got deployed earlier today. The stack
+comes up healthy and runs code you did not merge.
+
+The check above reports **BUILDING** with elapsed minutes for exactly this. It is a
+distinct verdict from MISSING because it wants the opposite response: wait, do not
+investigate and do not re-run.
+
+```sh
+# Watch until every service is OK. Re-run after your last merge, not before it.
+until bash deploy/check-images.sh; do echo "  …waiting"; sleep 60; done
+echo "all images match main — safe to deploy"
+```
+
+**How long is too long,** derived from this repo's own runs rather than guessed —
+11 of 12 recent lens builds finished in **8.3–12.2 min**, and **one took 60.1 min and
+still succeeded**:
+
+| Elapsed | Read it as |
+|---|---|
+| ≤ 15 min | Normal. Wait. |
+| 15–45 min | Slow, but a 60-minute build has succeeded here. Keep waiting. |
+| > 45 min | Past anything observed. Open the run before deploying — this is where "BUILDING forever" would otherwise become its own silence. |
+
+A flat "40 minutes means stuck" would have condemned that 60-minute build, which is
+why the bands come from measurement.
+
+**Config-only merges produce no image, by design.** `images.yaml` is path-filtered to
+`cmd/ internal/ migrations/ go.mod go.sum Dockerfile .github/workflows/images.yaml`.
+Verified against history: `a41dd89`, `cc67661` and `6e78c37` (LICENSE/docs only) have
+no image and needed none — the check calls that **NO-BUILD**, not MISSING, and `:latest`
+correctly still points at the previous commit.
+
+⚠ **But the filter does not watch `docker-compose.yaml`.** A merge that changes *only*
+compose produces no image — so a compose fix reaches the server through `git pull` on
+the Lens checkout, not through the registry. (The compose-plumbing merge `30c3f50` did
+build, but only because it also touched test files under `cmd/**`. Do not rely on that.)
 
 ---
 
@@ -415,6 +456,38 @@ the ones your deploy was verified against, all stay). But a user who signs in,
 sees an empty ledger, and asks where their data went is asking a fair question,
 and the answer is "it was never yours individually" — worth saying to trial users
 before they discover it.
+
+---
+
+## STEP 6b — `lens poolcheck`, before you open the pooling gate
+
+⚠ **Run this on the Lens box after deploy, and after ANY change to
+`LENS_EMBEDDING_MODEL` or `LENS_SEMANTIC_THRESHOLD`.**
+
+Cross-tenant pooling serves one workspace's cached answer to another when two prompts
+are similar enough. `poolcheck` embeds a corpus of *"same fixed preamble, unrelated
+content"* prompts through **the configured embedder** and exits non-zero if any
+unrelated pair reaches `LENS_SEMANTIC_THRESHOLD` — i.e. if this configuration could
+serve one company's response to another.
+
+```sh
+docker compose exec -T lens /lens poolcheck
+# prints: embedding model / threshold / pooling enabled, then per-pair scores
+# exit 0 = margin holds.  exit 1 = "pool-safety check FAILED: unrelated prompts reach
+#                                   the pooling threshold" — DO NOT open gate 1.
+```
+
+**Why it is a deploy step and not a CI gate:** it costs real embedding calls and needs
+a live `LENS_OPENAI_API_KEY`, and a gateway restart is the wrong moment to discover a
+config problem *and* pay for it on every replica.
+
+**Why it is not optional:** the margin depends on which embedder is configured. On the
+real model, unrelated pairs score **0.6534** against a **0.92** threshold — a 0.27
+margin. An earlier 0.985 alarm came from a local stand-in with a compressed range and
+is not real. But `text-embedding-ada-002` scores **0.81**, which eats more than half
+the margin — so the safety of this depends on a variable someone can change without
+touching any code. This is the only thing standing between "today's model happens to be
+safe" and "we would notice if it stopped being".
 
 ---
 
