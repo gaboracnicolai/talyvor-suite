@@ -3,6 +3,7 @@ import { Button, Card, CardHeader } from '@talyvor/ui'
 import { useState } from 'react'
 import { ApiError } from '../../lib/api'
 import { isUnconfigured } from '../../lib/productState'
+import { isSessionExpired } from '../../lib/productState'
 import { StatusPill } from './StatusPill'
 import { UpstreamCard } from './UpstreamCard'
 import { ISSUE_STATUSES, type IssueStatus, type TrackIssue } from './types'
@@ -125,6 +126,8 @@ export function IssueList() {
 
         {issues.isLoading ? (
           <p className="text-caption text-muted">Loading issues…</p>
+        ) : isSessionExpired(issues.error) ? (
+          <p className="text-caption text-muted">Unavailable.</p>
         ) : issues.isError ? (
           // A fault must not read as an empty tracker: those are different states and conflating
           // them tells a tester their work vanished.

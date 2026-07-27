@@ -5,6 +5,7 @@ import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { formatUSD } from './format'
 import { clearPendingTopUp, formatCents, readPendingTopUp } from './topupApi'
+import { isSessionExpired } from '../../lib/productState'
 
 // /billing/success and /billing/cancel — the URLs Lens ALREADY redirects Stripe
 // back to. Its defaults are literally app.talyvor.com/billing/success?session_id=
@@ -128,6 +129,13 @@ export function BillingSuccess({
               </div>
             </Row>
           </>
+        ) : isSessionExpired(balance.error) ? (
+          <div className="flex flex-col gap-2 px-gutter py-3">
+            <p className="text-body text-muted">
+              Your payment went through. Your session has since expired, so the balance can’t be
+              read here until you sign in again — the credit is applied either way.
+            </p>
+          </div>
         ) : balance.isError ? (
           <div className="flex flex-col gap-2 px-gutter py-3">
             <p className="text-body text-muted">

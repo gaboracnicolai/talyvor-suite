@@ -4,6 +4,7 @@ import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, Sel
 import { IssueList } from './IssueList'
 import { useTrackWorkspaces } from './data'
 import { isUnconfigured } from '../../lib/productState'
+import { isSessionExpired } from '../../lib/productState'
 
 // The Track area root. App.tsx mounts this under /track/* (wildcard), so ALL Track
 // sub-routing lives here — the area owns its URL space, per the ownership contract.
@@ -40,6 +41,13 @@ function WorkspaceStrip() {
         <p className="px-gutter py-3 text-body text-muted">
           The BFF has no Track upstream wired (its TRACK_* trio is unset) — off, not broken.
         </p>
+      </Card>
+    ) : isSessionExpired(q.error) ? (
+      // The bar at the top of the app already says what happened and offers the fix; this card
+      // must not add a second, differently-worded diagnosis of the same one cause.
+      <Card>
+        <CardHeader>Track</CardHeader>
+        <p className="px-gutter py-3 text-body text-muted">Unavailable.</p>
       </Card>
     ) : (
       <Card>

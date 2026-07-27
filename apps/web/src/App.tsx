@@ -18,6 +18,7 @@ import { Landing } from './areas/marketing/Landing'
 import { Privacy } from './routes/Privacy'
 import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
+import { SessionExpiredBar } from './components/SessionExpiredBar'
 
 // App.tsx is a SHARED file (see README §Directory ownership): it owns routing
 // and the nav for every area. Area work happens inside src/areas/<area>/ —
@@ -151,6 +152,10 @@ function AppShell() {
         </>
       }
     >
+      {/* ABOVE THE CONTENT, ON EVERY ROUTE. When the workspace credential dies, every panel
+          below is empty for one reason; this says it once. Renders nothing when nothing is
+          refused, so it costs an unbroken app a null. */}
+      <SessionExpiredBar />
       <Routes>
         <Route path="/" element={<Overview />} />
         <Route path="/ledger" element={<Ledger />} />

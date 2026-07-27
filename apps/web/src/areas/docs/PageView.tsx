@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { isUnconfigured } from '../../lib/productState'
+import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
 import { Crumbs } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
@@ -60,6 +60,8 @@ export function PageView() {
           <div className="flex flex-col gap-3 px-gutter py-4">
             {page.isLoading ? (
               <p className="text-caption text-muted">Loading page…</p>
+            ) : isSessionExpired(page.error) ? (
+              <p className="text-caption text-muted">Unavailable.</p>
             ) : page.isError ? (
               <p className="text-caption text-muted">
                 Couldn’t reach Docs, so this page can’t be shown. This is a fault, not an empty page.

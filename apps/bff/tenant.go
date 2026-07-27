@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -150,12 +151,79 @@ func (a *app) tenantFrom(r *http.Request) (tenant, bool) {
 	if a.auth == nil {
 		return tenant{}, false
 	}
-	s, ok := a.auth.sessionFrom(r)
+	sid, s, ok := a.auth.sessionAndIDFrom(r)
 	if !ok {
 		return tenant{}, false
 	}
+	s = a.refreshWorkspaceToken(r.Context(), sid, s)
 	t := tenant{workspaceID: s.workspaceID, token: s.lensToken}
 	return t, t.ok()
+}
+
+// workspaceTokenSkew re-mints slightly BEFORE expiry, so a token cannot die between this check
+// and Lens verifying it a few milliseconds later. Small: the whole point is to act at the end of
+// the token's life, not to shorten it.
+const workspaceTokenSkew = 60 * time.Second
+
+// refreshWorkspaceToken reads the expiry the session has been recording all along.
+//
+// ── THE HOLE IT CLOSES ───────────────────────────────────────────────────────
+//
+// The workspace token is minted for sessionTokenTTLHours (8). The SESSION lasts BFF_SESSION_TTL
+// (12 by default). Nobody reconciled those numbers, and lensTokenExp — the field that records
+// when the token dies — was written at login and read by NOTHING. So hours 8→12 of every session
+// were spent holding a dead credential: /auth/me still says authenticated (the session is fine),
+// the gate correctly renders the app, and every workspace-scoped read comes back 401. That is
+// the same screen the Lens restart produced, arriving on a timer, for everyone, every day.
+//
+// A field written and never read is the difference between a bug that is fixed and one that is
+// merely knowable.
+//
+// ── WHY RE-PROVISIONING IS THE RIGHT REFRESH ─────────────────────────────────
+//
+// POST /v1/provision is idempotent on identity: Lens derives the workspace from (issuer, sub),
+// so this returns the SAME workspace with a fresh token — there is no separate refresh endpoint
+// to add, and no second code path that could drift from the login path. It states no pooling
+// preference (provisionForSession), so a re-mint cannot disturb consent Lens already recorded.
+//
+// ── WHAT IT DELIBERATELY DOES NOT DO ─────────────────────────────────────────
+//
+// A token that is INSIDE its lifetime but invalid anyway — Lens restarting with a new ephemeral
+// signing key, a rotated secret — is not visible to any clock. No proactive check can catch it,
+// which is why the screen still has to be honest about a 401 (components/SessionExpiredBar.tsx).
+// This closes the half that is predictable; it does not pretend to close the other half.
+//
+// A failure to re-mint is NOT an error path: the old token is kept and the request proceeds to
+// fail upstream as it would have anyway. Turning a refresh blip into a hard failure would make
+// this change strictly worse than the bug it fixes.
+func (a *app) refreshWorkspaceToken(ctx context.Context, sid string, s session) session {
+	// UNKNOWN IS NOT EXPIRED. parseExpiry yields the zero time when Lens sends an unparseable or
+	// absent expires_at; reading that as "expired in 1 AD" would re-provision on EVERY request
+	// forever — an upstream formatting quirk turned into a self-inflicted load spike that looks
+	// like nothing from the outside. Absence means "no opinion", so leave the token alone.
+	if s.lensTokenExp.IsZero() || time.Now().Before(s.lensTokenExp.Add(-workspaceTokenSkew)) {
+		return s
+	}
+	prov, err := a.provisionForSession(ctx, provisionIdentity(a.cfg.oidcIssuer, s.sub))
+	if err != nil {
+		log.Printf("bff: workspace token re-mint FAILED for sub=%s (request continues with the "+
+			"expired one, and will surface as a 401): %s", s.sub, redactSecret(err.Error()))
+		return s
+	}
+	// Written back UNDER THE LOCK and field-by-field: the provision above is a network call, and
+	// during it another handler may legitimately have changed something else on this session (the
+	// pooling choice, a Track bootstrap). A whole-struct put would discard that.
+	updated, ok := a.auth.sessions.update(sid, func(cur session) session {
+		cur.workspaceID = prov.WorkspaceID
+		cur.lensToken = prov.Token
+		cur.lensTokenExp = parseExpiry(prov.ExpiresAt)
+		return cur
+	})
+	if !ok {
+		// The session died while we were provisioning (logout, expiry). Nothing to cache it on.
+		return s
+	}
+	return updated
 }
 
 // devIdentity is the single fixed identity loopback dev provisions under. It derives to a normal

@@ -5,6 +5,7 @@ import { Button, Card, CardHeader, MuNumeral, Pill } from '@talyvor/ui'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
 import { api, type LedgerRow, type Token } from '../../lib/api'
 import { formatWhen, humanizeType, ledgerStatus } from './format'
+import { PanelFailure } from '../../components/SessionExpiredBar'
 
 const PAGE = 20
 
@@ -97,7 +98,7 @@ export function Ledger() {
         {q.isLoading ? (
           <div className="px-gutter py-3 text-body text-muted">Loading…</div>
         ) : q.isError ? (
-          <div className="px-gutter py-3 text-body text-muted">Couldn’t load the ledger.</div>
+          <PanelFailure error={q.error} what="the ledger" />
         ) : rows.length === 0 ? (
           <div className="space-y-2 px-gutter py-3">
             <div className="text-body text-muted">

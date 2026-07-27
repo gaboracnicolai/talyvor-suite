@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { isUnconfigured } from '../../lib/productState'
+import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
 import { Crumbs } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
@@ -99,6 +99,8 @@ export function SpaceView() {
 
           {pages.isLoading ? (
             <p className="text-caption text-muted">Loading pages…</p>
+          ) : isSessionExpired(pages.error) ? (
+            <p className="text-caption text-muted">Unavailable.</p>
           ) : pages.isError ? (
             <p className="text-caption text-muted">
               Couldn’t reach Docs, so no pages can be shown. This is a fault, not an empty space.

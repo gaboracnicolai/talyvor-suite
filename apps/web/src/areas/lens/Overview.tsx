@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, MuNumeral, Pill, Row } from '@talyvor/ui'
 import { api, ApiError, type Bond, type LedgerEntry } from '../../lib/api'
 import { CacheCard } from './CacheCard'
+import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { CapabilityOff } from './Capability'
 import { ModelTier } from './ModelTier'
 import { formatUSD, formatWhen, humanizeType, ledgerStatus } from './format'
@@ -36,8 +37,11 @@ function Loading() {
   return <div className="px-gutter py-3 text-body text-muted">Loading…</div>
 }
 
-function Failed({ what }: { what: string }) {
-  return <div className="px-gutter py-3 text-body text-muted">Couldn’t load {what}.</div>
+// Delegates the WHAT-TO-SAY decision to the one component that makes it (see
+// components/SessionExpiredBar.tsx). A panel knows its own request failed; it cannot know
+// whether every other panel failed for the same reason, so it must not name a cause.
+function Failed({ what, error }: { what: string; error: unknown }) {
+  return <PanelFailure error={error} what={what} />
 }
 
 /* ── 1 · Balances (live, unchanged) ─────────────────────────────────────── */
@@ -50,7 +54,7 @@ function LxcCard() {
       {q.isLoading ? (
         <Loading />
       ) : q.isError || !q.data ? (
-        <Failed what="the LXC balance" />
+        <Failed what="the LXC balance" error={q.error} />
       ) : (
         <>
           <div className="flex items-baseline justify-between gap-gutter px-gutter py-3">
@@ -77,7 +81,7 @@ function LensCard() {
       {q.isLoading ? (
         <Loading />
       ) : q.isError || !q.data ? (
-        <Failed what="the LENS balance" />
+        <Failed what="the LENS balance" error={q.error} />
       ) : (
         <>
           <div className="px-gutter py-3">
@@ -138,7 +142,7 @@ function SpendCard({ now }: { now: Date }) {
         {month.isLoading ? (
           <span className="text-body text-muted">Loading…</span>
         ) : month.isError || !month.data ? (
-          <span className="text-body text-muted">Couldn’t load</span>
+          <InlineFailure error={month.error} />
         ) : (
           <span className="text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
         )}
@@ -147,7 +151,7 @@ function SpendCard({ now }: { now: Date }) {
         {lxc.isLoading ? (
           <span className="text-body text-muted">Loading…</span>
         ) : lxc.isError || !lxc.data ? (
-          <span className="text-body text-muted">Couldn’t load</span>
+          <InlineFailure error={lxc.error} />
         ) : (
           <MuNumeral micros={debitTotal(lxc.data, 30, now)} unit="lxc" />
         )}
@@ -182,7 +186,7 @@ function SpendCard({ now }: { now: Date }) {
       {ledger.isLoading ? (
         <Loading />
       ) : ledger.isError ? (
-        <Failed what="the mint ledger" />
+        <Failed what="the mint ledger" error={ledger.error} />
       ) : agg.length === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">
           No mint-attributed LENS rows in the window yet.
@@ -246,7 +250,7 @@ function ProductRow({ name, hint, path }: { name: string; hint: string; path: st
       {q.isLoading ? (
         <span className="text-caption text-muted">Checking…</span>
       ) : q.isError ? (
-        <span className="text-caption text-muted">Couldn’t check</span>
+        <InlineFailure error={q.error} className="text-caption text-muted" failed="Couldn’t check" />
       ) : (
         <StateMark state={q.data as ProbeState} />
       )}
@@ -266,7 +270,7 @@ function ProductsCard() {
         {lens.isLoading ? (
           <span className="text-caption text-muted">Checking…</span>
         ) : lens.isError ? (
-          <span className="text-caption text-muted">Couldn’t check</span>
+          <InlineFailure error={lens.error} className="text-caption text-muted" failed="Couldn’t check" />
         ) : (
           <StateMark state="on" />
         )}
@@ -276,7 +280,7 @@ function ProductsCard() {
       {bonds.isLoading ? (
         <Loading />
       ) : bonds.isError || !bonds.data ? (
-        <Failed what="bonds" />
+        <Failed what="bonds" error={bonds.error} />
       ) : !bonds.data.enabled ? (
         <CapabilityOff
           name="Reputation bonds"
@@ -319,7 +323,7 @@ function RecentActivity() {
       {q.isLoading ? (
         <Loading />
       ) : q.isError ? (
-        <Failed what="recent activity" />
+        <Failed what="recent activity" error={q.error} />
       ) : rows.length === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">No ledger entries yet.</div>
       ) : (

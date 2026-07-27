@@ -10,6 +10,12 @@ import { isUnconfigured, notConfiguredCopy } from '../../lib/productState'
 // only /api/docs/spaces today" while the BFF served four Docs routes; that claim could not be
 // checked, so it rotted. This one cannot outlive its truth: when a Docs upstream appears, the
 // probe answers 200 and the copy changes with no edit here.
+// NO SESSION-EXPIRED BRANCH HERE, DELIBERATELY. One was added and then removed: this card is
+// rendered by SpaceView/PageView ONLY inside `if (isUnconfigured(pages.error))` — that is, only
+// when Docs is unconfigured (503/404). A 401 never reaches it, so the branch was unreachable
+// code that read as coverage. It was caught by neutralising each session branch in turn and
+// checking SessionExpired.test.tsx went red: this was the one file whose removal changed
+// nothing, anywhere.
 export function DocsUpstreamCard({ title, path, reads }: { title: string; path: string; reads: string }) {
   const q = useQuery({
     queryKey: ['docs-probe', path],
