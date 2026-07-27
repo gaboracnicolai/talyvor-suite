@@ -31,6 +31,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -41,8 +42,11 @@ import (
 type docsSyncUpstream struct {
 	srv  *httptest.Server
 	mu   sync.Mutex
-	hits []struct{ method, path, auth string }
-	code int // 0 ⇒ 200
+	hits []struct {
+		method, path, auth string
+		hdr                http.Header
+	}
+	code int // 0 ⇒ behave like Docs: 401 without the proof, else 200
 }
 
 func newDocsSyncUpstream(t *testing.T) *docsSyncUpstream {
@@ -50,8 +54,10 @@ func newDocsSyncUpstream(t *testing.T) *docsSyncUpstream {
 	u := &docsSyncUpstream{}
 	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u.mu.Lock()
-		u.hits = append(u.hits, struct{ method, path, auth string }{
-			r.Method, r.URL.Path, r.Header.Get("X-Gateway-Auth")})
+		u.hits = append(u.hits, struct {
+			method, path, auth string
+			hdr                http.Header
+		}{r.Method, r.URL.Path, r.Header.Get("X-Gateway-Auth"), r.Header.Clone()})
 		code := u.code
 		u.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -60,16 +66,32 @@ func newDocsSyncUpstream(t *testing.T) *docsSyncUpstream {
 			_, _ = io.WriteString(w, `{"error":"docs is having a moment"}`)
 			return
 		}
+		// ⚠ CONDITIONAL, BECAUSE AN UNCONDITIONAL 200 IS WHAT LET A BROKEN NUDGE SHIP.
+		// This stub used to answer 200 to anything, so "the nudge succeeds" was a property
+		// of the stub rather than of Docs — and the real route 403ed in production from the
+		// day it shipped while this file stayed green. A stub cannot model another repo's
+		// middleware, but it can at least refuse what Docs refuses.
+		if r.Header.Get("X-Gateway-Auth") != "gwsecret_docs" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"error":"invalid gateway auth"}`)
+			return
+		}
 		_, _ = io.WriteString(w, `{"workspace_id":"ws-alice","synced":true}`)
 	}))
 	t.Cleanup(u.srv.Close)
 	return u
 }
 
-func (u *docsSyncUpstream) seen() []struct{ method, path, auth string } {
+func (u *docsSyncUpstream) seen() []struct {
+	method, path, auth string
+	hdr                http.Header
+} {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return append([]struct{ method, path, auth string }(nil), u.hits...)
+	return append([]struct {
+		method, path, auth string
+		hdr                http.Header
+	}(nil), u.hits...)
 }
 
 // ⚠ THE CLAIM: the nudge reaches Docs' service route for THAT workspace, as a POST, carrying the
@@ -95,6 +117,55 @@ func TestDocsNudge_ReachesDocsServiceRouteForThatWorkspace(t *testing.T) {
 	if hits[0].auth != "gwsecret_docs" {
 		t.Errorf("X-Gateway-Auth = %q — without the transit proof Docs 401s and the window stays "+
 			"open while the logs say we called", hits[0].auth)
+	}
+}
+
+// ⚠ THE NUDGE MUST CARRY NO IDENTITY, AND THIS IS THE ASSERTION THE 403 NEEDED.
+//
+// The route lives in Docs' SERVICE lane: transit proof, no verified identity, because the
+// workspace it names is by construction one whose membership has not been read yet
+// (talyvor-docs internal/gatewayauth/exempt.go — ExemptMembership).
+//
+// The reason to pin it is that the WRONG fix was available and would have looked right. Docs'
+// authz middleware 403s only on a MISSING email; it passes an email that resolves to zero
+// memberships. So adding X-User-Email here would have made the production 403 disappear —
+// while quietly re-coupling a service call to the user lane, and breaking again the moment
+// authz tightens to require at least one membership. Sending nothing is not an omission; it
+// is the contract.
+func TestDocsNudge_SendsNoIdentityHeaders(t *testing.T) {
+	up := newDocsSyncUpstream(t)
+	a := &app{cfg: config{docsBaseURL: up.srv.URL, docsGatewaySecret: "gwsecret_docs"}, client: http.DefaultClient}
+
+	if err := a.nudgeDocsMemberSync(context.Background(), "ws-alice"); err != nil {
+		t.Fatalf("nudge returned %v", err)
+	}
+	hits := up.seen()
+	if len(hits) != 1 {
+		t.Fatalf("expected one nudge, got %d", len(hits))
+	}
+	for _, h := range []string{"X-User-Email", "X-User-Id", "X-User-Teams", "X-Auth-Iss"} {
+		if got := hits[0].hdr.Get(h); got != "" {
+			t.Errorf("%s = %q — the nudge is a SERVICE call and Docs' service lane resolves no "+
+				"identity. Sending one makes this depend on the user lane, which is the wrong "+
+				"fix for the 403 this route shipped with.", h, got)
+		}
+	}
+}
+
+// The transit proof is not decoration: without it Docs refuses, and the stub now refuses too.
+// Before this, the fake answered 200 to anything, so a nudge that lost its proof would have
+// passed here and failed in production — which is exactly the shape of what did happen.
+func TestDocsNudge_WithoutTheProofTheUpstreamRefuses(t *testing.T) {
+	up := newDocsSyncUpstream(t)
+	a := &app{cfg: config{docsBaseURL: up.srv.URL, docsGatewaySecret: "the-wrong-secret"}, client: http.DefaultClient}
+
+	err := a.nudgeDocsMemberSync(context.Background(), "ws-alice")
+	if err == nil {
+		t.Fatal("a nudge carrying the wrong proof reported success")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("error = %v, want it to name the 401 so an operator can tell a rejected nudge "+
+			"from an unreachable Docs", err)
 	}
 }
 

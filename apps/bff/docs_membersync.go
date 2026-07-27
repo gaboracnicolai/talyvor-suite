@@ -98,7 +98,22 @@ func (a *app) nudgeDocsMemberSync(ctx context.Context, workspaceID string) error
 	// Drain so the connection is reusable; the body carries nothing the BFF acts on.
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("docs member-sync: returned %d", resp.StatusCode)
+		// ⚠ SAY WHICH KIND OF FAILURE. This route shipped 403ing every call, and the log line
+		// — "returned 403" — read like any other upstream hiccup, so it was filed as noise
+		// against a backstop that was quietly carrying the whole feature.
+		//
+		// A 4xx here is a CONTRACT or CONFIGURATION failure: the secret is wrong, or Docs
+		// wants something this request does not carry. It will fail identically on every
+		// login until someone changes something. A 5xx is Docs having a moment and is
+		// genuinely transient. They deserve different reactions and the old message gave
+		// them the same one.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return fmt.Errorf("docs member-sync: returned %d — this is a configuration or "+
+				"contract failure, not a transient one: it will recur on every login until "+
+				"the gateway secret or the route contract is fixed", resp.StatusCode)
+		}
+		return fmt.Errorf("docs member-sync: returned %d (transient; the sweep remains the "+
+			"backstop)", resp.StatusCode)
 	}
 	return nil
 }
