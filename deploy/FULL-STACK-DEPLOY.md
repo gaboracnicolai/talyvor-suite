@@ -73,6 +73,33 @@ stand in for one.
 This is the single generalisation behind most of the traps in this document. It is
 stated here once instead of five times.
 
+### ⚠ EVERY DECISION IN THIS DOCUMENT HAS AN EXECUTABLE EXPIRY
+
+> **`deploy/decision-expiry.sh` — run in CI on every push.**
+
+A decision here is not "X is true". It is **"X, *because* premise P"** — and P is usually a
+limitation, which is the most perishable kind of fact, because a limitation is exactly what
+someone is working to remove. Three decisions in one night were correct when made and wrong an
+hour later for that reason. Nothing was careless; the premise was verified from source each
+time. The structural fault is that **the verdict is written in timeless present tense and the
+premise is buried in the justification**, so the next reader meets the conclusion and never
+re-derives what holds it up.
+
+So each one carries a command, not a description. Strongest form available, always:
+
+| form | example here |
+|---|---|
+| **1. Fails to COMPILE** | suite #59 made the shared-Docs disclosure a compile error rather than a silently-false string. Use this whenever the fact can be *derived* instead of restated. |
+| **2. A TEST that fails** | `TestDocs_IsPerSessionNotPinned` — reintroduce the pin and it fails, naming the runbook section that is thereby void. ⚠ It must exercise the **production path**: in talyvor-docs an expiry driving a *fake* kept passing after its premise was gone, because the fake was adjusted for unrelated and locally sensible reasons. |
+| **3. A documented command** | `deploy/decision-expiry.sh`. Weakest, used where 1 and 2 cannot reach. |
+
+⚠ **The script reports cross-repo premises as `UNCHECKABLE`, never as passes.** Four of our
+decisions rest on facts in talyvor-track and talyvor-docs, which it cannot read. That set is
+where *"someone will notice"* is still doing the work — it is printed on every run precisely so
+it does not read as an empty list. Run those commands, in the named repo, before a deploy.
+
+---
+
 ### ⚠ THE TEST FOR ANY CHECK YOU ADD TO THIS DOCUMENT
 
 > **What does this check print in the FAILURE state, and is that distinguishable from
