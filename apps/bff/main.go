@@ -433,8 +433,8 @@ func main() {
 		if err != nil {
 			log.Fatalf("bff: OIDC setup (issuer %s): %v", cfg.oidcIssuer, err)
 		}
-		log.Printf("bff: auth=oidc issuer=%s public=%s allowlist=%d entries",
-			cfg.oidcIssuer, cfg.publicBaseURL, len(cfg.allowedEmails))
+		log.Printf("bff: auth=oidc issuer=%s public=%s allowlist=%s",
+			cfg.oidcIssuer, cfg.publicBaseURL, describeAllowlist(cfg.allowedEmails))
 		log.Printf("bff: product upstreams: track=%s docs=%s (unset = routes answer 503)",
 			orUnset(cfg.trackBaseURL), orUnset(cfg.docsBaseURL))
 	} else {

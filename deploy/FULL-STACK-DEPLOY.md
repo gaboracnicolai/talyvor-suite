@@ -117,6 +117,30 @@ detect.**
 | `docker compose logs --since 2m \| grep POOLING` | That line is emitted only when the decision **changes**, so the window is empty in steady state — and empty read as fine. |
 | Seed rows confirmed right after the `INSERT` | They always exist right after an INSERT; the prune that deletes them runs later, and if sync is unconfigured it never runs at all. |
 | `count(*) … # expect a number that INCREASED` | No baseline was ever captured, so the check could not be evaluated — and a check that cannot be evaluated cannot fail. |
+| `allowlist=%d entries` at BFF boot | `OIDC_ALLOWED_EMAILS=*` is stored as the one-element slice `["*"]`, so wide-open printed `allowlist=1 entries` — identical to one permitted address, and reading like the safe state. |
+| `grep -c GATEWAY_AUTH_SECRET .env  # expect: 2` | `printf` writes both variable NAMES whether or not the values are set, so this prints **2 with both secrets empty**. Tested. Count non-empty assignments: `grep -cE '^(TRACK\|DOCS)_GATEWAY_AUTH_SECRET=.+'`. |
+
+⚠ **AND THE SAME QUESTION APPLIES TO LOG OUTPUT, not just to checks.** A boot line is a check
+the operator runs by reading. On the live deploy, with `OIDC_ALLOWED_EMAILS=*`, the BFF printed:
+
+```
+bff: auth=oidc issuer=… public=… allowlist=1 entries
+```
+
+That reads as **one permitted address**. It meant the opposite — every identity the issuer
+authenticates — because `"*"` is represented as the one-element slice `["*"]`. One address and
+unlimited addresses produced the identical string, and the string reads as the restrictive one.
+An operator read it as closed and nearly "fixed" a working configuration; only `/auth/me`'s
+`signup_open` told the truth. Nothing below the line was wrong: the count was accurate, and
+meaningless.
+
+**A count is the wrong shape whenever a sentinel value can change what the collection means.**
+It now prints the STATE:
+
+```
+allowlist=OPEN — every identity this issuer authenticates
+allowlist=restricted to 3 addresses
+```
 
 Three habits that come out of it, and they are cheap:
 
