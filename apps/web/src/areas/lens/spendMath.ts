@@ -54,12 +54,42 @@ export function inWindow(rows: SpendLedgerRow[], days: number, now: Date): Spend
 export interface SignedRow {
   amount: number
   created_at: string
+  /** The lxc_ledger row type. ⚠ LOAD-BEARING — see SETTLED_CHARGE below. Optional so the LENS
+   *  ledger, which shares this shape, is unaffected. */
+  type?: string
 }
 
 /** A signed row that still carries its lxc_ledger metadata document. */
 export interface SignedRowWithMeta extends SignedRow {
   metadata: Record<string, unknown>
 }
+
+// ⚠ WHAT COUNTS AS SPENT — and why summing negative rows was ~4.5x too high.
+//
+// lxc_ledger carries SIX types. Only ONE of them is a charge:
+//
+//   spend                 the delivered charge. THIS is spend.
+//   reservation_hold      NEGATIVE, but a pre-serve BOUND, not a bill. Released moments later.
+//   reservation_release   the compensating credit; nets the hold to zero.
+//   grant | purchase | convert_from_lens   credits.
+//
+// The previous rule was "negative amount = debit", chosen so that "credits are excluded by SIGN,
+// not by type string, which stays correct if a new credit type appears". That reasoning is right
+// about CREDITS and wrong about HOLDS: a hold is negative and is not a charge. Real production
+// rows — a -3270 hold, its +3270 release, and the -920 that was actually billed — summed to 8,380
+// where 1,840 was spent.
+//
+// Lens states this at the writer (internal/economy/agent_subbudget.go:191):
+//   "LXCTypeReservationHold marks the pre-serve HOLD debit — a bound, NOT a bill. Revenue readers
+//    (sum type='spend') MUST exclude it; it nets to zero against its release."
+// `type` survives the whole path — Lens selects it, the BFF proxies it, api.ts maps it — and only
+// this file's row interface dropped it, so the sums could not see what they were adding.
+//
+// ⚠ ALLOW-LIST, NOT DENY-LIST. Excluding 'reservation_hold' by name would silently over-count the
+// next negative non-charge type someone adds. Naming the one type that IS a charge fails the other
+// way: a genuinely new charge type would be under-counted and visibly missing, which someone
+// notices, rather than inflating a number nobody can check.
+const SETTLED_CHARGE = 'spend'
 
 /** One model's share of the LXC that left the balance. µLXC, exact integer. */
 export interface LxcModelAgg {
@@ -102,6 +132,9 @@ export function lxcDebitsByModel(rows: SignedRowWithMeta[], days: number, now: D
           ? requested
           : ''
     if (model === '') continue
+    // Holds carry model metadata too, so without this they inflated BOTH the µLXC and the request
+    // count — two holds and two charges read as "4 charges" for two requests.
+    if (r.type !== SETTLED_CHARGE) continue
     const a = agg.get(model) ?? { model, requests: 0, ulxc: 0 }
     a.requests += 1
     a.ulxc += -r.amount
@@ -110,17 +143,22 @@ export function lxcDebitsByModel(rows: SignedRowWithMeta[], days: number, now: D
   return [...agg.values()].sort((a, b) => b.ulxc - a.ulxc || a.model.localeCompare(b.model))
 }
 
-// debitTotal sums the DEBITS (negative amounts) inside the window and returns
-// the total as a POSITIVE µ count — "how much left the balance". Credits
-// (grants, purchases, conversions) are excluded by SIGN, not by type string,
-// which stays correct if a new credit type appears. Exact integer µ, no float.
+// debitTotal sums the SETTLED CHARGES inside the window and returns the total as a POSITIVE µ
+// count — what the workspace was actually billed. See SETTLED_CHARGE above for why this is an
+// allow-list on the type rather than a test on the sign.
+//
+// ⚠ A row with no `type` still falls back to the sign test, because the LENS ledger shares this
+// shape and does not have lxc_ledger's types. That fallback is only correct for ledgers whose
+// every negative row IS a charge — true of the mint ledger, and the reason this stayed unnoticed.
 export function debitTotal(rows: SignedRow[], days: number, now: Date): number {
   const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000
   let total = 0
   for (const r of rows) {
     const t = Date.parse(r.created_at)
     if (!Number.isFinite(t) || t < cutoff) continue
-    if (r.amount < 0) total += -r.amount
+    if (typeof r.type === 'string' ? r.type === SETTLED_CHARGE : r.amount < 0) {
+      total += -r.amount
+    }
   }
   return total
 }

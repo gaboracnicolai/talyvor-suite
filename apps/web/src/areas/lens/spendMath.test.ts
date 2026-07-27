@@ -45,37 +45,49 @@ describe('lxcDebitsByModel', () => {
   const now = new Date('2026-07-22T12:00:00Z')
   // A settle pair as Lens actually writes it: the release refunds the whole hold, then the
   // spend row charges what was delivered. Only the spend row is a real charge.
+  //
+  // ⚠ THIS FIXTURE CARRIED NO `type` AND THE ASSERTIONS BELOW PINNED THE HOLD AS A CHARGE — the
+  // sentence directly above was true, written by the author, and contradicted three lines later by
+  // `{ model: 'gpt-4o', requests: 1, ulxc: 409_725 }`. That is the hold. So the panel shipped ~4.5x
+  // high with a GREEN suite asserting the wrong number, and a tester found it on the live deploy.
+  // Real rows always carry `type` (Lens selects it, api.ts maps it); the fixture simply predated
+  // anything reading it.
   const rows = [
-    { amount: -409_725, created_at: '2026-07-21T10:00:00Z', metadata: { requested_model: 'gpt-4o', request_id: 'rq1' } },
-    { amount: 409_725, created_at: '2026-07-21T10:00:01Z', metadata: { requested_model: 'gpt-4o', request_id: 'rq1' } },
-    { amount: -120_000, created_at: '2026-07-21T10:00:02Z', metadata: { requested_model: 'gpt-4o', served_model: 'gpt-4o-mini', request_id: 'rq1' } },
-    { amount: -80_000, created_at: '2026-07-20T09:00:00Z', metadata: { requested_model: 'claude-sonnet-5', served_model: 'claude-sonnet-5' } },
-    { amount: 50_000_000, created_at: '2026-07-19T08:00:00Z', metadata: { requested_model: 'gpt-4o' } }, // a grant — credit, not spend
+    { amount: -409_725, type: 'reservation_hold', created_at: '2026-07-21T10:00:00Z', metadata: { requested_model: 'gpt-4o', request_id: 'rq1' } },
+    { amount: 409_725, type: 'reservation_release', created_at: '2026-07-21T10:00:01Z', metadata: { requested_model: 'gpt-4o', request_id: 'rq1' } },
+    { amount: -120_000, type: 'spend', created_at: '2026-07-21T10:00:02Z', metadata: { requested_model: 'gpt-4o', served_model: 'gpt-4o-mini', request_id: 'rq1' } },
+    { amount: -80_000, type: 'spend', created_at: '2026-07-20T09:00:00Z', metadata: { requested_model: 'claude-sonnet-5', served_model: 'claude-sonnet-5' } },
+    { amount: 50_000_000, type: 'purchase', created_at: '2026-07-19T08:00:00Z', metadata: { requested_model: 'gpt-4o' } }, // a credit, not spend
   ]
 
-  it('attributes each debit to the model that SERVED it, falling back to the requested one', () => {
-    // The hold (-409_725) is attributed to gpt-4o (requested; no served model exists
-    // pre-route); the delivered charge to gpt-4o-mini (what actually served).
+  it('attributes each SETTLED CHARGE to the model that served it, and ignores the hold entirely', () => {
+    // Derived from the rule, not from what the code emits: only rows 3 and 4 are type 'spend'.
+    // gpt-4o is ABSENT — its only row was the hold, which is a bound and not a bill. Its
+    // disappearance is the fix: it used to head this list at 409_725, 3.4x the real charge.
     expect(lxcDebitsByModel(rows, 30, now)).toEqual([
-      { model: 'gpt-4o', requests: 1, ulxc: 409_725 },
       { model: 'gpt-4o-mini', requests: 1, ulxc: 120_000 },
       { model: 'claude-sonnet-5', requests: 1, ulxc: 80_000 },
     ])
   })
 
-  it('excludes credits by SIGN, so a grant never reads as spend', () => {
+  // ⚠ RENAMED. This said "excludes credits by SIGN" — the superseded rule, and the one that let
+  // holds through: a hold is negative and is not a charge, so sign was never the right test.
+  it('counts only type=spend, so neither a credit nor a hold reads as spend', () => {
     const total = lxcDebitsByModel(rows, 30, now).reduce((n, a) => n + a.ulxc, 0)
-    expect(total).toBe(409_725 + 120_000 + 80_000)
+    expect(total).toBe(120_000 + 80_000) // the two settled charges; the 409_725 hold is not one
   })
 
   it('drops rows with no model claim rather than inventing an "unknown" bucket', () => {
-    const withBare = [...rows, { amount: -7, created_at: '2026-07-21T11:00:00Z', metadata: {} }]
-    expect(lxcDebitsByModel(withBare, 30, now).reduce((n, a) => n + a.requests, 0)).toBe(3)
+    const withBare = [...rows, { amount: -7, type: 'spend', created_at: '2026-07-21T11:00:00Z', metadata: {} }]
+    // 2, not 3: the two settled charges. The hold no longer contributes a phantom request — the
+    // live panel read "4 charges" for two requests before this.
+    expect(lxcDebitsByModel(withBare, 30, now).reduce((n, a) => n + a.requests, 0)).toBe(2)
   })
 
   it('respects the window', () => {
-    // 2 days keeps the 26-hour-old gpt-4o pair and drops the 51-hour-old sonnet debit.
-    expect(lxcDebitsByModel(rows, 2, now).map((a) => a.model)).toEqual(['gpt-4o', 'gpt-4o-mini'])
+    // 2 days keeps the 26-hour-old settled charge and drops the 51-hour-old sonnet debit. gpt-4o
+    // is gone from this list for the same reason as above: its only row was the hold.
+    expect(lxcDebitsByModel(rows, 2, now).map((a) => a.model)).toEqual(['gpt-4o-mini'])
     // 1 day is before every row here — an empty split, not a zero-valued row.
     expect(lxcDebitsByModel(rows, 1, now)).toEqual([])
   })
