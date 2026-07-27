@@ -149,22 +149,54 @@ else
 fi
 
 # ── D7 ───────────────────────────────────────────────────────────────────────
-# DECISION: STEP 3a-bis documents a first-visit 403 lasting up to 15 minutes, and tells the
-#           operator to `docker compose restart docs` to force the sweep.
-# PREMISE:  membership for a brand-new identity arrives ONLY on the member sync's schedule.
-# talyvor-docs is building an on-demand entry point (SyncOneWorkspace, exposed as
-# POST /v1/service/workspaces/{wsID}/member-sync). The moment the BFF calls it at login, the
-# window closes and this section is wrong in the direction that wastes an operator's time —
-# it would send them restarting a container to fix something that no longer happens.
+# ⚠ THIS CHECK HAS BEEN INVERTED, and the inversion is the point rather than a tidy-up.
 #
-# ⚠ THIS EXPIRY IS FORWARD-LOOKING: it fires when a fix LANDS, not when something breaks. That
-# is the shape most likely to be missed, because nothing is failing when it becomes stale.
-if grep -rqE 'member-sync|SyncOneWorkspace' apps/bff/*.go 2>/dev/null; then
-    void "STEP 3a-bis's 'up to 15 minutes' first-visit window and its restart workaround" \
+# D7 was written FORWARD-LOOKING: it fired the moment `member-sync` appeared in apps/bff, to
+# catch the exact case where nothing is failing when a document becomes stale. It worked —
+# it fired on the commit that landed the nudge, naming the section to rewrite. 3a-bis has now
+# been rewritten and the decision it guarded ("a first-visit 403 lasting up to 15 minutes,
+# fixed by restarting Docs") is VOID.
+#
+# But a fire-once trigger cannot be left in place after it fires: it can never go green again,
+# so it would either be silenced — which this script's own footer forbids — or normalised into
+# a permanently-red step everyone learns to scroll past. Deleting it is just as wrong: the
+# claim in 3a-bis got STRONGER, not weaker. It used to warn about a wait; it now PROMISES
+# there is none, and a promise is the more expensive thing to have go quietly false.
+#
+# So D7 now guards the new decision, in the opposite direction:
+#
+# DECISION: STEP 3a-bis tells the operator membership lands AT LOGIN — no wait, no restart —
+#           and that a first-visit 403 is therefore a fault to investigate, not a known wait.
+# PREMISE:  the BFF actually calls Docs' on-demand member-sync at login.
+#
+# If that call is ever removed, refactored out, or renamed, the runbook silently goes back to
+# promising something nobody delivers — and the failure is invisible, because the 2-minute
+# sweep still makes it eventually work. An operator would be told to chase a misconfiguration
+# that is not there. Both halves are checked, so the document and the code cannot drift apart
+# in either direction.
+#
+# ⚠ THE CODE-SIDE DETECTOR IS NARROW ON PURPOSE, and it was WRONG on the first attempt. It
+# matched `member-sync` anywhere in apps/bff/*.go, which the test file and these very comments
+# satisfy — so deleting the production call left the check GREEN. It was caught by deliberately
+# breaking it rather than by reading it: a guard nobody has watched fail is not known to guard.
+# It now matches the CALL, in non-test source only. Keep it that way: widening it back to a
+# word that appears in prose restores the hole.
+_d7_code=0; _d7_doc=0
+for _f in apps/bff/*.go; do
+    case "$_f" in *_test.go) continue ;; esac
+    grep -qF 'a.nudgeDocsMemberSync(' "$_f" 2>/dev/null && _d7_code=1
+done
+grep -qF 'membership row exists' deploy/FULL-STACK-DEPLOY.md 2>/dev/null && _d7_doc=1
+if [ "$_d7_code" = 1 ] && [ "$_d7_doc" = 1 ]; then
+    ok "3a-bis promises login-time membership, and the BFF delivers it"
+elif [ "$_d7_code" = 0 ] && [ "$_d7_doc" = 1 ]; then
+    void "STEP 3a-bis's promise that membership lands at login" \
         "deploy/FULL-STACK-DEPLOY.md § '3a-bis. THE FIRST-VISIT WINDOW'" \
-        "the BFF now calls Docs' on-demand member-sync, so the window is closed. Rewrite 3a-bis: drop the restart step and say membership lands at login."
+        "the BFF NO LONGER calls Docs' on-demand member-sync, so the first-visit window is open again — but 3a-bis still says a 403 there is a fault to investigate. It would send an operator hunting a misconfiguration that does not exist, and the 2-minute sweep hides it by making the write succeed on a retry. Restore the call (apps/bff/docs_membersync.go) or rewrite 3a-bis to describe a wait again."
 else
-    ok "first-visit window still real — the BFF does not call on-demand member-sync"
+    void "STEP 3a-bis does not describe the login-time nudge" \
+        "deploy/FULL-STACK-DEPLOY.md § '3a-bis. THE FIRST-VISIT WINDOW'" \
+        "the section no longer states that the membership row exists before the redirect completes. Either it was rewritten back to describing a wait while the code still nudges, or the wording this check anchors on moved — re-anchor it deliberately rather than loosening the match."
 fi
 
 # ── UNCHECKABLE FROM THIS REPO ───────────────────────────────────────────────
