@@ -184,6 +184,11 @@ export function Landing() {
                 <a href="#suite">See the suite</a>
               </Button>
             </div>
+            <p className="mt-3 text-caption text-faint">
+              <a href="/privacy" className="underline">Privacy</a>
+              {' · '}
+              <a href="/terms" className="underline">Terms</a>
+            </p>
             {/* THE ACCESS SENTENCE IS THE SERVER'S, not the bundle's. It used to read "Talyvor
                 is in a closed trial, so accounts are set up by hand" — true when written, and a
                 lie from the moment an operator sets OIDC_ALLOWED_EMAILS=*, with nothing in the
