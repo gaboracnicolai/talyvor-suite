@@ -108,10 +108,16 @@ services:
       # length (internal/config/config.go:137,196) — it is in git history, so it
       # is public forever.
       GATEWAY_AUTH_SECRET: ${DOCS_GATEWAY_AUTH_SECRET:?DOCS_GATEWAY_AUTH_SECRET must be set — see deploy/README.md}
-      # Must equal the BFF's DOCS_WORKSPACE_ID: the BFF pins its upstream path to
-      # /v1/workspaces/<DOCS_WORKSPACE_ID>/spaces (apps/bff/lens.go:75). Defaults
-      # to "default" on the Docs side; set both explicitly so they cannot drift.
-      DOCS_DEFAULT_WORKSPACE: ${DOCS_WORKSPACE_ID:-default}
+      # ⚠ NOT TENANCY ANY MORE — do not pair this with anything on the BFF.
+      # It used to have to equal the BFF's DOCS_WORKSPACE_ID, which pinned one Docs
+      # workspace for everyone. suite #59 (030ea53) removed that variable: every Docs
+      # route now resolves the SESSION's Track workspace (docsWorkspaceFor).
+      # What still reads it, both single-workspace background jobs:
+      #   · the COST syncer's scope (off here — DOCS_TRACK_API_KEY is unset)
+      #   · the daily 09:00 UTC stale-page freshness digest
+      # Optional, defaults to "default" in Docs' own config. Left explicit so the
+      # value is visible rather than implied.
+      DOCS_DEFAULT_WORKSPACE: ${DOCS_DEFAULT_WORKSPACE:-default}
       # ── Member sync: Docs pulls tenancy from Track ────────────────────────────
       # Track is the tenancy source of truth (it mints a workspace per identity at
       # login), so Docs asks it which workspaces exist rather than deriving the set
