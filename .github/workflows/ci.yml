@@ -46,6 +46,13 @@ jobs:
       # CI stamped via its own inline command and the runbook did not, this job would stay green
       # while every real deploy shipped an unidentifiable bundle.
       - run: scripts/build-release.sh web
+      # THE DEPLOY DECISION EXPIRY REGISTER. Every runbook decision that rests on a premise,
+      # with a command that says whether the premise still holds. Three decisions in one night
+      # were right when made and wrong an hour later because someone removed the constraint they
+      # were reasoned from; a prose "reopening condition" is a description nobody evaluates, so
+      # these are executable and run here. Exits non-zero naming the document section that is
+      # now void. Cross-repo premises are reported UNCHECKABLE, never as passes.
+      - run: deploy/decision-expiry.sh
 
   # The BFF gates. inc5 added the OIDC deps (go-oidc + x/oauth2), so there IS a
   # go.sum now — the module cache keys off it, and the Go version comes from

@@ -376,7 +376,13 @@ func TestDocs_IsPerSessionNotPinned(t *testing.T) {
 	if configHasField(t, "docsWorkspaceID") {
 		t.Error("docsWorkspaceID is back on the config: a pinned id would put every signed-in " +
 			"person back in ONE shared Docs workspace, able to read and edit each other's pages. " +
-			"The workspace comes from the session (docsWorkspaceFor).")
+			"The workspace comes from the session (docsWorkspaceFor).\n\n" +
+			"⚠ AND THIS VOIDS A DEPLOY DECISION, which is why the sentence is here rather than " +
+			"only in a runbook nobody re-reads: deploy/FULL-STACK-DEPLOY.md § '3a. Docs is " +
+			"PER-IDENTITY' DELETED the manual membership seed because nothing pins a workspace " +
+			"any more. Pin one again and the seed is the only grant for it — restore that step " +
+			"from git history, or every tester 403s on Docs. deploy/decision-expiry.sh D1 " +
+			"checks the same premise from the other side.")
 	}
 	if configHasField(t, "trackWorkspaceID") {
 		t.Error("trackWorkspaceID is back on the config: Track is per-session now, and a pinned " +
