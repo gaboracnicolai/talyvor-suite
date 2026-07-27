@@ -443,6 +443,21 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		log.Printf("bff: track bootstrap FAILED for sub=%s (login continues): %s",
 			idt.Subject, redactSecret(terr.Error()))
 	}
+	// DOCS: ask Docs to read this workspace's roster from Track NOW, rather than on its next
+	// periodic sweep. Without this, a person who signs up and goes straight to Docs finds their
+	// own workspace refusing writes for as long as the sweep interval — the workspace exists and
+	// Docs can see it, but Docs has not read the membership yet.
+	//
+	// BEST-EFFORT, and even less negotiable than the Track bootstrap above: Docs' own sweep is
+	// the backstop, so a failure here costs minutes of latency on ONE product, and failing the
+	// login over that would take out Lens, billing, keys and Track as well. Nothing is recorded
+	// in the session — see docs_membersync.go, rule 2.
+	if trackWS != "" {
+		if derr := a.nudgeDocsMemberSync(ctx, trackWS); derr != nil && !errors.Is(derr, errDocsNotConfigured) {
+			log.Printf("bff: docs member-sync nudge failed for sub=%s (login continues; Docs' own "+
+				"sweep will reconcile within its interval): %s", idt.Subject, redactSecret(derr.Error()))
+		}
+	}
 
 	a.auth.sessions.put(sid, session{
 		sub:     idt.Subject,

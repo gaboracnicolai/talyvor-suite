@@ -150,9 +150,11 @@ SaaS account when Google is already in hand.
    be a **member** of the Track/Docs workspace or those products will refuse
    them individually. **For Docs that membership now creates itself**: Track mints a
    workspace per identity at login, Docs enumerates Track and syncs its roster, and
-   the BFF asks for the session's workspace (suite #59). No manual seed — but there
-   is a first-visit delay of up to 15 minutes; see **FULL-STACK-DEPLOY.md step
-   3a-bis**. Docs therefore **requires the Track pair to be configured**.
+   the BFF asks for the session's workspace (suite #59). No manual seed, and **no
+   first-visit delay** — the BFF reconciles the roster at login, with a 2-minute
+   sweep behind it; see **FULL-STACK-DEPLOY.md step 3a-bis**. Docs therefore
+   **requires the Track pair to be configured**, and the nudge needs the Docs pair
+   too.
 4. The DNS for both hosts already points at this box, and the containerised
    Caddy already holds certificates for both in its `caddy_data` volume (they
    persist across config reloads; nothing here re-issues).
@@ -962,8 +964,8 @@ Reading the result — each code means one specific thing:
 | `200` | working end to end | done |
 | `503` | the BFF has no upstream configured | step 7 trio incomplete, or the BFF was not restarted |
 | `401` | **the gateway secrets do not match** | step 7 — the two names, one value |
-| `403` | secret fine; your email is not a member of that workspace | For Docs this is normally the **first-visit window** — the member sync has not yet pulled the roster for a workspace created moments ago. It clears within 15 minutes, or immediately on `docker compose restart docs`. See **FULL-STACK-DEPLOY.md step 3a-bis**. Persisting past that means the sync is not running: check `MEMBER_SYNC_SECRET`. |
-| `404` | secret and membership fine; the workspace does not exist upstream | Both products are per-session now, so there is no id to mistype. A 404 means the session's Track workspace is not present in that product — for Docs, that is normally the member-sync roster not having arrived yet (see FULL-STACK-DEPLOY.md step 3a-bis). |
+| `403` | secret fine; your email is not a member of that workspace | For Docs this **used to be** the expected first-visit window. It is not any more: the BFF reconciles the roster at login, so a brand-new person is a member before the redirect completes. A `403` here now means the login-time nudge is not firing — check `DOCS_BASE_URL` + `DOCS_GATEWAY_SECRET` on the BFF and `MEMBER_SYNC_SECRET` on Docs — and it clears on the 2-minute backstop sweep regardless. See **FULL-STACK-DEPLOY.md step 3a-bis**. |
+| `404` | secret and membership fine; the workspace does not exist upstream | Both products are per-session now, so there is no id to mistype. A 404 means the session's Track workspace is not present in that product — for Docs that is no longer the expected first-visit state (the roster arrives at login now), so treat it as a real absence rather than a wait. See FULL-STACK-DEPLOY.md step 3a-bis. |
 | `502` | the BFF cannot reach the container | step 6 — check the loopback publish |
 
 Finally, confirm neither product became internet-facing:

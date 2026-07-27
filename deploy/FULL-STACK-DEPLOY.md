@@ -729,30 +729,68 @@ its membership can only come from the `INSERT`. If you roll back that far, resto
 from git history along with the binary. Nothing else needs it — not a fresh deploy, not a
 new tester, not a new workspace.
 
-### ⚠ 3a-bis. THE FIRST-VISIT WINDOW — a new person can get one `403` from Docs
+### 3a-bis. THE FIRST-VISIT WINDOW — CLOSED. What to expect, and what a `403` means now
 
-**This is real and it self-heals; it is not a misconfiguration.** Step 2 above runs on the
-member sync's schedule — a pass at Docs boot, then every 15 minutes
-(`talyvor-docs cmd/docs/main.go`, `Start(ctx, 15*time.Minute)`, with `runOnce` called before
-the ticker). Between "signed in for the first time" and "the next sync pass" there is no
-membership row yet, so Docs answers **403** — for up to 15 minutes, for that person only.
+**This section previously described a real defect with an operator workaround: a brand-new
+person could get `403` from Docs for up to 15 minutes, and the mitigation was to restart Docs
+after your testers had signed in. That fix has landed. Neither the wait nor the restart is
+needed any more, and the `restart docs` step that used to be here is gone rather than
+demoted — an unnecessary step in a runbook is read as a necessary one.**
+
+**What happens now.** At login, immediately after Track mints the person's workspace, the BFF
+asks Docs to reconcile **that one workspace's** roster from Track before the redirect
+completes (`apps/bff/docs_membersync.go`, `POST {DOCS_BASE_URL}/v1/service/workspaces/{id}/member-sync`,
+carrying `DOCS_GATEWAY_SECRET` as the transit proof). By the time the browser lands on the
+app, the membership row exists. **A new tester writes their first Docs page on their first
+visit, with no wait and no operator action.**
+
+**The periodic sweep is still there and still matters** — it is the backstop, not the fallback
+you hope never runs. Its interval went **15 minutes → 2 minutes**
+(`talyvor-docs cmd/docs/main.go`, `Start(ctx, 2*time.Minute)`, with a pass at boot before the
+ticker). Two independent paths reconcile the roster, so:
+
+- a nudge that is dropped, refused, or never sent is a **delay of up to 2 minutes**, not a
+  permanent `403`;
+- Docs restarting, or Track being briefly unreachable at login, self-heals on the next tick.
+
+**⚠ Both halves must be configured for the nudge to fire.** It needs `DOCS_BASE_URL` **and**
+`DOCS_GATEWAY_SECRET` on the BFF, and `MEMBER_SYNC_SECRET` on Docs — with any of them missing
+the nudge is skipped silently and **you are back to waiting out the sweep**, which is now 2
+minutes rather than 15, so the symptom is much easier to miss than it used to be. The login
+log line is the tell:
 
 ```sh
-# Force the pass instead of waiting it out. Operator-side; a tester cannot do this.
-docker compose restart docs && sleep 20
-docker compose logs docs --since 2m | grep -F 'workspace reconciled'
-# expect: a line whose workspace_id is the new person's Track workspace.
+# A nudge that FAILED says so; a nudge that worked is silent (it is not an event).
+docker compose logs bff --since 10m | grep -F 'docs member-sync nudge failed'
+# expect: NOTHING. Any line here means the roster is arriving on the sweep, not at login.
+
+# What the sweep itself logs, either way:
+docker compose logs docs --since 5m | grep -F 'workspace reconciled'
 ```
 
-⚠ **A 403 on a brand-new account is a poor first impression even though it clears itself**,
-so treat this as a real defect with a workaround rather than acceptable behaviour. **A fix
-is in flight in another tab** (closing the first-visit timing window). At the time this was
-written that work was **not yet pushed**, so this section describes the behaviour as it
-actually ships today. If the sequence changes, this is the section to correct — and the
-`restart docs` step above is the part most likely to become unnecessary.
+**A `403` from Docs on a brand-new account is no longer expected behaviour.** If you see one,
+it is now a signal rather than a known wait — check the two variables above before anything
+else.
 
-**Until then, the practical mitigation for a launch: restart Docs once after your testers
-have signed in for the first time**, rather than asking each of them to retry.
+**⚠ WHAT THE SHORTER INTERVAL COSTS — it is negligible at trial scale, and here is the number
+rather than the reassurance.** The interval drives `runOnce`, which is **both** the member
+sweep and the page-cost sweep, so 15m → 2m multiplies **both** by 7.5× (96 → 720 passes/day).
+
+| per pass | shape | at 20 testers / 30 pages |
+|---|---|---|
+| member sweep | 1 enumerate + 1 Track call per **workspace** | ~21 calls |
+| cost sweep | 1 Track `GetIssue` per **linked issue**, in the one configured workspace | ~60 calls |
+
+That is roughly **+50k Track HTTP calls/day, ~0.6 req/s averaged** — nothing for a Go service
+on one box, against a saving of up to 13 minutes on every tester's first impression. Take it.
+
+**⚠ Where it stops being negligible: the COST sweep, not the member one.** The member sweep
+scales with testers (linear, small). The cost sweep scales with **pages × linked issues** and
+got the 7.5× as a side effect of a change made for membership. At ~500 pages averaging two
+linked issues it is ~8 req/s sustained against Track, forever, to keep a cost column fresh
+that nothing reads in real time. **If Docs content grows past a few hundred pages, split the
+two intervals** (member 2m, cost 15m or slower) rather than lengthening both — the member
+interval is the one holding the first-visit guarantee.
 
 ### Docs now DEPENDS ON TRACK — ordering, and the symptom if you get it wrong
 
@@ -1384,7 +1422,7 @@ everything listed is safe.
 
 | What you will see | Where | Harmless? | Why |
 |---|---|---|---|
-| `member sync — workspace reconciled` (INFO), one per Track workspace, every 15 min | `docker compose logs docs` | **Yes — but read `pruned`** | Normal output now the sync is ON (STEP 3a). Detail below. |
+| `member sync — workspace reconciled` (INFO), one per Track workspace, every 2 min, plus one on demand at each new person's login | `docker compose logs docs` | **Yes — but read `pruned`** | Normal output now the sync is ON (STEP 3a). Detail below. |
 | ⚠ **NO `member sync` lines at all** | `docker compose logs docs` | **NO — fix it** | The sync is wired as of 2026-07-27, so silence means it is NOT running: `MEMBER_SYNC_SECRET` or `DOCS_TRACK_URL` missing from the fragment. `SyncMembers` returns **silently** in that state — no error, no warning. Detail below. |
 | `environment hygiene: this container holds CREDENTIAL-SHAPED variables that are not Lens's` (ERROR), naming e.g. `TRACK_GATEWAY_AUTH_SECRET` / `DOCS_GATEWAY_AUTH_SECRET` | `docker compose logs lens` | **NO — fix it** | Lens is being handed another service's secrets. It means `env_file:` is forwarding the project `.env` instead of `lens.env`, i.e. the leak lens#377/#378 closed has returned. A Lens crash dump would carry Track's and Docs's gateway secrets. Fires only when the unexpected variable name ends in `SECRET`/`KEY`/`TOKEN`/`PASSWORD`/`CREDENTIALS` (`cmd/lens/env_hygiene.go:98`). |
 | `modelwatch: NO ALERT SINK CONFIGURED` (ERROR) at Lens boot | `docker compose logs lens` | **Yes** | `LENS_OPERATOR_ALERT_WEBHOOK_URL` is unset, which is currently correct — nothing accepts that payload yet. Logged at ERROR deliberately so the gap stays visible (`internal/modelwatch/modelwatch.go:197`). Expect it once per boot. |
@@ -1399,7 +1437,8 @@ these lines are expected and their **absence** is the fault. Taken from
 `talyvor-docs internal/trackintegration/{syncer,enumerate}.go` rather than from a previous
 deploy's memory.
 
-**Normal — one per Track workspace, at boot and every 15 minutes:**
+**Normal — one per Track workspace, at boot and every 2 minutes (STEP 3a-bis), plus one extra
+for a single workspace each time a new person logs in — that one is the login-time nudge:**
 
 ```json
 {"level":"INFO","msg":"trackintegration: member sync — workspace reconciled",
@@ -1417,8 +1456,11 @@ Docs syncs each. A deployment with three testers reconciles three workspaces eve
 workspace id you do not recognise is not automatically wrong — it is somebody's, and the ids
 are opaque.
 
-⚠ **A person who just signed in for the first time may be missing** from this pass and
-present in the next one. That is the first-visit window in STEP 3a-bis, not a fault.
+⚠ **A person who just signed in for the first time gets their OWN line, out of step with the
+sweep** — that is the login-time nudge (STEP 3a-bis) reconciling their one workspace, and it is
+why they no longer have to wait for a pass. It carries a single `workspace_id` rather than the
+full set. If a new person appears only on the next sweep instead, the nudge is not firing: see
+the `DOCS_BASE_URL` / `DOCS_GATEWAY_SECRET` check in STEP 3a-bis.
 
 **Harmless and self-healing:**
 
