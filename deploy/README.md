@@ -761,7 +761,12 @@ cd /Users/ng/talyvor-lens
 printf 'TRACK_GATEWAY_AUTH_SECRET=%s\nDOCS_GATEWAY_AUTH_SECRET=%s\n' \
   "$TRACK_GATEWAY_AUTH_SECRET" "$DOCS_GATEWAY_AUTH_SECRET" >> .env
 chmod 600 .env
-grep -c GATEWAY_AUTH_SECRET .env    # expect: 2
+# ⚠ COUNT NON-EMPTY ASSIGNMENTS, not mentions. `grep -c GATEWAY_AUTH_SECRET .env`
+# prints 2 when BOTH VALUES ARE EMPTY — printf writes the two names either way, so
+# the documented expectation is met by a .env with no secrets in it at all. Tested.
+grep -cE '^(TRACK|DOCS)_GATEWAY_AUTH_SECRET=.+' .env    # expect: 2
+# 0 = both are empty: the shell variables were not set (a new terminal loses them).
+# 1 = one of the two. Either way, re-run the export in step 1 and redo this write.
 ```
 
 > **The same two values go into the BFF's env in step 7, under different names.**
