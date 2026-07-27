@@ -673,240 +673,84 @@ user must also be a **member**") and its troubleshooting table says `403` → "a
 the membership", but no step anywhere says how, because until now there was no
 mechanism.
 
-### ⚠ 3a. Seed the first Docs membership. WITHOUT THIS, DOCS 403s EVERY TESTER.
+### ⚠ 3a. Docs is PER-IDENTITY. The manual seed is GONE — do not run it.
 
-**Docs cannot bootstrap its own tenancy.** Membership comes only from Track's
-roster sync, and that sync enumerates *the workspaces Docs already holds content
-for* (`SELECT workspace_id FROM spaces UNION SELECT workspace_id FROM pages`,
-`internal/membership/store.go`). A brand-new Docs database holds no content, so
-nothing is enumerated, so no roster is pulled, so nobody is a member, so
-`space.Create` 403s before its insert — and the space that would have made the
-workspace enumerable can never be created. **Content is needed to get a roster,
-and a roster to create content.** The parked decision and the fix shape are
-recorded on `DistinctWorkspaceIDs` in talyvor-docs (#45).
+**This step used to be a hand-written `INSERT` into `workspace_members`, once per tester,
+and it was load-bearing.** It is now obsolete and running it does nothing useful: it
+inserted into `workspace_id = 'default'`, and **nothing asks for that id any more.**
 
-The seed breaks the cycle. Run it after Docs' first boot (it migrates on boot, so
-the table exists), **one row per tester**. Same `docker compose exec postgres`
-route as every other database step here — no host `psql` needed:
+Three merges closed the deadlock it worked around, each supplying a different half:
 
-```sh
-# From the compose .env, which is what the docs container reads (the fragment maps
-# DOCS_DEFAULT_WORKSPACE: ${DOCS_WORKSPACE_ID:-default}). It must ALSO equal the
-# BFF's own DOCS_WORKSPACE_ID in /etc/talyvor/bff.env — that is a separate file and
-# a separate copy, and a mismatch is a 404 on every Docs route, not a 403.
-WS=$(grep -oP '(?<=^DOCS_WORKSPACE_ID=).*' .env 2>/dev/null || echo default)
-echo "seeding workspace: $WS"      # sanity-check this before continuing
-sudo grep -oP '(?<=^DOCS_WORKSPACE_ID=).*' /etc/talyvor/bff.env   # must print the same
-
-docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
-  "INSERT INTO workspace_members (workspace_id, email, role, member_id, source)
-   VALUES ('$WS', 'tester@example.com', 'admin', 'seed-tester@example.com', 'seed')
-   ON CONFLICT (workspace_id, email) DO NOTHING;"
-```
-
-#### ⚠ DECISION REVERSED: the member sync is ON. Wire it, and KEEP the seed.
-
-**This step said OFF until 2026-07-27. The reasoning was sound and the premise moved.** Off
-was correct while Docs enumerated the workspaces to sync from **its own content** — it would
-have pulled the pinned id, which Track cannot name, so the sync could change no row. Two
-merges landed within a minute of each other and changed exactly that:
-
-| merge | what changed |
+| merge | half |
 |---|---|
-| `talyvor-track bf60842` (#64) | adds `GET /v1/service/workspaces` — Track answers **which workspaces exist**, since it mints one per identity at login |
-| `talyvor-docs c970329` (#46) | `SyncMembers` now enumerates from **Track**, falling back to content-derived only when Track is unreachable |
+| `talyvor-track bf60842` (#64) | `GET /v1/service/workspaces` — Track answers **which workspaces exist** |
+| `talyvor-docs c970329` (#46) | Docs enumerates from **Track**, not from its own content |
+| `talyvor-suite 030ea53` (#59) | every Docs route resolves the **session's** workspace; `DOCS_WORKSPACE_ID` removed from the BFF |
 
-Docs no longer pulls a pinned id at all, so the old argument no longer applies and the
-runbook was telling you to leave off the thing that makes Docs tenancy work.
+**How a new person now gets Docs access, with nothing manual in the path:**
 
-**Wire it in `.env` (the fragment does the rest):**
+1. They sign in. The BFF bootstraps their Track workspace (`POST /v1/bootstrap`), which
+   creates the workspace **and its owner member row** in one transaction.
+2. Docs' member sync enumerates Track's workspaces, sees the new one, pulls its roster, and
+   upserts a `workspace_members` row for it (`source = 'track'`).
+3. They open Docs. The BFF asks for `/v1/workspaces/<their Track workspace>/spaces`
+   (`docsWorkspaceFor` → `trackWorkspaceFor`), Docs matches the membership, and they write.
 
-```sh
-MEMBER_SYNC_SECRET=<the fourth secret from STEP 1>
-```
+⚠ **THE ONE CASE THAT STILL NEEDS THE SEED: rolling the BFF back below #59.** A pre-#59
+binary pins `DOCS_WORKSPACE_ID` again, and a pinned workspace has no Track counterpart, so
+its membership can only come from the `INSERT`. If you roll back that far, restore the seed
+from git history along with the binary. Nothing else needs it — not a fresh deploy, not a
+new tester, not a new workspace.
 
-`track-docs.compose.yaml` feeds that one key to **both** sides — Track's
-`TRACK_MEMBER_SYNC_SECRET` and Docs' `DOCS_TRACK_MEMBER_SYNC_SECRET` — plus
-`DOCS_TRACK_URL: http://track:3000`. One key, so they cannot drift.
+### ⚠ 3a-bis. THE FIRST-VISIT WINDOW — a new person can get one `403` from Docs
 
-**Auth, read from source rather than inferred:** both service endpoints take
-`Authorization: Bearer <secret>`, constant-time-compared, and **fail closed on an unset
-secret** (`talyvor-track internal/member/workspaces.go` `authorized`, and the same shape in
-`handler.go`). Both sit under `/v1/service/`, which is **gwExempt**
-(`cmd/track/main.go`), so a bearer-only call reaches them without the gateway proof.
-`DOCS_TRACK_API_KEY` is **not** required — `MemberSyncConfigured()` is
-`trackURL && memberSyncSecret` only; the API key gates the separate cost sync.
-
-**Verify it is wired:**
-
-```sh
-# ASSIGNMENTS only, in the compose fragment.
-grep -rnE '^\s+(TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_URL):' deploy/*.yaml
-# expect: exactly 3 lines — Track's secret, Docs' URL, Docs' secret.
-# FEWER ⇒ the fragment lost one, and SyncMembers is a SILENT no-op in that state.
-```
-
-⚠ **Two things this check is deliberately narrow about**, both found by running it rather
-than reading it. `grep -rn … deploy/` matches this section's **own prose** and reports
-"wired" whatever the configuration says. And a looser pattern over the fragment counts the
-**comment** that names `TRACK_MEMBER_SYNC_SECRET` too, giving 4 where the answer is 3 — a
-count you would then have to distrust. Anchoring on `^\s+NAME:` counts assignments only;
-verified by deleting one line and watching the count drop to 2.
-
-#### ⚠ KEEP THE SEED. It is not a wait-skipper — it is the only grant for the pinned workspace.
-
-**The suggestion to remove it, with a "tester may 403 once until the next sync" caveat, does
-not hold while the BFF pins Docs.** The 403 would be permanent, not one cycle. Traced end to
-end:
-
-1. The sync enumerates **Track's** workspace ids and writes
-   `workspace_members(workspace_id = <a Track id>, …)`.
-2. The BFF asks Docs for `/v1/workspaces/<DOCS_WORKSPACE_ID>/spaces` —
-   `apps/bff/lens.go` builds that path from the **pin**, and the Docs trio still requires
-   `DOCS_WORKSPACE_ID` (`apps/bff/main.go`).
-3. Docs authorizes with `AuthorizeWorkspace(ctx, workspaceID)`, which requires an **exact
-   match**: `for _, m := range ms { if m.WorkspaceID == workspaceID }`
-   (`talyvor-docs internal/authz/authz.go`). Memberships come from
-   `SELECT … FROM workspace_members WHERE email = $1`.
-4. `DOCS_WORKSPACE_ID` is `default`; Track's ids are DB-generated, so **no synced row will
-   ever carry `workspace_id = 'default'`**.
-
-⇒ A membership in a Track workspace does not authorize a request for the pinned one. **Remove
-the seed and every tester 403s on Docs forever.** Keep it, and keep writing `source = 'seed'`.
-
-The removal advice becomes correct the moment the BFF stops pinning Docs and asks for the
-caller's own workspace — that is the reopening condition, and it is a suite change, not a
-Docs one.
-
-#### ⚠ The prune is now armed. Here is what it does to a seed row — and why it is still safe.
-
-Enabling the sync does arm the prune, so the previous "one new capability: deleting testers'
-access" line needs answering rather than repeating. A `source = 'seed'` row in the pinned
-workspace is protected **three** times over, and any one of them suffices:
-
-| # | protection | source |
-|---|---|---|
-| 1 | **`default` is never enumerated** on the happy path — Track's answer does not contain it | `enumerate.go` returns Track's list as-is |
-| 2 | If the content fallback *does* enumerate it (Track unreachable), the roster pull for `default` returns `200 []` or errors ⇒ `if len(refs) == 0 { return 0,0,nil }`, or the workspace is skipped entirely | `internal/membership/store.go`, `syncer.go` |
-| 3 | Even with a non-empty roster, the prune is `WHERE workspace_id = $1 AND source = 'track' AND email <> ALL($2)` — a `'seed'` row is out of scope, and `source` is **not** in the `DO UPDATE SET`, so Track reporting the same person cannot seize the row | `internal/membership/store.go` |
-
-⚠ What the prune **will** now do, correctly: delete `source = 'track'` rows from a **Track**
-workspace when that person is no longer in Track's roster. That is the feature. It is scoped
-to workspaces Docs successfully pulled a roster for, so a Track outage removes nobody.
-
-⚠ **The honest cost that has not changed: Docs has no member-management route.** For the
-*pinned* workspace, adding or removing a member is still this `INSERT` — manual SQL — for as
-long as Docs stays pinned.
-
-#### Verify: the seed grants access, and the sync is running
-
-**Two checks, and they answer different questions.** The capability one is the pass/fail;
-the sync one proves the sync is actually running now that it should be.
-
-**1. Capability — have a seeded tester create a space.** `201` means the seed took; `403`
-means it did not (wrong `$WS`, or the BFF's `DOCS_WORKSPACE_ID` disagrees with the
-container's). Then confirm what you wrote:
+**This is real and it self-heals; it is not a misconfiguration.** Step 2 above runs on the
+member sync's schedule — a pass at Docs boot, then every 15 minutes
+(`talyvor-docs cmd/docs/main.go`, `Start(ctx, 15*time.Minute)`, with `runOnce` called before
+the ticker). Between "signed in for the first time" and "the next sync pass" there is no
+membership row yet, so Docs answers **403** — for up to 15 minutes, for that person only.
 
 ```sh
-docker compose exec -T postgres psql -U lens -d talyvor_docs -tAc \
-  "SELECT email, role, source FROM workspace_members WHERE workspace_id = '$WS';"
-# expect: one row per tester, each with source = seed.
-# ZERO ROWS ⇒ the INSERT did not land — check $WS above.
-```
-
-**2. The sync is running.** Now that it is wired, silence is a fault rather than the
-expected state. Restart Docs to force the boot pass instead of waiting out the 15-minute
-ticker, and read the enumeration:
-
-```sh
+# Force the pass instead of waiting it out. Operator-side; a tester cannot do this.
 docker compose restart docs && sleep 20
-docker compose logs docs --since 2m | grep -F 'member sync'
-# expect: one `workspace reconciled` line PER TRACK WORKSPACE, with upserted/pruned counts.
-# ⚠ NO OUTPUT AT ALL ⇒ the sync did not run: MEMBER_SYNC_SECRET or DOCS_TRACK_URL is
-#   missing from the fragment, and SyncMembers returns SILENTLY in that state. Not a pass.
+docker compose logs docs --since 2m | grep -F 'workspace reconciled'
+# expect: a line whose workspace_id is the new person's Track workspace.
 ```
 
-⚠ **`pruned` should be `0` on a fresh deploy.** A non-zero prune on the first pass means
-rows existed that Track's roster does not contain — expected only if you are re-deploying
-over an older database.
+⚠ **A 403 on a brand-new account is a poor first impression even though it clears itself**,
+so treat this as a real defect with a workaround rather than acceptable behaviour. **A fix
+is in flight in another tab** (closing the first-visit timing window). At the time this was
+written that work was **not yet pushed**, so this section describes the behaviour as it
+actually ships today. If the sequence changes, this is the section to correct — and the
+`restart docs` step above is the part most likely to become unnecessary.
 
-⚠ **The pinned workspace `default` will NOT appear in those lines**, and that is correct —
-Track does not know it, so it is not enumerated. Its membership is the seed, and nothing in
-this sync touches it. If you *do* see `workspace_id=default` reconciled, Track has been
-given a workspace with that id and the seed row is now sharing a workspace with a live
-roster — still safe (it is `source = 'seed'`), but not what this deploy intends.
+**Until then, the practical mitigation for a launch: restart Docs once after your testers
+have signed in for the first time**, rather than asking each of them to retry.
 
-#### ⚠⚠ STILL WRITE `source` EXPLICITLY
+### Docs now DEPENDS ON TRACK — ordering, and the symptom if you get it wrong
 
-`source` **defaults to `'track'`**, so a seed written without that column is
-marked as Track's own row. The roster prune is
-`WHERE workspace_id = $1 AND source = 'track' AND email <> ALL($2)` — it deletes
-`track`-owned rows that Track's roster does not contain, and Track has never
-heard of your testers.
+`docsWorkspaceFor` *is* `trackWorkspaceFor` (`apps/bff/track_tenant.go`), so the Docs
+workspace id is the one Track mints at login. That makes an implicit dependency explicit:
 
-With the sync ON, a mis-marked row in a workspace that Track *does* enumerate is deleted on
-the first pass. In the pinned workspace it survives — `default` is not enumerated — but
-writing `source` explicitly costs one word and removes the need to reason about which of
-those two cases you are in. The behaviour was tested both ways against a real empty
-database, **with sync configured** — which, since 2026-07-27, is the state this deploy is in:
+- **Track must be configured on the BFF** (`TRACK_BASE_URL` + `TRACK_GATEWAY_SECRET`). With
+  Track unset, every `/api/docs/*` route answers
+  `503 {"error":"track upstream not configured on this BFF"}` — **a Docs symptom that names
+  Track**, which is exactly the sort of thing that costs an hour at 2am.
+- **Track must be reachable at first use.** If the bootstrap fails, Docs answers
+  `503 {"error":"your Track workspace isn't ready yet …"}`. It is not recorded in the
+  session, so it retries on the next request rather than sticking.
+- **Ordering:** bring Track up before Docs matters less than it looks — Docs' sync tolerates
+  a missing Track and retries — but the BFF must have **both** pairs configured before you
+  hand out logins, or Docs is dead on arrival.
 
-| Seed | First create | After the first reconcile |
-|---|---|---|
-| `source = 'seed'` | `201` | survives — still `201` |
-| `source` omitted (defaults `'track'`) | `201` | **pruned** → back to `403` |
+⚠ **`DOCS_WORKSPACE_ID` must be deleted from `/etc/talyvor/bff.env`.** The BFF no longer
+reads it **and does not refuse it** — unlike `TRACK_WORKSPACE_ID`, which refuses to boot for
+exactly this reason. A leftover line is therefore invisible and states a pinning that does
+not happen. (Worth adding the same refusal in `apps/bff`; not done here, this change is
+`deploy/`-only.)
 
-**Always write `source` explicitly.** If a row vanishes, that is what happened —
-re-insert it with `'seed'`.
-
-#### The workspace id does NOT need to exist in Track
-
-Track is per-session now, so there is no shared Track workspace to point at, and
-you do not need one. `DOCS_WORKSPACE_ID` is just the id the BFF asks for; Docs
-authorizes it against the caller's memberships, which the seed supplies. All
-three things Track can answer were tested, and the seed survives every one: **404**
-(no such workspace — the pull errors, the syncer skips that workspace and leaves
-the roster untouched), **200 with an empty roster** (empty-pull safety no-ops),
-and **200 with a roster that does not contain the tester** (the prune skips rows
-that are not `source = 'track'`). Seeding also does not block the sync: a seeded
-row and a Track-owned row coexist in the same workspace.
-
-#### ⚠ What you do for each new tester: one row, by hand, every time
-
-**There is no self-service path.** Membership is keyed on the verified email, and
-nothing creates a row except this `INSERT` and Track's sync. A tester who signs in
-before you have seeded them gets `403` from Docs — the rest of the suite works.
-
-So the standing operational cost is: **run one `INSERT` per person, before their
-first visit, for as long as Docs is pinned.** Seed the batch you know about now
-rather than one at a time:
-
-This block is self-contained on purpose — you will be running it in a fresh shell
-weeks from now, from the compose project directory:
-
-```sh
-WS=$(grep -oP '(?<=^DOCS_WORKSPACE_ID=).*' .env 2>/dev/null || echo default)
-
-for e in alice@example.com bob@example.com carol@example.com; do
-  docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
-    "INSERT INTO workspace_members (workspace_id, email, role, member_id, source)
-     VALUES ('$WS', '$e', 'admin', 'seed-$e', 'seed')
-     ON CONFLICT (workspace_id, email) DO NOTHING;"
-done
-
-# Confirm — and confirm the source, because that is the column that bites:
-docker compose exec -T postgres psql -U lens -d talyvor_docs -c \
-  "SELECT email, source FROM workspace_members WHERE workspace_id = '$WS' ORDER BY email;"
-```
-
-This ends when the enumeration is inverted to ask Track which workspaces exist
-(the recorded fix), not before. Until then it is a manual step that will be
-forgotten at least once — the symptom is a single tester getting `403` from Docs
-while everyone else is fine, which is this and nothing else.
-
-Notes on the values: `role` is stored and resolved but **never decides anything**
-in Docs today, so `'admin'` is a safe placeholder rather than a grant. `member_id`
-is free-form — Docs owns no members table, and this value only needs to be stable
-and distinct.
+Notes on Docs' membership values, unchanged: `role` is stored and resolved but **never
+decides anything** in Docs today. `member_id` is free-form — Docs owns no members table.
 
 ---
 
@@ -1537,12 +1381,17 @@ deploy's memory.
 
 ⚠ **Read `pruned`.** `0` is the steady state. Non-zero means rows were deleted because
 Track's roster no longer lists them — correct behaviour when someone leaves, and a surprise
-on a fresh deploy. Prune is scoped `source = 'track'`, so your seeded rows are never counted
-here.
+on a fresh deploy. Prune is scoped `source = 'track'`; the hand-seeded rows STEP 3a used to
+create are `source = 'seed'` and are never counted here — they are also obsolete now, so on
+a new deploy there are none.
 
-⚠ **The pinned workspace does not appear in these lines**, because Track has never heard of
-it. That is expected — its membership is the seed (STEP 3a), which nothing in this sync
-touches.
+⚠ **Expect one line per signed-in person**, because Track mints a workspace per identity and
+Docs syncs each. A deployment with three testers reconciles three workspaces every pass. A
+workspace id you do not recognise is not automatically wrong — it is somebody's, and the ids
+are opaque.
+
+⚠ **A person who just signed in for the first time may be missing** from this pass and
+present in the next one. That is the first-visit window in STEP 3a-bis, not a fault.
 
 **Harmless and self-healing:**
 

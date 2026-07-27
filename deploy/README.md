@@ -148,9 +148,11 @@ SaaS account when Google is already in hand.
    trios refuse to boot. Note: the BFF forwards the session email as
    `X-User-Email`, which is the membership join key — a trial user must also
    be a **member** of the Track/Docs workspace or those products will refuse
-   them individually. For Docs that membership does not create itself and no
-   step here makes one: see **FULL-STACK-DEPLOY.md step 3a**, which seeds it and
-   states the trap (a row written without `source` is deleted by the next sync).
+   them individually. **For Docs that membership now creates itself**: Track mints a
+   workspace per identity at login, Docs enumerates Track and syncs its roster, and
+   the BFF asks for the session's workspace (suite #59). No manual seed — but there
+   is a first-visit delay of up to 15 minutes; see **FULL-STACK-DEPLOY.md step
+   3a-bis**. Docs therefore **requires the Track pair to be configured**.
 4. The DNS for both hosts already points at this box, and the containerised
    Caddy already holds certificates for both in its `caddy_data` volume (they
    persist across config reloads; nothing here re-issues).
@@ -353,9 +355,9 @@ Every variable the BFF reads, and what happens without it:
 | ~~`TRACK_WORKSPACE_ID`~~ | **MUST BE ABSENT** | — | ⚠ **The BFF now REFUSES TO START if this is set** (`apps/bff/main.go:112`). Track is per-session: each person is bootstrapped their own workspace at login. Delete the line from any existing env file. |
 | `DOCS_BASE_URL` | no‡ | — | Docs upstream base. |
 | `DOCS_GATEWAY_SECRET` | no‡ | — | Docs' `GATEWAY_AUTH_SECRET`, as above. |
-| `DOCS_WORKSPACE_ID` | no‡ | — | The Docs workspace served. |
+| `DOCS_WORKSPACE_ID` | **gone** | — | ⚠ Removed from the BFF by suite #59 (`030ea53`): every Docs route resolves the SESSION's Track workspace (`docsWorkspaceFor`). Docs is per-identity now. **Leaving it set is silently ignored** — there is no refusal for it, unlike `TRACK_WORKSPACE_ID` — so delete the line rather than trusting it to be harmless. Not the counterpart of the Docs container's `DOCS_DEFAULT_WORKSPACE`, which now only scopes background jobs. |
 
-† / ‡ — each product's trio is **all-or-nothing**: any one set without the
+† — Track's PAIR and ‡ — Docs' PAIR are each **all-or-nothing**: either set without the
 other two → refuses to start, naming the missing ones. Both trios require
 `BFF_AUTH_MODE=oidc` (in disabled mode there is no authenticated identity to
 forward, and the BFF refuses to invent one). Base URLs obey the same boot-time
@@ -901,8 +903,17 @@ TRACK_GATEWAY_SECRET=<the TRACK_GATEWAY_AUTH_SECRET from step 1>
 
 DOCS_BASE_URL=http://127.0.0.1:4000
 DOCS_GATEWAY_SECRET=<the DOCS_GATEWAY_AUTH_SECRET from step 1>
-DOCS_WORKSPACE_ID=default
 ```
+
+⚠ **No `DOCS_WORKSPACE_ID` — it was removed from the BFF in suite #59.** Docs is
+per-identity: each route resolves the session's Track workspace. If an older env
+file on the box still has the line, **delete it**; the BFF ignores it silently, so
+it will otherwise sit there stating a pinning that does not happen.
+
+⚠ **Docs now requires the Track pair above.** The Docs workspace id *is* the one
+Track mints at login, so with Track unconfigured every `/api/docs/*` route answers
+`503 {"error":"track upstream not configured on this BFF"}` — a Docs symptom that
+names Track.
 
 `http://127.0.0.1:…`, **not** a docker service name: the BFF is a host systemd
 process, so Docker DNS does not apply to it, and its config check refuses any URL
@@ -951,8 +962,8 @@ Reading the result — each code means one specific thing:
 | `200` | working end to end | done |
 | `503` | the BFF has no upstream configured | step 7 trio incomplete, or the BFF was not restarted |
 | `401` | **the gateway secrets do not match** | step 7 — the two names, one value |
-| `403` | secret fine; your email is not a member of that workspace | add the membership — for Docs that means **FULL-STACK-DEPLOY.md step 3a** (seed it with `source='seed'`; a row seeded without that column is pruned by the next sync, which looks exactly like this) |
-| `404` | secret and membership fine; wrong workspace id | `DOCS_WORKSPACE_ID` (Track has no pinned id — it is per-session) |
+| `403` | secret fine; your email is not a member of that workspace | For Docs this is normally the **first-visit window** — the member sync has not yet pulled the roster for a workspace created moments ago. It clears within 15 minutes, or immediately on `docker compose restart docs`. See **FULL-STACK-DEPLOY.md step 3a-bis**. Persisting past that means the sync is not running: check `MEMBER_SYNC_SECRET`. |
+| `404` | secret and membership fine; the workspace does not exist upstream | Both products are per-session now, so there is no id to mistype. A 404 means the session's Track workspace is not present in that product — for Docs, that is normally the member-sync roster not having arrived yet (see FULL-STACK-DEPLOY.md step 3a-bis). |
 | `502` | the BFF cannot reach the container | step 6 — check the loopback publish |
 
 Finally, confirm neither product became internet-facing:
