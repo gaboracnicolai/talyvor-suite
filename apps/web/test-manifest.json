@@ -26,6 +26,7 @@
   "src/buildIdentity.test.ts": 9,
   "src/DocsInNav.test.tsx": 2,
   "src/FirstRunGaps.test.tsx": 9,
+  "src/Legal.test.tsx": 9,
   "src/lib/awaiting.test.ts": 7,
   "src/Sharing.test.tsx": 8
 }

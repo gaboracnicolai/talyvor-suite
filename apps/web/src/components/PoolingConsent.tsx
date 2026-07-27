@@ -63,6 +63,13 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
               is how a disclosure should expire. A notice that outlives the arrangement it
               describes is a false claim in the one place a person is being asked to consent. */}
           <SharingChoice onDone={onDone} />
+          {/* Linked HERE, at the moment consent is given, not only in a footer: the full account
+              of what is stored and what leaves the workspace is the context for this choice. */}
+          <p className="text-caption text-faint">
+            The full account is in{' '}
+            <a href="/privacy" className="underline">Privacy</a> and{' '}
+            <a href="/terms" className="underline">Terms</a>.
+          </p>
         </div>
       </Card>
     </div>

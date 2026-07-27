@@ -195,6 +195,14 @@ export function SignInCard({ returnTo }: { returnTo?: string }) {
   return (
     <div className="flex flex-col gap-4 p-gutter">
       <h1 className="text-title text-ink">Sign in to Talyvor</h1>
+      {/* Linked on every entry surface, not only a footer: someone deciding whether to create an
+          account must be able to read what the service does with their data BEFORE they do. Both
+          routes are public for that reason. */}
+      <p className="text-caption text-faint">
+        <a href="/privacy" className="underline">Privacy</a>
+        {' · '}
+        <a href="/terms" className="underline">Terms</a>
+      </p>
       <p className="text-body text-muted">
         Use the same account you signed up with. You’ll be taken there to confirm it’s you, and
         returned here — there is no password for Talyvor itself.

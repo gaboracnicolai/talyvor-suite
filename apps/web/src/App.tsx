@@ -15,6 +15,8 @@ import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
 import { Landing } from './areas/marketing/Landing'
+import { Privacy } from './routes/Privacy'
+import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
 
 // App.tsx is a SHARED file (see README §Directory ownership): it owns routing
@@ -192,6 +194,11 @@ export function App() {
         <Routes>
           {/* Public marketing landing — OUTSIDE the AuthGate by design. */}
           <Route path="/marketing/*" element={<Landing />} />
+          {/* Legal pages are public for the same reason: someone deciding whether to sign up must
+              be able to read what the service does with their data BEFORE creating an account.
+              Putting these behind the gate would mean you had to agree in order to read. */}
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
           {/* The two front doors, also OUTSIDE the gate — a signup page you must already be
               signed in to read is not a signup page. Same mechanism (/auth/login), different
               words: see areas/auth/Entry.tsx. */}
