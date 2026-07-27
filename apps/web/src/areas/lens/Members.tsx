@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, Row, cn } from '@talyvor/ui'
 import { getJSONArray } from '../../lib/api'
 import { isUnconfigured, notConfiguredCopy } from '../../lib/productState'
+import { PanelFailure } from '../../components/SessionExpiredBar'
 
 // Members — the workspace roster, LIVE from GET /api/members (the BFF proxies Track's
 // /v1/workspaces/{ws}/members, pinned server-side, session email as the membership join key).
@@ -48,7 +49,7 @@ export function Members() {
         ) : isUnconfigured(q.error) ? (
           <div className="px-gutter py-3 text-body text-muted">{notConfiguredCopy('Track')}</div>
         ) : q.isError ? (
-          <div className="px-gutter py-3 text-body text-muted">Couldn’t load the members.</div>
+          <PanelFailure error={q.error} what="the members" />
         ) : roster.length === 0 ? (
           <div className="px-gutter py-3 text-body text-muted">No members in this workspace yet.</div>
         ) : (

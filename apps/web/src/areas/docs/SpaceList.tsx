@@ -6,6 +6,8 @@ import { Card, CardHeader, Row } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { docsApi, type DocsSpace } from './api'
 import { Chip } from './components'
+import { isSessionExpired } from '../../lib/productState'
+import { PanelFailure } from '../../components/SessionExpiredBar'
 
 function SpaceRow({ space }: { space: DocsSpace }) {
   const navigate = useNavigate()
@@ -60,7 +62,7 @@ export function SpaceList() {
             Docs is not configured on this BFF deployment.
           </div>
         ) : q.isError ? (
-          <div className="px-gutter py-3 text-body text-muted">Couldn’t load spaces.</div>
+          <PanelFailure error={q.error} what="spaces" />
         ) : spaces.length === 0 ? (
           <div className="px-gutter py-3 text-body text-muted">No spaces in this workspace yet.</div>
         ) : (
@@ -79,7 +81,7 @@ export function SpaceList() {
           The BFF has no Docs upstream wired (its DOCS_* trio is unset) — off, not
           broken. Nothing is shown because nothing is being served.
         </p>
-      ) : q.isError ? (
+      ) : isSessionExpired(q.error) ? null : q.isError ? (
         <p className="px-gutter text-body text-faint">
           The Docs proxy answered with an error — this screen shows nothing rather
           than something stale or invented.

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input, RevealOnce, Row } from '@talyvor/ui'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
 import { formatWhen } from './format'
+import { PanelFailure } from '../../components/SessionExpiredBar'
 
 // API keys — LIVE. This screen exists because of one real failure: Lens's mint
 // response returns `key` and `prefix` ADJACENT in one line of JSON, they look
@@ -110,7 +111,7 @@ export function Keys() {
         {list.isLoading ? (
           <div className="px-gutter py-3 text-body text-muted">Loading…</div>
         ) : list.isError ? (
-          <div className="px-gutter py-3 text-body text-muted">Couldn’t load your keys.</div>
+          <PanelFailure error={list.error} what="your keys" />
         ) : keys.length === 0 ? (
           <div className="px-gutter py-3 text-body text-muted">No keys yet. Create one above.</div>
         ) : (

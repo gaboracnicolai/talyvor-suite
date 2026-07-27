@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { CacheCard } from './CacheCard'
+import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { ModelTier } from './ModelTier'
 import { byModel, debitTotal, inWindow, lxcDebitsByModel } from './spendMath'
 
@@ -51,7 +52,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
         {ledger.isLoading ? (
           <div className="px-gutter py-3 text-body text-muted">Loading…</div>
         ) : ledger.isError ? (
-          <div className="px-gutter py-3 text-body text-muted">Couldn’t load the ledger.</div>
+          <PanelFailure error={lxc.error} what="the ledger" />
         ) : (
           <>
             <div data-testid="lens-by-model">
@@ -85,7 +86,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
           {month.isLoading ? (
             <span className="text-body text-muted">Loading…</span>
           ) : month.isError || !month.data ? (
-            <span className="text-body text-muted">Couldn’t load</span>
+            <InlineFailure error={month.error} />
           ) : (
             <span className="text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
           )}
@@ -97,7 +98,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
           {lxc.isLoading ? (
             <span className="text-body text-muted">Loading…</span>
           ) : lxc.isError || !lxc.data ? (
-            <span className="text-body text-muted">Couldn’t load</span>
+            <InlineFailure error={lxc.error} />
           ) : (
             <MuNumeral micros={debitTotal(lxc.data, days, now)} unit="lxc" />
           )}

@@ -28,5 +28,6 @@
   "src/FirstRunGaps.test.tsx": 9,
   "src/Legal.test.tsx": 9,
   "src/lib/awaiting.test.ts": 7,
+  "src/SessionExpired.test.tsx": 20,
   "src/Sharing.test.tsx": 8
 }

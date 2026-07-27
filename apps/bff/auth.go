@@ -146,6 +146,26 @@ func (s *ttlMap[T]) delete(id string) {
 	delete(s.m, id)
 }
 
+// update applies fn to the stored value INSIDE the lock and stores the result.
+//
+// The read-modify-write it replaces is the reason it exists: get → change one field → put is
+// three separate critical sections, so a concurrent handler that changed a DIFFERENT field in
+// between (the pooling choice clearing needsPoolingChoice, a Track bootstrap writing back its
+// workspace) has its change silently overwritten by the stale copy. Rare, invisible, and
+// exactly the kind of thing that surfaces as "I answered that question and it asked again".
+func (s *ttlMap[T]) update(id string, fn func(T) T) (T, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.m[id]
+	if !ok || time.Now().After(v.expiresAt()) {
+		var zero T
+		return zero, false
+	}
+	v = fn(v)
+	s.m[id] = v
+	return v, true
+}
+
 // authenticator owns the OIDC round-trip and both stores.
 type authenticator struct {
 	cfg        config

@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { CapabilityOff } from './Capability'
+import { InlineFailure } from '../../components/SessionExpiredBar'
 import { formatUSD } from './format'
 import {
   CheckoutError,
@@ -113,7 +114,7 @@ export function TopUp({
           {balance.isLoading ? (
             <span className="text-body text-muted">Loading…</span>
           ) : balance.isError || !balance.data ? (
-            <span className="text-body text-muted">Couldn’t load</span>
+            <InlineFailure error={balance.error} />
           ) : (
             <div className="flex items-baseline gap-3">
               <MuNumeral micros={balance.data.balance_ulxc} unit="lxc" />
@@ -144,7 +145,7 @@ export function TopUp({
           {options.isLoading ? (
             <span className="text-body text-muted">Loading…</span>
           ) : options.isError ? (
-            <span className="text-body text-muted">Couldn’t load the top-up amounts.</span>
+            <InlineFailure error={options.error} failed="Couldn’t load the top-up amounts." />
           ) : (
             <div className="flex flex-wrap items-center gap-2">
               {amounts.map((cents) => (

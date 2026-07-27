@@ -37,3 +37,44 @@ export function isUnconfigured(err: unknown): boolean {
 export function notConfiguredCopy(product: string): string {
   return `${product} is not configured on this deployment — no upstream is wired, so there is nothing to show.`
 }
+
+// "Your credential is no longer good" — the THIRD state, and the one that was missing.
+//
+// ── THE INCIDENT ─────────────────────────────────────────────────────────────
+//
+// Lens restarted with a new ephemeral signing key. Every live session's workspace token became
+// unverifiable, so every workspace-scoped read came back 401, and the app drew eight cards
+// saying "Couldn't load the LXC balance", "Couldn't load the mint ledger", "Couldn't check".
+// All eight were true and all eight were useless: they describe the symptom the reader can
+// already see, while the cause (a dead credential) and the fix (one click) appeared nowhere.
+//
+// ── WHY THE AUTH GATE CANNOT CATCH THIS ──────────────────────────────────────
+//
+// The BFF's own session is still valid — /auth/me answers authenticated:true. What expired is
+// the LENS token the BFF holds ON that session. So AuthGate correctly renders the app, and the
+// only component in a position to notice is the one reading the failed query.
+//
+// ── IT IS NOT ONLY A DEPLOY ARTIFACT ─────────────────────────────────────────
+//
+// The workspace token is minted for 8 hours and the BFF session lasts 12, so hours 8→12 of
+// EVERY session sit in this state with nothing having restarted. (The BFF now re-mints on
+// expiry, which closes that window — but a restart, a revoked key or a rolled secret all land
+// here again, so the screen must stay honest regardless of what the server does.)
+//
+// ── WHICH STATUS MEANS "SIGN IN AGAIN" ───────────────────────────────────────
+//
+//   401 — the only one. From requireSession (no BFF session) or passed through verbatim from
+//         Lens (stale workspace token). Both are cured by the same single click: /auth/login
+//         rotates the session and re-provisions, minting a fresh workspace token.
+//
+// Everything else stays where it was. 503/404 remain isUnconfigured's calm "not wired here";
+// 500/502/403 remain genuine faults. THAT SEPARATION IS THE POINT — a change that makes 401
+// honest by routing 500 to the same message has not fixed anything, it has just moved which
+// failures are misdescribed. Pinned by SessionExpired.test.tsx's 500/502/503 controls.
+export function isSessionExpired(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 401
+}
+
+/** The one sentence, said ONCE at the top of the app — never per panel. */
+export const sessionExpiredCopy =
+  'Your session has expired, so this workspace’s data can’t be read right now. Signing in again fixes it.'

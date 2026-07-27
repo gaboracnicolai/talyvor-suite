@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
+import { PanelFailure } from '../../components/SessionExpiredBar'
 
 // The cache panel — the product's central claim, on MEASURED numbers.
 //
@@ -44,7 +45,7 @@ export function CacheCard({ days }: { days: number }) {
       {q.isLoading ? (
         <div className="px-gutter py-3 text-body text-muted">Loading…</div>
       ) : q.isError || !cache ? (
-        <div className="px-gutter py-3 text-body text-muted">Couldn’t load the cache rate.</div>
+        <PanelFailure error={q.error} what="the cache rate" />
       ) : cache.total_requests === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">
           No requests recorded in this window yet.
