@@ -217,6 +217,29 @@ cannot "one secret gates BOTH Track service endpoints (why MEMBER_SYNC_SECRET is
     "talyvor-track cmd/track/main.go" \
     "grep -c 'cfg.MemberSyncSecret' cmd/track/main.go   # expect 2"
 
+# ── D8 ───────────────────────────────────────────────────────────────────────
+# DECISION: the login nudge sends the transit proof and NO identity headers.
+# PREMISE:  Docs' /v1/service/ lane is exempt from membership authz but NOT from the gateway
+#           secret. Added after the nudge 403ed in production for its entire life: it was
+#           mounted behind authz, which refuses a request with no verified email, and the BFF
+#           correctly sends none.
+#
+# ⚠ THE LOCAL HALF IS CHECKABLE AND IS THE ONE THAT BITES. Docs' authz 403s only on a MISSING
+#   email and passes one resolving to zero memberships, so adding X-User-Email here would make
+#   a future 403 disappear while re-coupling a service call to the user lane. That is the fix
+#   someone reaches for at 2am, and this is what stops it.
+if grep -qE 'X-User-(Email|Id|Teams)|X-Auth-Iss' apps/bff/docs_membersync.go 2>/dev/null; then
+    void "the Docs nudge is a SERVICE call carrying only the transit proof" \
+        "apps/bff/docs_membersync.go and talyvor-docs internal/gatewayauth/exempt.go" \
+        "the nudge now sends an identity header. Docs' service lane resolves no identity, so this either does nothing or makes the call depend on the USER lane — which 403s for exactly the workspace this route exists to serve."
+else
+    ok "the Docs nudge sends no identity headers — service lane, transit proof only"
+fi
+
+cannot "Docs' /v1/service/ lane skips membership authz but still requires the gateway secret" \
+    "talyvor-docs internal/gatewayauth/exempt.go" \
+    "go test ./internal/trackintegration/ -run 'TestServiceRoute'   # accepts the BFF's exact request; still refuses without the proof"
+
 # ── verdict ──────────────────────────────────────────────────────────────────
 echo
 printf 'checked here: %d   stale: %d   uncheckable here: %d\n' "${checked}" "${stale}" "${uncheckable}"
