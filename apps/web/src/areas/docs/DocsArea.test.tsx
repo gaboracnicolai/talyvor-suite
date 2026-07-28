@@ -318,3 +318,101 @@ describe('SpaceList captions tell the truth', () => {
     expect(screen.queryByText(/Live from the BFF/)).not.toBeInTheDocument()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// THE WAY BACK — asserted as a ROUND TRIP, not as an anchor.
+//
+// Reported by clicking on the live deploy: inside a page there was no route back to the space's page
+// list, and inside a space none back to the space list. Browser-back was the only exit.
+//
+// ⚠ A LINK EXISTING IS NOT THE PROPERTY. `Crumbs` already renders a react-router <Link> whenever the
+// trail entry carries `to`, and every call site already passed one — so a test asserting "there is an
+// anchor with href /docs" passes on exactly the code that was reported as broken. What has to be
+// asserted is ARRIVAL: click it and land on the list, with the list's own content on screen.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+const PAGES = [{ id: 'pg-1', title: 'Onboarding' }]
+
+/** Spaces, one space's pages, and one page — the three reads these screens make. */
+function mockDocsTree() {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const json = (v: unknown) =>
+      new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    if (url === '/api/docs/spaces') return json(SPACES)
+    if (url === '/api/docs/spaces/sp-eng/pages') return json(PAGES)
+    if (url === '/api/docs/spaces/sp-eng/pages/pg-1')
+      return json({ id: 'pg-1', title: 'Onboarding', content_text: 'hello' })
+    if (url === '/api/docs/spaces/sp-eng') return json(SPACES[0])
+    return new Response('null', { status: 404 })
+  })
+}
+
+describe('a nested Docs screen has a way back that ARRIVES', () => {
+  it('from a page, going up lands on the space’s page list', async () => {
+    mockDocsTree()
+    renderAt('/docs/spaces/sp-eng/pages/pg-1')
+
+    // We are genuinely inside the page before going anywhere.
+    expect(await screen.findByText('Onboarding')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Engineering' }))
+
+    // ARRIVAL: the page list is on screen — its create-page form is the thing only that screen has.
+    expect(await screen.findByLabelText(/page title/i)).toBeInTheDocument()
+  })
+
+  it('from a space, going up lands on the space list', async () => {
+    mockDocsTree()
+    renderAt('/docs/spaces/sp-eng')
+
+    expect(await screen.findByLabelText(/page title/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Spaces' }))
+
+    // ARRIVAL: the space list, showing a space that only it lists.
+    expect(await screen.findByText('Operations')).toBeInTheDocument()
+  })
+})
+
+// ⚠ THE ROUND TRIPS ABOVE PASS ON THE CODE THAT WAS REPORTED AS BROKEN, and that is the finding:
+// the crumb links exist, are wired, and arrive. What was missing is that nothing MARKS them as
+// controls, so clicking around never reveals them. Two defects, both asserted here because both are
+// what a reader actually meets.
+
+describe('the way back is recognisable as a way back', () => {
+  it('a crumb link is underlined AT REST, not only on hover', async () => {
+    mockDocsTree()
+    renderAt('/docs/spaces/sp-eng')
+
+    const up = await screen.findByRole('link', { name: 'Spaces' })
+    // ⚠ ASSERTING THE CLASS BECAUSE THE CLASS IS THE DEFECT. Every other Link in this app underlines
+    // at rest; this one carried `hover:underline` alone, rendering as muted text indistinguishable
+    // from the prose around it — and on a touch device hover never fires, so the only affordance the
+    // control had was one the device cannot produce.
+    expect(up.className).toMatch(/(^|\s)underline(\s|$)/)
+  })
+
+  it('names the space it goes back to, never a raw id', async () => {
+    // The space list is what PageView reads to name the space. Arriving directly at a page URL — a
+    // reload, a shared link, a new tab — means it is not in cache yet, and a failing read means it
+    // never will be.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const json = (v: unknown) =>
+        new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/docs/spaces') return new Response('{"error":"boom"}', { status: 500 })
+      if (url === '/api/docs/spaces/sp-eng/pages/pg-1')
+        return json({ id: 'pg-1', title: 'Onboarding', content_text: 'hello' })
+      return new Response('null', { status: 404 })
+    })
+    renderAt('/docs/spaces/sp-eng/pages/pg-1')
+
+    await screen.findByText('Onboarding')
+    // The id is not a destination anyone can read. Whatever the crumb says, it must not be this.
+    expect(screen.queryByRole('link', { name: 'sp-eng' })).toBeNull()
+    // And there must still BE a way back to THIS space, named in words a reader can act on.
+    const back = await screen.findByRole('link', { name: 'Pages' })
+    expect(back).toHaveAttribute('href', '/docs/spaces/sp-eng')
+  })
+})

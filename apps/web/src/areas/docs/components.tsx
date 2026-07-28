@@ -21,6 +21,24 @@ export function Chip({ title, children }: { title?: string; children: React.Reac
 // unproducible marker is dead surface". No Docs screen renders fixture data any more, and the
 // note's text ("the BFF serves only /api/docs/spaces today") had become false besides.
 
+/**
+ * spaceCrumbLabel — what to call a space in a breadcrumb when its name may not be known.
+ *
+ * ⚠ THE FALLBACK WAS THE ID, AND AN ID IS NOT A DESTINATION. Both screens name the space by finding
+ * it in the spaces LIST, so a reader who arrives directly at a page URL — a reload, a shared link, a
+ * new tab — sees the crumb before that list resolves, and a reader whose spaces read FAILS never
+ * sees a name at all. The crumb then read `8f3c…` : a control that is pointing somewhere useful and
+ * saying nothing about where.
+ *
+ * So an unknown name degrades to what the destination IS rather than to the id of the thing it
+ * belongs to. Shared by both callers so the two cannot drift into describing the same crumb
+ * differently.
+ */
+export function spaceCrumbLabel(name: string | undefined): string {
+  const trimmed = name?.trim()
+  return trimmed ? trimmed : 'Pages'
+}
+
 /** Breadcrumb trail: caption links, current leaf in ink. */
 export function Crumbs({ trail }: { trail: Array<{ label: string; to?: string }> }) {
   return (
@@ -29,7 +47,13 @@ export function Crumbs({ trail }: { trail: Array<{ label: string; to?: string }>
         <span key={i} className="inline-flex items-center gap-1">
           {i > 0 ? <span aria-hidden="true">›</span> : null}
           {c.to ? (
-            <Link to={c.to} className="underline-offset-2 hover:underline">
+            // ⚠ UNDERLINED AT REST, not on hover. This was the only Link in the app without a
+            // resting affordance: it rendered as muted text indistinguishable from the prose beside
+            // it, so the way out of a page was invisible to anyone who had not already guessed it
+            // was there. Worse, `hover:underline` is the one affordance a touch device cannot
+            // produce at all — on a phone the control had no visible state ever. It was reported as
+            // "there is no way back", and the links were working the whole time.
+            <Link to={c.to} className="underline underline-offset-2 hover:text-ink">
               {c.label}
             </Link>
           ) : (
