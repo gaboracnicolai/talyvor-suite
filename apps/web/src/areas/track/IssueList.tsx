@@ -37,6 +37,50 @@ async function listIssues(): Promise<TrackIssue[]> {
   return Array.isArray(body) ? (body as TrackIssue[]) : []
 }
 
+/**
+ * A refused create, carrying whatever the upstream was willing to say.
+ *
+ * ⚠ THE STATUS CLASS IS THE ADVICE. A 4xx is the server saying "not as sent" — the same request will
+ * be refused forever, so "Try again" is not merely unhelpful, it is false. That is what happened
+ * here: Track answered
+ *
+ *   {"error":"issue: WorkspaceID, TeamID, Title, and CreatorID are required","code":"CREATE_FAILED"}
+ *
+ * on every create in a workspace with no team, and the screen rendered "Try again" while discarding
+ * the sentence that explained it. The reason was reachable only from the network tab, which is where
+ * the bug was eventually found.
+ *
+ * A 5xx or an unreadable body genuinely may be transient, so those keep the retry copy.
+ */
+class CreateRefusal extends Error {
+  constructor(
+    readonly status: number,
+    /** The upstream sentence, when there was one. Never invented — absent stays absent. */
+    readonly reason: string,
+  ) {
+    super(reason || `create: ${status}`)
+  }
+  /** Retrying can only help when the server did not reject the request itself. */
+  get retryable(): boolean {
+    return this.status >= 500 || this.status === 0
+  }
+}
+
+async function createRefusal(res: Response): Promise<CreateRefusal> {
+  // A body that is not JSON (an HTML 502 from a proxy) must not become a fake reason, so the parse
+  // failure falls through to an empty one rather than showing the user markup.
+  let reason = ''
+  try {
+    const body: unknown = await res.json()
+    if (body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string') {
+      reason = (body as { error: string }).error
+    }
+  } catch {
+    reason = ''
+  }
+  return new CreateRefusal(res.status, reason)
+}
+
 export function IssueList() {
   const qc = useQueryClient()
   const issues = useQuery({ queryKey: ISSUES_KEY, queryFn: listIssues, retry: false })
@@ -52,7 +96,7 @@ export function IssueList() {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ title: t }),
       })
-      if (!res.ok) throw new Error(`create: ${res.status}`)
+      if (!res.ok) throw await createRefusal(res)
       return res.json()
     },
     onSuccess: async () => {
@@ -120,7 +164,12 @@ export function IssueList() {
 
         {create.isError ? (
           <p className="text-caption text-muted">
-            Couldn’t create that issue — nothing was saved. Try again.
+            {create.error instanceof CreateRefusal && !create.error.retryable && create.error.reason
+              ? // The upstream sentence, verbatim. It is written for a person (Track's writeErr
+                // messages name the field and what to do), and paraphrasing it here would be this
+                // screen inventing a diagnosis it does not have.
+                `Couldn’t create that issue — ${create.error.reason}`
+              : 'Couldn’t create that issue — nothing was saved. Try again.'}
           </p>
         ) : null}
 
