@@ -451,6 +451,10 @@ type writeCall struct {
 	method string
 	path   string
 	body   string
+	// identity is the forwarded X-User-Email. On by-id Docs routes the path carries no
+	// workspace, so THIS is what upstream resolves to memberships — i.e. what actually keeps
+	// one tester out of another's content.
+	identity string
 }
 
 func newTrackWriteUpstream(t *testing.T, workspaceFor func(email string) string) *trackWriteUpstream {
@@ -465,7 +469,8 @@ func newTrackWriteUpstream(t *testing.T, workspaceFor func(email string) string)
 		}
 		b, _ := io.ReadAll(r.Body)
 		u.mu.Lock()
-		u.calls = append(u.calls, writeCall{method: r.Method, path: r.URL.Path, body: string(b)})
+		u.calls = append(u.calls, writeCall{method: r.Method, path: r.URL.Path, body: string(b),
+			identity: r.Header.Get("X-User-Email")})
 		u.mu.Unlock()
 		// Echo the addressed workspace so a read can prove WHICH tenant it saw.
 		_, _ = io.WriteString(w, `{"id":"iss-1","path":"`+r.URL.Path+`"}`)
@@ -654,8 +659,8 @@ func TestDocs_WritesAndReadsFollowTheSession(t *testing.T) {
 	if created[0].method != http.MethodPost {
 		t.Errorf("method = %q, want POST — a write forwarded as GET is a silent no-op", created[0].method)
 	}
-	if created[0].path != "/v1/workspaces/ws-alice/spaces/spc-1/pages" {
-		t.Errorf("path = %q, want the SESSION's workspace", created[0].path)
+	if created[0].path != "/v1/spaces/spc-1/pages" {
+		t.Errorf("path = %q, want /v1/spaces/spc-1/pages", created[0].path)
 	}
 	if !strings.Contains(created[0].body, "Runbook") {
 		t.Errorf("body = %q — the caller's JSON must be forwarded", created[0].body)
@@ -669,11 +674,22 @@ func TestDocs_WritesAndReadsFollowTheSession(t *testing.T) {
 	}
 	edited := up.since(mark)
 	if len(edited) != 1 || edited[0].method != http.MethodPatch ||
-		edited[0].path != "/v1/workspaces/ws-alice/spaces/spc-1/pages/pg-1" {
-		t.Fatalf("edit addressed %+v, want PATCH on the session's workspace", edited)
+		edited[0].path != "/v1/spaces/spc-1/pages/pg-1" {
+		t.Fatalf("edit addressed %+v, want PATCH /v1/spaces/spc-1/pages/pg-1", edited)
 	}
 
-	// 4. ⚠ AND BOB CANNOT SEE IT. Every route he touches must address ws-bob.
+	// 4. ⚠ AND BOB CANNOT SEE IT.
+	//
+	// ⚠ WHAT ENFORCES THIS IS NOT THE PATH, AND ASSERTING ON THE PATH HID A BUG FOR A WEEK.
+	// Only the space LIST is workspace-scoped upstream (GET /v1/workspaces/{wsID}/spaces).
+	// Docs registers every by-id route at the top level and scopes it to the caller's VERIFIED
+	// memberships — space/handler.go Get calls GetByIDInWorkspaces(id, authz.WorkspaceIDs(ctx)),
+	// so a foreign space resolves to 404, not 403. The workspace segment this test used to
+	// demand on those routes was never read by Docs because those routes were never registered
+	// with it: the BFF was addressing paths that 404ed, and this assertion called that correct.
+	//
+	// So the property is split. The scoped route must carry the session's workspace; the by-id
+	// routes must NOT carry one, and Bob's isolation rests on the identity the BFF forwards.
 	mark = up.count()
 	for _, tc := range []struct{ method, target, body string }{
 		{http.MethodGet, "/api/docs/spaces", ""},
@@ -685,11 +701,24 @@ func TestDocs_WritesAndReadsFollowTheSession(t *testing.T) {
 	}
 	for _, c := range up.since(mark) {
 		if strings.Contains(c.path, "ws-alice") {
-			t.Fatalf("bob's %s %s addressed alice's workspace (%s) — one tester must never reach "+
-				"another's Docs content", c.method, c.path, c.path)
+			t.Fatalf("bob's %s %s addressed alice's workspace — one tester must never reach "+
+				"another's Docs content", c.method, c.path)
 		}
-		if !strings.Contains(c.path, "ws-bob") {
-			t.Errorf("bob's call addressed %q, which is neither session workspace", c.path)
+		if strings.HasPrefix(c.path, "/v1/workspaces/") {
+			// The one scoped route: it must be BOB's workspace.
+			if !strings.Contains(c.path, "ws-bob") {
+				t.Errorf("bob's workspace-scoped call addressed %q, not his own workspace", c.path)
+			}
+			continue
+		}
+		// A by-id route. It must carry NO workspace segment — Docs does not register that
+		// shape, and a path that does is the 404 this test now exists to prevent.
+		if !strings.HasPrefix(c.path, "/v1/spaces/") {
+			t.Errorf("bob's by-id call addressed %q, want a top-level /v1/spaces/... path", c.path)
+		}
+		if !strings.Contains(c.identity, "bob") {
+			t.Errorf("bob's call forwarded identity %q — isolation on by-id routes IS the "+
+				"forwarded identity, since the path carries no workspace", c.identity)
 		}
 	}
 }

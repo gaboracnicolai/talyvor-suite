@@ -405,7 +405,7 @@ func TestDocsSpaceDetail_BuildsUpstreamPath(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	if docs.path != "/v1/workspaces/track-ws-7/spaces/sp-1" {
+	if docs.path != "/v1/spaces/sp-1" {
 		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1", docs.path)
 	}
 	if got := docs.headers.Get("X-Gateway-Auth"); got != testDocsSecret {
@@ -437,7 +437,7 @@ func TestDocsPageDetail_BuildsNestedPathAndStreamsFullContent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	if docs.path != "/v1/workspaces/track-ws-7/spaces/sp-1/pages/pg-1" {
+	if docs.path != "/v1/spaces/sp-1/pages/pg-1" {
 		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1/pages/pg-1", docs.path)
 	}
 	if !strings.Contains(rec.Body.String(), `"content"`) {
@@ -466,7 +466,7 @@ func TestDocsPageList_ProjectsContentAway(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
 	}
-	if docs.path != "/v1/workspaces/track-ws-7/spaces/sp-1/pages" {
+	if docs.path != "/v1/spaces/sp-1/pages" {
 		t.Fatalf("upstream path = %q, want /v1/spaces/sp-1/pages", docs.path)
 	}
 	if !strings.Contains(docs.rawQuery, "limit=50") {
