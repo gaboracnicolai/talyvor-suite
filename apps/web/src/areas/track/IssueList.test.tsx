@@ -144,3 +144,90 @@ describe('the issue list a tester actually uses', () => {
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// WHEN THE CREATE IS REFUSED, SAY WHY.
+//
+// The live failure was a 400 from Track carrying an exact reason:
+//
+//   {"error":"issue: WorkspaceID, TeamID, Title, and CreatorID are required","code":"CREATE_FAILED"}
+//
+// The screen threw that away — it kept the status and rendered "Try again". So the only way to learn
+// what was wrong was to open the network tab, which is where this bug was in fact found, and the
+// advice was WRONG: no number of retries produces a team. A structural refusal told the reporter it
+// was transient.
+//
+// ⚠ THE COPY IS THE DEFECT, so the copy is what is asserted, both directions: the reason must be
+// shown, and "Try again" must NOT appear on a 4xx. A test that only checked "some error is visible"
+// would have passed against the version that shipped.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** Refuses every create with a chosen status and body — the shape Track's writeErr produces. */
+function refusingBff(status: number, payload: unknown) {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const method = (init?.method ?? 'GET').toUpperCase()
+    const json = (v: unknown, s = 200) =>
+      new Response(JSON.stringify(v), { status: s, headers: { 'Content-Type': 'application/json' } })
+    if (url === '/api/track/issues' && method === 'GET') return json([])
+    if (url === '/api/track/issues' && method === 'POST') return json(payload, status)
+    return new Response('null', { status: 404 })
+  })
+}
+
+async function submitTitle(text: string) {
+  fireEvent.change(await screen.findByLabelText(/title/i), { target: { value: text } })
+  fireEvent.click(screen.getByRole('button', { name: /create issue/i }))
+}
+
+describe('a refused create explains itself', () => {
+  beforeEach(() => vi.restoreAllMocks())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('shows the upstream reason for a 400 instead of inviting a pointless retry', async () => {
+    refusingBff(400, {
+      error: 'issue: WorkspaceID, TeamID, Title, and CreatorID are required',
+      code: 'CREATE_FAILED',
+    })
+    renderList()
+    await submitTitle('Write the thing down')
+
+    expect(await screen.findByText(/TeamID/)).toBeInTheDocument()
+    // ⚠ The wrong advice must be GONE, not merely accompanied by the reason.
+    expect(screen.queryByText(/Try again/i)).toBeNull()
+  })
+
+  it('a workspace with several teams gets the actionable message, not a generic one', async () => {
+    refusingBff(400, {
+      error: 'this workspace has several teams — name one in team_id',
+      code: 'TEAM_REQUIRED',
+    })
+    renderList()
+    await submitTitle('Ambiguous')
+
+    expect(await screen.findByText(/name one in team_id/)).toBeInTheDocument()
+  })
+
+  it('a 5xx IS retryable, so that copy survives', async () => {
+    refusingBff(503, { error: 'track upstream not configured on this BFF' })
+    renderList()
+    await submitTitle('Upstream down')
+
+    expect(await screen.findByText(/Try again/i)).toBeInTheDocument()
+  })
+
+  it('a refusal with no readable body still says something honest', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      if (url === '/api/track/issues' && method === 'GET')
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/track/issues' && method === 'POST') return new Response('<html>502</html>', { status: 502 })
+      return new Response('null', { status: 404 })
+    })
+    renderList()
+    await submitTitle('Gateway ate it')
+
+    expect(await screen.findByText(/Couldn’t create that issue/)).toBeInTheDocument()
+  })
+})

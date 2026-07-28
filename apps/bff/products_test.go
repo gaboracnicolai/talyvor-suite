@@ -710,3 +710,76 @@ func TestDocsCreateSpace_RequiresSession(t *testing.T) {
 		t.Fatalf("unauthenticated POST reached the upstream: %s", docs.reqBody)
 	}
 }
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// CREATE ISSUE — the body, pinned against what Track actually requires.
+//
+// Track's issue.Store.Create requires WorkspaceID, TeamID, Title and CreatorID. Three of those are
+// server-derived: the BFF puts the workspace in the PATH, and Track's handler fills CreatorID from
+// the resolved member and TeamID from the workspace's sole team. Only the title travels in the body.
+//
+// This exists because the create failed in production for months while the BFF's own tests were
+// green: they asserted a 2xx from a stub that answered 200 to anything, so nothing noticed the body
+// could not satisfy the real validator. Asserting the WIRE is the part a stub cannot fake.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+// TestTrackCreateIssue_ForwardsTheBodyVerbatimAndInventsNoTeam.
+//
+// ⚠ THE NEGATIVE HALF IS THE POINT. The tempting fix for "team_id has no source" is to have the BFF
+// look up a team and inject it, mirroring what it does for the Docs workspace id. That would be
+// wrong here: Track derives WorkspaceID and CreatorID itself at the same spot, and a BFF that picks
+// a team makes the same decision in a second place, for one client only — the MCP tools and any
+// direct API caller would still be broken. Team resolution belongs upstream; this pins that it
+// stayed there.
+func TestTrackCreateIssue_ForwardsTheBodyVerbatimAndInventsNoTeam(t *testing.T) {
+	track := newStatusUpstream(t, http.StatusCreated, `{"id":"iss-1","identifier":"GEN-1"}`)
+	a, sess := productApp(t, track, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/track/issues", strings.NewReader(`{"title":"Write the thing down"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("got %d (%s), want 201", rec.Code, rec.Body.String())
+	}
+	// The workspace is in the PATH, never the body — that is what makes the body safe to relay.
+	if track.path != "/v1/workspaces/track-ws-7/issues" {
+		t.Fatalf("upstream path = %q — the workspace must come from the session", track.path)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(track.reqBody, &sent); err != nil {
+		t.Fatalf("forwarded body is not JSON (%v): %s", err, track.reqBody)
+	}
+	if sent["title"] != "Write the thing down" {
+		t.Fatalf("title = %v, want it relayed unchanged", sent["title"])
+	}
+	for _, derived := range []string{"team_id", "creator_id", "workspace_id"} {
+		if _, present := sent[derived]; present {
+			t.Errorf("the BFF sent %q — Track derives it, and a second decider is how the two disagree", derived)
+		}
+	}
+}
+
+// TestTrackCreateIssue_UpstreamRefusalReachesTheBrowser: the reason has to survive the proxy, or the
+// screen cannot show it and the only way to read it is the network tab — which is exactly how this
+// bug was found.
+func TestTrackCreateIssue_UpstreamRefusalReachesTheBrowser(t *testing.T) {
+	const upstreamBody = `{"error":"this workspace has several teams — name one in team_id","code":"TEAM_REQUIRED"}`
+	track := newStatusUpstream(t, http.StatusBadRequest, upstreamBody)
+	a, sess := productApp(t, track, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/track/issues", strings.NewReader(`{"title":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("got %d, want the upstream 400 unchanged", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "name one in team_id") {
+		t.Fatalf("the upstream reason did not reach the browser: %s", rec.Body.String())
+	}
+}
