@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader } from '@talyvor/ui'
+import { Button, Card, CardHeader, RevealOnce } from '@talyvor/ui'
 
 import { api } from '../../lib/api'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
@@ -91,6 +91,12 @@ function ToolCard({ tool }: { tool: Tool }) {
 export function Setup() {
   const qc = useQueryClient()
   const [minted, setMinted] = useState<MintResult | null>(null)
+  // ⚠ "STORED" IS A CLAIM ONLY THE USER CAN MAKE. The page cannot detect that a secret reached a
+  // password manager, and a copy-button click is not the same thing either — people copy, then
+  // paste somewhere that eats it. So this tracks an explicit acknowledgement and nothing infers it.
+  const [stored, setStored] = useState(false)
+  // While a minted secret is on screen and unacknowledged, the page must not point anywhere else.
+  const unstoredSecret = minted !== null && !stored
 
   const ctx = useQuery({ queryKey: ['context'], queryFn: api.context, staleTime: 60_000 })
   const keys = useQuery({ queryKey: ['keys'], queryFn: keysApi.list })
@@ -101,6 +107,9 @@ export function Setup() {
     mutationFn: () => keysApi.mint('Setup', ['proxy']),
     onSuccess: (res) => {
       setMinted(res)
+      // A second mint is a second unstored secret. Carrying the previous acknowledgement forward
+      // would leave the new key exposed to exactly the flow that lost the first one.
+      setStored(false)
       void qc.invalidateQueries({ queryKey: ['keys'] })
     },
   })
@@ -192,9 +201,14 @@ export function Setup() {
         <CardHeader>Your key</CardHeader>
         <div className="space-y-3 px-gutter py-3">
           {minted ? (
+            // ⚠ THIS SENTENCE IS PART OF WHAT WENT WRONG. It said "filled into the blocks below …
+            // Copy the block now", which was true and useless: it pointed at snippets further down
+            // instead of at the secret, and the only unmissable thing on the row was a link to
+            // another screen. It now points at the card directly beneath it, and says the one
+            // consequence that matters rather than restating the mechanism.
             <p className="text-body text-ink">
-              Minted and filled into the blocks below. This is the only time it is shown — Lens
-              keeps a hash, not the key, so it cannot be displayed again. Copy the block now.
+              Here it is, once. Copy it now — Lens keeps a hash, not the key, so nobody can show it
+              to you again, and a key you did not copy has to be replaced rather than recovered.
             </p>
           ) : existing.length > 0 ? (
             <div className="space-y-2 text-body text-ink">
@@ -222,10 +236,33 @@ export function Setup() {
             <Button onClick={() => mint.mutate()} disabled={mint.isPending}>
               {mint.isPending ? 'Creating…' : 'Create a key for setup'}
             </Button>
-            <Link className="text-caption text-muted underline" to="/keys">
-              Manage keys
-            </Link>
+            {/* ⚠ THE LINK IS WITHHELD WHILE AN UNACKNOWLEDGED SECRET IS ON SCREEN, and this is the
+                whole navigation argument in one line. It sat in THIS row — so the nearest control to
+                the button someone just pressed was the one that destroys what pressing it produced.
+                It is not blocked from anywhere: the sidebar, the back button, a typed URL and a
+                reload all still work, and a modal that pretended otherwise would be theatre, since
+                it cannot stop any of them either. What is removed is the PRODUCT'S OWN INVITATION to
+                leave. You cannot stop someone walking out; you can stop holding the door open. */}
+            {!unstoredSecret ? (
+              <Link className="text-caption text-muted underline" to="/keys">
+                Manage keys
+              </Link>
+            ) : null}
           </div>
+          {minted && !stored ? (
+            // The SAME component the Keys screen mints into — one presentation of "here is a secret,
+            // once", not a second one invented here. Before this, Setup put the key only inside the
+            // tool snippets below: present, but dressed as configuration, so the one thing that had
+            // to be unmissable looked like the thing you skim past.
+            <RevealOnce
+              title="Your key — shown once"
+              secret={minted.key}
+              copyLabel="Copy key"
+              identifier={minted.prefix}
+              identifierNote="Safe to share; this is how the key appears in lists."
+              onDone={() => setStored(true)}
+            />
+          ) : null}
           {mint.isError ? (
             <p className="text-body text-negative">
               Couldn’t create a key. Nothing was changed — try again, or use the Keys screen.
