@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
-import { Crumbs } from './components'
+import { Crumbs, spaceCrumbLabel } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
 
 export function PageView() {
@@ -45,7 +45,7 @@ export function PageView() {
       <Crumbs
         trail={[
           { label: 'Spaces', to: '/docs' },
-          { label: space?.name ?? spaceId, to: `/docs/spaces/${spaceId}` },
+          { label: spaceCrumbLabel(space?.name), to: `/docs/spaces/${spaceId}` },
         ]}
       />
       {isUnconfigured(page.error) ? (

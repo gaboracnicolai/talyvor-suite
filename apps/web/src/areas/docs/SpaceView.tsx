@@ -18,7 +18,7 @@ import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
-import { Crumbs } from './components'
+import { Crumbs, spaceCrumbLabel } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
 
 export function SpaceView() {
@@ -50,7 +50,7 @@ export function SpaceView() {
   if (isUnconfigured(pages.error)) {
     return (
       <div className="mx-auto flex max-w-3xl flex-col gap-2">
-        <Crumbs trail={[{ label: 'Spaces', to: '/docs' }, { label: space?.name ?? spaceId }]} />
+        <Crumbs trail={[{ label: 'Spaces', to: '/docs' }, { label: spaceCrumbLabel(space?.name) }]} />
         <DocsUpstreamCard
           title={space?.name ?? spaceId}
           path={`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`}
@@ -64,7 +64,7 @@ export function SpaceView() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-2">
-      <Crumbs trail={[{ label: 'Spaces', to: '/docs' }, { label: space?.name ?? spaceId }]} />
+      <Crumbs trail={[{ label: 'Spaces', to: '/docs' }, { label: spaceCrumbLabel(space?.name) }]} />
       <Card>
         <CardHeader>{space?.name ?? spaceId}</CardHeader>
         <div className="flex flex-col gap-4 px-gutter py-4">
