@@ -632,22 +632,78 @@ func (a *app) spaHandler() http.Handler {
 // an unbounded body being buffered on the way through.
 const maxDocsBody = 512 << 10
 
-// docsSpaces — GET /api/docs/spaces in the SESSION's workspace. This replaced a path built ONCE at
-// registration from the pinned DOCS_WORKSPACE_ID, which meant every signed-in person read one
+// docsSpaces — GET and POST /api/docs/spaces in the SESSION's workspace. This replaced a path built
+// ONCE at registration from the pinned DOCS_WORKSPACE_ID, which meant every signed-in person read one
 // shared wiki.
+//
+// ⚠ POST EXISTS BECAUSE THE PRODUCT WAS UNREACHABLE WITHOUT IT. Every create-page form lives inside a
+// space, so a workspace with zero spaces had no way in — the empty list was a dead end on the live
+// deploy. GET-only here is what made a create form on the space list impossible.
 func (a *app) docsSpaces() http.HandlerFunc {
 	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			methodNotAllowed(w, http.MethodGet)
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			methodNotAllowed(w, "GET, POST")
 			return
 		}
 		ws, ok := a.docsWorkspaceFor(w, r)
 		if !ok {
 			return
 		}
+		if r.Method == http.MethodGet {
+			a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+				docsWorkspacePath(ws, "/spaces"), "", http.MethodGet, nil, nil)
+			return
+		}
+		body, ok := docsSpaceCreateBody(w, r, ws)
+		if !ok {
+			return
+		}
+		// ⚠ NOT docsWorkspacePath. Docs registers create as POST /v1/spaces — the workspace arrives in
+		// the BODY, not the path (internal/space/handler.go; only List is under /workspaces/{wsID}).
+		// Sending this to the list path would 404 or 405, not create anything.
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			docsWorkspacePath(ws, "/spaces"), "", http.MethodGet, nil, nil)
+			"/v1/spaces", "", http.MethodPost, body, nil)
 	})
+}
+
+// docsSpaceCreateBody rewrites a create-space body to carry the SESSION's workspace.
+//
+// ⚠ THIS IS THE ONE PLACE THE BFF DOES NOT FORWARD A DOCS BODY VERBATIM, and the divergence is
+// deliberate. Elsewhere (docsCreatePage) the workspace is in the PATH, which the BFF builds, so the
+// body can pass through untouched. On this route Docs reads workspace_id from the body and authorizes
+// it against membership — so a body relayed verbatim would let the browser NAME the workspace it
+// creates in. Membership means Docs would refuse a workspace the caller does not belong to, but a
+// user in two workspaces could still create in the wrong one, and the field an attacker edits should
+// not exist in the request at all. The session is the authority; the client never sends it.
+//
+// Everything ELSE passes through as sent. Decoding into a fixed struct would silently drop any field
+// Docs supports and this file has not heard of — the same silently-ignored-default failure, moved one
+// layer out. So the body stays a generic object and only workspace_id is overwritten.
+func docsSpaceCreateBody(w http.ResponseWriter, r *http.Request, ws string) (io.Reader, bool) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDocsBody))
+	if err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+		return nil, false
+	}
+	fields := map[string]json.RawMessage{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "request body must be a JSON object"})
+			return nil, false
+		}
+	}
+	pinned, err := json.Marshal(ws)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not pin workspace"})
+		return nil, false
+	}
+	fields["workspace_id"] = pinned
+	out, err := json.Marshal(fields)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not encode request"})
+		return nil, false
+	}
+	return strings.NewReader(string(out)), true
 }
 
 // docsCreatePage — POST /api/docs/spaces/{spaceID}/pages. Body forwarded VERBATIM: Docs owns its

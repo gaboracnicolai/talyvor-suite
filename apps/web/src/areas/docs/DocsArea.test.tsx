@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DocsArea } from './DocsArea'
 
@@ -107,6 +107,126 @@ describe('space list (LIVE /api/docs/spaces)', () => {
     )
     renderAt('/docs')
     expect(await screen.findByText('No spaces in this workspace yet.')).toBeInTheDocument()
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// THE FIRST SPACE — found on the live deploy: a brand-new user could not reach the product.
+//
+// Every create-page form lives INSIDE a space, so a workspace with zero spaces had no way in. The
+// empty state described the absence and offered nothing to click; the product was unreachable from
+// its own front door.
+//
+// ⚠ THE SUBJECT IS THE SEQUENCE, NOT THE FORM. A test that submits and asserts "POST was called"
+// passes while the user still stares at an empty list — the create succeeded and the screen lied.
+// So this asserts what the user SEES, on a component that is never re-rendered or remounted: the
+// new space appears because the list refetched itself.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** A Docs stub that actually holds state: what the server returns AFTER a create is a
+ *  consequence of the create, not a second fixture handed to the test. A stub that returns a
+ *  canned non-empty list on the second GET would pass with no POST wired at all. */
+function mockDocsWithCreate() {
+  const spaces: unknown[] = []
+  const posted: Array<Record<string, unknown>> = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const json = (b: unknown, status = 200) =>
+      new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+    if (url === '/api/docs/spaces' && (init?.method ?? 'GET') === 'GET') return json(spaces)
+    if (url === '/api/docs/spaces' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body ?? '{}')) as Record<string, unknown>
+      posted.push(body)
+      // Mirrors Docs' own store: name is required, slug is DERIVED when absent, and the row the
+      // handler returns is what the list will show.
+      const name = String(body.name ?? '')
+      if (!name.trim()) return json({ error: 'CREATE_FAILED' }, 400)
+      const row = {
+        id: `sp-${spaces.length + 1}`,
+        workspace_id: 'default',
+        name,
+        slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        description: '',
+        icon: '📄',
+        color: '#6366f1',
+        private: false,
+        created_by: 'm-1',
+        created_at: '2026-07-28T00:00:00Z',
+        updated_at: '2026-07-28T00:00:00Z',
+      }
+      spaces.push(row)
+      return json(row, 201)
+    }
+    return new Response('null', { status: 404 })
+  })
+  return { posted }
+}
+
+describe('a workspace with NO spaces can create its first one', () => {
+  it('the empty state OFFERS the action rather than only describing the absence', async () => {
+    mockDocsWithCreate()
+    renderAt('/docs')
+
+    expect(await screen.findByText('No spaces in this workspace yet.')).toBeInTheDocument()
+    // The dead end was: this text, and nothing to click.
+    expect(screen.getByRole('button', { name: /create space/i })).toBeInTheDocument()
+    expect(screen.getByLabelText(/space name/i)).toBeInTheDocument()
+  })
+
+  it('creates the first space and it APPEARS WITHOUT A RELOAD', async () => {
+    const { posted } = mockDocsWithCreate()
+    renderAt('/docs')
+
+    expect(await screen.findByText('No spaces in this workspace yet.')).toBeInTheDocument()
+    expect(screen.queryByText('Engineering')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
+    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
+
+    // ⚠ No re-render, no remount, no second renderAt — the SAME mounted list must show it.
+    expect(await screen.findByText('Engineering')).toBeInTheDocument()
+    expect(screen.queryByText('No spaces in this workspace yet.')).toBeNull()
+
+    // ⚠ THE FIELD NAME IS THE SILENT FAILURE. Docs decodes into model.Space; a wrong key is
+    // ignored as a zero value, so `name` missing is a 400 the UI can show, but a misspelling
+    // that still parsed would create an UNNAMED space and look like success. Assert the wire.
+    expect(posted).toHaveLength(1)
+    expect(posted[0]).toHaveProperty('name', 'Engineering')
+  })
+
+  it('the client does NOT name a workspace — the BFF pins it from the session', async () => {
+    const { posted } = mockDocsWithCreate()
+    renderAt('/docs')
+
+    await screen.findByText('No spaces in this workspace yet.')
+    fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
+    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
+    await screen.findByText('Engineering')
+
+    // SEC-4: a caller-supplied workspace_id is a workspace the caller chose. The BFF injects it
+    // from the pinned session, so the browser never sends one — if it did, that is the field an
+    // attacker edits.
+    expect(posted[0]).not.toHaveProperty('workspace_id')
+  })
+
+  it('a failed create says so, and invents no space', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/docs/spaces' && (init?.method ?? 'GET') === 'GET')
+        return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/docs/spaces' && init?.method === 'POST')
+        return new Response('{"error":"CREATE_FAILED"}', { status: 400 })
+      return new Response('null', { status: 404 })
+    })
+    renderAt('/docs')
+
+    await screen.findByText('No spaces in this workspace yet.')
+    fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
+    fireEvent.click(screen.getByRole('button', { name: /create space/i }))
+
+    expect(await screen.findByText(/Couldn’t create that space/)).toBeInTheDocument()
+    expect(screen.queryByText('Engineering')).toBeNull()
+    expect(screen.getByText('No spaces in this workspace yet.')).toBeInTheDocument()
   })
 })
 

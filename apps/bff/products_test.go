@@ -11,6 +11,7 @@ package main
 // assertion shape as the Lens key.
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -160,6 +161,10 @@ type captureUpstream struct {
 	path     string
 	rawQuery string
 	headers  http.Header
+	// reqBody is what the BFF actually SENT upstream. Every other field describes the envelope;
+	// on a write route the body IS the contract, and asserting a 200 came back says nothing about
+	// what was written.
+	reqBody []byte
 }
 
 func newCaptureUpstream(t *testing.T, body string) *captureUpstream {
@@ -179,6 +184,7 @@ func newStatusUpstream(t *testing.T, status int, body string) *captureUpstream {
 		c.path = r.URL.Path
 		c.rawQuery = r.URL.RawQuery
 		c.headers = r.Header.Clone()
+		c.reqBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		_, _ = io.WriteString(w, body)
@@ -568,5 +574,139 @@ func TestDocsIdRoutesRequireSession(t *testing.T) {
 	}
 	if docs.headers != nil {
 		t.Fatal("an unauthenticated request must never reach the docs upstream")
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// CREATE SPACE — the route that made the product reachable.
+//
+// GET-only on /api/docs/spaces meant a workspace with zero spaces was a dead end: every create-page
+// form lives inside a space, so with none there was no way in. These pin the two things a create
+// form cannot verify for itself — where the request goes, and whose workspace it lands in.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+// TestDocsCreateSpace_PostsToTheCreateRouteWithTheSessionWorkspace: Docs registers create as
+// POST /v1/spaces and reads the workspace from the BODY — it is NOT under /workspaces/{wsID} like
+// the list. Sending it to the list path would 405 upstream and create nothing.
+func TestDocsCreateSpace_PostsToTheCreateRouteWithTheSessionWorkspace(t *testing.T) {
+	docs := newStatusUpstream(t, http.StatusCreated, `{"id":"sp-1","name":"Engineering"}`)
+	a, sess := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/docs/spaces", strings.NewReader(`{"name":"Engineering"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("got %d (%s), want 201", rec.Code, rec.Body.String())
+	}
+	if docs.path != "/v1/spaces" {
+		t.Fatalf("upstream path = %q, want /v1/spaces — the list path does not create", docs.path)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal(docs.reqBody, &sent); err != nil {
+		t.Fatalf("forwarded body is not JSON (%v): %s", err, docs.reqBody)
+	}
+	if sent["workspace_id"] != "track-ws-7" {
+		t.Fatalf("workspace_id = %v, want the SESSION's track-ws-7", sent["workspace_id"])
+	}
+	// The name must survive verbatim: Docs decodes into model.Space, where a key it does not
+	// recognise is not an error — it is a zero value, and an empty name is the failure that looks
+	// like a default rather than a bug.
+	if sent["name"] != "Engineering" {
+		t.Fatalf("name = %v, want Engineering", sent["name"])
+	}
+}
+
+// TestDocsCreateSpace_ClientSuppliedWorkspaceIsOverwritten is the SEC-4 case, written as the
+// NATURAL MISTAKE: relay the body verbatim, as every other Docs write route correctly does. That
+// forwards whatever workspace the browser named. Docs would still check membership, so this is not
+// a cross-tenant hole — but a person in two workspaces could create in the wrong one, and the field
+// an attacker edits should not be in the request at all.
+func TestDocsCreateSpace_ClientSuppliedWorkspaceIsOverwritten(t *testing.T) {
+	docs := newStatusUpstream(t, http.StatusCreated, `{"id":"sp-1"}`)
+	a, sess := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/docs/spaces",
+		strings.NewReader(`{"name":"Engineering","workspace_id":"SOMEBODY-ELSE"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	var sent map[string]any
+	if err := json.Unmarshal(docs.reqBody, &sent); err != nil {
+		t.Fatalf("forwarded body is not JSON (%v): %s", err, docs.reqBody)
+	}
+	if sent["workspace_id"] == "SOMEBODY-ELSE" {
+		t.Fatal("the client NAMED the workspace and the BFF relayed it — the session must win")
+	}
+	if sent["workspace_id"] != "track-ws-7" {
+		t.Fatalf("workspace_id = %v, want the SESSION's track-ws-7", sent["workspace_id"])
+	}
+}
+
+// TestDocsCreateSpace_PassesOtherFieldsThrough: only workspace_id is rewritten. Decoding into a
+// fixed struct here would silently drop any field Docs supports that this BFF has not heard of —
+// the same silently-ignored-default failure, moved one layer out.
+func TestDocsCreateSpace_PassesOtherFieldsThrough(t *testing.T) {
+	docs := newStatusUpstream(t, http.StatusCreated, `{"id":"sp-1"}`)
+	a, sess := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/docs/spaces",
+		strings.NewReader(`{"name":"Ops","description":"how we run","icon":"🛠️","private":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	var sent map[string]any
+	if err := json.Unmarshal(docs.reqBody, &sent); err != nil {
+		t.Fatalf("forwarded body is not JSON (%v): %s", err, docs.reqBody)
+	}
+	for k, want := range map[string]any{
+		"name": "Ops", "description": "how we run", "icon": "🛠️", "private": true,
+	} {
+		if sent[k] != want {
+			t.Errorf("%s = %v, want %v — the BFF must not drop fields Docs owns", k, sent[k], want)
+		}
+	}
+}
+
+// TestDocsSpaces_MethodNotAllowedNamesBothVerbs: the Allow header is what tells a caller the route
+// takes a write at all. Leaving it at "GET" after adding POST would advertise the dead end.
+func TestDocsSpaces_MethodNotAllowedNamesBothVerbs(t *testing.T) {
+	docs := newCaptureUpstream(t, `[]`)
+	a, sess := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/docs/spaces", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("DELETE got %d, want 405", rec.Code)
+	}
+	if got := rec.Header().Get("Allow"); got != "GET, POST" {
+		t.Fatalf("Allow = %q, want %q", got, "GET, POST")
+	}
+}
+
+// TestDocsCreateSpace_RequiresSession: the write path must be gated exactly like the read.
+func TestDocsCreateSpace_RequiresSession(t *testing.T) {
+	docs := newCaptureUpstream(t, `[]`)
+	a, _ := productApp(t, nil, docs)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/docs/spaces", strings.NewReader(`{"name":"X"}`))
+	req.Header.Set("Content-Type", "application/json")
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated POST got %d, want 401", rec.Code)
+	}
+	if len(docs.reqBody) != 0 {
+		t.Fatalf("unauthenticated POST reached the upstream: %s", docs.reqBody)
 	}
 }
