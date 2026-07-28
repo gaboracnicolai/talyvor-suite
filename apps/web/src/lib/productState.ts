@@ -19,18 +19,38 @@ import { ApiError } from './api'
 // with no edit and no deploy of this app, because the answer comes from the deployment rather
 // than from the source.
 //
-// ── WHICH STATUSES MEAN "OFF" ────────────────────────────────────────────────
+// ── WHICH STATUSES MEAN "OFF" — 503, AND ONLY 503 ────────────────────────────
 //
-//   503 — the BFF's proxyProduct with an unconfigured upstream. The primary signal.
-//   404 — a BFF built before the route existed. Kept for the same reason SpaceList and
-//         TrackArea keep it: an older BFF serving a newer bundle is a deployment skew, not
-//         a fault, and it must not read as an error either.
+// 503 is the BFF's own answer, written deliberately at one place: forwardProduct returns
+// `{product} upstream not configured on this BFF` when the product's base URL is empty. It is
+// the ONLY status the BFF produces to mean "not wired". That makes it unambiguous, which is
+// exactly what a diagnosis needs to be.
+//
+// ⚠ 404 USED TO BE IN THIS LIST AND IT COST US A DAY. The stated reason was deployment skew —
+// "a BFF built before the route existed" — and that case is real, but the predicate cannot see
+// WHOSE 404 it is holding. Two very different things arrive here as 404:
+//
+//   · the BFF has no such route (skew), and
+//   · the BFF forwarded, and the PRODUCT answered 404.
+//
+// The second is overwhelmingly the common one in a running deployment, and it means either the
+// resource does not exist or WE ARE ADDRESSING THE WRONG PATH. It happened: the BFF asked Docs
+// for /v1/workspaces/{ws}/spaces/{id}, a path Docs does not register, and the screen reported
+// "Docs is not configured on this deployment — no upstream is wired" while Docs was running and
+// had just served the space list. Our routing bug, rendered as the operator's misconfiguration,
+// sending them to check env vars that were correct.
+//
+// A 404 is a statement about an ADDRESS. It is never evidence about whether a product is
+// deployed, so it does not belong in a predicate about deployment — and the skew case is not an
+// argument for keeping it: a bundle newer than the server that serves it IS a fault, just a
+// transient one, and rendering it as a calm "not wired here" is how you ship a skewed deploy and
+// never find out.
 //
 // Everything else — 500, 502, a 403 from upstream tier checks — is a GENUINE failure and must
 // surface as one. Laundering those into "off" is how a broken deployment comes to look calm,
-// which is the inverse of this file's purpose.
+// which is the inverse of this file's purpose. 404 was being laundered exactly that way.
 export function isUnconfigured(err: unknown): boolean {
-  return err instanceof ApiError && (err.status === 503 || err.status === 404)
+  return err instanceof ApiError && err.status === 503
 }
 
 /** The one sentence, so every area words it identically. `product` is the display name. */
@@ -67,8 +87,8 @@ export function notConfiguredCopy(product: string): string {
 //         Lens (stale workspace token). Both are cured by the same single click: /auth/login
 //         rotates the session and re-provisions, minting a fresh workspace token.
 //
-// Everything else stays where it was. 503/404 remain isUnconfigured's calm "not wired here";
-// 500/502/403 remain genuine faults. THAT SEPARATION IS THE POINT — a change that makes 401
+// Everything else stays where it was. 503 remains isUnconfigured's calm "not wired here" (404 was
+// removed from it — see above); 404/500/502/403 remain genuine faults. THAT SEPARATION IS THE POINT — a change that makes 401
 // honest by routing 500 to the same message has not fixed anything, it has just moved which
 // failures are misdescribed. Pinned by SessionExpired.test.tsx's 500/502/503 controls.
 export function isSessionExpired(err: unknown): boolean {

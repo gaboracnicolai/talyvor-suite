@@ -515,12 +515,11 @@ func (a *app) docsSpaceDetail() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		ws, ok := a.docsWorkspaceFor(w, r)
-		if !ok {
+		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)), "", http.MethodGet, nil, nil)
+			"/v1/spaces/"+url.PathEscape(spaceID), "", http.MethodGet, nil, nil)
 	}
 }
 
@@ -545,12 +544,11 @@ func (a *app) docsPageList() http.HandlerFunc {
 		limit := clampInt(r.URL.Query().Get("limit"), 100, 1, 500)
 		offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<31-1)
 		raw := "limit=" + strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
-		ws, ok := a.docsWorkspaceFor(w, r)
-		if !ok {
+		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages"), raw, http.MethodGet, nil, stripPageContentList)
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages", raw, http.MethodGet, nil, stripPageContentList)
 	}
 }
 
@@ -573,12 +571,11 @@ func (a *app) docsPageDetail() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		ws, ok := a.docsWorkspaceFor(w, r)
-		if !ok {
+		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID)), "", http.MethodGet, nil, nil)
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID), "", http.MethodGet, nil, nil)
 	}
 }
 
@@ -715,12 +712,11 @@ func (a *app) docsCreatePage() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		ws, ok := a.docsWorkspaceFor(w, r)
-		if !ok {
+		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages"), "",
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages", "",
 			http.MethodPost, http.MaxBytesReader(w, r.Body, maxDocsBody), nil)
 	})
 }
@@ -737,12 +733,11 @@ func (a *app) docsUpdatePage() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		ws, ok := a.docsWorkspaceFor(w, r)
-		if !ok {
+		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
-			docsWorkspacePath(ws, "/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID)),
+			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID),
 			"", http.MethodPatch, http.MaxBytesReader(w, r.Body, maxDocsBody), nil)
 	})
 }

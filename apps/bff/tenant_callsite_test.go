@@ -290,3 +290,55 @@ func TestLensWorkspacePathTakesATenant(t *testing.T) {
 	}
 	t.Fatalf("lensWorkspacePath not found in %v", filepath.Base("."))
 }
+
+// TestDocsWorkspacePathUsedOnlyForTheListRoute — the guard the last incident needed.
+//
+// ⚠ THE MISTAKE IT CATCHES. Docs' prefixes are NOT uniform: only the space LIST lives under
+// /v1/workspaces/{wsID}/. Create is POST /v1/spaces with the workspace in the BODY, and every
+// by-id route (space detail, page list/create/detail/update) is registered at the top level.
+// When Docs went per-identity, docsWorkspacePath was applied to all six call sites. Five of
+// them then addressed paths Docs does not register, so opening a space returned Go's default
+// `404 page not found` — which the web app reported as "Docs is not configured on this
+// deployment", blaming the operator for our routing.
+//
+// The rule was already written down, in a comment on the create route: "only List is under
+// /workspaces/{wsID}". A comment could not enforce it. This can.
+//
+// It counts CALL SITES rather than checking a list of allowed functions, because the failure
+// was one builder used in five wrong places — a per-function allowlist would have passed.
+func TestDocsWorkspacePathUsedOnlyForTheListRoute(t *testing.T) {
+	callers := map[string]int{}
+	for _, file := range bffSourceFiles(t) {
+		ast.Inspect(file, func(n ast.Node) bool {
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok {
+				return true
+			}
+			ast.Inspect(fn.Body, func(m ast.Node) bool {
+				call, ok := m.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				id, ok := call.Fun.(*ast.Ident)
+				if !ok || id.Name != "docsWorkspacePath" {
+					return true
+				}
+				callers[fn.Name.Name]++
+				return true
+			})
+			return true
+		})
+	}
+
+	total := 0
+	for _, n := range callers {
+		total += n
+	}
+	if total != 1 {
+		t.Errorf("docsWorkspacePath has %d call sites %v, want exactly 1 (the space LIST).\n"+
+			"Docs registers ONLY GET /v1/workspaces/{wsID}/spaces under a workspace. Every other\n"+
+			"Docs route — create, space detail, and all page routes — is top-level, and sending it\n"+
+			"a workspace-prefixed path produces `404 page not found`, not a scoped request.",
+			total, callers)
+	}
+}
