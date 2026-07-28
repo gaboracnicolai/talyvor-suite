@@ -100,6 +100,18 @@ export const docsApi = {
   /** LIVE — spaces in the SESSION's workspace (the BFF no longer pins one). */
   spaces: (): Promise<DocsSpace[]> => getJSON<DocsSpace[]>('/api/docs/spaces'),
 
+  /**
+   * Creates a space in the SESSION's workspace.
+   *
+   * ⚠ `name` is the field Docs reads (model.Space, `json:"name"`) — it is required, and a wrong key
+   * would not error, it would decode to "" and be refused as an empty name. `slug`, `icon` and
+   * `color` are DERIVED and defaulted by Docs' own store, so nothing is invented here.
+   *
+   * ⚠ NO workspace_id. Docs takes it from the body on this route and the BFF injects the pinned one
+   * — a workspace this client named would be a workspace the browser chose.
+   */
+  createSpace: (name: string) => send<DocsSpace>('/api/docs/spaces', 'POST', { name }),
+
   page: (spaceId: string, pageId: string): Promise<DocsPageRow & { content_text?: string }> =>
     getJSON(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`),
 
