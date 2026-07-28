@@ -116,6 +116,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	// See keys.go for the CSRF posture (Lax + strict same-Origin) and the
 	// no-store / never-logged discipline around that one response.
 	a.mux.HandleFunc("/api/keys", a.requireTenant(a.handleKeys))
+	// Revoke. A separate id-route rather than a DELETE on the collection: the collection has no
+	// meaning to delete, and ServeMux prefers the more specific pattern, so /api/keys keeps its
+	// GET, POST surface unchanged.
+	a.mux.HandleFunc("/api/keys/{id}", a.requireTenant(a.handleKeyByID))
 
 	// The cross-tenant sharing choice — ONE route for both the signup prompt and the settings
 	// control, so the two screens cannot drift into disagreeing about what is stored. A workspace

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input, RevealOnce, Row } from '@talyvor/ui'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
 import { formatWhen } from './format'
+import { ApiError } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 
 // API keys — LIVE. This screen exists because of one real failure: Lens's mint
@@ -24,6 +25,104 @@ import { PanelFailure } from '../../components/SessionExpiredBar'
 //   POST /api/keys → mint (201 {key, prefix, …}; key shown once). The POST is a
 //     write, guarded by the BFF's Origin check — satisfied automatically because
 //     keysApi.mint posts to a same-origin relative path (see keysApi.ts).
+/**
+ * KeyRow — one key, with the way to destroy it.
+ *
+ * ⚠ WHAT THE CONFIRM IS FOR, ARGUED. The obvious confirm is "Are you sure?", and it guards the
+ * wrong thing. Nobody revokes a key by accidentally pressing a button they did not mean to press;
+ * they revoke THE WRONG KEY. This list makes that easy — every identifier is tlv_ws_ + eight hex,
+ * they are the same length and shape, and names repeat because people call three of them "CI
+ * pipeline". A yes/no dialog confirms the ACT, which was never in doubt, and says nothing about the
+ * TARGET, which is the only thing that can go wrong.
+ *
+ * So the confirm is to type the identifier of the key being revoked. It cannot be satisfied without
+ * looking at the row, and it fails closed against the specific mistake — reaching for the wrong row
+ * — that a yes/no dialog waves straight through. It is the same standard used for deleting a
+ * repository or a database, for the same reason: irreversible, and the damage is silent.
+ *
+ * The cost is real: cleaning up three dead keys means typing three identifiers. That is accepted
+ * deliberately. The dangerous case is revoking a LIVE key by mistake, and that is exactly the case
+ * that should be slow.
+ */
+function KeyRow({ k }: { k: WorkspaceAPIKey }) {
+  const qc = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const [typed, setTyped] = useState('')
+
+  const revoke = useMutation({
+    mutationFn: () => keysApi.revoke(k.id),
+    onSuccess: async () => {
+      setConfirming(false)
+      setTyped('')
+      await qc.invalidateQueries({ queryKey: ['keys'] })
+    },
+  })
+
+  // Exact match, trimmed only for stray whitespace — a prefix match would defeat the point, since
+  // every identifier here shares the tlv_ws_ stem.
+  const armed = typed.trim() === k.key_prefix
+
+  return (
+    <>
+      <Row label={k.name} hint={`${k.scopes.join(', ')} · created ${formatWhen(k.created_at)}`}>
+        <span className="font-mono text-caption tabular-nums text-muted">{k.key_prefix}</span>
+        {!confirming ? (
+          // The accessible name carries the identifier, so the control names WHICH key it destroys
+          // rather than being one of several identical "Revoke" buttons.
+          <Button variant="default" onClick={() => setConfirming(true)} aria-label={`Revoke ${k.key_prefix}`}>
+            Revoke
+          </Button>
+        ) : null}
+      </Row>
+      {confirming ? (
+        <div className="space-y-2 border-t border-hairline px-gutter py-3">
+          <p className="text-body text-ink">
+            Revoking <span className="font-mono">{k.key_prefix}</span> cannot be undone, and anything
+            still using it stops working without warning.
+          </p>
+          {/* ⚠ THIS SENTENCE IS LOAD-BEARING AND WAS READ FROM SOURCE. Lens caches validated keys
+              in-process for 5 minutes (internal/auth/apikeys.go, cacheTTL) and the revoke route
+              deletes the row without purging that cache, so a key in active use keeps working for
+              up to the TTL. An operator killing a LEAKED key has to know that; "revoked" implying
+              "dead now" would be the most dangerous sentence on this screen. */}
+          <p className="text-caption text-muted">
+            Traffic already using this key can keep working for up to 5 minutes — Lens caches key
+            checks for that long. Treat it as revoked in 5 minutes, not immediately.
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={k.key_prefix}
+              aria-label={`Type ${k.key_prefix} to confirm`}
+              className="w-52 font-mono"
+            />
+            <Button variant="danger" onClick={() => revoke.mutate()} disabled={!armed || revoke.isPending}>
+              {revoke.isPending ? 'Revoking…' : 'Revoke key'}
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => {
+                setConfirming(false)
+                setTyped('')
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+          {revoke.isError ? (
+            <p className="text-body text-muted">
+              {revoke.error instanceof ApiError && revoke.error.status === 404
+                ? 'That key is already gone, or does not belong to this workspace. Nothing was changed.'
+                : 'Couldn’t revoke that key — nothing was changed. Try again.'}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 export function Keys() {
   const qc = useQueryClient()
   const [name, setName] = useState('')
@@ -115,11 +214,7 @@ export function Keys() {
         ) : keys.length === 0 ? (
           <div className="px-gutter py-3 text-body text-muted">No keys yet. Create one above.</div>
         ) : (
-          keys.map((k) => (
-            <Row key={k.id} label={k.name} hint={`${k.scopes.join(', ')} · created ${formatWhen(k.created_at)}`}>
-              <span className="font-mono text-caption tabular-nums text-muted">{k.key_prefix}</span>
-            </Row>
-          ))
+          keys.map((k) => <KeyRow key={k.id} k={k} />)
         )}
       </Card>
     </div>

@@ -30,6 +30,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -57,6 +58,59 @@ func (a *app) handleKeys(w http.ResponseWriter, r *http.Request, t tenant) {
 	default:
 		methodNotAllowed(w, "GET, POST")
 	}
+}
+
+// handleKeyByID serves /api/keys/{id}. Today that is revocation and nothing else.
+//
+// ⚠ THE WORKSPACE IS NEVER READ FROM THE REQUEST. The upstream path is lensWorkspacePath(t, …),
+// built from the SESSION tenant, so the only caller-controlled part of it is the key id. That is
+// what makes this route safe to expose at all: a revoke that took a workspace from the caller would
+// be a cross-tenant delete wearing a session cookie, and no amount of upstream checking would make
+// the BFF's own behaviour correct.
+//
+// Lens re-checks ownership independently — it lists the workspace's keys and 404s an id that is not
+// among them — so a foreign id fails on both sides rather than relying on either.
+func (a *app) handleKeyByID(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w, http.MethodDelete)
+		return
+	}
+	if !a.requireSameOrigin(w, r) {
+		return
+	}
+	// The id is the one segment a caller controls, so it goes through the same validator every
+	// other id route in this BFF uses — no traversal, no separators, no control characters.
+	id, ok := pathID(w, "key id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodDelete,
+		a.cfg.lensBaseURL+lensWorkspacePath(t, "/api-keys/"+url.PathEscape(id)), nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+t.token) // the SESSION's workspace token, server-side only
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("bff: revoke key: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	// The upstream status passes through UNCHANGED. A 404 means Lens refused because the key is not
+	// this workspace's (or is already gone) — laundering that into a 200 would tell someone a
+	// credential was destroyed when it was not, which on a revoke is the dangerous direction to be
+	// wrong in.
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 func (a *app) handleMintKey(w http.ResponseWriter, r *http.Request, t tenant) {
