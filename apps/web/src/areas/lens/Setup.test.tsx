@@ -124,8 +124,11 @@ describe('Setup — the two lines', () => {
     const mint = await screen.findByRole('button', { name: /create a key|mint/i })
     fireEvent.click(mint)
     await waitFor(() => expect(screen.getAllByText(new RegExp(MINTED.key)).length).toBeGreaterThan(0))
-    const copies = await screen.findAllByRole('button', { name: /copy/i })
-    fireEvent.click(copies[0])
+    // BY NAME, not copies[0]: a reveal card now renders its own "Copy key" above these blocks, and
+    // a positional pick silently retargets the moment anything is added to the page. The claim
+    // being made is about the TWO-LINE block, so it names that button.
+    const twoLines = await screen.findAllByRole('button', { name: /copy the two lines/i })
+    fireEvent.click(twoLines[0])
     await waitFor(() => expect(writeText).toHaveBeenCalled())
     const copied = String((writeText.mock.calls as unknown as string[][])[0]?.[0] ?? '')
     expect(copied).toContain('ANTHROPIC_BASE_URL="https://lens.talyvor.com/anthropic"')
@@ -335,5 +338,75 @@ describe('Setup — the embeddings hazard', () => {
     const { container } = renderSetup()
     await waitFor(() => expect(container.textContent).toMatch(/embedding/i))
     expect(container.textContent).toMatch(/not proxied|are not|do not|cannot/i)
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// THE MINTED SECRET MUST BE PRESENTED AS A CREDENTIAL, AND NOTHING MAY INVITE LEAVING IT.
+//
+// Reported live: pressed "Create a key for setup", was pointed at "Manage keys", went there, and
+// found only the identifier. The key existed, counted against the list, and could not be used.
+//
+// ⚠ THE OBVIOUS ASSERTION IS VACUOUS HERE. The secret was ALREADY on the page after minting — it is
+// interpolated into the tool snippets (`api_key="tlv_ws_…"`). So `getByText(secret)` passed on the
+// exact code that was reported as broken. What was missing is the secret presented AS the
+// credential, with a control that copies THE KEY rather than a block of shell configuration that
+// happens to contain it. That is what these assert.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+async function mintOnSetup() {
+  fireEvent.click(await screen.findByRole('button', { name: /create a key for setup/i }))
+  // The reveal card's own copy control is the unambiguous signal that it has rendered.
+  await screen.findByRole('button', { name: /copy key/i })
+}
+
+describe('a minted key is presented as a credential, not as configuration', () => {
+  it('copies THE SECRET ITSELF, not the snippet that contains it', async () => {
+    mockBff()
+    renderSetup()
+    await mintOnSetup()
+
+    // The reveal card's own copy control, labelled as Keys.tsx labels it. Distinct from "Copy the
+    // two lines", which copies a whole command block — useful, but it is not "here is your key".
+    const copyKey = screen.getByRole('button', { name: /copy key/i })
+    fireEvent.click(copyKey)
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(MINTED.key))
+  })
+
+  it('shows the secret verbatim, and the identifier labelled as not a credential', async () => {
+    mockBff()
+    renderSetup()
+    await mintOnSetup()
+
+    expect(screen.getByText(MINTED.key)).toBeInTheDocument()
+    expect(screen.getByText(MINTED.prefix)).toBeInTheDocument()
+    expect(screen.getByText(/not a credential/i)).toBeInTheDocument()
+  })
+
+  it('does NOT invite navigation while an unacknowledged secret is on screen', async () => {
+    mockBff()
+    renderSetup()
+
+    // Before minting the link is ordinary navigation and belongs there.
+    expect(screen.getByRole('link', { name: /manage keys/i })).toBeInTheDocument()
+
+    await mintOnSetup()
+
+    // ⚠ The link sat in the SAME flex row as the mint button, so the nearest thing to the button
+    // just pressed was the one control that destroys the result of pressing it.
+    expect(screen.queryByRole('link', { name: /manage keys/i })).toBeNull()
+  })
+
+  it('restores the link once the secret is acknowledged', async () => {
+    mockBff()
+    renderSetup()
+    await mintOnSetup()
+
+    fireEvent.click(screen.getByRole('button', { name: /done — i stored it/i }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /manage keys/i })).toBeInTheDocument(),
+    )
   })
 })
