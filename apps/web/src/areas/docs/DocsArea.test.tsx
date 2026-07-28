@@ -416,3 +416,56 @@ describe('the way back is recognisable as a way back', () => {
     expect(back).toHaveAttribute('href', '/docs/spaces/sp-eng')
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// AN EXPLICIT BACK BUTTON, after the breadcrumb failed as an affordance three sessions running.
+//
+// #73 established that the crumb links work and arrive, and gave them a resting underline. The
+// reporter deployed it, hard-refreshed, and still read the screen as having no way back. At that
+// point the evidence is not about CSS: a control that three deliberate attempts cannot find is not
+// discoverable, whatever the computed style says. So this is a button — bordered, labelled, sitting
+// where the eye already goes for Create page and Save — and the breadcrumb stays for everyone who
+// does read breadcrumbs.
+//
+// ⚠ ASSERTED AS ROLE=BUTTON, NOT AS "some control". Rendering a Link with button styling would pass
+// a loose query while giving the reporter exactly what they have already rejected twice.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('an explicit Back button, and it lands', () => {
+  it('on a page: the button exists and goes to that space’s page list', async () => {
+    mockDocsTree()
+    renderAt('/docs/spaces/sp-eng/pages/pg-1')
+
+    expect(await screen.findByText('Onboarding')).toBeInTheDocument()
+    const back = screen.getByRole('button', { name: '← Back' })
+    // The label carries nothing else — no space name, no "to Engineering".
+    expect(back).toHaveTextContent(/^← Back$/)
+
+    fireEvent.click(back)
+
+    // ARRIVAL: the page list, identified by the form only that screen has.
+    expect(await screen.findByLabelText(/page title/i)).toBeInTheDocument()
+  })
+
+  it('in a space: the button exists and goes to the space list', async () => {
+    mockDocsTree()
+    renderAt('/docs/spaces/sp-eng')
+
+    expect(await screen.findByLabelText(/page title/i)).toBeInTheDocument()
+    const back = screen.getByRole('button', { name: '← Back' })
+    expect(back).toHaveTextContent(/^← Back$/)
+
+    fireEvent.click(back)
+
+    // ARRIVAL: the space list, showing a space only it lists.
+    expect(await screen.findByText('Operations')).toBeInTheDocument()
+  })
+
+  it('the breadcrumb is KEPT — the button is an addition, not a replacement', async () => {
+    mockDocsTree()
+    renderAt('/docs/spaces/sp-eng')
+
+    expect(screen.getByRole('button', { name: '← Back' })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Spaces' })).toBeInTheDocument()
+  })
+})
