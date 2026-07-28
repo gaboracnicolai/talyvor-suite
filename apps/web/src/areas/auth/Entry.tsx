@@ -152,6 +152,15 @@ export function SignUp() {
             <a href={loginHref('/')}>Continue</a>
           </Button>
           <AccessLine state={signup} />
+          {/* ⚠ THIS WAS MISSING, ON THE ONE SURFACE THAT NEEDS IT MOST. The sign-in card's
+              comment says the policies are "linked on every entry surface", and this is an
+              entry surface — the one where a stranger is deciding whether to create an
+              account at all. It had the claim without the link. */}
+          <p className="text-caption text-faint">
+            <a href="/privacy" className="underline">Privacy</a>
+            {' · '}
+            <a href="/terms" className="underline">Terms</a>
+          </p>
           <p className="text-caption text-faint">
             Already have a workspace?{' '}
             <a href="/signin" className="underline">
