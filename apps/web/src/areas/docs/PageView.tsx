@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
-import { Crumbs, spaceCrumbLabel } from './components'
+import { BackButton, Crumbs, spaceCrumbLabel } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
 
 export function PageView() {
@@ -42,12 +42,18 @@ export function PageView() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-2">
-      <Crumbs
-        trail={[
-          { label: 'Spaces', to: '/docs' },
-          { label: spaceCrumbLabel(space?.name), to: `/docs/spaces/${spaceId}` },
-        ]}
-      />
+      {/* The button and the crumb sit on one row: the crumb says WHERE YOU ARE, the button is the
+          way out. Keeping both is deliberate — see BackButton for why the crumb alone was not
+          enough, and why replacing it would lose the link semantics it still provides. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <BackButton to={`/docs/spaces/${spaceId}`} />
+        <Crumbs
+          trail={[
+            { label: 'Spaces', to: '/docs' },
+            { label: spaceCrumbLabel(space?.name), to: `/docs/spaces/${spaceId}` },
+          ]}
+        />
+      </div>
       {isUnconfigured(page.error) ? (
         <DocsUpstreamCard
           title="Page"
