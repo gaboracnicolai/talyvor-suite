@@ -80,8 +80,7 @@ describe('the policies are reachable without an account', () => {
 //
 // These tests therefore CLICK. Asserting that a link exists in the DOM would pass on a link
 // that navigates nowhere, and the property under test is arrival, not markup.
-describe('a signed-in person can reach the policies without typing a URL', () => {
-  function mockSignedIn() {
+function mockSignedIn() {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input)
       if (url === '/auth/me') {
@@ -101,8 +100,9 @@ describe('a signed-in person can reach the policies without typing a URL', () =>
       }
       return new Response('null', { status: 404 })
     })
-  }
+}
 
+describe('a signed-in person can reach the policies without typing a URL', () => {
   it.each([
     ['Privacy', /^privacy$/i],
     ['Terms', /^terms$/i],
@@ -121,6 +121,83 @@ describe('a signed-in person can reach the policies without typing a URL', () =>
     at('/keys')
     expect(await screen.findByRole('link', { name: /^privacy$/i })).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: /^terms$/i })).toBeInTheDocument()
+  })
+})
+
+// ⚠ THE WAY OUT, ASSERTED AS A ROUND TRIP — arrival, never the presence of an anchor.
+//
+// A test that finds a link and stops passes on a link that goes nowhere, and "there is a link"
+// was never the complaint. The complaint was that the page is a DEAD END for a reader who
+// arrived by typing the URL, following a link, or opening a new tab — someone with no history
+// to go back through. So every case below starts COLD on the document, clicks the way out, and
+// asserts what rendered next.
+//
+// ⚠ AND THE DESTINATION DEPENDS ON WHO IS READING, which is the whole difficulty: the policies
+// are reachable signed-out (marketing, sign-in, sign-up, consent) and signed-in (the sidebar).
+// Sending a stranger into the app puts them at a sign-in card they did not ask for; sending a
+// signed-in person to the marketing page ejects them from their own session. Both are asserted,
+// including the wrong-destination negatives — a fix that always went one way would pass a
+// one-sided test.
+describe('the policies are not a dead end', () => {
+  function returnLink() {
+    return screen.findByRole('link', { name: /back to talyvor/i })
+  }
+
+  it.each([
+    ['/privacy', /^privacy$/i],
+    ['/terms', /^terms$/i],
+  ])('%s: a SIGNED-OUT reader who arrived cold gets back to marketing', async (path, heading) => {
+    mockBff()
+    at(path)
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+
+    fireEvent.click(await returnLink())
+
+    // Arrived at the marketing page — not merely "left the document".
+    expect(await screen.findByRole('link', { name: /see the suite/i })).toBeInTheDocument()
+    // And NOT dropped at a sign-in card, which is where /  would have put a stranger.
+    expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['/privacy', /^privacy$/i],
+    ['/terms', /^terms$/i],
+  ])('%s: a SIGNED-IN reader who arrived cold gets back into the app', async (path, heading) => {
+    mockSignedIn()
+    at(path)
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+
+    fireEvent.click(await returnLink())
+
+    // Arrived inside the shell — the sidebar is the thing only the app has.
+    expect(await screen.findByRole('navigation', { name: /sections/i })).toBeInTheDocument()
+    // And NOT ejected onto the marketing page mid-session.
+    expect(screen.queryByRole('link', { name: /see the suite/i })).not.toBeInTheDocument()
+  })
+
+  // The full trip a signed-in person actually takes: deep in the app, out to the policy, back.
+  // "Back where you started" is the app, with its navigation — not the one route they left.
+  it('completes the round trip from a deep route and back into the app', async () => {
+    mockSignedIn()
+    at('/keys')
+
+    fireEvent.click(await screen.findByRole('link', { name: /^privacy$/i }))
+    expect(await screen.findByRole('heading', { name: /^privacy$/i })).toBeInTheDocument()
+
+    fireEvent.click(await returnLink())
+    expect(await screen.findByRole('navigation', { name: /sections/i })).toBeInTheDocument()
+  })
+
+  // The probe has not answered yet, or failed. The document must STILL offer a way out — a
+  // reader whose network hiccuped is the one least able to guess a URL. `/` is the address that
+  // resolves itself by auth state, so it is never a dead end in either direction.
+  it('still offers a way out while /auth/me has not answered', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => new Promise(() => {}) as unknown as Promise<Response>,
+    )
+    at('/privacy')
+    expect(await screen.findByRole('heading', { name: /^privacy$/i })).toBeInTheDocument()
+    expect(await returnLink()).toHaveAttribute('href', '/')
   })
 })
 
