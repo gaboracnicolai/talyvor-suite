@@ -1,5 +1,5 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { Mark, NavItem, Shell, ThemeToggle } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { ApiError } from './lib/api'
@@ -133,6 +133,40 @@ function Sidebar() {
           an internal work-in-progress component sheet. "Reviews open it by URL" was a reason to
           keep it in git history, which deleting does, not to serve it to customers. Pinned by
           FirstRunGaps.test.tsx. */}
+
+      {/* ── THE POLICIES, AND WHY HERE ────────────────────────────────────────────────
+          Both routes have always resolved, and until now nothing inside the app linked to
+          them: they appeared on the marketing page, the sign-in card and the consent screen —
+          three surfaces a signed-in person has already passed and does not return to. So the
+          moment someone wanted to check what we do with their data, the answer was "type the
+          URL", which is unreachable for anyone who does not already know it.
+
+          NOT A PAGE FOOTER. A footer sits below the content, and this app's content-heavy
+          routes (Ledger, Spend) scroll — so on exactly the pages where a person is looking at
+          their data and thinks to ask, the footer is permanently below the fold. The sidebar
+          is `sticky top-0`, which makes this reachable from any route without scrolling. It
+          also avoids adding a region to the shared Shell in packages/ui for two links.
+
+          NOT THE SETTINGS PAGE. Settings is where you look for YOUR settings; a person hunting
+          for OUR policies has no reason to expect them there, and it costs a click and a guess.
+          Fine as a second home, wrong as the only one.
+
+          NOT A NAV ITEM. Rendered as small muted text rather than NavItem, below the product
+          groups and after a rule: these are not destinations you visit in the course of work,
+          and styling them like Overview or Keys would overstate them. Findable without being
+          prominent is the whole requirement for a legal surface.
+
+          Link, not <a href>: same-tab client-side navigation, and it keeps a real href so the
+          link is a link to assistive tech and to a middle-click. */}
+      <div className="mt-auto border-t border-rule px-3 pt-3 text-caption text-faint">
+        <Link className="underline hover:text-muted" to="/privacy">
+          Privacy
+        </Link>
+        {' · '}
+        <Link className="underline hover:text-muted" to="/terms">
+          Terms
+        </Link>
+      </div>
     </nav>
   )
 }

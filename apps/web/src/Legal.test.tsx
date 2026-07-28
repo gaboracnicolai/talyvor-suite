@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from './App'
 
@@ -51,6 +51,76 @@ describe('the policies are reachable without an account', () => {
     mockBff()
     at('/terms')
     expect(await screen.findByRole('heading', { name: /^terms$/i })).toBeInTheDocument()
+  })
+
+  // The three signed-out entry points, confirmed rather than assumed — they were added
+  // separately and main has moved repeatedly since. A legal link that silently stops
+  // rendering looks exactly like one that was never there.
+  it.each([
+    ['the marketing landing', '/marketing'],
+    ['the sign-in card', '/signin'],
+    ['the sign-up card', '/signup'],
+  ])('%s still offers both policies', async (_label, path) => {
+    mockBff()
+    at(path)
+    const privacy = await screen.findAllByRole('link', { name: /privacy/i })
+    const terms = await screen.findAllByRole('link', { name: /terms/i })
+    expect(privacy.some((a) => a.getAttribute('href') === '/privacy')).toBe(true)
+    expect(terms.some((a) => a.getAttribute('href') === '/terms')).toBe(true)
+  })
+})
+
+// ⚠ REACHABILITY FOR A SIGNED-IN PERSON, WHICH IS A DIFFERENT PROPERTY FROM RENDERING.
+//
+// Both routes have always resolved. What did not exist was any way to GET to them once you
+// were inside the app: the links lived on the marketing page, the sign-in card and the
+// consent screen — three surfaces a signed-in person has already passed through and does not
+// return to. So the moment someone wanted to check what we do with their data, the answer was
+// "type the URL", which is the same as unreachable for anyone who does not already know it.
+//
+// These tests therefore CLICK. Asserting that a link exists in the DOM would pass on a link
+// that navigates nowhere, and the property under test is arrival, not markup.
+describe('a signed-in person can reach the policies without typing a URL', () => {
+  function mockSignedIn() {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/auth/me') {
+        return new Response(
+          JSON.stringify({
+            mode: 'oidc',
+            authenticated: true,
+            user: { sub: 'sub-alice', email: 'alice@example.com' },
+            workspace_id: 'uabcdefghijklmnopqrstuvwxy',
+            cache_poolable: true,
+            // false, or the consent screen renders instead of the app shell and this would be
+            // testing the consent screen's links — which already existed.
+            needs_pooling_choice: false,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+      return new Response('null', { status: 404 })
+    })
+  }
+
+  it.each([
+    ['Privacy', /^privacy$/i],
+    ['Terms', /^terms$/i],
+  ])('reaches %s from inside the app by clicking', async (label, heading) => {
+    mockSignedIn()
+    at('/')
+    const link = await screen.findByRole('link', { name: new RegExp(`^${label}$`, 'i') })
+    fireEvent.click(link)
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+  })
+
+  // Findable from ANYWHERE, not only the overview. A person goes looking for this while they
+  // are in the middle of something — most likely the page that prompted the question.
+  it('offers the policies on a deep route too, not only the landing page', async () => {
+    mockSignedIn()
+    at('/keys')
+    expect(await screen.findByRole('link', { name: /^privacy$/i })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /^terms$/i })).toBeInTheDocument()
   })
 })
 
