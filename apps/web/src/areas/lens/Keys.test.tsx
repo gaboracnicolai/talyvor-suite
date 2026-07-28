@@ -164,3 +164,104 @@ describe('Keys — mint is a one-time reveal', () => {
     expect(screen.queryByText(MINTED.key)).not.toBeInTheDocument()
   })
 })
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// REVOKE. Until this shipped the product could create credentials and not destroy them: a key you
+// could not use still counted against your list, permanently.
+//
+// ⚠ THE CONFIRM GUARDS THE TARGET, NOT THE ACT — see Keys.tsx for the argument. So the tests are
+// about WHICH key goes: that the wrong prefix does not arm the button, and that the id sent is the
+// row's own. "A dialog appeared" is not the property.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** List + DELETE. Records every revoke so the test can assert WHICH id was sent. */
+function mockKeysWithRevoke() {
+  let rows = [
+    { id: 'key_01', workspace_id: 'default', key_prefix: 'tlv_ws_9f21c4a0', name: 'CI pipeline', scopes: ['proxy'], created_at: '2026-07-14T09:12:00Z' },
+    { id: 'key_02', workspace_id: 'default', key_prefix: 'tlv_ws_ff66ef1f', name: 'CI pipeline', scopes: ['proxy'], created_at: '2026-07-15T09:12:00Z' },
+  ]
+  const deleted: string[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const method = (init?.method ?? 'GET').toUpperCase()
+    if (method === 'DELETE' && url.startsWith('/api/keys/')) {
+      const id = url.slice('/api/keys/'.length)
+      deleted.push(id)
+      rows = rows.filter((r) => r.id !== id)
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    if (url === '/api/keys' && method === 'GET') {
+      return new Response(JSON.stringify(rows), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    return new Response('null', { status: 404 })
+  })
+  return { deleted }
+}
+
+describe('revoking a key', () => {
+  beforeEach(() => vi.restoreAllMocks())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('a key revoked is GONE from the list, and the id sent is that row’s', async () => {
+    const { deleted } = mockKeysWithRevoke()
+    renderKeys()
+
+    // ⚠ TWO ROWS SHARE A NAME and differ only by prefix — the real list looks like this, which is
+    // exactly why the confirm has to identify the target rather than the action.
+    expect(await screen.findByText('tlv_ws_ff66ef1f')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /revoke tlv_ws_ff66ef1f/i }))
+    fireEvent.change(screen.getByLabelText(/type tlv_ws_ff66ef1f/i), {
+      target: { value: 'tlv_ws_ff66ef1f' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^revoke key$/i }))
+
+    await waitFor(() => expect(deleted).toEqual(['key_02']))
+    // ARRIVAL, not just the call: the row is gone without a reload, and the OTHER key survives.
+    await waitFor(() => expect(screen.queryByText('tlv_ws_ff66ef1f')).toBeNull())
+    expect(screen.getByText('tlv_ws_9f21c4a0')).toBeInTheDocument()
+  })
+
+  it('the wrong identifier does NOT arm the button — nothing is sent', async () => {
+    const { deleted } = mockKeysWithRevoke()
+    renderKeys()
+
+    await screen.findByText('tlv_ws_ff66ef1f')
+    fireEvent.click(screen.getByRole('button', { name: /revoke tlv_ws_ff66ef1f/i }))
+
+    // The OTHER key's identifier — the exact mistake this guard exists to catch.
+    fireEvent.change(screen.getByLabelText(/type tlv_ws_ff66ef1f/i), {
+      target: { value: 'tlv_ws_9f21c4a0' },
+    })
+    expect(screen.getByRole('button', { name: /^revoke key$/i })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /^revoke key$/i }))
+    expect(deleted).toEqual([])
+  })
+
+  it('cancelling leaves the key alone', async () => {
+    const { deleted } = mockKeysWithRevoke()
+    renderKeys()
+
+    await screen.findByText('tlv_ws_ff66ef1f')
+    fireEvent.click(screen.getByRole('button', { name: /revoke tlv_ws_ff66ef1f/i }))
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+
+    expect(screen.queryByLabelText(/type tlv_ws_ff66ef1f/i)).toBeNull()
+    expect(deleted).toEqual([])
+    expect(screen.getByText('tlv_ws_ff66ef1f')).toBeInTheDocument()
+  })
+
+  it('says revocation is not instant, because it is not', async () => {
+    mockKeysWithRevoke()
+    renderKeys()
+
+    await screen.findByText('tlv_ws_ff66ef1f')
+    fireEvent.click(screen.getByRole('button', { name: /revoke tlv_ws_ff66ef1f/i }))
+
+    // Lens caches validated keys for 5 minutes (internal/auth/apikeys.go cacheTTL) and the revoke
+    // route does not purge it. Telling an operator a leaked key is dead the moment they click would
+    // be the most dangerous sentence on this screen.
+    expect(screen.getByText(/5 minutes/i)).toBeInTheDocument()
+  })
+})

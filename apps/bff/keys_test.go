@@ -56,6 +56,18 @@ func newKeysUpstream(t *testing.T) *keysUpstream {
 		b, _ := io.ReadAll(r.Body)
 		u.gotBody = string(b)
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodDelete {
+			// Lens confirms the key belongs to {wsID} and answers 404 when it does not, so the
+			// stub has to be able to say that too — otherwise a refusal could never be modelled
+			// and "the 404 passes through" would be untestable.
+			status := u.nextStatus
+			if status == 0 {
+				status = http.StatusOK
+			}
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, `{"ok":true}`)
+			return
+		}
 		if r.Method == http.MethodPost {
 			status := u.nextStatus
 			if status == 0 {
@@ -318,5 +330,153 @@ func TestMembersUsesTheSessionsTrackWorkspace(t *testing.T) {
 	}
 	if track.headers.Get("X-User-Email") != "ng@example.com" {
 		t.Fatal("session identity missing")
+	}
+}
+
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+// REVOKE — DELETE /api/keys/{id}.
+//
+// Until this existed a key minted here could never be removed: the product could create credentials
+// and not destroy them, so a key you could not use still counted against your list forever. Lens has
+// had the capability all along (DELETE /v1/workspaces/{wsID}/api-keys/{keyID}); nothing surfaced it.
+//
+// ⚠ A DELETE ROUTE IS WHERE TENANCY GOES WRONG, so the isolation claim is tested by ATTACKING it,
+// not by exercising the happy path. The happy path proves the plumbing works; it proves nothing
+// about whose data the plumbing reaches.
+// ────────────────────────────────────────────────────────────────────────────────────────────────
+
+const revokeOrigin = "https://app.talyvor.com"
+
+func revokeReq(t *testing.T, target string, sess *http.Cookie) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodDelete, target, nil)
+	req.Header.Set("Origin", revokeOrigin)
+	req.AddCookie(sess)
+	return req
+}
+
+// TestRevokeForwardsToTheSessionsWorkspace: the upstream path is built from the SESSION tenant and
+// the validated key id, and carries the session's workspace token.
+func TestRevokeForwardsToTheSessionsWorkspace(t *testing.T) {
+	up := newKeysUpstream(t)
+	a, sess := keysApp(t, up)
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, revokeReq(t, "/api/keys/k1", sess))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if up.gotMethod != http.MethodDelete {
+		t.Fatalf("upstream method = %q, want DELETE", up.gotMethod)
+	}
+	if up.gotPath != "/v1/workspaces/u-test-workspace/api-keys/k1" {
+		t.Fatalf("upstream path = %q — the workspace must come from the session", up.gotPath)
+	}
+	if up.gotAuth == "" {
+		t.Fatal("no Authorization attached — the workspace token is added server-side")
+	}
+}
+
+// TestRevokeCannotNameAnotherWorkspace is THE isolation test, written as the attack.
+//
+// ⚠ EVERY CHANNEL A CALLER CONTROLS IS TRIED AT ONCE — query string, header, and a body naming
+// another workspace. The property being asserted is not "these particular tricks fail" but that the
+// upstream path is a pure function of the SESSION: whatever the caller sends, the workspace segment
+// is theirs. lensWorkspacePath(t, …) makes that structural, and this pins it so a later refactor
+// that starts reading a workspace off the request fails here rather than in production.
+func TestRevokeCannotNameAnotherWorkspace(t *testing.T) {
+	up := newKeysUpstream(t)
+	a, sess := keysApp(t, up)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete,
+		"/api/keys/victim-key?workspace_id=SOMEBODY-ELSE&wsID=SOMEBODY-ELSE",
+		strings.NewReader(`{"workspace_id":"SOMEBODY-ELSE"}`))
+	req.Header.Set("Origin", revokeOrigin)
+	req.Header.Set("X-Workspace-Id", "SOMEBODY-ELSE")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if strings.Contains(up.gotPath, "SOMEBODY-ELSE") {
+		t.Fatalf("upstream path = %q — a caller-supplied workspace reached Lens", up.gotPath)
+	}
+	if up.gotPath != "/v1/workspaces/u-test-workspace/api-keys/victim-key" {
+		t.Fatalf("upstream path = %q, want the SESSION's workspace with the given key id", up.gotPath)
+	}
+}
+
+// TestRevokeForeignKeyRefusalPassesThrough: Lens confirms the key belongs to {wsID} and answers 404
+// when it does not (cmd/lens/main.go — it lists the workspace's keys and refuses an unowned id).
+// That refusal must reach the browser unchanged rather than being laundered into a success.
+func TestRevokeForeignKeyRefusalPassesThrough(t *testing.T) {
+	up := newKeysUpstream(t)
+	up.nextStatus = http.StatusNotFound
+	a, sess := keysApp(t, up)
+
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, revokeReq(t, "/api/keys/another-tenants-key", sess))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("got %d, want the upstream 404 unchanged — a refused delete must not read as done", rec.Code)
+	}
+}
+
+// TestRevokeRequiresSameOrigin: destructive and state-changing, so it carries the same CSRF posture
+// as the mint. Without this a cross-origin page could delete a workspace's credentials with the
+// user's cookie.
+func TestRevokeRequiresSameOrigin(t *testing.T) {
+	up := newKeysUpstream(t)
+	a, sess := keysApp(t, up)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/keys/k1", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin DELETE got %d, want 403", rec.Code)
+	}
+	if up.gotMethod == http.MethodDelete {
+		t.Fatal("a cross-origin DELETE reached the upstream")
+	}
+}
+
+// TestRevokeRequiresSession: no session, no delete, and nothing reaches Lens.
+func TestRevokeRequiresSession(t *testing.T) {
+	up := newKeysUpstream(t)
+	a, _ := keysApp(t, up)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/keys/k1", nil)
+	req.Header.Set("Origin", revokeOrigin)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated DELETE got %d, want 401", rec.Code)
+	}
+	if up.gotMethod == http.MethodDelete {
+		t.Fatal("an unauthenticated DELETE reached the upstream")
+	}
+}
+
+// TestRevokeRejectsATraversingID: the id is the ONE caller-controlled segment of the upstream path,
+// so it goes through the same validator every other id route uses. Without it, "../../workspaces/x"
+// would address a path this BFF never intended to expose.
+func TestRevokeRejectsATraversingID(t *testing.T) {
+	up := newKeysUpstream(t)
+	a, sess := keysApp(t, up)
+
+	for _, bad := range []string{"..", "%2e%2e%2fadmin"} {
+		up.gotMethod = ""
+		rec := httptest.NewRecorder()
+		a.ServeHTTP(rec, revokeReq(t, "/api/keys/"+bad, sess))
+		if rec.Code == http.StatusOK {
+			t.Errorf("id %q was accepted", bad)
+		}
+		if up.gotMethod == http.MethodDelete {
+			t.Errorf("id %q reached the upstream", bad)
+		}
 	}
 }

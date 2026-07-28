@@ -53,6 +53,23 @@ export const keysApi = {
    *  the Origin the BFF requires (see the file header). The returned `key` is the
    *  credential; the caller shows it once via RevealOnce and never logs or
    *  re-renders it. */
+  /**
+   * LIVE WRITE — revoke a key. Same relative-path/same-origin reasoning as the mint above: the
+   * BFF's requireSameOrigin applies to this DELETE too, and the browser supplies the Origin.
+   *
+   * ⚠ THE ID IS THE ONLY THING SENT. The workspace comes from the session inside the BFF
+   * (lensWorkspacePath), so this must never grow a workspace argument — a revoke that names a
+   * workspace is a cross-tenant delete, and apps/bff/keys_test.go fails if that ever changes.
+   */
+  revoke: async (id: string): Promise<void> => {
+    const path = `/api/keys/${encodeURIComponent(id)}`
+    const res = await fetch(path, { method: 'DELETE', headers: { Accept: 'application/json' } })
+    // A 404 is Lens refusing an id that is not this workspace's, or one already gone. Surfacing it
+    // rather than swallowing it matters here: silently reporting success on a delete that did not
+    // happen is the dangerous direction to be wrong in.
+    if (!res.ok) throw new ApiError(res.status, path)
+  },
+
   mint: async (name: string, scopes: string[]): Promise<MintResult> => {
     const res = await fetch('/api/keys', {
       method: 'POST',
