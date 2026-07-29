@@ -1,13 +1,16 @@
-import { useQuery } from '@tanstack/react-query'
-import { Card, CardHeader, MuNumeral, Pill, Row } from '@talyvor/ui'
-import { api, ApiError, type Bond, type LedgerEntry } from '../../lib/api'
-import { CacheCard } from './CacheCard'
-import { ConvertLens } from './ConvertLens'
-import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
-import { CapabilityOff } from './Capability'
-import { ModelTier } from './ModelTier'
-import { formatUSD, formatWhen, humanizeType, ledgerStatus } from './format'
-import { byModel, debitTotal, inWindow, lxcDebitsByModel } from './spendMath'
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardHeader, MuNumeral, Pill, Row } from "@talyvor/ui";
+import { api, ApiError, type Bond, type LedgerEntry } from "../../lib/api";
+import { CacheCard } from "./CacheCard";
+import { ConvertLens } from "./ConvertLens";
+import {
+  InlineFailure,
+  PanelFailure,
+} from "../../components/SessionExpiredBar";
+import { CapabilityOff } from "./Capability";
+import { ModelTier } from "./ModelTier";
+import { formatUSD, formatWhen, humanizeType, ledgerStatus } from "./format";
+import { byModel, debitTotal, inWindow, lxcDebitsByModel } from "./spendMath";
 
 // Overview: the first screen a trial user sees. It answers, in order:
 //   1. What have I got?            — the two balances (live).
@@ -29,26 +32,29 @@ import { byModel, debitTotal, inWindow, lxcDebitsByModel } from './spendMath'
 // on the shared key). Numbers: exact µ counts are MuNumerals; anything derived
 // (month USD, hit rate) is a ≈-marked muted caption; plain counts are mono ink.
 
-const HISTORY_KEY = ['tokens-history', 200, 0] as const
+const HISTORY_KEY = ["tokens-history", 200, 0] as const;
 function useHistory() {
-  return useQuery({ queryKey: HISTORY_KEY, queryFn: () => api.tokensHistory(200, 0) })
+  return useQuery({
+    queryKey: HISTORY_KEY,
+    queryFn: () => api.tokensHistory(200, 0),
+  });
 }
 
 function Loading() {
-  return <div className="px-gutter py-3 text-body text-muted">Loading…</div>
+  return <div className="px-gutter py-3 text-body text-muted">Loading…</div>;
 }
 
 // Delegates the WHAT-TO-SAY decision to the one component that makes it (see
 // components/SessionExpiredBar.tsx). A panel knows its own request failed; it cannot know
 // whether every other panel failed for the same reason, so it must not name a cause.
 function Failed({ what, error }: { what: string; error: unknown }) {
-  return <PanelFailure error={error} what={what} />
+  return <PanelFailure error={error} what={what} />;
 }
 
 /* ── 1 · Balances (live, unchanged) ─────────────────────────────────────── */
 
 function LxcCard() {
-  const q = useQuery({ queryKey: ['lxc-balance'], queryFn: api.lxcBalance })
+  const q = useQuery({ queryKey: ["lxc-balance"], queryFn: api.lxcBalance });
   return (
     <Card>
       <CardHeader>LXC balance</CardHeader>
@@ -60,7 +66,9 @@ function LxcCard() {
         <>
           <div className="flex items-baseline justify-between gap-gutter px-gutter py-3">
             <MuNumeral micros={q.data.balance_ulxc} unit="lxc" />
-            <span className="text-body text-muted">≈ {formatUSD(q.data.usd_value_uusd)}</span>
+            <span className="text-body text-muted">
+              ≈ {formatUSD(q.data.usd_value_uusd)}
+            </span>
           </div>
           <Row label="Lifetime minted">
             <MuNumeral micros={q.data.lifetime_minted_ulxc} unit="lxc" />
@@ -71,11 +79,11 @@ function LxcCard() {
         </>
       )}
     </Card>
-  )
+  );
 }
 
 function LensCard() {
-  const q = useQuery({ queryKey: ['lens-balance'], queryFn: api.lensBalance })
+  const q = useQuery({ queryKey: ["lens-balance"], queryFn: api.lensBalance });
   return (
     <Card>
       <CardHeader>LENS balance</CardHeader>
@@ -88,6 +96,23 @@ function LensCard() {
           <div className="px-gutter py-3">
             <MuNumeral micros={q.data.balance_ulens} unit="lens" />
           </div>
+          {/* ⚠ THREE STATES, NOT ONE. A pool royalty credits HELD balance and becomes spendable
+              only when Lens's finalize sweeper settles it (72h holdback). The first real royalty
+              was 822 µLENS held against a spendable balance of 0 — correct, and unreadable: the
+              screen showed one number and the ledger showed another.
+
+              Counting held in the headline would overstate what can be spent, and the conversion
+              would then refuse an amount the user had just been shown. Omitting it loses money
+              they earned. So it is its own row, labelled, and rendered ONLY when there is some —
+              a permanent "Held 0" would be noise on every workspace that never earns a royalty. */}
+          {(q.data.held_balance_ulens ?? 0) > 0 ? (
+            <Row
+              label="Held — not yet spendable"
+              hint="settles automatically, about 72h after it is earned"
+            >
+              <MuNumeral micros={q.data.held_balance_ulens ?? 0} unit="lens" />
+            </Row>
+          ) : null}
           <Row label="Lifetime earned">
             <MuNumeral micros={q.data.lifetime_earned_ulens} unit="lens" />
           </Row>
@@ -98,11 +123,14 @@ function LensCard() {
           {/* The exit. Earned LENS was unspendable from the suite until this: Lens has had the
               conversion, nothing here offered it. Collapsed by default, so reading the balance
               costs the same one request it always did. */}
-          <ConvertLens lensBalanceMicros={q.data.balance_ulens} />
+          <ConvertLens
+            lensBalanceMicros={q.data.balance_ulens}
+            heldMicros={q.data.held_balance_ulens ?? 0}
+          />
         </>
       )}
     </Card>
-  )
+  );
 }
 
 /* ── 2 · Spend & earnings (the two token economies, plainly separated) ──── */
@@ -121,38 +149,64 @@ function LensCard() {
 // The two splits are kept in SEPARATE sections and never summed: µLXC charged to the
 // workspace is not provider USD COGS.
 
-function TokenSection({ token, children }: { token: 'lxc' | 'lens'; children: React.ReactNode }) {
+function TokenSection({
+  token,
+  children,
+}: {
+  token: "lxc" | "lens";
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-center gap-1.5 border-b border-rule bg-canvas px-gutter py-1.5">
       <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-pill ${token === 'lxc' ? 'bg-lxc' : 'bg-lens'}`}
+        className={`h-1.5 w-1.5 shrink-0 rounded-pill ${token === "lxc" ? "bg-lxc" : "bg-lens"}`}
         aria-hidden="true"
       />
-      <span className="text-caption uppercase tracking-wide text-muted">{children}</span>
+      <span className="text-caption uppercase tracking-wide text-muted">
+        {children}
+      </span>
     </div>
-  )
+  );
 }
 
 function SpendCard({ now }: { now: Date }) {
-  const ledger = useHistory()
-  const lxc = useQuery({ queryKey: ['lxc-history', 200, 0], queryFn: () => api.lxcLedger(200, 0) })
-  const month = useQuery({ queryKey: ['spend-month'], queryFn: api.spendMonth })
-  const agg = ledger.data ? byModel(inWindow(ledger.data, 30, now)).slice(0, 5) : []
-  const lxcSplit = lxc.data ? lxcDebitsByModel(lxc.data, 30, now).slice(0, 5) : []
+  const ledger = useHistory();
+  const lxc = useQuery({
+    queryKey: ["lxc-history", 200, 0],
+    queryFn: () => api.lxcLedger(200, 0),
+  });
+  const month = useQuery({
+    queryKey: ["spend-month"],
+    queryFn: api.spendMonth,
+  });
+  const agg = ledger.data
+    ? byModel(inWindow(ledger.data, 30, now)).slice(0, 5)
+    : [];
+  const lxcSplit = lxc.data
+    ? lxcDebitsByModel(lxc.data, 30, now).slice(0, 5)
+    : [];
   return (
     <Card>
       <CardHeader>Spend &amp; earnings — last 30 days</CardHeader>
       <TokenSection token="lxc">Spent — LXC</TokenSection>
-      <Row label="This month" hint="provider spend — a float upstream, so it dresses as derived">
+      <Row
+        label="This month"
+        hint="provider spend — a float upstream, so it dresses as derived"
+      >
         {month.isLoading ? (
           <span className="text-body text-muted">Loading…</span>
         ) : month.isError || !month.data ? (
           <InlineFailure error={month.error} />
         ) : (
-          <span className="text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
+          <span className="text-body text-muted">
+            ≈ ${month.data.current_month_usd.toFixed(2)}
+          </span>
         )}
       </Row>
-      <Row label="Inference debits" hint="every model — the window total that left the balance">
+      <Row
+        label="Inference debits"
+        hint="every model — the window total that left the balance"
+      >
         {lxc.isLoading ? (
           <span className="text-body text-muted">Loading…</span>
         ) : lxc.isError || !lxc.data ? (
@@ -179,7 +233,7 @@ function SpendCard({ now }: { now: Date }) {
                     {a.model}
                   </span>
                 }
-                hint={`${a.requests} charge${a.requests === 1 ? '' : 's'}`}
+                hint={`${a.requests} charge${a.requests === 1 ? "" : "s"}`}
               >
                 <MuNumeral micros={a.ulxc} unit="lxc" />
               </Row>
@@ -211,7 +265,7 @@ function SpendCard({ now }: { now: Date }) {
                   {a.model}
                 </span>
               }
-              hint={`${a.requests} request${a.requests === 1 ? '' : 's'}`}
+              hint={`${a.requests} request${a.requests === 1 ? "" : "s"}`}
             >
               <MuNumeral micros={a.ulens} unit="lens" />
             </Row>
@@ -219,55 +273,73 @@ function SpendCard({ now }: { now: Date }) {
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 /* ── 4 · Products (configured / not configured — state, never a fault) ──── */
 
-type ProbeState = 'on' | 'off'
+type ProbeState = "on" | "off";
 
 // An unconfigured upstream is a 503 from the BFF's proxyProduct ("… upstream
 // not configured on this BFF") and a plain-proxied absence is a 404 — both are
 // INFORMATION. Anything else is a genuine failure and throws.
 async function probeProduct(path: string): Promise<ProbeState> {
-  const res = await fetch(path, { headers: { Accept: 'application/json' } })
-  if (res.ok) return 'on'
-  if (res.status === 503 || res.status === 404) return 'off'
-  throw new ApiError(res.status, path)
+  const res = await fetch(path, { headers: { Accept: "application/json" } });
+  if (res.ok) return "on";
+  if (res.status === 503 || res.status === 404) return "off";
+  throw new ApiError(res.status, path);
 }
 
 function StateMark({ state }: { state: ProbeState }) {
   return (
     <span className="inline-flex items-center gap-1.5 text-caption uppercase tracking-wide text-faint">
       <span
-        className={`h-1.5 w-1.5 rounded-pill ${state === 'on' ? 'bg-settled' : 'bg-faint'}`}
+        className={`h-1.5 w-1.5 rounded-pill ${state === "on" ? "bg-settled" : "bg-faint"}`}
         aria-hidden="true"
       />
-      {state === 'on' ? 'Configured' : 'Not configured'}
+      {state === "on" ? "Configured" : "Not configured"}
     </span>
-  )
+  );
 }
 
-function ProductRow({ name, hint, path }: { name: string; hint: string; path: string }) {
-  const q = useQuery({ queryKey: ['probe', path], queryFn: () => probeProduct(path) })
+function ProductRow({
+  name,
+  hint,
+  path,
+}: {
+  name: string;
+  hint: string;
+  path: string;
+}) {
+  const q = useQuery({
+    queryKey: ["probe", path],
+    queryFn: () => probeProduct(path),
+  });
   return (
-    <Row label={name} hint={q.data === 'off' ? 'Not configured on this BFF deployment.' : hint}>
+    <Row
+      label={name}
+      hint={q.data === "off" ? "Not configured on this BFF deployment." : hint}
+    >
       {q.isLoading ? (
         <span className="text-caption text-muted">Checking…</span>
       ) : q.isError ? (
-        <InlineFailure error={q.error} className="text-caption text-muted" failed="Couldn’t check" />
+        <InlineFailure
+          error={q.error}
+          className="text-caption text-muted"
+          failed="Couldn’t check"
+        />
       ) : (
         <StateMark state={q.data as ProbeState} />
       )}
     </Row>
-  )
+  );
 }
 
 function ProductsCard() {
   // Lens's row rides the SAME query the balance card runs (shared key — no
   // second request): a served balance proves the gateway answers through the BFF.
-  const lens = useQuery({ queryKey: ['lxc-balance'], queryFn: api.lxcBalance })
-  const bonds = useQuery({ queryKey: ['bonds'], queryFn: api.bonds })
+  const lens = useQuery({ queryKey: ["lxc-balance"], queryFn: api.lxcBalance });
+  const bonds = useQuery({ queryKey: ["bonds"], queryFn: api.bonds });
   return (
     <Card>
       <CardHeader>Products</CardHeader>
@@ -275,12 +347,20 @@ function ProductsCard() {
         {lens.isLoading ? (
           <span className="text-caption text-muted">Checking…</span>
         ) : lens.isError ? (
-          <InlineFailure error={lens.error} className="text-caption text-muted" failed="Couldn’t check" />
+          <InlineFailure
+            error={lens.error}
+            className="text-caption text-muted"
+            failed="Couldn’t check"
+          />
         ) : (
           <StateMark state="on" />
         )}
       </Row>
-      <ProductRow name="Track" hint="Issues & workflows" path="/api/track/workspaces" />
+      <ProductRow
+        name="Track"
+        hint="Issues & workflows"
+        path="/api/track/workspaces"
+      />
       <ProductRow name="Docs" hint="Team wiki" path="/api/docs/spaces" />
       {bonds.isLoading ? (
         <Loading />
@@ -294,34 +374,39 @@ function ProductsCard() {
       ) : (
         <Row
           label="Reputation bonds"
-          hint={`${(bonds.data.data as Bond[]).length} bond${bonds.data.data.length === 1 ? '' : 's'}`}
+          hint={`${(bonds.data.data as Bond[]).length} bond${bonds.data.data.length === 1 ? "" : "s"}`}
         >
           <StateMark state="on" />
         </Row>
       )}
     </Card>
-  )
+  );
 }
 
 /* ── 5 · Recent activity (last, small; rides the shared ledger fetch) ───── */
 
 function ActivityRow({ e }: { e: LedgerEntry }) {
-  const status = ledgerStatus(e.type)
+  const status = ledgerStatus(e.type);
   return (
-    <Row label={e.description || humanizeType(e.type)} hint={formatWhen(e.created_at)}>
+    <Row
+      label={e.description || humanizeType(e.type)}
+      hint={formatWhen(e.created_at)}
+    >
       <MuNumeral micros={e.amount_ulens} unit="lens" />
       {status ? (
         <Pill status={status}>{status}</Pill>
       ) : (
-        <span className="text-caption uppercase tracking-wide text-muted">{humanizeType(e.type)}</span>
+        <span className="text-caption uppercase tracking-wide text-muted">
+          {humanizeType(e.type)}
+        </span>
       )}
     </Row>
-  )
+  );
 }
 
 function RecentActivity() {
-  const q = useHistory()
-  const rows = (q.data ?? []).slice(0, 5)
+  const q = useHistory();
+  const rows = (q.data ?? []).slice(0, 5);
   return (
     <Card>
       <CardHeader>Recent activity</CardHeader>
@@ -330,12 +415,14 @@ function RecentActivity() {
       ) : q.isError ? (
         <Failed what="recent activity" error={q.error} />
       ) : rows.length === 0 ? (
-        <div className="px-gutter py-3 text-body text-muted">No ledger entries yet.</div>
+        <div className="px-gutter py-3 text-body text-muted">
+          No ledger entries yet.
+        </div>
       ) : (
         rows.map((e) => <ActivityRow key={e.id} e={e} />)
       )}
     </Card>
-  )
+  );
 }
 
 /* ── The screen ─────────────────────────────────────────────────────────── */
@@ -350,5 +437,5 @@ export function Overview({ now = new Date() }: { now?: Date } = {}) {
       <ProductsCard />
       <RecentActivity />
     </div>
-  )
+  );
 }

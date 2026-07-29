@@ -14,7 +14,20 @@ export interface LXCSnapshot {
 /** GET /v1/workspaces/{ws}/tokens/balance → mining.BalanceSnapshot */
 export interface LensBalance {
   workspace_id: string
+  /** SPENDABLE LENS. A held mint does not touch this. */
   balance_ulens: number
+  /**
+   * EARNED BUT NOT YET SPENDABLE — a pool royalty inside its holdback window, settled into
+   * balance_ulens by Lens's finalize sweeper once finalize_after passes (72h by default).
+   *
+   * ⚠ NEVER ADD IT TO balance_ulens. The first real royalty was 822 µLENS held against a balance
+   * of 0, and a screen showing only the balance made a correct system read as broken. Summing them
+   * is the opposite error: offering a number that cannot be spent.
+   *
+   * Optional because a Lens older than the change that added it omits the field; `?? 0` at the
+   * read sites is a deployment-skew tolerance, not a default.
+   */
+  held_balance_ulens?: number
   lifetime_earned_ulens: number
   lifetime_spent_ulens: number
   updated_at: string

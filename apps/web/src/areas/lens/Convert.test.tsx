@@ -155,7 +155,9 @@ describe('the refusals say what happened to the money', () => {
     renderConvert(1_000_000) // 1 LENS on hand; 1 LXC costs 2 LENS at this rate
     const input = await openPanel()
     fireEvent.change(input, { target: { value: '1' } })
-    expect(await screen.findByText(/more LENS than this workspace has/i)).toBeInTheDocument()
+    // Wording changed deliberately when held balances were surfaced: "has" was ambiguous once a
+    // workspace could hold LENS it cannot yet spend. See Held.test.tsx.
+    expect(await screen.findByText(/more LENS than this workspace can spend right now/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^convert$/i })).toBeDisabled()
   })
 })
