@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, MuNumeral, Pill, Row } from '@talyvor/ui'
 import { api, ApiError, type Bond, type LedgerEntry } from '../../lib/api'
 import { CacheCard } from './CacheCard'
+import { ConvertLens } from './ConvertLens'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { CapabilityOff } from './Capability'
 import { ModelTier } from './ModelTier'
@@ -94,6 +95,10 @@ function LensCard() {
             <MuNumeral micros={q.data.lifetime_spent_ulens} unit="lens" />
           </Row>
           <Row label="Updated" hint={formatWhen(q.data.updated_at)} />
+          {/* The exit. Earned LENS was unspendable from the suite until this: Lens has had the
+              conversion, nothing here offered it. Collapsed by default, so reading the balance
+              costs the same one request it always did. */}
+          <ConvertLens lensBalanceMicros={q.data.balance_ulens} />
         </>
       )}
     </Card>
