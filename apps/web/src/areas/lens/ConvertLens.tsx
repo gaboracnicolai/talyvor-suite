@@ -1,7 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { Button, Input, MuNumeral } from '@talyvor/ui'
-import { ConvertError, convertApi, lensCostForLXC, microsToUnits } from './convertApi'
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Button, Input, MuNumeral } from "@talyvor/ui";
+import {
+  ConvertError,
+  convertApi,
+  lensCostForLXC,
+  microsToUnits,
+} from "./convertApi";
 
 // SPENDING EARNED LENS — the exit the balance did not have.
 //
@@ -25,26 +30,34 @@ import { ConvertError, convertApi, lensCostForLXC, microsToUnits } from './conve
 //     stated in the panel, before the click, not in a toast afterwards. A confirmation that
 //     appears after an irreversible action has confirmed nothing.
 
-export function ConvertLens({ lensBalanceMicros }: { lensBalanceMicros: number }) {
-  const [open, setOpen] = useState(false)
-  const [lxcUnits, setLxcUnits] = useState('1')
-  const qc = useQueryClient()
+export function ConvertLens({
+  lensBalanceMicros,
+  heldMicros = 0,
+}: {
+  /** SPENDABLE LENS — what a conversion can actually draw on. */
+  lensBalanceMicros: number;
+  /** Earned but still in its holdback window. Quoted here so a refusal is never a surprise. */
+  heldMicros?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const [lxcUnits, setLxcUnits] = useState("1");
+  const qc = useQueryClient();
 
   const quote = useQuery({
-    queryKey: ['convert-quote'],
+    queryKey: ["convert-quote"],
     queryFn: convertApi.quote,
     enabled: open, // no request until someone asks — the balance read stays one call
-  })
+  });
 
   const run = useMutation({
     mutationFn: (micros: number) => convertApi.convert(micros),
     onSuccess: () => {
       // Both balances moved, so both reads are stale. Invalidating rather than patching keeps the
       // screen's numbers the server's numbers.
-      void qc.invalidateQueries({ queryKey: ['lens-balance'] })
-      void qc.invalidateQueries({ queryKey: ['lxc-balance'] })
+      void qc.invalidateQueries({ queryKey: ["lens-balance"] });
+      void qc.invalidateQueries({ queryKey: ["lxc-balance"] });
     },
-  })
+  });
 
   if (!open) {
     return (
@@ -53,15 +66,15 @@ export function ConvertLens({ lensBalanceMicros }: { lensBalanceMicros: number }
           Convert to LXC…
         </Button>
       </div>
-    )
+    );
   }
 
-  const micros = Math.round(Number(lxcUnits) * 1e6)
-  const valid = Number.isFinite(micros) && micros > 0
-  const min = quote.data?.min_lxc_ulxc ?? 0
-  const belowMin = valid && min > 0 && micros < min
-  const cost = quote.data ? lensCostForLXC(micros, quote.data.lens_per_lxc) : 0
-  const tooExpensive = valid && cost > lensBalanceMicros
+  const micros = Math.round(Number(lxcUnits) * 1e6);
+  const valid = Number.isFinite(micros) && micros > 0;
+  const min = quote.data?.min_lxc_ulxc ?? 0;
+  const belowMin = valid && min > 0 && micros < min;
+  const cost = quote.data ? lensCostForLXC(micros, quote.data.lens_per_lxc) : 0;
+  const tooExpensive = valid && cost > lensBalanceMicros;
 
   return (
     <div className="flex flex-col gap-3 border-t border-rule px-gutter py-3">
@@ -71,19 +84,25 @@ export function ConvertLens({ lensBalanceMicros }: { lensBalanceMicros: number }
         <p className="text-caption text-muted">
           {quote.error instanceof ConvertError
             ? quote.error.message
-            : 'Couldn’t read the conversion rate.'}
+            : "Couldn’t read the conversion rate."}
         </p>
       ) : quote.data ? (
         <>
           <div className="flex flex-col gap-1">
             <div className="text-caption text-muted">
-              Rate: <span className="text-ink">{quote.data.lens_per_lxc}</span> LENS per LXC ·
-              minimum <span className="text-ink">{microsToUnits(quote.data.min_lxc_ulxc)}</span> LXC
+              Rate: <span className="text-ink">{quote.data.lens_per_lxc}</span>{" "}
+              LENS per LXC · minimum{" "}
+              <span className="text-ink">
+                {microsToUnits(quote.data.min_lxc_ulxc)}
+              </span>{" "}
+              LXC
             </div>
             {/* ⚠ BEFORE THE BUTTON. The note comes from the server with the quote, so it cannot
                 drift from what the backend actually supports. */}
             {!quote.data.reversible ? (
-              <p className="text-caption text-faint">⚠ {quote.data.reversible_note}</p>
+              <p className="text-caption text-faint">
+                ⚠ {quote.data.reversible_note}
+              </p>
             ) : null}
           </div>
 
@@ -102,7 +121,7 @@ export function ConvertLens({ lensBalanceMicros }: { lensBalanceMicros: number }
               disabled={!valid || belowMin || tooExpensive || run.isPending}
               onClick={() => run.mutate(micros)}
             >
-              {run.isPending ? 'Converting…' : 'Convert'}
+              {run.isPending ? "Converting…" : "Convert"}
             </Button>
             <Button variant="default" onClick={() => setOpen(false)}>
               Cancel
@@ -111,8 +130,8 @@ export function ConvertLens({ lensBalanceMicros }: { lensBalanceMicros: number }
 
           {valid ? (
             <div className="text-caption text-muted">
-              Costs <MuNumeral micros={cost} unit="lens" /> — rounded up, the way the server
-              charges it.
+              Costs <MuNumeral micros={cost} unit="lens" /> — rounded up, the
+              way the server charges it.
             </div>
           ) : null}
           {belowMin ? (
@@ -122,7 +141,18 @@ export function ConvertLens({ lensBalanceMicros }: { lensBalanceMicros: number }
           ) : null}
           {tooExpensive ? (
             <p className="text-caption text-muted">
-              That costs more LENS than this workspace has.
+              That costs more LENS than this workspace can spend right now.
+              {heldMicros > 0 ? (
+                <>
+                  {" "}
+                  {/* ⚠ WITHOUT THIS THE REFUSAL IS UNINTERPRETABLE. Someone looking at a held
+                      balance will try to convert it, and "not enough LENS" beside a visible 822
+                      reads as a bug in the conversion rather than as the holdback working. */}
+                  <MuNumeral micros={heldMicros} unit="lens" /> is held and not
+                  yet spendable — it settles automatically, about 72h after it
+                  was earned.
+                </>
+              ) : null}
             </p>
           ) : null}
         </>
@@ -132,15 +162,17 @@ export function ConvertLens({ lensBalanceMicros }: { lensBalanceMicros: number }
         <p className="text-caption text-muted">
           {run.error instanceof ConvertError
             ? run.error.message
-            : 'Couldn’t convert — nothing was converted.'}
+            : "Couldn’t convert — nothing was converted."}
         </p>
       ) : null}
       {run.isSuccess && run.data ? (
         <p className="text-caption text-muted">
-          Converted. LXC balance is now <MuNumeral micros={run.data.new_lxc_balance_ulxc} unit="lxc" />
-          , LENS <MuNumeral micros={run.data.new_lens_balance_ulens} unit="lens" />.
+          Converted. LXC balance is now{" "}
+          <MuNumeral micros={run.data.new_lxc_balance_ulxc} unit="lxc" />
+          , LENS{" "}
+          <MuNumeral micros={run.data.new_lens_balance_ulens} unit="lens" />.
         </p>
       ) : null}
     </div>
-  )
+  );
 }
