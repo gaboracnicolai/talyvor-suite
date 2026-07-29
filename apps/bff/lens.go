@@ -137,6 +137,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/lxc/topup-options", a.requireTenant(a.handleTopUpOptions))
 	a.mux.HandleFunc("/api/lxc/checkout", a.requireTenant(a.handleLXCCheckout))
 
+	// LENS → LXC conversion: the exit earned LENS did not have. Both behind requireTenant, so
+	// the workspace is the SESSION's; the write additionally requires a same-origin post. See
+	// convert.go for the rate, the minimum and why the screen must say it is ONE-WAY.
+	a.mux.HandleFunc("/api/lens/convert-quote", a.requireTenant(a.handleConvertQuote))
+	a.mux.HandleFunc("/api/lens/convert", a.requireTenant(a.handleConvert))
+
 	// USAGE — the cache panel's real numbers, and per-model usage in the same call.
 	// Lens has served this all along (internal/api/server.go: "per-model usage +
 	// serve_source cache hit rate (trial core), one call"); nothing here called it, so two
