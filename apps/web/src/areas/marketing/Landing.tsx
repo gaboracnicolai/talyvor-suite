@@ -352,6 +352,16 @@ export function Landing() {
                 for everyone, including the one that arrives after yours. Day one is an ordinary bill
                 with a real ledger under it. The curve is the product.
               </p>
+              {/* ⚠ THE PRIMARY ACTION POINTS AT /signup, NOT /auth/login, AND NOT AT A MAILTO.
+                  Preserved from the previous version because the reasoning is easy to "simplify"
+                  away: an earlier draft sent people to sign-in on the theory that a stranger could
+                  not complete OAuth anyway, since the Google app is in Testing mode. That premise
+                  was inferred from config and was FALSE — Google's Testing state exempts apps
+                  requesting only openid, email and profile, which is exactly what apps/bff/auth.go
+                  requests. Nobody is stopped at Google; the only wall is ours
+                  (OIDC_ALLOWED_EMAILS). /signup tells a stranger what this is and who may enter —
+                  derived from the gate, so it is right in both configurations — before handing
+                  them to a third party. "Open the app" in the header is the other reader. */}
               <div className="mt-9 flex flex-wrap items-center gap-3">
                 <Button asChild variant="primary">
                   <a href="/signup">Get started</a>
@@ -482,7 +492,9 @@ export function Landing() {
                 <p className="mt-2 text-body text-muted">
                   Earnings are held before they become spendable, sized so the statistical gaming
                   patterns are detectable inside the window. Held earnings are visible while they
-                  wait — yours, simply not spendable yet.
+                  wait, and the window is exactly when a payout can still be contested — a held
+                  amount can be removed before it ever becomes spendable, which is the point of
+                  holding it. The Terms say the same thing in full.
                 </p>
               </div>
               <div>
