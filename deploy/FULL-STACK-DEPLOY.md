@@ -361,6 +361,34 @@ build, but only because it also touched test files under `cmd/**`. Do not rely o
 
 ---
 
+### ⚠ STEP 0c — build-time environment for the web bundle
+
+`VITE_*` variables are read by `vite build` **from the shell that runs it** and baked into
+the bundle. They are not runtime config: setting one on the app host after the fact changes
+nothing, and the only way to fix a wrong value is another build.
+
+**`VITE_CONTACT_EMAIL` — currently unset, and that is why the marketing page shows no email CTA.**
+This is deliberate. The page previously hardcoded `hello@talyvor.com` under a comment saying the
+alias did not route yet; it shipped anyway, and a buyer's first action went nowhere. The address is
+now configuration and its absence is a state the page renders — unset means no email CTA is drawn
+at all, rather than a dead one. There is no fallback address on purpose.
+
+```sh
+# On the workstation, at build time. Only after the alias ACTUALLY DELIVERS.
+VITE_CONTACT_EMAIL=hello@talyvor.com ./scripts/build-release.sh web
+```
+
+⚠ **Send a test message to the address and confirm it arrives BEFORE setting this.** Setting it
+while the alias still bounces re-creates the exact defect the gate was built to prevent, and this
+time with no comment to notice.
+
+```sh
+# Verify the built bundle actually carries it, before shipping.
+grep -c 'hello@talyvor.com' apps/web/dist/assets/*.js
+# expect: at least one match. ZERO ⇒ the variable was not in the build environment —
+# a bundle built without it is indistinguishable from one built before the CTA existed.
+```
+
 ## STEP 1 — generate the four shared secrets, once
 
 ⚠ **Run this on the WORKSTATION** (its verify step sshes to both boxes, so it cannot be

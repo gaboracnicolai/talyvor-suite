@@ -62,6 +62,36 @@ export function Terms() {
         </p>
       </Section>
 
+      <Section title="⚠ Earned LENS is not yours to spend straight away">
+        <p className="text-body">
+          When a contribution earns LENS, it does not arrive in your spendable balance. It lands in
+          a <strong>holding period</strong> first: the app shows it as held, you cannot spend or
+          convert it, and it becomes spendable on its own once the period is over. Nothing is
+          required from you and there is no button to press.
+        </p>
+        <p className="mt-3 text-body">
+          <strong>During that period the payout can be reversed.</strong> If we determine that an
+          earning was gamed, or that the shared answer it was paid for was bad, an operator can
+          revoke it and the held amount is removed before it ever becomes spendable. That is what
+          the holding period is for — it is the window in which a payout can still be contested.
+          Once it settles, it is not clawed back.
+        </p>
+        <p className="mt-3 text-body text-muted">
+          We do not fix the length here on purpose. It is an operator setting, not a term of this
+          document, and this same page ships with self-hosted installations whose operator may have
+          chosen a different one. Your balance screen shows the held amount and the indication it
+          gives reflects how this deployment is currently configured — it is not a commitment, and
+          it can change.
+        </p>
+        <LawyerReview compact>
+          This is a delay and a discretionary reversal on amounts already described to the user as
+          earned. Who decides, on what evidence, whether the user is told, and whether they can
+          contest it are all undefined in the code — the revocation is an operator action with no
+          notice mechanism and no appeal path. That needs a position before anything of value
+          depends on it.
+        </LawyerReview>
+      </Section>
+
       <Section title="Sharing between companies">
         <p className="text-body">
           Answers generated for your workspace may be served to other companies, and theirs to you.

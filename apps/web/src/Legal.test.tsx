@@ -248,4 +248,53 @@ describe('both documents state their absences rather than reading as complete', 
     at('/terms')
     expect(await screen.findByText(/not money/i)).toBeInTheDocument()
   })
+
+  // ⚠ EARNED LENS IS HELD BEFORE IT CAN BE SPENT, AND THE TERMS SAID NOTHING.
+  //
+  // A pool royalty credits `held_balance` and does not become spendable until Lens's finalize
+  // sweeper settles it after a holdback window. A tester earned 822 µLENS and could not spend it
+  // for three days. A delay on money someone earned is a material term, and the page had zero
+  // occurrences of "held", "holdback" or any window at all.
+  //
+  // ⚠ AND THE DELAY IS NOT THE WHOLE TERM. Inside that window the mint can be REVOKED — Lens ships
+  // an operator adjudication endpoint that burns held LENS (RevokeHeldTx, ledger type
+  // pool_royalty_revoked). Disclosing "you wait" while omitting "it can be taken back" would
+  // describe the pleasant half of the mechanism.
+  it('terms says earned LENS is held before it can be spent', async () => {
+    mockBff()
+    at('/terms')
+    // Pins the CLAIM (it lands in a holding period and cannot be spent yet), not a guessed
+    // phrasing — the sentence may be reworded, the term may not quietly disappear.
+    // 'holding period' appears twice (the term, then its purpose), so match ALL rather than let
+    // an ambiguous query fail for a reason unrelated to the claim.
+    expect((await screen.findAllByText(/holding period/i)).length).toBeGreaterThan(0)
+    expect(await screen.findByText(/cannot spend or convert it/i)).toBeInTheDocument()
+  })
+
+  it('terms says a held payout can be revoked before it settles', async () => {
+    mockBff()
+    at('/terms')
+    expect(await screen.findByText(/can be reversed|revoked/i)).toBeInTheDocument()
+  })
+
+  // ⚠ AND IT MUST NOT PIN A NUMBER. The window is LENS_POOL_HOLDBACK_WINDOW — a configurable Go
+  // duration, default 72h — and Lens exposes it on NO endpoint, so the browser cannot read the
+  // real value. A terms page that printed "72 hours" would be a false statement of a material term
+  // on any deployment whose operator changed it, and nothing in the product could correct it.
+  it('terms does not print a fixed holdback duration it cannot verify', async () => {
+    mockBff()
+    at('/terms')
+    const page = await screen.findByRole('heading', { name: /^Terms$/i })
+    const text = page.closest('div')?.parentElement?.textContent ?? ''
+    expect(text).toMatch(/holding period|held/i)
+    expect(text).not.toMatch(/\b72\s*(hours|h)\b/i)
+  })
+
+  // /terms already carries four review markers (page-level, stored value, refunds, deletion), so
+  // a >=4 bar would pass without the new clause carrying one. Five is what makes it assert.
+  it('the holdback clause is flagged for legal review like the other gaps', async () => {
+    mockBff()
+    at('/terms')
+    expect((await screen.findAllByText(/needs legal review/i)).length).toBeGreaterThanOrEqual(5)
+  })
 })
