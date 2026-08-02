@@ -210,8 +210,34 @@ and all were green.)*
 ```sh
 git clone https://github.com/gaboracnicolai/talyvor-suite.git && cd talyvor-suite
 pnpm install --frozen-lockfile
-scripts/build-release.sh                  # → apps/web/dist + bff-linux-amd64
+VITE_CONTACT_EMAIL=hello@talyvor.com \
+  scripts/build-release.sh                # → apps/web/dist + bff-linux-amd64
 ```
+
+### ⚠ `VITE_CONTACT_EMAIL` is a BUILD-time variable, not a runtime one
+
+The marketing page's contact CTA renders only when this is set, and it must be
+set **in the environment of the build**, as above. Vite inlines
+`import.meta.env.*` into the bundle when the assets are compiled, so putting
+`VITE_CONTACT_EMAIL` in the deployed env file, the compose service, or the
+systemd unit does **nothing at all** — the string is baked in at `pnpm build` or
+it is absent forever in that bundle.
+
+This is why the address is absent from the current deployment:
+`hello@talyvor.com` appears zero times in the shipped JS, so the page correctly
+renders no CTA rather than a dead one. It is not a bug in the page; the build
+was simply never given the value.
+
+Verify it landed before shipping the bundle — the page's own state depends on it:
+
+```sh
+grep -c 'hello@talyvor.com' apps/web/dist/assets/*.js   # expect ≥ 1
+```
+
+A `0` means the CTA will not render. **Do not** "fix" that by hardcoding the
+address in the page: it is configuration precisely because a hardcoded address
+shipped once while its alias did not route, and a comment beside it could not
+fail the build.
 
 **Use the script, not the two build commands directly.** It derives the commit
 once (`git rev-parse --short HEAD`) and stamps **both** artifacts with it, then
