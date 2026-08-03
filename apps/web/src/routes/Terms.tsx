@@ -92,6 +92,24 @@ export function Terms() {
         </LawyerReview>
       </Section>
 
+      <Section title="Documents you attach">
+        <p className="text-body">
+          When you attach a document, we convert it to Markdown before the model sees it. The model
+          reads the converted text, not your original file. This is on unless you turn it off, and
+          it is on because the converted text is smaller — you are charged for the smaller thing.
+        </p>
+        <p className="mt-3 text-body">
+          <strong>If a file has no text to extract</strong> — a scan, a photograph, an image-only
+          PDF — it is sent to a <strong>vision model</strong> to be read. That is an extra model
+          call on your document, and it costs tokens rather than saving them.
+        </p>
+        <p className="mt-3 text-body text-muted">
+          The converted text is what everything downstream treats as your prompt, so what{' '}
+          <a className="underline" href="/privacy">Privacy</a> says about prompts applies to your
+          documents' contents too. You can turn conversion off in settings.
+        </p>
+      </Section>
+
       <Section title="Sharing between companies">
         <p className="text-body">
           Answers generated for your workspace may be served to other companies, and theirs to you.

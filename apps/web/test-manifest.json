@@ -6,6 +6,7 @@
   "src/areas/docs/tree.test.ts": 4,
   "src/areas/lens/BillingReturn.test.tsx": 11,
   "src/areas/lens/Convert.test.tsx": 8,
+  "src/areas/lens/Documents.test.tsx": 11,
   "src/areas/lens/format.test.ts": 8,
   "src/areas/lens/Held.test.tsx": 7,
   "src/areas/lens/Keys.test.tsx": 11,

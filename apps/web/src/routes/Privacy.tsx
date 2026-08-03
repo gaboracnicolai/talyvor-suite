@@ -77,6 +77,33 @@ export function Privacy() {
         </p>
       </Section>
 
+      <Section title="⚠ Documents you attach become the prompt">
+        <p className="text-body">
+          When you attach a document, we convert it to Markdown before the model sees it, and{' '}
+          <strong>the converted text is what everything downstream treats as your prompt</strong>.
+          It is what gets hashed, what gets embedded, and what gets cached. Everything this page
+          says about prompts applies to the contents of your documents.
+        </p>
+        <p className="mt-3 text-body">
+          <strong>If a file has no text to extract</strong> — a scan, a photograph, an image-only
+          PDF — it is sent to a <strong>vision model</strong> to be read. Your document is
+          transmitted to a model provider to have its contents recovered.
+        </p>
+        <p className="mt-3 text-body text-muted">
+          Read this together with the section below. An answer often restates the question it was
+          answering, and that is truer of a document than of a typed question: a question about a
+          contract may be a sentence, while an answer derived from the contract can quote it. With
+          sharing on, an answer derived from your document can be served to another company.{' '}
+          <strong className="text-ink">
+            If a document is confidential, turn document conversion off, turn sharing off, or do
+            not attach it.
+          </strong>
+        </p>
+        <p className="mt-3 text-body text-muted">
+          Conversion is <strong>on</strong> for every workspace unless you turn it off, in Settings.
+        </p>
+      </Section>
+
       <Section title="⚠ Answers you generate may be served to other companies">
         <p className="text-body">
           This is the part that matters most, and it is on by default.
