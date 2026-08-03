@@ -127,6 +127,13 @@ func newApp(cfg config, auth *authenticator) *app {
 	// can be served to another company before they have been told. See tenant.go.
 	a.mux.HandleFunc("/api/pooling", a.requireTenant(a.handlePoolingChoice))
 
+	// DOCUMENT CONVERSION (distill) — the disclosure's control and evidence. Lens defaults every
+	// workspace to distill_policy='always', so this is already happening to every customer; the
+	// route to stop it has been live and uncalled. Same posture as /api/pooling: session-gated,
+	// same-Origin on the write, key attached server-side, and the response states what Lens
+	// RECORDED. See distill.go — distill_poolable is deliberately NOT exposed here.
+	a.mux.HandleFunc("/api/distill", a.requireTenant(a.handleDistill))
+
 	// LXC top-up (this PR) — the BFF's SECOND write path, and the front door for
 	// the only way a customer can buy LXC. GET serves the allowed amounts (so the
 	// screen hardcodes no price); POST starts a Stripe Checkout Session against

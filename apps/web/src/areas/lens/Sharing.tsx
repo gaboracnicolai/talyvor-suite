@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { api, ApiError } from '../../lib/api'
+import { DocumentFacts, DistillChoice } from './Documents'
 
 // Sharing.tsx — cross-tenant answer sharing: the explanation, and the control.
 //
@@ -136,6 +137,17 @@ export function Settings() {
         <div className="flex flex-col gap-4 px-gutter py-4">
           <SharingFacts />
           <SharingChoice />
+        </div>
+      </Card>
+
+      {/* Document conversion is ON for every workspace by default and had no control anywhere in
+          the product. Kept as its OWN card, not folded into sharing: they are different consents
+          and a person may reasonably want one without the other. */}
+      <Card>
+        <CardHeader>Documents you attach</CardHeader>
+        <div className="flex flex-col gap-4 px-gutter py-4">
+          <DocumentFacts />
+          <DistillChoice />
         </div>
       </Card>
     </div>
