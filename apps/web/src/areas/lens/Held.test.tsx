@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Overview } from './Overview'
 import { ConvertLens } from './ConvertLens'
@@ -51,10 +52,14 @@ function mockBff(over: Partial<typeof balance> = {}) {
 
 function renderOverview() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // ⚠ Router required: Overview's zero-data activity empty state links to /setup, and this
+  // fixture has no ledger rows, so that branch renders here.
   return render(
-    <QueryClientProvider client={qc}>
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
       <Overview />
-    </QueryClientProvider>,
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -70,7 +75,14 @@ describe('a held royalty is shown, and shown as not yet spendable', () => {
 
   it('says it settles on its own, so nobody waits for a button that does not exist', async () => {
     renderOverview()
-    expect(await screen.findByText(/settles automatically/i)).toBeInTheDocument()
+    // ⚠ The copy used to say "settles automatically, about 72h after it is earned". Both halves
+    // of that were wrong to state: the length is an operator setting this app cannot read, and
+    // the sentence omitted that a held payout can be REVOKED during the window — which is what
+    // the window is for. The INTENT of this assertion is unchanged (nobody waits for a button
+    // that does not exist); it now also pins the half that was missing.
+    expect(await screen.findByText(/settles on its own/i)).toBeInTheDocument()
+    expect(screen.getByText(/can still be revoked/i)).toBeInTheDocument()
+    expect(screen.queryByText(/about 72\s*h/i)).toBeNull()
   })
 
   // ⚠ AND IT MUST NOT BE ADDED TO THE SPENDABLE HEADLINE. Counting held would offer money the
@@ -121,9 +133,11 @@ describe('the convert panel explains a refusal it would otherwise not', () => {
     })
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     return render(
-      <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <QueryClientProvider client={qc}>
         <ConvertLens lensBalanceMicros={spendable} heldMicros={held} />
-      </QueryClientProvider>,
+        </QueryClientProvider>
+      </MemoryRouter>,
     )
   }
 

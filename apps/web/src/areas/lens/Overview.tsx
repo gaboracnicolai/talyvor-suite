@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Card, CardHeader, MuNumeral, Pill, Row } from "@talyvor/ui";
 import { api, ApiError, type Bond, type LedgerEntry } from "../../lib/api";
 import { CacheCard } from "./CacheCard";
@@ -97,18 +98,30 @@ function LensCard() {
             <MuNumeral micros={q.data.balance_ulens} unit="lens" />
           </div>
           {/* ⚠ THREE STATES, NOT ONE. A pool royalty credits HELD balance and becomes spendable
-              only when Lens's finalize sweeper settles it (72h holdback). The first real royalty
-              was 822 µLENS held against a spendable balance of 0 — correct, and unreadable: the
-              screen showed one number and the ledger showed another.
+              only when Lens's finalize sweeper settles it (the operator-set holdback). The first
+              real royalty was 822 µLENS held against a spendable balance of 0 — correct, and
+              unreadable: the screen showed one number and the ledger showed another.
 
               Counting held in the headline would overstate what can be spent, and the conversion
               would then refuse an amount the user had just been shown. Omitting it loses money
               they earned. So it is its own row, labelled, and rendered ONLY when there is some —
-              a permanent "Held 0" would be noise on every workspace that never earns a royalty. */}
+              a permanent "Held 0" would be noise on every workspace that never earns a royalty.
+
+              ⚠ THE HINT CARRIED TWO ERRORS OF THE SAME CLASS, both corrected here.
+              (1) It said "about 72h". That is LENS_POOL_HOLDBACK_WINDOW — an operator setting,
+                  which Lens publishes on NO endpoint. This screen therefore cannot read it and
+                  was printing a figure it had no way to verify; on a deployment configured
+                  differently it was simply wrong. Terms explicitly promises that this screen
+                  "reflects how this deployment is currently configured", which a hardcoded
+                  constant cannot do.
+              (2) It said only that held LENS SETTLES. During the window it can also be REVOKED
+                  (mining.RevokeHeldTx burns it) — that is what the window is FOR. Saying the
+                  settlement and omitting the reversal is the pleasant half of the mechanism,
+                  and Terms already states both, so this row contradicted it by omission. */}
           {(q.data.held_balance_ulens ?? 0) > 0 ? (
             <Row
               label="Held — not yet spendable"
-              hint="settles automatically, about 72h after it is earned"
+              hint="settles on its own after a holding period — during which it can still be revoked"
             >
               <MuNumeral micros={q.data.held_balance_ulens ?? 0} unit="lens" />
             </Row>
@@ -248,7 +261,12 @@ function SpendCard({ now }: { now: Date }) {
         <Failed what="the mint ledger" error={ledger.error} />
       ) : agg.length === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">
-          No mint-attributed LENS rows in the window yet.
+          {/* ⚠ CORRECT AND UNHELPFUL IS THE FAILURE MODE. "No rows yet" is true on every
+              brand-new workspace and leaves a first user unable to tell working from broken.
+              Say what PUTS a row here. */}
+          No earnings yet. A row appears here when another company is served an answer this
+          workspace produced — which needs sharing left on, and needs your traffic to have
+          answered something they later ask.
         </div>
       ) : (
         // Scoped like the LXC split above: the same model name legitimately appears in
@@ -416,7 +434,13 @@ function RecentActivity() {
         <Failed what="recent activity" error={q.error} />
       ) : rows.length === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">
-          No ledger entries yet.
+          {/* ⚠ Same class as the earnings empty state above. It now names the one action that
+              creates the first entry, and points at it. */}
+          No activity yet. The first entry appears the moment a request goes through Lens —{' '}
+          <Link className="underline" to="/setup">
+            point a tool at it
+          </Link>{' '}
+          and refresh.
         </div>
       ) : (
         rows.map((e) => <ActivityRow key={e.id} e={e} />)

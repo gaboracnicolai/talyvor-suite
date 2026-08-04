@@ -79,9 +79,10 @@ export function Terms() {
         <p className="mt-3 text-body text-muted">
           We do not fix the length here on purpose. It is an operator setting, not a term of this
           document, and this same page ships with self-hosted installations whose operator may have
-          chosen a different one. Your balance screen shows the held amount and the indication it
-          gives reflects how this deployment is currently configured — it is not a commitment, and
-          it can change.
+          chosen a different one. Your balance screen shows the held amount and says that it settles
+          after a holding period during which it can be revoked; it deliberately does not print a
+          length, because the app cannot read the operator&rsquo;s setting and a number it could
+          not verify would be worse than none.
         </p>
         <LawyerReview compact>
           This is a delay and a discretionary reversal on amounts already described to the user as

@@ -164,10 +164,21 @@ export function Setup() {
               hash of the prompt, an embedding of it, and the answer that came back. That happens
               whether or not request logging is on — it is what the cache is.
             </li>
+            {/* ⚠ THIS SAID LOGGING WAS "who called what, when, and what it cost" AND STOPPED —
+                which describes the DEFAULT setting and reads as though prompt text is never
+                persisted. It is not the whole mechanism: under the `full` setting Lens writes
+                prompt_text to token_events AND publishes the raw prompt and response to a
+                30-day stream (proxy.go gates both on LoggingFull; `metadata`, the default,
+                blanks the prompt). The Privacy page has always said so. The screen someone
+                reads BEFORE pasting a key said the reassuring part only. */}
             <li>
-              <strong>Logging is separate and configurable.</strong> Request logging controls the
-              audit trail — who called what, when, and what it cost. Turning it off does not turn
-              off the cache, and we would rather say so than let you find out.
+              <strong>Logging is separate and configurable.</strong> On the default setting the
+              audit trail is metadata — who called what, when, and what it cost — and your prompt
+              text is not kept. There is a <em>full</em> setting that does keep prompt text, and
+              also sends the prompt and the answer to a 30-day stream. Nothing in this app turns
+              it on, but an operator can, and you would not be able to tell from here. Turning
+              logging off does not turn off the cache, and we would rather say so than let you
+              find out.
             </li>
             <li>
               <strong>
@@ -190,7 +201,9 @@ export function Setup() {
             <li>
               <strong>Your prompts are never served to another company.</strong> Even with pooling
               on, what can be shared is an <em>answer</em> to a semantically equivalent question —
-              never your prompt, never your key, never your workspace’s identity.
+              never your prompt, never your key, never your workspace’s identity. But an answer
+              often restates the question it answered, so the fact to plan around is{' '}
+              <em>the answer leaves this workspace</em>, not <em>the prompt does not</em>.
             </li>
           </ul>
         </div>

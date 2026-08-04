@@ -274,7 +274,12 @@ describe('both documents state their absences rather than reading as complete', 
   it('terms says a held payout can be revoked before it settles', async () => {
     mockBff()
     at('/terms')
-    expect(await screen.findByText(/can be reversed|revoked/i)).toBeInTheDocument()
+    // findAll, not find: the page now states the reversal in TWO places — the section that
+    // explains it, and the sentence describing what the balance screen shows. A single-match
+    // assertion started failing on "found multiple elements", which is the page saying the
+    // material term more often rather than less.
+    const said = await screen.findAllByText(/can be reversed|revoked/i)
+    expect(said.length).toBeGreaterThan(0)
   })
 
   // ⚠ AND IT MUST NOT PIN A NUMBER. The window is LENS_POOL_HOLDBACK_WINDOW — a configurable Go
