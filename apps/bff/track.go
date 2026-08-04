@@ -210,10 +210,6 @@ func (a *app) trackIssueComments() http.HandlerFunc {
 		// NOTE: Track's existing writes (create/update issue) do NOT check this today — that is a
 		// real inconsistency, and the direction to resolve it in is to add the check there, not to
 		// drop it here.
-		if r.Method == http.MethodPost && !a.originAllowed(r) {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "bad origin"})
-			return
-		}
 		id, ok := pathID(w, "id", r.PathValue("id"))
 		if !ok {
 			return

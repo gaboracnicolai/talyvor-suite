@@ -34,21 +34,6 @@ import (
 	"strings"
 )
 
-// requireSameOrigin is the write-path CSRF layer. In disabled mode there is no
-// public origin to compare and the loopback bind is the guard, as everywhere
-// else in that mode.
-func (a *app) requireSameOrigin(w http.ResponseWriter, r *http.Request) bool {
-	if a.cfg.authMode == authModeDisabled {
-		return true
-	}
-	if origin := r.Header.Get("Origin"); origin != a.cfg.publicBaseURL {
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": "cross-origin write refused: the Origin header must be the app origin"})
-		return false
-	}
-	return true
-}
-
 func (a *app) handleKeys(w http.ResponseWriter, r *http.Request, t tenant) {
 	switch r.Method {
 	case http.MethodGet:
@@ -73,9 +58,6 @@ func (a *app) handleKeys(w http.ResponseWriter, r *http.Request, t tenant) {
 func (a *app) handleKeyByID(w http.ResponseWriter, r *http.Request, t tenant) {
 	if r.Method != http.MethodDelete {
 		methodNotAllowed(w, http.MethodDelete)
-		return
-	}
-	if !a.requireSameOrigin(w, r) {
 		return
 	}
 	// The id is the one segment a caller controls, so it goes through the same validator every
@@ -114,9 +96,6 @@ func (a *app) handleKeyByID(w http.ResponseWriter, r *http.Request, t tenant) {
 }
 
 func (a *app) handleMintKey(w http.ResponseWriter, r *http.Request, t tenant) {
-	if !a.requireSameOrigin(w, r) {
-		return
-	}
 
 	// Sanitise by reconstruction: decode the known fields, re-encode, and send
 	// ONLY that upstream — unknown client fields never reach Lens, and the raw

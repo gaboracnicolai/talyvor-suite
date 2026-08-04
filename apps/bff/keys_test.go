@@ -241,6 +241,7 @@ func TestKeysMethodSurface(t *testing.T) {
 	a, sess := keysApp(t, up)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/api/keys", nil)
+	req.Header.Set("Origin", "https://app.talyvor.com") // reach the method surface, not the Origin gate
 	req.AddCookie(sess)
 	a.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed {

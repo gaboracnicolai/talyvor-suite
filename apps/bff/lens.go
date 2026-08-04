@@ -207,7 +207,71 @@ func newApp(cfg config, auth *authenticator) *app {
 	return a
 }
 
-func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) { a.mux.ServeHTTP(w, r) }
+// ServeHTTP runs the ONE write-path Origin gate, then the mux.
+//
+// ⚠ THIS IS NOT PATCHING A LIVE HOLE. The session cookie is SameSite=Lax, so a cross-site POST
+// never carries it and the request is already unauthenticated before Origin is consulted. This
+// is defence in depth (a same-site subdomain, a future cookie-policy change) and, mostly,
+// CONSISTENCY.
+//
+// WHY IT IS HERE RATHER THAN IN EACH HANDLER. It used to be per-route, and two of twelve write
+// paths did not have it — POST /api/track/issues and PATCH /api/track/issues/{id} — which is
+// what a per-route guard does eventually. Worse, there were TWO implementations of the one
+// rule with DIFFERENT behaviour: keys.go's exempted disabled mode, tenant.go's did not, and
+// publicBaseURL is assigned only in the oidc branch of loadConfig. So in disabled mode the
+// second one compared every browser's Origin against "" and refused it — pooling, distill and
+// the Track comment POST were unusable on a loopback self-host. One rule, one place, so that
+// divergence is unrepresentable.
+//
+// It runs BEFORE the mux deliberately: the guard must not depend on a handler being reached,
+// and a cross-origin write to an unknown path should be refused rather than routed.
+func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !a.sameOriginWriteAllowed(r) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": "cross-origin write refused: the Origin header must be the app origin"})
+		return
+	}
+	a.mux.ServeHTTP(w, r)
+}
+
+// originExemptPath names paths that MUST NOT require an Origin header. A machine caller — a
+// webhook, a service-to-service POST — has no Origin to send, so requiring one would break it
+// rather than protect it.
+//
+// ⚠ THE LIST IS EMPTY, and that is a finding rather than an oversight: every /api/* route in
+// this BFF is session-gated and browser-driven, and /auth/logout is a browser POST that the
+// app itself issues. If a webhook is ever mounted here it goes in this function WITH a reason,
+// and it must carry its own authentication (an HMAC signature) — an Origin exemption is not a
+// pass on authenticating the caller.
+func originExemptPath(path string) bool {
+	return false
+}
+
+// sameOriginWriteAllowed is the SINGLE decider. Reads are never gated: applying this to GET
+// would break every navigation and every link into the app.
+//
+// A MISSING Origin is refused, not waved through. Browsers always send it on a write; a request
+// without one is a script or a form that suppressed it, and neither is the audience for a
+// session-cookie API.
+//
+// In disabled mode there is no public origin to compare against (publicBaseURL is ""), so the
+// check is INERT and the loopback bind is the boundary — that mode hard-fails on any
+// non-loopback bind. ⚠ A deployment running BFF_AUTH_MODE=disabled therefore has NO Origin
+// layer; see deploy/README.md.
+func (a *app) sameOriginWriteAllowed(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+	default:
+		return true // reads and preflights are not write paths
+	}
+	if a.cfg.authMode == authModeDisabled {
+		return true
+	}
+	if originExemptPath(r.URL.Path) {
+		return true
+	}
+	return r.Header.Get("Origin") == a.cfg.publicBaseURL
+}
 
 // writeJSON emits a small JSON object. Used only for BFF-originated responses (context,
 // errors); upstream bodies are streamed verbatim by copyUpstream.

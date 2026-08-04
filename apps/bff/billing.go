@@ -186,9 +186,6 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant
 		methodNotAllowed(w, http.MethodPost)
 		return
 	}
-	if !a.requireSameOrigin(w, r) {
-		return
-	}
 
 	// Sanitise by reconstruction, as the mint does: decode the ONE field this
 	// route has, re-encode, and send only that upstream. A client cannot name a

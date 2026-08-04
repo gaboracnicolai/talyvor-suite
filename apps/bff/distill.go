@@ -44,10 +44,6 @@ func (a *app) handleDistill(w http.ResponseWriter, r *http.Request, t tenant) {
 		}
 		writeJSON(w, http.StatusOK, st)
 	case http.MethodPost:
-		if !a.originAllowed(r) {
-			writeJSON(w, http.StatusForbidden, map[string]string{"error": "bad origin"})
-			return
-		}
 		var in struct {
 			DistillPolicy *string `json:"distill_policy"`
 		}
