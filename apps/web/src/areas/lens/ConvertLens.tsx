@@ -147,10 +147,16 @@ export function ConvertLens({
                   {" "}
                   {/* ⚠ WITHOUT THIS THE REFUSAL IS UNINTERPRETABLE. Someone looking at a held
                       balance will try to convert it, and "not enough LENS" beside a visible 822
-                      reads as a bug in the conversion rather than as the holdback working. */}
+                      reads as a bug in the conversion rather than as the holdback working.
+
+                      ⚠ It used to say "about 72h" and describe only settlement. The length is
+                      LENS_POOL_HOLDBACK_WINDOW, an operator setting exposed on no endpoint, so
+                      this screen cannot verify it; and the window is precisely when a payout can
+                      be REVOKED, which the sentence left out. Both corrected — see Overview. */}
                   <MuNumeral micros={heldMicros} unit="lens" /> is held and not
-                  yet spendable — it settles automatically, about 72h after it
-                  was earned.
+                  yet spendable — it settles on its own after a holding period,
+                  during which it can still be revoked. That period is an operator
+                  setting this screen cannot read, so it is not stated here.
                 </>
               ) : null}
             </p>

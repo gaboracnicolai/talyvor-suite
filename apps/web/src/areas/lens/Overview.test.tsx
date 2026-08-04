@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Overview } from './Overview'
@@ -101,12 +102,18 @@ function usageWith(cache: Partial<{ total_requests: number; cache_hits: number; 
   }
 }
 
+// ⚠ A ROUTER IS REQUIRED NOW, and its absence was invisible. The zero-data empty state links to
+// /setup, and every fixture in this file has data — so the branch containing the <Link> never
+// rendered and a missing Router would have thrown only for a REAL brand-new user, which is
+// exactly the person these screens are for. See the empty-state block at the bottom.
 function renderOverview() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={client}>
-      <Overview now={NOW} />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <Overview now={NOW} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -234,5 +241,70 @@ describe('recent activity rides the shared history fetch', () => {
     renderOverview()
 
     expect((await screen.findAllByText('pattern shared')).length).toBeGreaterThan(0)
+  })
+})
+
+// ⚠ THE BRAND-NEW USER. Every other fixture in this file has data, so nothing here described
+// what the FIRST person to open this screen actually sees — and "a correct system that explains
+// nothing reads as broken" has shipped twice in this project already (a held balance of 0 beside
+// a ledger of 822; a Track fault rendered identically to an empty tracker).
+//
+// This renders the true zero state: no ledger rows, no earnings, no usage. It asserts that each
+// empty state names WHAT WOULD PUT SOMETHING THERE, rather than only stating its own emptiness.
+describe('a brand-new workspace with zero data', () => {
+  const EMPTY: Record<string, unknown> = {
+    '/api/lxc/balance': { workspace_id: 'new-ws', balance_ulxc: 0, lifetime_minted_ulxc: 0, lifetime_spent_ulxc: 0, usd_value_uusd: 0 },
+    '/api/tokens/balance': { workspace_id: 'new-ws', balance_ulens: 0, lifetime_earned_ulens: 0, lifetime_spent_ulens: 0, updated_at: '2026-07-19T14:52:59Z' },
+    '/api/tokens/history': [],
+    '/api/lxc/history': [],
+    '/api/spend/month': { current_month_usd: 0 },
+  }
+
+  function mockEmpty() {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      if (url.startsWith('/api/bonds')) return json({ capability: 'bonds', enabled: false })
+      if (url.startsWith('/api/usage')) return json(usageWith({}).body)
+      if (url.startsWith('/api/track/')) return json({ error: 'track upstream not configured on this BFF' }, 503)
+      if (url.startsWith('/api/docs/')) return json({ error: 'docs upstream not configured on this BFF' }, 503)
+      for (const [path, body] of Object.entries(EMPTY)) {
+        if (url.startsWith(path)) return json(body)
+      }
+      return new Response('null', { status: 404 })
+    })
+  }
+
+  it('the activity empty state names the action that creates the first entry, and links to it', async () => {
+    mockEmpty()
+    renderOverview()
+
+    // It must not merely state its own emptiness…
+    expect(await screen.findByText(/No activity yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^No ledger entries yet\.$/)).toBeNull()
+    // …it must say what puts a row there, and offer the way to do it.
+    expect(screen.getByText(/first entry appears the moment a request goes through Lens/i)).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /point a tool at it/i })
+    expect(link).toHaveAttribute('href', '/setup')
+  })
+
+  it('the earnings empty state explains what earning requires', async () => {
+    mockEmpty()
+    renderOverview()
+
+    expect(await screen.findByText(/No earnings yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/No mint-attributed LENS rows in the window yet/i)).toBeNull()
+    expect(screen.getByText(/served an answer this workspace produced/i)).toBeInTheDocument()
+  })
+
+  it('a zero balance renders as a balance, not as a failure', async () => {
+    mockEmpty()
+    renderOverview()
+    // The distinction that has bitten twice: empty is a STATE, a fault is an ERROR.
+    expect(await screen.findByText(/No activity yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Couldn’t load/i)).toBeNull()
+    // Held is absent entirely at zero — a permanent "Held 0" would be noise.
+    expect(screen.queryByText(/Held — not yet spendable/)).toBeNull()
   })
 })
