@@ -54,4 +54,56 @@ describe('Landing', () => {
     // with this assertion consciously updated in the same change.
     expect(container.textContent).not.toMatch(/%/)
   })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CHECKABLE CLAIMS. This page went live making four statements that source
+  // does not support. Each assertion below names the string and the reason —
+  // a test that only checked "the page renders" would pass on any wording.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ⚠ TRUE AND IT STAYS. issues.ai_cost_usd is a running sum of ai_spend_events, idempotent on
+  // request_id (talyvor-track internal/issue/store.go, migration 0017). Per-issue AI cost is real,
+  // and it is the strongest sentence on the page.
+  it('keeps the per-issue cost claim, which source supports', () => {
+    const { container } = render(<Landing />)
+    expect(container.textContent ?? '').toMatch(/cost of an issue/i)
+  })
+
+  // ⚠ FALSE AS WRITTEN. pages.ai_cost_usd is rolled up from LINKED TRACK ISSUES by
+  // trackintegration/syncer.go — it is not AI work on the document. Docs tags its own Lens calls
+  // by FEATURE (docs-ai-write / docs-ai-summarize) and never by page, so no per-page attribution
+  // exists to report.
+  it('does not claim a per-document cost, which nothing computes', () => {
+    const { container } = render(<Landing />)
+    expect(container.textContent ?? '').not.toMatch(/cost of (an issue, )?a document/i)
+  })
+
+  // ⚠ Code has no surface in this app at all — no route in App.tsx, no proxy in the BFF — so
+  // there is no "cost of a change" a reader could go and look at.
+  // The live wording is "the cost of an issue, a document or a change", so a literal
+  // /cost of a change/ never appears and would pass without the page changing at all. The
+  // assertion has to name the enumeration that actually makes the claim.
+  it('does not claim a per-change cost, which has no surface', () => {
+    const { container } = render(<Landing />)
+    expect(container.textContent ?? '').not.toMatch(/a document or a change/i)
+  })
+
+  // ⚠ THE SHARPEST ONE: it named a channel nobody can connect to. deploy/Caddyfile publishes ONE
+  // origin (app.talyvor.com → the BFF on :8787), the BFF registers no /mcp route, and Track and
+  // Docs are not publicly routed. The MCP server exists in Track — it is simply not reachable by
+  // any customer of the hosted product, so advertising it as a SURFACE is a promise the deployment
+  // cannot keep.
+  it('does not advertise MCP as a surface customers can reach', () => {
+    const { container } = render(<Landing />)
+    expect(container.textContent ?? '').not.toMatch(/\bMCP\b/)
+  })
+
+  // ⚠ THE 90-DAY CLAIM IS DECIDED AND STAYS EXACTLY AS WRITTEN. Pinned so a later tidy-up of the
+  // sentences around it cannot soften it by accident.
+  it('leaves the ninety-day claim exactly as written', () => {
+    const { container } = render(<Landing />)
+    expect(container.textContent ?? '').toMatch(
+      /near-zero at roughly ninety days of constant use/i,
+    )
+  })
 })
