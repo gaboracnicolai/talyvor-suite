@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { IssueList } from './IssueList'
+import { DEFAULT_VIEW, IssueList, issuesQuery } from './IssueList'
 import type { TrackIssue } from './types'
 
 // THE THREE THINGS A TESTER DOES: land on an empty tracker, create an issue and see it, change its
@@ -48,7 +48,12 @@ function fakeBff(initial: TrackIssue[] = []) {
     const json = (v: unknown, status = 200) =>
       new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } })
 
+    // ⚠ The list now sends a QUERY (order_by/limit, plus status/assignee when set) — that is the
+    // change under test, so the mock matches the PATH and lets the query through. Assertions that
+    // care about the query read `calls` directly.
+    if (url.startsWith('/api/track/issues?') && method === 'GET') return json(issues)
     if (url === '/api/track/issues' && method === 'GET') return json(issues)
+    if (url.startsWith('/api/members')) return json([])
     if (url === '/api/track/issues' && method === 'POST') {
       const created = issue({
         id: `iss-${issues.length + 1}`,
@@ -176,7 +181,9 @@ function refusingBff(status: number, payload: unknown) {
     const method = (init?.method ?? 'GET').toUpperCase()
     const json = (v: unknown, s = 200) =>
       new Response(JSON.stringify(v), { status: s, headers: { 'Content-Type': 'application/json' } })
+    if (url.startsWith('/api/track/issues?') && method === 'GET') return json([])
     if (url === '/api/track/issues' && method === 'GET') return json([])
+    if (url.startsWith('/api/members')) return json([])
     if (url === '/api/track/issues' && method === 'POST') return json(payload, status)
     return new Response('null', { status: 404 })
   })
@@ -236,5 +243,90 @@ describe('a refused create explains itself', () => {
     await submitTitle('Gateway ate it')
 
     expect(await screen.findByText(/Couldn’t create that issue/)).toBeInTheDocument()
+  })
+})
+
+// ⚠ THE VIEW CONTROLS. The value of this rail is not that it has dropdowns — it is that each one
+// becomes a parameter the BFF already validates, so the list narrows a SET rather than a PAGE.
+// These assert the request that goes out, because that is where the honesty lives: a control that
+// filtered the rows already fetched would look identical on screen and be a lie about what it
+// searched.
+describe('the view controls query the server, not the page', () => {
+  it('the default view asks for most-recently-updated first, bounded', () => {
+    // Sorting is what keeps the list usable as it grows — the work someone is touching stays on
+    // top without them filtering for it. Pinned as the DEFAULT, not merely as an option.
+    const q = new URLSearchParams(issuesQuery(DEFAULT_VIEW))
+    expect(q.get('order_by')).toBe('updated_at')
+    expect(q.get('order_dir')).toBe('desc')
+    expect(q.get('limit')).toBe('50')
+    // Absent controls are OMITTED, never sent blank: the BFF reads present-but-empty as
+    // absent-filter semantics, so sending one would make the request say something unasked.
+    expect(q.has('status')).toBe(false)
+    expect(q.has('assignee_id')).toBe(false)
+  })
+
+  it('a chosen status and assignee are sent as the parameters the BFF validates', () => {
+    const q = new URLSearchParams(
+      issuesQuery({ status: 'in_progress', assignee: 'm-1', orderBy: 'priority' }),
+    )
+    expect(q.get('status')).toBe('in_progress')
+    expect(q.get('assignee_id')).toBe('m-1') // NOT "assignee" — the BFF rejects unknown keys
+    expect(q.get('order_by')).toBe('priority')
+  })
+
+  it('sends only keys the BFF forwards — an unknown one is a 400, not a silent no-op', () => {
+    // The BFF refuses unknown query parameters outright, and refuses `labels` specifically
+    // because upstream would return unfiltered results while appearing to filter. So the set
+    // this screen can send is closed, and this pins it.
+    const allowed = new Set([
+      'status', 'team_id', 'project_id', 'cycle_id', 'assignee_id',
+      'priority', 'order_by', 'order_dir', 'limit', 'offset',
+    ])
+    for (const v of [
+      DEFAULT_VIEW,
+      { status: 'done' as const, assignee: 'm-2', orderBy: 'created_at' as const },
+    ]) {
+      for (const key of new URLSearchParams(issuesQuery(v)).keys()) {
+        expect(allowed.has(key)).toBe(true)
+      }
+    }
+    expect(issuesQuery(DEFAULT_VIEW)).not.toContain('labels')
+  })
+
+  // ⚠ WHAT THIS DOES *NOT* TEST, DELIBERATELY. Driving the Select open and picking an option
+  // tests the design-system component, not this screen — and no test in this area drives one
+  // (IssueDetail's three Selects are untested for interaction too). Rather than assert through a
+  // component I do not own, this pins the seam I do: the component asks for exactly what
+  // issuesQuery builds, and issuesQuery is pinned above for every view. A regression in either
+  // half fails here or there.
+  it('the list fetches exactly what issuesQuery builds for the default view', async () => {
+    const { calls } = fakeBff([issue({ id: 'i1', identifier: 'TAL-1', title: 'One' })])
+    renderList()
+    await screen.findByText('One')
+
+    const get = calls.find((c) => c.method === 'GET' && c.url.startsWith('/api/track/issues'))
+    expect(get).toBeDefined()
+    expect(get!.url).toBe(`/api/track/issues?${issuesQuery(DEFAULT_VIEW)}`)
+  })
+
+  it('a full page says there may be more, and does NOT invent a total', async () => {
+    // Track's store has no COUNT, so "N of M" is unavailable to this screen and to the BFF. A
+    // full page is the only honest signal, and the copy must not imply a number it cannot know.
+    const many = Array.from({ length: 50 }, (_, i) =>
+      issue({ id: `i${i}`, identifier: `TAL-${i}`, number: i, title: `Issue ${i}` }),
+    )
+    fakeBff(many)
+    renderList()
+
+    expect(await screen.findByText(/Showing the first 50/i)).toBeInTheDocument()
+    expect(screen.getByText(/no total to count against/i)).toBeInTheDocument()
+    expect(screen.queryByText(/of \d+/i)).toBeNull()
+  })
+
+  it('a partial page says nothing about more', async () => {
+    fakeBff([issue({ id: 'i1', identifier: 'TAL-1', title: 'Only one' })])
+    renderList()
+    await screen.findByText('Only one')
+    expect(screen.queryByText(/Showing the first/i)).toBeNull()
   })
 })
