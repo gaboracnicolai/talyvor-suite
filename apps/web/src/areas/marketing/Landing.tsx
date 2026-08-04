@@ -123,6 +123,29 @@ function DescentCurve({ members }: { members: number }) {
   )
 }
 
+// ⚠ WHAT THIS PAGE MAY CLAIM, AND WHY — checked against source, not against intent.
+//
+// · PER-ISSUE COST IS REAL and stays: talyvor-track's issues.ai_cost_usd is a running sum of the
+//   ai_spend_events ledger, idempotent on request_id (internal/issue/store.go, migration 0017).
+//
+// · PER-DOCUMENT COST IS NOT. talyvor-docs' pages.ai_cost_usd is rolled up from LINKED TRACK ISSUES
+//   by trackintegration/syncer.go — it is not AI work done on the document. Docs tags its own Lens
+//   calls by FEATURE (docs-ai-write, docs-ai-summarize) and never by page, so there is no per-page
+//   attribution to report. ⚠ RESTORE THE CLAIM ONLY WHEN Docs tags its own calls with a page
+//   identifier and pages.ai_cost_usd stops being a roll-up of something else — that work is in
+//   flight in talyvor-docs; this page must not describe it before it ships.
+//
+// · PER-CHANGE COST HAS NO SURFACE. talyvor-code has no route in this app and no proxy in the BFF,
+//   so a reader has nowhere to go and look.
+//
+// · MCP IS NOT A SURFACE ANY CUSTOMER CAN REACH. deploy/Caddyfile publishes ONE origin
+//   (app.talyvor.com → the BFF on :8787); the BFF registers no /mcp route; Track and Docs are not
+//   publicly routed. The MCP server EXISTS in Track — it is simply unreachable on the hosted
+//   product, and naming it as a surface is a promise the deployment cannot keep. ⚠ RESTORE IT ONLY
+//   when a customer-reachable path to it exists, not when the server exists.
+//
+// Landing.test.tsx asserts each of these on the RENDERED TEXT, because a comment cannot fail a
+// build — this page has already shipped one claim that a comment beside it contradicted.
 const PRODUCTS: Array<{ name: string; role: string; body: string; surfaces: string }> = [
   {
     name: 'Lens',
@@ -133,14 +156,14 @@ const PRODUCTS: Array<{ name: string; role: string; body: string; surfaces: stri
   {
     name: 'Track',
     role: 'Issue tracker',
-    body: 'Issues, workflows, dependencies, and comments — with an MCP server, so an agent works the tracker through the same permission checks as a person.',
-    surfaces: 'web · MCP',
+    body: 'Issues, workflows, dependencies and comments, with the AI cost of each issue recorded against it.',
+    surfaces: 'web',
   },
   {
     name: 'Docs',
     role: 'Team wiki',
-    body: 'Spaces and pages with versioned history and tiered sharing — readable and writable by people, and by agents through the same tier checks.',
-    surfaces: 'web · MCP',
+    body: 'Spaces and pages with versioned history and tiered sharing, and pages that carry the cost of the issues linked to them.',
+    surfaces: 'web',
   },
   {
     name: 'Code',
@@ -547,8 +570,9 @@ export function Landing() {
             </h2>
             <p className="mt-4 max-w-xl text-body text-muted">
               The tracker, the wiki and the coding agent route their model calls through the same
-              gateway — so the cost of an issue, a document or a change lands in one ledger instead
-              of four invoices nobody can reconcile.
+              gateway — one ledger instead of four invoices nobody can reconcile. The tracker goes
+              furthest: every model call is attributed to the issue that caused it, so you can read
+              the cost of an issue the way you read its status.
             </p>
             <div className="mt-10 grid gap-px border border-rule bg-rule wide:grid-cols-2">
               {PRODUCTS.map((p) => (
