@@ -209,6 +209,9 @@ func TestConvert_RequiresASession(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/api/lens/convert",
 		strings.NewReader(`{"lxc_amount_ulxc":100000}`))
+	// Same-origin, as a real browser sends: this test is about the SESSION gate, so it must
+	// get past the write-path Origin gate to reach it.
+	req.Header.Set("Origin", "https://app.talyvor.com")
 	rec := httptest.NewRecorder()
 	a.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {

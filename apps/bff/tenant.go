@@ -341,10 +341,6 @@ func (a *app) handlePoolingChoice(w http.ResponseWriter, r *http.Request, t tena
 		methodNotAllowed(w, http.MethodPost)
 		return
 	}
-	if !a.originAllowed(r) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "bad origin"})
-		return
-	}
 	var in struct {
 		CachePoolable *bool `json:"cache_poolable"`
 	}
@@ -417,11 +413,4 @@ func sessionWorkspaceID(a *app, r *http.Request) string {
 		return ""
 	}
 	return t.workspaceID
-}
-
-// originAllowed enforces the same Origin discipline as the key mint: a state-changing POST must
-// carry the configured public origin. Browsers attach Origin to every POST and scripts cannot
-// spoof it.
-func (a *app) originAllowed(r *http.Request) bool {
-	return r.Header.Get("Origin") == a.cfg.publicBaseURL
 }

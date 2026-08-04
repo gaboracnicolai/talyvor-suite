@@ -113,9 +113,6 @@ func (a *app) handleConvert(w http.ResponseWriter, r *http.Request, t tenant) {
 		methodNotAllowed(w, http.MethodPost)
 		return
 	}
-	if !a.requireSameOrigin(w, r) {
-		return
-	}
 	var in struct {
 		LXCAmountULXC int64 `json:"lxc_amount_ulxc"`
 	}

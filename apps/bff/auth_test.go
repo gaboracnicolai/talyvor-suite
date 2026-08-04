@@ -461,11 +461,31 @@ func startOIDCBFF(t *testing.T, idp *fakeIDP, gotAuth *string, mutate func(*conf
 
 // get issues a GET (or POST with empty body when post=true), returns the
 // response and its fully-read body. The body is closed.
+// testServerOrigin extracts scheme://host from a test-server URL — the Origin a browser on
+// that server would send.
+func testServerOrigin(u string) string {
+	p, err := url.Parse(u)
+	if err != nil || p.Scheme == "" || p.Host == "" {
+		return ""
+	}
+	return p.Scheme + "://" + p.Host
+}
+
 func doReq(t *testing.T, client *http.Client, method, u string) (*http.Response, string) {
 	t.Helper()
 	req, err := http.NewRequest(method, u, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// A browser sends Origin on every write, and the BFF's single write-path gate
+	// (app.sameOriginWriteAllowed) requires it. Sending it here keeps these tests exercising
+	// the behaviour they are about — method surfaces, cookies, redirects — rather than
+	// tripping the gate on a request shape no browser produces.
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		if o := testServerOrigin(u); o != "" {
+			req.Header.Set("Origin", o)
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
