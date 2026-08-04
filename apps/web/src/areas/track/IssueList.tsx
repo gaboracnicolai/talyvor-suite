@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ApiError } from '../../lib/api'
 import { isUnconfigured } from '../../lib/productState'
 import { isSessionExpired } from '../../lib/productState'
+import { Link } from 'react-router-dom'
 import { StatusPill } from './StatusPill'
 import { UpstreamCard } from './UpstreamCard'
 import { ISSUE_STATUSES, type IssueStatus, type TrackIssue } from './types'
@@ -199,8 +200,15 @@ export function IssueList() {
             <tbody>
               {rows.map((it) => (
                 <tr key={it.id} className="border-t border-hairline align-middle">
+                  {/* ⚠ THE LINK IS THE WHOLE POINT. Until now a row was terminal: you could see an
+                      issue existed and had no way to open it. The title is the target because that
+                      is what a reader aims at; the ref stays plain so the row has one link, not two. */}
                   <td className="py-2 pr-3 font-mono text-caption text-muted">{it.identifier}</td>
-                  <td className="py-2 pr-3 text-ink">{it.title}</td>
+                  <td className="py-2 pr-3 text-ink">
+                    <Link className="underline-offset-2 hover:underline" to={`/track/issues/${it.id}`}>
+                      {it.title}
+                    </Link>
+                  </td>
                   <td className="py-2">
                     <div className="flex items-center gap-2">
                       <StatusPill status={it.status} />

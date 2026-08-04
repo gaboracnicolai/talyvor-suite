@@ -191,10 +191,27 @@ func (a *app) trackIssueDetail() http.HandlerFunc {
 // trackIssueComments — GET /api/track/issues/{id}/comments → the issue's comment
 // thread, []model.Comment verbatim (author names resolve client-side via the
 // roster from /api/members).
+// trackIssueComments — GET reads the thread, POST adds to it.
+//
+// ⚠ THE POST HALF IS WHY A TICKET WAS READ-ONLY. The GET has been proxied all along and the suite
+// could show a thread it could not answer. Same verbatim-forward shape as trackCreateIssue: Track
+// owns the comment schema, so the body passes through and Track's own validation is the authority.
+//
+// ⚠ WORKSPACE FROM THE SESSION, NEVER THE REQUEST. trackWorkspaceFor resolves it server-side; no
+// header, query parameter or body field can aim this at another tenant.
 func (a *app) trackIssueComments() http.HandlerFunc {
 	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			methodNotAllowed(w, http.MethodGet)
+		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+			return
+		}
+		// ⚠ SAME-ORIGIN ON THE WRITE. A comment is a state change published under the author's
+		// name, so it gets the discipline /api/pooling and /api/distill already apply.
+		// NOTE: Track's existing writes (create/update issue) do NOT check this today — that is a
+		// real inconsistency, and the direction to resolve it in is to add the check there, not to
+		// drop it here.
+		if r.Method == http.MethodPost && !a.originAllowed(r) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "bad origin"})
 			return
 		}
 		id, ok := pathID(w, "id", r.PathValue("id"))
@@ -205,8 +222,14 @@ func (a *app) trackIssueComments() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		path := trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)+"/comments")
+		if r.Method == http.MethodPost {
+			a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
+				path, "", http.MethodPost, http.MaxBytesReader(w, r.Body, maxIssueBody), nil)
+			return
+		}
 		a.forwardProduct(w, r, "track", a.cfg.trackBaseURL, a.cfg.trackGatewaySecret,
-			trackWorkspacePath(ws, "/issues/"+url.PathEscape(id)+"/comments"), "", http.MethodGet, nil, nil)
+			path, "", http.MethodGet, nil, nil)
 	})
 }
 
