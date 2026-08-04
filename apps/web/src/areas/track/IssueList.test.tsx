@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueList } from './IssueList'
@@ -71,11 +72,17 @@ function fakeBff(initial: TrackIssue[] = []) {
   return { calls }
 }
 
+// ⚠ A ROUTER IS NOW PART OF THIS SCREEN'S ENVIRONMENT. Each row's title links to the issue detail,
+// which is the change that made the list usable at all — so the list can no longer render outside a
+// router, and this helper provides the one the app already gives it. Rendering it standalone tested
+// a configuration the product does not have.
 function renderList() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <IssueList />
+      <MemoryRouter>
+        <IssueList />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }

@@ -250,8 +250,9 @@ func TestTrackRoutesRefuseUnsupportedVerbs(t *testing.T) {
 		{"/api/track/issues", []string{http.MethodPut, http.MethodDelete}},
 		// PATCH edits here; POST/PUT/DELETE do not.
 		{"/api/track/issues/isu-1", []string{http.MethodPost, http.MethodPut, http.MethodDelete}},
-		// Still entirely read-only.
-		{"/api/track/issues/isu-1/comments", []string{http.MethodPost, http.MethodPut, http.MethodDelete}},
+		// GET reads the thread and POST adds to it; PUT/DELETE do not. POST was refused here until
+		// the suite gained an issue-detail screen — a thread it could show and could not answer.
+		{"/api/track/issues/isu-1/comments", []string{http.MethodPut, http.MethodDelete}},
 		{"/api/track/teams", []string{http.MethodPost, http.MethodPut, http.MethodDelete}},
 	} {
 		for _, method := range tc.refused {
@@ -281,5 +282,30 @@ func TestTrackIssuesUnconfigured503(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), "not configured") {
 			t.Errorf("%s: 503 must say the upstream is unconfigured: %s", ep, rec.Body.String())
 		}
+	}
+}
+
+// TestTrackCommentPostRequiresSameOrigin — a comment is a state change published under the author's
+// name, so it carries the same Origin discipline as /api/pooling and /api/distill.
+//
+// ⚠ THIS IS THE ONLY TRACK WRITE THAT CHECKS IT TODAY. trackCreateIssue and trackUpdateIssue do not
+// — a real inconsistency, and the direction to resolve it in is to add the check there, never to
+// drop it here. Pinned so the new route cannot quietly lose the guard.
+func TestTrackCommentPostRequiresSameOrigin(t *testing.T) {
+	track := newCaptureUpstream(t, `{}`)
+	a, sess := productApp(t, track, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/track/issues/isu-1/comments",
+		strings.NewReader(`{"body":"hello"}`))
+	req.Header.Set("Origin", "https://attacker.example")
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-origin comment POST: got %d, want 403", rec.Code)
+	}
+	if track.headers != nil {
+		t.Fatal("a cross-origin comment must never reach the track upstream")
 	}
 }

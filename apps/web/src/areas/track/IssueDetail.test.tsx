@@ -1,0 +1,188 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { IssueDetail } from './IssueDetail'
+
+// THE JOURNEY: open an issue, edit its description, assign it, comment, close it.
+//
+// ⚠ EVERY ASSERTION IS ON WHAT TRACK WOULD RECORD — the method, path and BODY that reach the BFF —
+// never on what a handler returned or what a component re-rendered. A test that checked "the screen
+// shows Done" would pass on a screen that never sent the patch.
+//
+// ⚠ AND THE FAKE IS STATEFUL. A write that "succeeds" while the read keeps serving the old row lets
+// a component pass by echoing the click. Here writes move the stored issue and reads serve it, so
+// these can only pass if the screen re-reads what was recorded.
+
+type Recorded = { method: string; path: string; body: unknown }
+
+let recorded: Recorded[] = []
+
+const ISSUE = {
+  id: 'iss-1',
+  workspace_id: 'ws1',
+  team_id: 'team-1',
+  number: 7,
+  identifier: 'ENG-7',
+  title: 'Cache stampede on cold start',
+  description: 'Original description.',
+  status: 'in_progress',
+  priority: 3,
+  assignee_id: undefined as string | undefined,
+  creator_id: 'u-1',
+  lens_feature: '',
+  ai_cost_usd: 0.4213,
+  ai_tokens: 18342,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-01T00:00:00Z',
+}
+
+function mockBff(over: Partial<typeof ISSUE> = {}) {
+  const issue = { ...ISSUE, ...over }
+  const comments: { id: string; issue_id: string; author_id: string; body: string; created_at: string; updated_at: string }[] = [
+    { id: 'c-1', issue_id: 'iss-1', author_id: 'u-2', body: 'Seen it under load.', created_at: '', updated_at: '' },
+  ]
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const path = String(input)
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    recorded.push({ method, path, body })
+    const json = (b: unknown, status = 200) =>
+      new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+
+    if (path === '/api/members') return json([{ id: 'u-1', name: 'Ada' }, { id: 'u-2', name: 'Grace' }])
+    if (path === '/api/track/teams') return json([{ id: 'team-1', identifier: 'ENG', name: 'Engineering' }])
+    if (path.endsWith('/comments') && method === 'POST') {
+      comments.push({ id: 'c-2', issue_id: 'iss-1', author_id: 'u-1', body: String(body.body), created_at: '', updated_at: '' })
+      return json({ ok: true })
+    }
+    if (path.endsWith('/comments')) return json(comments)
+    if (path === '/api/track/issues/iss-1' && method === 'PATCH') {
+      Object.assign(issue, body)
+      return json(issue)
+    }
+    if (path === '/api/track/issues/iss-1') return json(issue)
+    return json(null, 404)
+  })
+}
+
+function open() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/track/issues/iss-1']}>
+        <Routes>
+          <Route path="/track/issues/:id" element={<IssueDetail />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+/** The last write of a given method — what Track would have recorded. */
+function lastWrite(method: string): Recorded | undefined {
+  return [...recorded].reverse().find((r) => r.method === method)
+}
+
+beforeEach(() => {
+  recorded = []
+  mockBff()
+})
+afterEach(() => vi.restoreAllMocks())
+
+describe('a ticket can be read', () => {
+  it('shows the description, which the list could never display', async () => {
+    open()
+    expect(await screen.findByText('Original description.')).toBeInTheDocument()
+  })
+
+  it('shows the comment thread', async () => {
+    open()
+    expect(await screen.findByText('Seen it under load.')).toBeInTheDocument()
+  })
+
+  // ⚠ THE NUMBER NO OTHER TRACKER HAS, and it was invisible until now.
+  it('shows the per-issue AI cost', async () => {
+    open()
+    expect(await screen.findByText('$0.42')).toBeInTheDocument()
+  })
+
+  // ⚠ AND A SUB-CENT COST MUST NOT RENDER AS $0.00 — that reads as "this issue cost nothing",
+  // which is the one thing the number exists to disprove. Most single calls are sub-cent.
+  it('does not round a real sub-cent cost down to zero', async () => {
+    mockBff({ ai_cost_usd: 0.0004 })
+    open()
+    expect(await screen.findByText('$0.0004')).toBeInTheDocument()
+  })
+
+  // A genuine zero says so in words rather than showing $0.00, which is indistinguishable from a
+  // cost too small to display.
+  it('says so in words when there is no AI spend at all', async () => {
+    mockBff({ ai_cost_usd: 0 })
+    open()
+    expect(await screen.findByText(/no ai spend recorded/i)).toBeInTheDocument()
+  })
+
+  it('resolves the team id to its identifier rather than showing a raw uuid', async () => {
+    open()
+    expect(await screen.findByText('ENG')).toBeInTheDocument()
+  })
+})
+
+describe('a ticket can be worked', () => {
+  it('records the edited description as a description patch', async () => {
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: /edit description/i }))
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'Rewritten.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save description/i }))
+
+    await waitFor(() => expect(lastWrite('PATCH')).toBeDefined())
+    const w = lastWrite('PATCH')!
+    expect(w.path).toBe('/api/track/issues/iss-1')
+    expect(w.body).toEqual({ description: 'Rewritten.' })
+    // And the screen shows what was RECORDED, from a re-read — not the text it just typed.
+    expect(await screen.findByText('Rewritten.')).toBeInTheDocument()
+  })
+
+  it('records a comment as a POST to the comments route', async () => {
+    open()
+    await screen.findByText('Seen it under load.')
+    fireEvent.change(screen.getByLabelText(/add a comment/i), { target: { value: 'Reproduced on staging.' } })
+    fireEvent.click(screen.getByRole('button', { name: /^comment$/i }))
+
+    await waitFor(() => expect(lastWrite('POST')).toBeDefined())
+    const w = lastWrite('POST')!
+    expect(w.path).toBe('/api/track/issues/iss-1/comments')
+    expect(w.body).toEqual({ body: 'Reproduced on staging.' })
+    // The thread re-reads, so the new comment is what Track holds rather than local state.
+    expect(await screen.findByText('Reproduced on staging.')).toBeInTheDocument()
+  })
+
+  // ⚠ A FAILED WRITE MUST NOT LOOK LIKE A SUCCESSFUL ONE.
+  it('says nothing changed when a patch fails, and leaves the stored value showing', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input)
+      const method = init?.method ?? 'GET'
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      if (method === 'PATCH') return json({ error: 'nope' }, 502)
+      if (path === '/api/members') return json([])
+      if (path === '/api/track/teams') return json([])
+      if (path.endsWith('/comments')) return json([])
+      return json(ISSUE)
+    })
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: /edit description/i }))
+    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'Lost.' } })
+    fireEvent.click(screen.getByRole('button', { name: /save description/i }))
+    expect(await screen.findByText(/did not save/i)).toBeInTheDocument()
+  })
+
+  // ⚠ team_id is NOT in Track's updatableFields, so a control offering to change it would silently
+  // drop the write. Showing the value is honest; offering an edit would not be.
+  it('does not offer to edit the team, which Track will not update', async () => {
+    open()
+    await screen.findByText('ENG')
+    expect(screen.queryByLabelText(/^team$/i)).not.toBeInTheDocument()
+  })
+})

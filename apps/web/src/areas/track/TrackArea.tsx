@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
+import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
 import { useTrackWorkspaces } from './data'
 import { isUnconfigured } from '../../lib/productState'
@@ -95,9 +96,11 @@ export function TrackArea() {
       <WorkspaceStrip />
       <Routes>
         <Route index element={<IssueList />} />
-        {/* Anything else under /track/* is this area's to answer: fall back to the list.
-            That includes the retired /track/issues/:id — an old link lands somewhere real
-            rather than on a dead end. */}
+        {/* The ticket. Restored: this route was retired while the detail screen did not exist,
+            which left the suite able to LIST issues and unable to open one. */}
+        <Route path="issues/:id" element={<IssueDetail />} />
+        {/* Anything else under /track/* is this area's to answer: fall back to the list, so an
+            old or mistyped link lands somewhere real rather than on a dead end. */}
         <Route path="*" element={<IssueList />} />
       </Routes>
     </div>

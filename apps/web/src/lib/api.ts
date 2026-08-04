@@ -145,7 +145,7 @@ async function getJSONArray<T>(path: string): Promise<T[]> {
  * discriminates on `enabled` — never on a status code, so a disabled capability never
  * touches the error path. A genuine failure (5xx/auth) still throws ApiError.
  */
-export { getJSONArray }
+export { getJSON, getJSONArray }
 
 export type Capability<T> = { enabled: false } | { enabled: true; data: T }
 
