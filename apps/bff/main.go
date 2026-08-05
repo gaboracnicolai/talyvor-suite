@@ -48,6 +48,11 @@ const (
 // workspace id are required: without the key the proxy is pointless, and without a
 // workspace the read paths cannot be built. Fail-closed on either.
 type config struct {
+	// operatorSubs is the OPERATOR boundary — the identities allowed to read every tenant's data.
+	// EMPTY MEANS NOBODY, deliberately; see operator.go. Independent of allowedEmails: that governs
+	// who may sign IN, this governs who may see EVERYTHING.
+	operatorSubs []string
+
 	addr        string // BFF bind address; loopback unless oidc+https (see loadConfig)
 	lensBaseURL string // e.g. http://127.0.0.1:8080 — how the BFF REACHES Lens
 	// lensPublicBaseURL is how a CUSTOMER reaches Lens: the origin they put in
@@ -189,6 +194,10 @@ func loadOIDCConfig(cfg config) (config, error) {
 			"session cookie is scoped Path=/, so a base path would silently mis-scope it", rawPublic)
 	}
 	cfg.publicBaseURL = strings.TrimRight(rawPublic, "/")
+
+	// Unset ⇒ empty ⇒ nobody. There is no error path: an absent operator list is a valid and
+	// correct posture (the default), not a misconfiguration.
+	cfg.operatorSubs = parseOperatorSubs(os.Getenv(operatorSubsEnv))
 
 	cfg.allowedEmails, err = parseAllowedEmails(os.Getenv("OIDC_ALLOWED_EMAILS"))
 	if err != nil {

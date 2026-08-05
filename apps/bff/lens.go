@@ -115,6 +115,22 @@ func newApp(cfg config, auth *authenticator) *app {
 	// WRITE PATH: it mints a credential and deliberately returns it exactly once.
 	// See keys.go for the CSRF posture (Lax + strict same-Origin) and the
 	// no-store / never-logged discipline around that one response.
+	// ── THE OPERATOR SURFACE ──────────────────────────────────────────────────────────────────
+	// Cross-tenant reads, behind requireOperator (NOT requireTenant — see operator.go for why the
+	// workspace resolver is never asked here rather than given a bypass).
+	//
+	// ⚠ ONE PREFIX, ONE GATE. Every operator route hangs off /api/admin/ and every one of them goes
+	// through requireOperator. Adding edge-infra's health endpoints later is a new pattern under
+	// this prefix with the same wrapper — no restructuring, and no route can be added to the
+	// operator surface without passing the boundary, because the prefix and the gate are applied
+	// together here.
+	a.mux.HandleFunc("/api/admin/workspaces", a.requireOperator(a.adminNotWired))
+	a.mux.HandleFunc("/api/admin/billing/purchases", a.requireOperator(a.adminNotWired))
+	a.mux.HandleFunc("/api/admin/economy/flags", a.requireOperator(a.adminNotWired))
+	a.mux.HandleFunc("/api/admin/keel/findings", a.requireOperator(a.adminNotWired))
+	a.mux.HandleFunc("/api/admin/held-mints", a.requireOperator(a.adminNotWired))
+	a.mux.HandleFunc("/api/admin/distill/attribution", a.requireOperator(a.adminNotWired))
+
 	a.mux.HandleFunc("/api/keys", a.requireTenant(a.handleKeys))
 	// Revoke. A separate id-route rather than a DELETE on the collection: the collection has no
 	// meaning to delete, and ServeMux prefers the more specific pattern, so /api/keys keeps its
