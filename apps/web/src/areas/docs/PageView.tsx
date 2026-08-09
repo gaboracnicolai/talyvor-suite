@@ -77,7 +77,7 @@ export function PageView() {
                 <label className="flex flex-col gap-1">
                   <span className="text-caption text-muted">Content</span>
                   <textarea
-                    className={`min-h-40 w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink ${focusRing}`}
+                    className={`min-h-40 w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
                     value={draft ?? ''}
                     onChange={(e) => setDraft(e.target.value)}
                   />

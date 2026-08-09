@@ -76,7 +76,7 @@ function CreateSpaceForm() {
         <label className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-caption text-muted">Space name</span>
           <input
-            className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint ${focusRing}`}
+            className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Engineering"

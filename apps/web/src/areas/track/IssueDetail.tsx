@@ -177,7 +177,7 @@ export function IssueDetail() {
               </label>
               <textarea
                 id="issue-description"
-                className={`min-h-32 w-full rounded-control border border-rule bg-surface p-3 text-body text-ink ${focusRing}`}
+                className={`min-h-32 w-full rounded-control border border-rule bg-surface p-3 text-body text-ink transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />
