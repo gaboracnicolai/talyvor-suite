@@ -61,7 +61,7 @@ export function spaceCrumbLabel(name: string | undefined): string {
  * (cmd-click, open in a new tab). What was missing was something unmistakably a control, so this is
  * one — and the two are complementary rather than a duplicate.
  *
- * The label is exactly "← Back" and carries nothing else. A destination in the label ("← Back to
+ * The label is exactly "‹ Back" and carries nothing else. A destination in the label ("‹ Back to
  * Engineering") re-introduces the thing that failed: it makes the control's meaning depend on
  * reading it, and it goes stale against the space name the crumb already shows.
  */
@@ -69,7 +69,7 @@ export function BackButton({ to }: { to: string }) {
   const navigate = useNavigate()
   return (
     <Button variant="default" onClick={() => navigate(to)}>
-      ← Back
+      ‹ Back
     </Button>
   )
 }

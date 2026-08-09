@@ -106,7 +106,7 @@ export class ApiError extends Error {
     readonly status: number,
     readonly path: string,
   ) {
-    super(`${path} → HTTP ${status}`)
+    super(`${path} -> HTTP ${status}`)
     this.name = 'ApiError'
   }
 }

@@ -165,7 +165,7 @@ export function toolsFor(base: string, key: string): Tool[] {
       name: 'Cursor',
       kind: 'setting',
       setting: [
-        'Settings → Models → OpenAI API Key.',
+        'Settings › Models › OpenAI API Key.',
         'Enable "Override OpenAI Base URL" and set it to: ' + openaiBase,
         'Put your Talyvor key in the OpenAI API Key field.',
         'Cursor verifies the key before saving; if that check fails, confirm the URL has no trailing slash.',

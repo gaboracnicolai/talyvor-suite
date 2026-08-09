@@ -437,9 +437,9 @@ describe('an explicit Back button, and it lands', () => {
     renderAt('/docs/spaces/sp-eng/pages/pg-1')
 
     expect(await screen.findByText('Onboarding')).toBeInTheDocument()
-    const back = screen.getByRole('button', { name: '← Back' })
+    const back = screen.getByRole('button', { name: '‹ Back' })
     // The label carries nothing else — no space name, no "to Engineering".
-    expect(back).toHaveTextContent(/^← Back$/)
+    expect(back).toHaveTextContent(/^‹ Back$/)
 
     fireEvent.click(back)
 
@@ -452,8 +452,8 @@ describe('an explicit Back button, and it lands', () => {
     renderAt('/docs/spaces/sp-eng')
 
     expect(await screen.findByLabelText(/page title/i)).toBeInTheDocument()
-    const back = screen.getByRole('button', { name: '← Back' })
-    expect(back).toHaveTextContent(/^← Back$/)
+    const back = screen.getByRole('button', { name: '‹ Back' })
+    expect(back).toHaveTextContent(/^‹ Back$/)
 
     fireEvent.click(back)
 
@@ -465,7 +465,7 @@ describe('an explicit Back button, and it lands', () => {
     mockDocsTree()
     renderAt('/docs/spaces/sp-eng')
 
-    expect(screen.getByRole('button', { name: '← Back' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '‹ Back' })).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: 'Spaces' })).toBeInTheDocument()
   })
 })

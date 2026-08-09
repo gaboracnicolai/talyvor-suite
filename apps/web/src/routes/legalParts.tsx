@@ -48,7 +48,7 @@ function ReturnLink() {
       to={signedOut ? '/marketing' : '/'}
       className="text-caption text-faint underline hover:text-muted"
     >
-      ← Back to Talyvor
+      ‹ Back to Talyvor
     </Link>
   )
 }
