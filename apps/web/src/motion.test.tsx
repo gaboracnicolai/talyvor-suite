@@ -5,7 +5,7 @@ import postcss from 'postcss'
 import tailwind from 'tailwindcss'
 import { describe, expect, it } from 'vitest'
 import { Button, Switch, ThemeToggle } from '@talyvor/ui'
-import tailwindConfig from '../tailwind.config'
+import tailwindConfig, { absoluteContent } from '../tailwind.config'
 // Deep relative import, the same one deadClasses.test.ts takes and for the same reason:
 // ONE comment stripper with ONE set of positive controls (packages/ui/src/__tests__/
 // typeface.test.tsx). Two copies of a scanner is two chances for only one to be right.
@@ -63,9 +63,19 @@ const themeCssPath = resolve(appRoot, '../../packages/ui/src/theme.css')
 // @tailwind directives), so this concatenation is the bundle's order. Order does not decide
 // any question below — importance does — but mirroring it keeps the artifact honest.
 let shipped: string | undefined
+/** The exact globs handed to the generator, kept so a test can assert they are the BUILD's. */
+let shippedContent: string[] | undefined
 async function shippedCss(): Promise<string> {
   if (shipped) return shipped
-  const content = (tailwindConfig.content as string[]).map((g) => resolve(appRoot, g))
+  // ⚠ `absoluteContent`, NEVER `content.map((g) => resolve(root, g))` — see tailwind.config.ts.
+  // This file used the second form until `w11-press-guard`, which made it the THIRD copy of a
+  // seam `dc0bd07` fixed in two places while its own docstring claimed "one implementation".
+  // Measured on this tree: the mapped form generated 30,321 bytes where the build generates
+  // 28,351, because the destroyed `!` negations pulled every test file back into the content
+  // set — including this one, whose docstring names `active:scale-[0.98]`. A guard that reads
+  // its own prose back as product is `dc0bd07`'s finding, and it had survived here.
+  const content = absoluteContent(appRoot)
+  shippedContent = content
   const generated = await postcss([tailwind({ ...tailwindConfig, content: content as never })]).process(
     readFileSync(resolve(appRoot, 'src/styles.css'), 'utf8'),
     { from: undefined },
@@ -120,9 +130,26 @@ function pressScaleProblems(css: string): string[] {
   const problems: string[] = []
   const scale = declarations(css).filter((d) => d.prop === '--tw-scale-x' || d.prop === '--tw-scale-y')
 
-  // ⚠ THE VACUITY GUARD. Without this the file would go green if someone DELETED the press
-  // feedback: nothing left to neutralise, neutraliser still present, every other assertion
-  // satisfied. A guard that passes when the feature is gone is not guarding the feature.
+  // ⚠⚠ THIS IS NOT THE VACUITY GUARD, AND IT CANNOT BE ONE. IT SAID IT WAS UNTIL
+  // `w11-press-guard`, in these words: "without this the file would go green if someone DELETED
+  // the press feedback". MEASURED, by deleting `active:scale-98` from all three product sites
+  // (Button, ThemeToggle, the Landing stepper) and regenerating:
+  //
+  //     sheet bytes            30,321 -> 30,321   BYTE-IDENTICAL
+  //     unimportant 0.98 decls      6 ->      6   (4 with the negations intact; the floor is 2)
+  //
+  // Nothing moved, because Tailwind's extractor reads RAW TEXT and cannot tell a class from a
+  // sentence about a class: `preset.ts:119` writes `active:scale-[0.98]` in a COMMENT and
+  // `Button.tsx:37` writes `active:scale-98` in a COMMENT, so the sentences EXPLAINING the press
+  // compile the press into the stylesheet. The feature can leave the product entirely and this
+  // check keeps counting the prose. It is W1.8's mechanism turning a guard into a no-op.
+  //
+  // ⚠ AND ITS POSITIVE CONTROL COULD NOT HAVE SHOWN THAT: the control below mutates the SHEET
+  // STRING, so it proves this function REACTS to an input the product is incapable of producing.
+  // A control that edits the instrument's input is not a control on the product.
+  //
+  // What this check still legitimately asserts is that the sheet EMITS the rule at all. The real
+  // vacuity guard is `pressSitesInCode` below, which reads comment-stripped SOURCE.
   const press = scale.filter((d) => !d.important && d.value === '0.98')
   if (press.length < 2) {
     problems.push(`no press scale in the sheet: expected --tw-scale-x and --tw-scale-y at 0.98, found ${press.length}`)
@@ -276,6 +303,52 @@ function transitionsWithoutDuration(files: SourceFile[]): string[] {
   return [...problems].sort()
 }
 
+// ── the press, asked of the CODE rather than of the sheet ───────────────────────────────
+
+const PRESS = 'active:scale-98'
+
+/**
+ * EVERY FILE WHOSE CODE PUTS THE PRESS ON AN ELEMENT.
+ *
+ * ⚠ THE UNIT IS A CLASS LIST, WHICH IS WHY THIS CAN ANSWER WHAT THE SHEET CANNOT. `classLists`
+ * runs `stripComments` first, so a sentence about the press contributes nothing here — the exact
+ * property the stylesheet lacks. Deleting the class from the code moves this set; deleting it
+ * from a comment does not.
+ */
+function pressSitesInCode(files: SourceFile[]): string[] {
+  const out = new Set<string>()
+  for (const f of files) {
+    for (const list of classLists(f.text)) {
+      if (tokensOf(list).includes(PRESS)) out.add(f.path)
+    }
+  }
+  return [...out].sort()
+}
+
+/**
+ * THE PRESS SITES, CLASSIFIED WITH THE REASON EACH ONE PRESSES.
+ *
+ * ⚠ CHECKED BOTH DIRECTIONS, because a derived sweep cannot see what is no longer there (#97).
+ * A new press site fails until somebody classifies it; a classified one that stops pressing
+ * fails as stale. That second direction is the one that was missing: `active:scale-98` is on
+ * THREE elements and only two of them — Button and ThemeToggle — had a render assertion, so the
+ * Landing stepper's press could be deleted with the whole suite green. MEASURED before this
+ * table existed, at `a6e66ff`: apps/web's entire suite, 51 files / 591 tests, ALL GREEN with the
+ * stepper's press removed. Nothing in packages/ui can cover it — Landing is an apps/web file.
+ *
+ * preset.ts §THE PRESS calls this "the one motion token in the system" and the site itself uses
+ * it three times, so the restraint is the port. A fourth site is a design decision, not a typo,
+ * and it should arrive with a sentence here saying why.
+ */
+const PRESS_SITES: Record<string, string> = {
+  'packages/ui/src/components/Button.tsx':
+    'the design-system button — every primary action in the product presses through this one class list',
+  'packages/ui/src/components/ThemeToggle.tsx':
+    'a hand-rolled <button>, not a Button, so it inherits nothing and must carry the press itself',
+  'apps/web/src/areas/marketing/Landing.tsx':
+    'the public stepper — the only press on a surface reached before signing in, and the one no render assertion covered',
+}
+
 // ════════════════════════════════════════════════════════════════════════════════════════
 
 describe('the scanner can tell a real finding from a correct class list', () => {
@@ -357,6 +430,51 @@ describe('the press affordance is a token, and it is on the things you press', (
     render(<ThemeToggle />)
     const cls = screen.getByRole('button').className
     expect(cls).toContain('active:scale-98')
+  })
+
+  // ── the vacuity guard that can actually fail ──────────────────────────────────────────
+
+  it('the press is found in CODE, in both packages — it must not pass by scanning nothing', () => {
+    const sites = pressSitesInCode(sourceFiles())
+    expect(sites.length, 'no class list in either package carries the press').toBeGreaterThan(0)
+    expect(sites.some((p) => p.startsWith('packages/')), 'the design-system half is unscanned').toBe(true)
+    expect(sites.some((p) => p.startsWith('apps/')), 'the app half is unscanned').toBe(true)
+  })
+
+  it('the scanner reads code, not prose — the exact blindness the sheet check has', () => {
+    // This is the whole difference between this guard and the one above it. Both fixtures
+    // mention the press; only one puts it on an element.
+    expect(pressSitesInCode([{ path: 'fixture.tsx', text: `// ${PRESS} is the press\nconst x = 1` }])).toEqual([])
+    expect(pressSitesInCode([{ path: 'fixture.tsx', text: `<button className="${PRESS}" />` }])).toEqual(['fixture.tsx'])
+  })
+
+  it('every classified press site still presses — the direction nothing held', () => {
+    const sites = pressSitesInCode(sourceFiles())
+    const missing = Object.keys(PRESS_SITES).filter((p) => !sites.includes(p))
+    expect(missing, `a classified press site no longer presses:\n  ${missing.join('\n  ')}`).toEqual([])
+  })
+
+  it('every press site in the code is classified — a fourth one is a decision, not a typo', () => {
+    const sites = pressSitesInCode(sourceFiles())
+    const unclassified = sites.filter((p) => !(p in PRESS_SITES))
+    expect(unclassified, `an unclassified press site:\n  ${unclassified.join('\n  ')}`).toEqual([])
+    for (const [, why] of Object.entries(PRESS_SITES)) expect(why.length).toBeGreaterThan(20)
+  })
+
+  /**
+   * ⚠ THE INSTRUMENT MUST ASK THE BUILD'S QUESTION — tokenDoor.test.ts's pin, which this file
+   * needed and did not have. Pinned structurally rather than by a byte count, because a count
+   * moves whenever anybody writes a class and gets re-baselined rather than read.
+   */
+  it('the sheet this file reasons over is generated from the BUILD\'s content set', async () => {
+    await shippedCss()
+    expect(shippedContent, 'shippedCss did not record the globs it used').toBeDefined()
+    const globs = shippedContent as string[]
+    // the substantive property first, so a revert reds with a sentence rather than a glob diff
+    const negated = globs.filter((g) => g.startsWith('!'))
+    expect(negated.length, 'the test-file exclusions are gone — this file is reading itself').toBe(2)
+    expect(globs.filter((g) => g.includes('/!')), 'a `!` was smuggled into a path segment').toEqual([])
+    expect(globs, 'the globs are not the build\'s').toEqual(absoluteContent(appRoot))
   })
 })
 
