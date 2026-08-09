@@ -46,6 +46,7 @@
   "src/lib/awaiting.test.ts": 7,
   "src/lib/productState.test.ts": 13,
   "src/motion.test.tsx": 19,
+  "src/placeholderAudit.test.tsx": 15,
   "src/SessionExpired.test.tsx": 20,
   "src/Sharing.test.tsx": 8,
   "src/tokenDoor.test.ts": 8

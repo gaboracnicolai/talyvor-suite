@@ -31,6 +31,13 @@ import {
   setGlyphAuditFile,
   takeGlyphOffenders,
 } from './glyphAudit'
+import {
+  MUST_RENDER_PLACEHOLDER,
+  installPlaceholderAudit,
+  satisfiesPlaceholderFloor,
+  setPlaceholderAuditFile,
+  takePlaceholderOffenders,
+} from './placeholderAudit'
 
 /**
  * EVERY FIGURE THIS SUITE RENDERS IS AUDITED, on every surface, in every test.
@@ -75,12 +82,25 @@ installFocusAudit()
  */
 installGlyphAudit()
 
+/**
+ * AND EVERY PLACEHOLDER IS ASKED WHICH COLOUR PAINTS IT, on the same ride.
+ *
+ * `Input.tsx` declares `placeholder:text-faint`; a hand-rolled `<input placeholder="…">` declares
+ * nothing and Chrome paints rgb(117,117,117) — measured, the SAME grey in both themes, not derived
+ * from currentColor — which scores 4.25:1 light and 4.30:1 dark on `bg-canvas`, below the 4.5:1
+ * AA body floor `contrast.test.ts` holds every text token to. That guard scores TOKEN PAIRS and
+ * cannot ask whether some text on screen wears no token at all. placeholderAudit.ts carries the
+ * engine measurement and why the class must be the element's own.
+ */
+installPlaceholderAudit()
+
 let currentFile = ''
 beforeEach((ctx) => {
   currentFile = ctx.task.file?.name ?? ''
   setCaseAuditFile(currentFile)
   setFocusAuditFile(currentFile)
   setGlyphAuditFile(currentFile)
+  setPlaceholderAuditFile(currentFile)
 })
 
 // ⚠ BOTH audits are read in ONE hook and reported together. Two `afterEach` registrations would
@@ -145,6 +165,21 @@ afterEach(() => {
     )
   }
 
+  const unpainted = takePlaceholderOffenders()
+  if (unpainted.length > 0) {
+    const lines = unpainted.map(
+      (p) =>
+        `  <${p.tag} placeholder=${JSON.stringify(p.placeholder)}> leaves its placeholder to the ` +
+        `user agent\n    class="${p.className}"`,
+    )
+    problems.push(
+      `placeholder(s) painted by the browser, not by the palette — add \`placeholder:text-faint\` ` +
+        `to the element itself:\n${lines.join('\n')}\n` +
+        '(the Chrome measurement, the two contrast scores and why the class cannot be inherited ' +
+        'are in src/placeholderAudit.ts)',
+    )
+  }
+
   if (problems.length > 0) throw new Error(problems.join('\n\n'))
 })
 
@@ -202,6 +237,19 @@ afterAll(() => {
         `MUST_AUDIT_MONO_TEXT because it renders ${whyMono}. Either the fixture stopped ` +
         'rendering it — in which case this file no longer guards it — or the audit stopped ' +
         'seeing it. Do not delete the entry to go green.',
+    )
+  }
+
+  // ⚠ THE PLACEHOLDER FLOOR ASKS FOR A PLACEHOLDER, NOT AN OFFENDER — see the table's own note.
+  // The offender rule is silent by design when everything is correct, which is exactly the state
+  // a dead observer is indistinguishable from.
+  const whyPlaceholder = MUST_RENDER_PLACEHOLDER[currentFile]
+  if (whyPlaceholder && !satisfiesPlaceholderFloor(currentFile)) {
+    throw new Error(
+      `${currentFile} audited NO rendered placeholder. It is listed in MUST_RENDER_PLACEHOLDER ` +
+        `because it renders ${whyPlaceholder}. Either the fixture stopped rendering it — in which ` +
+        'case this file no longer guards it — or the audit stopped seeing it. Do not delete the ' +
+        'entry to go green.',
     )
   }
 
