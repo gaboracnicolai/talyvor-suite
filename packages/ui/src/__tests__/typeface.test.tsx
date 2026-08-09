@@ -147,3 +147,48 @@ describe('numerals are set in the figure face', () => {
     expect(/\btabular-nums\b/.test(codeOnly('<span className="tabular-nums" />'))).toBe(true)
   })
 })
+
+describe('the small label is one thing', () => {
+  /**
+   * The eyebrow existed before it had a name: twenty-one hand-rolled labels in FOUR shapes
+   * (`text-caption uppercase tracking-wide` with text-muted, with text-faint, with
+   * font-semibold, and once with no colour at all). Nothing was wrong with any one of them,
+   * which is exactly why there were four — a shape only converges when something makes it.
+   *
+   * ⚠ `tracking-wide` IS THE PART THAT MUST NOT SURVIVE, and not for tidiness. It is .025em;
+   * the eyebrow token carries .24em. Both emit `letter-spacing`, and which one wins is decided
+   * by the order Tailwind emits them, not by the order they appear in the className — so a
+   * leftover `tracking-wide` beside `text-eyebrow` is a silent, invisible override of the very
+   * property the token exists to carry.
+   */
+  it('no hand-rolled eyebrow survives in code', () => {
+    const roots = [uiSrc, resolve(uiSrc, '../../../apps/web/src')]
+    const offenders: string[] = []
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = resolve(dir, entry.name)
+        if (entry.isDirectory()) walk(p)
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+          if (/\btracking-wide\b/.test(stripComments(readFileSync(p, 'utf8')))) {
+            offenders.push(p.slice(p.indexOf('/src/') + 1))
+          }
+        }
+      }
+    }
+    for (const r of roots) walk(r)
+    expect(offenders, `hand-rolled eyebrow(s) left: ${offenders.join(', ')}`).toEqual([])
+  })
+
+  it('and the sweep would still see one', () => {
+    expect(/\btracking-wide\b/.test(stripComments('<b className="text-caption uppercase tracking-wide" />'))).toBe(true)
+  })
+
+  it('the token carries the tracking, and a weight that leaves font-semibold meaning something', () => {
+    const sizes = preset.theme!.extend!.fontSize as Record<string, [string, Record<string, string>]>
+    expect(sizes.eyebrow[0]).toBe('11px')
+    expect(sizes.eyebrow[1].letterSpacing).toBe('0.24em')
+    // Members distinguishes owner from member by WEIGHT. If the token were 600, `font-semibold`
+    // would be a no-op and that distinction would vanish without a single test going red.
+    expect(Number(sizes.eyebrow[1].fontWeight)).toBeLessThan(600)
+  })
+})

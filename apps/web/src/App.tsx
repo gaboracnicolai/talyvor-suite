@@ -51,7 +51,7 @@ export const queryClient: QueryClient = new QueryClient({
 function Group({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col">
-      <div className="px-3 pb-1 text-caption font-semibold uppercase tracking-wide text-faint">{label}</div>
+      <div className="px-3 pb-1 font-figure text-eyebrow font-semibold uppercase text-faint">{label}</div>
       {children}
     </div>
   )

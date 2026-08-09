@@ -175,7 +175,7 @@ function TokenSection({
         className={`h-1.5 w-1.5 shrink-0 rounded-pill ${token === "lxc" ? "bg-lxc" : "bg-lens"}`}
         aria-hidden="true"
       />
-      <span className="text-caption uppercase tracking-wide text-muted">
+      <span className="font-figure text-eyebrow uppercase text-muted">
         {children}
       </span>
     </div>
@@ -310,7 +310,7 @@ async function probeProduct(path: string): Promise<ProbeState> {
 
 function StateMark({ state }: { state: ProbeState }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-caption uppercase tracking-wide text-faint">
+    <span className="inline-flex items-center gap-1.5 font-figure text-eyebrow uppercase text-faint">
       <span
         className={`h-1.5 w-1.5 rounded-pill ${state === "on" ? "bg-settled" : "bg-faint"}`}
         aria-hidden="true"
@@ -414,7 +414,7 @@ function ActivityRow({ e }: { e: LedgerEntry }) {
       {status ? (
         <Pill status={status}>{status}</Pill>
       ) : (
-        <span className="text-caption uppercase tracking-wide text-muted">
+        <span className="font-figure text-eyebrow uppercase text-muted">
           {humanizeType(e.type)}
         </span>
       )}

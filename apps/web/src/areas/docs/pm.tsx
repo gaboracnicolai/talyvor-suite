@@ -120,7 +120,7 @@ function PMNodeView({ node }: { node: PMNode }) {
       return (
         <div className="overflow-hidden rounded-control border border-rule bg-sidebar">
           {lang ? (
-            <div className="border-b border-rule px-3 py-1 text-caption uppercase tracking-wide text-faint">{lang}</div>
+            <div className="border-b border-rule px-3 py-1 font-figure text-eyebrow uppercase text-faint">{lang}</div>
           ) : null}
           <pre className="overflow-x-auto px-3 py-2 font-mono text-body text-ink">
             <Children nodes={node.content} />
@@ -161,7 +161,7 @@ function PMNodeView({ node }: { node: PMNode }) {
       )
     default:
       return (
-        <span className="inline-flex h-5 items-center rounded-pill border border-rule bg-canvas px-2 text-caption uppercase tracking-wide text-muted">
+        <span className="inline-flex h-5 items-center rounded-pill border border-rule bg-canvas px-2 font-figure text-eyebrow uppercase text-muted">
           unsupported block: {node.type}
         </span>
       )

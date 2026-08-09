@@ -14,7 +14,7 @@ const tick: Record<'lens' | 'lxc', string> = { lens: 'bg-lens', lxc: 'bg-lxc' }
 // to Greek capital Mu, so it sits in a normal-case span while the letters uppercase.
 function UnitLabel({ unit, micro = false }: { unit: 'lens' | 'lxc'; micro?: boolean }) {
   return (
-    <span className="ml-0.5 inline-flex items-center gap-1 self-center text-caption uppercase tracking-wide text-muted">
+    <span className="ml-0.5 inline-flex items-center gap-1 self-center font-figure text-eyebrow uppercase text-muted">
       <span className={cn('inline-block h-3 w-0.5 rounded-pill', tick[unit])} aria-hidden="true" />
       {micro ? <span className="normal-case">µ</span> : null}
       {unit}

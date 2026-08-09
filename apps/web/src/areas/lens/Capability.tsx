@@ -8,7 +8,7 @@ import { Row } from '@talyvor/ui'
 export function CapabilityOff({ name, note }: { name: string; note?: string }) {
   return (
     <Row label={name} hint={note ?? 'This capability is turned off in this workspace.'}>
-      <span className="inline-flex items-center gap-1.5 text-caption uppercase tracking-wide text-faint">
+      <span className="inline-flex items-center gap-1.5 font-figure text-eyebrow uppercase text-faint">
         <span className="h-1.5 w-1.5 rounded-pill bg-faint" aria-hidden="true" />
         Off
       </span>
