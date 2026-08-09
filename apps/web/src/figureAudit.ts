@@ -18,6 +18,32 @@
  *
  * So this rule reads the DOM instead. A figure is a figure because of what it says on screen.
  *
+ * ── #95: THE RULE WAS NEVER "EVERY MONEY FIGURE". IT IS "EVERY NUMERAL". ─────────────────────
+ *
+ * preset.ts §THE FIGURE FACE, written by #88, says it in one line: "Every numeral in the product
+ * renders here." The brief it was ported from says MONOSPACE FOR EVERY NUMERAL. Three merges then
+ * swept for MONEY — #93 by name, #94 by `$` on screen — and nothing ever asked about a figure that
+ * is not money. MEASURED at `565bdc0` with both guards green, by recording every rendered element
+ * whose own text is a figure and nothing else: 139 such elements, 131 on the face, FOUR SOURCE
+ * SITES off it, and every one of them a quantity rather than a price:
+ *
+ *     ConvertLens  Rate: <span class="text-ink">{lens_per_lxc}</span> LENS per LXC     ← the sans
+ *     ConvertLens  minimum <span class="text-ink">{microsToUnits(min_lxc_ulxc)}</span> ← the sans
+ *     CacheCard    <span class="font-mono …">{cache_hits.toLocaleString()}</span>      ← no tnum
+ *     CacheCard    <span class="text-body text-muted">≈ {hit_rate*100}%</span>         ← the sans
+ *
+ * ⚠ THE LAST ONE IS THE ARGUMENT. `≈ <derived value>` in a muted caption is a shape this product
+ * renders in four places — Overview, Spend, TopUp, BillingReturn — and in all four it is
+ * `font-figure text-body text-muted`. CacheCard renders the same shape one class short. That is
+ * not a fifth opinion about hit rates; it is the same treatment, missed.
+ *
+ * ⚠ AND WHY THIS IS STILL NOT A SOURCE RULE — the question W1.1 left for this merge was whether to
+ * classify `microsToUnits` instead. MEASURED: that closes exactly ONE of the four. `lens_per_lxc`
+ * is a bare field read with no call at all; the other two go through `toLocaleString` and
+ * `Math.round`, which are also how identifiers and step indices are rendered. Classifying those
+ * two would police every call site of two JavaScript builtins to reach two figures. The DOM knows
+ * which of them ended up as a figure on screen; the source does not.
+ *
  * ⚠ TRAP ONE — REACT SPLITS THE TEXT NODE. `≈ ${x}` renders as TWO text nodes, "≈ $" and
  * "12.35". A per-text-node /\$\s*\d/ finds neither, so the first version of this audit passed
  * clean over both defects. It reads an element's OWN text — its direct text children joined —
@@ -28,20 +54,37 @@
  * $100, but Lens refused that amount — the two are running different top-up allow-lists." Prose
  * that quotes a price is prose; digits ride the sentence, in the sans, the same argument that
  * keeps `formatWhen` and `formatDay` off the face. So an element is
- * policed only when its own text is A FIGURE AND NOTHING ELSE — remove the currency figures and
- * their decoration and nothing may be left. That carve-out is deliberately narrow: it does not
- * reach a figure INSIDE prose, which is why ConvertLens's "Rate: 2 LENS per LXC · minimum 0.1
- * LXC" is untouched here and stays W1.1's Convert-surface decision.
+ * policed only when its own text is A FIGURE AND NOTHING ELSE — remove the figures and their
+ * decoration and nothing may be left. ⚠ THAT CARVE-OUT IS WHAT KEEPS THE BROADENED RULE HONEST
+ * rather than what weakens it: measured over the whole suite, it leaves 189 digit-bearing
+ * elements unpoliced — every date ("Jul 19, 17:52"), every issue ref ("TAL-1"), every key prefix
+ * ("tlv_ws_7c0ffee0"), every window button ("7d"), every counted sentence ("8 requests recorded
+ * in the last 30 days"). A figure with a WORD beside it inside one element is prose. A figure
+ * alone in its own element is a figure, and ConvertLens gives its rate its own span.
  */
 
-/** `$` followed by digits — the only currency form this product renders. */
-const CURRENCY = /\$\s*\d[\d,]*(?:\.\d+)?/g
+/** Any number, with thousands separators and a decimal tail. */
+const FIGURE = /\d[\d,]*(?:\.\d+)?/g
 
 /**
- * What a figure may carry and still be a figure: the ≈ that marks a derived value, signs,
- * brackets, separators, whitespace. Anything else — a letter — means prose.
+ * What a figure may carry and still be a figure: the currency mark, the percent that makes it a
+ * rate, the ≈ that marks a derived value, signs, brackets, separators, whitespace. Anything else
+ * — a letter — means prose. `_` is deliberately absent, which is what keeps `tlv_ws_7c0ffee0` and
+ * `cs_test_a1b2c3` out.
  */
-const DECORATION = /[≈~+\-–—−()[\]{}\s,.:;·|/]/g
+const DECORATION = /[$%≈~+\-–—−()[\]{}\s,.:;·|/]/g
+
+/** Non-global on purpose: `.test()` on a /g regex is stateful and skips every other call. */
+const HAS_CURRENCY = /\$\s*\d/
+const HAS_DIGIT = /\d/
+
+/**
+ * Money and everything else. Kept apart for one reason that is not cosmetic: MUST_RENDER_CURRENCY
+ * is a floor that says "this file renders MONEY". Broadening the audit without keeping the kind
+ * would let a file satisfy that floor by rendering a bare `1`, which is a weaker guard wearing the
+ * same name.
+ */
+export type FigureKind = 'currency' | 'quantity'
 
 export interface RenderedFigure {
   /** the element's own text, e.g. "≈ $12.35" */
@@ -50,6 +93,7 @@ export interface RenderedFigure {
   className: string
   tag: string
   onFace: boolean
+  kind: FigureKind
 }
 
 /** An element's OWN text: its direct text children only. See TRAP ONE. */
@@ -59,20 +103,24 @@ export function ownText(el: Element): string {
   return s
 }
 
-/** Is this text a figure and nothing else? See TRAP TWO. */
+/** What kind of figure this text is, or null if it is not a figure alone. See TRAP TWO. */
+export function figureKind(text: string): FigureKind | null {
+  if (!HAS_DIGIT.test(text)) return null
+  if (text.replace(FIGURE, '').replace(DECORATION, '') !== '') return null
+  return HAS_CURRENCY.test(text) ? 'currency' : 'quantity'
+}
+
+/** Is this text a figure and nothing else? */
 export function isFigureOnly(text: string): boolean {
-  if (!CURRENCY.test(text)) {
-    CURRENCY.lastIndex = 0
-    return false
-  }
-  CURRENCY.lastIndex = 0
-  return text.replace(CURRENCY, '').replace(DECORATION, '') === ''
+  return figureKind(text) !== null
 }
 
 /**
  * The face an element renders in: `font-figure` anywhere up the tree wins. `font-mono` does NOT
- * count — it is the same family without tnum, and a column of money that does not align is the
- * defect, not the family.
+ * count — it is the same family without tnum, and a column of figures that does not align is the
+ * defect, not the family. ⚠ That distinction is load-bearing and not theoretical: CacheCard's
+ * cached-serve count was `font-mono`, and W1.1's own note that "the 20 font-mono call sites are
+ * IDENTIFIERS, not figures" was true of sixteen of the seventeen.
  */
 export function onFigureFace(el: Element | null): boolean {
   for (let e: Element | null = el; e; e = e.parentElement) {
@@ -81,17 +129,19 @@ export function onFigureFace(el: Element | null): boolean {
   return false
 }
 
-/** Every currency figure rendered under `root`, and whether it landed on the face. */
-export function currencyFiguresIn(root: ParentNode): RenderedFigure[] {
+/** Every figure rendered under `root`, and whether it landed on the face. */
+export function figuresIn(root: ParentNode): RenderedFigure[] {
   const out: RenderedFigure[] = []
   for (const el of Array.from(root.querySelectorAll('*'))) {
     const text = ownText(el)
-    if (!isFigureOnly(text)) continue
+    const kind = figureKind(text)
+    if (!kind) continue
     out.push({
       text: text.trim(),
       className: el.getAttribute('class') ?? '',
       tag: el.tagName.toLowerCase(),
       onFace: onFigureFace(el),
+      kind,
     })
   }
   return out
@@ -114,7 +164,7 @@ const seen = new Set<string>()
 let offenders: RenderedFigure[] = []
 
 function scan(): void {
-  for (const f of currencyFiguresIn(document.body)) {
+  for (const f of figuresIn(document.body)) {
     const key = `${f.onFace}|${f.tag}|${f.className}|${f.text}`
     if (seen.has(key)) continue
     seen.add(key)
@@ -128,7 +178,7 @@ export function installFigureAudit(): void {
   new MutationObserver(scan).observe(document, { subtree: true, childList: true, characterData: true })
 }
 
-/** Every currency figure this test file has rendered so far, on the face or not. */
+/** Every figure this test file has rendered so far, on the face or not. */
 export function auditedFigures(): readonly RenderedFigure[] {
   return records
 }
@@ -141,7 +191,16 @@ export function takeOffenders(): RenderedFigure[] {
 }
 
 /**
- * Test files that MUST render at least one currency figure, so this audit cannot pass by
+ * Does this file's record satisfy a floor of `kind`? One line, exported for one reason: it is the
+ * whole content of the floor check in test-setup.ts, and a floor that quietly accepted the wrong
+ * kind would be untestable if it lived only inside an `afterAll`.
+ */
+export function satisfiesFloor(figures: readonly RenderedFigure[], kind: FigureKind): boolean {
+  return figures.some((f) => f.kind === kind)
+}
+
+/**
+ * Test files that MUST render at least one CURRENCY figure, so this audit cannot pass by
  * rendering nothing. Each name is checked against the tree by figureAudit.test.tsx, so a
  * deleted or renamed file fails rather than silently leaving the audit with no work.
  *
@@ -157,4 +216,25 @@ export const MUST_RENDER_CURRENCY: Record<string, string> = {
   'src/BillingRoutes.test.tsx': 'the billing routes end to end, buttons and confirmation',
   'src/areas/lens/Held.test.tsx': 'the held-funds view carries the balance card',
   'src/areas/track/IssueDetail.test.tsx': 'AI cost per issue — the product thesis, priced on the page',
+}
+
+/**
+ * The same floor for the half of the rule that is NOT money. ⚠ It is a separate table because it
+ * answers a separate way of going quietly green: narrow `FIGURE` back to a `$` form and every
+ * currency floor above still passes while the quantity rule stops policing anything. MEASURED as
+ * a control — that one edit reds all four files below, and blinding the observer entirely now
+ * reds ELEVEN files where #94 measured nine, because Ledger and Convert render no money at all
+ * and only this table asks them for anything.
+ *
+ * ⚠ AND WHAT IT DOES NOT CATCH, measured rather than assumed: dropping `%` from DECORATION —
+ * which silently stops policing CacheCard's hit rate — leaves every file here green, because each
+ * still renders some OTHER quantity on the face. A floor answers "did this file render one", not
+ * "did it render the one you care about". That narrowing is caught by a named case in
+ * figureAudit.test.tsx instead, which is the right place for it and not a second-best.
+ */
+export const MUST_RENDER_QUANTITY: Record<string, string> = {
+  'src/areas/lens/Ledger.test.tsx': 'every µLENS and µLXC row amount — the ledger is nothing but figures',
+  'src/areas/lens/Overview.test.tsx': 'the LXC and LENS balances, and the cache card’s serve count and hit rate',
+  'src/areas/lens/Convert.test.tsx': 'the conversion rate and the LXC minimum, both read from the deployment',
+  'src/areas/lens/Held.test.tsx': 'the held LENS amount, and the same rate and minimum under a second fixture',
 }

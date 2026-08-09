@@ -6,10 +6,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   MUST_RENDER_CURRENCY,
+  MUST_RENDER_QUANTITY,
   auditedFigures,
-  currencyFiguresIn,
+  figureKind,
+  figuresIn,
   isFigureOnly,
   onFigureFace,
+  satisfiesFloor,
   ownText,
 } from './figureAudit'
 
@@ -31,19 +34,19 @@ function frag(html: string): HTMLElement {
 
 describe('what counts as a figure', () => {
   it('a currency figure in the sans is an offender', () => {
-    const found = currencyFiguresIn(frag('<span class="text-body text-muted">$12.35</span>'))
+    const found = figuresIn(frag('<span class="text-body text-muted">$12.35</span>'))
     expect(found).toHaveLength(1)
     expect(found[0].onFace).toBe(false)
   })
 
   it('the same figure on the face is not', () => {
-    const found = currencyFiguresIn(frag('<span class="font-figure text-body">$12.35</span>'))
+    const found = figuresIn(frag('<span class="font-figure text-body">$12.35</span>'))
     expect(found).toHaveLength(1)
     expect(found[0].onFace).toBe(true)
   })
 
   it('the face is inherited — an ancestor carrying it is enough', () => {
-    const found = currencyFiguresIn(frag('<div class="font-figure"><span class="text-body">$12.35</span></div>'))
+    const found = figuresIn(frag('<div class="font-figure"><span class="text-body">$12.35</span></div>'))
     expect(found).toHaveLength(1)
     expect(found[0].onFace).toBe(true)
   })
@@ -54,7 +57,7 @@ describe('what counts as a figure', () => {
 
   it('a `$` with no digits is not a figure — a shell snippet is not money', () => {
     expect(isFigureOnly('export KEY=$LENS_TOKEN')).toBe(false)
-    expect(currencyFiguresIn(frag('<code class="font-mono">$ curl -H "x: $KEY"</code>'))).toEqual([])
+    expect(figuresIn(frag('<code class="font-mono">$ curl -H "x: $KEY"</code>'))).toEqual([])
   })
 })
 
@@ -69,7 +72,7 @@ describe('TRAP TWO — a sentence that mentions a price is prose, and prose is s
 
   it('does not police a sentence', () => {
     expect(isFigureOnly(sentence)).toBe(false)
-    expect(currencyFiguresIn(frag(`<p class="text-body text-muted">${sentence}</p>`))).toEqual([])
+    expect(figuresIn(frag(`<p class="text-body text-muted">${sentence}</p>`))).toEqual([])
   })
 
   it('but a figure carrying only its ≈ decoration IS policed', () => {
@@ -99,7 +102,7 @@ describe('TRAP ONE — React splits `≈ ${x}` into two text nodes', () => {
 
   it('reads the element own-text, so the split figure is still found', () => {
     expect(ownText(twoTextNodes().firstElementChild!)).toBe('≈ $12.35')
-    const found = currencyFiguresIn(twoTextNodes())
+    const found = figuresIn(twoTextNodes())
     expect(found).toHaveLength(1)
     expect(found[0].onFace).toBe(false)
   })
@@ -126,9 +129,62 @@ describe('TRAP THREE — the audit must not read the DOM in afterEach', () => {
 
   it('the previous render survived cleanup as a record', () => {
     // cleanup has run: the figure is gone from the DOM …
-    expect(currencyFiguresIn(document.body)).toEqual([])
+    expect(figuresIn(document.body)).toEqual([])
     // … and the audit still holds it.
     expect(auditedFigures().some((f) => f.text === '$3.50' && f.onFace)).toBe(true)
+  })
+})
+
+describe('#95 — the rule is EVERY NUMERAL, not every price', () => {
+  // preset.ts §THE FIGURE FACE: "Every numeral in the product renders here." Three merges swept
+  // for money. These are the four figures that were off the face at `565bdc0` with #93 and #94
+  // both green — copied from the probe that found them, not paraphrased.
+  it('a bare quantity in the sans is an offender, and it is a QUANTITY', () => {
+    const found = figuresIn(frag('<span class="text-ink">0.1</span>'))
+    expect(found).toHaveLength(1)
+    expect(found[0].onFace).toBe(false)
+    expect(found[0].kind).toBe('quantity')
+  })
+
+  it('a percentage is a figure — `%` is decoration, not a letter', () => {
+    // CacheCard's hit rate. ⚠ THIS CASE IS THE ONLY THING GUARDING `%`: measured as a control,
+    // dropping `%` from DECORATION leaves all 45 files green except this one — every floor,
+    // currency and quantity alike, still passes, because each listed file renders some other
+    // figure. A floor asks "did this file render one of these", never "did it render THIS one".
+    expect(figureKind('≈ 25%')).toBe('quantity')
+    const found = figuresIn(frag('<span class="text-body text-muted">≈ 25%</span>'))
+    expect(found).toHaveLength(1)
+    expect(found[0].onFace).toBe(false)
+  })
+
+  it('money is still told apart from a count', () => {
+    expect(figureKind('≈ $12.35')).toBe('currency')
+    expect(figureKind('$0.0004')).toBe('currency')
+    expect(figureKind('1,240')).toBe('quantity')
+    expect(figureKind('2')).toBe('quantity')
+  })
+
+  // ⚠ THE BROADENED RULE'S WHOLE RISK IS FALSE POSITIVES, so these are the exact strings the
+  // product renders beside digits. Measured over the suite: 189 digit-bearing elements that must
+  // stay unpoliced. If the carve-out ever loosens, this is where it shows.
+  it.each([
+    ['a date', 'Jul 19, 17:52'],
+    ['an issue ref', 'TAL-1'],
+    ['a key prefix', 'tlv_ws_7c0ffee0'],
+    ['a Stripe session id', 'cs_test_a1b2c3'],
+    ['a window button', '7d'],
+    ['a counted sentence', '8 requests recorded in the last 30 days'],
+    ['a model name', 'claude-haiku-4-5'],
+    ['a figure inside prose', 'Below the 0.1 LXC minimum.'],
+    ['a shell snippet', 'export ANTHROPIC_BASE_URL="https://lens.talyvor.com/anthropic"'],
+  ])('%s is not a figure', (_what, text) => {
+    expect(figureKind(text)).toBeNull()
+  })
+
+  it('an empty or wordless element is not a figure either', () => {
+    expect(figureKind('')).toBeNull()
+    expect(figureKind('   ')).toBeNull()
+    expect(figureKind('—')).toBeNull()
   })
 })
 
@@ -144,5 +200,33 @@ describe('the audit cannot pass by rendering nothing', () => {
   it('this file is not one of them — it renders one figure of its own', () => {
     // Kept honest deliberately: the floor is about the SURFACES, not about this file's fixture.
     expect(MUST_RENDER_CURRENCY['src/figureAudit.test.tsx']).toBeUndefined()
+    expect(MUST_RENDER_QUANTITY['src/figureAudit.test.tsx']).toBeUndefined()
+  })
+
+  it('every file in MUST_RENDER_QUANTITY exists, with a reason', () => {
+    const appRoot = resolve(import.meta.dirname, '..')
+    const missing = Object.keys(MUST_RENDER_QUANTITY).filter((f) => !existsSync(resolve(appRoot, f)))
+    expect(missing, `listed but not in the tree: ${missing.join(', ')}`).toEqual([])
+    expect(Object.values(MUST_RENDER_QUANTITY).every((r) => r.length > 10)).toBe(true)
+    expect(Object.keys(MUST_RENDER_QUANTITY).length).toBeGreaterThanOrEqual(4)
+  })
+
+  // ⚠ THE FLOOR MUST ASK FOR ITS OWN KIND. Broadening the audit without this makes every entry in
+  // MUST_RENDER_CURRENCY satisfiable by a bare `1` — the eight money surfaces would keep passing
+  // a floor that no longer checks for money, under the same name, with nothing red.
+  it('a currency floor is NOT satisfied by a quantity', () => {
+    const quantityOnly = [
+      { text: '0.1', className: 'font-figure text-ink', tag: 'span', onFace: true, kind: 'quantity' as const },
+    ]
+    expect(satisfiesFloor(quantityOnly, 'quantity')).toBe(true)
+    expect(satisfiesFloor(quantityOnly, 'currency')).toBe(false)
+  })
+
+  it('and a quantity floor is NOT satisfied by money', () => {
+    const currencyOnly = [
+      { text: '$12.35', className: 'font-figure', tag: 'span', onFace: true, kind: 'currency' as const },
+    ]
+    expect(satisfiesFloor(currencyOnly, 'currency')).toBe(true)
+    expect(satisfiesFloor(currencyOnly, 'quantity')).toBe(false)
   })
 })

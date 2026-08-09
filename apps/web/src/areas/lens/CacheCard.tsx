@@ -26,7 +26,7 @@ import { PanelFailure } from '../../components/SessionExpiredBar'
 //               failing. This is the same reasoning that made Lens abandon its `cached`
 //               boolean: nothing wrote it true, so its rate was a structural zero reported
 //               as a measurement.
-//   measured  → hits as an exact count (mono ink), rate as a ≈-marked derived caption,
+//   measured  → hits as an exact count (figure face, ink), rate as a ≈-marked derived caption,
 //               and the DENOMINATOR always beside it — a rate without its sample size is
 //               not a reading.
 //
@@ -62,8 +62,14 @@ export function CacheCard({ days }: { days: number }) {
         </div>
       ) : (
         <>
+          {/* ⚠ BOTH FIGURES ON THE FIGURE FACE (#95). The count was `font-mono`: the right family,
+              but without tnum, so a serve count that grows a digit shifts the column it sits in.
+              The rate was in the body sans — and `≈ <derived value>` in a muted caption is a shape
+              this product renders in four other places (Overview, Spend, TopUp, BillingReturn),
+              all four of them `font-figure text-body text-muted`. This was the same treatment one
+              class short, not a different opinion about hit rates. */}
           <Row label="Cached serves" hint="responses answered from cache">
-            <span className="font-mono text-body text-ink">
+            <span className="font-figure text-body text-ink">
               {cache.cache_hits.toLocaleString('en-US')}
             </span>
           </Row>
@@ -71,7 +77,7 @@ export function CacheCard({ days }: { days: number }) {
             label="Hit rate"
             hint={`${cache.total_requests.toLocaleString('en-US')} requests recorded in the last ${days} days`}
           >
-            <span className="text-body text-muted">≈ {Math.round(cache.hit_rate * 100)}%</span>
+            <span className="font-figure text-body text-muted">≈ {Math.round(cache.hit_rate * 100)}%</span>
           </Row>
         </>
       )}
