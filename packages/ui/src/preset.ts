@@ -113,6 +113,24 @@ const preset = {
         // A measured figure quoted at reading size — the ledger numbers on the public page.
         figure: ['28px', { lineHeight: '1', fontWeight: '560' }],
       },
+      /**
+       * THE PRESS — `active:scale-98`, the one motion token in the system.
+       *
+       * The site writes it `active:scale-[0.98]`. That exact string is what
+       * `local/no-arbitrary-value` exists to refuse, and the refusal is right: an escaped
+       * 0.98 in one component and an escaped 0.97 in the next is not a system. So the scale
+       * is EXTENDED by one step instead. Tailwind's own scale is keyed in percent
+       * (scale-95 = .95); 98 continues it rather than inventing a naming.
+       *
+       * ⚠ ONE STEP, NOT A RAMP. There is no scale-99 or scale-97 here because nothing needs
+       * one. A second press depth would be a second answer to a question with one answer.
+       *
+       * ⚠ THE SCALE IS NEUTRALISED UNDER prefers-reduced-motion IN theme.css, and it has to
+       * be: zeroing transition-duration removes the tween, not the transform, so without
+       * that block this token is an instant 2% jump for the users who asked for less motion.
+       * apps/web/src/motion.test.tsx pins both halves.
+       */
+      scale: { 98: '0.98' },
       borderColor: { DEFAULT: 'var(--rule)' },
       borderRadius: { card: '10px', control: '6px', pill: '9999px' },
       spacing: { gutter: '16px', row: '38px' },

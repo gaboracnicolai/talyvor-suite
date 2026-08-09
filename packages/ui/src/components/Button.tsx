@@ -31,7 +31,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       type={asChild ? undefined : (type ?? 'button')}
       className={cn(
         'inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-control border px-3',
-        'text-body font-medium transition-colors',
+        // 200ms is the site's colour transition, measured across eleven served pages
+        // (duration-200 × 151, the next most common is 300 × 69). A bare `transition-colors`
+        // is 150ms — Tailwind's default, chosen by omission rather than by anyone.
+        // active:scale-98 is the press. It is the ONE place the product moves on touch, and
+        // it is neutralised under prefers-reduced-motion in theme.css.
+        'text-body font-medium transition-colors duration-200 active:scale-98',
         'disabled:pointer-events-none disabled:opacity-50',
         focusRing,
         variants[variant],

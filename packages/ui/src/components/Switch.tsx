@@ -14,7 +14,7 @@ export const Switch = forwardRef<React.ElementRef<typeof SwitchPrimitive.Root>, 
         ref={ref}
         className={cn(
           'peer inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-pill border border-transparent',
-          'bg-faint transition-colors data-[state=checked]:bg-accent',
+          'bg-faint transition-colors duration-200 data-[state=checked]:bg-accent',
           'disabled:cursor-not-allowed disabled:opacity-50',
           focusRing,
           className,
@@ -24,7 +24,9 @@ export const Switch = forwardRef<React.ElementRef<typeof SwitchPrimitive.Root>, 
         <SwitchPrimitive.Thumb
           className={cn(
             'pointer-events-none block h-3 w-3 translate-x-0.5 rounded-pill bg-surface shadow-sm',
-            'transition-transform data-[state=checked]:translate-x-3.5',
+            // The thumb travels on the same 200ms as the track colour, so the two read as one
+            // object changing state rather than two things changing at different speeds.
+            'transition-transform duration-200 data-[state=checked]:translate-x-3.5',
           )}
         />
       </SwitchPrimitive.Root>

@@ -227,7 +227,7 @@ function WorkedHit() {
             type="button"
             onClick={() => setStep(i)}
             aria-current={i === step ? 'step' : undefined}
-            className={`flex-1 whitespace-nowrap px-4 py-2.5 text-left text-caption transition-colors ${
+            className={`flex-1 whitespace-nowrap px-4 py-2.5 text-left text-caption transition-colors duration-200 active:scale-98 ${
               i === step ? 'bg-surface text-ink' : 'bg-canvas text-muted hover:text-ink'
             }`}
           >
@@ -245,7 +245,7 @@ function WorkedHit() {
           {beats.map((b, i) => (
             <span
               key={b.label}
-              className={`h-0.5 flex-1 transition-colors ${i <= step ? 'bg-accent' : 'bg-rule'}`}
+              className={`h-0.5 flex-1 transition-colors duration-200 ${i <= step ? 'bg-accent' : 'bg-rule'}`}
             />
           ))}
         </div>

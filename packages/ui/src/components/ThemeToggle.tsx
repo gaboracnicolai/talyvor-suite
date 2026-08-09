@@ -16,7 +16,10 @@ export function ThemeToggle({ className }: { className?: string }) {
       title={dark ? 'Switch to light theme' : 'Switch to dark theme'}
       className={cn(
         'inline-flex h-8 w-8 items-center justify-center rounded-control border border-rule bg-surface',
-        'text-muted transition-colors hover:border-rule-strong hover:text-ink',
+        'text-muted transition-colors duration-200 hover:border-rule-strong hover:text-ink',
+        // A hand-rolled <button>, so it does not inherit Button's press. Same affordance,
+        // stated here rather than assumed.
+        'active:scale-98',
         focusRing,
         className,
       )}
