@@ -316,7 +316,7 @@ export function IssueDetail() {
         </div>
       </Card>
 
-      {failed && <p className="text-body text-danger">{failed}</p>}
+      {failed && <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">{failed}</p>}
     </div>
   )
 }

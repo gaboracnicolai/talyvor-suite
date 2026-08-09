@@ -226,7 +226,7 @@ export function IssueList() {
           <label className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="text-caption text-muted">Title</span>
             <input
-              className="w-full rounded border border-hairline bg-canvas px-2 py-1 text-body text-ink"
+              className="w-full rounded border border-rule bg-canvas px-2 py-1 text-body text-ink"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="What needs doing?"
@@ -347,7 +347,7 @@ export function IssueList() {
             </thead>
             <tbody>
               {rows.map((it) => (
-                <tr key={it.id} className="border-t border-hairline align-middle">
+                <tr key={it.id} className="border-t border-rule align-middle">
                   {/* ⚠ THE LINK IS THE WHOLE POINT. Until now a row was terminal: you could see an
                       issue existed and had no way to open it. The title is the target because that
                       is what a reader aims at; the ref stays plain so the row has one link, not two. */}
@@ -362,7 +362,7 @@ export function IssueList() {
                       <StatusPill status={it.status} />
                       <select
                         aria-label={`Status for ${it.identifier}`}
-                        className="rounded border border-hairline bg-canvas px-1 py-0.5 text-caption text-ink"
+                        className="rounded border border-rule bg-canvas px-1 py-0.5 text-caption text-ink"
                         value={it.status}
                         disabled={setStatus.isPending}
                         onChange={(e) =>

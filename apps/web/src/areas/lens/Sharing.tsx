@@ -114,7 +114,7 @@ export function SharingChoice({ onDone }: { onDone?: () => void }) {
         </p>
       )}
 
-      {failed && <p className="text-body text-danger">{failed}</p>}
+      {failed && <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">{failed}</p>}
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <Button disabled={busy !== null} onClick={() => void choose(false)}>

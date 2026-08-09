@@ -86,7 +86,7 @@ export function SpaceView() {
             <label className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-caption text-muted">Page title</span>
               <input
-                className="w-full rounded border border-hairline bg-canvas px-2 py-1 text-body text-ink"
+                className="w-full rounded border border-rule bg-canvas px-2 py-1 text-body text-ink"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="What are you writing?"
@@ -118,7 +118,7 @@ export function SpaceView() {
           ) : (
             <ul className="flex flex-col">
               {rows.map((pg) => (
-                <li key={pg.id} className="border-t border-hairline py-2 first:border-t-0">
+                <li key={pg.id} className="border-t border-rule py-2 first:border-t-0">
                   <Link className="text-body text-ink underline" to={`/docs/spaces/${spaceId}/pages/${pg.id}`}>
                     {pg.title}
                   </Link>

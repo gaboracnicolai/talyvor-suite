@@ -4,6 +4,7 @@ import { render } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { MuNumeral } from '../components/MuNumeral'
 import preset from '../preset'
+import { stripComments } from '../lib/sourceText'
 
 /**
  * THE TYPEFACE, AND THE NUMERAL FACE.
@@ -146,49 +147,3 @@ describe('numerals are set in the figure face', () => {
     expect(/\btabular-nums\b/.test(codeOnly('<span className="tabular-nums" />'))).toBe(true)
   })
 })
-
-/**
- * Blank out `//` and block comments, respecting string and template literals so a URL
- * inside a string is not mistaken for a comment. Returns the same length-ish text with
- * comment bodies removed — enough to ask "does this class appear in CODE".
- */
-function stripComments(src: string): string {
-  let out = ''
-  let i = 0
-  while (i < src.length) {
-    const c = src[i]
-    const next = src[i + 1]
-    if (c === '/' && next === '/') {
-      while (i < src.length && src[i] !== '\n') i++
-      continue
-    }
-    if (c === '/' && next === '*') {
-      i += 2
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++
-      i += 2
-      continue
-    }
-    if (c === '"' || c === "'" || c === '`') {
-      const quote = c
-      out += c
-      i++
-      while (i < src.length) {
-        if (src[i] === '\\') {
-          out += src[i] + (src[i + 1] ?? '')
-          i += 2
-          continue
-        }
-        out += src[i]
-        if (src[i] === quote) {
-          i++
-          break
-        }
-        i++
-      }
-      continue
-    }
-    out += c
-    i++
-  }
-  return out
-}
