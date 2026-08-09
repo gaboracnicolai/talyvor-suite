@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Row } from '@talyvor/ui'
+import { Button, Card, CardHeader, Row, focusRing } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { docsApi, type DocsSpace } from './api'
 import { Chip } from './components'
@@ -25,7 +25,7 @@ function SpaceRow({ space }: { space: DocsSpace }) {
           open()
         }
       }}
-      className="cursor-pointer outline-accent hover:bg-canvas focus-visible:outline"
+      className={`cursor-pointer hover:bg-canvas ${focusRing}`}
       label={
         <span className="inline-flex items-center gap-2">
           {space.icon ? <span aria-hidden="true">{space.icon}</span> : null}
@@ -76,7 +76,7 @@ function CreateSpaceForm() {
         <label className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-caption text-muted">Space name</span>
           <input
-            className="w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink"
+            className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink ${focusRing}`}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Engineering"

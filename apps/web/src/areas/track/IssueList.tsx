@@ -8,6 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  focusRing,
 } from '@talyvor/ui'
 import { useState } from 'react'
 import { ApiError } from '../../lib/api'
@@ -226,7 +227,7 @@ export function IssueList() {
           <label className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="text-caption text-muted">Title</span>
             <input
-              className="w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink"
+              className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink ${focusRing}`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="What needs doing?"
@@ -362,7 +363,7 @@ export function IssueList() {
                       <StatusPill status={it.status} />
                       <select
                         aria-label={`Status for ${it.identifier}`}
-                        className="rounded-control border border-rule bg-canvas px-1 py-0.5 text-caption text-ink"
+                        className={`rounded-control border border-rule bg-canvas px-1 py-0.5 text-caption text-ink ${focusRing}`}
                         value={it.status}
                         disabled={setStatus.isPending}
                         onChange={(e) =>
