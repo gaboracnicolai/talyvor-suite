@@ -227,7 +227,7 @@ export function IssueList() {
           <label className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="text-caption text-muted">Title</span>
             <input
-              className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink ${focusRing}`}
+              className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint ${focusRing}`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="What needs doing?"
