@@ -219,7 +219,7 @@ function WorkedHit() {
     },
   ]
   return (
-    <div className="overflow-hidden rounded-lg border border-rule bg-surface">
+    <div className="overflow-hidden rounded-card border border-rule bg-surface">
       <div className="flex flex-wrap gap-px border-b border-rule bg-rule">
         {beats.map((b, i) => (
           <button
@@ -262,7 +262,7 @@ function WorkedHit() {
 function Compounding() {
   const [members, setMembers] = useState(1)
   return (
-    <div className="overflow-hidden rounded-lg border border-rule bg-surface">
+    <div className="overflow-hidden rounded-card border border-rule bg-surface">
       <div className="flex flex-col gap-8 px-gutter py-6 wide:flex-row wide:items-end wide:justify-between">
         <div>
           <p className="font-figure text-eyebrow uppercase text-muted">

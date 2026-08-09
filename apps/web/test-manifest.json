@@ -44,5 +44,6 @@
   "src/lib/productState.test.ts": 13,
   "src/motion.test.tsx": 19,
   "src/SessionExpired.test.tsx": 20,
-  "src/Sharing.test.tsx": 8
+  "src/Sharing.test.tsx": 8,
+  "src/tokenDoor.test.ts": 8
 }
