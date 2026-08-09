@@ -148,7 +148,7 @@ export function IssueDetail() {
     <div className="flex flex-col gap-gutter">
       <div className="flex flex-col gap-2">
         <Link className="text-caption text-muted underline" to="/track">
-          ← Issues
+          ‹ Issues
         </Link>
         <div className="flex flex-wrap items-baseline gap-3">
           <span className="font-mono text-caption text-muted">{it.identifier}</span>

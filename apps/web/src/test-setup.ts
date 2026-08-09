@@ -24,6 +24,13 @@ import {
   satisfiesFloor,
   takeOffenders,
 } from './figureAudit'
+import {
+  MUST_AUDIT_MONO_TEXT,
+  installGlyphAudit,
+  satisfiesMonoFloor,
+  setGlyphAuditFile,
+  takeGlyphOffenders,
+} from './glyphAudit'
 
 /**
  * EVERY FIGURE THIS SUITE RENDERS IS AUDITED, on every surface, in every test.
@@ -58,11 +65,22 @@ installCaseAudit()
  */
 installFocusAudit()
 
+/**
+ * AND EVERY CHARACTER IS ASKED OF THE FACE THAT HAS TO DRAW IT, on the same ride.
+ *
+ * theme.css warns that a missing font FILE falls back to the system stack silently; a missing
+ * GLYPH does exactly the same thing, one character at a time, and typeface.test.tsx checks only
+ * that each url() resolves to something whose first four bytes are `wOF2`. glyphAudit.ts reads the
+ * cmaps out of the shipped binaries and asks whether the product's own copy is inside them.
+ */
+installGlyphAudit()
+
 let currentFile = ''
 beforeEach((ctx) => {
   currentFile = ctx.task.file?.name ?? ''
   setCaseAuditFile(currentFile)
   setFocusAuditFile(currentFile)
+  setGlyphAuditFile(currentFile)
 })
 
 // ⚠ BOTH audits are read in ONE hook and reported together. Two `afterEach` registrations would
@@ -109,6 +127,21 @@ afterEach(() => {
       'keyboard-focusable element(s) with no accent focus ring — add `focusRing` from ' +
         `@talyvor/ui:\n${lines.join('\n')}\n` +
         '(the rule, the Chrome measurement and the one exemption are in src/focusAudit.ts)',
+    )
+  }
+
+  const unserved = takeGlyphOffenders()
+  if (unserved.length > 0) {
+    const lines = unserved.map(
+      (g) =>
+        `  ${g.codePoint} ${JSON.stringify(g.char)} is ${g.coverage} by the ${g.family} faces\n` +
+        `    <${g.tag} class="${g.className}"> renders ${JSON.stringify(g.text)}`,
+    )
+    problems.push(
+      'character(s) no served face can draw — the browser falls through to the system stack for ' +
+        `each one:\n${lines.join('\n')}\n` +
+        '(the rule, the binaries it reads and the two characters still awaiting a decision are ' +
+        'in src/glyphAudit.ts)',
     )
   }
 
@@ -159,6 +192,19 @@ afterAll(() => {
   // ⚠ THE FLOOR ASKS FOR A PROTECTED µ, NOT MERELY A µ. Most µ in this product sit in ordinary
   // body text with no transform in effect, so "rendered a µ" would stay green with the audit
   // switched off. See MUST_PROTECT_MICRO_SIGN.
+  // ⚠ THE GLYPH FLOOR ASKS FOR A MONO CHARACTER, NOT A CHARACTER. Every test renders some text,
+  // so "audited anything" would stay green with the family walk blinded — and the family walk is
+  // the half that decides which font files are consulted. See MUST_AUDIT_MONO_TEXT.
+  const whyMono = MUST_AUDIT_MONO_TEXT[currentFile]
+  if (whyMono && !satisfiesMonoFloor(currentFile)) {
+    throw new Error(
+      `${currentFile} audited NO character on the mono family. It is listed in ` +
+        `MUST_AUDIT_MONO_TEXT because it renders ${whyMono}. Either the fixture stopped ` +
+        'rendering it — in which case this file no longer guards it — or the audit stopped ' +
+        'seeing it. Do not delete the entry to go green.',
+    )
+  }
+
   const whyMicro = MUST_PROTECT_MICRO_SIGN[currentFile]
   if (whyMicro && !satisfiesMicroFloor(currentFile)) {
     throw new Error(

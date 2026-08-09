@@ -117,10 +117,23 @@ export function isFigureOnly(text: string): boolean {
 
 /**
  * The face an element renders in: `font-figure` anywhere up the tree wins. `font-mono` does NOT
- * count — it is the same family without tnum, and a column of figures that does not align is the
- * defect, not the family. ⚠ That distinction is load-bearing and not theoretical: CacheCard's
- * cached-serve count was `font-mono`, and W1.1's own note that "the 20 font-mono call sites are
- * IDENTIFIERS, not figures" was true of sixteen of the seventeen.
+ * count. ⚠ That distinction is load-bearing and not theoretical: CacheCard's cached-serve count
+ * was `font-mono`, and W1.1's own note that "the 20 font-mono call sites are IDENTIFIERS, not
+ * figures" was true of sixteen of the seventeen.
+ *
+ * ⚠ BUT THE REASON WRITTEN HERE WAS FALSE, AND THE CORRECTION IS THE PART WORTH KEEPING. This
+ * said `font-mono` is "the same family without tnum, and a column of figures that does not align
+ * is the defect". MEASURED off the shipped binaries (glyphAudit.test.tsx pins it): the served IBM
+ * Plex Mono subsets declare NO `tnum` feature at all, so `font-figure`'s
+ * `font-feature-settings: "tnum" 1` has nothing to switch on — and all ten digits in those subsets
+ * already advance 600 units, so a `font-mono` column ALIGNS. The two utilities are
+ * rendering-identical in the browser. The SANS is the one with `tnum` and nine distinct digit
+ * advances, which is presumably where the sentence came from before numerals moved to mono.
+ *
+ * ⚠ THE RULE IS UNCHANGED AND DELIBERATELY SO. One named utility for figures is still worth
+ * having, and narrowing or widening it is a design decision, not a correction. What is corrected
+ * is the claim that the browser can see the difference: it cannot, so this rule buys CONSISTENCY,
+ * not alignment, and should be argued on that.
  */
 export function onFigureFace(el: Element | null): boolean {
   for (let e: Element | null = el; e; e = e.parentElement) {
