@@ -55,7 +55,7 @@ function SectionLabel({ index, children }: { index: string; children: React.Reac
     <div className="flex items-center gap-2.5">
       <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />
       <span className="font-figure text-caption text-faint">{index}</span>
-      <span className="text-caption uppercase tracking-wide text-muted">{children}</span>
+      <span className="font-figure text-eyebrow uppercase text-muted">{children}</span>
     </div>
   )
 }
@@ -69,7 +69,7 @@ function Figure({ value, unit, tone = 'ink' }: { value: string; unit: string; to
       >
         {value}
       </span>
-      <span className="text-caption uppercase tracking-wide text-faint">{unit}</span>
+      <span className="font-figure text-eyebrow uppercase text-faint">{unit}</span>
     </span>
   )
 }
@@ -265,7 +265,7 @@ function Compounding() {
     <div className="overflow-hidden rounded-lg border border-rule bg-surface">
       <div className="flex flex-col gap-8 px-gutter py-6 wide:flex-row wide:items-end wide:justify-between">
         <div>
-          <p className="text-caption uppercase tracking-wide text-muted">
+          <p className="font-figure text-eyebrow uppercase text-muted">
             The same answer, at a pool of{' '}
             <span className="font-figure text-ink">{members}</span>
             {members === 1 ? ' contributor' : ' contributors'}
@@ -276,7 +276,7 @@ function Compounding() {
           </div>
         </div>
         <label className="block wide:w-72">
-          <span className="text-caption uppercase tracking-wide text-faint">
+          <span className="font-figure text-eyebrow uppercase text-faint">
             Contributors in the pool
           </span>
           <input
@@ -579,7 +579,7 @@ export function Landing() {
                 <div key={p.name} className="bg-surface p-6">
                   <div className="flex items-baseline gap-3">
                     <span className="text-head text-ink">{p.name}</span>
-                    <span className="text-caption uppercase tracking-wide text-faint">{p.role}</span>
+                    <span className="font-figure text-eyebrow uppercase text-faint">{p.role}</span>
                   </div>
                   <p className="mt-3 text-body text-muted">{p.body}</p>
                   <p className="mt-4 text-caption text-faint">{p.surfaces}</p>
@@ -652,7 +652,7 @@ export function Landing() {
 
       <footer className="border-t border-rule">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-gutter py-6">
-          <div className="text-caption uppercase tracking-wide text-faint">
+          <div className="font-figure text-eyebrow uppercase text-faint">
             Talyvor Ltd · self-hosted AI development
           </div>
           <div className="text-caption text-faint">

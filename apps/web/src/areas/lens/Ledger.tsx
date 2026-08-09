@@ -23,7 +23,7 @@ function StatusCell({ type }: { type: string }) {
   if (status) return <Pill status={status}>{status}</Pill>
   // Movements (grant/purchase/spend) have no lifecycle status → a plain ink label. The
   // mislabeled bootstrap `purchase` shows verbatim: the data is wrong, not the display.
-  return <span className="text-caption uppercase tracking-wide text-muted">{humanizeType(type)}</span>
+  return <span className="font-figure text-eyebrow uppercase text-muted">{humanizeType(type)}</span>
 }
 
 function LedgerTableRow({ r, token }: { r: LedgerRow; token: Token }) {
@@ -123,7 +123,7 @@ export function Ledger() {
           <div className="overflow-x-auto">
             <table className="w-full border-collapse">
               <thead>
-                <tr className="border-b border-rule text-left text-caption uppercase tracking-wide text-muted">
+                <tr className="border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
                   <th className="px-gutter py-2 font-semibold">When</th>
                   <th className="px-gutter py-2 font-semibold">Status</th>
                   <th className="px-gutter py-2 font-semibold">Description</th>

@@ -67,7 +67,7 @@ function WorkspaceStrip() {
   return (
     <div className="flex items-center justify-between gap-gutter">
       <div className="flex items-center gap-2">
-        <span className="text-caption uppercase tracking-wide text-faint">Workspace</span>
+        <span className="font-figure text-eyebrow uppercase text-faint">Workspace</span>
         {q.data.length === 1 ? (
           <span className="text-body text-ink">{q.data[0].name}</span>
         ) : (

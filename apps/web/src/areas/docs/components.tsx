@@ -10,7 +10,7 @@ export function Chip({ title, children }: { title?: string; children: React.Reac
   return (
     <span
       title={title}
-      className="inline-flex h-5 shrink-0 items-center rounded-pill border border-rule bg-canvas px-2 text-caption uppercase tracking-wide text-muted"
+      className="inline-flex h-5 shrink-0 items-center rounded-pill border border-rule bg-canvas px-2 font-figure text-eyebrow uppercase text-muted"
     >
       {children}
     </span>

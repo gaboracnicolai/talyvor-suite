@@ -30,7 +30,7 @@ export function Pill({ status, children, className, ...props }: PillProps) {
     <span
       className={cn(
         'inline-flex h-5 items-center gap-1.5 whitespace-nowrap rounded-pill border border-rule bg-surface px-2',
-        'text-caption uppercase tracking-wide text-muted',
+        'font-figure text-eyebrow uppercase text-muted',
         className,
       )}
       {...props}

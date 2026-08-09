@@ -58,6 +58,28 @@ const preset = {
         // the µ-tail: 12.5px, dimmed + underscored in MuNumeral (moves with the scale).
         micro: ['12.5px', { lineHeight: '1', fontWeight: '500' }],
 
+        // ── THE EYEBROW ───────────────────────────────────────────────────────────────────────
+        //
+        // The small uppercase label that names a region before it says anything, and the ONE
+        // small label in this system. It existed already, hand-rolled twenty-one times in four
+        // shapes — `text-caption uppercase tracking-wide` with text-muted, with text-faint, with
+        // font-semibold, and once with no colour at all. Four shapes is not a style, it is drift.
+        //
+        // Measured off the public site, which uses one shape for it everywhere: 11px, mono,
+        // letter-spacing .14em–.32em, weight 400, in the faint or dim ink. Pinned at the modal
+        // .24em, with the tracking IN the token — a caller who applies the size and forgets the
+        // tracking gets small mono text, not an eyebrow.
+        //
+        // ⚠ WEIGHT IS 400, WHICH IS A DROP FROM THE CAPTION'S 600, AND THAT IS THE POINT: it
+        // leaves `font-semibold` free to MEAN something. Members distinguishes owner from member
+        // by weight rather than hue; at 600 the token would have silently collapsed that
+        // distinction into no distinction at all.
+        //
+        // ⚠ THE UPPERCASE IS NOT IN HERE, deliberately. `text-transform: uppercase` maps
+        // µ (U+00B5) to Greek capital Mu, and µLENS/µLXC sit inside these labels. It is applied
+        // at the call site, where MuNumeral can keep its µ in a `normal-case` span.
+        eyebrow: ['11px', { lineHeight: '1.2', letterSpacing: '0.24em', fontWeight: '400' }],
+
         // ── DISPLAY: the marketing scale ──────────────────────────────────────────────────────
         //
         // The five sizes above are a CONTROL-PANEL scale and stop at 24px on purpose — a console

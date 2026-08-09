@@ -57,7 +57,7 @@ export function Members() {
             <Row key={m.id} label={m.name} hint={m.email}>
               <span
                 className={cn(
-                  'text-caption uppercase tracking-wide',
+                  'font-figure text-eyebrow uppercase',
                   m.role === 'owner' ? 'font-semibold text-ink' : 'text-muted',
                 )}
               >
