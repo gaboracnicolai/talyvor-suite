@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { tokens, type TokenName } from '../tokens'
 
@@ -14,14 +16,23 @@ import { tokens, type TokenName } from '../tokens'
  *                    routing ramp), so there is nothing to port and nothing to drift from.
  *
  * ⚠ WHERE THE SITE VALUES COME FROM. Not from a screenshot and not from the brief's
- * paraphrase — from the stylesheet the site actually serves:
+ * paraphrase — from the stylesheet the site actually serves, `@theme` block. The site is a
+ * THIRD-PARTY ARTIFACT this repo cannot reach from CI, so it is registered as an UNCHECKABLE
+ * premise in deploy/decision-expiry.sh rather than pretended to be verified on every run.
+ * What this test guards is that OUR side of the port has not moved since it was measured.
  *
- *     curl https://talyvor.higgsfield.app/assets/styles-CGSz1SmS.css
+ * ── PROVENANCE, AND WHY THE FILENAME IS NOT PART OF IT ──────────────────────
  *
- * fetched 2026-08-09, `@theme` block. The site is a THIRD-PARTY ARTIFACT this repo cannot
- * reach from CI, so it is registered as an UNCHECKABLE premise in deploy/decision-expiry.sh
- * rather than pretended to be verified on every run. What this test guards is that OUR
- * side of the port has not moved since it was measured.
+ *   2026-08-09  /assets/styles-CGSz1SmS.css   the original measurement (#88)
+ *   2026-08-09  /assets/styles-AuqlUACj.css   RE-MEASURED after a redeploy — all nine values
+ *                                             below byte-identical, sha 9e15abe, 332,038 bytes
+ *
+ * ⚠ THE FIRST URL NOW 404s AND THE PALETTE DID NOT CHANGE. Both facts at once, which is the
+ * whole lesson: the stylesheet is CONTENT-HASHED, so its name changes when ANY byte of the
+ * site's CSS changes — a new section, a new utility, a Tailwind bump — and says nothing about
+ * these nine variables. `resolves ⇒ unchanged` is sound; `404 ⇒ changed` is not, and until
+ * this merge the expiry register asserted the second one. Pin the VALUES, never the filename;
+ * the command in decision-expiry.sh now reads the stylesheet URL out of the served HTML.
  */
 
 // Verbatim from the served stylesheet's @theme block. Lower-case as served.
@@ -105,6 +116,48 @@ const DIVERGED: Partial<Record<TokenName, { from: string; because: string }>> = 
 
 /** The site has no ledger, no held state and no routing ramp — nothing to port. */
 const NO_COUNTERPART: readonly TokenName[] = ['lens', 'lxc', 'tier1', 'tier3', 'settled', 'held', 'slashed']
+
+/**
+ * ⚠ THE SAME MEASUREMENT WAS WRITTEN DOWN TWICE. `deploy/decision-expiry.sh` states this
+ * palette a second time, in prose, as the DECISION line of its W1.1 premise — "canvas #060A12,
+ * surface #0B1220, ink #E6EEF7, muted #7E93AB, accent #3AD6C0". Two copies of one measurement
+ * with nothing between them: re-measure the site, update one, and the other keeps asserting the
+ * old numbers with total confidence and no red anywhere. The register is the file a deploy is
+ * supposed to TRUST, so it is the worse of the two to leave stale.
+ *
+ * This reads the register and requires the two to agree. It is deliberately keyed on the five
+ * PORTED tokens rather than on all nine site variables — the register names the tokens a reader
+ * of a runbook would recognise, and a divergence is not a port.
+ */
+const REGISTER = resolve(import.meta.dirname, '../../../../deploy/decision-expiry.sh')
+
+describe('the register and this table are the same measurement', () => {
+  it('decision-expiry.sh states the palette decision, and states it once', () => {
+    const text = readFileSync(REGISTER, 'utf8')
+    const lines = text.split('\n').filter((l) => l.includes("the console's dark palette IS the public site's"))
+    expect(
+      lines,
+      'the W1.1 palette premise is not in deploy/decision-expiry.sh under the wording this test ' +
+        'reads. If it moved, move this check with it — do not delete it: an unread register is ' +
+        'the failure that register exists to prevent.',
+    ).toHaveLength(1)
+  })
+
+  it('every hex the register names is the token this table ports', () => {
+    const line = readFileSync(REGISTER, 'utf8')
+      .split('\n')
+      .find((l) => l.includes("the console's dark palette IS the public site's"))!
+    // "canvas #060A12, surface #0B1220, …" → the pairs the runbook reader actually sees
+    const named = new Map<string, string>()
+    for (const m of line.matchAll(/([a-z-]+)\s+(#[0-9A-Fa-f]{6})/g)) named.set(m[1], m[2].toLowerCase())
+
+    expect(named.size, `no "<token> #HEX" pairs found in the register line: ${line}`).toBeGreaterThanOrEqual(5)
+    for (const [token, hex] of named) {
+      expect(PORTED[token as TokenName], `the register names a token this table does not port: ${token}`).toBeDefined()
+      expect(tokens.dark[token as TokenName].toLowerCase(), `${token} disagrees with the register`).toBe(hex)
+    }
+  })
+})
 
 describe('the dark theme is the site, or says exactly where it is not', () => {
   it('the classification is total — every dark token is ported, diverged, or has no counterpart', () => {

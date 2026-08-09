@@ -229,11 +229,21 @@ cannot "one secret gates BOTH Track service endpoints (why MEMBER_SYNC_SECRET is
 # business reaching out to a third-party origin mid-build, and a check that fails when a CDN
 # hiccups is a check people learn to re-run rather than read.
 #
-# So it is stated as what it is. The stylesheet is CONTENT-HASHED, which makes the check cheap:
-# if the filename below still resolves, the bytes behind it are the bytes that were measured.
+# ⚠ AND THE FIRST VERSION OF THIS CHECK PINNED THE STYLESHEET'S HASHED FILENAME, reasoning that
+# "if the filename still resolves, the bytes behind it are the bytes that were measured". That
+# direction is sound. The one it was actually used in is not, and it went wrong on 2026-08-09:
+# the site was redeployed, /assets/styles-CGSz1SmS.css began returning 404 — and ALL NINE VALUES
+# WERE UNCHANGED at the new name (styles-AuqlUACj.css, re-measured byte for byte). Content
+# hashing means the name moves when ANY byte of the site's CSS moves; it says nothing about
+# these five variables. So the check read STALE while the premise held perfectly, which is the
+# "people learn to re-run it rather than read it" failure this file warns about, arriving
+# through the other door.
+#
+# The command below therefore pins the VALUES and resolves the filename from the served HTML.
+# It survives a redeploy, and it goes quiet only when the palette genuinely moves.
 cannot "the console's dark palette IS the public site's (canvas #060A12, surface #0B1220, ink #E6EEF7, muted #7E93AB, accent #3AD6C0)" \
     "talyvor.higgsfield.app — a third-party deployment, not a repository" \
-    "curl -s https://talyvor.higgsfield.app/assets/styles-CGSz1SmS.css | grep -o -- '--color-\(ink\|txt\|acc\)[a-z-]*:[^;]*'   # a 404 means the site was redeployed: re-measure and re-run packages/ui site-parity.test.ts"
+    "curl -s https://talyvor.higgsfield.app/\$(curl -s https://talyvor.higgsfield.app/ | grep -o 'assets/styles-[A-Za-z0-9_-]*\.css' | head -1) | grep -o -- '--color-\(ink\|txt\|acc\|hairline\)[a-z-]*:[^;]*' | sort -u   # expect exactly the 9 values in packages/ui site-parity.test.ts (the old pattern missed hairline and returned 8); do NOT pin the hash — it moves on every unrelated redeploy"
 
 # ── D8 ───────────────────────────────────────────────────────────────────────
 # DECISION: the login nudge sends the transit proof and NO identity headers.
