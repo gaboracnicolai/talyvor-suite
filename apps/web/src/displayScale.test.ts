@@ -109,6 +109,44 @@ function routedComponents(block: string): string[] {
   return [...new Set([...block.matchAll(/element=\{<([A-Z][A-Za-z0-9_]*)/g)].map((m) => m[1]))]
 }
 
+/**
+ * THE CONSOLE'S ROUTES ARE NO LONGER JSX IN THE `<Routes>` BLOCK, and this guard found that out
+ * the hard way — which is the argument for the floor it already carried.
+ *
+ * `w11-console-title` moved every gated page into a `CONSOLE_ROUTES` table so the router and the
+ * header title could not hold two copies of the path list. The shell block then reads
+ * `{CONSOLE_ROUTES.map(...)}` and `element={<X />}` matches NOTHING inside it. MEASURED, by
+ * raising the floor until it printed the number: the gated closure is 65 files at `c9e1e8a`, was
+ * 0 with the table in place and this reader absent, and is 65 again with it. The only reason
+ * this test spoke instead of sweeping an empty set was `expect(gated.size).toBeGreaterThan(25)`.
+ * A source-derived guard whose seam moves goes quiet, not red, unless something asserts it read
+ * anything at all.
+ *
+ * Scoped by bracket matching rather than a global `element:` scan, so an `element:` written
+ * anywhere else in App.tsx cannot enter the gated closure.
+ */
+function consoleRouteComponents(): string[] {
+  // ⚠ ANCHORED ON THE ASSIGNMENT, NOT THE NAME. The first `[` after `CONSOLE_ROUTES` is the one
+  // in its own TYPE — `readonly ConsoleRoute[]` — so `indexOf('[')` matched an empty pair and
+  // this returned []. Measured: the floor two tests up caught it, which is the only reason the
+  // wrong anchor is a paragraph here instead of a silent zero in the closure.
+  const decl = /CONSOLE_ROUTES[^=]*=\s*\[/.exec(appSource)
+  if (decl === null) throw new Error('App.tsx no longer declares CONSOLE_ROUTES — the router moved again; point this at its new shape rather than letting the closure empty.')
+  const open = decl.index + decl[0].length - 1
+  let depth = 0
+  let close = -1
+  for (let i = open; i < appSource.length; i++) {
+    if (appSource[i] === '[') depth++
+    else if (appSource[i] === ']' && --depth === 0) {
+      close = i
+      break
+    }
+  }
+  if (close < 0) throw new Error('unbalanced brackets in App.tsx CONSOLE_ROUTES')
+  const block = appSource.slice(open + 1, close)
+  return [...new Set([...block.matchAll(/element:\s*<([A-Z][A-Za-z0-9_]*)/g)].map((m) => m[1]))]
+}
+
 /** name → module specifier, from App.tsx's own imports. */
 const importedFrom = new Map<string, string>()
 for (const m of appSource.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
@@ -169,6 +207,14 @@ describe('the marketing type scale stops at the AuthGate', () => {
     expect(shellBlock).toBeDefined()
     // The root block holds exactly one gate; everything else beside it is public by construction.
     expect([...(rootBlock ?? '').matchAll(/<AuthGate>/g)]).toHaveLength(1)
+    // ⚠ AND THE GATED PAGES, which no longer live in that block at all. Named as literals, not
+    // counted from the table: a reader that returns [] is the failure this whole test exists to
+    // make impossible, and a count derived from the thing being checked cannot see it.
+    const console = consoleRouteComponents()
+    expect(console.length, 'CONSOLE_ROUTES yielded no components — the gated closure would be empty').toBeGreaterThanOrEqual(10)
+    for (const name of ['Overview', 'TrackArea', 'DocsArea', 'TopUp']) {
+      expect(console, `${name} is a console page but the table reader missed it`).toContain(name)
+    }
   })
 
   it('the detector tells a class from a sentence about one, and a size from a family', () => {
@@ -207,7 +253,11 @@ describe('the marketing type scale stops at the AuthGate', () => {
   })
 
   it('the two closures reach real files, and the shared package lands in both', () => {
-    const gated = closure(entryFiles(routedComponents(shellBlock ?? '')))
+    // Both halves: anything still routed as JSX inside the shell block, plus every page in the
+    // CONSOLE_ROUTES table. The union is what actually renders behind the gate.
+    const gated = closure(
+      entryFiles([...new Set([...routedComponents(shellBlock ?? ''), ...consoleRouteComponents()])]),
+    )
     const publik = closure(entryFiles(routedComponents(rootBlock ?? '').filter((n) => n !== 'AuthGate')))
     // Floors: a closure that collapsed to nothing would make the sweep below vacuous.
     expect(gated.size).toBeGreaterThan(25)
