@@ -269,7 +269,7 @@ export function IssueDetail() {
           {/* ⚠ THE NUMBER NO OTHER TRACKER HAS. It has worked all along and was never shown. */}
           <div className="flex flex-wrap items-center gap-3 border-t border-rule pt-4">
             <span className="text-caption text-muted">AI cost</span>
-            <span className="text-body tabular-nums text-ink">{costLabel(it.ai_cost_usd)}</span>
+            <span className="font-figure text-body text-ink">{costLabel(it.ai_cost_usd)}</span>
             {it.ai_tokens > 0 && (
               <span className="text-caption text-faint">{it.ai_tokens} tokens</span>
             )}

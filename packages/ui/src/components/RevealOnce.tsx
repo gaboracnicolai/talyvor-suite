@@ -69,7 +69,7 @@ export function RevealOnce({
       <div className="border-t border-rule px-gutter py-3">
         <div className="text-caption font-semibold uppercase tracking-wide text-faint">{identifierLabel}</div>
         <div className="pt-1 text-caption text-muted">
-          <span className="font-mono tabular-nums">{identifier}</span>
+          <span className="font-mono">{identifier}</span>
           <span className="pl-2 text-body font-normal text-faint">{identifierNote}</span>
         </div>
       </div>

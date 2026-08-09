@@ -30,6 +30,25 @@ const preset = {
       fontFamily: {
         sans: ['var(--sans)'],
         mono: ['var(--mono)'],
+        /**
+         * THE FIGURE FACE — `font-figure`. Every numeral in the product renders here.
+         *
+         * The public site sets both its eyebrow labels and its quoted figures in one
+         * utility whose whole definition is `font-family: var(--font-mono);
+         * font-feature-settings: "tnum" 1`. This is that, named.
+         *
+         * ⚠ THIS REVERSES A PREVIOUS DECISION, so the previous reasoning is answered
+         * rather than deleted. The system used to set numerals in the SANS with
+         * `tabular-nums`, on the premise that "mono is for IDENTIFIERS — a machine
+         * string you might copy — and 'this is a number' is not a message". That
+         * premise was true of a system-font stack, where mono was a foreign face that
+         * appeared only on SHAs and key prefixes. It is not true of this one: mono is
+         * now the face of every eyebrow label on every screen, so mono no longer says
+         * "machine string", it says "measured". What still separates an identifier from
+         * a figure is the tracking (labels carry it, figures do not) and the size step,
+         * not the family.
+         */
+        figure: ['var(--mono)', { fontFeatureSettings: '"tnum" 1' }],
       },
       fontSize: {
         title: ['24px', { lineHeight: '1.2', fontWeight: '640' }],
@@ -55,10 +74,18 @@ const preset = {
         //
         // ⚠ NOT FOR THE APP. Nothing behind the AuthGate should reach for these; if a console
         // screen ever wants display type, that is a design conversation, not an import.
-        'display-1': ['clamp(34px, 6vw, 58px)', { lineHeight: '1.05', letterSpacing: '-0.02em', fontWeight: '660' }],
-        'display-2': ['clamp(25px, 3.8vw, 38px)', { lineHeight: '1.1', letterSpacing: '-0.02em', fontWeight: '650' }],
-        'display-3': ['clamp(23px, 3.2vw, 33px)', { lineHeight: '1.15', letterSpacing: '-0.015em', fontWeight: '640' }],
-        'display-4': ['clamp(19px, 2.5vw, 26px)', { lineHeight: '1.2', letterSpacing: '-0.01em', fontWeight: '640' }],
+        //
+        // ⚠ WEIGHT AND TRACKING RECALIBRATED TO THE FACE. These were set for a system
+        // neo-grotesque at 640–660. Space Grotesk is a GEOMETRIC sans and carries its
+        // character in the letterforms, not the weight; the site sets every display line at
+        // font-medium/semibold with -0.03em. Measured off the served markup: h1 is
+        // `clamp(1.9rem,4.4vw,3.6rem) font-medium leading-[1.04] tracking-[-0.03em]`. The size
+        // ramp is unchanged — only the weight and tracking move, because those are properties
+        // of the typeface and the typeface changed.
+        'display-1': ['clamp(34px, 6vw, 58px)', { lineHeight: '1.04', letterSpacing: '-0.03em', fontWeight: '500' }],
+        'display-2': ['clamp(25px, 3.8vw, 38px)', { lineHeight: '1.06', letterSpacing: '-0.03em', fontWeight: '500' }],
+        'display-3': ['clamp(23px, 3.2vw, 33px)', { lineHeight: '1.12', letterSpacing: '-0.02em', fontWeight: '500' }],
+        'display-4': ['clamp(19px, 2.5vw, 26px)', { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '600' }],
         // The paragraph that sits directly under a display heading.
         lede: ['clamp(15px, 1.7vw, 19px)', { lineHeight: '1.5', fontWeight: '400' }],
         // A measured figure quoted at reading size — the ledger numbers on the public page.

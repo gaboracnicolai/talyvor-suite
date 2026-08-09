@@ -45,12 +45,18 @@ export function MuNumeral({ micros, unit, className, ...props }: MuNumeralProps)
   const micro = abs % MICRO
   const sign = negative ? '-' : ''
 
-  // SANS with tabular figures: columns align via font-variant-numeric, and the
-  // digits belong to the typeface around them. Mono is for IDENTIFIERS (SHAs,
-  // key prefixes, endpoints) — "machine string you might copy" is a message;
-  // "this is a number" is not. The µ-split and the ≈ marker carry the
-  // exact-vs-derived distinction; the font never did.
-  const wrap = 'inline-flex items-baseline gap-1 tabular-nums'
+  // THE FIGURE FACE. Mono with tabular figures — the same shape the public site puts
+  // on every quoted number.
+  //
+  // ⚠ This reverses the earlier "numerals are SANS; mono is for identifiers" rule, and
+  // the reversal is the point rather than a tidy-up. That rule rested on mono being a
+  // FOREIGN face in this interface, appearing only on SHAs and key prefixes, so seeing
+  // it meant "machine string you might copy". Since the type language was ported, mono
+  // is the face of every eyebrow label on every screen — it no longer says "identifier",
+  // it says "measured", and a money figure is the most measured thing here. What still
+  // separates an identifier from a figure is the tracking and the size step, not the
+  // family. See preset.ts §THE FIGURE FACE.
+  const wrap = 'inline-flex items-baseline gap-1 font-figure'
 
   if (whole === 0) {
     return (

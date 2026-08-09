@@ -217,6 +217,24 @@ cannot "one secret gates BOTH Track service endpoints (why MEMBER_SYNC_SECRET is
     "talyvor-track cmd/track/main.go" \
     "grep -c 'cfg.MemberSyncSecret' cmd/track/main.go   # expect 2"
 
+# ── W1.1's premise, and it is not in ANY repository ──────────────────────────
+# DECISION: the console's dark theme IS the public site's palette — canvas/surface/ink/muted/
+#           accent taken byte for byte, with every divergence named and measured.
+# PREMISE:  the site still serves those values.
+#
+# ⚠ THIS IS THE WEAKEST PREMISE IN THE FILE, because the artifact it rests on is not a repo we
+# control, is not pinned to a commit, and can be redeployed by someone who has never heard of
+# this console. site-parity.test.ts guards OUR side — that nobody quietly drifts a token away
+# from what was measured — and it cannot guard the site's. Nothing in CI can: the runner has no
+# business reaching out to a third-party origin mid-build, and a check that fails when a CDN
+# hiccups is a check people learn to re-run rather than read.
+#
+# So it is stated as what it is. The stylesheet is CONTENT-HASHED, which makes the check cheap:
+# if the filename below still resolves, the bytes behind it are the bytes that were measured.
+cannot "the console's dark palette IS the public site's (canvas #060A12, surface #0B1220, ink #E6EEF7, muted #7E93AB, accent #3AD6C0)" \
+    "talyvor.higgsfield.app — a third-party deployment, not a repository" \
+    "curl -s https://talyvor.higgsfield.app/assets/styles-CGSz1SmS.css | grep -o -- '--color-\(ink\|txt\|acc\)[a-z-]*:[^;]*'   # a 404 means the site was redeployed: re-measure and re-run packages/ui site-parity.test.ts"
+
 # ── D8 ───────────────────────────────────────────────────────────────────────
 # DECISION: the login nudge sends the transit proof and NO identity headers.
 # PREMISE:  Docs' /v1/service/ lane is exempt from membership authz but NOT from the gateway

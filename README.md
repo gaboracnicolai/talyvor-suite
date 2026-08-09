@@ -66,11 +66,108 @@ silently bypasses them, so they **fail CI**:
 All values live once in `packages/ui/src/tokens.ts` and are mirrored into CSS variables in
 `theme.css`; `tokens.test.ts` fails if the two ever drift. Themes are **scopable**: set
 `data-theme` on `<html>` for the whole app (a no-flash inline script in `index.html` does this
-before first paint, respecting `prefers-color-scheme`), or on any element to theme a subtree —
-which is how `/specimen` shows light and dark side by side.
+before first paint, respecting `prefers-color-scheme`), or on any element to theme a subtree.
 
-Type: `title 22/640 · head 15/600 · body 13/400 · caption 11/600` (+ a `micro` 11.5 for the
+Type: `title 24/640 · head 17/600 · body 14/400 · caption 12/600` (+ a `micro` 12.5 for the
 µ-tail). Metrics: card radius 10 · control radius 6 · pill radius 999 · row height 38 · gutter 16.
+
+---
+
+## The language — ported from the public site, and measured
+
+The console and `talyvor.higgsfield.app` are one product. The dark theme is not *like* the
+site's; where it can be, it **is** the site's — taken from the stylesheet the site serves
+(`/assets/styles-CGSz1SmS.css`, `@theme` block, fetched 2026-08-09) rather than from a
+screenshot or a description:
+
+| token | value | site variable |
+|---|---|---|
+| `canvas` | `#060A12` | `--color-ink` |
+| `surface` | `#0B1220` | `--color-ink-raise` |
+| `ink` | `#E6EEF7` | `--color-txt` |
+| `muted` | `#7E93AB` | `--color-txt-dim` |
+| `accent` | `#3AD6C0` | `--color-acc` |
+
+Everything that could **not** be taken verbatim carries its reason and its number in
+`__tests__/site-parity.test.ts`, which fails if any of it drifts and fails if a new token
+arrives with no stated relationship to the site at all. The three that matter:
+
+- **`sidebar` is the canvas.** The site's own chrome is the page colour separated by a rule
+  (`bg-ink/80 border-b`, measured in the served markup), not a second plane. The rail follows
+  it. This also removed two AA failures the old greyer rail carried.
+- **`faint` is lifted.** The site's `--color-txt-faint` measures **3.42:1** on its own page
+  black — it fails AA for body text, and the site uses it only for 11px eyebrows. This console
+  puts `faint` on the µ-tail of every money figure, so the value is moved along the site's own
+  txt-faint → txt-dim ray to the first point clearing 4.5:1 against both dark planes
+  (`#6B7F96` = 4.81 / 4.55). Minimum distance, same colour ray.
+- **`accent-ink` exists at all.** Measured: `bg-acc` appears nine times in the served markup
+  and every one is a 1px underline or a 6px dot — the site has **no filled accent button**. A
+  console needs an unambiguous primary, so the fill stays and takes the page black as its ink
+  (10.91:1). A deliberate divergence, written down rather than absorbed.
+
+**The light theme is derived, not ported** — the site is dark-only. Same blue undertone, the
+same accent hue darkened until it clears AA on a light field (`#0F7A6C`), same structure.
+
+### Every pair is measured
+
+`packages/ui/src/lib/contrast.ts` is WCAG 2.1 relative luminance and contrast ratio;
+`__tests__/contrast.test.ts` scores **every** text token against **every** background (AA body,
+4.5:1) and every affordance hue against every background (the 3:1 non-text floor), in both
+themes. Every token must be given a role, so a new one cannot default into the unchecked set.
+
+> It was written before this palette landed and it was **red**. The previous `faint` — the
+> µ-tail under every money figure, at 12.5px — measured **2.98:1** on the light canvas, **2.80**
+> on the light sidebar and **3.83** on the dark surface. Two of those fail even the 3:1
+> large-text floor. It had been shipping. Eight pairs failed in total; all eight pass now.
+
+The instrument is positive-controlled against the ratios published in WCAG itself (black on
+white = 21, `#767676` on white = 4.54) before it is trusted to grade anything — a meter nobody
+has checked against a known quantity measures nothing.
+
+### One electric accent
+
+`site-parity.test.ts` asserts the accent's distance to its nearest neighbour is at least the
+distance between the two closest *other* hues — self-calibrating, no magic constant: *is the
+accent at least as distinct from the palette as the palette is from itself?*
+
+> Also red before the port. The old accent sat **28.4** from `tier1` while the tightest other
+> pair sat **30.6** apart: the accent was closer to the routing ramp than the palette was to
+> itself, and three hues crowded it. It is now 42.8 against the same 30.6 floor.
+>
+> Separately measured and **not** fixed here: `lens ↔ tier3` = 30.6 is tight in absolute terms —
+> copper and warm amber are hard to tell apart as 2px ticks. Recorded so the next palette pass
+> starts from a number rather than an impression.
+
+### The faces
+
+**Space Grotesk** (geometric sans) and **IBM Plex Mono**, the two the site is set in, **served
+from this repo** — not from a font CDN. This console is behind an auth gate and shows a tenant's
+money; a per-page-load request to a third party is a data flow, not a convenience. Both are SIL
+OFL 1.1 and the licences ship beside the files in `packages/ui/src/fonts/` (132 KB, latin +
+latin-ext, `font-display: swap` over a system fallback).
+
+`__tests__/typeface.test.tsx` asserts the **files**, not the declaration: every `url()` in
+`theme.css` must resolve to something on disk whose first four bytes are `wOF2`. An `@font-face`
+whose file is missing does not 404 loudly — the browser falls back to the system stack and the
+app renders in the wrong typeface forever.
+
+### Numerals are mono — reversing an earlier decision
+
+Every numeral renders in **`font-figure`**: `var(--mono)` with `font-feature-settings: "tnum" 1`
+— which is, exactly, the site's own `.font-instrument`.
+
+This **reverses** design-fixes correction 1 ("numerals are SANS with tabular figures; mono is
+for identifiers"), so the old reasoning is answered rather than deleted. That rule rested on
+mono being a *foreign* face here, appearing only on SHAs and key prefixes, so seeing it meant
+"machine string you might copy". True of a system-font stack; false of this one, where mono is
+the face of every small label on every screen. Mono no longer says *identifier* — it says
+*measured*, and a money figure is the most measured thing in the product. Tracking and size
+step still separate a label from a figure; the family no longer does.
+
+`tabular-nums` is consequently gone from non-test source, and a test asserts it stays gone —
+across **both** packages, because scoping that sweep to `packages/ui` would have scored green
+while eight app call sites kept the old face. (The detector matched its own explanatory prose on
+its first run, and is positive-controlled in both directions.)
 
 ---
 
@@ -79,6 +176,8 @@ Type: `title 22/640 · head 15/600 · body 13/400 · caption 11/600` (+ a `micro
 React 18.3 · **Vite 6** · TypeScript · **Tailwind 3.4** · **TanStack Query 5** (provider wired,
 no queries yet) · **Zustand 5** (the theme store) · **Radix** primitives (Switch, Select, Slot) ·
 **Vitest 3**. This is the core both prior Talyvor frontends independently converged on.
+Type is **Space Grotesk + IBM Plex Mono**, served from `packages/ui/src/fonts/` — see
+§The language.
 
 **Router: `react-router-dom` v7.** Track used `@tanstack/react-router` and Docs used
 `react-router-dom` — that divergence is part of why both are being discarded. Picking one:
@@ -93,8 +192,12 @@ machinery in increment 1).
 `Select` · `Input` · `Pill` (settled / held / slashed / lens / lxc) · `MuNumeral`
 (the µ-split, two scales) · `HoldBar` (the hold hairline — **blocked, see below**) ·
 `TierDot` (the routing ramp) · `ThemeToggle`.
-Reviewed at **`/specimen`** — every component, both themes. That route is the contract, not a
-throwaway.
+
+> ⚠ **There is no `/specimen`.** This section, §Tokens & theme and §Verify all described it as
+> the review surface — "that route is the contract, not a throwaway" — long after `App.tsx`
+> deleted the route and the component. The contract is now the component tests plus the token,
+> contrast, parity and typeface guards; a reader sent to a route that 404s learns nothing.
+> (Re-standing up a gallery is a reasonable thing to want. Doing it is a change, not a claim.)
 
 ### MuNumeral — two scales, one rule
 
@@ -123,8 +226,8 @@ endpoint**.
 
 So HoldBar **stays unused until Lens exposes a hold window on a read path**. It is wired into
 no screen; the held *state* surfaces as a `Pill` (`held`) — which is all the ledger supports.
-`/specimen` shows it with illustrative values only, clearly labelled. Wire it to the ledger
-and you get nothing — that's why this is written down rather than left to be discovered.
+Wire it to the ledger and you get nothing — that's why this is written down rather than left
+to be discovered.
 
 **Quality floor:** a 2 px accent focus ring at 2 px offset on every interactive element
 (`focus-visible` only); `prefers-reduced-motion` respected globally; responsive to mobile;
@@ -161,8 +264,8 @@ a numeral.
 pnpm install
 pnpm build      # tsc + vite build, clean
 pnpm lint       # eslint incl. local/no-arbitrary-value; fixture proves it fails
-pnpm test       # vitest — tokens drift, the invariant, renders, the lint proof, specimen both themes
-pnpm dev        # http://localhost:5173  →  /specimen
+pnpm test       # vitest — token drift, the invariant, contrast, site parity, the faces, renders, the lint proof
+pnpm dev        # http://localhost:5173
 ```
 
 ## Running the app (BFF + web)
@@ -225,7 +328,7 @@ own dedicated PR, because five parallel tracks depend on them not moving:
 - `apps/web/src/App.tsx` — routing, nav groups, the auth-gate mounting
 - `apps/web/src/components/` — the app shell chrome (AuthGate, SessionChip)
 - `apps/web/src/lib/` — the shared BFF client (`api.ts`)
-- `apps/web/src/routes/Specimen.tsx` and `src/styles.css`
+- `apps/web/src/styles.css`
 - `packages/ui/**` — the design system (components, tokens, preset, theme)
 - `eslint.config.js`, `tsconfig.base.json`, `pnpm-workspace.yaml`, CI
 - `apps/bff/**` — the BFF (new proxy routes are BFF PRs, not area commits)
