@@ -106,7 +106,7 @@ describe('space list (LIVE /api/docs/spaces)', () => {
       new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
     )
     renderAt('/docs')
-    expect(await screen.findByText('No spaces in this workspace yet.')).toBeInTheDocument()
+    expect(await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
   })
 })
 
@@ -167,7 +167,7 @@ describe('a workspace with NO spaces can create its first one', () => {
     mockDocsWithCreate()
     renderAt('/docs')
 
-    expect(await screen.findByText('No spaces in this workspace yet.')).toBeInTheDocument()
+    expect(await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
     // The dead end was: this text, and nothing to click.
     expect(screen.getByRole('button', { name: /create space/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/space name/i)).toBeInTheDocument()
@@ -177,7 +177,7 @@ describe('a workspace with NO spaces can create its first one', () => {
     const { posted } = mockDocsWithCreate()
     renderAt('/docs')
 
-    expect(await screen.findByText('No spaces in this workspace yet.')).toBeInTheDocument()
+    expect(await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
     expect(screen.queryByText('Engineering')).toBeNull()
 
     fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
@@ -185,7 +185,7 @@ describe('a workspace with NO spaces can create its first one', () => {
 
     // ⚠ No re-render, no remount, no second renderAt — the SAME mounted list must show it.
     expect(await screen.findByText('Engineering')).toBeInTheDocument()
-    expect(screen.queryByText('No spaces in this workspace yet.')).toBeNull()
+    expect(screen.queryByText(/No spaces in this workspace yet\. Create the first one below/)).toBeNull()
 
     // ⚠ THE FIELD NAME IS THE SILENT FAILURE. Docs decodes into model.Space; a wrong key is
     // ignored as a zero value, so `name` missing is a 400 the UI can show, but a misspelling
@@ -198,7 +198,7 @@ describe('a workspace with NO spaces can create its first one', () => {
     const { posted } = mockDocsWithCreate()
     renderAt('/docs')
 
-    await screen.findByText('No spaces in this workspace yet.')
+    await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)
     fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
     fireEvent.click(screen.getByRole('button', { name: /create space/i }))
     await screen.findByText('Engineering')
@@ -220,13 +220,13 @@ describe('a workspace with NO spaces can create its first one', () => {
     })
     renderAt('/docs')
 
-    await screen.findByText('No spaces in this workspace yet.')
+    await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)
     fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
     fireEvent.click(screen.getByRole('button', { name: /create space/i }))
 
     expect(await screen.findByText(/Couldn’t create that space/)).toBeInTheDocument()
     expect(screen.queryByText('Engineering')).toBeNull()
-    expect(screen.getByText('No spaces in this workspace yet.')).toBeInTheDocument()
+    expect(screen.getByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
   })
 })
 

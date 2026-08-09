@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
@@ -72,7 +73,19 @@ export function Spend({ now = new Date() }: { now?: Date }) {
               ))}
             </div>
             {agg.length === 0 ? (
-              <div className="px-gutter py-3 text-body text-muted">No ledger rows in this window.</div>
+              // ⚠ THE 7-DAY BRANCH IS NOT DECORATION. "Widen the window" is only true when there is
+              // a wider one; the control offers 7 and 30, so at 30 that half of the sentence would
+              // be an instruction the screen cannot honour. Naming an action the UI does not have
+              // is the same defect as naming one the product does not have.
+              <div className="px-gutter py-3 text-body text-muted">
+                No ledger rows in this window. A row appears when your traffic answers a question
+                another company later asks
+                {days === 7 ? ', so try the 30-day window above first' : ''} —{' '}
+                <Link className="underline" to="/setup">
+                  point a tool at Lens
+                </Link>{' '}
+                if nothing has run yet.
+              </div>
             ) : null}
           </>
         )}

@@ -283,7 +283,7 @@ export function IssueDetail() {
           {comments.isLoading ? (
             <p className="text-body text-muted">Loading the thread…</p>
           ) : (comments.data ?? []).length === 0 ? (
-            <p className="text-body text-muted">No comments yet.</p>
+            <p className="text-body text-muted">No comments yet. Add the first one below.</p>
           ) : (
             <ul className="flex flex-col gap-4">
               {(comments.data ?? []).map((c) => (

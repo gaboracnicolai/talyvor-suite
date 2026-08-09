@@ -118,7 +118,13 @@ export function SpaceList() {
         ) : q.isError ? (
           <PanelFailure error={q.error} what="spaces" />
         ) : spaces.length === 0 ? (
-          <div className="px-gutter py-3 text-body text-muted">No spaces in this workspace yet.</div>
+          // "below", not "above": SpaceView's form sits over its list and this one sits under it.
+          // The word is the whole value of the sentence — a direction that points the wrong way is
+          // worse than no direction, and the two screens genuinely differ.
+          <div className="px-gutter py-3 text-body text-muted">
+            No spaces in this workspace yet. Create the first one below — it lands in your own
+            workspace.
+          </div>
         ) : (
           spaces.map((s) => <SpaceRow key={s.id} space={s} />)
         )}

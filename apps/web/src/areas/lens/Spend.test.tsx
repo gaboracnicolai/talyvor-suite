@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Spend } from './Spend'
@@ -53,10 +54,15 @@ function stubFetch() {
 
 function renderSpend() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // Inside a Router because App mounts it inside one and its empty states link to /setup. These
+  // cases all render WITH data, so nothing here throws today — which is the point: without this,
+  // the first test anyone adds for the empty case fails on the arrangement, not on the behaviour.
   return render(
-    <QueryClientProvider client={qc}>
-      <Spend now={NOW} />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <Spend now={NOW} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 

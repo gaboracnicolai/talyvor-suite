@@ -51,7 +51,15 @@ export function Members() {
         ) : q.isError ? (
           <PanelFailure error={q.error} what="the members" />
         ) : roster.length === 0 ? (
-          <div className="px-gutter py-3 text-body text-muted">No members in this workspace yet.</div>
+          // ⚠ NAMES THE CAUSE, NOT AN INVITE. There is no invite control anywhere in this suite —
+          // the roster is Track's, proxied read-only through GET /api/members, and the BFF exposes
+          // no write half. "Invite someone" would be a sentence true of an intention over a product
+          // that cannot do it, which is the exact defect ClaimsAudit exists to catch. So it says
+          // what PUTS a row here, in the same shape as Overview's earnings empty state.
+          <div className="px-gutter py-3 text-body text-muted">
+            No members in this workspace yet. The roster is Track&rsquo;s — a person appears here
+            when they are added to this workspace in Track.
+          </div>
         ) : (
           roster.map((m) => (
             <Row key={m.id} label={m.name} hint={m.email}>
