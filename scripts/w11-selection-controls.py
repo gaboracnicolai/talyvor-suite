@@ -36,6 +36,7 @@ UI = ROOT / "packages" / "ui"
 THEME = "packages/ui/src/theme.css"
 GUARD = "packages/ui/src/__tests__/selection.test.ts"
 TOKENS = "packages/ui/src/tokens.ts"
+STYLES = "apps/web/src/styles.css"
 
 
 @dataclass
@@ -110,6 +111,14 @@ CONTROLS: list[Control] = [
         companion="theme.css declares a ::selection rule at all",
     ),
     Control(
+        name="C10",
+        what="declare a competing ::selection in the OTHER stylesheet — it is imported later and wins",
+        edits=[(STYLES, [("@tailwind utilities;", 1,
+                          "@tailwind utilities;\n::selection { background-color: #ff00ff; color: #000; }")])],
+        says="ONLY stylesheet that declares a selection plane",
+        companion="the classification is total",
+    ),
+    Control(
         name="C9",
         what="BLIND THE PARSER and delete the rule together — only the floor can see this",
         edits=[
@@ -138,7 +147,7 @@ def run_suite() -> tuple[bool, str]:
 
 
 def main() -> int:
-    originals = {p: (ROOT / p).read_text() for p in {THEME, GUARD, TOKENS}}
+    originals = {p: (ROOT / p).read_text() for p in {THEME, GUARD, TOKENS, STYLES}}
     hashes = {p: sha(ROOT / p) for p in originals}
 
     ok, base = run_suite()

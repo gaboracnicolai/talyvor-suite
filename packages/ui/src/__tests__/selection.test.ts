@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -234,6 +234,50 @@ describe('the palette declares the plane under selected text', () => {
       })
     })
   }
+
+  /**
+   * ⚠ EVERY COPY OF THE SEAM, not just the one this guard reads.
+   *
+   * Everything above reads theme.css. A `::selection` declared in some OTHER stylesheet
+   * would be invisible to it — and worse than invisible: `apps/web/src/styles.css` is
+   * imported AFTER `@talyvor/ui/theme.css` in main.tsx, so a rule there would WIN on order
+   * and repaint the plane while all fourteen assertions above stayed green.
+   *
+   * ⚠ THIS WAS A REAL HOLE, FOUND BY CHECKING A CLAIM I HAD ALREADY WRITTEN DOWN. The
+   * limits section of this merge said "this repo has one tracked .css file". It has two.
+   * The finding survived — neither declared a `::selection`, which is why the browser was
+   * painting it — but the guard's reach did not match the product's until this test.
+   *
+   * Both directions: a stylesheet that appears and declares one fails, and the pinned
+   * owner must still be the one that declares it.
+   */
+  it('theme.css is the ONLY stylesheet that declares a selection plane', () => {
+    const roots = [resolve(import.meta.dirname, '../..'), resolve(import.meta.dirname, '../../../../apps/web/src')]
+    const sheets: string[] = []
+    const walk = (dir: string): void => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.name === 'node_modules' || e.name === 'dist') continue
+        const p = resolve(dir, e.name)
+        if (e.isDirectory()) walk(p)
+        else if (e.name.endsWith('.css')) sheets.push(p)
+      }
+    }
+    for (const r of roots) walk(r)
+
+    // ⚠ Compared as RESOLVED PATHS, not as a printed suffix. My first form asserted
+    // `ui/theme.css` against a last-two-segments label that is `src/theme.css`, so the
+    // test reddened for its own formatting rather than for the product. A guard whose
+    // failure is about itself is one somebody deletes.
+    const owner = resolve(import.meta.dirname, '../theme.css')
+    const declaring = sheets.filter((p) => /::selection\s*\{/.test(readFileSync(p, 'utf8')))
+    expect(sheets.length, 'no stylesheets found — the walk read nothing').toBeGreaterThan(1)
+    expect(
+      declaring,
+      'exactly one stylesheet may declare ::selection, and it must be the one this file scores. ' +
+        'apps/web/src/styles.css is imported AFTER theme.css, so a rule there wins on order ' +
+        `and every score above becomes a claim about the wrong plane. Sheets walked: ${sheets.length}`,
+    ).toEqual([owner])
+  })
 
   /**
    * THE FLOOR. Every test above reads `selectionRuleIn`, so a parser that silently returns
