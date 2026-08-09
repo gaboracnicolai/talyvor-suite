@@ -151,7 +151,7 @@ export function IssueDetail() {
         </Link>
         <div className="flex flex-wrap items-baseline gap-3">
           <span className="font-mono text-caption text-muted">{it.identifier}</span>
-          <h1 className="text-display-3 text-ink">{it.title}</h1>
+          <h1 className="text-title text-ink">{it.title}</h1>
         </div>
       </div>
 
