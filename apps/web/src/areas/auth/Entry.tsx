@@ -141,7 +141,7 @@ export function SignUp() {
         <ul className="flex flex-col gap-2 border-t border-rule pt-4">
           {WHAT_YOU_GET.map((line) => (
             <li key={line} className="flex gap-2.5 text-body text-muted">
-              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-pill bg-accent" aria-hidden="true" />
               <span>{line}</span>
             </li>
           ))}

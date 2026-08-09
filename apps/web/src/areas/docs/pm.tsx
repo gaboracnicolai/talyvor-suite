@@ -35,7 +35,7 @@ function MarkedText({ node }: { node: PMNode }) {
         out = <em>{out}</em>
         break
       case 'code':
-        out = <code className="rounded bg-sidebar px-1 font-mono">{out}</code>
+        out = <code className="rounded-control bg-sidebar px-1 font-mono">{out}</code>
         break
       case 'underline':
         out = <span className="underline">{out}</span>
@@ -45,7 +45,7 @@ function MarkedText({ node }: { node: PMNode }) {
         break
       case 'highlight':
         // A background wash, never a text hue — the glyphs stay ink.
-        out = <span className="rounded bg-sidebar px-1">{out}</span>
+        out = <span className="rounded-control bg-sidebar px-1">{out}</span>
         break
       case 'link': {
         const href = typeof mark.attrs?.href === 'string' ? mark.attrs.href : '#'

@@ -176,7 +176,7 @@ export function IssueDetail() {
               </label>
               <textarea
                 id="issue-description"
-                className="min-h-32 w-full rounded border border-rule bg-surface p-3 text-body text-ink"
+                className="min-h-32 w-full rounded-control border border-rule bg-surface p-3 text-body text-ink"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
               />

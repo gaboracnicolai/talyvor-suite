@@ -33,7 +33,7 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <div className="space-y-1">
-      <pre className="overflow-x-auto rounded border border-rule bg-canvas px-3 py-2 font-mono text-ink">
+      <pre className="overflow-x-auto rounded-control border border-rule bg-canvas px-3 py-2 font-mono text-ink">
         {text}
       </pre>
       <Button
@@ -60,7 +60,7 @@ function ToolCard({ tool }: { tool: Tool }) {
             warning banner is the thing nobody reads before pasting; this one sits between the
             reader and the instruction it qualifies. */}
         {tool.hazard ? (
-          <p className="rounded border border-rule border-l-2 border-l-slashed bg-canvas px-3 py-2 text-body text-ink">
+          <p className="rounded-control border border-rule border-l-2 border-l-slashed bg-canvas px-3 py-2 text-body text-ink">
             <strong>Before you paste this:</strong> {tool.hazard}
           </p>
         ) : null}
