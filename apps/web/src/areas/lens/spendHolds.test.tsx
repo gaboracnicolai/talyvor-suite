@@ -1,4 +1,5 @@
 import { render, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Spend } from './Spend'
@@ -55,10 +56,16 @@ function stub() {
 
 function renderSpend() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // MemoryRouter is not scaffolding, for the reason Overview.test.tsx records: Spend's empty
+  // states link to /setup, and App mounts Spend inside the app Router. Rendering it outside one
+  // tested an arrangement that does not exist — and would have thrown only in the empty case,
+  // which is exactly the brand-new user this copy is written for.
   return render(
-    <QueryClientProvider client={qc}>
-      <Spend now={NOW} />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={qc}>
+        <Spend now={NOW} />
+      </QueryClientProvider>
+    </MemoryRouter>,
   )
 }
 

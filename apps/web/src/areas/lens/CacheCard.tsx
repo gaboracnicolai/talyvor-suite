@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { Card, CardHeader, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
@@ -48,7 +49,16 @@ export function CacheCard({ days }: { days: number }) {
         <PanelFailure error={q.error} what="the cache rate" />
       ) : cache.total_requests === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">
-          No requests recorded in this window yet.
+          {/* ⚠ THE LINK TEXT IS DELIBERATELY NOT "point a tool at it". This card renders on
+              Overview BESIDE the activity empty state, which already uses that phrase for the same
+              destination — two links with one accessible name on one screen. It is ambiguous to a
+              screen reader and it made Overview's own test resolve to whichever came first. */}
+          No requests recorded in this window yet. The rate appears once traffic goes through
+          Lens —{' '}
+          <Link className="underline" to="/setup">
+            send a request through it
+          </Link>{' '}
+          and check back.
         </div>
       ) : (
         <>

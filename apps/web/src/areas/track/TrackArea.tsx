@@ -60,7 +60,14 @@ function WorkspaceStrip() {
     )
   }
   if (q.data.length === 0) {
-    return <div className="px-gutter py-2 text-body text-muted">No Track workspaces for this identity.</div>
+    // Same reasoning as Members: /api/track/workspaces is the ONE Track route the BFF proxies and
+    // it is a read. Nothing in this app can create a workspace, so the sentence names what does.
+    return (
+      <div className="px-gutter py-2 text-body text-muted">
+        No Track workspaces for this identity. One appears here when this signed-in identity is
+        added to a workspace in Track.
+      </div>
+    )
   }
 
   const current = selected ?? q.data[0].id
