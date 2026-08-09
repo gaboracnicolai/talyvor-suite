@@ -214,7 +214,7 @@ function SpendCard({ now }: { now: Date }) {
         ) : month.isError || !month.data ? (
           <InlineFailure error={month.error} />
         ) : (
-          <span className="text-body text-muted">
+          <span className="font-figure text-body text-muted">
             ≈ ${month.data.current_month_usd.toFixed(2)}
           </span>
         )}
