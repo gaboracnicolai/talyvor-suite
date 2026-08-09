@@ -54,7 +54,7 @@ function SectionLabel({ index, children }: { index: string; children: React.Reac
   return (
     <div className="flex items-center gap-2.5">
       <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />
-      <span className="text-caption tabular-nums text-faint">{index}</span>
+      <span className="font-figure text-caption text-faint">{index}</span>
       <span className="text-caption uppercase tracking-wide text-muted">{children}</span>
     </div>
   )
@@ -65,7 +65,7 @@ function Figure({ value, unit, tone = 'ink' }: { value: string; unit: string; to
   return (
     <span className="inline-flex items-baseline gap-1.5">
       <span
-        className={`text-mono text-figure tabular-nums ${tone === 'ink' ? 'text-ink' : 'text-muted'}`}
+        className={`font-figure text-figure ${tone === 'ink' ? 'text-ink' : 'text-muted'}`}
       >
         {value}
       </span>
@@ -231,7 +231,7 @@ function WorkedHit() {
               i === step ? 'bg-surface text-ink' : 'bg-canvas text-muted hover:text-ink'
             }`}
           >
-            <span className="tabular-nums text-faint">{String(i + 1).padStart(2, '0')}</span>
+            <span className="font-figure text-faint">{String(i + 1).padStart(2, '0')}</span>
             <span className="ml-2">{b.label}</span>
           </button>
         ))}
@@ -267,7 +267,7 @@ function Compounding() {
         <div>
           <p className="text-caption uppercase tracking-wide text-muted">
             The same answer, at a pool of{' '}
-            <span className="text-mono tabular-nums text-ink">{members}</span>
+            <span className="font-figure text-ink">{members}</span>
             {members === 1 ? ' contributor' : ' contributors'}
           </p>
           <div className="mt-4 flex flex-wrap items-baseline gap-x-8 gap-y-3">

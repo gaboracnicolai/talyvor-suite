@@ -34,7 +34,7 @@ export function HoldBar({ elapsed, total, remainingLabel, className, ...props }:
         {/* width is a runtime value → inline style, not a Tailwind arbitrary class. */}
         <div className="absolute inset-y-0 left-0 rounded-pill bg-held" style={{ width: `${pct}%` }} />
       </div>
-      <span className="shrink-0 text-caption tabular-nums text-muted">{label}</span>
+      <span className="shrink-0 font-figure text-caption text-muted">{label}</span>
     </div>
   )
 }

@@ -65,7 +65,7 @@ function KeyRow({ k }: { k: WorkspaceAPIKey }) {
   return (
     <>
       <Row label={k.name} hint={`${k.scopes.join(', ')} · created ${formatWhen(k.created_at)}`}>
-        <span className="font-mono text-caption tabular-nums text-muted">{k.key_prefix}</span>
+        <span className="font-mono text-caption text-muted">{k.key_prefix}</span>
         {!confirming ? (
           // The accessible name carries the identifier, so the control names WHICH key it destroys
           // rather than being one of several identical "Revoke" buttons.
