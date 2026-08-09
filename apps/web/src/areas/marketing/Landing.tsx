@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, ThemeToggle } from '@talyvor/ui'
+import { Button, CaseSafe, ThemeToggle } from '@talyvor/ui'
 import { useSignupProbe } from '../../lib/signupOpen'
 import { HOLDBACK_HOURS, LEDGER_HIT, billAt, micro, savedAt } from './economics'
 
@@ -60,7 +60,13 @@ function SectionLabel({ index, children }: { index: string; children: React.Reac
   )
 }
 
-/** A measured figure. Mono and tabular, with the unit set quieter than the value. */
+/** A measured figure. Mono and tabular, with the unit set quieter than the value.
+ *
+ *  ⚠ THE UNIT GOES THROUGH `CaseSafe` AND MUST. Every unit this page quotes is a µ-prefixed ledger
+ *  amount — `µLXC list`, `µLENS earned` — and `uppercase` maps µ (U+00B5) to Μ (U+039C), so the
+ *  label painted `MLXC`: the mega prefix on a micro figure, on the four numbers this page offers as
+ *  checkable against the ledger. It is fixed HERE rather than at the six call sites because the
+ *  µ arrives as a prop from 130 lines away and no future caller should have to know. */
 function Figure({ value, unit, tone = 'ink' }: { value: string; unit: string; tone?: 'ink' | 'muted' }) {
   return (
     <span className="inline-flex items-baseline gap-1.5">
@@ -69,7 +75,9 @@ function Figure({ value, unit, tone = 'ink' }: { value: string; unit: string; to
       >
         {value}
       </span>
-      <span className="font-figure text-eyebrow uppercase text-faint">{unit}</span>
+      <span className="font-figure text-eyebrow uppercase text-faint">
+        <CaseSafe>{unit}</CaseSafe>
+      </span>
     </span>
   )
 }

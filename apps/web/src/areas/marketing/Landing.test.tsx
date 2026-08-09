@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTACT_EMAIL, Landing } from './Landing'
 
@@ -105,5 +105,49 @@ describe('Landing', () => {
     expect(container.textContent ?? '').toMatch(
       /near-zero at roughly ninety days of constant use/i,
     )
+  })
+
+  /**
+   * THE STEPPER'S OTHER THREE BEATS WERE RENDERED BY NOTHING, AND THAT WAS MEASURED, not assumed.
+   *
+   * `WorkedHit` renders only `beats[step].figure`, and `step` starts at 0. So of the SIX µ-prefixed
+   * unit labels on this page, four tests rendered three — `µLXC list` (beat 1), `µLXC you pay` and
+   * `µLXC kept` — and `µLXC charged`, `µLXC saved` and `µLENS earned` were behind a click no test
+   * performed. The case audit found the three it could see and would have stayed green over a
+   * regression in the other three forever.
+   *
+   * Advancing the stepper is what puts them in front of the audit. It also happens to be the only
+   * test of the stepper at all: each beat must show its own figure and its own body, so a wiring
+   * mistake that showed beat 1's number under beat 3's sentence is caught here too.
+   */
+  it('advances through all four beats of the worked hit, so every unit label is rendered', async () => {
+    const { container } = render(<Landing />)
+    const beats: [RegExp, string][] = [
+      [/A request arrives/i, 'µLXC list'],
+      [/The pool has it/i, 'µLXC charged'],
+      [/The consumer keeps the difference/i, 'µLXC saved'],
+      [/The contributor is paid/i, 'µLENS earned'],
+    ]
+    // ⚠ NOT `getByText`. CaseSafe splits a protected label into spans, so no element's OWN text is
+    // "µLXC list" any more and Testing Library's default matcher reads own text — measured, that
+    // query fails with "the text is broken up by multiple elements". `textContent` is what the
+    // visitor sees and what survives the fix; caseAudit.test.tsx pins that consequence.
+    //
+    // ⚠ AND IT MUST YIELD BETWEEN CLICKS, WHICH WAS MEASURED RATHER THAN REASONED ABOUT. The case
+    // audit captures through a MutationObserver, whose callback is a MICROTASK. Clicking all four
+    // beats synchronously mounted and unmounted beats 2 and 3 inside one synchronous block, so the
+    // observer only ever saw the final DOM: with the fix reverted the audit named FOUR offenders,
+    // not six, and `µLXC charged` and `µLXC saved` were invisible. Yielding lets the observer run
+    // at each step. Verified by counting: 4 offenders without the yield, 6 with it.
+    for (const [label, unit] of beats) {
+      fireEvent.click(screen.getByRole('button', { name: label }))
+      await new Promise((r) => setTimeout(r, 0))
+      expect(container.textContent ?? '').toContain(unit)
+      // and the step really MOVED — every other beat's unit is gone, so a mis-wired stepper
+      // showing beat 1's figure under beat 3's sentence fails here rather than passing quietly.
+      for (const [, other] of beats) {
+        if (other !== unit) expect(container.textContent ?? '').not.toContain(other)
+      }
+    }
   })
 })
