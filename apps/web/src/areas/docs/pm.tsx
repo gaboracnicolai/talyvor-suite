@@ -56,7 +56,7 @@ function MarkedText({ node }: { node: PMNode }) {
             title={typeof mark.attrs?.title === 'string' ? mark.attrs.title : undefined}
             target={external ? '_blank' : undefined}
             rel={external ? 'noreferrer' : undefined}
-            className="underline decoration-rule-strong underline-offset-2 hover:decoration-accent"
+            className="underline decoration-rule-strong underline-offset-2 transition-colors duration-200 hover:decoration-accent"
           >
             {out}
           </a>

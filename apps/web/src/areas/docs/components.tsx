@@ -88,7 +88,7 @@ export function Crumbs({ trail }: { trail: Array<{ label: string; to?: string }>
             // was there. Worse, `hover:underline` is the one affordance a touch device cannot
             // produce at all — on a phone the control had no visible state ever. It was reported as
             // "there is no way back", and the links were working the whole time.
-            <Link to={c.to} className="underline underline-offset-2 hover:text-ink">
+            <Link to={c.to} className="underline underline-offset-2 transition-colors duration-200 hover:text-ink">
               {c.label}
             </Link>
           ) : (

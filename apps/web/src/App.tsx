@@ -159,11 +159,11 @@ function Sidebar() {
           Link, not <a href>: same-tab client-side navigation, and it keeps a real href so the
           link is a link to assistive tech and to a middle-click. */}
       <div className="mt-auto border-t border-rule px-3 pt-3 text-caption text-faint">
-        <Link className="underline hover:text-muted" to="/privacy">
+        <Link className="underline transition-colors duration-200 hover:text-muted" to="/privacy">
           Privacy
         </Link>
         {' · '}
-        <Link className="underline hover:text-muted" to="/terms">
+        <Link className="underline transition-colors duration-200 hover:text-muted" to="/terms">
           Terms
         </Link>
       </div>

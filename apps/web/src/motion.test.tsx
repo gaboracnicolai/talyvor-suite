@@ -38,6 +38,16 @@ import { stripComments } from '../../../packages/ui/src/lib/sourceText'
  * arriving INSTANTLY, delivered to exactly the people who asked for less of it. The block
  * has to neutralise the scale itself.
  *
+ * ⚠ CORRECTED BY `w11-state-transitions`, BECAUSE THE SENTENCE ABOVE OVERSTATES ITS CONTRAST.
+ * "Delivered to exactly the people who asked for less of it" only bites if everyone ELSE gets a
+ * tween. MEASURED from the built sheet at `9a18533`: `.transition-colors` resolves to
+ * `color,background-color,border-color,text-decoration-color,fill,stroke` — NO `transform` — and
+ * all three press sites ride `transition-colors`. THE PRESS IS INSTANT FOR EVERYONE AND ALWAYS
+ * HAS BEEN. The neutralisation below is still correct and still needed: it removes the SHRINK,
+ * not its tween, and that is a real difference for a reduced-motion reader. What is wrong is the
+ * implied comparison. Whether the press SHOULD tween is a feel decision, so this merge corrects
+ * the claim and changes no timing — see NOT_TWEENED.
+ *
  * ⚠ AND THE TRAP INSIDE THE TRAP, which is why the fourth guard below exists. The obvious
  * neutralisation — `transform: none !important` on the universal selector — is wrong, and
  * wrong in a way nothing else in this repo would catch. The Switch's ON state is
@@ -303,6 +313,186 @@ function transitionsWithoutDuration(files: SourceFile[]): string[] {
   return [...problems].sort()
 }
 
+// ── the other half of the lock: a state change must have a transition AT ALL ─────────────
+
+/**
+ * `transitionsWithoutDuration` above enforces one direction — a transition must say how long it
+ * takes. That is the ESCAPE direction, and it is the half `5d65b3e` built. The other half was
+ * open: a class list may change colour on hover with NO transition whatever, and nothing asked.
+ * `dc0bd07`'s shape, in motion — the lock forbids escaping a token and permits reaching past it.
+ *
+ * ⚠ BOTH HALVES OF THIS ARE READ OUT OF THE GENERATED SHEET RATHER THAN ASSUMED, because the
+ * question "does `transition-colors` cover a transform" is Tailwind's to answer, not mine, and
+ * the answer is the one thing this guard cannot afford to get wrong. Measured at `9a18533`:
+ *
+ *     .transition            color,background-color,border-color,text-decoration-color,
+ *                            fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter
+ *     .transition-colors     color,background-color,border-color,text-decoration-color,fill,stroke
+ *     .transition-transform  transform
+ *
+ * so `transition-colors` covers NEITHER transform NOR opacity, which is what makes the two
+ * classified exceptions below real rather than pedantic.
+ */
+
+/** `.hover\:text-muted:hover` → `hover:text-muted`. Unescapes, and stops at the first UNescaped
+ *  pseudo/attribute so `\:` inside the class name is not mistaken for `:hover`. */
+function classOfSelector(selector: string): string | null {
+  if (!selector.startsWith('.')) return null
+  let out = ''
+  for (let i = 1; i < selector.length; i++) {
+    const c = selector[i]
+    if (c === '\\') {
+      i++
+      if (i < selector.length) out += selector[i]
+      continue
+    }
+    if (c === ':' || c === '[' || c === ' ' || c === ',' || c === '>' || c === '~' || c === '+') break
+    out += c
+  }
+  return out || null
+}
+
+/** class name → the real CSS properties its rule sets. Custom properties are dropped: they are
+ *  Tailwind's plumbing, and the composed `transform` they feed is in the same rule. */
+function propertiesByClass(css: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  postcss.parse(css).walkRules((rule) => {
+    for (const sel of rule.selector.split(',')) {
+      const name = classOfSelector(sel.trim())
+      if (!name) continue
+      const props = out.get(name) ?? new Set<string>()
+      rule.walkDecls((d) => {
+        if (!d.prop.startsWith('--')) props.add(d.prop)
+      })
+      if (props.size) out.set(name, props)
+    }
+  })
+  return out
+}
+
+/** transition utility → the properties it actually animates, asked of the generator. */
+function transitionCoverage(css: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>()
+  postcss.parse(css).walkRules((rule) => {
+    const name = classOfSelector(rule.selector.trim())
+    if (!name || !TRANSITION.test(name)) return
+    rule.walkDecls('transition-property', (d) => {
+      out.set(name, new Set(d.value.split(',').map((s) => s.trim())))
+    })
+  })
+  return out
+}
+
+const STATE_VARIANT =
+  /^(hover|focus|focus-visible|focus-within|active|checked|open|disabled|group-hover|group-focus|peer-hover|peer-focus|peer-checked|aria-\[[^\]]+\]|data-\[[^\]]+\])$/
+
+/**
+ * ⚠ NOT EVERY PROPERTY IS WORTH TWEENING, AND THE LIST SAYS WHICH RATHER THAN IMPLYING IT.
+ * Layout properties (display, position, pointer-events) have no meaningful interpolation and
+ * changing them is not "motion on state change". These are the ones the brief's line is about.
+ */
+const TWEENABLE = new Set([
+  'color',
+  'background-color',
+  'border-color',
+  'text-decoration-color',
+  'fill',
+  'stroke',
+  'opacity',
+  'box-shadow',
+  'transform',
+])
+
+/**
+ * DELIBERATELY NOT TWEENED, EACH WITH ITS REASON AND ITS MEASUREMENT.
+ *
+ * ⚠ CHECKED BOTH DIRECTIONS: an entry that stops being a gap fails as stale, so this table
+ * cannot quietly outlive the code it excuses.
+ *
+ * ⚠ THE PRESS ENTRY CORRECTS THIS FILE'S OWN PROSE, which is the part worth keeping. The
+ * docstring at the top of this file argues that a zeroed `transition-duration` under reduced
+ * motion delivers "the same 2% shrink arriving INSTANTLY, delivered to exactly the people who
+ * asked for less of it" — a sentence whose force comes from everyone ELSE getting a tween.
+ * MEASURED at `9a18533` from the built sheet: the press rides `transition-colors`, which does
+ * not cover `transform`, so THE PRESS IS INSTANT FOR EVERYONE AND ALWAYS HAS BEEN. The
+ * neutralisation is still right and still needed — it removes the shrink rather than its tween —
+ * but the contrast the comment draws does not exist. Whether the press SHOULD tween is a feel
+ * decision with a design conversation behind it, so this merge corrects the claim and changes
+ * no timing.
+ */
+const NOT_TWEENED: Record<string, string> = {
+  'active:scale-98':
+    'the press. It rides transition-colors, which does not cover transform, so it is instant for everyone — see the note above. Making it tween is a feel decision, not a typo, and it belongs to whoever owns the press',
+  'disabled:opacity-50':
+    'disabled is a terminal state reached by the app, not a pointer gesture the reader is aiming at. Every design-system control snaps here and they agree with each other',
+  'data-[disabled]:opacity-50':
+    'the Radix twin of disabled:opacity-50, same argument, and the two must not diverge',
+}
+
+interface Gap {
+  path: string
+  token: string
+  prop: string
+  transitions: string
+}
+
+/**
+ * State-variant tokens the SHEET has never heard of.
+ *
+ * ⚠ THIS FLOOR EXISTS BECAUSE A FIXTURE OF MINE PASSED FOR THE WRONG REASON. The guard reads a
+ * token's properties out of the generated rule, so a token with no rule contributes NOTHING and
+ * is skipped in silence — indistinguishable from a token that is correctly tweened. For real
+ * product files this cannot happen (every source file is in the content globs, so every literal
+ * class in one is generated), and that is exactly the kind of "cannot happen" this repo keeps
+ * disproving, so it is asserted rather than reasoned about.
+ */
+function unknownStateTokens(files: SourceFile[], css: string): string[] {
+  const byClass = propertiesByClass(css)
+  const out = new Set<string>()
+  for (const f of files) {
+    for (const list of classLists(f.text)) {
+      for (const token of tokensOf(list)) {
+        const parts = token.split(':')
+        if (parts.length < 2) continue
+        if (!parts.slice(0, -1).some((v) => STATE_VARIANT.test(v))) continue
+        if (!byClass.has(token)) out.add(`${f.path}: ${token}`)
+      }
+    }
+  }
+  return [...out].sort()
+}
+
+/** Every state-driven change of a tweenable property that no transition in its class list covers. */
+function stateChangesWithoutTransition(files: SourceFile[], css: string, applyExcuses = true): Gap[] {
+  const byClass = propertiesByClass(css)
+  const coverage = transitionCoverage(css)
+  const gaps: Gap[] = []
+  for (const f of files) {
+    for (const list of classLists(f.text)) {
+      const tokens = tokensOf(list)
+      const covered = new Set<string>()
+      for (const t of tokens) {
+        const u = base(t)
+        if (!TRANSITION.test(u)) continue
+        for (const p of coverage.get(u) ?? []) covered.add(p)
+      }
+      const transitions = tokens.filter((t) => TRANSITION.test(base(t))).join(' ') || 'NONE'
+      for (const token of tokens) {
+        const parts = token.split(':')
+        if (parts.length < 2) continue
+        if (!parts.slice(0, -1).some((v) => STATE_VARIANT.test(v))) continue
+        if (applyExcuses && token in NOT_TWEENED) continue
+        for (const prop of byClass.get(token) ?? []) {
+          if (!TWEENABLE.has(prop)) continue
+          if (covered.has(prop) || covered.has('all')) continue
+          gaps.push({ path: f.path, token, prop, transitions })
+        }
+      }
+    }
+  }
+  return gaps
+}
+
 // ── the press, asked of the CODE rather than of the sheet ───────────────────────────────
 
 const PRESS = 'active:scale-98'
@@ -406,6 +596,75 @@ describe('every transition in the product names its duration', () => {
   it('no class list carries a transition without one', () => {
     const found = transitionsWithoutDuration(sourceFiles())
     expect(found, `transition without a stated duration:\n  ${found.join('\n  ')}`).toEqual([])
+  })
+})
+
+describe('a state change has a transition at all — the half of the lock that was open', () => {
+  it('the coverage table is read from the sheet, and says what the sheet says', async () => {
+    const coverage = transitionCoverage(await shippedCss())
+    expect(coverage.size, 'no transition utility was found in the sheet').toBeGreaterThan(0)
+    // the one answer this guard cannot afford to get wrong, asked of the generator
+    expect([...(coverage.get('transition-colors') ?? [])]).not.toContain('transform')
+    expect([...(coverage.get('transition-colors') ?? [])]).not.toContain('opacity')
+    expect([...(coverage.get('transition-colors') ?? [])]).toContain('color')
+  })
+
+  it('the utility→property map reads real declarations off real rules', async () => {
+    const byClass = propertiesByClass(await shippedCss())
+    expect(byClass.size, 'no classes were read out of the sheet').toBeGreaterThan(100)
+    expect([...(byClass.get('hover:text-muted') ?? [])]).toEqual(['color'])
+    expect([...(byClass.get('active:scale-98') ?? [])]).toContain('transform')
+    // a custom property alone must not count as a change worth tweening
+    expect([...(byClass.get('hover:text-muted') ?? [])].some((p) => p.startsWith('--'))).toBe(false)
+  })
+
+  it('the scanner tells a snap from a tween', async () => {
+    const css = await shippedCss()
+    const snap = stateChangesWithoutTransition([{ path: 'f.tsx', text: '<a className="underline hover:text-muted" />' }], css)
+    expect(snap).toHaveLength(1)
+    expect(snap[0].prop).toBe('color')
+    const tween = stateChangesWithoutTransition(
+      [{ path: 'f.tsx', text: '<a className="underline transition-colors duration-200 hover:text-muted" />' }], css)
+    expect(tween).toEqual([])
+  })
+
+  it('a transition that does not cover the property is not a pass', async () => {
+    // ⚠ THE FIXTURE USES A CLASS THAT IS REALLY IN THE SHEET, and my first one did not.
+    // `hover:opacity-50` is written nowhere in the product, so Tailwind never generated it, so
+    // it has no properties and the scanner saw nothing — the fixture, not the guard, was the
+    // problem, and it returned a green that meant nothing. That is the `unknownStateTokens`
+    // floor below, arrived at by the fixture failing rather than by foresight.
+    // This is also the press's exact shape: a transform riding transition-colors.
+    const css = await shippedCss()
+    const found = stateChangesWithoutTransition(
+      [{ path: 'f.tsx', text: '<div className="transition-colors duration-200 active:scale-98" />' }], css, false)
+    expect(found.map((g) => g.prop)).toEqual(['transform'])
+  })
+
+  it('finds state-driven changes to look at — it must not pass by scanning nothing', async () => {
+    const css = await shippedCss()
+    const all = stateChangesWithoutTransition(sourceFiles(), css, false)
+    expect(all.length, 'no state-driven visual change was found in either package').toBeGreaterThan(5)
+    expect(all.some((g) => g.path.startsWith('packages/'))).toBe(true)
+  })
+
+  it('no state token is invisible to the scanner — a class with no rule is skipped in silence', async () => {
+    const unknown = unknownStateTokens(sourceFiles(), await shippedCss())
+    expect(unknown, `state-variant token the sheet has no rule for, so it was never checked:\n  ${unknown.join('\n  ')}`).toEqual([])
+  })
+
+  it('every state-driven change of a tweenable property is tweened, or classified', async () => {
+    const gaps = stateChangesWithoutTransition(sourceFiles(), await shippedCss())
+    const lines = [...new Set(gaps.map((g) => `${g.path}: ${g.token} changes ${g.prop}, transitions=${g.transitions}`))].sort()
+    expect(gaps, `a state change snaps — no transition covers the property it changes:\n  ${lines.join('\n  ')}`).toEqual([])
+  })
+
+  it('every classification is still a real exception — a stale excuse fails', async () => {
+    const unexcused = stateChangesWithoutTransition(sourceFiles(), await shippedCss(), false)
+    const tokens = new Set(unexcused.map((g) => g.token))
+    const stale = Object.keys(NOT_TWEENED).filter((t) => !tokens.has(t))
+    expect(stale, `classified as deliberately not tweened, but no longer a gap:\n  ${stale.join('\n  ')}`).toEqual([])
+    for (const [, why] of Object.entries(NOT_TWEENED)) expect(why.length).toBeGreaterThan(40)
   })
 })
 
