@@ -21,7 +21,7 @@ export const NavItem = forwardRef<HTMLButtonElement, NavItemProps>(function NavI
       type="button"
       aria-current={active ? 'page' : undefined}
       className={cn(
-        'flex w-full items-center gap-2 border-l-2 py-1.5 pl-3 pr-2 text-left text-body transition-colors',
+        'flex w-full items-center gap-2 border-l-2 py-1.5 pl-3 pr-2 text-left text-body transition-colors duration-200',
         // The accent appears on TOUCH and on SELECTION — as a background tint,
         // never on the label (the invariant). The tick still marks selection.
         active

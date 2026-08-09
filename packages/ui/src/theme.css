@@ -165,5 +165,27 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: .001ms !important;
     scroll-behavior: auto !important;
+
+    /* ── THE PRESS SCALE, AND WHY A ZEROED DURATION IS NOT ENOUGH ──────────────────────
+       The four lines above remove the TWEEN. They do not remove the TRANSFORM. Left at
+       that, `active:scale-98` still applies: the button does not ease down to 98%, it
+       arrives there instantly — the same 2% jump, delivered without warning, to exactly
+       the people who set the preference. So the scale itself is returned to identity.
+
+       These beat the utility on IMPORTANCE, not order or specificity: `.active\:scale-98`
+       sets the same two variables unimportant, and `!important` wins over unimportant
+       wherever either sits in the sheet.
+
+       ⚠ IT IS THE SCALE VARIABLES, NOT `transform`, AND THAT IS DELIBERATE. `transform:
+       none !important` here would read as the tidier fix and would break the Switch: its
+       ON state is `data-[state=checked]:translate-x-3.5` on the thumb — a transform
+       carrying STATE, not decoration. Cancel it and the thumb sits in the OFF position
+       while aria-checked is true, leaving the accent track as the only signal, a hue
+       alone, for the user group most likely to need something other than a hue. Reduced
+       motion means do not ANIMATE the change. It does not mean do not SHOW the state.
+       apps/web/src/motion.test.tsx fails if this block ever grows a `transform` or a
+       `--tw-translate-*`. */
+    --tw-scale-x: 1 !important;
+    --tw-scale-y: 1 !important;
   }
 }

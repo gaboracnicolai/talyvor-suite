@@ -24,7 +24,7 @@ export const SelectTrigger = forwardRef<
       ref={ref}
       className={cn(
         'inline-flex h-8 items-center justify-between gap-2 whitespace-nowrap rounded-control border border-rule bg-surface px-2.5',
-        'text-body text-ink transition-colors hover:border-rule-strong',
+        'text-body text-ink transition-colors duration-200 hover:border-rule-strong',
         'disabled:cursor-not-allowed disabled:opacity-50',
         focusRing,
         className,
