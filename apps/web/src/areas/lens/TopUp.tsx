@@ -118,7 +118,7 @@ export function TopUp({
           ) : (
             <div className="flex items-baseline gap-3">
               <MuNumeral micros={balance.data.balance_ulxc} unit="lxc" />
-              <span className="text-body text-muted">≈ {formatUSD(balance.data.usd_value_uusd)}</span>
+              <span className="font-figure text-body text-muted">≈ {formatUSD(balance.data.usd_value_uusd)}</span>
             </div>
           )}
         </Row>
@@ -155,7 +155,13 @@ export function TopUp({
                   disabled={start.isPending}
                   onClick={() => start.mutate(cents)}
                 >
-                  {start.isPending && start.variables === cents ? 'Starting…' : formatCents(cents)}
+                  {/* The price you are about to pay. It is the one numeral on this screen a
+                      stranger reads before spending money, and it was in the sans. */}
+                  {start.isPending && start.variables === cents ? (
+                    'Starting…'
+                  ) : (
+                    <span className="font-figure">{formatCents(cents)}</span>
+                  )}
                 </Button>
               ))}
             </div>

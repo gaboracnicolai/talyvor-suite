@@ -118,14 +118,19 @@ export function BillingSuccess({
             <div className="px-gutter py-3">
               <p className="text-body text-muted">
                 {pending && pending.usd_cents > 0
-                  ? `Your ${formatCents(pending.usd_cents)} top-up has been added to your balance.`
+                  ? (
+                      <>
+                        Your <span className="font-figure">{formatCents(pending.usd_cents)}</span>{' '}
+                        top-up has been added to your balance.
+                      </>
+                    )
                   : 'Your top-up has been added to your balance.'}
               </p>
             </div>
             <Row label="New balance">
               <div className="flex items-baseline gap-3">
                 <MuNumeral micros={balance.data!.balance_ulxc} unit="lxc" />
-                <span className="text-body text-muted">≈ {formatUSD(balance.data!.usd_value_uusd)}</span>
+                <span className="font-figure text-body text-muted">≈ {formatUSD(balance.data!.usd_value_uusd)}</span>
               </div>
             </Row>
           </>
@@ -160,7 +165,8 @@ export function BillingSuccess({
             </p>
             {balance.data ? (
               <p className="text-caption font-normal text-faint">
-                Balance right now: {formatUSD(balance.data.usd_value_uusd)}.
+                Balance right now:{' '}
+                <span className="font-figure">{formatUSD(balance.data.usd_value_uusd)}</span>.
               </p>
             ) : null}
           </div>

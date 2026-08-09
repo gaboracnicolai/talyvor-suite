@@ -67,7 +67,10 @@ function LxcCard() {
         <>
           <div className="flex items-baseline justify-between gap-gutter px-gutter py-3">
             <MuNumeral micros={q.data.balance_ulxc} unit="lxc" />
-            <span className="text-body text-muted">
+            {/* The same money as the MuNumeral beside it. It was set in the body sans, at the
+                same baseline as a figure-faced number — one of the pair looked measured and the
+                other looked typed. figureFace.test.ts now refuses that. */}
+            <span className="font-figure text-body text-muted">
               ≈ {formatUSD(q.data.usd_value_uusd)}
             </span>
           </div>
