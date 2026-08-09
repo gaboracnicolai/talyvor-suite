@@ -4,7 +4,6 @@ import { cn } from '../lib/cn'
 import { focusRing } from '../lib/focus'
 
 export const Select = SelectPrimitive.Root
-export const SelectGroup = SelectPrimitive.Group
 export const SelectValue = SelectPrimitive.Value
 
 function Chevron() {

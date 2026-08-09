@@ -1,4 +1,3 @@
-import { Card, CardHeader } from '@talyvor/ui'
 import { LegalHeader, LawyerReview, Section } from './legalParts'
 
 // Privacy — a factual account of what this system stores, read from the code, not a template.
@@ -198,16 +197,5 @@ export function Privacy() {
         </LawyerReview>
       </Section>
     </div>
-  )
-}
-
-export function PrivacyCard() {
-  return (
-    <Card>
-      <CardHeader>Privacy</CardHeader>
-      <div className="px-gutter py-4">
-        <Privacy />
-      </div>
-    </Card>
   )
 }

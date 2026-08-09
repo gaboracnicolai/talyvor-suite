@@ -1,7 +1,15 @@
+// ⚠ reachAudit MUST BE FIRST. It installs the React DevTools hook, which React reads once at
+// react-dom's own module init; anything above it that pulls React in makes the hook silently
+// record nothing. reachRegistry pulls React in and therefore must come after it. The two are
+// split for exactly this reason — see the ORDER note in reachAudit.ts.
+import './reachAudit'
+import './reachRegistry'
+
 import '@testing-library/jest-dom/vitest'
 
-import { afterAll, afterEach, beforeEach } from 'vitest'
+import { afterAll, afterEach, beforeEach, inject } from 'vitest'
 
+import { flushReach } from './reachAudit'
 import {
   MUST_PROTECT_MICRO_SIGN,
   installCaseAudit,
@@ -184,6 +192,12 @@ afterEach(() => {
 })
 
 afterAll(() => {
+  // ⚠ WRITTEN HERE, ONCE PER FILE, NOT ONCE PER COMMIT. An early draft wrote a shard from the
+  // commit callback and produced 1,267 writes for one run. `process.on('exit')` was tried first
+  // and produced NO file at all — vitest tears its workers down without running exit handlers,
+  // which is the same silent zero this instrument exists to make impossible.
+  flushReach(inject('reachDir'))
+
   // ⚠ Each floor asks for ITS OWN KIND. `auditedFigures().length > 0` would let a file listed for
   // rendering money satisfy the floor with a bare `1` — a weaker guard under the same name.
   for (const [kind, table, name] of [
