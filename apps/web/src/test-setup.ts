@@ -10,6 +10,13 @@ import {
   takeCaseOffenders,
 } from './caseAudit'
 import {
+  MUST_RENDER_FOCUS_RING,
+  installFocusAudit,
+  satisfiesFocusFloor,
+  setFocusAuditFile,
+  takeFocusOffenders,
+} from './focusAudit'
+import {
   MUST_RENDER_CURRENCY,
   MUST_RENDER_QUANTITY,
   auditedFigures,
@@ -40,10 +47,22 @@ installFigureAudit()
  */
 installCaseAudit()
 
+/**
+ * AND EVERY CONTROL IS AUDITED FOR THE HUE IT WEARS ON KEYBOARD FOCUS, on the same ride.
+ *
+ * focus.ts declares a 2px accent outline and says it is "applied to every interactive element";
+ * only a component that imports it has one, and a hand-rolled control gets the BROWSER'S default
+ * ring instead — measured in Chrome 151 as rgb(153,200,255) dark / rgb(0,95,204) light, against
+ * an accent of #3AD6C0 / #0F7A6C. A string constant cannot check its own reach, and `asChild`
+ * merges the ring onto an element the source never names, so the DOM is the only place to ask.
+ */
+installFocusAudit()
+
 let currentFile = ''
 beforeEach((ctx) => {
   currentFile = ctx.task.file?.name ?? ''
   setCaseAuditFile(currentFile)
+  setFocusAuditFile(currentFile)
 })
 
 // ⚠ BOTH audits are read in ONE hook and reported together. Two `afterEach` registrations would
@@ -78,6 +97,21 @@ afterEach(() => {
     )
   }
 
+  const unringed = takeFocusOffenders()
+  if (unringed.length > 0) {
+    const lines = unringed.map(
+      (o) =>
+        `  <${o.tag}${o.type ? ` type="${o.type}"` : ''}> ${JSON.stringify(o.text)}` +
+        `${o.present.length ? ` (carries only ${o.present.join(' ')})` : ''}\n` +
+        `    class="${o.className}"`,
+    )
+    problems.push(
+      'keyboard-focusable element(s) with no accent focus ring — add `focusRing` from ' +
+        `@talyvor/ui:\n${lines.join('\n')}\n` +
+        '(the rule, the Chrome measurement and the one exemption are in src/focusAudit.ts)',
+    )
+  }
+
   if (problems.length > 0) throw new Error(problems.join('\n\n'))
 })
 
@@ -95,6 +129,30 @@ afterAll(() => {
       `${currentFile} audited NO ${kind} figure. It is listed in ${name} because it renders ` +
         `${why}. Either the fixture stopped rendering it — in which case this file no longer ` +
         'guards it — or the audit stopped seeing it. Do not delete the entry to go green.',
+    )
+  }
+
+  // ⚠ The focus floor asks only "did this file render ONE ringed control" — never "did THIS
+  // control keep its ring", which is the offender rule's job.
+  //
+  // ⚠ WHAT IT CATCHES IS NARROWER THAN THE FIRST VERSION OF THIS COMMENT CLAIMED, and a control
+  // is the only reason I know. I had written that it catches "a blinded `isKeyboardFocusable`, a
+  // dead observer, or `focusRing` stripped out of the design system". MEASURED (C6): blinding
+  // `isKeyboardFocusable` to return false leaves this floor GREEN — it is computed from
+  // `ringedByRawAttribute`, which reads the class attribute directly and never asks that
+  // predicate, which is exactly the independence that makes it a floor and exactly why it cannot
+  // see that particular edit. The three catches, each observed:
+  //   · a dead observer          → this floor, red (C13)
+  //   · a blinded predicate      → focusAudit.test.tsx's direct unit tests, red (C6)
+  //   · focusRing left the system → the OFFENDER rule, red, because every Button becomes an
+  //                                 offender before any floor is consulted (C12)
+  const whyFocus = MUST_RENDER_FOCUS_RING[currentFile]
+  if (whyFocus && !satisfiesFocusFloor(currentFile)) {
+    throw new Error(
+      `${currentFile} audited NO element wearing the accent focus ring. It is listed in ` +
+        `MUST_RENDER_FOCUS_RING because it renders ${whyFocus}. Either the fixture stopped ` +
+        'rendering it — in which case this file no longer guards it — or the audit stopped ' +
+        'seeing it. Do not delete the entry to go green.',
     )
   }
 

@@ -13,7 +13,7 @@
 //
 // buildTree/countNodes stay in ./tree.ts, unit-tested, for when this list becomes a tree.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader } from '@talyvor/ui'
+import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { isSessionExpired, isUnconfigured } from '../../lib/productState'
@@ -86,7 +86,7 @@ export function SpaceView() {
             <label className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="text-caption text-muted">Page title</span>
               <input
-                className="w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink"
+                className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink ${focusRing}`}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="What are you writing?"

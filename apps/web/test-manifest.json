@@ -40,6 +40,7 @@
   "src/figureAudit.test.tsx": 30,
   "src/figureFace.test.ts": 11,
   "src/FirstRunGaps.test.tsx": 9,
+  "src/focusAudit.test.tsx": 21,
   "src/Legal.test.tsx": 25,
   "src/lib/awaiting.test.ts": 7,
   "src/lib/productState.test.ts": 13,

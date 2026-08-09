@@ -5,7 +5,7 @@
 // this deployment has no Docs upstream behind it. PMDoc stays in ./pm.tsx, tested, so wiring
 // this screen is adding the fetch back — against real rows this time.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader } from '@talyvor/ui'
+import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { isSessionExpired, isUnconfigured } from '../../lib/productState'
@@ -77,7 +77,7 @@ export function PageView() {
                 <label className="flex flex-col gap-1">
                   <span className="text-caption text-muted">Content</span>
                   <textarea
-                    className="min-h-40 w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink"
+                    className={`min-h-40 w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink ${focusRing}`}
                     value={draft ?? ''}
                     onChange={(e) => setDraft(e.target.value)}
                   />

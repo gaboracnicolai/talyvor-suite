@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, CaseSafe, ThemeToggle } from '@talyvor/ui'
+import { Button, CaseSafe, ThemeToggle, focusRing } from '@talyvor/ui'
 import { useSignupProbe } from '../../lib/signupOpen'
 import { HOLDBACK_HOURS, LEDGER_HIT, billAt, micro, savedAt } from './economics'
 
@@ -235,7 +235,7 @@ function WorkedHit() {
             type="button"
             onClick={() => setStep(i)}
             aria-current={i === step ? 'step' : undefined}
-            className={`flex-1 whitespace-nowrap px-4 py-2.5 text-left text-caption transition-colors duration-200 active:scale-98 ${
+            className={`flex-1 whitespace-nowrap px-4 py-2.5 text-left text-caption transition-colors duration-200 active:scale-98 ${focusRing} ${
               i === step ? 'bg-surface text-ink' : 'bg-canvas text-muted hover:text-ink'
             }`}
           >
@@ -294,7 +294,7 @@ function Compounding() {
             value={members}
             onChange={(e) => setMembers(Number(e.target.value))}
             aria-label="Contributors in the pool"
-            className="tal-range mt-2 w-full"
+            className={`tal-range mt-2 w-full ${focusRing}`}
           />
         </label>
       </div>
