@@ -158,6 +158,28 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* ── THE SELECTION PLANE ────────────────────────────────────────────────────────────
+   The background under selected text. Declared here because until it was, the browser
+   supplied one: MEASURED in Chrome 151 from painted pixels, rgb(174,211,252) over the
+   light canvas and rgb(52,81,115) over the dark one — and the text keeps its own token
+   colour, so every text token was being scored against a plane no token declares.
+
+   contrast.test.ts holds every text token to AA body (4.5:1) against every BACKGROUND
+   TOKEN. Ten of the sixteen text/plane pairs failed that floor once the user selected
+   the text — `faint` at 1.98:1 on the dark canvas, against 4.81:1 unselected — and the
+   highlight itself scored 1.43:1 light against the canvas it covers, below the 3:1
+   non-text floor the same file applies to a 2px tick. __tests__/selection.test.ts
+   carries the numbers, the engine method and why the tint is the wrong answer.
+
+   ONE rule, both themes: var() resolves against the ORIGINATING element, so this paints
+   #0F7A6C under [data-theme='light'] and #3AD6C0 under [data-theme='dark'] — verified in
+   the engine, not assumed. BOTH halves are required; setting only the background leaves
+   the foreground as whatever token the text wears and `faint` keeps failing. */
+::selection {
+  background-color: var(--accent);
+  color: var(--accent-ink);
+}
+
 /* Quality floor: honour reduced-motion everywhere. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
