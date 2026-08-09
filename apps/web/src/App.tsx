@@ -1,5 +1,13 @@
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter, Link, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import {
+  BrowserRouter,
+  Link,
+  Route,
+  Routes,
+  matchRoutes,
+  useLocation,
+  useNavigate,
+} from 'react-router-dom'
 import { Mark, NavItem, Shell, ThemeToggle } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { ApiError } from './lib/api'
@@ -57,23 +65,64 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-// Titles resolve by prefix so wildcard areas (/track/anything) title correctly.
+/**
+ * THE CONSOLE'S PAGES — ONE TABLE, because two tables that must agree do not.
+ *
+ * ⚠ WHAT THIS REPLACED, MEASURED AT `c9e1e8a` WITH EVERY GATE GREEN. The route list and a
+ * separate `titleFor()` each held their own copy of the paths, and they disagreed on every
+ * address that has no page:
+ *   · `titleFor` ended `exact[pathname] ?? 'Overview'`, so /admin — the retired operator
+ *     console someone still has bookmarked — rendered the header "Overview" above the body
+ *     "Nothing at this address". The sidebar highlighted nothing, so the ONLY name on the
+ *     screen was the wrong one.
+ *   · the three prefix rules over-matched by a character: /billingx titled "Billing",
+ *     /trackers "Track", /docs-old "Docs", each of them routed to the catch-all.
+ * Eight addresses measured, eight titled as a page they were not. ConsoleTitle.test.tsx drives
+ * the real `<App />` to each one and reads the banner, so the assertion survives this table
+ * being replaced again.
+ *
+ * The title now travels WITH the route, so a new page cannot be added without naming itself,
+ * and `matchRoutes` answers "which page is this" with the same matcher `<Routes>` uses —
+ * `startsWith` was never that matcher, which is the whole defect above.
+ */
+export const NOT_FOUND_TITLE = 'Not found'
+
+export interface ConsoleRoute {
+  /** Exactly the string `<Route path>` receives — splats included, so the two cannot drift. */
+  path: string
+  /** What the sticky top bar says while this route is matched. */
+  title: string
+  element: React.ReactElement
+}
+
+export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
+  { path: '/', title: 'Overview', element: <Overview /> },
+  { path: '/ledger', title: 'Ledger', element: <Ledger /> },
+  // THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect targets already default to
+  // app.talyvor.com/billing/success?session_id={CHECKOUT_SESSION_ID} and /billing/cancel — the
+  // design assumed the suite owned them. A customer arrives here by full page load from Stripe,
+  // so both must resolve on a cold navigation, not only in-app. They title as Billing because
+  // that is the page the customer is on, not as Overview.
+  { path: '/billing', title: 'Billing', element: <TopUp /> },
+  { path: '/billing/success', title: 'Billing', element: <BillingSuccess /> },
+  { path: '/billing/cancel', title: 'Billing', element: <BillingCancel /> },
+  { path: '/keys', title: 'API keys', element: <Keys /> },
+  { path: '/setup', title: 'Setup', element: <Setup /> },
+  { path: '/spend', title: 'Spend & routing', element: <Spend /> },
+  { path: '/members', title: 'Members', element: <Members /> },
+  { path: '/settings', title: 'Settings', element: <Settings /> },
+  { path: '/track/*', title: 'Track', element: <TrackArea /> },
+  { path: '/docs/*', title: 'Docs', element: <DocsArea /> },
+]
+
+// Built once: matchRoutes only needs the paths, and rebuilding this per render would allocate
+// a table on every navigation for an answer that cannot change.
+const TITLE_MATCHERS = CONSOLE_ROUTES.map(({ path }) => ({ path }))
+
 function titleFor(pathname: string): string {
-  if (pathname.startsWith('/track')) return 'Track'
-  if (pathname.startsWith('/docs')) return 'Docs'
-  // /billing, /billing/success, /billing/cancel — the last two are where Stripe
-  // returns a customer, so they must title as Billing too, not fall to Overview.
-  if (pathname.startsWith('/billing')) return 'Billing'
-  const exact: Record<string, string> = {
-    '/': 'Overview',
-    '/ledger': 'Ledger',
-    '/keys': 'API keys',
-    '/setup': 'Setup',
-    '/spend': 'Spend & routing',
-    '/members': 'Members',
-    '/settings': 'Settings',
-  }
-  return exact[pathname] ?? 'Overview'
+  const matches = matchRoutes(TITLE_MATCHERS, pathname)
+  const matched = matches?.[matches.length - 1]?.route.path
+  return CONSOLE_ROUTES.find((r) => r.path === matched)?.title ?? NOT_FOUND_TITLE
 }
 
 function Sidebar() {
@@ -191,28 +240,19 @@ function AppShell() {
           refused, so it costs an unbroken app a null. */}
       <SessionExpiredBar />
       <Routes>
-        <Route path="/" element={<Overview />} />
-        <Route path="/ledger" element={<Ledger />} />
-        {/* THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect
-            targets already default to app.talyvor.com/billing/success?session_id=
-            {'{CHECKOUT_SESSION_ID}'} and /billing/cancel — the design assumed the
-            suite owned them. A customer arrives here by full page load from
-            Stripe, so both must resolve on a cold navigation, not only in-app. */}
-        <Route path="/billing" element={<TopUp />} />
-        <Route path="/billing/success" element={<BillingSuccess />} />
-        <Route path="/billing/cancel" element={<BillingCancel />} />
-        <Route path="/keys" element={<Keys />} />
-        <Route path="/setup" element={<Setup />} />
-        <Route path="/spend" element={<Spend />} />
-        <Route path="/members" element={<Members />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/track/*" element={<TrackArea />} />
-        <Route path="/docs/*" element={<DocsArea />} />
+        {/* EVERY ROUTE COMES FROM CONSOLE_ROUTES, which is also what titles the header. A page
+            declared here and nowhere else would be a page the top bar cannot name — that was
+            the state this table replaced. */}
+        {CONSOLE_ROUTES.map((r) => (
+          <Route key={r.path} path={r.path} element={r.element} />
+        ))}
         {/* A catch-all, added when /admin was removed. Before it, an unmatched in-app path
             rendered the shell with an EMPTY content area and no explanation — so an
             operator's /admin bookmark would have shown a blank page. A silent blank is the
             same failure class as an invented number: the page says nothing true about what
-            happened. This covers every mistyped or retired path, not just that one. */}
+            happened. This covers every mistyped or retired path, not just that one.
+            ⚠ It is NOT in CONSOLE_ROUTES: it is the absence of a page, and putting it there
+            would make "no page" a page with a name, which is the lie this replaced. */}
         <Route
           path="*"
           element={
