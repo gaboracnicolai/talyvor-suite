@@ -75,7 +75,7 @@ function KeyRow({ k }: { k: WorkspaceAPIKey }) {
         ) : null}
       </Row>
       {confirming ? (
-        <div className="space-y-2 border-t border-hairline px-gutter py-3">
+        <div className="space-y-2 border-t border-rule px-gutter py-3">
           <p className="text-body text-ink">
             Revoking <span className="font-mono">{k.key_prefix}</span> cannot be undone, and anything
             still using it stops working without warning.

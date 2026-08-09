@@ -88,10 +88,10 @@ export function LawyerReview({
   return (
     <div
       className={
-        'rounded-control border border-warn/40 bg-warn/5 px-4 ' + (compact ? 'py-3 mt-4' : 'py-4 mb-8')
+        'rounded-control border border-rule border-l-2 border-l-held bg-canvas px-4 ' + (compact ? 'py-3 mt-4' : 'py-4 mb-8')
       }
     >
-      <div className="text-caption font-medium text-warn">
+      <div className="text-caption font-medium text-ink">
         {compact ? 'Needs legal review' : 'Draft — needs legal review before it is relied on'}
       </div>
       <p className="mt-1 text-body text-muted">{children}</p>

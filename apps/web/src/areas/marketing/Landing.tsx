@@ -633,7 +633,7 @@ export function Landing() {
               </Button>
               {HAS_CONTACT ? (
                 <Button asChild>
-                  <a href={CONTACT_MAILTO} className="text-mono">
+                  <a href={CONTACT_MAILTO} className="font-mono">
                     {CONTACT_EMAIL}
                   </a>
                 </Button>

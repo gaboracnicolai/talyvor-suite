@@ -33,7 +33,7 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <div className="space-y-1">
-      <pre className="overflow-x-auto rounded border border-rule bg-bg px-3 py-2 text-mono text-ink">
+      <pre className="overflow-x-auto rounded border border-rule bg-canvas px-3 py-2 font-mono text-ink">
         {text}
       </pre>
       <Button
@@ -60,7 +60,7 @@ function ToolCard({ tool }: { tool: Tool }) {
             warning banner is the thing nobody reads before pasting; this one sits between the
             reader and the instruction it qualifies. */}
         {tool.hazard ? (
-          <p className="rounded border border-negative/40 bg-negative/5 px-3 py-2 text-body text-ink">
+          <p className="rounded border border-rule border-l-2 border-l-slashed bg-canvas px-3 py-2 text-body text-ink">
             <strong>Before you paste this:</strong> {tool.hazard}
           </p>
         ) : null}
@@ -144,7 +144,7 @@ export function Setup() {
             same request from cache.
           </p>
           <p className="text-caption text-muted">
-            Workspace <span className="text-mono">{ctx.data?.workspace_id ?? '—'}</span> — the one
+            Workspace <span className="font-mono">{ctx.data?.workspace_id ?? '—'}</span> — the one
             this session signed in to. Keys you mint here belong to it.
           </p>
         </div>
@@ -234,7 +234,7 @@ export function Setup() {
               <ul className="space-y-0.5 text-caption text-muted">
                 {existing.map((k) => (
                   <li key={k.id}>
-                    <span className="text-mono">{k.key_prefix}</span> — {k.name} (identifier, not a
+                    <span className="font-mono">{k.key_prefix}</span> — {k.name} (identifier, not a
                     credential)
                   </li>
                 ))}
@@ -277,7 +277,7 @@ export function Setup() {
             />
           ) : null}
           {mint.isError ? (
-            <p className="text-body text-negative">
+            <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">
               Couldn’t create a key. Nothing was changed — try again, or use the Keys screen.
             </p>
           ) : null}
@@ -291,7 +291,7 @@ export function Setup() {
           <div className="px-gutter py-3 text-body text-muted">
             This deployment has no public Lens URL configured, so we cannot tell you which address
             to use — and a guessed one would fail with an error that looks like a bad key. Ask your
-            operator to set <span className="text-mono">LENS_PUBLIC_BASE_URL</span> on the app, then
+            operator to set <span className="font-mono">LENS_PUBLIC_BASE_URL</span> on the app, then
             reload.
           </div>
         </Card>
@@ -300,7 +300,7 @@ export function Setup() {
           {!minted ? (
             <p className="text-caption text-muted">
               The blocks below show{' '}
-              <span className="text-mono">{KEY_PLACEHOLDER}</span> where your key goes. Create a key
+              <span className="font-mono">{KEY_PLACEHOLDER}</span> where your key goes. Create a key
               above to have it filled in.
             </p>
           ) : null}

@@ -32,6 +32,7 @@
   "src/BillingRoutes.test.tsx": 4,
   "src/buildIdentity.test.ts": 9,
   "src/ClaimsAudit.test.tsx": 38,
+  "src/deadClasses.test.ts": 4,
   "src/DocsInNav.test.tsx": 2,
   "src/FirstRunGaps.test.tsx": 9,
   "src/Legal.test.tsx": 25,
