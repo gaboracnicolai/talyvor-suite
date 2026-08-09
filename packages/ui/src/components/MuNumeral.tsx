@@ -1,4 +1,5 @@
 import { cn } from '../lib/cn'
+import { CaseSafe } from './CaseSafe'
 
 export interface MuNumeralProps extends React.HTMLAttributes<HTMLSpanElement> {
   /** Integer micro-units (1e-6). e.g. 12_340567 → 12.340567; 64 → 64 µ. */
@@ -11,12 +12,17 @@ const tick: Record<'lens' | 'lxc', string> = { lens: 'bg-lens', lxc: 'bg-lxc' }
 
 // The unit label carries the only colour: a 2px token tick (lens = copper, lxc = steel).
 // `micro` prepends a µ that must NOT be uppercased — CSS text-transform maps µ (U+00B5)
-// to Greek capital Mu, so it sits in a normal-case span while the letters uppercase.
+// to Greek capital Mu, so it goes through CaseSafe while the letters uppercase.
+//
+// ⚠ THIS USED TO HAND-ROLL `<span className="normal-case">µ</span>` and was the ONLY site in the
+// product that protected anything, while twenty other `uppercase` class lists took their text from
+// props — Landing's unit label among them, which shipped `MLXC`. One shape now, in CaseSafe, so the
+// protection is not a thing each author has to have read this comment to know about.
 function UnitLabel({ unit, micro = false }: { unit: 'lens' | 'lxc'; micro?: boolean }) {
   return (
     <span className="ml-0.5 inline-flex items-center gap-1 self-center font-figure text-eyebrow uppercase text-muted">
       <span className={cn('inline-block h-3 w-0.5 rounded-pill', tick[unit])} aria-hidden="true" />
-      {micro ? <span className="normal-case">µ</span> : null}
+      {micro ? <CaseSafe>µ</CaseSafe> : null}
       {unit}
     </span>
   )
