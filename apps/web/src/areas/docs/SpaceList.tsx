@@ -25,7 +25,7 @@ function SpaceRow({ space }: { space: DocsSpace }) {
           open()
         }
       }}
-      className={`cursor-pointer hover:bg-canvas ${focusRing}`}
+      className={`cursor-pointer transition-colors duration-200 hover:bg-canvas ${focusRing}`}
       label={
         <span className="inline-flex items-center gap-2">
           {space.icon ? <span aria-hidden="true">{space.icon}</span> : null}

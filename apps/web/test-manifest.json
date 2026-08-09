@@ -45,7 +45,7 @@
   "src/Legal.test.tsx": 25,
   "src/lib/awaiting.test.ts": 7,
   "src/lib/productState.test.ts": 13,
-  "src/motion.test.tsx": 24,
+  "src/motion.test.tsx": 32,
   "src/placeholderAudit.test.tsx": 15,
   "src/SessionExpired.test.tsx": 20,
   "src/Sharing.test.tsx": 8,
