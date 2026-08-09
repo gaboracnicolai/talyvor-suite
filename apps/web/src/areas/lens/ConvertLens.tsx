@@ -90,9 +90,17 @@ export function ConvertLens({
         <>
           <div className="flex flex-col gap-1">
             <div className="text-caption text-muted">
-              Rate: <span className="text-ink">{quote.data.lens_per_lxc}</span>{" "}
+              {/* ⚠ THE FIGURE FACE, both of them. These are the two numbers the panel exists to
+                  state before an irreversible click, and until #95 they were the only figures on
+                  this surface in the body sans — the rate beside a `Costs <MuNumeral>` that is on
+                  the face, one line down. Neither is money-shaped, so #93's name rule and #94's
+                  `$` rule both walked past them. */}
+              Rate:{" "}
+              <span className="font-figure text-ink">
+                {quote.data.lens_per_lxc}
+              </span>{" "}
               LENS per LXC · minimum{" "}
-              <span className="text-ink">
+              <span className="font-figure text-ink">
                 {microsToUnits(quote.data.min_lxc_ulxc)}
               </span>{" "}
               LXC
