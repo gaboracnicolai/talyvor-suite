@@ -1,3 +1,4 @@
+import { useLayoutEffect } from 'react'
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   BrowserRouter,
@@ -8,6 +9,7 @@ import {
   useHref,
   useLinkClickHandler,
   useLocation,
+  useNavigationType,
 } from 'react-router-dom'
 import { Mark, NavItem, Shell, ThemeToggle } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
@@ -316,10 +318,51 @@ function AppShell() {
   )
 }
 
+/**
+ * ⚠ THE ONE THING A REAL NAVIGATION DID FOR FREE, AND CLIENT-SIDE ROUTING DOES NOT.
+ *
+ * A browser puts a newly loaded document at the top. Replacing page loads with in-app
+ * navigation replaced that too, with nothing: the scroll offset of the page you left was
+ * carried into the page you asked for. MEASURED IN CHROME ON THE BUILT ARTIFACT, the same
+ * pair of pages from the same offset, differing only in how the navigation was made:
+ *
+ *     /terms at y=900  --full page load-->    /privacy   y = 0
+ *     /terms at y=900  --click the link-->    /privacy   y = 900   (its maximum is 1881, so
+ *                                                                   900 was carried, not clamped)
+ *
+ * and from the tallest gated address, /setup at its bottom, both /settings and /privacy opened
+ * at their LAST line. See scrollReset.test.tsx for the full rows.
+ *
+ * ⚠ ON PUSH AND REPLACE ONLY — POP IS THE BROWSER'S AND IT ALREADY DOES IT RIGHT.
+ * `history.scrollRestoration` is `auto` and, measured in the same session, back and forward
+ * restore the offsets of these client-side entries exactly (900 and 300). A scroll-to-top on
+ * every location change would break the half that works: the back button would drop a reader
+ * at the top of a page they had read most of. A first mount is a POP too, so a deep link and a
+ * reload are left alone as well.
+ *
+ * Layout effect, not effect: the reset happens before paint, so there is no frame in which the
+ * new page is shown scrolled. `theme.css` never sets `scroll-behavior: smooth`, so this is an
+ * instant jump rather than an animation the reader watches.
+ */
+function ScrollToTopOnPush() {
+  const { pathname } = useLocation()
+  const navigationType = useNavigationType()
+  useLayoutEffect(() => {
+    if (navigationType === 'POP') return
+    window.scrollTo(0, 0)
+  }, [pathname, navigationType])
+  return null
+}
+
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        {/* ABOVE `<Routes>`, NOT INSIDE THE CONSOLE'S SHELL. The legal pages, the two front
+            doors and the marketing landing are siblings of the gate, not children of it — a
+            reset mounted in `AppShell` would be correct on all twelve gated addresses and
+            absent from every page a stranger sees. */}
+        <ScrollToTopOnPush />
         <Routes>
           {/* Public marketing landing — OUTSIDE the AuthGate by design. */}
           <Route path="/marketing/*" element={<Landing />} />
