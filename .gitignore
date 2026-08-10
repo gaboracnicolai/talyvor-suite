@@ -13,6 +13,7 @@ apps/bff/bff
 # the start of every vitest run, because a stale shard would let a run that measured nothing be
 # answered from a run that did.
 apps/web/.reach/
+packages/ui/.reach/
 
 # Release artifacts from scripts/build-release.sh. Ignored not just for tidiness: an untracked
 # build output would make `git status --porcelain` dirty, and the script's dirty-tree check would
