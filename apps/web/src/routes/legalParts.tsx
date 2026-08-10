@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
+import { useDocumentTitle } from '../documentTitle'
 
 // legalParts — the shared furniture for /privacy and /terms.
 //
@@ -54,6 +55,9 @@ function ReturnLink() {
 }
 
 export function LegalHeader({ title }: { title: string }) {
+  // The tab is told the SAME prop the h1 paints, from the one component both legal pages share.
+  // Setting it in Privacy.tsx and Terms.tsx instead would be two more places a page name lives.
+  useDocumentTitle(title)
   return (
     <header className="mb-8">
       <div className="mb-6">

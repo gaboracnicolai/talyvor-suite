@@ -1,5 +1,6 @@
 import { Button, Card, Mark, ThemeToggle } from '@talyvor/ui'
 import { useSignupProbe, type SignupState } from '../../lib/signupOpen'
+import { useDocumentTitle } from '../../documentTitle'
 
 // Entry.tsx — the two front doors: /signup for a stranger, /signin for someone coming back.
 //
@@ -108,6 +109,10 @@ function AlreadyIn() {
 
 export function SignUp() {
   const { signup, authenticated } = useSignupProbe()
+  // Both branches name themselves — `AlreadyIn` is a different screen at the same address, and
+  // titling it "Create a workspace" would be the tab naming a screen the reader is not on. The
+  // strings are these components' own `<h1>` and the label the product puts on links here.
+  useDocumentTitle(authenticated ? 'You’re signed in' : 'Create a workspace')
   if (authenticated) {
     return (
       <EntryFrame>
@@ -184,6 +189,7 @@ export function SignUp() {
  */
 export function SignIn({ returnTo }: { returnTo?: string } = {}) {
   const { authenticated } = useSignupProbe()
+  useDocumentTitle(authenticated ? 'You’re signed in' : 'Sign in')
   if (authenticated) {
     return (
       <EntryFrame>

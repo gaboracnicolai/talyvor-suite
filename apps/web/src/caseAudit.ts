@@ -39,7 +39,7 @@
  * ── WHY IT IS NOT A SOURCE RULE ──────────────────────────────────────────────────────────────
  *
  * The `uppercase` and the µ are in different places and neither knows about the other.
- * Landing.tsx:78 is `<span className="font-figure text-eyebrow uppercase text-faint">`, and line 79
+ * Landing.tsx:79 is `<span className="font-figure text-eyebrow uppercase text-faint">`, and line 80
  * hands its {unit} to CaseSafe — no µ near either. The µ arrives as a PROP from six call sites
  * (`unit="µLXC list"`, `"µLXC charged"`, `"µLXC saved"`, `"µLENS earned"`, `"µLXC you pay"`,
  * `"µLXC kept"`). No grep for "µ near uppercase" connects a prop to the class list that will

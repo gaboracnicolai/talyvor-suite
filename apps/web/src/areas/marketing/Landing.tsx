@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, CaseSafe, ThemeToggle, focusRing } from '@talyvor/ui'
 import { useSignupProbe } from '../../lib/signupOpen'
+import { useDocumentTitle } from '../../documentTitle'
 import { HOLDBACK_HOURS, LEDGER_HIT, billAt, micro, savedAt } from './economics'
 
 // The marketing landing (/marketing, OUTSIDE the AuthGate — see App.tsx). It must render with no
@@ -312,6 +313,11 @@ export function Landing() {
   // bare-fetch hook rather than react-query — this page renders with no providers at all, and a
   // probe that failed to answer leaves the page saying nothing about access rather than guessing.
   const { signup } = useSignupProbe()
+  // THE FRONT DOOR TAKES THE BRAND ALONE — `null`, not a page name. That is what the marketing
+  // site does with its own home page (`TALYVOR: the AI development suite that gets cheaper`,
+  // while every inner page is `<page> | TALYVOR`), and this page's own h1 is a sentence, not a
+  // name. See documentTitle.test.tsx for the fetched titles.
+  useDocumentTitle(null)
   return (
     <div className="flex min-h-full flex-col bg-canvas text-ink">
       {/* One staggered reveal on load, plus the transition the stepper needs. Deliberately small:
