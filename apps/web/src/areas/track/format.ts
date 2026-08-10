@@ -40,6 +40,20 @@ export function priorityLabel(p: IssuePriority): string {
 }
 
 /**
+ * The priority enum's values in model order (0 None … 4 Low), for anything that has to OFFER the
+ * choice rather than label one value. Derived from `PRIORITY_LABELS` rather than written out a
+ * second time: integer-like keys enumerate in ascending numeric order, so this IS the declaration
+ * order and cannot drift from the labels beside it.
+ *
+ * ⚠ IT EXISTS BECAUSE THE DRIFT ALREADY HAPPENED. IssueDetail.tsx hand-rolled its own five-entry
+ * `PRIORITIES` list for the control that ships, while this module's `priorityLabel` — exported,
+ * documented and unit-tested against model.IssuePriority — had ZERO production call sites.
+ * Measured at `1b7acf3`: renaming the SHIPPED label left all 1383 tests green; renaming the same
+ * label here redded `format.test.ts`. The pinned vocabulary was the one that shipped nowhere.
+ */
+export const PRIORITY_VALUES = Object.keys(PRIORITY_LABELS).map(Number) as IssuePriority[]
+
+/**
  * Track's reconciled per-issue AI cost (model.Issue.ai_cost_usd, a float USD — Track's one
  * non-µ money field; it is a rollup Lens reconciles in, not a ledger amount). Not a MuNumeral:
  * USD has no token tick.

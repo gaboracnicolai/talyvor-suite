@@ -15,7 +15,7 @@ import {
 } from '@talyvor/ui'
 import { getJSON, getJSONArray } from '../../lib/api'
 import { StatusPill } from './StatusPill'
-import { formatCost } from './format'
+import { PRIORITY_VALUES, formatCost, priorityLabel, statusLabel } from './format'
 import { memberName, teamIdentifier } from './data'
 import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackComment, type TrackMember, type TrackTeam } from './types'
 
@@ -42,13 +42,13 @@ import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackComment, t
 
 const UNASSIGNED = '__unassigned__'
 
-const PRIORITIES: { value: number; label: string }[] = [
-  { value: 0, label: 'None' },
-  { value: 1, label: 'Urgent' },
-  { value: 2, label: 'High' },
-  { value: 3, label: 'Medium' },
-  { value: 4, label: 'Low' },
-]
+// ⚠ THE STATUS AND PRIORITY WORDS COME FROM ./format AND ARE NOT WRITTEN HERE. This screen used
+// to speak two vocabularies for one field at the same moment: <StatusPill> beside these controls
+// renders "In progress" through `statusLabel`, while the control itself mapped the RAW enum, so
+// the row read "Status · In progress · in_progress". Priority was the mirror image — a hand-rolled
+// five-entry list here, and an exported, documented, unit-tested `priorityLabel` with no callers.
+// issueVocabulary.test.tsx asserts the rendered control per enum value; format.test.ts pins the
+// words against model.go. Do not re-inline either list.
 
 export function IssueDetail() {
   const { id = '' } = useParams()
@@ -218,7 +218,7 @@ export function IssueDetail() {
               <SelectContent>
                 {ISSUE_STATUSES.map((s) => (
                   <SelectItem key={s} value={s}>
-                    {s}
+                    {statusLabel(s)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -236,9 +236,9 @@ export function IssueDetail() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PRIORITIES.map((p) => (
-                  <SelectItem key={p.value} value={String(p.value)}>
-                    {p.label}
+                {PRIORITY_VALUES.map((p) => (
+                  <SelectItem key={p} value={String(p)}>
+                    {priorityLabel(p)}
                   </SelectItem>
                 ))}
               </SelectContent>
