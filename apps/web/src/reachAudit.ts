@@ -1,8 +1,8 @@
 /**
- * WHICH COMPONENTS THE FIVE DOM AUDITS ACTUALLY REACH.
+ * WHICH COMPONENTS THE SEVEN DOM AUDITS ACTUALLY REACH.
  *
- * test-setup.ts installs five audits that read the DOM as it is rendered — figure, case, focus,
- * glyph, placeholder — and says so itself: "A surface with no test is audited by nothing." That
+ * test-setup.ts installs seven audits that read the DOM as it is rendered — figure, case, focus,
+ * glyph, placeholder, plane, eyebrow — and says so itself: "A surface with no test is audited by nothing." That
  * sentence has been true and unmeasured. Every "MEASURED CLEAN" this item has recorded is a
  * statement about the components some test happened to render, and nothing anywhere asked which
  * ones those are.

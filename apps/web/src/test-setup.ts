@@ -40,6 +40,13 @@ import {
   takeGlyphOffenders,
 } from './glyphAudit'
 import {
+  MUST_RENDER_EYEBROW,
+  installEyebrowAudit,
+  satisfiesEyebrowFloor,
+  setEyebrowAuditFile,
+  takeEyebrowOffenders,
+} from './eyebrowAudit'
+import {
   MUST_AUDIT_A_DECLARED_PLANE,
   installPlaneAudit,
   satisfiesPlaneFloor,
@@ -122,6 +129,17 @@ installPlaceholderAudit()
  */
 installPlaneAudit()
 
+/**
+ * AND EVERY EYEBROW IS ASKED WHETHER ITS UPPERCASE ARRIVED, on the same ride.
+ *
+ * preset.ts §THE EYEBROW keeps `text-transform` OUT of the token deliberately — it maps µ to Greek
+ * capital Mu — and applies it at the call site instead. caseAudit guards the half where the
+ * transform HURTS a character; nothing asked whether it is there at all. Measured at `ff17b41`:
+ * dropping `uppercase` from one rendered eyebrow left all 678 tests green, because
+ * `text-transform` is paint-time and `textContent` is identical either way.
+ */
+installEyebrowAudit()
+
 let currentFile = ''
 beforeEach((ctx) => {
   currentFile = ctx.task.file?.name ?? ''
@@ -130,6 +148,7 @@ beforeEach((ctx) => {
   setGlyphAuditFile(currentFile)
   setPlaceholderAuditFile(currentFile)
   setPlaneAuditFile(currentFile)
+  setEyebrowAuditFile(currentFile)
 })
 
 // ⚠ BOTH audits are read in ONE hook and reported together. Two `afterEach` registrations would
@@ -206,6 +225,22 @@ afterEach(() => {
         `to the element itself:\n${lines.join('\n')}\n` +
         '(the Chrome measurement, the two contrast scores and why the class cannot be inherited ' +
         'are in src/placeholderAudit.ts)',
+    )
+  }
+
+  const uncased = takeEyebrowOffenders()
+  if (uncased.length > 0) {
+    const lines = uncased.map(
+      (e) =>
+        `  <${e.tag} class="${e.className}"> renders ${JSON.stringify(e.text)}\n` +
+        `    text-transform in effect: ${e.transform}` +
+        (e.fromClassName ? ` (declared by class="${e.fromClassName}")` : ' (nothing declares one)'),
+    )
+    problems.push(
+      'eyebrow(s) rendered without an uppercase transform in effect — 11px mono at 0.24em ' +
+        `tracking is a label shape carrying text that is not in label case:\n${lines.join('\n')}\n` +
+        '(the rule, why the token withholds the transform and why this reads the DOM are in ' +
+        'src/eyebrowAudit.ts)',
     )
   }
 
@@ -319,6 +354,16 @@ afterAll(() => {
         `MUST_AUDIT_A_DECLARED_PLANE because ${whyPlane}. Either the fixture stopped rendering ` +
         'it — in which case this file no longer guards it — or the audit stopped seeing it. Do ' +
         'not delete the entry to go green.',
+    )
+  }
+
+  const whyEyebrow = MUST_RENDER_EYEBROW[currentFile]
+  if (whyEyebrow && !satisfiesEyebrowFloor(currentFile)) {
+    throw new Error(
+      `${currentFile} audited NO eyebrow with an uppercase transform in effect. It is listed in ` +
+        `MUST_RENDER_EYEBROW because it renders ${whyEyebrow}. Either the fixture stopped ` +
+        'rendering it — in which case this file no longer guards it — or the audit stopped ' +
+        'seeing it. Do not delete the entry to go green.',
     )
   }
 

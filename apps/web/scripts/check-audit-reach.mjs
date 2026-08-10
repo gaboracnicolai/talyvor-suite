@@ -2,7 +2,8 @@
 //
 // ── WHAT THIS IS FOR ─────────────────────────────────────────────────────────
 //
-// test-setup.ts installs five DOM audits (figure, case, focus, glyph, placeholder) and states
+// test-setup.ts installs seven DOM audits (figure, case, focus, glyph, placeholder, plane,
+// eyebrow) and states
 // their reach in one sentence: "A surface with no test is audited by nothing." Every finding
 // those audits have produced — money in the body sans, MLXC on the marketing page, nine controls
 // wearing the browser's focus ring, three placeholders painted by Chrome — was found in a
@@ -129,7 +130,7 @@ for (const name of [...registered].sort()) {
   const rendered = committed.has(name)
   if (!rendered && why === undefined) {
     problems.push(
-      `UNAUDITED  ${name} is exported and NO test renders it, so none of the five DOM audits ` +
+      `UNAUDITED  ${name} is exported and NO test renders it, so none of the seven DOM audits ` +
         'has ever looked at it. Render it on a surface test, or classify it in UNREACHED with ' +
         'the reason it cannot be.',
     )
@@ -153,7 +154,7 @@ for (const name of Object.keys(UNREACHED)) {
 
 if (problems.length > 0) {
   console.error(
-    'audit-reach: the five DOM audits do not reach every component this product exports:\n  ' +
+    'audit-reach: the seven DOM audits do not reach every component this product exports:\n  ' +
       problems.join('\n  '),
   )
   process.exit(1)
