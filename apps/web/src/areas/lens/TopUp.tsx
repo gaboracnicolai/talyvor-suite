@@ -169,9 +169,21 @@ export function TopUp({
         </Row>
         )}
 
-        {failure ? (
+        {/* ⚠ GATED ON `isError`, NOT ON THE ERROR'S CLASS. This block used to render only when
+            the error was a `CheckoutError`, which is every answer the BFF gives — but NOT the
+            case where there is no answer: offline, DNS failure, a reset connection all reject
+            `fetch` with a TypeError, and the click then added ZERO characters to the page (see
+            checkoutRefusalSurface.test.tsx for the measurement). Every other error surface in
+            the app already has this shape — Keys.tsx, ConvertLens.tsx and IssueList.tsx all gate
+            on `isError` and use `instanceof` INSIDE to pick better words. */}
+        {start.isError ? (
           <div className="px-gutter py-3">
-            <p className="text-body text-muted">{failureText(failure.kind, failure.detail)}</p>
+            {/* No new sentence: an error we cannot classify is exactly what `upstream` already
+                says, and "nothing was charged" is true by construction — this call only asks
+                for a Stripe session, and the payment happens after the redirect. */}
+            <p className="text-body text-muted">
+              {failure ? failureText(failure.kind, failure.detail) : failureText('upstream', '')}
+            </p>
           </div>
         ) : null}
 
