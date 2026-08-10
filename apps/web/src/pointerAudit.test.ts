@@ -103,7 +103,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-eyebrow uppercase',
     why: 'the element that OPENS the eyebrow, quoted to show CaseSafe sits inside it rather than on it',
   },
-  'apps/web/src/placeholderAudit.ts:34|apps/web/src/areas/lens/Keys.tsx:96': {
+  'apps/web/src/placeholderAudit.ts:34|apps/web/src/areas/lens/Keys.tsx:97': {
     kind: 'LIVE',
     fragment: 'placeholder={k.key_prefix}',
     why: 'the site that passes a placeholder THROUGH a component, the whole argument for reading the DOM',

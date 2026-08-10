@@ -5,6 +5,7 @@ import { Button, Card, CardHeader, Input, RevealOnce, Row } from '@talyvor/ui'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
 import { formatWhen } from './format'
 import { ApiError } from '../../lib/api'
+import { isSessionExpired } from '../../lib/productState'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 
 // API keys — LIVE. This screen exists because of one real failure: Lens's mint
@@ -201,9 +202,22 @@ export function Keys() {
 
         {mint.isError ? (
           <div className="px-gutter py-2 text-body text-muted">
-            {mint.error instanceof Error && mint.error.message.includes('403')
+            {/* ⚠ THE STATUS, NOT THE MESSAGE. This read `mint.error.message.includes('403')` — a
+                substring match on ApiError's message format ("path -> HTTP status"), four lines
+                from a sibling mutation (revoke, above) reading `.status` off the same type. It
+                happens to be right today only because this path is a constant with no digits in
+                it; the diagnosis was coupled to a string nobody guards.
+                ⚠ AND A 401 GOT THE RETRY SENTENCE. Measured, real <App/>, /auth/me authenticated
+                and /api/* 401 — the live condition, since the BFF session outlives the workspace
+                token by four hours: the bar said "Signing in again fixes it" and this line said
+                "Please try again." two rows below it. Documents.tsx already decided what to do —
+                the OUTCOME still has to be stated, because the reader pressed a button and needs
+                to know it did not take, so ONLY THE ADVICE MOVES. */}
+            {mint.error instanceof ApiError && mint.error.status === 403
               ? 'Couldn’t mint the key — the request origin was rejected. Reach this app at its configured address.'
-              : 'Couldn’t mint the key. Please try again.'}
+              : isSessionExpired(mint.error)
+                ? 'Couldn’t mint the key. Nothing was changed.'
+                : 'Couldn’t mint the key. Please try again.'}
           </div>
         ) : null}
 

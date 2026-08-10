@@ -157,15 +157,29 @@ async function listIssues(v: IssueView): Promise<TrackIssue[]> {
  *
  * A 5xx or an unreadable body genuinely may be transient, so those keep the retry copy.
  */
-class CreateRefusal extends Error {
+/**
+ * ⚠ IT EXTENDS `ApiError`, AND THAT IS THE POINT RATHER THAN TIDINESS. It used to extend the
+ * bare `Error`, and every session mechanism in this app keys on the TYPE — so `isSessionExpired`
+ * could not see a refused create at all. That is #136's defect (`readDistill` threw a bare
+ * `Error`, and all three mechanisms went silent at once) arriving on the WRITE path, where the
+ * read's catchers structurally cannot reach it: a mutation's error never enters the query cache.
+ */
+class CreateRefusal extends ApiError {
   constructor(
-    readonly status: number,
+    status: number,
     /** The upstream sentence, when there was one. Never invented — absent stays absent. */
     readonly reason: string,
   ) {
-    super(reason || `create: ${status}`)
+    super(status, '/api/track/issues')
+    this.name = 'CreateRefusal'
   }
-  /** Retrying can only help when the server did not reject the request itself. */
+  /**
+   * Retrying can only help when the server did not reject the request itself.
+   *
+   * ⚠ A 401 IS NOT A REJECTION OF THE REQUEST, and reading it as one is what put the upstream's
+   * error string on screen as advice about a title that was fine. It is classified by
+   * `isSessionExpired` at the call site, ahead of this — see the render.
+   */
   get retryable(): boolean {
     return this.status >= 500 || this.status === 0
   }
@@ -285,12 +299,21 @@ export function IssueList() {
 
         {create.isError ? (
           <p className="text-caption text-muted">
-            {create.error instanceof CreateRefusal && !create.error.retryable && create.error.reason
-              ? // The upstream sentence, verbatim. It is written for a person (Track's writeErr
-                // messages name the field and what to do), and paraphrasing it here would be this
-                // screen inventing a diagnosis it does not have.
-                `Couldn’t create that issue — ${create.error.reason}`
-              : 'Couldn’t create that issue — nothing was saved. Try again.'}
+            {isSessionExpired(create.error)
+              ? // ⚠ MEASURED PRINTING THE SERVER'S SENTENCE AS ADVICE ABOUT THE REQUEST. A 401
+                // satisfies `!retryable`, so it fell into the branch below and the screen showed
+                // the upstream's error string for a title that was perfectly fine — under a bar
+                // already saying the credential is dead and signing in fixes it. A 4xx means
+                // "not as sent" for 400/409/422; it does not mean that for 401, where nothing
+                // about the request is wrong. Outcome kept, remedy left to the one voice that
+                // owns it (Documents.tsx's rule, applied here).
+                'Couldn’t create that issue — nothing was saved.'
+              : create.error instanceof CreateRefusal && !create.error.retryable && create.error.reason
+                ? // The upstream sentence, verbatim. It is written for a person (Track's writeErr
+                  // messages name the field and what to do), and paraphrasing it here would be this
+                  // screen inventing a diagnosis it does not have.
+                  `Couldn’t create that issue — ${create.error.reason}`
+                : 'Couldn’t create that issue — nothing was saved. Try again.'}
           </p>
         ) : null}
 
