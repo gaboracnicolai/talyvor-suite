@@ -68,9 +68,30 @@ export const PRIORITY_VALUES = Object.keys(PRIORITY_LABELS).map(Number) as Issue
  * and at zero, and the exported, documented, tested one was the one a developer would find.
  * The rendered output is unchanged; the dead namesake is gone. formatterReach.test.ts is the
  * guard that makes "exported but nothing calls it" fail rather than sit in a comment.
+ *
+ * ⚠ AND THE ZERO NEEDED `tokens` TO BE TRUE, BECAUSE ZERO COST IS NOT ZERO USAGE. A response
+ * served from the cache, or by a registered inference node, is written upstream with cost_usd = 0
+ * and its token counts intact — talyvor-lens writes that zero as a literal in the SQL
+ * (`insertCacheServeSQL`), Lens returns the row on /v1/api/spend/by-request, and talyvor-track's
+ * syncer lands every row it receives with no zero-cost filter anywhere on the chain. An issue
+ * whose work was pooled therefore holds `ai_tokens > 0` against `ai_cost_usd == 0`, and it is the
+ * ordinary shape of a pooled issue rather than an edge case. Saying "No AI spend recorded" about
+ * that issue is false, and the screen said it directly beside the token count that disproved it.
+ *
+ * Both strings are claims about the LEDGER and neither characterises the world: this function is
+ * not told whether the zero came from a cache hit, a node serve or a reconciliation, so it
+ * reports what was recorded and stops there. "Free" would be the wrong word and upstream says so
+ * in its own source — "A spend view must never render this row as 'the request was free'"
+ * (alerts.go), "render cache rows as 'served from cache', not 'free'" (server.go) — and Track
+ * does not carry `serve_source`, so this module cannot honestly say which it was. WHAT THE ROW
+ * SHOULD CALL A ZERO-COST SERVE, IF ANYTHING BEYOND THE AMOUNT, IS A PRODUCT DECISION AND IS NOT
+ * MADE HERE. Only the false sentence is removed.
+ *
+ * `tokens` disambiguates the ZERO alone — every nonzero cost renders identically with or without
+ * it — so the default keeps any caller that has no token count truthful for the case it can see.
  */
-export function formatCost(usd: number): string {
-  if (usd <= 0) return 'No AI spend recorded'
+export function formatCost(usd: number, tokens = 0): string {
+  if (usd <= 0) return tokens > 0 ? '$0.00 recorded' : 'No AI spend recorded'
   if (usd < 0.01) return `$${usd.toFixed(4)}`
   return `$${usd.toFixed(2)}`
 }

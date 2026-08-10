@@ -277,7 +277,12 @@ export function IssueDetail() {
           {/* ⚠ THE NUMBER NO OTHER TRACKER HAS. It has worked all along and was never shown. */}
           <div className="flex flex-wrap items-center gap-3 border-t border-rule pt-4">
             <span className="text-caption text-muted">AI cost</span>
-            <span className="font-figure text-body text-ink">{formatCost(it.ai_cost_usd)}</span>
+            {/* Both numbers, because the zero needs the other one to be read correctly: a
+                pooled or node-served issue carries tokens against a zero cost, and the amount
+                alone cannot tell that apart from an issue no AI ever touched. */}
+            <span className="font-figure text-body text-ink">
+              {formatCost(it.ai_cost_usd, it.ai_tokens)}
+            </span>
             {it.ai_tokens > 0 && (
               <span className="text-caption text-faint">{it.ai_tokens} tokens</span>
             )}

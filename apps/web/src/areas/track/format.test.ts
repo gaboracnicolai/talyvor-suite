@@ -39,6 +39,31 @@ describe('track formatters', () => {
       expect(formatCost(0)).toBe('No AI spend recorded')
     })
 
+    // ⚠ THE ZERO HAS TWO MEANINGS AND ONLY ONE OF THEM IS "NOTHING HAPPENED". A cache- or
+    // node-served response is written upstream with cost_usd = 0 and its token counts intact
+    // (talyvor-lens `insertCacheServeSQL` writes the 0 as a literal), and talyvor-track's syncer
+    // lands every such row, so an issue can hold ai_tokens > 0 against ai_cost_usd == 0. The
+    // sentence for "nothing was recorded" is FALSE about that issue — something was recorded, and
+    // it summed to zero.
+    //
+    // Both strings are claims about the LEDGER, not about the world: this function is not told
+    // whether the zero came from a cache hit, a node serve or a reconciliation, so it says what
+    // was recorded and characterises nothing. Upstream is explicit that "free" would be the wrong
+    // word (alerts.go: "A spend view must never render this row as 'the request was free'"), and
+    // it is not this module's call to invent a better one.
+    it('distinguishes a recorded zero from no record at all', () => {
+      expect(formatCost(0, 18342)).toBe('$0.00 recorded')
+      expect(formatCost(0, 0)).toBe('No AI spend recorded')
+    })
+
+    // The tokens argument only ever disambiguates the ZERO. A real cost renders identically
+    // whatever the token count, so no existing call site can change meaning by omitting it.
+    it('ignores the token count for any nonzero cost', () => {
+      expect(formatCost(0.42, 18342)).toBe('$0.42')
+      expect(formatCost(0.0004, 18342)).toBe('$0.0004')
+      expect(formatCost(0.42)).toBe('$0.42')
+    })
+
     it('renders a cent-or-more cost to two places', () => {
       expect(formatCost(0.42)).toBe('$0.42')
       expect(formatCost(0.01)).toBe('$0.01')
