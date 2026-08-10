@@ -22,13 +22,22 @@
  * persistence half — the stored-choice read AND the write — was skipped in every test in this
  * repo, and a guard on either could not have failed.
  *
- * ⚠ AND THE RUNTIME THAT MATTERS IS NOT ONLY THIS ONE. `.github/workflows/ci.yml` pins
- * `node-version: 22`, where Node's webstorage global is still behind a flag — so jsdom's own
- * localStorage is expected to come through there and this file to be INERT. That expectation is
- * NOT measured here: the machine this was written on has only v26, and no v22 to check against.
- * It is handled by construction instead — nothing below assumes which runtime it is on, the
- * export names which case actually happened, and theme-storage.test.tsx asserts only that the
- * ambient storage WORKS, never that it had to be replaced. The CI log answers the open half.
+ * ⚠ AND THE RUNTIME THAT MATTERS IS NOT ONLY THIS ONE — NOW MEASURED ON BOTH.
+ * `.github/workflows/ci.yml` pins `node-version: 22`, where Node's webstorage global is still
+ * behind a flag. This was written on v26 with no v22 to check against, so it was built to not
+ * care which runtime it is on and to PRINT the answer; CI then supplied it, on the `ci` run for
+ * PR #120:
+ *
+ *     local   localStorage provenance: shim     (node v26.0.0)
+ *     CI      localStorage provenance: runtime  (node v22.23.1)
+ *
+ * So this file is INERT on CI: jsdom's own storage comes through there, and no
+ * --localstorage-file warning is printed in that log. Two consequences worth writing down.
+ * ONE: the guard is live on CI without the shim, because theme-storage.test.tsx swaps the whole
+ * global through its descriptor rather than patching a real Storage's method.
+ * TWO: the defect this merge fixes WAS reachable by a test on CI the whole time. "No test could
+ * have seen it" is true of the machine it was found on and FALSE of the pipeline — there simply
+ * was no such test. This file buys a local runtime that behaves like CI's, not the catch.
  *
  * ── WHY A SHIM AND NOT `--localstorage-file` ─────────────────────────────────────────────────
  *
