@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_VIEW, IssueList, issuesQuery } from './IssueList'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { DEFAULT_VIEW, IssueList, SORT_OPTIONS, issuesQuery } from './IssueList'
+import { priorityLabel } from './format'
+import { blankComments } from '../../../../../packages/ui/src/lib/sourceText'
 import type { TrackIssue } from './types'
 
 // THE THREE THINGS A TESTER DOES: land on an empty tracker, create an issue and see it, change its
@@ -266,12 +270,16 @@ describe('the view controls query the server, not the page', () => {
   })
 
   it('a chosen status and assignee are sent as the parameters the BFF validates', () => {
+    // ⚠ THIS CASE USED TO SEND `orderBy: 'priority'` AND ASSERT order_by=priority. It was a
+    // true statement about the request and blind to what the request MEANT: the parameter was
+    // forwarded and validated exactly as pinned, and the rows came back least-important first.
+    // See the sort-control block at the end of this file for what was measured.
     const q = new URLSearchParams(
-      issuesQuery({ status: 'in_progress', assignee: 'm-1', orderBy: 'priority' }),
+      issuesQuery({ status: 'in_progress', assignee: 'm-1', orderBy: 'created_at' }),
     )
     expect(q.get('status')).toBe('in_progress')
     expect(q.get('assignee_id')).toBe('m-1') // NOT "assignee" — the BFF rejects unknown keys
-    expect(q.get('order_by')).toBe('priority')
+    expect(q.get('order_by')).toBe('created_at')
   })
 
   it('sends only keys the BFF forwards — an unknown one is a 400, not a silent no-op', () => {
@@ -328,5 +336,87 @@ describe('the view controls query the server, not the page', () => {
     renderList()
     await screen.findByText('Only one')
     expect(screen.queryByText(/Showing the first/i)).toBeNull()
+  })
+})
+
+// ── THE SORT CONTROL MAY ONLY OFFER AN ORDERING THE UPSTREAM CAN DELIVER ────────────────
+//
+// This screen sends ONE direction — `order_dir=desc` — for whichever column is chosen, and
+// that is correct for a timestamp: newest first is what a person means by "recently updated".
+// It is not a property of every column in the upstream allowlist.
+//
+// MEASURED, real Chrome on the built bundle, the real issues DDL in a real Postgres running
+// the ORDER BY talyvor-track's own store builds (internal/issue/store.go:689-709). The control
+// read "Priority" and the screen read, top to bottom:
+//
+//     Low — rename a variable            priority 4
+//     Medium — tidy the settings copy    priority 3
+//     High — customer data export fails  priority 2
+//     Urgent — production is down        priority 1   ← FOURTH of five
+//     None — unprioritised note          priority 0
+//
+// model.IssuePriority (upstream internal/model/model.go:94-98) numbers 0 None, 1 Urgent,
+// 2 High, 3 Medium, 4 Low, so a numeric sort is not an importance sort in EITHER direction:
+// desc buries Urgent under everything, and asc puts the UNPRIORITISED rows above it.
+describe('the sort control offers only orderings the upstream can actually deliver', () => {
+  it('offers exactly the two timestamp columns', () => {
+    // Hardcoded rather than derived from SORT_OPTIONS: a guard that reads the constant it is
+    // policing passes for every value the constant could take.
+    expect(SORT_OPTIONS.map((o) => o.value)).toEqual(['updated_at', 'created_at'])
+  })
+
+  it('every column it offers is one where a single hardcoded desc means "most useful first"', () => {
+    // The direction is not a per-column choice on this screen — it is one literal. That is only
+    // sound while every offered column is a timestamp. `priority` and `sort_order`, the other
+    // two the upstream accepts, are not, and neither has a direction that ranks importance.
+    for (const o of SORT_OPTIONS) {
+      expect(o.value.endsWith('_at')).toBe(true)
+      const q = new URLSearchParams(issuesQuery({ status: '', assignee: '', orderBy: o.value }))
+      expect(q.get('order_by')).toBe(o.value)
+      expect(q.get('order_dir')).toBe('desc')
+    }
+  })
+
+  it('no view this screen can build asks the upstream to order by priority', () => {
+    for (const o of SORT_OPTIONS) {
+      expect(issuesQuery({ status: 'todo', assignee: 'm-1', orderBy: o.value })).not.toContain(
+        'order_by=priority',
+      )
+    }
+  })
+
+  // The four tests above all read SORT_OPTIONS, so they are blind to a Sort item written
+  // straight into the JSX — which is how the removed option would come back, since that is
+  // the shape it had. The rendered items are generated from the constant; this asserts that
+  // no ORDER BY column is spelled as a literal item anywhere in the screen.
+  //
+  // ⚠ COMMENTS ARE BLANKED FIRST. The block above SORT_OPTIONS discusses `priority` at length,
+  // and a scanner that cannot tell a mention from a setting reports the documentation as the
+  // defect — the same trap `decision-expiry.sh` D9 was rewritten for.
+  it('the sort items are generated from SORT_OPTIONS, not written as literals', () => {
+    const src = blankComments(
+      readFileSync(resolve(import.meta.dirname, 'IssueList.tsx'), 'utf8'),
+    )
+    // The upstream's ORDER BY allowlist (talyvor-track store.go:691-693), mirrored by the BFF
+    // in trackOrderBy — a closed set, not a hand-kept list of things to avoid.
+    for (const col of ['created_at', 'updated_at', 'priority', 'sort_order']) {
+      expect(src, `an ORDER BY column is a literal <SelectItem>: ${col}`).not.toContain(
+        `<SelectItem value="${col}"`,
+      )
+    }
+    expect(src).toContain('SORT_OPTIONS.map')
+  })
+
+  // ⚠ THIS TEST CARRIES ITS OWN EXPIRY. It holds the PREMISE of the absence above — that the
+  // upstream enum is not ordered by importance — rather than the absence itself, and it reads
+  // the product's own label map to do it. The day priority is renumbered so that one numeric
+  // direction IS the importance order, this fails and says to put the option back.
+  it('the priority enum is not ordered by importance in either direction', () => {
+    const VALUES = [0, 1, 2, 3, 4] as const // model.IssuePriority, upstream model.go:94-98
+    const IMPORTANCE = ['Urgent', 'High', 'Medium', 'Low', 'None'] // what "sort by priority" means
+    const asc = [...VALUES].sort((a, b) => a - b).map((p) => priorityLabel(p))
+    const desc = [...VALUES].sort((a, b) => b - a).map((p) => priorityLabel(p))
+    expect(asc, `asc reads ${asc.join(' > ')}`).not.toEqual(IMPORTANCE)
+    expect(desc, `desc reads ${desc.join(' > ')}`).not.toEqual(IMPORTANCE)
   })
 })

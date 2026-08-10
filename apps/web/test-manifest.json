@@ -28,7 +28,7 @@
   "src/areas/track/data.test.ts": 6,
   "src/areas/track/format.test.ts": 4,
   "src/areas/track/IssueDetail.test.tsx": 10,
-  "src/areas/track/IssueList.test.tsx": 15,
+  "src/areas/track/IssueList.test.tsx": 20,
   "src/areas/track/TrackArea.test.tsx": 4,
   "src/AuthGate.test.tsx": 3,
   "src/authProbeLoop.test.tsx": 8,

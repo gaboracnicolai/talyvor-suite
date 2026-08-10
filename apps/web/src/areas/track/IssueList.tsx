@@ -62,8 +62,53 @@ export interface IssueView {
   status: IssueStatus | ''
   /** A member id, or '' for anyone. */
   assignee: string
-  orderBy: 'updated_at' | 'created_at' | 'priority'
+  /** ⚠ TIMESTAMP COLUMNS ONLY, AND THAT IS A MEASUREMENT, NOT A PREFERENCE — see SORT_OPTIONS.
+   *  issuesQuery sends ONE direction for whichever column is named here, so a column whose
+   *  useful end is not "highest first" cannot be listed. */
+  orderBy: 'updated_at' | 'created_at'
 }
+
+/**
+ * The Sort control's options — ONE source for the type, the query and the rendered items.
+ *
+ * ⚠ `priority` IS ABSENT, AND IT USED TO BE HERE. Upstream accepts it (its ORDER BY allowlist
+ * is created_at / updated_at / priority / sort_order, and the BFF mirrors that list), so it
+ * looked like a fourth free option. It is not an ordering this product can deliver.
+ *
+ * MEASURED, real Chrome on the built bundle, against the real `issues` DDL in a real Postgres
+ * running the ORDER BY talyvor-track's own store builds (internal/issue/store.go:689-709).
+ * The control read "Priority" and the screen read, top to bottom:
+ *
+ *     Low — rename a variable             priority 4
+ *     Medium — tidy the settings copy     priority 3
+ *     High — customer data export fails   priority 2
+ *     Urgent — production is down         priority 1   ← FOURTH of five
+ *     None — unprioritised note           priority 0
+ *
+ * ⚠ THE OTHER DIRECTION IS NOT THE FIX. model.IssuePriority (upstream model.go:94-98) is
+ * 0 None · 1 Urgent · 2 High · 3 Medium · 4 Low, so 0 means UNSET and sits inside the scale:
+ * `desc` buries Urgent under everything, `asc` puts the unprioritised rows ABOVE it. Neither
+ * numeric direction is an importance order, which is why this is not a one-character fix and
+ * why the enum premise is pinned as a test that says so when it expires.
+ *
+ * ⚠ AND THE PAGE MAKES IT UNREACHABLE, NOT MERELY MISORDERED. This screen fetches ONE page of
+ * PAGE rows and has no offset control. Measured against the priority distribution tab-8e26
+ * read off a real Jira export (3,020 issues: high 1023 · none 816 · medium 624 · urgent 316 ·
+ * low 241), the first 50 rows are 50 × Low under `desc` and 50 × None under `asc`, and the
+ * first urgent row is number 1,889 or 817 of 3,020. In either direction the sort labelled
+ * "Priority" cannot put an urgent issue on the only page it fetches.
+ *
+ * ⚠ WHAT WOULD BRING IT BACK, so this is a handover and not just a deletion: an upstream
+ * ordering that ranks importance — a rank expression that sorts 0 LAST (`CASE WHEN priority=0
+ * THEN 5 ELSE priority END ASC`), or a renumbered enum. That is talyvor-track's to make; the
+ * expiry test in IssueList.test.tsx fails the day the enum becomes monotone and says to
+ * restore this option. The same screen already refuses to offer an "open issues" status for
+ * exactly this reason — a control that cannot honestly be delivered is not offered.
+ */
+export const SORT_OPTIONS: { value: IssueView['orderBy']; label: string }[] = [
+  { value: 'updated_at', label: 'Recently updated' },
+  { value: 'created_at', label: 'Recently created' },
+]
 
 /** The default view. ORDER MATTERS MOST: recently-touched-first is what keeps the list usable as
  *  it grows, because the work someone is actually doing stays at the top without them filtering
@@ -311,9 +356,11 @@ export function IssueList() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="updated_at">Recently updated</SelectItem>
-                <SelectItem value="created_at">Recently created</SelectItem>
-                <SelectItem value="priority">Priority</SelectItem>
+                {SORT_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </label>
