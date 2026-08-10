@@ -39,14 +39,24 @@ export function priorityLabel(p: IssuePriority): string {
   return PRIORITY_LABELS[p] ?? 'None'
 }
 
-/** Plain "$1.50" for Track's reconciled per-issue AI cost (model.Issue.ai_cost_usd, a
- *  float USD — Track's one non-µ money field; it is a rollup Lens reconciles in, not a
- *  ledger amount). Not a MuNumeral: USD has no token tick. */
-export function formatUSD(usd: number): string {
-  return usd.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
+/**
+ * Track's reconciled per-issue AI cost (model.Issue.ai_cost_usd, a float USD — Track's one
+ * non-µ money field; it is a rollup Lens reconciles in, not a ledger amount). Not a MuNumeral:
+ * USD has no token tick.
+ *
+ * Money the way the ledger holds it — never rounded up into a friendlier number. A single AI
+ * call is usually sub-cent, and `$0.00` on this field reads as "this issue cost nothing", which
+ * is the one thing the number exists to disprove; a genuine zero says so in words instead.
+ *
+ * ⚠ THIS IS THE SHIPPED RULE, MOVED — not a new one. It was `costLabel`, a local helper in
+ * IssueDetail.tsx, while this module exported a `formatUSD` that rounded to cents and had ZERO
+ * production call sites. The two disagreed on every value below half a cent ($0.00 vs $0.0004)
+ * and at zero, and the exported, documented, tested one was the one a developer would find.
+ * The rendered output is unchanged; the dead namesake is gone. formatterReach.test.ts is the
+ * guard that makes "exported but nothing calls it" fail rather than sit in a comment.
+ */
+export function formatCost(usd: number): string {
+  if (usd <= 0) return 'No AI spend recorded'
+  if (usd < 0.01) return `$${usd.toFixed(4)}`
+  return `$${usd.toFixed(2)}`
 }

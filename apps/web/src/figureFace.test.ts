@@ -25,8 +25,16 @@ import { stripComments } from '../../../packages/ui/src/lib/sourceText'
  * TWO RULES, because one of them alone has a blind spot the other closes:
  *
  *   A. NAME-SHAPED. Any function whose name reads like money — /usd|cents|cost|price/i —
- *      rendered into JSX must land on the figure face. This is what reaches `costLabel`, a
- *      LOCAL helper in IssueDetail.tsx that no module exports and no import list mentions.
+ *      rendered into JSX must land on the figure face. It is what reaches a LOCAL helper no
+ *      module exports and no import list mentions, which rule B's census cannot see.
+ *      ⚠ AS OF `2bee9fc` RULE A HAS NO INSTANCE OF ITS OWN, AND THAT IS SAID HERE RATHER THAN
+ *      LEFT TO BE DISCOVERED. Its one real subject was `costLabel` in IssueDetail.tsx; that
+ *      helper is now `areas/track/format.ts#formatCost`, an EXPORT, so rule B classifies it and
+ *      rule B's face check already covers it. Measured with the whole suite green: every
+ *      money-named function rendered into JSX in this product is now an exported `format*`
+ *      (formatUSD, formatCents, formatCost), so rule A's unique coverage — money-shaped names
+ *      that are not `format*` — is currently EMPTY. It stays because the next local helper is
+ *      exactly what it exists to catch, but nothing in the product demonstrates it today.
  *   B. CLASSIFIED. Every `format*` exported ANYWHERE under the scanned roots is classified below
  *      as A FIGURE or NOT ONE, WITH ITS REASON, and the classification is checked against the
  *      source in both directions. A formatter nobody classifies fails this file rather than
@@ -107,13 +115,13 @@ const FORMATTERS: Record<string, true | string> = {
   // The money formatter that sat outside the old three-file list entirely: it prints the price
   // on /billing's buy buttons, the one numeral a stranger reads before spending money.
   'apps/web/src/areas/lens/topupApi.ts#formatCents': true,
-  // ⚠ A FIGURE BY ITS OUTPUT, AND NOTHING RENDERS IT — so this entry is classified honestly and
-  // enforced by nothing. `areas/track/format.ts`'s formatUSD has ZERO production call sites
-  // (only `format.test.ts` and this file name it); the screen that shows `ai_cost_usd` uses
-  // `IssueDetail.tsx`'s LOCAL `costLabel`, and the two disagree below half a cent and at zero.
-  // That is a separate, unmerged finding — see W1.1's tab-4a91 block. It is recorded here rather
-  // than resolved by deleting an export, which is a different merge.
-  'apps/web/src/areas/track/format.ts#formatUSD': true,
+  // Was `formatUSD` here — "A FIGURE BY ITS OUTPUT, AND NOTHING RENDERS IT … classified honestly
+  // and enforced by nothing". That is now resolved rather than described: the dead export is
+  // deleted and this is the rule IssueDetail.tsx actually renders (it was the local `costLabel`).
+  // ⚠ THE "ENFORCED BY NOTHING" HALF IS A GUARD NOW, NOT A COMMENT: formatterReach.test.ts fails
+  // when an exported `format*` has no production call site, so this table can no longer classify
+  // a formatter nothing renders without someone pinning it and saying why.
+  'apps/web/src/areas/track/format.ts#formatCost': true,
   'apps/web/src/areas/track/format.ts#formatWhen':
     'a timestamp, as lens\'s is — a second formatWhen, same shape and same answer',
   'packages/ui/src/lib/format.ts#formatDay':
@@ -353,8 +361,11 @@ describe('every money figure in the product is on the figure face', () => {
   it('finds money to check — it must not pass by finding none', () => {
     const { onFace, offFace } = figureSites(sourceFiles(), (n) => MONEY_NAME.test(n))
     expect(onFace.length + offFace.length, 'no money-shaped render sites found at all').toBeGreaterThanOrEqual(5)
-    // and the local helper no module exports is one of them — rule A's whole reason to exist
-    expect([...onFace, ...offFace].some((s) => s.fn === 'costLabel')).toBe(true)
+    // and Track's per-issue AI cost is one of them. ⚠ THIS NAMED `costLabel` UNTIL `2bee9fc`, and
+    // it is the assertion that SPOKE when that helper was consolidated into an export — a
+    // renamed seam empties a scan silently, and this line is the only thing in the file that
+    // would have noticed. Keep it naming a real render site, never a category.
+    expect([...onFace, ...offFace].some((s) => s.fn === 'formatCost')).toBe(true)
   })
 
   it('none of it renders in the sans', () => {
