@@ -15,6 +15,7 @@
   "src/areas/lens/ledgerPillVocabulary.test.tsx": 7,
   "src/areas/lens/Members.test.tsx": 6,
   "src/areas/lens/mintAttribution.test.tsx": 5,
+  "src/areas/lens/ModelTier.test.tsx": 5,
   "src/areas/lens/Overview.test.tsx": 15,
   "src/areas/lens/Setup.test.tsx": 27,
   "src/areas/lens/setupSnippets.test.ts": 14,
