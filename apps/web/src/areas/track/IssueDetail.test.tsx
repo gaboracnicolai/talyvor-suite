@@ -117,10 +117,38 @@ describe('a ticket can be read', () => {
 
   // A genuine zero says so in words rather than showing $0.00, which is indistinguishable from a
   // cost too small to display.
+  //
+  // ⚠ ai_tokens IS SET TO 0 HERE, AND THAT IS THE POINT. This case is named "no AI spend at all"
+  // but it used to inherit the fixture's `ai_tokens: 18342`, so it rendered
+  // "AI cost / No AI spend recorded / 18342 tokens" — the contradiction below — and asserted only
+  // the half that agreed with its name. The state it claims to describe is BOTH numbers at zero.
   it('says so in words when there is no AI spend at all', async () => {
-    mockBff({ ai_cost_usd: 0 })
+    mockBff({ ai_cost_usd: 0, ai_tokens: 0 })
     open()
     expect(await screen.findByText(/no ai spend recorded/i)).toBeInTheDocument()
+    expect(screen.queryByText(/tokens/i)).toBeNull()
+  })
+
+  // ⚠ ZERO COST IS NOT ZERO USAGE, AND UPSTREAM SAYS SO IN ITS OWN SOURCE. A response served from
+  // the cache or by a registered node writes a token_events row with cost_usd = 0 and the token
+  // counts intact (talyvor-lens alerts.go `insertCacheServeSQL` — the zero is literal in the SQL),
+  // Lens returns it on /v1/api/spend/by-request, and talyvor-track's syncer lands EVERY row it
+  // gets — `RecordRequestSpendAttributed(..., rs.CostUSD, rs.InputTokens+rs.OutputTokens, ...)`,
+  // with no zero-cost filter on any link of the chain. So `ai_cost_usd == 0 && ai_tokens > 0` is
+  // the ordinary shape of a pooled issue, not an edge case.
+  //
+  // Lens states the rule twice for its own readers — "A spend view must never render this row as
+  // 'the request was free'" (alerts.go) and "render cache rows as 'served from cache', not
+  // 'free'" (server.go). This screen said something stronger than free: that no AI spend was
+  // recorded, beside the token count proving it was.
+  //
+  // The positive assertion comes first deliberately: a queryByText(...).toBeNull() alone is green
+  // on a screen that never rendered.
+  it('does not deny the spend on an issue whose tokens cost nothing upstream', async () => {
+    mockBff({ ai_cost_usd: 0, ai_tokens: 18342 })
+    open()
+    expect(await screen.findByText('18342 tokens')).toBeInTheDocument()
+    expect(screen.queryByText(/no ai spend recorded/i)).toBeNull()
   })
 
   it('resolves the team id to its identifier rather than showing a raw uuid', async () => {
