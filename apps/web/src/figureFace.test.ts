@@ -27,47 +27,108 @@ import { stripComments } from '../../../packages/ui/src/lib/sourceText'
  *   A. NAME-SHAPED. Any function whose name reads like money — /usd|cents|cost|price/i —
  *      rendered into JSX must land on the figure face. This is what reaches `costLabel`, a
  *      LOCAL helper in IssueDetail.tsx that no module exports and no import list mentions.
- *   B. CLASSIFIED. Every `format*` exported by the three format modules is classified below as
- *      A FIGURE or NOT ONE, WITH ITS REASON, and the classification is checked against the
- *      modules in both directions. A formatter nobody classifies fails this file rather than
+ *   B. CLASSIFIED. Every `format*` exported ANYWHERE under the scanned roots is classified below
+ *      as A FIGURE or NOT ONE, WITH ITS REASON, and the classification is checked against the
+ *      source in both directions. A formatter nobody classifies fails this file rather than
  *      defaulting into "not a figure" — the #407 move, and the one that stops rule A from
  *      quietly missing a new `formatBalance` that happens not to match the name shape.
+ *
+ * ⚠⚠ RULE B'S CENSUS COULD NOT DELIVER THAT PROMISE, IN TWO INDEPENDENT WAYS, AND BOTH WERE
+ * MEASURED WITH THE WHOLE SUITE GREEN AT `31095b7` (1010 tests, twice):
+ *
+ *   · ITS SCOPE WAS A HAND-KEPT LIST OF THREE FILE PATHS. Adding `export function formatBalance`
+ *     to `areas/lens/topupApi.ts` — a module the list does not name — changed NOTHING: 1010
+ *     passed. That is rule B's own stated reason to exist, arriving through the one door it did
+ *     not watch. And the list was ALREADY STALE when this was written: `topupApi.ts` exports
+ *     `formatCents`, a real money formatter on a buy button, and no entry classified it.
+ *   · ITS KEY WAS THE FUNCTION NAME. `exportedFormatters()` accumulated into a `Set` of NAMES,
+ *     so the three listed modules' FIVE exported functions collapsed into THREE entries. Adding
+ *     a second `formatUSD` — a different unit contract under an already-classified name — also
+ *     changed nothing: 1010 passed. The duplication was half-noticed (a comment acknowledged the
+ *     second `formatWhen`) and never swept for; the unacknowledged collision is on MONEY, and
+ *     the two `formatUSD` arguments differ by a factor of 10^6 (µUSD vs float USD).
+ *
+ * ⚠ AND A DELETION WAS INVISIBLE FOR THE SAME REASON: un-exporting track's `formatUSD` left
+ * lens's namesake in the set, so the both-directions check saw NO change. The control still
+ * scored CAUGHT — by `format.test.ts`, the mutated module's OWN unit test, which is not this
+ * guard. A verdict read from a count would have recorded that hole as covered.
+ *
+ * The census is now DISCOVERED from the roots rather than listed, and keyed by `module#name`.
  */
 
 const appRoot = resolve(import.meta.dirname, '..')
 const roots = [resolve(appRoot, 'src'), resolve(appRoot, '../../packages/ui/src')]
-const formatModules = [
-  'src/areas/lens/format.ts',
-  'src/areas/track/format.ts',
-  '../../packages/ui/src/lib/format.ts',
-].map((p) => resolve(appRoot, p))
+
+/** Repo-relative path, the form the classification keys and the site report both use. */
+function relOf(p: string): string {
+  return p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
+}
+
+/** Every source file under the roots, tests excluded. */
+function allSources(exts: RegExp): { path: string; text: string }[] {
+  const out: { path: string; text: string }[] = []
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = resolve(dir, e.name)
+      if (e.isDirectory()) walk(p)
+      else if (exts.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push({ path: relOf(p), text: readFileSync(p, 'utf8') })
+    }
+  }
+  for (const r of roots) walk(r)
+  return out
+}
+
+/**
+ * The modules that export a `format*` — DISCOVERED, never listed.
+ *
+ * ⚠ A LIST HERE IS THE DEFECT THIS REPLACES. Whoever adds `areas/reports/format.ts` will not
+ * think to add it to a census in another area's test file, and rule B would then be a promise
+ * about three files wearing the words "every formatter in the product".
+ */
+function formatModules(): { path: string; text: string }[] {
+  return allSources(/\.tsx?$/).filter((f) => EXPORTED_FORMAT.test(f.text))
+}
+
+const EXPORTED_FORMAT = /export\s+(?:async\s+)?function\s+(format[A-Za-z0-9_]*)|export\s+const\s+(format[A-Za-z0-9_]*)\s*[:=]/
 
 /**
  * Every exported `format*`, and whether its output is a FIGURE — a quantity whose digits
  * should line up — or something else. The value is `true` for a figure, or the REASON it is
  * not one. Do not delete an entry to make this file pass; say why.
+ *
+ * ⚠ KEYED BY `module#name`, NOT BY NAME. Two modules ship a `formatWhen` and two ship a
+ * `formatUSD`; under a name key the second of each pair was classified by the first one's
+ * entry, and the money pair do not even take the same unit.
  */
 const FORMATTERS: Record<string, true | string> = {
-  // apps/web/src/areas/lens/format.ts
-  formatUSD: true,
-  formatWhen: 'a timestamp rendered as prose ("3 minutes ago", "12 Aug"), not a column of digits',
-  // apps/web/src/areas/track/format.ts — a second formatWhen, same shape, same answer.
-  // packages/ui/src/lib/format.ts
-  formatDay: 'a date label; dates are set in the sans everywhere in this product, deliberately',
+  'apps/web/src/areas/lens/format.ts#formatUSD': true,
+  'apps/web/src/areas/lens/format.ts#formatWhen':
+    'a timestamp rendered as prose ("3 minutes ago", "12 Aug"), not a column of digits',
+  // The money formatter that sat outside the old three-file list entirely: it prints the price
+  // on /billing's buy buttons, the one numeral a stranger reads before spending money.
+  'apps/web/src/areas/lens/topupApi.ts#formatCents': true,
+  // ⚠ A FIGURE BY ITS OUTPUT, AND NOTHING RENDERS IT — so this entry is classified honestly and
+  // enforced by nothing. `areas/track/format.ts`'s formatUSD has ZERO production call sites
+  // (only `format.test.ts` and this file name it); the screen that shows `ai_cost_usd` uses
+  // `IssueDetail.tsx`'s LOCAL `costLabel`, and the two disagree below half a cent and at zero.
+  // That is a separate, unmerged finding — see W1.1's tab-4a91 block. It is recorded here rather
+  // than resolved by deleting an export, which is a different merge.
+  'apps/web/src/areas/track/format.ts#formatUSD': true,
+  'apps/web/src/areas/track/format.ts#formatWhen':
+    'a timestamp, as lens\'s is — a second formatWhen, same shape and same answer',
+  'packages/ui/src/lib/format.ts#formatDay':
+    'a date label; dates are set in the sans everywhere in this product, deliberately',
 }
 
-/** `format*` names the modules actually export, which is what the table must match. */
+/** Every exported `format*` as `module#name` — the PAIR is the census key. */
 function exportedFormatters(): string[] {
-  const names = new Set<string>()
-  for (const f of formatModules) {
-    for (const m of stripComments(readFileSync(f, 'utf8')).matchAll(/export\s+(?:async\s+)?function\s+(format[A-Za-z0-9_]*)/g)) {
-      names.add(m[1])
-    }
-    for (const m of stripComments(readFileSync(f, 'utf8')).matchAll(/export\s+const\s+(format[A-Za-z0-9_]*)\s*[:=]/g)) {
-      names.add(m[1])
-    }
+  const pairs = new Set<string>()
+  for (const f of formatModules()) {
+    const src = stripComments(f.text)
+    for (const m of src.matchAll(/export\s+(?:async\s+)?function\s+(format[A-Za-z0-9_]*)/g)) pairs.add(`${f.path}#${m[1]}`)
+    for (const m of src.matchAll(/export\s+const\s+(format[A-Za-z0-9_]*)\s*[:=]/g)) pairs.add(`${f.path}#${m[1]}`)
   }
-  return [...names].sort()
+  return [...pairs].sort()
 }
 
 interface Tag {
@@ -151,20 +212,9 @@ interface Site {
 
 const MONEY_NAME = /usd|cents|cost|price/i
 
+/** The files that can hold a RENDER site. Only `.tsx` has JSX to be wrong about. */
 function sourceFiles(): { path: string; text: string }[] {
-  const out: { path: string; text: string }[] = []
-  const walk = (dir: string) => {
-    for (const e of readdirSync(dir, { withFileTypes: true })) {
-      const p = resolve(dir, e.name)
-      if (e.isDirectory()) walk(p)
-      else if (/\.tsx$/.test(e.name) && !/\.test\.tsx$/.test(e.name)) {
-        const rel = p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
-        out.push({ path: rel, text: readFileSync(p, 'utf8') })
-      }
-    }
-  }
-  for (const r of roots) walk(r)
-  return out
+  return allSources(/\.tsx$/)
 }
 
 /**
@@ -244,7 +294,10 @@ describe('the tag scan survives the things that break a lazy regex', () => {
 
 describe('the formatter classification is total', () => {
   it('finds the formatters — it must not pass by reading an empty module', () => {
-    expect(exportedFormatters().length).toBeGreaterThanOrEqual(3)
+    // Literals, never `Object.keys(FORMATTERS).length`: a floor compared against the constant
+    // it is protecting passes for every value, including zero.
+    expect(formatModules().length, 'no module exporting a format* was discovered at all').toBeGreaterThanOrEqual(3)
+    expect(exportedFormatters().length, 'no exported format* was discovered at all').toBeGreaterThanOrEqual(5)
   })
 
   it('every exported format* is classified, and nothing is classified that does not exist', () => {
@@ -255,8 +308,41 @@ describe('the formatter classification is total', () => {
     expect(stale, `classified but no longer exported: ${stale.join(', ')}`).toEqual([])
   })
 
+  it('a name two modules both export is two entries, not one', () => {
+    // THE SPECIFIC CASE THE TOTALITY CHECK ABOVE CANNOT SEE, and the only one it cannot:
+    // if the census key goes back to a bare NAME and the table goes back with it, the
+    // both-directions check is satisfied by three names matching three entries and stays
+    // GREEN — which is precisely the shipped state this merge replaces. That full revert is
+    // the one mutation this test alone catches; anything smaller the totality check gets
+    // first (measured — C7 had to be rewritten twice before it isolated this test).
+    const pairs = exportedFormatters()
+    const bare = pairs.filter((p) => !p.includes('#'))
+    expect(bare, `the census key is a bare name again, so a namesake classifies for another module: ${bare.join(', ')}`).toEqual([])
+    const byName = new Map<string, string[]>()
+    for (const pair of exportedFormatters()) {
+      const [mod, name] = pair.split('#')
+      byName.set(name, [...(byName.get(name) ?? []), mod])
+    }
+    const shared = [...byName].filter(([, mods]) => mods.length > 1)
+    expect(shared.length, 'no formatter name is exported by two modules — this check has no subject').toBeGreaterThan(0)
+    // ⚠ THAT FLOOR CARRIES ITS OWN EXPIRY. If both namesake pairs are ever renamed apart this
+    // reds with no defect present: delete this test and say so in the header, do not weaken it.
+    for (const [name, mods] of shared) {
+      for (const mod of mods) {
+        // toContain, not toHaveProperty: a key holding `.` and `#` is a PATH to that matcher.
+        expect(Object.keys(FORMATTERS), `${mod}#${name} is covered only by another module's entry`).toContain(`${mod}#${name}`)
+      }
+    }
+  })
+
   it('every formatter classified as a figure renders on the figure face', () => {
-    const figures = new Set(Object.entries(FORMATTERS).filter(([, v]) => v === true).map(([k]) => k))
+    // The face scan matches a CALL, and a call site names a function, not a module — so the
+    // figure set is the NAME half of every entry classified true. Two modules exporting the
+    // same name are checked together here; that is a limit of a source scan, and it is safe in
+    // the direction that matters (both must be on the face, so either one in the sans reds).
+    const figures = new Set(
+      Object.entries(FORMATTERS).filter(([, v]) => v === true).map(([k]) => k.split('#')[1]),
+    )
     expect(figures.size).toBeGreaterThan(0)
     const { offFace } = figureSites(sourceFiles(), (n) => figures.has(n))
     expect(offFace, `figure formatter(s) rendered in the sans:\n  ${report(offFace).join('\n  ')}`).toEqual([])

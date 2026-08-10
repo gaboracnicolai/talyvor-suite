@@ -53,7 +53,7 @@
   "src/eyebrowAudit.test.tsx": 14,
   "src/fieldFaceAudit.test.tsx": 16,
   "src/figureAudit.test.tsx": 30,
-  "src/figureFace.test.ts": 11,
+  "src/figureFace.test.ts": 12,
   "src/FirstRunGaps.test.tsx": 9,
   "src/focusAudit.test.tsx": 21,
   "src/glyphAudit.test.tsx": 28,
