@@ -118,6 +118,16 @@ const PINS: Record<string, Pin> = {
     fragment: 'active:scale-98',
     why: 'the comment that writes the press the OTHER way — the two spellings are the point',
   },
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:264': {
+    kind: 'LIVE',
+    fragment: 'error={ledger.error}',
+    why: 'the CORRECT copy of the seam Spend.tsx had backwards — the whole positive control for that finding is that this line reads `ledger.error` while its guard is `ledger.isError`',
+  },
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:351|apps/web/src/areas/lens/Overview.tsx:264': {
+    kind: 'LIVE',
+    fragment: '<Failed what="the mint ledger" error={ledger.error} />',
+    why: 'the same line quoted VERBATIM beside the must-stay-green control that asserts its wording, so the quote and the assertion cannot drift apart',
+  },
   'apps/web/src/caseAudit.ts:11|packages/ui/src/components/CaseSafe.tsx:85': {
     kind: 'LIVE',
     fragment: 'normal-case',
