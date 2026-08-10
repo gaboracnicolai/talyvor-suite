@@ -50,6 +50,68 @@ export function inWindow(rows: SpendLedgerRow[], days: number, now: Date): Spend
   })
 }
 
+// ⚠ THE PAGE IS A CEILING, NOT A REQUEST — and every window figure on two screens is a sum
+// over ONE page of it.
+//
+// 200 is clamped in TWO independent servers, so no client can ask past it:
+//
+//   apps/bff/lens.go:348                    clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
+//   lens internal/economy/dualtoken.go:627  if limit > 200 { limit = 200 }
+//
+// MEASURED on the real BFF binary (not on this constant): an upstream holding 260 rows,
+// asked for limit=1000, served 200. The control — same binary, same question, an upstream
+// holding 150 — served 150, so 200 is the wire's answer rather than the fixture's.
+//
+// The rows arrive `ORDER BY created_at DESC`. A FULL page is therefore the NEWEST 200 and
+// the rows it drops are the OLDEST ones in the window — so a sum over a full page is a
+// FLOOR, and a count over it is a floor too.
+//
+// ⚠ ORDINARY VOLUME REACHES IT. A reserved request writes THREE lxc_ledger rows —
+// reservation_hold, reservation_release, spend (lens agent_subbudget.go:307/386/394) — so
+// 200 rows is about 67 requests. Overview's window is THIRTY DAYS.
+//
+// Lives here, next to the derivations it bounds, and is passed to the fetch by the screens:
+// a page size the fetch and the predicate could set separately is a page size they can drift
+// apart on, and then the mark describes a number it is not attached to.
+export const LEDGER_PAGE = 200
+
+/**
+ * Did this page prove it reached back past the window's edge?
+ *
+ * FALSE (covered) when either is true:
+ *   · the page came back SHORT — the ledger itself was exhausted, so nothing is missing;
+ *   · its OLDEST row is already older than the cutoff — the window is wholly inside the page.
+ *
+ * TRUE (truncated) only when the page is FULL and every row on it is still inside the
+ * window: rows inside the window exist that were never fetched, and every total derived
+ * from it under-reports.
+ *
+ * ⚠ The oldest row is taken by MINIMUM, not by reading the last element. The ordering is
+ * the upstream's promise, and a predicate that would go quietly wrong if that promise
+ * changed is not the one to put under a money figure.
+ *
+ * This is the rule `Ledger.tsx` already applies one screen away (`hasNext = rows.length ===
+ * PAGE`) — a full page means there may be more. That screen pages; these two sum.
+ */
+export function windowExceedsPage(
+  rows: readonly { created_at: string }[],
+  pageSize: number,
+  days: number,
+  now: Date,
+): boolean {
+  if (rows.length < pageSize) return false
+  const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000
+  let oldest = Infinity
+  for (const r of rows) {
+    const t = Date.parse(r.created_at)
+    if (Number.isFinite(t) && t < oldest) oldest = t
+  }
+  // No parseable row on a full page: nothing can be said about its reach, and a figure
+  // summed from unreadable dates is not one to certify as complete.
+  if (!Number.isFinite(oldest)) return true
+  return oldest >= cutoff
+}
+
 /** A row with a signed µ amount — either token's normalized ledger shape. */
 export interface SignedRow {
   amount: number

@@ -11,7 +11,15 @@ import {
 import { CapabilityOff } from "./Capability";
 import { ModelTier } from "./ModelTier";
 import { formatUSD, formatWhen, humanizeType, ledgerStatus } from "./format";
-import { byModel, debitTotal, inWindow, lxcDebitsByModel } from "./spendMath";
+import {
+  LEDGER_PAGE,
+  byModel,
+  debitTotal,
+  inWindow,
+  lxcDebitsByModel,
+  windowExceedsPage,
+} from "./spendMath";
+import { WindowFigure, WindowIncomplete } from "./WindowFloor";
 
 // Overview: the first screen a trial user sees. It answers, in order:
 //   1. What have I got?            — the two balances (live).
@@ -33,11 +41,13 @@ import { byModel, debitTotal, inWindow, lxcDebitsByModel } from "./spendMath";
 // on the shared key). Numbers: exact µ counts are MuNumerals; anything derived
 // (month USD, hit rate) is a ≈-marked muted caption; plain counts are mono ink.
 
-const HISTORY_KEY = ["tokens-history", 200, 0] as const;
+// LEDGER_PAGE, not a literal: the fetch and the truncation predicate must be talking about
+// the same page, or the "at least" mark describes a number it is not attached to.
+const HISTORY_KEY = ["tokens-history", LEDGER_PAGE, 0] as const;
 function useHistory() {
   return useQuery({
     queryKey: HISTORY_KEY,
-    queryFn: () => api.tokensHistory(200, 0),
+    queryFn: () => api.tokensHistory(LEDGER_PAGE, 0),
   });
 }
 
@@ -188,8 +198,8 @@ function TokenSection({
 function SpendCard({ now }: { now: Date }) {
   const ledger = useHistory();
   const lxc = useQuery({
-    queryKey: ["lxc-history", 200, 0],
-    queryFn: () => api.lxcLedger(200, 0),
+    queryKey: ["lxc-history", LEDGER_PAGE, 0],
+    queryFn: () => api.lxcLedger(LEDGER_PAGE, 0),
   });
   const month = useQuery({
     queryKey: ["spend-month"],
@@ -201,6 +211,15 @@ function SpendCard({ now }: { now: Date }) {
   const lxcSplit = lxc.data
     ? lxcDebitsByModel(lxc.data, 30, now).slice(0, 5)
     : [];
+  // THIRTY days summed from ONE 200-row page. A reserved request writes three lxc_ledger
+  // rows, so this card's window overflows its page at about 67 requests a MONTH — see
+  // spendMath.ts §LEDGER_PAGE for the measurement.
+  const mintTruncated = ledger.data
+    ? windowExceedsPage(ledger.data, LEDGER_PAGE, 30, now)
+    : false;
+  const lxcTruncated = lxc.data
+    ? windowExceedsPage(lxc.data, LEDGER_PAGE, 30, now)
+    : false;
   return (
     <Card>
       <CardHeader>Spend &amp; earnings — last 30 days</CardHeader>
@@ -228,7 +247,12 @@ function SpendCard({ now }: { now: Date }) {
         ) : lxc.isError || !lxc.data ? (
           <InlineFailure error={lxc.error} />
         ) : (
-          <MuNumeral micros={debitTotal(lxc.data, 30, now)} unit="lxc" />
+          <WindowFigure
+            micros={debitTotal(lxc.data, 30, now)}
+            unit="lxc"
+            floor={lxcTruncated}
+            testId="lxc-debit-total"
+          />
         )}
       </Row>
       {/* The per-model split of that total. This row is the correction of a caption that
@@ -249,13 +273,16 @@ function SpendCard({ now }: { now: Date }) {
                     {a.model}
                   </span>
                 }
-                hint={`${a.requests} charge${a.requests === 1 ? "" : "s"}`}
+                hint={`${lxcTruncated ? "at least " : ""}${a.requests} charge${a.requests === 1 ? "" : "s"}`}
               >
-                <MuNumeral micros={a.ulxc} unit="lxc" />
+                <WindowFigure micros={a.ulxc} unit="lxc" floor={lxcTruncated} />
               </Row>
             ))}
           </div>
         </>
+      ) : null}
+      {lxcTruncated ? (
+        <WindowIncomplete days={30} pageSize={LEDGER_PAGE} testId="lxc-window-incomplete" />
       ) : null}
       <TokenSection token="lens">Earned — LENS · mint attribution</TokenSection>
       {ledger.isLoading ? (
@@ -286,13 +313,16 @@ function SpendCard({ now }: { now: Date }) {
                   {a.model}
                 </span>
               }
-              hint={`${a.requests} request${a.requests === 1 ? "" : "s"}`}
+              hint={`${mintTruncated ? "at least " : ""}${a.requests} request${a.requests === 1 ? "" : "s"}`}
             >
-              <MuNumeral micros={a.ulens} unit="lens" />
+              <WindowFigure micros={a.ulens} unit="lens" floor={mintTruncated} />
             </Row>
           ))}
         </div>
       )}
+      {mintTruncated ? (
+        <WindowIncomplete days={30} pageSize={LEDGER_PAGE} testId="lens-window-incomplete" />
+      ) : null}
     </Card>
   );
 }

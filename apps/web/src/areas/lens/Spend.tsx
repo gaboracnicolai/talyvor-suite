@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
+import { Button, Card, CardHeader, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { CacheCard } from './CacheCard'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { ModelTier } from './ModelTier'
-import { byModel, debitTotal, inWindow, lxcDebitsByModel } from './spendMath'
+import { LEDGER_PAGE, byModel, debitTotal, inWindow, lxcDebitsByModel, windowExceedsPage } from './spendMath'
+import { WindowFigure, WindowIncomplete } from './WindowFloor'
 
 // Spend & routing — LIVE. The screen the design system's central distinction
 // was built for:
@@ -26,11 +27,20 @@ import { byModel, debitTotal, inWindow, lxcDebitsByModel } from './spendMath'
 // so. Two-step TierDot only: hue is category (cheap | capable), never a rank.
 export function Spend({ now = new Date() }: { now?: Date }) {
   const [days, setDays] = useState<7 | 30>(7)
-  const ledger = useQuery({ queryKey: ['spend-ledger'], queryFn: () => api.tokensHistory(200, 0) })
-  const lxc = useQuery({ queryKey: ['lxc-history', 200, 0], queryFn: () => api.lxcLedger(200, 0) })
+  // LEDGER_PAGE, not a literal: the fetch and the truncation predicate must be talking about
+  // the same page or the mark describes a number it is not attached to.
+  const ledger = useQuery({ queryKey: ['spend-ledger'], queryFn: () => api.tokensHistory(LEDGER_PAGE, 0) })
+  const lxc = useQuery({
+    queryKey: ['lxc-history', LEDGER_PAGE, 0],
+    queryFn: () => api.lxcLedger(LEDGER_PAGE, 0),
+  })
   const month = useQuery({ queryKey: ['spend-month'], queryFn: api.spendMonth })
   const agg = ledger.data ? byModel(inWindow(ledger.data, days, now)) : []
   const lxcSplit = lxc.data ? lxcDebitsByModel(lxc.data, days, now) : []
+  // One page is all either ledger gets. When the window holds more rows than that, every
+  // figure derived from it is a floor — see WindowFloor.tsx.
+  const mintTruncated = ledger.data ? windowExceedsPage(ledger.data, LEDGER_PAGE, days, now) : false
+  const lxcTruncated = lxc.data ? windowExceedsPage(lxc.data, LEDGER_PAGE, days, now) : false
 
   return (
     <div className="flex flex-col gap-4 px-gutter py-4">
@@ -75,12 +85,15 @@ export function Spend({ now = new Date() }: { now?: Date }) {
                       {a.model}
                     </span>
                   }
-                  hint={`${a.requests} request${a.requests === 1 ? '' : 's'}`}
+                  hint={`${mintTruncated ? 'at least ' : ''}${a.requests} request${a.requests === 1 ? '' : 's'}`}
                 >
-                  <MuNumeral micros={a.ulens} unit="lens" />
+                  <WindowFigure micros={a.ulens} unit="lens" floor={mintTruncated} />
                 </Row>
               ))}
             </div>
+            {mintTruncated ? (
+              <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lens-window-incomplete" />
+            ) : null}
             {agg.length === 0 ? (
               // ⚠ THE 7-DAY BRANCH IS NOT DECORATION. "Widen the window" is only true when there is
               // a wider one; the control offers 7 and 30, so at 30 that half of the sentence would
@@ -122,7 +135,12 @@ export function Spend({ now = new Date() }: { now?: Date }) {
           ) : lxc.isError || !lxc.data ? (
             <InlineFailure error={lxc.error} />
           ) : (
-            <MuNumeral micros={debitTotal(lxc.data, days, now)} unit="lxc" />
+            <WindowFigure
+              micros={debitTotal(lxc.data, days, now)}
+              unit="lxc"
+              floor={lxcTruncated}
+              testId="lxc-debit-total"
+            />
           )}
         </Row>
         {/* The per-model split of that total — attributed to the model that SERVED,
@@ -140,12 +158,15 @@ export function Spend({ now = new Date() }: { now?: Date }) {
                     {a.model}
                   </span>
                 }
-                hint={`${a.requests} charge${a.requests === 1 ? '' : 's'}`}
+                hint={`${lxcTruncated ? 'at least ' : ''}${a.requests} charge${a.requests === 1 ? '' : 's'}`}
               >
-                <MuNumeral micros={a.ulxc} unit="lxc" />
+                <WindowFigure micros={a.ulxc} unit="lxc" floor={lxcTruncated} />
               </Row>
             ))}
           </div>
+        ) : null}
+        {lxcTruncated ? (
+          <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lxc-window-incomplete" />
         ) : null}
       </Card>
     </div>

@@ -22,7 +22,7 @@
  *
  * ── MEASURED BEFORE IT WAS WRITTEN, AND THE NUMBER IS THE REASON THIS EXISTS ─────────────────
  *
- * At `ff17b41`, dropping `uppercase` from ONE rendered eyebrow — Overview.tsx:181, on the console's
+ * At `ff17b41`, dropping `uppercase` from ONE rendered eyebrow — Overview.tsx:191, on the console's
  * densest eyebrow surface — left 56 test files and 678 tests GREEN. Not one assertion in either
  * package could see it. That is the same shape as the µ half: `text-transform` is a PAINT-TIME
  * transform, so `textContent` is identical with and without it and every text assertion passes over
