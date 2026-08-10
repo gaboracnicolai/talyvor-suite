@@ -7,8 +7,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "test": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node scripts/check-test-manifest.mjs && node scripts/check-audit-reach.mjs",
-    "test:accept": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node scripts/check-test-manifest.mjs --update && node scripts/check-audit-reach.mjs"
+    "test": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node scripts/check-test-manifest.mjs && node scripts/check-audit-reach.mjs && node scripts/check-audit-gate.mjs",
+    "test:accept": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node scripts/check-test-manifest.mjs --update && node scripts/check-audit-reach.mjs && node scripts/check-audit-gate.mjs"
   },
   "dependencies": {
     "@talyvor/ui": "workspace:*",
