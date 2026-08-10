@@ -126,7 +126,7 @@ const STATUS_WORDS: [string, string][] = [
   ['cancelled', 'Cancelled'],
 ]
 
-/** model.IssuePriority (internal/model/model.go:113-120) -> the words a human reads. */
+/** model.IssuePriority (upstream `internal/model/model.go`, `type IssuePriority`) -> the words a human reads. */
 const PRIORITY_WORDS: [number, string][] = [
   [0, 'None'],
   [1, 'Urgent'],

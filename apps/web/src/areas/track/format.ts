@@ -14,7 +14,7 @@ export function formatWhen(iso: string): string {
   })
 }
 
-/** Human labels for the six-value status enum (types.ts / model.go:54-63). */
+/** Human labels for the six-value status enum (types.ts / upstream `model.go`, `type IssueStatus`). */
 const STATUS_LABELS: Record<IssueStatus, string> = {
   backlog: 'Backlog',
   todo: 'Todo',
@@ -27,7 +27,7 @@ export function statusLabel(s: IssueStatus): string {
   return STATUS_LABELS[s]
 }
 
-/** model.IssuePriority labels (model.go:65-73). 0 is "no priority", rendered dim. */
+/** model.IssuePriority labels (upstream `model.go`, `type IssuePriority`). 0 is "no priority", rendered dim. */
 const PRIORITY_LABELS: Record<IssuePriority, string> = {
   0: 'None',
   1: 'Urgent',

@@ -85,7 +85,7 @@ export interface IssueView {
  *     Urgent — production is down         priority 1   ← FOURTH of five
  *     None — unprioritised note           priority 0
  *
- * ⚠ THE OTHER DIRECTION IS NOT THE FIX. model.IssuePriority (upstream model.go:94-98) is
+ * ⚠ THE OTHER DIRECTION IS NOT THE FIX. model.IssuePriority (upstream `model.go`, `type IssuePriority`) is
  * 0 None · 1 Urgent · 2 High · 3 Medium · 4 Low, so 0 means UNSET and sits inside the scale:
  * `desc` buries Urgent under everything, `asc` puts the unprioritised rows ABOVE it. Neither
  * numeric direction is an importance order, which is why this is not a one-character fix and

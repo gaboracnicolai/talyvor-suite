@@ -82,5 +82,6 @@
   "src/statusChangeRefusal.test.tsx": 7,
   "src/tokenDoor.test.ts": 8,
   "src/typeScaleUnits.test.ts": 10,
+  "src/upstreamCitations.test.ts": 3,
   "src/writeUnderDeadCredential.test.tsx": 8
 }
