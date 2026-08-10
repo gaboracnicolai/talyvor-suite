@@ -24,8 +24,9 @@
  * that the fixture the entry says nobody would write already existed.
  *
  * ⚠ NO OFFENDER WAS FOUND. Running all seven over every test in this project reports zero — 335
- * of them at `224bdee`, 337 now, because invariant.test.ts generates one test per source file
- * and this merge adds two. That is
+ * of them at `224bdee`, 346 now. The count moves whenever this directory does, because
+ * invariant.test.ts generates one test per source file: the theme-storage merge added eight cases
+ * and one more source file (storage-env.ts) for invariant to sweep. That is
  * the result: this closes a hole rather than fixing a defect, and it is worth having because the
  * design system's own tests are where a component's UNSHIPPED states are rendered — HoldBar's
  * only render anywhere in the repo is here.

@@ -6,7 +6,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: ['./src/test-setup.ts'],
+    setupFiles: ['../../packages/ui/src/__tests__/storage-env.ts', './src/test-setup.ts'],
     globalSetup: ['./scripts/reach-global-setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
   },
