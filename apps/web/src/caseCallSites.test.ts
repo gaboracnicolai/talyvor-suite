@@ -160,6 +160,10 @@ const NAMES_THE_CLASS: Record<string, string> = {
     'why the census cannot simply blank comments and count what is left.',
   'apps/web/src/test-setup.ts|${currentFile} audited NO eyebrow with an uppercase transform in effect. It is listed in':
     'the second half of the same failure path — the floor message, also English prose.',
+  'packages/ui/src/__tests__/setup.ts|eyebrow(s) rendered without an uppercase transform in effect — 11px mono at 0.24em':
+    'the SAME failure message in the second vitest project, which installs the same seven audits ' +
+    'and reports them itself. The identical sentence in two files is what check-audit-gate.mjs ' +
+    'requires: it matches each audit by the opening phrase of its report block, in each project.',
 }
 
 /** Every place in the two packages that APPLIES `uppercase` to an element. */
