@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Button, Card } from '@talyvor/ui'
 import { api } from '../lib/api'
+import { useDocumentTitle } from '../documentTitle'
 import { PoolingConsent } from './PoolingConsent'
 import { SignInCard } from '../areas/auth/Entry'
 
@@ -60,6 +61,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 function SignedOut() {
   // Land back where the user was heading; the BFF re-sanitises this server-side.
   const returnTo = window.location.pathname + window.location.search
+  // THE TAB NAMES THIS CARD, NOT THE PAGE BEHIND IT. The address is still /ledger, so anything
+  // deriving the title from the location would title a page the reader was refused — the exact
+  // shape ConsoleTitle.test.tsx removed from the banner ("a page you are not on", and the name
+  // is the only one on the screen).
+  useDocumentTitle('Sign in')
   // THE SAME WORDS AS /signin, from the same component. This card used to read "This workspace
   // requires authentication. You'll be sent to your organisation's identity provider" — correct
   // for an enterprise SSO rollout, and wrong for the person this trial is for: a stranger reads

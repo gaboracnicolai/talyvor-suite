@@ -1,6 +1,7 @@
 import { Card, CardHeader } from '@talyvor/ui'
 import { SharingChoice, SharingFacts } from '../areas/lens/Sharing'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from '../areas/lens/unpaidNotice'
+import { useDocumentTitle } from '../documentTitle'
 
 // PoolingConsent — the signup DISCLOSURE, shown once: on the login that created the workspace.
 //
@@ -23,7 +24,13 @@ import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from '../areas/len
 // The words and the control come from areas/lens/Sharing.tsx, which the settings screen also
 // uses. One source, deliberately: the first draft carried its own copy and promised a settings
 // screen that did not exist. A claim about consent must not be able to drift.
+/** One string, painted by the card and told to the browser. This screen BLOCKS the console, so
+ *  the address is still /overview or /setup while it is up; a title derived from the location
+ *  would name a page nobody has reached yet. */
+const CONSENT_HEADER = 'Your answers are being shared'
+
 export function PoolingConsent({ onDone }: { onDone: () => void }) {
+  useDocumentTitle(CONSENT_HEADER)
   // Whether Docs is one workspace shared by everyone here. Read from /auth/me — the same query
   // the gate already ran, so no extra request — and derived by the BFF from its own config.
   // Unlike the unpaid-contribution notice above, this value CAN be read live: it is the BFF's own
@@ -32,7 +39,7 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-gutter py-8">
       <Card className="w-full max-w-2xl">
-        <CardHeader>Your answers are being shared</CardHeader>
+        <CardHeader>{CONSENT_HEADER}</CardHeader>
         <div className="flex flex-col gap-4 px-gutter py-4">
           {/* The state, before the explanation. Someone who reads one sentence and nothing else
               must still leave knowing what is true and that they can stop it. */}

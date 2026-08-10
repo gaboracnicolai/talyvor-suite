@@ -10,6 +10,7 @@ import {
 } from 'react-router-dom'
 import { Mark, NavItem, Shell, ThemeToggle } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
+import { useDocumentTitle } from './documentTitle'
 import { ApiError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
 import { Ledger } from './areas/lens/Ledger'
@@ -222,12 +223,17 @@ function Sidebar() {
 
 function AppShell() {
   const { pathname } = useLocation()
+  // ONE expression, two consumers: the banner paints it and the browser tab is told it. They
+  // cannot drift into naming different pages because there is nothing to drift between —
+  // documentTitle.test.tsx asserts the tab's page half IS the banner's string, at every address.
+  const page = titleFor(pathname)
+  useDocumentTitle(page)
   return (
     <Shell
       sidebar={<Sidebar />}
       nav={
         <>
-          <div className="text-head text-ink">{titleFor(pathname)}</div>
+          <div className="text-head text-ink">{page}</div>
           <div className="flex items-center gap-3">
             <SessionChip />
             <ThemeToggle />
