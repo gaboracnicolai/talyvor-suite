@@ -117,7 +117,14 @@ export function ConvertLens({
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-1">
               <span className="text-caption text-faint">LXC to receive</span>
+              {/* ⚠ `font-figure` IS ON THE FIELD BECAUSE ITS VALUE IS A NUMERAL, and it is the
+                  only numeral on this card that was not. The rate, the minimum and the `Costs`
+                  line below are all on the face; the amount the irreversible conversion is ABOUT
+                  was the body sans. `text-body` sets size and weight and NO family, so the field
+                  was inheriting `body{font-family:var(--sans)}`. Measured in Chrome 151 on the
+                  shipped sheet — see src/fieldFaceAudit.ts, which is also what fails without it. */}
               <Input
+                className="font-figure"
                 value={lxcUnits}
                 inputMode="decimal"
                 onChange={(e) => setLxcUnits(e.target.value)}

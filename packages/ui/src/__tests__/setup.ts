@@ -1,10 +1,10 @@
 /**
- * THE SEVEN DOM AUDITS RUN HERE TOO — this project renders the design system and audited none of it.
+ * THE EIGHT DOM AUDITS RUN HERE TOO — this project renders the design system and audited none of it.
  *
  * ── WHAT WAS MEASURED ────────────────────────────────────────────────────────────────────────
  *
- * `apps/web/src/test-setup.ts` installs seven audits that read the DOM as it is rendered (figure,
- * case, focus, glyph, placeholder, plane, eyebrow) and `apps/web/scripts/check-audit-gate.mjs`
+ * `apps/web/src/test-setup.ts` installs eight audits that read the DOM as it is rendered (figure,
+ * case, focus, glyph, placeholder, plane, eyebrow, field) and `apps/web/scripts/check-audit-gate.mjs`
  * proves they throw. Both are wired into ONE of this repo's TWO vitest projects. This file — the
  * other project's setup — held a single line, `import '@testing-library/jest-dom/vitest'`, so the
  * 335 tests in this directory rendered Button, Pill, NavItem, MuNumeral, Switch, TierDot, Mark,
@@ -23,8 +23,10 @@
  * audit had seen either — but its stated reason was false, and being false is what hid the fact
  * that the fixture the entry says nobody would write already existed.
  *
- * ⚠ NO OFFENDER WAS FOUND. Running all seven over every test in this project reports zero — 335
- * of them at `224bdee`, 346 now. The count moves whenever this directory does, because
+ * ⚠ NO OFFENDER WAS FOUND. Running all EIGHT over every test in this project reports zero — 335
+ * of them at `224bdee`, 347 now (the eighth, fieldFaceAudit, was re-measured here rather than
+ * assumed to inherit the seven's result: this package renders `Input` but never declares one
+ * numeric, so it has no numeric field for that rule to reach). The count moves whenever this directory does, because
  * invariant.test.ts generates one test per source file: the theme-storage merge added eight cases
  * and one more source file (storage-env.ts) for invariant to sweep. That is
  * the result: this closes a hole rather than fixing a defect, and it is worth having because the
@@ -44,7 +46,7 @@
  *
  * The report blocks below are a deliberate second copy, not a helper shared with apps/web, and
  * the duplication is CHECKED rather than trusted: check-audit-gate.mjs counts `problems.push(`
- * in EACH project's setup against its pinned list of seven, and requires every audit to name
+ * in EACH project's setup against its pinned list of eight, and requires every audit to name
  * itself IN EACH PROJECT'S armed run by its opening phrase. An eighth audit wired into one setup
  * and forgotten here fails that count. The messages here are terse — the long-form rule, its
  * measurement and its limits live once, in the audit module each block names.
@@ -103,6 +105,11 @@ import {
   setEyebrowAuditFile,
   takeEyebrowOffenders,
 } from '../../../../apps/web/src/eyebrowAudit'
+import {
+  installFieldFaceAudit,
+  setFieldFaceAuditFile,
+  takeFieldFaceOffenders,
+} from '../../../../apps/web/src/fieldFaceAudit'
 
 installFigureAudit()
 installCaseAudit()
@@ -111,6 +118,7 @@ installGlyphAudit()
 installPlaceholderAudit()
 installPlaneAudit()
 installEyebrowAudit()
+installFieldFaceAudit()
 
 beforeEach((ctx) => {
   const file = ctx.task.file?.name ?? ''
@@ -120,6 +128,7 @@ beforeEach((ctx) => {
   setPlaceholderAuditFile(file)
   setPlaneAuditFile(file)
   setEyebrowAuditFile(file)
+  setFieldFaceAuditFile(file)
 })
 
 // ⚠ ONE HOOK, ONE THROW — apps/web's reason, which applies unchanged: two `afterEach`
@@ -213,6 +222,23 @@ afterEach(() => {
           .join('\n') +
         '\n(the rule, and why the token withholds the transform, are in ' +
         'apps/web/src/eyebrowAudit.ts)',
+    )
+  }
+
+  const unfaced = takeFieldFaceOffenders()
+  if (unfaced.length > 0) {
+    problems.push(
+      'numeric field(s) whose value is painted in the body sans — add `font-figure` to the field ' +
+        'or to an ancestor:\n' +
+        unfaced
+          .map(
+            (f) =>
+              `  <${f.tag} ${f.declaredBy}> holds ${JSON.stringify(f.value)} in the body sans\n` +
+              `    class="${f.className}"`,
+          )
+          .join('\n') +
+        '\n(the Chrome measurement, and why the face may be INHERITED here when the placeholder ' +
+        'colour may not, are in apps/web/src/fieldFaceAudit.ts)',
     )
   }
 

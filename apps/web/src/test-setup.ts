@@ -60,6 +60,13 @@ import {
   setPlaceholderAuditFile,
   takePlaceholderOffenders,
 } from './placeholderAudit'
+import {
+  MUST_AUDIT_A_NUMERIC_FIELD,
+  installFieldFaceAudit,
+  satisfiesFieldFaceFloor,
+  setFieldFaceAuditFile,
+  takeFieldFaceOffenders,
+} from './fieldFaceAudit'
 
 /**
  * EVERY FIGURE THIS SUITE RENDERS IS AUDITED, on every surface, in every test.
@@ -140,6 +147,19 @@ installPlaneAudit()
  */
 installEyebrowAudit()
 
+/**
+ * AND EVERY NUMERIC FIELD IS ASKED WHICH FACE PAINTS WHAT YOU TYPE, on the same ride.
+ *
+ * The other seven reach the DOM through TEXT NODES or ATTRIBUTES. An `<input>` has no children and
+ * React assigns `value` as a PROPERTY, so a numeral a user types is invisible to all of them by
+ * construction. Measured at `732cf32` with a throwaway probe over the whole suite: of 87 field
+ * records, the only one on screen holding a figure off the face is Convert's LXC amount — the
+ * number the irreversible conversion is about, in the body sans, one row above a `Costs` line on
+ * the face. fieldFaceAudit.ts carries the Chrome measurement, and why the face may be INHERITED
+ * here when the placeholder colour may not.
+ */
+installFieldFaceAudit()
+
 let currentFile = ''
 beforeEach((ctx) => {
   currentFile = ctx.task.file?.name ?? ''
@@ -149,6 +169,7 @@ beforeEach((ctx) => {
   setPlaceholderAuditFile(currentFile)
   setPlaneAuditFile(currentFile)
   setEyebrowAuditFile(currentFile)
+  setFieldFaceAuditFile(currentFile)
 })
 
 // ⚠ BOTH audits are read in ONE hook and reported together. Two `afterEach` registrations would
@@ -241,6 +262,21 @@ afterEach(() => {
         `tracking is a label shape carrying text that is not in label case:\n${lines.join('\n')}\n` +
         '(the rule, why the token withholds the transform and why this reads the DOM are in ' +
         'src/eyebrowAudit.ts)',
+    )
+  }
+
+  const unfaced = takeFieldFaceOffenders()
+  if (unfaced.length > 0) {
+    const lines = unfaced.map(
+      (f) =>
+        `  <${f.tag} ${f.declaredBy}${f.label ? ` aria-label=${JSON.stringify(f.label)}` : ''}> ` +
+        `holds ${JSON.stringify(f.value)} in the body sans\n    class="${f.className}"`,
+    )
+    problems.push(
+      'numeric field(s) whose value is painted in the body sans — add `font-figure` to the field ' +
+        `or to an ancestor:\n${lines.join('\n')}\n` +
+        '(the Chrome measurement, why the face may be inherited here and why the predicate is the ' +
+        'declaration rather than the value are in src/fieldFaceAudit.ts)',
     )
   }
 
@@ -364,6 +400,18 @@ afterAll(() => {
         `MUST_RENDER_EYEBROW because it renders ${whyEyebrow}. Either the fixture stopped ` +
         'rendering it — in which case this file no longer guards it — or the audit stopped ' +
         'seeing it. Do not delete the entry to go green.',
+    )
+  }
+
+  // ⚠ THE FIELD FLOOR ASKS FOR A NUMERIC FIELD, NOT AN OFFENDER — see the table's own note. This
+  // rule's correct output on a clean product is silence, which is what a dead observer also emits.
+  const whyField = MUST_AUDIT_A_NUMERIC_FIELD[currentFile]
+  if (whyField && !satisfiesFieldFaceFloor(currentFile)) {
+    throw new Error(
+      `${currentFile} audited NO numeric field. It is listed in MUST_AUDIT_A_NUMERIC_FIELD ` +
+        `because it renders ${whyField}. Either the fixture stopped rendering it — in which case ` +
+        'this file no longer guards it — or the audit stopped seeing it. Do not delete the entry ' +
+        'to go green.',
     )
   }
 

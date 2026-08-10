@@ -128,7 +128,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'font-figure text-eyebrow uppercase text-faint',
     why: 'the uppercase label whose µ arrives as a prop from 130 lines away — the reason the rule cannot be a source rule',
   },
-  'apps/web/src/test-setup.ts:181|packages/ui/src/components/CaseSafe.tsx:85': {
+  'apps/web/src/test-setup.ts:202|packages/ui/src/components/CaseSafe.tsx:85': {
     kind: 'LIVE',
     fragment: 'normal-case',
     why: 'a DEVELOPER-FACING FAILURE MESSAGE naming the shape to copy — read exactly when somebody is already confused',
@@ -163,15 +163,48 @@ const PINS: Record<string, Pin> = {
     fragment: '<FixtureNotice awaiting=',
     why: 'the second component the reach table classified as rendered by no test, rendered by a test',
   },
-  'packages/ui/src/__tests__/setup.ts:39|packages/ui/src/__tests__/invariant.test.ts:26': {
+  'packages/ui/src/__tests__/setup.ts:41|packages/ui/src/__tests__/invariant.test.ts:26': {
     kind: 'LIVE',
     fragment: "'../../../../apps/web/src'",
     why: 'the precedent: this project already reaches up into apps/web from its own tests',
   },
-  'packages/ui/src/__tests__/setup.ts:39|packages/ui/src/__tests__/selection.test.ts:255': {
+  'packages/ui/src/__tests__/setup.ts:41|packages/ui/src/__tests__/selection.test.ts:255': {
     kind: 'LIVE',
     fragment: "'../../../../apps/web/src'",
     why: 'the second instance of that precedent, so the direction is a habit rather than one file',
+  },
+  // The four pointers the numeric-field audit and its tests write. Both sites they quote are the
+  // MEASUREMENT that rule is built on: one is the offender it was written for, the other is the
+  // exemption — a field whose value IS a figure and correctly is not on the face.
+  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:129': {
+    kind: 'LIVE',
+    fragment: 'inputMode="decimal"',
+    why: 'the one field in the product that declares itself numeric — the defect this audit was written for',
+  },
+  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:129': {
+    kind: 'LIVE',
+    fragment: 'inputMode="decimal"',
+    why: 'the same site quoted where the rule argues the declaration is written in a DIFFERENT FILE from the class list',
+  },
+  'apps/web/src/fieldFaceAudit.ts:20|apps/web/src/areas/marketing/Landing.tsx:291': {
+    kind: 'LIVE',
+    fragment: 'type="range"',
+    why: 'the live slider whose value is a figure OFF the face, and correctly so — the exemption, not a hypothetical',
+  },
+  'apps/web/src/fieldFaceAudit.ts:104|apps/web/src/areas/marketing/Landing.tsx:291': {
+    kind: 'LIVE',
+    fragment: 'type="range"',
+    why: 'the same slider quoted beside the exemption set itself, so the set cannot be widened without meeting it',
+  },
+  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:129': {
+    kind: 'LIVE',
+    fragment: 'inputMode="decimal"',
+    why: 'the unit case that pins the predicate to the real call site rather than to an invented fixture',
+  },
+  'apps/web/src/fieldFaceAudit.test.tsx:51|apps/web/src/areas/marketing/Landing.tsx:291': {
+    kind: 'LIVE',
+    fragment: 'type="range"',
+    why: 'the unit case for the exemption, naming the render it exists to keep quiet',
   },
 }
 
