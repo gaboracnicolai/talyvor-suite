@@ -30,8 +30,18 @@ import { KEY_PLACEHOLDER, MECHANISM_CAVEATS, toolsFor, type Tool } from './setup
 // same session tenant. Nothing here is baked at startup; apps/bff/tenant_callsite_test.go fails
 // if that regresses, and it should.
 
+// ⚠ THE `?.` THAT USED TO BE HERE WAS THE ONLY PLACE IN THE REPO THAT ANTICIPATED AN ABSENT
+// CLIPBOARD, AND IT BOUGHT A QUIETER FAILURE RATHER THAN A HANDLED ONE. It read
+// `navigator.clipboard?.writeText(text).then(…)`; optional chaining short-circuits the WHOLE
+// chain, so outside a secure context the `.then` was never evaluated and nothing threw — the
+// button was simply inert. MEASURED in Chrome on the shipped bundle at
+// `http://192.168.100.149:8791`: all FIVE copy buttons on this page clicked in turn, every
+// label unchanged, and NOT ONE error raised. `RevealOnce` had no `?.` and threw instead; both
+// told the reader exactly the same thing, which was nothing.
 function CopyBlock({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false)
+  // Three states, the same as RevealOnce's — not yet, done, and did not happen.
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copyFailedNote = 'Couldn’t copy — select the block above and copy it yourself.'
   return (
     <div className="space-y-1">
       <pre className="overflow-x-auto rounded-control border border-rule bg-canvas px-3 py-2 font-mono text-ink">
@@ -40,14 +50,30 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
       <Button
         variant="default"
         onClick={() => {
-          void navigator.clipboard?.writeText(text).then(() => {
-            setCopied(true)
-            window.setTimeout(() => setCopied(false), 1500)
-          })
+          // Synchronous call, `try` for the throw, rejection handler for the refusal — see the
+          // note in RevealOnce: awaiting first would move the write out of the click's turn,
+          // which is the one thing Safari refuses.
+          try {
+            void navigator.clipboard.writeText(text).then(
+              () => {
+                setCopyState('copied')
+                window.setTimeout(() => setCopyState('idle'), 1500)
+              },
+              () => setCopyState('failed'),
+            )
+          } catch {
+            setCopyState('failed')
+          }
         }}
       >
-        {copied ? 'Copied' : `Copy ${label}`}
+        {copyState === 'copied' ? 'Copied' : `Copy ${label}`}
       </Button>
+      {/* sr-only in every state, so this announces without moving a pixel — the same seam
+          RevealOnce already uses for the same event. */}
+      <span aria-live="polite" className="sr-only">
+        {copyState === 'copied' ? 'Copied to clipboard' : copyState === 'failed' ? copyFailedNote : ''}
+      </span>
+      {copyState === 'failed' ? <p className="text-body text-ink">{copyFailedNote}</p> : null}
     </div>
   )
 }

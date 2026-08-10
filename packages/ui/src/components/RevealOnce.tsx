@@ -26,6 +26,8 @@ export interface RevealOnceProps {
   identifier: string
   identifierNote?: string
   doneLabel?: string
+  /** What the card says when the copy did not happen. See `copy()` below. */
+  copyFailedNote?: string
   onDone: () => void
 }
 
@@ -38,15 +40,45 @@ export function RevealOnce({
   identifier,
   identifierNote = 'Safe to share; this is how it appears in lists.',
   doneLabel = 'Done — I stored it',
+  copyFailedNote = 'Couldn’t copy — select the secret above and copy it yourself before you dismiss this card.',
   onDone,
 }: RevealOnceProps) {
-  const [copied, setCopied] = useState(false)
+  // THREE STATES, NOT TWO. `copied` was a boolean for an outcome that has three: not yet,
+  // done, and DID NOT HAPPEN — and the third one rendered exactly like the first.
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
+  // ⚠ THIS PROMISE COULD NOT REJECT SAFELY, AND IT HAS TWO WAYS TO FAIL.
+  //   · `navigator.clipboard` IS NOT INSTALLED OUTSIDE A SECURE CONTEXT. Measured in Chrome on
+  //     the shipped bundle served from `http://192.168.100.149:8791`: `isSecureContext` false,
+  //     `typeof navigator.clipboard` "undefined", and this line raised
+  //     `TypeError: Cannot read properties of undefined (reading 'writeText')`.
+  //   · `writeText` REJECTS where it does exist — `NotAllowedError: Document is not focused.`
+  //     on https when the tab is not frontmost, or a denied `clipboard-write`.
+  // Neither reached the reader: the label stayed put, the live region stayed empty, and the
+  // failure's whole itinerary was `window.onerror`. On THIS card that is the dangerous
+  // direction to be wrong in — the secret is shown once and the next control destroys it.
+  // ⚠ `writeText` IS CALLED SYNCHRONOUSLY, AND A `try` — NOT AN AWAIT — IS WHY.
+  // The absent-clipboard case is a THROW and the refused case is a REJECTION, so the obvious
+  // shape is `Promise.resolve().then(() => …writeText(…))`, which funnels both into one
+  // handler. It also moves the call out of the click's own turn, and a clipboard write outside
+  // the user gesture that provoked it is exactly what Safari refuses. `promotions.test.tsx`
+  // caught that: it asserts the write happens on the click, and it went red.
   const copy = () => {
-    void navigator.clipboard.writeText(secret).then(() => {
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 2000)
-    })
+    try {
+      void navigator.clipboard.writeText(secret).then(
+        () => {
+          setCopyState('copied')
+          window.setTimeout(() => setCopyState('idle'), 2000)
+        },
+        // No auto-clear: a failure the reader has not acted on must not time out into the
+        // state that looks like "not yet".
+        () => setCopyState('failed'),
+      )
+    } catch {
+      // `navigator.clipboard` is not installed outside a secure context, so the line above
+      // raises a TypeError before any promise exists.
+      setCopyState('failed')
+    }
   }
 
   return (
@@ -57,13 +89,18 @@ export function RevealOnce({
         <div className="select-all break-all font-mono text-body font-medium text-ink">{secret}</div>
         <div className="flex items-center gap-3">
           <Button variant="primary" onClick={copy}>
-            {copied ? 'Copied' : copyLabel}
+            {copyState === 'copied' ? 'Copied' : copyLabel}
           </Button>
           <span className="text-body text-muted">{storeWarning}</span>
           <span aria-live="polite" className="sr-only">
-            {copied ? 'Copied to clipboard' : ''}
+            {copyState === 'copied' ? 'Copied to clipboard' : copyState === 'failed' ? copyFailedNote : ''}
           </span>
         </div>
+        {/* Rendered ONLY in the state that used to render nothing, so the two states this card
+            has always had are untouched — and a failure a sighted reader cannot see is not
+            reported at all. The secret above is `select-all`, which is what this sentence asks
+            the reader to use. */}
+        {copyState === 'failed' ? <p className="text-body text-ink">{copyFailedNote}</p> : null}
       </div>
 
       <div className="border-t border-rule px-gutter py-3">
