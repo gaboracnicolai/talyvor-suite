@@ -152,7 +152,20 @@ export function IssueDetail() {
         </Link>
         <div className="flex flex-wrap items-baseline gap-3">
           <span className="font-mono text-caption text-muted">{it.identifier}</span>
-          <h1 className="text-title text-ink">{it.title}</h1>
+          {/* h2, NOT h1 — the level is the only thing that changed here. `a19c18f` (#126) made the
+              shell's banner the console's one top-level heading at every address, and this page is
+              reached at /track/issues/<id>, which matches /track/* — so with the issue actually
+              served, the rendered DOM carried TWO <h1>s: "Track" and this title. That address is
+              deeper than any entry in CONSOLE_ROUTES, so ConsoleHeading.test.tsx's sweep could not
+              see the one page in the product that broke the rule it enforces twelve times over.
+              The outline now reads h1 "Track" → h2 "<issue title>", which is what the screen has
+              always shown: the issue is a thing inside Track, not a second page.
+              MEASURED ZERO-PIXEL out of the built stylesheet — its only rules naming a heading tag
+              list h1 through h6 together (`font-size:inherit;font-weight:inherit` and the margin
+              reset), there is no h1-only or h2-only rule in the sheet, and `.text-title` supplies
+              24px/640 either way. ConsoleDeepHeading.test.tsx pins the level and sweeps the
+              addresses below the console. */}
+          <h2 className="text-title text-ink">{it.title}</h2>
         </div>
       </div>
 
