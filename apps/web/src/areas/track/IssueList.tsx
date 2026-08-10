@@ -249,7 +249,12 @@ export function IssueList() {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ status: v.status }),
       })
-      if (!res.ok) throw new Error(`status: ${res.status}`)
+      // ⚠ ApiError, NOT a bare Error. `isSessionExpired` requires `instanceof ApiError`, so a
+      // hand-rolled error type turns the shared predicate off without one line of the predicate
+      // changing — #136 for a read, #140 for the create four lines above, and this was the third
+      // site. The path carries the issue id, so the status is read off the TYPE and never
+      // substring-matched out of a message that now contains digits.
+      if (!res.ok) throw new ApiError(res.status, `/api/track/issues/${v.id}`)
       return res.json()
     },
     onSuccess: async () => {
@@ -461,6 +466,37 @@ export function IssueList() {
             </tbody>
           </table>
         )}
+
+        {/* ⚠ THE ROW CONTROL'S REFUSAL, WHICH USED TO GO NOWHERE. `setStatus.isError` was read
+            in no place at all: the mutation appeared exactly three times in this file (here, its
+            `isPending` on the select, and the `.mutate()` in `onChange`), so a refused status
+            change produced ZERO characters of change on the page — MEASURED at 401, 500 and 403
+            alike, against a stateful fake where an accepted write moves the row to "Done".
+
+            The reader's only signal was the select bouncing back to the value Track still holds,
+            which reads as a glitch rather than a refusal. And no bar covers for it: the bar
+            derives from the QUERY cache, the reads here are cached and good, and the shipped
+            client sets `refetchOnWindowFocus: false` — so nothing refetches, no query error
+            exists, and the bar is absent. Measured false on all three.
+
+            ⚠ ONE SENTENCE FOR THE LIST, not one per row: the mutation is shared, only one change
+            is in flight (the selects disable while pending), and a per-row sentence would move
+            the table's layout under the reader's cursor.
+
+            ⚠ NO UPSTREAM-SENTENCE BRANCH, unlike `create` above, and that is deliberate rather
+            than an omission: the reader picked from a closed list this screen rendered, so a
+            server sentence about the request is not about anything they could have got wrong.
+            The create's reason branch exists because a TITLE is typed. */}
+        {setStatus.isError ? (
+          <p className="text-caption text-muted">
+            {isSessionExpired(setStatus.error)
+              ? // A 401 refuses the credential, not the change — the same request will be refused
+                // identically until the session is renewed, so "try again" would be false. The
+                // outcome is still owed: the reader pressed something and it did not take.
+                'Couldn’t change the status — nothing was changed.'
+              : 'Couldn’t change the status — nothing was changed. Try again.'}
+          </p>
+        ) : null}
 
         {/* ⚠ NOT "N of M". Track's issue store has no COUNT query, so neither this screen nor the
             BFF can say how many exist — the BFF's own comment says deriving a total would mean
