@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Button, Card, CardHeader, RevealOnce } from '@talyvor/ui'
 
 import { api } from '../../lib/api'
+import { useAuthMeReader } from '../../lib/authMe'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
 import { KEY_PLACEHOLDER, MECHANISM_CAVEATS, toolsFor, type Tool } from './setupSnippets'
 
@@ -101,7 +102,7 @@ export function Setup() {
   const ctx = useQuery({ queryKey: ['context'], queryFn: api.context, staleTime: 60_000 })
   const keys = useQuery({ queryKey: ['keys'], queryFn: keysApi.list })
   // Same query key the Settings screen uses, so the two never disagree.
-  const me = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
+  const me = useAuthMeReader()
 
   const mint = useMutation({
     mutationFn: () => keysApi.mint('Setup', ['proxy']),

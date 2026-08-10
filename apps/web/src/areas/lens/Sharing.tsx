@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
-import { api, ApiError } from '../../lib/api'
+import { ApiError } from '../../lib/api'
+import { useAuthMeReader } from '../../lib/authMe'
 import { DocumentFacts, DistillChoice } from './Documents'
 
 // Sharing.tsx — cross-tenant answer sharing: the explanation, and the control.
@@ -70,7 +71,7 @@ export function SharingFacts() {
  * the screen says so instead of showing an optimistic result.
  */
 export function SharingChoice({ onDone }: { onDone?: () => void }) {
-  const q = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
+  const q = useAuthMeReader()
   const qc = useQueryClient()
   const [busy, setBusy] = useState<'on' | 'off' | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
