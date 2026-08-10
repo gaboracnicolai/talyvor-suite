@@ -216,6 +216,50 @@ const PINS: Record<string, Pin> = {
     fragment: 'type="range"',
     why: 'the unit case for the exemption, naming the render it exists to keep quiet',
   },
+  // The census behind checkoutRefusalSurface.test.tsx: TopUp was the ONE error surface gated on
+  // the error's CLASS, and the argument is only as good as the three siblings it contrasts with.
+  // Each of these three is quoted as gating on `isError`; if one of them is ever narrowed to an
+  // `instanceof` the way TopUp was, that sentence stops being true and this pin says so.
+  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/Keys.tsx:114': {
+    kind: 'LIVE',
+    fragment: '.isError ?',
+    why: 'the sibling with the same fallback shape — revoke gates on isError and picks its 404 words inside',
+  },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:182': {
+    kind: 'LIVE',
+    fragment: '.isError ?',
+    why: 'the closest sibling of all — ConvertError is the same pattern as CheckoutError, and it is used INSIDE the block',
+  },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:305': {
+    kind: 'LIVE',
+    fragment: '.isError ?',
+    why: 'the surface #141 fixed, quoted so the two findings are visibly the same shape one area over',
+  },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:28|apps/web/src/areas/lens/topupApi.ts:171': {
+    kind: 'LIVE',
+    fragment: '!body.url',
+    why: 'the reason a 200 with no url is NOT the finding — it is already converted, so the gate lets it through',
+  },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:59|apps/web/src/App.tsx:44': {
+    kind: 'LIVE',
+    fragment: 'onError',
+    why: 'the app\'s only global error handler, quoted to show it hangs off the QUERY cache and cannot see a mutation',
+  },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:62|apps/web/src/areas/lens/topupApi.ts:172': {
+    kind: 'LIVE',
+    fragment: "'upstream'",
+    why: 'the sentence the fix reuses — pinned so "the fix says nothing new" stays a fact rather than a claim',
+  },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:65|apps/web/src/areas/lens/TopUp.tsx:22': {
+    kind: 'LIVE',
+    fragment: 'The payment happens THERE',
+    why: 'why "nothing was charged" is honest for a call that never completed — the charge happens after the redirect',
+  },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:176|apps/web/src/areas/lens/TopUp.tsx:85': {
+    kind: 'LIVE',
+    fragment: 'must not leave a pending marker behind',
+    why: 'the rule the marker test asserts, quoted from the code that states it rather than restated',
+  },
 }
 
 /** Every .ts/.tsx in both packages, TESTS INCLUDED — a failure message is developer-facing text. */

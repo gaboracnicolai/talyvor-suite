@@ -37,6 +37,7 @@
   "src/CardHeaderHeading.test.tsx": 17,
   "src/caseAudit.test.tsx": 24,
   "src/caseCallSites.test.ts": 9,
+  "src/checkoutRefusalSurface.test.tsx": 5,
   "src/ClaimsAudit.test.tsx": 38,
   "src/ConsoleDeepHeading.test.tsx": 11,
   "src/ConsoleHeading.test.tsx": 13,
