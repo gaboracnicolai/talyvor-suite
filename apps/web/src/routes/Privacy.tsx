@@ -15,7 +15,14 @@ import { LegalHeader, LawyerReview, Section } from './legalParts'
 //   pooling gate       internal/cache/semantic.go (is_poolable) + LENS_CACHE_POOLABLE_ENABLED
 export function Privacy() {
   return (
-    <div className="mx-auto w-full max-w-3xl px-gutter py-10">
+    // `main`, NOT `div` — same element, same classes. 6,447 of this page's 6,584 characters (98%)
+    // sat outside every landmark region: the only region was LegalHeader's <header>, which holds
+    // the title block. A person deciding whether to hand us their data reads this page BEFORE they
+    // have an account, and could not jump to its content. ⚠ ONE CONSEQUENCE, STATED: that <header>
+    // is now INSIDE main, so it is no longer a `banner` — the page trades one region holding 2% of
+    // itself for one holding all of it. That block is a document title, not site chrome; Landing's
+    // sticky top bar is what a banner is for. LandmarkCoverage.test.tsx holds the proportion.
+    <main className="mx-auto w-full max-w-3xl px-gutter py-10">
       <LegalHeader title="Privacy" />
 
       <LawyerReview>
@@ -196,6 +203,6 @@ export function Privacy() {
           trial.
         </LawyerReview>
       </Section>
-    </div>
+    </main>
   )
 }

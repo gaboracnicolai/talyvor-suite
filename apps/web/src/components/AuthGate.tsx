@@ -76,11 +76,18 @@ function SignedOut() {
   // Sharing the component is the point: two places that render sign-in cannot drift into
   // telling one reader something the other is not told.
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-gutter">
+    // `main`, NOT `div` — same element, same classes, only the tag. THIS CARD IS A STATE, NOT AN
+    // ADDRESS: it is what every gated address renders when /auth/me refuses the session, so it is
+    // the most-seen screen in the product for a signed-out reader — and a DOM census found it had
+    // ZERO landmark elements of any kind, with 215 of 215 characters outside every region. Every
+    // address-shaped sweep in this repo is structurally blind to it, which is how it stayed that
+    // way while twelve addresses were swept for headings twice. Zero-pixel: no rule in the built
+    // stylesheet names a sectioning element. LandmarkCoverage.test.tsx asserts it as a state.
+    <main className="flex min-h-screen items-center justify-center bg-canvas px-gutter">
       <Card className="w-full max-w-sm">
         <SignInCard returnTo={returnTo} />
       </Card>
-    </div>
+    </main>
   )
 }
 
