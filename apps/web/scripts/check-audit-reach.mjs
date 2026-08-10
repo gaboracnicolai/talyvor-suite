@@ -22,19 +22,30 @@
 //
 // ── ⚠ THE SCOPE OF "NO TEST", MEASURED AFTER THIS SCRIPT HAD STATED IT WRONG ─────────────────
 //
-// This reads apps/web's shards. It is one of this repo's TWO vitest projects, and every sentence
-// here that said "no test renders it" was a claim about the product made from one project. BOTH
-// classified entries below are rendered by a test: components.test.tsx:46 renders HoldBar with a
-// real hold window and promotions.test.tsx:34 renders FixtureNotice, both in packages/ui. The
-// CONCLUSION each entry drew was right — at `3a96294` no audit had seen either, because
-// packages/ui installed none — but the reason was false, and the false reason is what hid the
-// fact that the fixture HoldBar's entry says nobody would write already existed.
+// This used to read apps/web's shards ALONE. That is one of this repo's TWO vitest projects, and
+// every sentence here saying "no test renders it" was a claim about the product made from one
+// project. `224bdee` measured it: BOTH components this table classified were rendered by a test —
+// components.test.tsx:46 renders HoldBar with a real hold window, promotions.test.tsx:34 renders
+// FixtureNotice — in packages/ui, whose setup installed no audits at all. Each entry's CONCLUSION
+// was right and its REASON was false, and the false reason is what hid the fact that the fixture
+// HoldBar's entry said nobody would write already existed.
 //
-// packages/ui now installs the same seven audits (packages/ui/src/__tests__/setup.ts) and
-// check-audit-gate.mjs proves both projects' gates are armed. Unioning the two projects' reach
-// shards is NOT done: reach-global-setup.ts clears the shard directory per vitest invocation and
-// these are two invocations, so a union needs a shared directory and a clearing owner. Until
-// then this measures apps/web, and the wording below says apps/web wherever it means apps/web.
+// That merge closed the audits' half and left this one open in writing: "the two projects' reach
+// shards are not unioned … reach measures apps/web and says apps/web". It now reads BOTH. Each
+// project clears and writes its OWN directory — a shared one would be cleared out from under
+// packages/ui, which `pnpm -r test` runs FIRST — and each is held to its OWN floors before the
+// union, so a dead half cannot be vouched for by a live one.
+//
+// ⚠ THE UNION EMPTIED THE TABLE, WHICH IS THE SECOND DIRECTION WORKING. With packages/ui's shards
+// read, both entries reported STALE and were deleted. The two facts they carried are not lost and
+// are not this guard's to hold:
+//   · HoldBar is deliberately unwired — it needs a hold window (elapsed/total) and the Lens ledger
+//     exposes none. Its own header and README §Blocked components carry that, and the held STATE
+//     reaches the product through <Pill status="held">.
+//   · FixtureNotice's REMOVAL CONDITION is met — "the day no screen renders one, delete it".
+//     MEASURED at aa0421b and still true: no apps/web module references it. A test renders it; no
+//     screen does. Deleting a shared design-system component is a scope call, so it is reported
+//     and left. See the W1.1 queue entry.
 //
 // ── WHY THE FLOORS ARE HARDCODED LITERALS ────────────────────────────────────
 //
@@ -52,101 +63,132 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const appRoot = resolve(new URL('..', import.meta.url).pathname)
-const reachDir = resolve(appRoot, '.reach')
 
 /**
- * COMPONENTS NO apps/web TEST RENDERS, each with the reason it is not a defect.
+ * THE TWO SHARD DIRECTORIES, EACH WITH ITS OWN FLOORS.
  *
- * A reason is a claim about the product, not an excuse. Both entries below are checkable by
- * reading the file named in them, which is the point: the day either stops being true, someone
- * removing the entry is what makes the guard speak.
+ * ⚠ THE FLOORS ARE PER-SOURCE, AND WHAT THAT BUYS WAS MEASURED RATHER THAN ASSERTED. The first
+ * version of this comment said the per-source floors are what stands between a dead half and a
+ * green run — union first, and apps/web's shards alone satisfy "Button was committed" while
+ * packages/ui recorded nothing. R4 of scripts/w11-reach-union-controls.py was written to prove
+ * that and REFUTED IT: with packages/ui's hook blinded and the floor asked of the union, the run
+ * still fails, on UNAUDITED, because emptying the classification table left HoldBar and
+ * FixtureNotice with no cover.
  *
- * ⚠ AND BOTH REASONS HAD TO BE CORRECTED, WHICH IS THE ARGUMENT FOR THE RULE RATHER THAN AGAINST
- * IT: each one generalised from "no apps/web test commits it" to "nothing renders it", and both
- * ARE rendered — in packages/ui's project, whose setup installed no audits until this merge.
+ * ⚠ AND THE SECOND VERSION WAS WRONG TOO. It then claimed the FLOOR line would be absent on the
+ * union. It is not: packages/ui's literals below name HoldBar and FixtureNotice, which apps/web
+ * NEVER commits, so no live half can vouch for them however the loop is written.
+ *
+ * WHAT IS ACTUALLY TRUE, and what the literals below are chosen for: the ui half is unfakeable
+ * because its floor names components ONLY this project renders. The per-source loop is what makes
+ * that hold for the literal the two projects SHARE — `packages/ui#Button` — and R4 isolates it by
+ * narrowing the ui floor to Button alone: on the union the checker then blames the PRODUCT
+ * ("HoldBar is exported and NO test renders it", false — a test does) and never names the
+ * instrument that recorded nothing. A wrong diagnosis is what costs the next session an hour.
+ *
+ * ⚠ AND EACH IS NAMED BY LITERAL STRING, never derived from the registry or from a count: a guard
+ * that asks a set about itself passes for every value of that set.
+ *
+ * packages/ui's floor names the two components that exist ONLY in its project — they are what a
+ * dead ui half would silently drop, and they are exactly the two this table used to classify as
+ * rendered by nothing.
  */
-const UNREACHED = {
-  'packages/ui#HoldBar':
-    'deliberately unwired. Its own header states the block: it needs a hold window ' +
-    '(elapsed/total) and the Lens ledger exposes none — a held row has no start, end or ' +
-    'finalize_after, and the window lives in Lens tables with no read endpoint. The held STATE ' +
-    'reaches the product through <Pill status="held">. ⚠ THE FIXTURE THIS ENTRY ONCE SAID ' +
-    'NOBODY WOULD WRITE ALREADY EXISTS: packages/ui/src/__tests__/components.test.tsx:46 renders ' +
-    '<HoldBar elapsed={3} total={4} remainingLabel="1d left" />, and since that project gained ' +
-    'the seven audits it is the ONLY place in this repo where they see this component at all.',
-  'packages/ui#FixtureNotice':
-    "REMOVAL CONDITION MET, and reported rather than acted on. Its own header says: \"The day " +
-    'no screen renders one, delete it — an unproducible marker is dead surface.\" MEASURED at ' +
-    'aa0421b: no apps/web module references it at all, and areas/docs/components.tsx has ' +
-    'already invoked that same doctrine to delete FixtureChip and FixtureNote. Deleting a ' +
-    'shared design-system component is a scope call for whoever owns the build-out period, so ' +
-    'this records the fact and leaves the decision. See the W1.1 entry for this merge. ⚠ NO ' +
-    'SCREEN renders one, which is what the removal condition asks; a TEST does — ' +
-    'packages/ui/src/__tests__/promotions.test.tsx:34 — and that render is audited there.',
-}
-
-/** Components that must be REGISTERED, named literally. Two from each half: the registry is
- *  built from a package import AND an eager glob, and either can fail alone. */
-const MUST_REGISTER = [
-  'packages/ui#Button',
-  'packages/ui#MuNumeral',
-  'apps/web/src/areas/lens/Overview.tsx#Overview',
-  'apps/web/src/areas/marketing/Landing.tsx#Landing',
+const SOURCES = [
+  {
+    label: 'apps/web',
+    dir: resolve(appRoot, '.reach'),
+    /** Two from each half: the registry is built from a package import AND an eager glob, and
+     *  either can fail alone. */
+    mustRegister: [
+      'packages/ui#Button',
+      'packages/ui#MuNumeral',
+      'apps/web/src/areas/lens/Overview.tsx#Overview',
+      'apps/web/src/areas/marketing/Landing.tsx#Landing',
+    ],
+    /** Registration alone proves the glob ran; these prove the HOOK ran, the independent half. */
+    mustCommit: [
+      'packages/ui#Button',
+      'packages/ui#MuNumeral',
+      'apps/web/src/areas/lens/Overview.tsx#Overview',
+      'apps/web/src/areas/marketing/Landing.tsx#Landing',
+    ],
+  },
+  {
+    label: 'packages/ui',
+    dir: resolve(appRoot, '../../packages/ui/.reach'),
+    mustRegister: ['packages/ui#Button', 'packages/ui#HoldBar'],
+    mustCommit: ['packages/ui#Button', 'packages/ui#HoldBar', 'packages/ui#FixtureNotice'],
+  },
 ]
 
-/** Components that must be COMMITTED, named literally. Registration alone proves the glob ran;
- *  these prove the HOOK ran, which is the independent half. */
-const MUST_COMMIT = [
-  'packages/ui#Button',
-  'packages/ui#MuNumeral',
-  'apps/web/src/areas/lens/Overview.tsx#Overview',
-  'apps/web/src/areas/marketing/Landing.tsx#Landing',
-]
-
-let shards
-try {
-  shards = readdirSync(reachDir).filter((f) => f.endsWith('.json'))
-} catch {
-  console.error(
-    `audit-reach: ${reachDir} does not exist. It is written by test-setup.ts during a vitest ` +
-      'run; run `vitest run` over the whole suite before this script.',
-  )
-  process.exit(1)
-}
-
-if (shards.length === 0) {
-  console.error(
-    `audit-reach: ${reachDir} holds no shards. The run recorded nothing, which is what a hook ` +
-      'installed after react-dom looks like — see the ORDER note in src/reachAudit.ts.',
-  )
-  process.exit(1)
-}
+/**
+ * COMPONENTS NO TEST IN EITHER PROJECT RENDERS, each with the reason it is not a defect.
+ *
+ * A reason is a claim about the product, not an excuse. Any entry here must be checkable by
+ * reading the file named in it, which is the point: the day it stops being true, someone removing
+ * the entry is what makes the guard speak.
+ *
+ * ⚠ EMPTY, AND EMPTY IS A RESULT RATHER THAN A DEFAULT. Both entries this table used to hold were
+ * deleted BY the STALE direction once packages/ui's shards were read — see the header. An empty
+ * table means every component this product exports is rendered under the audits by some test in
+ * some project; it does NOT mean nobody has looked.
+ */
+const UNREACHED = {}
 
 const registered = new Set()
 const committed = new Set()
-for (const shard of shards) {
-  const d = JSON.parse(readFileSync(resolve(reachDir, shard), 'utf8'))
-  for (const c of d.registered ?? []) registered.add(c)
-  for (const c of d.committed ?? []) committed.add(c)
-}
-
 const problems = []
+let totalShards = 0
 
-for (const name of MUST_REGISTER) {
-  if (!registered.has(name)) {
-    problems.push(
-      `FLOOR      ${name} is not in the registry. src/reachRegistry.ts stopped seeing part of ` +
-        'the product; every "unreached" answer below is unsafe until that is fixed.',
+for (const source of SOURCES) {
+  let shards
+  try {
+    shards = readdirSync(source.dir).filter((f) => f.endsWith('.json'))
+  } catch {
+    console.error(
+      `audit-reach: ${source.dir} does not exist. It is written by ${source.label}'s test setup ` +
+        'during a vitest run; run `vitest run` over BOTH projects before this script.',
     )
+    process.exit(1)
   }
-}
-for (const name of MUST_COMMIT) {
-  if (!committed.has(name)) {
-    problems.push(
-      `FLOOR      ${name} was registered but never recorded as committed. The DevTools hook is ` +
-        'not receiving commits — an empty record reads as "everything is reached".',
+  if (shards.length === 0) {
+    console.error(
+      `audit-reach: ${source.dir} holds no shards. ${source.label} recorded nothing, which is ` +
+        'what a hook installed after react-dom looks like — see the ORDER note in ' +
+        'src/reachAudit.ts.',
     )
+    process.exit(1)
   }
+  totalShards += shards.length
+
+  const here = { registered: new Set(), committed: new Set() }
+  for (const shard of shards) {
+    const d = JSON.parse(readFileSync(resolve(source.dir, shard), 'utf8'))
+    for (const c of d.registered ?? []) here.registered.add(c)
+    for (const c of d.committed ?? []) here.committed.add(c)
+  }
+
+  // ⚠ ASKED OF THIS SOURCE ALONE, BEFORE ANYTHING IS UNIONED — see the SOURCES header.
+  for (const name of source.mustRegister) {
+    if (!here.registered.has(name)) {
+      problems.push(
+        `FLOOR      ${name} is not in ${source.label}'s registry. That project stopped seeing ` +
+          'part of the product; every "unreached" answer below is unsafe until it is fixed.',
+      )
+    }
+  }
+  for (const name of source.mustCommit) {
+    if (!here.committed.has(name)) {
+      problems.push(
+        `FLOOR      ${name} was registered by ${source.label} but never recorded as committed. ` +
+          "That project's DevTools hook is not receiving commits — an empty record reads as " +
+          '"everything is reached".',
+      )
+    }
+  }
+
+  for (const c of here.registered) registered.add(c)
+  for (const c of here.committed) committed.add(c)
 }
 
 for (const name of [...registered].sort()) {
@@ -180,13 +222,14 @@ for (const name of Object.keys(UNREACHED)) {
 
 if (problems.length > 0) {
   console.error(
-    "audit-reach: apps/web's tests do not reach every component this product exports:\n  " +
+    'audit-reach: the seven DOM audits do not reach every component this product exports:\n  ' +
       problems.join('\n  '),
   )
   process.exit(1)
 }
 
 console.log(
-  `audit-reach: ${registered.size} components exported, ${committed.size} rendered under ` +
-    `apps/web's audits, ${Object.keys(UNREACHED).length} classified (${shards.length} workers).`,
+  `audit-reach: ${registered.size} components exported, ${committed.size} rendered under the ` +
+    `audits in ${SOURCES.length} projects, ${Object.keys(UNREACHED).length} classified ` +
+    `(${totalShards} workers).`,
 )

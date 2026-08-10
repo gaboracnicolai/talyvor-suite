@@ -7,7 +7,7 @@
  * case, focus, glyph, placeholder, plane, eyebrow) and `apps/web/scripts/check-audit-gate.mjs`
  * proves they throw. Both are wired into ONE of this repo's TWO vitest projects. This file — the
  * other project's setup — held a single line, `import '@testing-library/jest-dom/vitest'`, so the
- * 336 tests in this directory rendered Button, Pill, NavItem, MuNumeral, Switch, TierDot, Mark,
+ * 335 tests in this directory rendered Button, Pill, NavItem, MuNumeral, Switch, TierDot, Mark,
  * HoldBar and FixtureNotice under no audit at all.
  *
  * Measured at `3a96294`, before this file changed: the EXACT fixture check-audit-gate.mjs uses to
@@ -23,7 +23,9 @@
  * audit had seen either — but its stated reason was false, and being false is what hid the fact
  * that the fixture the entry says nobody would write already existed.
  *
- * ⚠ NO OFFENDER WAS FOUND. Running all seven over this project's 335 tests reports zero. That is
+ * ⚠ NO OFFENDER WAS FOUND. Running all seven over every test in this project reports zero — 335
+ * of them at `224bdee`, 337 now, because invariant.test.ts generates one test per source file
+ * and this merge adds two. That is
  * the result: this closes a hole rather than fixing a defect, and it is worth having because the
  * design system's own tests are where a component's UNSHIPPED states are rendered — HoldBar's
  * only render anywhere in the repo is here.
@@ -53,14 +55,25 @@
  *   floors are keyed by apps/web test-file name and would be a curated list of this project's
  *   files if copied. The armed half of check-audit-gate.mjs is what stands in for them here —
  *   a run in which nothing observes anything fails it.
- * · REACH. apps/web/src/reachAudit.ts records which components React commits; its shard directory
- *   is cleared per vitest invocation and these are two invocations, so unioning them is a real
- *   piece of work and not this merge's. Reach's answer therefore stays a statement about apps/web,
- *   and check-audit-reach.mjs now says so in the words it uses.
+ *
+ * ⚠ REACH IS NOW MEASURED HERE TOO, and it was NOT when the seven audits arrived. That merge said
+ * plainly what it had not done: "the two projects' reach shards are not unioned … reach measures
+ * apps/web and says apps/web". It does both now — this project writes its own shard directory
+ * (reach-global-setup.ts explains why a SECOND directory rather than a shared one) and
+ * check-audit-reach.mjs holds each directory to its own floor before unioning them.
  */
+
+// ⚠ reachAudit MUST BE FIRST, ABOVE EVERY OTHER IMPORT IN THIS FILE. It installs the React
+// DevTools hook, which React reads once at react-dom's own module init. `planeAudit` imports
+// `@talyvor/ui`, which imports every component, which imports React — so an audit import above
+// this line makes the hook silently record NOTHING. reach-registry pulls React in deliberately
+// and therefore comes second. See the ORDER note in apps/web/src/reachAudit.ts.
+import { flushReach } from '../../../../apps/web/src/reachAudit'
+import './reach-registry'
+
 import '@testing-library/jest-dom/vitest'
 
-import { afterEach, beforeEach } from 'vitest'
+import { afterAll, afterEach, beforeEach, inject } from 'vitest'
 
 import { installCaseAudit, setCaseAuditFile, takeCaseOffenders } from '../../../../apps/web/src/caseAudit'
 import { installFigureAudit, takeOffenders } from '../../../../apps/web/src/figureAudit'
@@ -226,4 +239,13 @@ afterEach(() => {
   }
 
   if (problems.length > 0) throw new Error(problems.join('\n\n'))
+})
+
+afterAll(() => {
+  // ⚠ WRITTEN ONCE PER FILE, and unconditionally even when nothing was recorded — apps/web's two
+  // measurements, inherited rather than re-derived: `process.on('exit')` produces NO file at all
+  // because vitest tears its workers down without running exit handlers, and skipping the write
+  // when nothing was committed makes a blinded hook look like a missing directory instead of
+  // "Button was registered and never committed".
+  flushReach(inject('reachDir'))
 })

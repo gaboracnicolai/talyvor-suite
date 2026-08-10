@@ -163,12 +163,12 @@ const PINS: Record<string, Pin> = {
     fragment: '<FixtureNotice awaiting=',
     why: 'the second component the reach table classified as rendered by no test, rendered by a test',
   },
-  'packages/ui/src/__tests__/setup.ts:36|packages/ui/src/__tests__/invariant.test.ts:26': {
+  'packages/ui/src/__tests__/setup.ts:38|packages/ui/src/__tests__/invariant.test.ts:26': {
     kind: 'LIVE',
     fragment: "'../../../../apps/web/src'",
     why: 'the precedent: this project already reaches up into apps/web from its own tests',
   },
-  'packages/ui/src/__tests__/setup.ts:36|packages/ui/src/__tests__/selection.test.ts:255': {
+  'packages/ui/src/__tests__/setup.ts:38|packages/ui/src/__tests__/selection.test.ts:255': {
     kind: 'LIVE',
     fragment: "'../../../../apps/web/src'",
     why: 'the second instance of that precedent, so the direction is a habit rather than one file',
