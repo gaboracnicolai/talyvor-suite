@@ -70,6 +70,14 @@ def run_vitest(paths):
     return failing
 
 
+# ⚠ THE HARNESS IS AN INSTRUMENT TOO, AND THIS LINE IS WHY. The first run scored 1/6:
+# every control had fired exactly as predicted and the verdict logic said otherwise,
+# because vitest's `fullName` joins describe and test with a SPACE and the predictions
+# below are written with " > ". Comparing raw strings condemned five working controls.
+def norm(s):
+    return " ".join(s.replace(" > ", " ").split())
+
+
 def edit(path, old, new, count=1):
     t = path.read_text()
     n = t.count(old)
@@ -206,8 +214,9 @@ def main():
             if failing is None:
                 results.append((name, "NO REPORT", "the runner produced nothing — not a verdict"))
                 continue
-            pred = spec["predict_red"]
-            green = spec["must_stay_green"]
+            pred = {norm(x) for x in spec["predict_red"]}
+            green = {norm(x) for x in spec["must_stay_green"]}
+            failing = {norm(x) for x in failing}
             guard_failing = {f for f in failing if "unattributable window" in f or "No earnings yet" in f
                              or "empty mint ledger" in f or "model_used" in f}
             caught = pred <= guard_failing
