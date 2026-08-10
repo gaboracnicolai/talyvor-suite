@@ -7,8 +7,8 @@
  *     µ (U+00B5) to Greek capital Mu, and µLENS/µLXC sit inside these labels. It is applied
  *     at the call site, where MuNumeral can keep its µ in a `normal-case` span.
  *
- * "It is applied at the call site" is true and is the whole problem: there are TWENTY uppercase
- * call sites in the two packages and exactly ONE `normal-case` in the product (CaseSafe.tsx:85).
+ * "It is applied at the call site" is true and is the whole problem: 21 uppercase class lists in
+ * the two packages apply it, against exactly ONE `normal-case` in the product (CaseSafe.tsx:85).
  * The rule was stated in the token that deliberately does NOT carry the transform, so the one
  * file that could not enforce it is the only file that documents it.
  *
@@ -87,7 +87,9 @@
  * also REFUSES them: either appearing in a class list in either package fails until somebody
  * classifies it here, so narrowing this map cannot silently under-report.
  *
- * `uppercase` (25 call sites) and `normal-case` (1) are spelled out because the product renders both.
+ * `uppercase` (21 class lists apply it) and `normal-case` (1) are spelled out because the product
+ * renders both — CLASS LISTS, not occurrences of the word; the census is in caseCallSites.test.ts,
+ * which also records why this sentence and the one at the top of this file used to disagree.
  */
 export const TRANSFORM_CLASSES = {
   uppercase: 'uppercase',
