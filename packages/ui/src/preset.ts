@@ -51,12 +51,33 @@ const preset = {
         figure: ['var(--mono)', { fontFeatureSettings: '"tnum" 1' }],
       },
       fontSize: {
-        title: ['24px', { lineHeight: '1.2', fontWeight: '640' }],
-        head: ['17px', { lineHeight: '1.3', fontWeight: '600' }],
-        body: ['14px', { lineHeight: '1.45', fontWeight: '400' }],
-        caption: ['12px', { lineHeight: '1.35', fontWeight: '600' }],
+        // ── THE CONSOLE SCALE, IN rem ─────────────────────────────────────────────────────────
+        //
+        // These five steps and the eyebrow below are what every screen behind the gate, both
+        // front doors and both legal pages are written in. They are in `rem` because that is the
+        // ONLY unit the reader's own browser font-size preference reaches: with no author rule on
+        // the root element, that preference IS `font-size` on `<html>`, and `rem` resolves
+        // against it. In px it reaches nothing.
+        //
+        // MEASURED IN REAL CHROME on the built artifact at `c4a7aa4`, moving the root from 16px
+        // to 24px (Chrome's "Very Large") across all fifteen addresses: 488 elements carrying a
+        // text node, 0 changed size — while a `font-size:1rem` probe on each page moved 16 → 24,
+        // and /marketing's document grew 5392 → 6301px because the SPACING scale is already rem.
+        // The gaps inflated and the type did not.
+        //
+        // ⚠ THE NUMBERS ARE THE SAME NUMBERS. Each is its old px over 16, so at the default root
+        // the product is byte-for-byte the design it was. Changing the unit must never change the
+        // size; apps/web/src/typeScaleUnits.test.ts holds both halves of that.
+        //
+        // ⚠ NOT `em`. em resolves against the PARENT, so a token used inside another token's
+        // element compounds. rem is the only one that means "the reader's size" wherever it is
+        // written.
+        title: ['1.5rem', { lineHeight: '1.2', fontWeight: '640' }], // 24px at a 16px root
+        head: ['1.0625rem', { lineHeight: '1.3', fontWeight: '600' }], // 17px
+        body: ['0.875rem', { lineHeight: '1.45', fontWeight: '400' }], // 14px
+        caption: ['0.75rem', { lineHeight: '1.35', fontWeight: '600' }], // 12px
         // the µ-tail: 12.5px, dimmed + underscored in MuNumeral (moves with the scale).
-        micro: ['12.5px', { lineHeight: '1', fontWeight: '500' }],
+        micro: ['0.78125rem', { lineHeight: '1', fontWeight: '500' }], // 12.5px
 
         // ── THE EYEBROW ───────────────────────────────────────────────────────────────────────
         //
@@ -78,7 +99,7 @@ const preset = {
         // ⚠ THE UPPERCASE IS NOT IN HERE, deliberately. `text-transform: uppercase` maps
         // µ (U+00B5) to Greek capital Mu, and µLENS/µLXC sit inside these labels. It is applied
         // at the call site, where MuNumeral can keep its µ in a `normal-case` span.
-        eyebrow: ['11px', { lineHeight: '1.2', letterSpacing: '0.24em', fontWeight: '400' }],
+        eyebrow: ['0.6875rem', { lineHeight: '1.2', letterSpacing: '0.24em', fontWeight: '400' }], // 11px
 
         // ── DISPLAY: the marketing scale ──────────────────────────────────────────────────────
         //
@@ -104,6 +125,15 @@ const preset = {
         // `clamp(1.9rem,4.4vw,3.6rem) font-medium leading-[1.04] tracking-[-0.03em]`. The size
         // ramp is unchanged — only the weight and tracking move, because those are properties
         // of the typeface and the typeface changed.
+        //
+        // ⚠ STILL px WHILE THE CONSOLE SCALE ABOVE IS rem, AND THAT IS A MEASUREMENT RATHER THAN
+        // AN OVERSIGHT. Converting these too was measured in Chrome at 320px CSS width with a
+        // 24px root: /marketing's scrollWidth went to 346 against a 320 client width — a clamp
+        // FLOOR in rem grows with the reader while the viewport does not, and the page's section
+        // tabs (`flex-1 whitespace-nowrap`) cannot give the width back. The console conversion
+        // does not touch that: at the same 320×24, all fifteen addresses including /marketing sit
+        // at scrollWidth 320. typeScaleUnits.test.ts pins this side of the table too, with the
+        // number to re-measure if anyone moves it.
         'display-1': ['clamp(34px, 6vw, 58px)', { lineHeight: '1.04', letterSpacing: '-0.03em', fontWeight: '500' }],
         'display-2': ['clamp(25px, 3.8vw, 38px)', { lineHeight: '1.06', letterSpacing: '-0.03em', fontWeight: '500' }],
         'display-3': ['clamp(23px, 3.2vw, 33px)', { lineHeight: '1.12', letterSpacing: '-0.02em', fontWeight: '500' }],

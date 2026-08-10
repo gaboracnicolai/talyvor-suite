@@ -45,14 +45,31 @@ describe('correction 1, REVERSED — numerals are MONO with tabular figures (the
 
 describe('correction 2 — the scale steps up one', () => {
   const size = (name: string) => (preset.theme!.extend!.fontSize as Record<string, [string, unknown]>)[name][0]
+  /**
+   * The RENDERED size of a step at the browser's default root, in px.
+   *
+   * ⚠ THESE FOUR ASSERTIONS USED TO READ THE LITERAL `'14px'`. The console scale is now declared
+   * in `rem` so that the reader's own browser font-size preference reaches it (preset.ts
+   * §THE CONSOLE SCALE), and the SIZES did not move: 0.875rem × 16 is the same 14px it always
+   * was. This correction is about the RAMP — 14/12/17/24, and a µ-tail smaller than the whole —
+   * so it is asserted as the ramp rather than as a string that happens to spell it.
+   * The unit itself is guarded, in both directions, by apps/web/src/typeScaleUnits.test.ts.
+   */
+  const px = (name: string): number => {
+    const decl = size(name)
+    const m = /^([0-9]*\.?[0-9]+)(rem|px)$/.exec(decl)
+    if (!m) throw new Error(`\`${name}\` is declared \`${decl}\`, which is neither a rem nor a px length`)
+    return m[2] === 'rem' ? Number(m[1]) * 16 : Number(m[1])
+  }
   it('body 14, caption 12, head 17, title 24', () => {
-    expect(size('body')).toBe('14px')
-    expect(size('caption')).toBe('12px')
-    expect(size('head')).toBe('17px')
-    expect(size('title')).toBe('24px')
+    expect(px('body')).toBe(14)
+    expect(px('caption')).toBe(12)
+    expect(px('head')).toBe(17)
+    expect(px('title')).toBe(24)
   })
   it('the µ-tail moves with the scale (dimmer AND smaller than the whole)', () => {
-    expect(size('micro')).toBe('12.5px')
+    expect(px('micro')).toBe(12.5)
+    expect(px('micro')).toBeLessThan(px('body'))
   })
 })
 
