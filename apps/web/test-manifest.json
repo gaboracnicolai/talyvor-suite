@@ -35,6 +35,7 @@
   "src/caseAudit.test.tsx": 24,
   "src/caseCallSites.test.ts": 9,
   "src/ClaimsAudit.test.tsx": 38,
+  "src/ConsoleHeading.test.tsx": 13,
   "src/ConsoleTitle.test.tsx": 28,
   "src/controlParity.test.ts": 8,
   "src/deadClasses.test.ts": 4,
