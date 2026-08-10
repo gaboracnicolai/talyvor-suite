@@ -51,6 +51,7 @@
   "src/placeholderAudit.test.tsx": 15,
   "src/planeAudit.test.tsx": 17,
   "src/reachAudit.test.ts": 12,
+  "src/restingAffordance.test.ts": 7,
   "src/SessionExpired.test.tsx": 20,
   "src/Sharing.test.tsx": 8,
   "src/tokenDoor.test.ts": 8
