@@ -178,7 +178,7 @@ afterEach(() => {
     )
     problems.push(
       'character(s) REPLACED by a casing transform, not re-cased — wrap them in a ' +
-        `normal-case span (MuNumeral.tsx:19 is the shape):\n${lines.join('\n')}\n` +
+        `normal-case span (CaseSafe.tsx:85 is the shape):\n${lines.join('\n')}\n` +
         '(the rule, the engine measurement and the hole it leaves are in src/caseAudit.ts)',
     )
   }

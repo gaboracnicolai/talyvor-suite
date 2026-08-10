@@ -8,7 +8,7 @@
  *     at the call site, where MuNumeral can keep its µ in a `normal-case` span.
  *
  * "It is applied at the call site" is true and is the whole problem: there are TWENTY uppercase
- * call sites in the two packages and exactly ONE `normal-case` in the product (MuNumeral.tsx:19).
+ * call sites in the two packages and exactly ONE `normal-case` in the product (CaseSafe.tsx:85).
  * The rule was stated in the token that deliberately does NOT carry the transform, so the one
  * file that could not enforce it is the only file that documents it.
  *
@@ -39,8 +39,8 @@
  * ── WHY IT IS NOT A SOURCE RULE ──────────────────────────────────────────────────────────────
  *
  * The `uppercase` and the µ are in different places and neither knows about the other.
- * Landing.tsx:72 is `<span className="font-figure text-eyebrow uppercase text-faint">{unit}</span>`
- * — no µ anywhere near it. The µ arrives as a PROP from six call sites 130–200 lines away
+ * Landing.tsx:78 is `<span className="font-figure text-eyebrow uppercase text-faint">`, and line 79
+ * hands its {unit} to CaseSafe — no µ near either. The µ arrives as a PROP from six call sites
  * (`unit="µLXC list"`, `"µLXC charged"`, `"µLXC saved"`, `"µLENS earned"`, `"µLXC you pay"`,
  * `"µLXC kept"`). No grep for "µ near uppercase" connects a prop to the class list that will
  * inherit onto it, and `text-transform` INHERITS, so the answer also depends on which ancestor is
