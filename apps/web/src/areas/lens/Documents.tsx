@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@talyvor/ui'
+import { ApiError } from '../../lib/api'
+import { isSessionExpired } from '../../lib/productState'
 
 // Documents.tsx — what happens to an attached document, and the switch that stops it.
 //
@@ -54,7 +56,13 @@ type DistillState = {
 
 async function readDistill(): Promise<DistillState> {
   const res = await fetch('/api/distill', { headers: { Accept: 'application/json' } })
-  if (!res.ok) throw new Error(String(res.status))
+  // The SHARED ApiError, like every other hand-rolled read in this app. It was
+  // `new Error(String(res.status))`, and one untyped throw turned off all THREE session
+  // mechanisms at once, because every one of them keys on the TYPE: isSessionExpired() went
+  // false so no bar appeared, App.tsx's "a 401 is a verdict, not a flake" retry rule did not
+  // apply so the refusal was retried, and QueryCache.onError never re-probed the gate. This
+  // was the only query in the product that raised anything else.
+  if (!res.ok) throw new ApiError(res.status, '/api/distill')
   return (await res.json()) as DistillState
 }
 
@@ -80,11 +88,19 @@ export function DistillChoice() {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ distill_policy: next }),
       })
-      if (!res.ok) throw new Error(String(res.status))
+      if (!res.ok) throw new ApiError(res.status, '/api/distill')
       // ⚠ RE-READ rather than trusting the click. The rendered state must be what Lens RECORDED.
       await qc.invalidateQueries({ queryKey: ['distill'] })
-    } catch {
-      setFailed('That did not save, so nothing changed. You can try again.')
+    } catch (err) {
+      // "You can try again" is true of a blip and false of a dead credential, and under the bar
+      // it is a third voice giving a remedy that contradicts the one already on screen. The
+      // OUTCOME still has to be stated either way — the reader pressed a button and needs to
+      // know it did not take — so only the advice moves.
+      setFailed(
+        isSessionExpired(err)
+          ? 'That did not save, so nothing changed.'
+          : 'That did not save, so nothing changed. You can try again.',
+      )
     } finally {
       setBusy(null)
     }
@@ -95,9 +111,20 @@ export function DistillChoice() {
       {q.isLoading ? (
         <p className="text-body text-muted">Checking this workspace&rsquo;s setting…</p>
       ) : policy === undefined ? (
+        // Same element, same classes — only which sentence it holds. On an expired credential
+        // the bar above has already named the cause and the fix, so this states availability and
+        // nothing else; "the buttons below still work" is a second voice AND untrue in that
+        // state. On a genuine fault the buttons DO still work and the re-read DOES happen, so
+        // that sentence keeps its job. isSessionExpired is the product's one predicate for this.
         <p className="text-body text-muted">
-          This workspace&rsquo;s document setting could not be read, so it is not shown. The buttons
-          below still work, and the result is re-read afterwards.
+          {isSessionExpired(q.error) ? (
+            'Unavailable.'
+          ) : (
+            <>
+              This workspace&rsquo;s document setting could not be read, so it is not shown. The
+              buttons below still work, and the result is re-read afterwards.
+            </>
+          )}
         </p>
       ) : (
         <p className="text-body">
