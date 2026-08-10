@@ -7,7 +7,11 @@ import { LegalHeader, LawyerReview, Section } from './legalParts'
 // usage) rather than in terms of what we would prefer them to be.
 export function Terms() {
   return (
-    <div className="mx-auto w-full max-w-3xl px-gutter py-10">
+    // `main`, NOT `div` — same element, same classes. 6,252 of this page's 6,377 characters
+    // (98%) sat outside every landmark region; the only region was LegalHeader's <header>. The
+    // same trade as Privacy.tsx, for the same reason and with the same consequence: that header
+    // is now inside main and is no longer a `banner`. LandmarkCoverage.test.tsx holds it.
+    <main className="mx-auto w-full max-w-3xl px-gutter py-10">
       <LegalHeader title="Terms" />
 
       <LawyerReview>
@@ -169,6 +173,6 @@ export function Terms() {
           access to protect the service or its other users.
         </p>
       </Section>
-    </div>
+    </main>
   )
 }

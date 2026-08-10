@@ -52,9 +52,18 @@ function EntryFrame({ children }: { children: React.ReactNode }) {
         </div>
         <ThemeToggle />
       </header>
-      <div className="flex flex-1 items-start justify-center px-gutter pb-16 pt-4 wide:items-center wide:pt-0">
+      {/* `main`, NOT `div` — the element and its classes are unchanged; only the tag moved. A DOM
+          census over every address found 93% of /signin's text and 97% of /signup's outside any
+          landmark region, because the only region on these pages was the header above. Landmark
+          navigation is one of the two ways a screen-reader user moves through a page, and on the
+          two front doors it reached the wordmark and nothing else. The Shell does this for all
+          twelve gated addresses and Landing does it for /marketing; these two did not.
+          Zero-pixel: the built stylesheet contains NO rule naming `main`, `header`, `footer`,
+          `section`, `article` or `aside` — every box here is drawn by the utility classes, which
+          are untouched. LandmarkCoverage.test.tsx measures the proportion at every address. */}
+      <main className="flex flex-1 items-start justify-center px-gutter pb-16 pt-4 wide:items-center wide:pt-0">
         <Card className="w-full max-w-md">{children}</Card>
-      </div>
+      </main>
     </div>
   )
 }
