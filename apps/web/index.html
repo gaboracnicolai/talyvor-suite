@@ -5,18 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Talyvor Suite</title>
     <!-- No-flash theme: set data-theme before first paint, respecting a stored
-         choice then prefers-color-scheme. The theme store reads this back. -->
+         choice then prefers-color-scheme. The theme store reads this back.
+         TWO READS, TWO CATCHES: only the stored choice can be refused, so a
+         browser that blocks site data must still be asked what it prefers.
+         src/noFlashTheme.test.ts runs these exact bytes and holds the cases. -->
     <script>
       (function () {
+        var t = null
         try {
-          var t = localStorage.getItem('talyvor-theme')
-          if (t !== 'light' && t !== 'dark') {
-            t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-          }
-          document.documentElement.setAttribute('data-theme', t)
+          t = localStorage.getItem('talyvor-theme')
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'light')
+          /* Site data refused. That means there is no stored choice to read. It does not
+             mean the reader chose the pale one. */
         }
+        if (t !== 'light' && t !== 'dark') {
+          t = 'light'
+          try {
+            if (window.matchMedia('(prefers-color-scheme: dark)').matches) t = 'dark'
+          } catch (e2) {
+            /* No matchMedia at all. Nothing left to ask, and the attribute must still be
+               set: theme.css declares every token under [data-theme], so an unset one
+               renders the product with no canvas, no ink and no accent. */
+          }
+        }
+        document.documentElement.setAttribute('data-theme', t)
       })()
     </script>
   </head>
