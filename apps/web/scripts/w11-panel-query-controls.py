@@ -67,7 +67,11 @@ def route_table(addr: str) -> str:
 ALL_SWEEP = [sweep(a, r) for a, rs in ADDRESS_ROUTES.items() for r in rs]
 ALL_ROUTE_TABLE = [route_table(a) for a in ADDRESS_ROUTES]
 FLOOR = "covers every gated address, and no address contributes nothing"
-PIN = "/settings: a 401 on /api/distill does not reach isSessionExpired, so no bar appears"
+ASKED_ONCE = "a 401 is a verdict, not a flake — /api/distill is asked ONCE"
+NO_SECOND_VOICE = "the setting does not add a second diagnosis under the bar"
+READ_500_GREEN = "but a GENUINE fault keeps the sentence AND its advice — must stay green"
+WRITE_401 = "the WRITE half too: a refused save does not tell you to try again"
+WRITE_500_GREEN = "and a genuine save failure DOES — must stay green"
 B_SPEND = "/spend: the mint-ledger card reports its OWN 500, not the LXC ledger’s 401"
 B_OVERVIEW = "/ (Overview) does this correctly — the control that says the product already knows the answer"
 
@@ -140,11 +144,12 @@ CONTROLS = [
         "id": "C5",
         "what": "the session bar never renders",
         "edits": [(BAR, "  if (!expired) return null", "  if (true) return null")],
-        "reds": [c for c in ALL_SWEEP if not c.startswith("/settings ")],
-        "expect": "ALL TWENTY-FOUR sweep cases that require the bar, and NOT the /settings one, "
-                  "which is exempted for a measured reason. This is what makes the bar "
-                  "precondition load-bearing: without it a sweep case could pass by rendering a "
-                  "page on which the 401 never reached anything",
+        "reds": ALL_SWEEP + [ASKED_ONCE, NO_SECOND_VOICE],
+        "expect": "ALL TWENTY-FIVE sweep cases plus the two /settings cases that wait for the "
+                  "bar. ⚠ IT WAS TWENTY-FOUR BEFORE: /settings was exempt, because its read "
+                  "raised a bare Error that no session mechanism could see. Closing that is what "
+                  "made this control's number go up, which is the tidiest evidence the exemption "
+                  "was real and is gone",
     },
     {
         "id": "C6",
@@ -159,19 +164,18 @@ CONTROLS = [
     },
     {
         "id": "C7",
-        "what": "readDistill raises the shared ApiError — i.e. someone fixes the OTHER finding",
+        "what": "revert the READ half — readDistill throws a bare Error again",
         "edits": [
-            (DOCUMENTS, "import { Button } from '@talyvor/ui'",
-                        "import { Button } from '@talyvor/ui'\nimport { ApiError } from '../../lib/api'"),
-            (DOCUMENTS, "  if (!res.ok) throw new Error(String(res.status))\n  return (await res.json()) as DistillState",
-                        "  if (!res.ok) throw new ApiError(res.status, '/api/distill')\n  return (await res.json()) as DistillState"),
+            (DOCUMENTS, "  if (!res.ok) throw new ApiError(res.status, '/api/distill')\n  return (await res.json()) as DistillState",
+                        "  if (!res.ok) throw new Error(String(res.status))\n  return (await res.json()) as DistillState"),
         ],
-        "reds": [PIN],
-        "expect": "ONLY the pin. A pinned defect that cannot expire is decoration: this control "
-                  "is what proves the /settings exemption reds the moment the defect it excuses "
-                  "is repaired, and sends whoever repaired it to the numbered steps beside it. "
-                  "⚠ TWO EDITS IN ONE FILE — the import and the throw — which is exactly the "
-                  "shape that silently half-applies if the anchors are not all checked first",
+        "reds": [sweep("/settings", "/api/distill"), ASKED_ONCE, NO_SECOND_VOICE],
+        "expect": "THREE, one per mechanism the TYPE controls: the bar stops appearing (the "
+                  "sweep case), the refusal is retried (asked-once), and the screen goes back to "
+                  "advice that is false in that state (second-voice). One untyped throw turns "
+                  "off three things at once, which is exactly why the type is the fix and the "
+                  "wording only follows. ⚠ THE WRITE CASES STAY GREEN — a separate throw, four "
+                  "lines away, and C10 is its own control for a reason",
     },
     {
         "id": "C8",
@@ -180,18 +184,17 @@ CONTROLS = [
                           "  let previous = requested.length\n  let _unused = -1"),
                   (GUARD, "      const stable = requested.length === previous\n      previous = requested.length\n      expect(stable && !/Loading…|Checking…/.test(pageText())).toBe(true)",
                           "      expect(!/Loading…|Checking…/.test(pageText())).toBe(true)")],
-        "reds": ALL_ROUTE_TABLE + [B_SPEND, B_OVERVIEW, PIN],
+        "reds": ALL_ROUTE_TABLE + [B_SPEND, B_OVERVIEW],
         "expect": "A CONTROL ON THE INSTRUMENT, NOT ON THE PRODUCT, and it is here because this "
                   "was a REAL hole in the first draft. “No Loading… on screen” is TRUE AT t=0 "
                   "— AuthGate has not resolved /auth/me and the body is one empty <div> — so "
                   "every case settled instantly against a page that had never rendered. The ten "
                   "route tables derive [] and the two scoped cases cannot find a card. ⚠ THE "
                   "TWENTY-FIVE SWEEP CASES STAY GREEN THROUGHOUT, vacuously: an assertion that "
-                  "something is ABSENT is the one shape an empty page satisfies perfectly. ⚠ I "
-                  "PREDICTED TWELVE AND IT IS THIRTEEN — the /settings pin also speaks, because "
-                  "it reads the distill query out of the cache and at t=0 that query does not "
-                  "exist yet. Its `toBeDefined()` line was written for exactly that and I did "
-                  "not count it",
+                  "something is ABSENT is the one shape an empty page satisfies perfectly. ⚠ WHEN THE "
+                  "/settings pin still existed this reddened it too, for the same reason — it "
+                  "read the distill query out of the cache and at t=0 that query does not exist "
+                  "yet",
     },
     {
         "id": "C9",
@@ -201,16 +204,46 @@ CONTROLS = [
         "reds": [FLOOR, route_table("/spend")],
         # Deleting a row from the table deletes the sweep case it generates, so this run
         # collects 48 rather than 49 — see run_guard's docstring.
-        "collects": 48,
+        "collects": 52,
         "expect": "THE FLOOR AND THE TABLE, together. The pinned pair count says the sweep got "
                   "smaller; the per-address derivation says the product still asks for the route "
                   "that was dropped. Either alone could be argued away — the count could be "
                   "'we removed a screen', the derivation could be 'the table is the spec'",
     },
+    {
+        "id": "C10",
+        "what": "revert the WRITE half — the save's throw goes back to a bare Error",
+        "edits": [(DOCUMENTS, "      if (!res.ok) throw new ApiError(res.status, '/api/distill')",
+                              "      if (!res.ok) throw new Error(String(res.status))")],
+        "reds": [WRITE_401],
+        "expect": "ONLY the write case. THE READ CASES STAY GREEN, and that is the point: a "
+                  "mutation's error never enters the query cache, so no bar and no retry rule "
+                  "react to it — the read's three catchers are all blind to this half. Without "
+                  "its own case the write would have been fixed on faith",
+    },
+    {
+        "id": "C11",
+        "what": "the read's failure sentence is always the neutral placeholder",
+        "edits": [(DOCUMENTS, "          {isSessionExpired(q.error) ? (", "          {true ? (")],
+        "reds": [READ_500_GREEN],
+        "expect": "ONLY the must-stay-green 500 case. This is the over-correction control — "
+                  "'make 401 honest by saying the same thing about 500' fixes nothing, it moves "
+                  "which failure is misdescribed. On a 500 the buttons really do still work",
+    },
+    {
+        "id": "C12",
+        "what": "the write's failure advice is always the terse one",
+        "edits": [(DOCUMENTS, "        isSessionExpired(err)\n          ? 'That did not save, so nothing changed.'",
+                              "        true\n          ? 'That did not save, so nothing changed.'")],
+        "reds": [WRITE_500_GREEN],
+        "expect": "ONLY the must-stay-green 500 write case — the same over-correction from the "
+                  "write side. 'You can try again' is correct advice for a blip and dropping it "
+                  "everywhere trades one wrong sentence for a less useful one",
+    },
 ]
 
 
-def run_guard(collects: int = 49) -> dict:
+def run_guard(collects: int = 53) -> dict:
     """{failing test title: [failure messages]} — or a single synthetic key for a dead run.
 
     `collects` is how many assertions this run is expected to COLLECT, which is not always 49:
@@ -281,7 +314,7 @@ def main() -> int:
                 assert text != saved[path], f"{c['id']}: {path.name} unchanged by its own edit"
                 path.write_text(text)
 
-            got = run_guard(c.get("collects", 49))
+            got = run_guard(c.get("collects", 53))
 
             for path in pending:
                 path.write_text(saved[path])

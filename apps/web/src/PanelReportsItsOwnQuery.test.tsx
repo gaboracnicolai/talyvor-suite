@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from './App'
 
@@ -149,27 +149,13 @@ const ADDRESS_ROUTES: Record<string, string[]> = {
 
 const FAILURE_WORDING = /Couldn[’']t (load|check)/i
 
-/**
- * ⚠ ONE ADDRESS DOES NOT RAISE THE BAR ON A 401, AND IT IS A SEPARATE DEFECT — MEASURED HERE,
- * NOT FIXED HERE.
- *
- * /settings' only read is areas/lens/Documents.tsx#readDistill, which is a hand-rolled fetch
- * throwing `new Error(String(res.status))` instead of the shared ApiError. Every other
- * hand-rolled read in this app raises ApiError on purpose and says so in a comment
- * (track/data.ts, docs/api.ts, keysApi, topupApi, IssueList, DocsUpstreamCard, Sharing,
- * Overview's probe) — this one query is the exception. All THREE session mechanisms key on the
- * type, so all three go blind on it: isSessionExpired() is false so no bar appears,
- * QueryCache.onError never re-probes the gate, and the "a 401 is a verdict, not a flake" retry
- * rule does not apply (measured: /api/distill is requested TWICE under a 401).
- *
- * What the reader gets instead is worse than silence — "This workspace's document setting could
- * not be read, so it is not shown. The buttons below still work" — which is false advice with a
- * dead credential.
- *
- * So the bar precondition is skipped for this address and the CAUSE is pinned below instead, so
- * the exemption expires the moment someone fixes it rather than outliving the defect.
+/*
+ * ⚠ THE EXEMPTION THAT USED TO LIVE HERE IS CLOSED. /settings was the one gated address that
+ * raised no bar on a 401, because areas/lens/Documents.tsx#readDistill threw a bare
+ * `new Error(String(res.status))` instead of the shared ApiError, and all three session
+ * mechanisms key on that type. It is exempt from nothing now, and the cases in
+ * "the read that no session mechanism could see" below are what keep it that way.
  */
-const NO_BAR_ON_401 = new Set(['/settings'])
 
 function at(path: string) {
   window.history.pushState({}, '', path)
@@ -270,10 +256,7 @@ describe('a single refused credential is never reported as a genuine fault', () 
         await settled()
         // The bar is the one voice that may speak. If it is absent the case proved nothing —
         // the 401 never reached a panel — so this assertion is what stops a silent pass.
-        // See NO_BAR_ON_401 for the one address where it is absent today, and why.
-        if (!NO_BAR_ON_401.has(addr)) {
-          await waitFor(() => expect(document.querySelector('[role="alert"]')).not.toBeNull(), { timeout: 5000 })
-        }
+        await waitFor(() => expect(document.querySelector('[role="alert"]')).not.toBeNull(), { timeout: 5000 })
         const text = pageText()
         const spoke = text.match(/Couldn[’']t (load|check)[^.]*\.?/gi) ?? []
         expect(
@@ -283,37 +266,6 @@ describe('a single refused credential is never reported as a genuine fault', () 
       })
     }
   }
-})
-
-// ─── the exemption's own expiry ─────────────────────────────────────────────
-
-describe('the one address exempted above, and the reason it is exempted', () => {
-  it('/settings: a 401 on /api/distill does not reach isSessionExpired, so no bar appears', async () => {
-    mockBff([['/api/distill', 401]])
-    at('/settings')
-    await settled()
-
-    const distillQuery = () => queryClient.getQueryCache().getAll().find((q) => q.queryHash === '["distill"]')
-    expect(distillQuery(), 'the distill query did not run, so this pin measured nothing').toBeDefined()
-    // ⚠ WAIT FOR THE QUERY, NOT FOR THE PAGE. This read RETRIES on a 401 — which is itself part
-    // of the defect, since the client's "a 401 is a verdict, not a flake" rule also keys on
-    // ApiError — so the request stream can go quiet with the retry still in flight and the
-    // error still null. Reading the cache at that moment measures nothing.
-    await waitFor(() => expect(distillQuery()?.state.status).toBe('error'), { timeout: 5000 })
-    const err = distillQuery()?.state.error
-
-    // The pin. THIS ASSERTS THE DEFECT, ON PURPOSE, so that fixing it turns this test red and
-    // sends whoever fixed it here. When readDistill throws the shared ApiError instead:
-    //   1. delete this whole describe block,
-    //   2. remove '/settings' from NO_BAR_ON_401,
-    //   3. the sweep above then requires the bar at /settings like everywhere else.
-    expect(err, 'a 401 on /api/distill produced no error at all').toBeInstanceOf(Error)
-    expect(
-      (err as Error | undefined)?.name,
-      'readDistill now raises something other than a bare Error — if it is ApiError, this pin has expired: see the numbered steps in the comment above',
-    ).toBe('Error')
-    expect(document.querySelector('[role="alert"]'), 'the bar appeared — this pin has expired').toBeNull()
-  })
 })
 
 // ─── B. the inverse: a genuine fault must survive a 401 beside it ───────────
@@ -351,5 +303,102 @@ describe('a 500 next to a 401 is still a 500', () => {
     // Overview.tsx:264 — `ledger.isError ? <Failed what="the mint ledger" error={ledger.error} />`.
     // Same seam, same request, written the right way round. MUST STAY GREEN.
     expect(pageText()).toMatch(/Couldn[’']t load the mint ledger/i)
+  })
+})
+
+// ─── the read that no session mechanism could see ───────────────────────────
+//
+// /settings' only read is areas/lens/Documents.tsx#readDistill. It threw
+// `new Error(String(res.status))` while every other hand-rolled read in this app raises the
+// shared ApiError on purpose and says so in a comment (track/data.ts, docs/api.ts, keysApi,
+// topupApi, IssueList, DocsUpstreamCard, Sharing, Overview's probe). ALL THREE session
+// mechanisms key on that type, so one untyped throw turned all three off at once:
+//
+//   1. isSessionExpired() → false, so no bar. Measured: `role="alert"` absent at /settings
+//      under a 401 while every other gated address raised it.
+//   2. App.tsx's `retry` — "a 401 is a verdict, not a flake" — does not apply, so the refusal
+//      was RETRIED. Measured: /api/distill requested TWICE.
+//   3. QueryCache.onError never invalidates ['auth-me'], so the gate is not re-probed.
+//
+// ⚠ AND THE SCREEN THEN GAVE ADVICE THAT WAS FALSE IN EXACTLY THAT STATE — "The buttons below
+// still work" — which is the failure components/SessionExpiredBar.tsx was built to remove,
+// arriving from the one direction that file could not reach: a panel that never learned the
+// session was the problem.
+//
+// The type is the fix; the wording follows from it, because with the bar now showing, the old
+// sentence would be a second voice under it. Both halves of this file are that one change.
+
+/** Refuse by fragment AND method, so the read and the write can be refused independently. */
+function mockDistill(readStatus: number | null, writeStatus: number | null) {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const method = (init?.method ?? 'GET').toUpperCase()
+    const json = (v: unknown, status = 200) =>
+      new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } })
+    if (url === '/auth/me') return json(AUTHENTICATED)
+    requested.push(`${method} ${url}`)
+    if (url.includes('/api/distill')) {
+      const refused = method === 'GET' ? readStatus : writeStatus
+      if (refused !== null) return json({ error: 'refused' }, refused)
+      return json({ distill_policy: 'always', converted: 0, vision_ocr: 0, days: 30 })
+    }
+    return json(bodyFor(url))
+  })
+}
+
+const DISTILL_ADVICE = /buttons below still work/i
+const RETRY_ADVICE = /You can try again/i
+
+describe('the document-setting read is a first-class citizen of the session machinery', () => {
+  it('a 401 is a verdict, not a flake — /api/distill is asked ONCE', async () => {
+    mockDistill(401, null)
+    at('/settings')
+    await waitFor(() => expect(document.querySelector('[role="alert"]')).not.toBeNull(), { timeout: 5000 })
+    await settled()
+    const reads = requested.filter((r) => r.startsWith('GET /api/distill'))
+    // The client's retry rule is `failureCount < 1 && !(error instanceof ApiError && status === 401)`.
+    // An untyped throw slips past the second half and the refusal is retried — the same refusal,
+    // to the same dead credential, for the same answer.
+    expect(reads, 'a refused credential was asked twice').toHaveLength(1)
+  })
+
+  it('the setting does not add a second diagnosis under the bar', async () => {
+    mockDistill(401, null)
+    at('/settings')
+    await waitFor(() => expect(document.querySelector('[role="alert"]')).not.toBeNull(), { timeout: 5000 })
+    await settled()
+    expect(pageText(), 'the bar has already said what happened; "the buttons still work" is both a second voice and false').not.toMatch(DISTILL_ADVICE)
+  })
+
+  it('but a GENUINE fault keeps the sentence AND its advice — must stay green', async () => {
+    // THE CONTROL THAT STOPS THIS BECOMING "call every failure a session problem". On a 500 the
+    // buttons really do still work and re-reading really is what happens, so the sentence is
+    // correct and must not be traded away for a vaguer one.
+    mockDistill(500, null)
+    at('/settings')
+    await settled()
+    await waitFor(() => expect(pageText()).toMatch(DISTILL_ADVICE), { timeout: 5000 })
+    expect(document.querySelector('[role="alert"]'), 'a 500 is not a session problem').toBeNull()
+  })
+
+  it('the WRITE half too: a refused save does not tell you to try again', async () => {
+    // Four lines from the read, the same shape. "You can try again" is the write half's version
+    // of "the buttons below still work": true of a blip, false of a dead credential, and a third
+    // voice under a bar that has already given the remedy.
+    mockDistill(null, 401)
+    at('/settings')
+    await settled()
+    fireEvent.click(await screen.findByRole('button', { name: /Do not convert my documents/i }))
+    await waitFor(() => expect(pageText()).toMatch(/did not save/i), { timeout: 5000 })
+    expect(pageText()).not.toMatch(RETRY_ADVICE)
+  })
+
+  it('and a genuine save failure DOES — must stay green', async () => {
+    mockDistill(null, 500)
+    at('/settings')
+    await settled()
+    fireEvent.click(await screen.findByRole('button', { name: /Do not convert my documents/i }))
+    await waitFor(() => expect(pageText()).toMatch(/did not save/i), { timeout: 5000 })
+    expect(pageText()).toMatch(RETRY_ADVICE)
   })
 })
