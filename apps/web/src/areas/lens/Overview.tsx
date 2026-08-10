@@ -167,11 +167,20 @@ function LensCard() {
 // as spend. Now each economy wears its own metal: steel (lxc) for what left the
 // balance, copper (lens) for what mining credited.
 //
-// BOTH ledgers now split per model, from their own metadata: LENS mint rows carry
-// metadata.model_used, and LXC rows carry requested_model on every agent-lane writer
-// (#343) plus served_model on the delivered-charge row (#355). This card used to say
-// per-model LXC spend was "not derivable" — true at lens 8c70d9e, false from #343, and
-// it survived because api.lxcLedger discarded the field so nothing could contradict it.
+// THE LXC LEDGER SPLITS PER MODEL AND THE MINT LEDGER DOES NOT. LXC rows carry
+// requested_model on every agent-lane writer (#343) plus served_model on the
+// delivered-charge row (#355). This card used to say per-model LXC spend was "not
+// derivable" — true at lens 8c70d9e, false from #343, and it survived because
+// api.lxcLedger discarded the field so nothing could contradict it.
+//
+// ⚠ THE SENTENCE HERE USED TO CLAIM THE SAME OF THE MINT LEDGER — "LENS mint rows carry
+// metadata.model_used" — AND THAT WAS NEVER MEASURED. Every settled mint row is written by
+// one of two sweepers, whose metadata maps are literals: traffic_holds.go:181
+// {"request_id", "traffic_hold"} and poolroyalty/sweeper.go:257 {"request_id"}. Neither
+// names a model. The one lens_token_ledger writer that does (pattern_mining.go:486) stamps
+// it on the HELD row of an earning stage COORDINATION.md records as not switched on. So
+// `byModel` is empty over every window this product can produce, and the empty state below
+// says so instead of reporting it as an empty ledger. See mintAttribution.test.tsx.
 // The two splits are kept in SEPARATE sections and never summed: µLXC charged to the
 // workspace is not provider USD COGS.
 
@@ -205,9 +214,12 @@ function SpendCard({ now }: { now: Date }) {
     queryKey: ["spend-month"],
     queryFn: api.spendMonth,
   });
-  const agg = ledger.data
-    ? byModel(inWindow(ledger.data, 30, now)).slice(0, 5)
-    : [];
+  // ⚠ "WHAT IS IN THE WINDOW" AND "WHAT IN THE WINDOW NAMES A MODEL" ARE NOT THE SAME SET,
+  // and the empty state below used to report the second as the first. See Spend.tsx and
+  // mintAttribution.test.tsx: on the settled mint rows talyvor-lens writes, the second set
+  // is empty over every window.
+  const windowRows = ledger.data ? inWindow(ledger.data, 30, now) : [];
+  const agg = byModel(windowRows).slice(0, 5);
   const lxcSplit = lxc.data
     ? lxcDebitsByModel(lxc.data, 30, now).slice(0, 5)
     : [];
@@ -289,6 +301,24 @@ function SpendCard({ now }: { now: Date }) {
         <Loading />
       ) : ledger.isError ? (
         <Failed what="the mint ledger" error={ledger.error} />
+      ) : agg.length === 0 && windowRows.length > 0 ? (
+        <div
+          data-testid="lens-unattributed"
+          className="px-gutter py-3 text-body text-muted"
+        >
+          {/* ⚠ THIS BRANCH EXISTS BECAUSE THE ONE BELOW WAS PRINTED HERE. "No earnings yet"
+              sat directly under the LENS balance card's non-zero "Lifetime earned" — one
+              card saying the workspace earned LENS and the next saying it had not. The
+              ledger is not empty; the model attribution is. */}
+          {mintTruncated ? "At least " : ""}
+          {windowRows.length} ledger row{windowRows.length === 1 ? "" : "s"} landed in the
+          last 30 days, and none of them records which model it came from — so there is
+          nothing to split by model. The rows themselves are on the{" "}
+          <Link className="underline" to="/ledger">
+            ledger
+          </Link>
+          .
+        </div>
       ) : agg.length === 0 ? (
         <div className="px-gutter py-3 text-body text-muted">
           {/* ⚠ CORRECT AND UNHELPFUL IS THE FAILURE MODE. "No rows yet" is true on every

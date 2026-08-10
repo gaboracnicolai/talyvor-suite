@@ -13,6 +13,7 @@
   "src/areas/lens/Ledger.test.tsx": 9,
   "src/areas/lens/ledgerPillVocabulary.test.tsx": 7,
   "src/areas/lens/Members.test.tsx": 6,
+  "src/areas/lens/mintAttribution.test.tsx": 5,
   "src/areas/lens/Overview.test.tsx": 13,
   "src/areas/lens/Setup.test.tsx": 27,
   "src/areas/lens/setupSnippets.test.ts": 14,

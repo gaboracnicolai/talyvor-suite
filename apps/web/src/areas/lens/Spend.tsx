@@ -35,7 +35,13 @@ export function Spend({ now = new Date() }: { now?: Date }) {
     queryFn: () => api.lxcLedger(LEDGER_PAGE, 0),
   })
   const month = useQuery({ queryKey: ['spend-month'], queryFn: api.spendMonth })
-  const agg = ledger.data ? byModel(inWindow(ledger.data, days, now)) : []
+  // ⚠ TWO DIFFERENT QUESTIONS, AND THE EMPTY STATE BELOW USED TO ANSWER THE WRONG ONE.
+  // `windowRows` is "what is in the window"; `agg` is "what in the window says which model
+  // it came from". byModel DROPS a row with no `metadata.model_used`, so agg can be empty
+  // over a window that is not — measured against the settled mint rows talyvor-lens
+  // actually writes, where it is empty over EVERY window. See mintAttribution.test.tsx.
+  const windowRows = ledger.data ? inWindow(ledger.data, days, now) : []
+  const agg = byModel(windowRows)
   const lxcSplit = lxc.data ? lxcDebitsByModel(lxc.data, days, now) : []
   // One page is all either ledger gets. When the window holds more rows than that, every
   // figure derived from it is a floor — see WindowFloor.tsx.
@@ -94,7 +100,22 @@ export function Spend({ now = new Date() }: { now?: Date }) {
             {mintTruncated ? (
               <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lens-window-incomplete" />
             ) : null}
-            {agg.length === 0 ? (
+            {agg.length === 0 && windowRows.length > 0 ? (
+              // THE WINDOW HAS ROWS AND NONE OF THEM SAYS WHICH MODEL. Saying "no ledger rows"
+              // here is a claim about the ledger made from a fact about one metadata key.
+              // "at least" for the same reason every other figure on this card carries it: a
+              // full page is a floor, so the count is one too.
+              <div data-testid="lens-unattributed" className="px-gutter py-3 text-body text-muted">
+                {mintTruncated ? 'At least ' : ''}
+                {windowRows.length} ledger row{windowRows.length === 1 ? '' : 's'} landed in this
+                window, and none of them records which model it came from — so there is nothing to
+                split by model. The rows themselves are on the{' '}
+                <Link className="underline" to="/ledger">
+                  ledger
+                </Link>
+                .
+              </div>
+            ) : agg.length === 0 ? (
               // ⚠ THE 7-DAY BRANCH IS NOT DECORATION. "Widen the window" is only true when there is
               // a wider one; the control offers 7 and 30, so at 30 that half of the sentence would
               // be an instruction the screen cannot honour. Naming an action the UI does not have

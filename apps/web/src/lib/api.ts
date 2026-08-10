@@ -35,9 +35,14 @@ export interface LensBalance {
 
 /** GET /v1/workspaces/{ws}/tokens/history → []mining.LedgerEntry.
  *  Note the columns present: there is NO hold-window field (no finalize_after / start /
- *  end). `metadata` is a free map; on the live data its keys are provenance
- *  (model_used, latency_bucket, …), never a window. See the report for why HoldBar
- *  cannot be driven from this. */
+ *  end), so HoldBar cannot be driven from this — see the report.
+ *
+ *  ⚠ `metadata` is a free map and this comment used to name its keys as "provenance
+ *  (model_used, latency_bucket, …)". MEASURED at talyvor-lens HEAD: on a SETTLED mint row
+ *  the map is `{request_id, traffic_hold}` (mining/traffic_holds.go:181) or `{request_id}`
+ *  (poolroyalty/sweeper.go:257) — no model, no latency. Read no key out of this map without
+ *  checking which writer puts it there; spendMath.byModel reads `model_used` and the
+ *  screens now state what an empty result means. */
 export interface LedgerEntry {
   id: string
   workspace_id: string
