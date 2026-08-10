@@ -8,4 +8,16 @@ export { useTheme } from './lib/theme'
 export type { Theme } from './lib/theme'
 export { tokens } from './tokens'
 export type { TokenName } from './tokens'
+export {
+  AA_BODY,
+  ROLES_ON_PLANE,
+  TEXT_PLANES,
+  TEXT_ROLES,
+  isTextPlane,
+  isTextRole,
+  permits,
+  ratio,
+  worstRatio,
+} from './planes'
+export type { TextPlane, TextRole } from './planes'
 export { default as preset } from './preset'

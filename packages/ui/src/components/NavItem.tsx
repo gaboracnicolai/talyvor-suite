@@ -32,7 +32,18 @@ export const NavItem = forwardRef<HTMLButtonElement, NavItemProps>(function NavI
       )}
       {...props}
     >
-      {icon ? <span className="shrink-0 text-faint" aria-hidden="true">{icon}</span> : null}
+      {/* ⚠ `muted`, NOT `faint`, AND THE REASON IS THE PLANE UNDER IT RATHER THAN THE STEP BESIDE
+          it. This row's background is `accent-tint` whenever it is selected OR hovered, and
+          MEASURED on that plane `faint` is 3.97:1 light / 3.63:1 dark — under the 4.5:1 AA body
+          floor contrast.test.ts holds every other pair to. `muted` is 5.51 / 4.74 there and
+          6.72 / 6.27 on the canvas and sidebar, so ONE token clears every plane this row can be
+          on. It was `faint`, unconditionally, and no surface passes an `icon` — so the pair never
+          reached a DOM and five audits stayed green over it (apps/web/src/planeAudit.ts).
+          ⚠ ONE TOKEN, NOT ONE PER STATE, DELIBERATELY: `:hover` never applies in jsdom, so a
+          `group-hover:` answer would be unverifiable by the only instrument that can see the
+          plane at all. The step down from the label survives where it carries meaning — the
+          selected row is ink over muted. */}
+      {icon ? <span className="shrink-0 text-muted" aria-hidden="true">{icon}</span> : null}
       <span className="truncate">{children}</span>
     </button>
   )

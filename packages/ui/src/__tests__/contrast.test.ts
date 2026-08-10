@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { contrastRatio } from '../lib/contrast'
 import { tokens, type TokenName } from '../tokens'
+import { AA_BODY, TEXT_PLANES, TEXT_ROLES as PLANE_TEXT_ROLES, permits, ratio } from '../planes'
 
 /**
  * THE PALETTE, MEASURED.
@@ -130,6 +131,9 @@ for (const theme of ['light', 'dark'] as const) {
       expect(r, `accent-ink on accent-hover = ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
     })
     it('ink on accent-tint meets AA body — the tint is a hover/selected BACKGROUND for ink text', () => {
+      // ⚠ THIS CASE IS CORRECT AND IT IS ONE PAIR. It was the only thing scoring the tint, and it
+      // named the one role somebody thought of; `faint` on the same plane is 3.97:1 and nothing
+      // asked. §"the tint is a plane, so every role is asked about it" below is the total form.
       const r = contrastRatio(t.ink, t['accent-tint'])
       expect(r, `ink on accent-tint = ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
     })
@@ -139,3 +143,60 @@ for (const theme of ['light', 'dark'] as const) {
     })
   })
 }
+
+/**
+ * THE PLANES, TOTAL — every role asked about every plane, in both directions.
+ *
+ * ── WHAT THE MATRIX ABOVE CANNOT ASK ─────────────────────────────────────────────────────────
+ *
+ * `TEXT_ROLES x BACKGROUNDS` scores four roles against three planes and is total over THOSE. The
+ * product renders text on a fourth, `accent-tint` — NavItem's selected and hovered row, and every
+ * default/danger Button's press — and the only thing scoring it was one hand-written case naming
+ * one role. MEASURED at `7513c91` from the running DOM of the whole apps/web suite: 10 rendered
+ * sites — the ten sidebar destinations, each of which is the selected row on its own view — and
+ * `faint` on that plane is 3.97:1 light / 3.63:1 dark. The plane's own component declared exactly
+ * that pair on its icon. (The count is 10 and not the 8 an earlier draft carried: the probe
+ * deduplicated inside a module vitest re-instantiates per test FILE, so 8 was a fact about the
+ * instrument. planes.ts records the re-measurement.)
+ *
+ * ── WHY THE REFUSALS ARE CHECKED TOO ─────────────────────────────────────────────────────────
+ *
+ * `ROLES_ON_PLANE` says which roles a plane permits, so a role can be left off a plane. Left
+ * unchecked that is an exemption list, and an exemption list absorbs every future failure
+ * silently. So a refusal must be a FACT: a pair that is refused has to MEASURE below the floor in
+ * at least one theme. Widen the palette until `faint` clears the tint and this file fails until
+ * somebody widens the classification to match — which is the direction that keeps it honest.
+ *
+ * ⚠ THE SET OF PLANES IS PINNED FROM THE DOM, NOT HERE. This file has no product to look at;
+ * `apps/web/src/planeAudit.ts` scores what actually renders and reports a plane nobody classified.
+ * Neither half can produce the other's answer, which is why both exist.
+ */
+describe('the tint is a plane, so every role is asked about it', () => {
+  it('every plane in the classification is a real token', () => {
+    const phantom = TEXT_PLANES.filter((p) => !(p in tokens.light))
+    expect(phantom, `plane names a non-token: ${phantom.join(', ')}`).toEqual([])
+  })
+
+  it('every background the matrix scores is also a classified plane', () => {
+    const missing = BACKGROUNDS.filter((b) => !(TEXT_PLANES as string[]).includes(b))
+    expect(missing, `background(s) absent from ROLES_ON_PLANE: ${missing.join(', ')}`).toEqual([])
+  })
+
+  for (const plane of TEXT_PLANES) {
+    for (const role of PLANE_TEXT_ROLES) {
+      const allowed = permits(plane, role)
+      it(`${role} on ${plane} — ${allowed ? 'permitted, so it must clear AA body' : 'refused, so it must MEASURE below it'}`, () => {
+        const light = ratio('light', role, plane)
+        const dark = ratio('dark', role, plane)
+        const note = `${role} on ${plane} = ${light.toFixed(2)}:1 light, ${dark.toFixed(2)}:1 dark`
+        if (allowed) {
+          expect(Math.min(light, dark), note).toBeGreaterThanOrEqual(AA_BODY)
+        } else {
+          // A refusal is a measurement, never a preference — see the header.
+          expect(Math.min(light, dark), `${note} — this pair PASSES; refusing it is a preference`)
+            .toBeLessThan(AA_BODY)
+        }
+      })
+    }
+  }
+})
