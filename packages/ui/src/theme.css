@@ -165,7 +165,12 @@ body {
    colour, so every text token was being scored against a plane no token declares.
 
    contrast.test.ts holds every text token to AA body (4.5:1) against every BACKGROUND
-   TOKEN. Ten of the sixteen text/plane pairs failed that floor once the user selected
+   TOKEN. ⚠ THAT SENTENCE WAS TRUE OF A THREE-PLANE MATRIX AND THE PRODUCT HAD A FOURTH:
+   `accent-tint` carries text at ten sites and only `ink` was ever scored on it, while
+   `faint` there is 3.97:1. planes.ts is the total form and planeAudit.ts scores what the
+   DOM actually renders — the same defect as this one, arrived at from the other side (a
+   plane no test scored, rather than a plane no token declared).
+   Ten of the sixteen text/plane pairs failed that floor once the user selected
    the text — `faint` at 1.98:1 on the dark canvas, against 4.81:1 unselected — and the
    highlight itself scored 1.43:1 light against the canvas it covers, below the 3:1
    non-text floor the same file applies to a 2px tick. __tests__/selection.test.ts

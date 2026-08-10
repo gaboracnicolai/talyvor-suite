@@ -40,6 +40,13 @@ import {
   takeGlyphOffenders,
 } from './glyphAudit'
 import {
+  MUST_AUDIT_A_DECLARED_PLANE,
+  installPlaneAudit,
+  satisfiesPlaneFloor,
+  setPlaneAuditFile,
+  takePlaneOffenders,
+} from './planeAudit'
+import {
   MUST_RENDER_PLACEHOLDER,
   installPlaceholderAudit,
   satisfiesPlaceholderFloor,
@@ -102,6 +109,19 @@ installGlyphAudit()
  */
 installPlaceholderAudit()
 
+/**
+ * AND EVERY LINE OF TEXT IS SCORED AGAINST THE PLANE IT LANDS ON, on the same ride.
+ *
+ * `contrast.test.ts` scores a MATRIX — four text roles against `canvas`, `surface`, `sidebar` —
+ * plus one hand-written case for `ink` on `accent-tint`. The product renders text on that fourth
+ * plane at ten sites and NOTHING asks whether a role other than `ink` lands there: measured,
+ * `faint` on it is 3.97:1 light / 3.63:1 dark, under the 4.5:1 AA body floor the same file holds
+ * every other pair to, and `NavItem` declared exactly that pair on its icon. A curated matrix
+ * cannot ask what the product actually renders; planes.ts carries the numbers and planeAudit.ts
+ * the ancestor walk that finds the plane.
+ */
+installPlaneAudit()
+
 let currentFile = ''
 beforeEach((ctx) => {
   currentFile = ctx.task.file?.name ?? ''
@@ -109,6 +129,7 @@ beforeEach((ctx) => {
   setFocusAuditFile(currentFile)
   setGlyphAuditFile(currentFile)
   setPlaceholderAuditFile(currentFile)
+  setPlaneAuditFile(currentFile)
 })
 
 // ⚠ BOTH audits are read in ONE hook and reported together. Two `afterEach` registrations would
@@ -188,6 +209,27 @@ afterEach(() => {
     )
   }
 
+  const unscored = takePlaneOffenders()
+  if (unscored.length > 0) {
+    const lines = unscored.map((p) => {
+      const score =
+        p.light === null || p.dark === null
+          ? ''
+          : ` (${p.light.toFixed(2)}:1 light, ${p.dark.toFixed(2)}:1 dark)`
+      return (
+        `  [${p.reason}] text token \`${p.role}\` on plane \`${p.plane}\`${score}\n` +
+        `    <${p.tag} class="${p.className}"> renders ${JSON.stringify(p.text)}\n` +
+        `    plane declared by: ${p.planeFrom}`
+      )
+    })
+    problems.push(
+      'text scored against the plane it renders on and did not clear AA body (4.5:1) — or landed ' +
+        `on a plane nobody classified:\n${lines.join('\n')}\n` +
+        '(the four measured numbers and the classification are in @talyvor/ui planes.ts; the ' +
+        'ancestor walk and its limits are in src/planeAudit.ts)',
+    )
+  }
+
   if (problems.length > 0) throw new Error(problems.join('\n\n'))
 })
 
@@ -264,6 +306,19 @@ afterAll(() => {
         `because it renders ${whyPlaceholder}. Either the fixture stopped rendering it — in which ` +
         'case this file no longer guards it — or the audit stopped seeing it. Do not delete the ' +
         'entry to go green.',
+    )
+  }
+
+  // ⚠ THE PLANE FLOOR ASKS FOR A DECLARED PLANE, NOT A PAIR — see the table's own note. Every
+  // test renders text on the body default, so "audited a pair" stays green with the ancestor walk
+  // blinded, and the ancestor walk is the only half a source rule could not have done.
+  const whyPlane = MUST_AUDIT_A_DECLARED_PLANE[currentFile]
+  if (whyPlane && !satisfiesPlaneFloor(currentFile)) {
+    throw new Error(
+      `${currentFile} scored NO text against a DECLARED plane. It is listed in ` +
+        `MUST_AUDIT_A_DECLARED_PLANE because ${whyPlane}. Either the fixture stopped rendering ` +
+        'it — in which case this file no longer guards it — or the audit stopped seeing it. Do ' +
+        'not delete the entry to go green.',
     )
   }
 
