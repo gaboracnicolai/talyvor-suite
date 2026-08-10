@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import postcss from 'postcss'
 import tailwind from 'tailwindcss'
 import { describe, expect, it } from 'vitest'
-import tailwindConfig, { absoluteContent } from '../tailwind.config'
+import tailwindConfig, { buildContent, contentTransform } from '../tailwind.config'
 // Deep relative import on purpose: one implementation of the comment stripper, with ONE set of
 // positive controls (packages/ui/src/__tests__/typeface.test.tsx). Two copies of a scanner is
 // two chances for only one of them to be right.
@@ -178,9 +178,12 @@ function collectUsedTokens(emitted: Set<string>): Map<string, string[]> {
 
 /** Class names Tailwind actually emitted, unescaped. */
 async function generatedClassNames(extraContent?: string): Promise<Set<string>> {
+  // ⚠ `buildContent`, not a bare glob list: the build TRANSFORMS its input (comments are
+  // stripped before extraction) and an instrument that skips that step reasons about a sheet
+  // the browser never receives. Same argument as `absoluteContent` — one composer.
   const content = extraContent
-    ? [{ raw: extraContent, extension: 'html' }]
-    : absoluteContent(appRoot)
+    ? { files: [{ raw: extraContent, extension: 'html' }], transform: contentTransform }
+    : buildContent(appRoot)
   const css = await postcss([
     tailwind({ ...tailwindConfig, content: content as never }),
   ]).process('@tailwind utilities;', { from: undefined })
