@@ -29,6 +29,24 @@
 // can see it is a REAL vitest run that must fail — the same argument `build-release.sh` makes
 // about the version stamp: nothing inside the run can see whether the run was armed.
 //
+// ── AND IT RUNS AGAINST BOTH PROJECTS, BECAUSE ONE OF THEM HAD NO GATE AT ALL ────────────────
+//
+// This repo has TWO vitest projects. Everything above was wired into apps/web; `packages/ui`'s
+// setup was one line (`import '@testing-library/jest-dom/vitest'`), so its 335 tests rendered
+// Button, Pill, NavItem, MuNumeral, Switch, TierDot, Mark, HoldBar and FixtureNotice under no
+// audit. MEASURED at `3a96294`: the ARMED fixture below — the same seven offenders — was written
+// into packages/ui/src/__tests__/ and PASSED. Seven rules, an entire package, and the instrument
+// that exists to prove they are armed was pointed at one project.
+//
+// ⚠ THE REACH GUARD COULD NOT HAVE SAID SO, and its wording claimed the opposite: it reads
+// apps/web's shards only, and told anyone reading its failure text that a component "is exported
+// and NO test renders it" — while components.test.tsx:46 rendered HoldBar and promotions.test.tsx:34
+// rendered FixtureNotice, the two it classifies. See check-audit-reach.mjs.
+//
+// So PROJECTS below is a table, the probe runs in each, and each project's own setup must hold a
+// report block for every audit in AUDITS. An eighth audit wired into one setup and forgotten in
+// the other fails the count for that project by name.
+//
 // ── WHAT IT DOES ─────────────────────────────────────────────────────────────────────────────
 //
 //  1. NEGATIVE HALF FIRST. Runs a probe that renders NOTHING and requires it to PASS. Without
@@ -50,9 +68,29 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
 const appRoot = resolve(new URL('..', import.meta.url).pathname)
-const PROBE_REL = 'src/auditGateProbe.test.ts'
-const PROBE = resolve(appRoot, PROBE_REL)
-const SETUP = resolve(appRoot, 'src/test-setup.ts')
+
+/**
+ * The vitest projects that install the audits, and where each one keeps its enforcement point.
+ *
+ * ⚠ THE PROBE PATH MUST BE INSIDE THAT PROJECT'S `include` GLOB or the run passes by collecting
+ * nothing — a green that means "no test matched". apps/web includes `src/**` and packages/ui
+ * includes `src/**`, and each path below is checked against a real armed run, not read off the
+ * config.
+ */
+const PROJECTS = [
+  {
+    label: 'apps/web',
+    root: appRoot,
+    setup: 'src/test-setup.ts',
+    probe: 'src/auditGateProbe.test.ts',
+  },
+  {
+    label: 'packages/ui',
+    root: resolve(appRoot, '../../packages/ui'),
+    setup: 'src/__tests__/setup.ts',
+    probe: 'src/__tests__/auditGateProbe.test.ts',
+  },
+]
 
 /**
  * The seven audits, each matched by the OPENING PHRASE OF ITS OWN REPORT BLOCK.
@@ -118,78 +156,101 @@ describe('audit gate probe', () => {
 })
 `
 
-function runProbe(source) {
-  writeFileSync(PROBE, source)
-  const r = spawnSync('npx', ['vitest', 'run', PROBE_REL], { cwd: appRoot, encoding: 'utf8' })
-  return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
-}
-
 function fail(msg) {
   console.error(`audit-gate: ${msg}`)
   process.exitCode = 1
 }
 
-if (existsSync(PROBE)) {
-  console.error(
-    `audit-gate: ${PROBE_REL} already exists. This script owns that path and would overwrite it — ` +
-      'an interrupted run leaves it behind. Delete it and re-run.',
-  )
-  process.exit(1)
-}
+function checkProject(project) {
+  const probePath = resolve(project.root, project.probe)
+  const setupPath = resolve(project.root, project.setup)
 
-// ⚠ THE PINNED SET AND THE SOURCE COUNT MUST AGREE. A pinned list cannot see an audit that was
-// added and never wired; a source count cannot see one that was deleted from the list. Holding
-// both is this repo's answer, and it is the reason `AUDITS` is not just grepped out of the setup.
-const reportBlocks = (readFileSync(SETUP, 'utf8').match(/problems\.push\(/g) ?? []).length
-if (reportBlocks !== AUDITS.length) {
-  fail(
-    `test-setup.ts holds ${reportBlocks} report blocks and this script pins ${AUDITS.length} audits.\n` +
-      '  An audit was added or removed. Update AUDITS in this file and prove the new one reaches ' +
-      'the probe fixture — an audit that never reports is a rule nothing enforces.',
-  )
-  process.exit(1)
-}
+  const runProbe = (source) => {
+    writeFileSync(probePath, source)
+    const r = spawnSync('npx', ['vitest', 'run', project.probe], {
+      cwd: project.root,
+      encoding: 'utf8',
+    })
+    return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
+  }
 
-try {
-  const clean = runProbe(CLEAN)
-  if (clean.status !== 0) {
+  if (existsSync(probePath)) {
     fail(
-      'the EMPTY probe failed, so this run cannot tell a caught offender from a broken harness.\n' +
-        clean.out.split('\n').slice(-25).join('\n'),
+      `${project.label}: ${project.probe} already exists. This script owns that path and would ` +
+        'overwrite it — an interrupted run leaves it behind. Delete it and re-run.',
     )
-  } else {
+    return
+  }
+
+  // ⚠ THE PINNED SET AND THE SOURCE COUNT MUST AGREE. A pinned list cannot see an audit that was
+  // added and never wired; a source count cannot see one that was deleted from the list. Holding
+  // both is this repo's answer, and it is the reason `AUDITS` is not just grepped out of the
+  // setup. It is asked of EACH project: the two setups are deliberate copies of the reporting,
+  // so an audit added to one and forgotten in the other is exactly the drift this catches.
+  //
+  // ⚠ THE ANCHOR IS LOAD-BEARING AND WAS PAID FOR. Unanchored, this matched the phrase inside a
+  // PROSE SENTENCE — packages/ui's setup explains this very rule and named the call in it — and
+  // reported 8 blocks for a file holding 7. A source count that reads documentation grows with
+  // documentation. That sentence is still there on purpose: it is the fixture that keeps `^\s*`
+  // honest, so deleting the anchor fails the run rather than passing quietly.
+  const reportBlocks = (readFileSync(setupPath, 'utf8').match(/^\s*problems\.push\(/gm) ?? []).length
+  if (reportBlocks !== AUDITS.length) {
+    fail(
+      `${project.label}: ${project.setup} holds ${reportBlocks} report blocks and this script ` +
+        `pins ${AUDITS.length} audits.\n` +
+        '  An audit was added or removed. Update AUDITS in this file and prove the new one reaches ' +
+        'the probe fixture — an audit that never reports is a rule nothing enforces.',
+    )
+    return
+  }
+
+  try {
+    const clean = runProbe(CLEAN)
+    if (clean.status !== 0) {
+      fail(
+        `${project.label}: the EMPTY probe failed, so this run cannot tell a caught offender from ` +
+          'a broken harness.\n' +
+          clean.out.split('\n').slice(-25).join('\n'),
+      )
+      return
+    }
     const armed = runProbe(ARMED)
     if (armed.status === 0) {
       fail(
-        'THE AUDIT GATE DID NOT THROW. A probe rendering one offender for each of the seven DOM ' +
-          'audits passed.\n' +
-          "  test-setup.ts's `if (problems.length > 0) throw` is the single enforcement point for " +
-          'ALL of them; with it disabled the whole suite stays green while the product ships the ' +
-          'defects each rule exists to prevent.',
+        `${project.label}: THE AUDIT GATE DID NOT THROW. A probe rendering one offender for each ` +
+          'of the seven DOM audits passed.\n' +
+          `  ${project.setup}'s \`if (problems.length > 0) throw\` is the single enforcement point ` +
+          'for ALL of them; with it disabled the whole suite stays green while the product ships ' +
+          'the defects each rule exists to prevent.',
       )
-    } else {
-      const silent = AUDITS.filter(([, phrase]) => !armed.out.includes(phrase)).map(([name]) => name)
-      if (silent.length > 0) {
-        fail(
-          `the gate threw, but ${silent.length} audit(s) never named themselves in it: ${silent.join(', ')}.\n` +
-            '  Either its report block was removed from test-setup.ts, or the probe fixture no ' +
-            'longer contains an offender it can see. Both are holes; neither is a pass.',
-        )
-      } else {
-        console.log(
-          `audit-gate: ok — the empty probe passes, the armed probe fails, and all ${AUDITS.length} ` +
-            'audits named themselves in the failure.',
-        )
-      }
+      return
+    }
+    const silent = AUDITS.filter(([, phrase]) => !armed.out.includes(phrase)).map(([name]) => name)
+    if (silent.length > 0) {
+      fail(
+        `${project.label}: the gate threw, but ${silent.length} audit(s) never named themselves ` +
+          `in it: ${silent.join(', ')}.\n` +
+          `  Either its report block was removed from ${project.setup}, or the probe fixture no ` +
+          'longer contains an offender it can see. Both are holes; neither is a pass.',
+      )
+      return
+    }
+    console.log(
+      `audit-gate: ${project.label} ok — the empty probe passes, the armed probe fails, and all ` +
+        `${AUDITS.length} audits named themselves in the failure.`,
+    )
+  } finally {
+    rmSync(probePath, { force: true })
+    if (existsSync(probePath)) {
+      console.error(
+        `audit-gate: could not remove ${relative(project.root, probePath)} — it is inside ` +
+          "vitest's include glob and will fail the next run. Remove it by hand.",
+      )
+      process.exitCode = 1
     }
   }
-} finally {
-  rmSync(PROBE, { force: true })
-  if (existsSync(PROBE)) {
-    console.error(
-      `audit-gate: could not remove ${relative(appRoot, PROBE)} — it is inside vitest's include ` +
-        'glob and will fail the next run. Remove it by hand.',
-    )
-    process.exitCode = 1
-  }
 }
+
+// ⚠ EVERY PROJECT IS CHECKED EVEN AFTER ONE FAILS. Stopping at the first would report the second
+// project's state as unknown while printing a failure that looks complete.
+for (const project of PROJECTS) checkProject(project)
