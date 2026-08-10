@@ -25,7 +25,7 @@ import { App, queryClient } from './App'
 //
 // The third row is why nothing was red. The first two are the defect, in both directions:
 // Spend.tsx guarded on `ledger.isError` and passed `lxc.error`, so it reported a query it was
-// not rendering. Overview.tsx:264 is the SAME seam written correctly (`ledger.isError` →
+// not rendering. Overview.tsx:291 is the SAME seam written correctly (`ledger.isError` →
 // `ledger.error`), two files away, for the same request — which is what makes the middle
 // column a positive control rather than an opinion.
 //
@@ -300,7 +300,7 @@ describe('a 500 next to a 401 is still a 500', () => {
     ])
     at('/')
     await settled()
-    // Overview.tsx:264 — `ledger.isError ? <Failed what="the mint ledger" error={ledger.error} />`.
+    // Overview.tsx:291 — `ledger.isError ? <Failed what="the mint ledger" error={ledger.error} />`.
     // Same seam, same request, written the right way round. MUST STAY GREEN.
     expect(pageText()).toMatch(/Couldn[’']t load the mint ledger/i)
   })
