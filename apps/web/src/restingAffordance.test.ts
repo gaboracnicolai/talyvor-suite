@@ -3,7 +3,7 @@ import { relative, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { stripComments } from '../../../packages/ui/src/lib/sourceText'
+import { blankComments, stripComments } from '../../../packages/ui/src/lib/sourceText'
 
 /**
  * A LINK WHOSE ONLY AFFORDANCE IS `hover:underline` HAS NO AFFORDANCE ON A PHONE.
@@ -113,56 +113,6 @@ function sourceFiles(root: string): string[] {
 }
 
 const FILES = [...sourceFiles(WEB_SRC), ...sourceFiles(UI_SRC)]
-
-/**
- * `stripComments`, but every removed byte becomes a space — same decisions, same offsets.
- * Newlines inside comments are preserved so a line number stays a line number.
- */
-export function blankComments(src: string): string {
-  const out: string[] = []
-  const blank = (s: string) => out.push(s.replace(/[^\n]/g, ' '))
-  let i = 0
-  while (i < src.length) {
-    const c = src[i]
-    const next = src[i + 1]
-    if (c === '/' && next === '/') {
-      const start = i
-      while (i < src.length && src[i] !== '\n') i++
-      blank(src.slice(start, i))
-      continue
-    }
-    if (c === '/' && next === '*') {
-      const start = i
-      i += 2
-      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++
-      i = Math.min(i + 2, src.length)
-      blank(src.slice(start, i))
-      continue
-    }
-    if (c === '"' || c === "'" || c === '`') {
-      const quote = c
-      out.push(c)
-      i++
-      while (i < src.length) {
-        if (src[i] === '\\') {
-          out.push(src[i] + (src[i + 1] ?? ''))
-          i += 2
-          continue
-        }
-        out.push(src[i])
-        if (src[i] === quote) {
-          i++
-          break
-        }
-        i++
-      }
-      continue
-    }
-    out.push(c)
-    i++
-  }
-  return out.join('')
-}
 
 /**
  * Every quoted run in a source text. The unit both comment-blankers are compared on.
