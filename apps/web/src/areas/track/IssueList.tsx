@@ -351,10 +351,18 @@ export function IssueList() {
                 <tr key={it.id} className="border-t border-rule align-middle">
                   {/* ⚠ THE LINK IS THE WHOLE POINT. Until now a row was terminal: you could see an
                       issue existed and had no way to open it. The title is the target because that
-                      is what a reader aims at; the ref stays plain so the row has one link, not two. */}
+                      is what a reader aims at; the ref stays plain so the row has one link, not two.
+                      ⚠ UNDERLINED AT REST, not on hover — the same correction Crumbs already made in
+                      areas/docs/components.tsx and recorded there as "the only Link in the app
+                      without a resting affordance". It was not the only one: this cell is the link,
+                      the whole cell, and at rest it was text-ink text between a muted mono ref and a
+                      Pill, so the one cell that navigates was the one cell with no mark on it — and
+                      a hover affordance is the one affordance a touch device can never produce.
+                      src/restingAffordance.test.ts fails on a hover-only underline in either
+                      package now, so this cannot come back as a third instance. */}
                   <td className="py-2 pr-3 font-mono text-caption text-muted">{it.identifier}</td>
                   <td className="py-2 pr-3 text-ink">
-                    <Link className="underline-offset-2 hover:underline" to={`/track/issues/${it.id}`}>
+                    <Link className="underline underline-offset-2" to={`/track/issues/${it.id}`}>
                       {it.title}
                     </Link>
                   </td>
