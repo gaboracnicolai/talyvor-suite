@@ -163,11 +163,12 @@ A sibling of the above, for a different reason, and it changes how you write che
 against `app.talyvor.com` / `127.0.0.1:8787`.
 
 **The BFF serves the SPA, and falls back to `index.html` for any path that is not a real
-file.** So on that origin:
+file — EXCEPT the paths the build owns, which 404.** So on that origin:
 
 | path | what a 200 means |
 |---|---|
 | `/api/…`, `/auth/…` | a real handler answered — the code is meaningful |
+| `/assets/…`, `/version.json` | **the file is really there.** These do not fall back; a missing one is a 404. |
 | anything else | **`index.html` was served.** Says nothing about the path existing. |
 
 **Measured** against a `web-dist` containing *only* `index.html` — no assets, no
@@ -176,36 +177,41 @@ file.** So on that origin:
 | request | code | content-type | `curl -f` exit |
 |---|---|---|---|
 | `/` | 200 | text/html | **0** |
-| `/version.json` | 200 | **text/html** | **0** |
+| `/version.json` | **404** | text/plain | 22 |
 | `/billing/success` | 200 | text/html | **0** |
 | `/ledger` | 200 | text/html | **0** |
-| `/assets/index-nope.js` | 200 | **text/html** | **0** |
+| `/assets/index-nope.js` | **404** | text/plain | 22 |
 | `/api/version` | 200 | application/json | 0 |
 | `/api/nope` | **404** | application/json | 22 |
 
 Consequences, in order of how easy they are to get wrong:
 
-1. **`curl -f` and `-w '%{http_code}'` cannot verify that a client-side route or a
-   static file exists** on this origin. They succeed unconditionally — see every `0` in
-   the last column. That includes `/version.json` and every SPA route: `/ledger`,
-   `/setup`, and the `LENS_BILLING_SUCCESS_URL` landing page `/billing/success`. A
-   post-purchase page that was never built into the bundle answers 200 exactly like one
-   that was.
-2. ⚠ **A MISSING JS ASSET ALSO ANSWERS 200 WITH HTML** — row five. This is the failure
-   mode of a partial `rsync`: `index.html` lands, `assets/` does not, **every curl check
-   in this document passes, and the app is a white screen.** The browser requests a
-   content-hashed `.js` file, receives HTML, and fails to parse it. Nothing on the server
-   side reports anything wrong. Check the asset actually referenced by `index.html`:
+1. **`curl -f` and `-w '%{http_code}'` cannot verify that a CLIENT-SIDE ROUTE exists** on
+   this origin. They succeed unconditionally — see the `0`s in the last column. That is
+   every SPA route: `/ledger`, `/setup`, and the `LENS_BILLING_SUCCESS_URL` landing page
+   `/billing/success`. A post-purchase page that was never built into the bundle answers
+   200 exactly like one that was, because a client route is not a file and the router
+   decides what it means. **A STATIC FILE IS DIFFERENT — see (2).**
+2. ✅ **A MISSING ASSET NOW ANSWERS 404** — row five, and `/version.json` in row two. It
+   did not always: both used to return **200 with `index.html`**, which is the failure
+   mode of a partial `rsync` (`index.html` lands, `assets/` does not) and of a browser
+   holding the previous deploy's `index.html`. Measured in Chrome against a bundle whose
+   `index.html` named hashes that were not on disk: four requests, **all 200**, `#root`
+   empty, zero stylesheet rules, one console line about a MIME type — a white screen with
+   nothing on the wire to see it by. The status code is now the check:
    ```sh
    JS=$(curl -s http://127.0.0.1:8787/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)
-   curl -s -o /dev/null -w "%{content_type}\n" "http://127.0.0.1:8787$JS"
-   # expect: text/javascript.  text/html ⇒ the asset is MISSING and the app is broken.
+   curl -sf -o /dev/null "http://127.0.0.1:8787$JS" || echo "the asset index.html names is MISSING"
    ```
+   ⚠ This does **not** make the app render — nothing can conjure a file that is not
+   there. It makes the breakage *detectable*, by curl, by a monitor, and in a browser's
+   network panel. `apps/bff/spa_fallback_test.go` holds the rule and the measurements.
 3. **`curl / → 200` proves `index.html` exists, not that the bundle is complete or
-   current.** See (2).
-4. **Require content, not status.** `| jq -e '.field'` for JSON, a content-type or
-   `grep -o` for everything else. Where what you want to prove is "the deployed bundle is
-   the one I built", use the version comparison in STEP 6d — that is what it is for.
+   current.** Assets are separate files; check the one `index.html` names, as in (2).
+4. **For a client route, require content, not status.** `| jq -e '.field'` for JSON, a
+   content-type or `grep -o` for everything else. Where what you want to prove is "the
+   deployed bundle is the one I built", use the version comparison in STEP 6d — that is
+   what it is for.
 
 `/api/…` is the exception, and the last two rows show why: the `/api/` catch-all returns
 a genuine **404**, so codes on `/api/…` routes discriminate real states. STEP 6's
@@ -1301,19 +1307,24 @@ grep -l 'Not every kind of contribution earns LENS' /opt/talyvor/web-dist/assets
 *(Verified against a real `pnpm build` of suite `2d239d7`: the string survives
 minification and appears exactly once.)*
 
-### ⚠ DO NOT VERIFY THIS WITH A STATUS CODE — `curl -f` PASSES ON A BUNDLE WITH NO VERSION
+### Verifying it: the status code is now honest, and the JSON check is still the better one
 
-`GET /version.json` on a bundle that predates #39 returns **HTTP 200 with HTML**, not a
-404, because the BFF serves the SPA and falls back to `index.html` for any path that is
-not a real file. Measured:
+`GET /version.json` on a bundle that predates #39 returns **HTTP 404**. It did not
+always: `/version.json` used to leave by the SPA fallback and answer **200 with HTML**,
+so `curl -f $APP/version.json` succeeded against a bundle carrying no version at all —
+absence read as success, a green check sitting next to the exact condition it was meant
+to detect. `/version.json` and `/assets/…` are now excluded from the fallback (a path the
+build owns is answered by the build or by 404), measured:
 
 ```
-GET /version.json on a bundle with NO version.json → 200, content-type: text/html, body: <!doctype html>…
+GET /version.json on a bundle with NO version.json → 404, content-type: text/plain
+GET /version.json on a bundle that HAS one         → 200, content-type: application/json
 ```
 
-So `curl -f $APP/version.json` **succeeds against a bundle carrying no version at
-all** — absence read as success, a green check sitting next to the exact condition it
-was meant to detect. **Require the response to parse as JSON**, never the exit code:
+**Still require the response to parse as JSON.** The status code is now sound, but the
+JSON check proves the stronger thing — that the file is a version payload and not merely
+present — and it is the same command whether or not the origin in front of the BFF (a
+proxy, a CDN, a static host) has a fallback of its own:
 
 ```sh
 curl -s http://127.0.0.1:8787/version.json | jq -e '.commit' >/dev/null \
@@ -1321,7 +1332,8 @@ curl -s http://127.0.0.1:8787/version.json | jq -e '.commit' >/dev/null \
   || echo "NO VERSION — pre-#39 bundle, or not the app you think. Use the grep."
 ```
 
-This is a property of the app origin generally, not of `/version.json` — see
+⚠ A CLIENT ROUTE IS STILL NOT VERIFIABLE BY STATUS — `/ledger` and `/billing/success`
+answer 200 whether or not the router draws them, because they are not files. See
 **Reading verification output** at the top of this document.
 
 Only once one of the two checks above passes:
