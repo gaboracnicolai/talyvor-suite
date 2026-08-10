@@ -61,6 +61,7 @@
   "src/lib/productState.test.ts": 13,
   "src/motion.test.tsx": 32,
   "src/noFlashTheme.test.ts": 8,
+  "src/PanelReportsItsOwnQuery.test.tsx": 49,
   "src/placeholderAudit.test.tsx": 15,
   "src/planeAudit.test.tsx": 17,
   "src/pointerAudit.test.ts": 6,

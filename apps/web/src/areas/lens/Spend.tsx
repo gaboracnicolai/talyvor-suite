@@ -53,7 +53,16 @@ export function Spend({ now = new Date() }: { now?: Date }) {
         {ledger.isLoading ? (
           <div className="px-gutter py-3 text-body text-muted">Loading…</div>
         ) : ledger.isError ? (
-          <PanelFailure error={lxc.error} what="the ledger" />
+          // `ledger.error`, NOT `lxc.error`. This card is guarded on `ledger.isError` and was
+          // handing PanelFailure the OTHER query's error, so it reported a request it was not
+          // rendering. PanelFailure decides between "Unavailable." and "Couldn’t load …" purely
+          // on that object, and the two ledgers fail independently — measured, clicking Spend
+          // from Overview re-fetches the mint ledger while `["lxc-history",200,0]` is a fresh
+          // shared cache hit, so `lxc.error` is null at exactly the moment this one 401s. Both
+          // directions were wrong: a dead credential got a second, different diagnosis under a
+          // bar that had already explained it, and a genuine 500 got laundered into the
+          // expired-credential placeholder. Overview.tsx has the same seam written correctly.
+          <PanelFailure error={ledger.error} what="the ledger" />
         ) : (
           <>
             <div data-testid="lens-by-model">
