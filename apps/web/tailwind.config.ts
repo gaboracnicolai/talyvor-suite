@@ -18,13 +18,12 @@ const content = [
   // production bundle carrying the exact arbitrary values `local/no-arbitrary-value` exists to
   // forbid, supplied by the tests that prove they are forbidden.
   //
-  // ⚠ THIS DOES NOT CLOSE THE WHOLE HOLE AND IS NOT MEANT TO. COMMENTS in ordinary source are
-  // still extracted: preset.ts's sentence "arbitrary values (text-[#…], p-[13px]) are forbidden"
-  // ships `.p-\[13px\]` and `.text-\[\#…\]` as real rules, and the display-scale comment quoting
-  // the site's markup ships `leading-[1.04]` and `tracking-[-0.03em]`. Twenty classes in this
-  // sheet exist only because prose mentions them. Closing that means a custom `extract` that
-  // strips comments first, which moves the emitted set deadClasses.test.ts reasons about — its
-  // own change, with its own positive controls. Reported on the queue, not folded in here.
+  // ⚠ THAT WAS HALF THE HOLE, AND THE OTHER HALF IS CLOSED BELOW BY `contentTransform`.
+  // COMMENTS in ordinary source were still extracted: preset.ts's sentence "arbitrary values
+  // (text-[#…], p-[13px]) are forbidden" shipped `.p-\[13px\]` and `.text-\[\#…\]` as real
+  // rules, and the display-scale comment quoting the site's markup shipped `leading-[1.04]`
+  // and `tracking-[-0.03em]`. Twenty classes in this sheet existed only because prose
+  // mentioned them; src/proseClasses.test.ts is the guard and holds the measurement.
   '!./src/**/*.test.{ts,tsx}',
   '!../../packages/ui/src/**/*.test.{ts,tsx}',
 ]

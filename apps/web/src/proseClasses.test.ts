@@ -29,10 +29,21 @@ import { resolve } from 'node:path'
  * the exact arbitrary value the lint rule exists to forbid, supplied by the rule's own
  * documentation.
  *
- * ⚠ THIS IS A CORRECTNESS ARGUMENT, NOT A PERFORMANCE ONE. 2,226 bytes before compression is
- * nothing. What matters is that the stylesheet should describe the PRODUCT, and a rule nothing
- * renders is a rule review cannot distinguish from one something renders — `.bg-accent-hover`
- * reads in the sheet exactly like a live token, and no element in this repo asks for it.
+ * ⚠ AND MEASURED ON THE ARTEFACT, not only on the generator — `vite build` run both ways:
+ *     dist/assets/index-*.css   24,098 -> 22,420 bytes   (gzipped 5,760 -> 5,449)
+ *
+ * ⚠ THIS IS A CORRECTNESS ARGUMENT, NOT A PERFORMANCE ONE. 311 bytes off a gzipped stylesheet
+ * is not a saving anyone can measure. What matters is that the stylesheet should describe the
+ * PRODUCT, and a rule nothing renders is a rule review cannot distinguish from one something
+ * renders — `.bg-accent-hover` reads in the sheet exactly like a live token, and no element in
+ * this repo asks for it.
+ *
+ * ⚠ WHAT MOVED FOR deadClasses.test.ts, which reasons from this same emitted set (utilities
+ * only, its own scope): emitted 346 -> 325, and the tokens it harvests 282 -> 281. The one it
+ * lost is `04` — a junk fragment that was emitted from a comment, which made rule B (a literal
+ * is a class list if any of its tokens is a real class) read one more literal as classes. Its
+ * dead list is unchanged: `tal-range`, `tal-rise`, `tal-stagger`, all hand-written CSS and all
+ * filtered. No class the source writes stopped being emitted.
  *
  * ⚠ WHAT THIS DOES NOT CLOSE, MEASURED RATHER THAN ASSUMED. `index.html` is in the content set
  * and HTML comments are NOT stripped: `stripComments` is a JavaScript scanner (it protects
@@ -175,7 +186,11 @@ describe('the shipped stylesheet', () => {
   })
 
   it('every extension in the content set has a transformer, or a reason', () => {
-    const globs = (tailwindConfig.content as { files: string[] }).files.filter((g) => !g.startsWith('!'))
+    // Read BOTH shapes. A bare glob list is a different defect with its own test above, and if
+    // this one crashed on `.files` being undefined it would report a missing transformer for a
+    // config whose extensions are all covered — a true verdict for a false reason.
+    const content = tailwindConfig.content as string[] | { files: string[] }
+    const globs = (Array.isArray(content) ? content : content.files).filter((g) => !g.startsWith('!'))
     const extensionsOf = (glob: string): string[] => {
       const brace = glob.match(/\.\{([^}]+)\}$/)
       if (brace) return brace[1].split(',').map((s) => s.trim())
