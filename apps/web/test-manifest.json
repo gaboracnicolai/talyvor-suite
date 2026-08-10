@@ -40,6 +40,7 @@
   "src/ConsoleNavLinks.test.tsx": 20,
   "src/ConsoleTitle.test.tsx": 28,
   "src/controlParity.test.ts": 8,
+  "src/copyFailure.test.tsx": 12,
   "src/deadClasses.test.ts": 4,
   "src/displayScale.test.ts": 6,
   "src/DocsInNav.test.tsx": 2,
