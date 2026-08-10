@@ -91,9 +91,12 @@ export function SessionChip() {
   const qc = useQueryClient()
   if (!q.data?.authenticated || !q.data.user) return null
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-caption text-muted">{q.data.user.email}</span>
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="truncate text-caption text-muted" title={q.data.user.email}>
+        {q.data.user.email}
+      </span>
       <Button
+        className="shrink-0"
         onClick={() => {
           void fetch('/auth/logout', { method: 'POST' }).then(() => {
             // The session is dead server-side; re-probe so the gate re-renders.
