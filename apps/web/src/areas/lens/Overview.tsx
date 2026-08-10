@@ -8,6 +8,7 @@ import {
   InlineFailure,
   PanelFailure,
 } from "../../components/SessionExpiredBar";
+import { isUnconfigured } from "../../lib/productState";
 import { CapabilityOff } from "./Capability";
 import { ModelTier } from "./ModelTier";
 import { formatUSD, formatWhen, humanizeType, ledgerStatus } from "./format";
@@ -361,14 +362,23 @@ function SpendCard({ now }: { now: Date }) {
 
 type ProbeState = "on" | "off";
 
-// An unconfigured upstream is a 503 from the BFF's proxyProduct ("… upstream
-// not configured on this BFF") and a plain-proxied absence is a 404 — both are
-// INFORMATION. Anything else is a genuine failure and throws.
+// ⚠ ONE SPELLING OF "NOT WIRED", AND IT IS lib/productState.ts's.
+//
+// This classified here, and it was a SECOND, HAND-ROLLED COPY of a predicate the shared one
+// had already had 404 removed from: `if (res.status === 503 || res.status === 404) return
+// "off"`, under a comment calling a 404 "INFORMATION". productState.ts records what that cost
+// — the BFF asked Docs for a path Docs does not register, and the screen reported "Docs is not
+// configured on this deployment" while Docs was RUNNING and had just served the space list.
+// A 404 is a statement about an ADDRESS; it is never evidence about whether a product is
+// deployed. The shared classifier's two other call sites (useTrackProbe, DocsUpstreamCard)
+// both took the repair; this strip was the site it never reached.
+//
+// So the probe now reports only what it saw and the CLASSIFICATION happens once, in the
+// shared predicate, at the call site below.
 async function probeProduct(path: string): Promise<ProbeState> {
   const res = await fetch(path, { headers: { Accept: "application/json" } });
-  if (res.ok) return "on";
-  if (res.status === 503 || res.status === 404) return "off";
-  throw new ApiError(res.status, path);
+  if (!res.ok) throw new ApiError(res.status, path);
+  return "on";
 }
 
 function StateMark({ state }: { state: ProbeState }) {
@@ -396,13 +406,14 @@ function ProductRow({
     queryKey: ["probe", path],
     queryFn: () => probeProduct(path),
   });
+  // The one predicate, shared with every other screen that draws this state.
+  const off = isUnconfigured(q.error);
   return (
-    <Row
-      label={name}
-      hint={q.data === "off" ? "Not configured on this BFF deployment." : hint}
-    >
+    <Row label={name} hint={off ? "Not configured on this BFF deployment." : hint}>
       {q.isLoading ? (
         <span className="text-caption text-muted">Checking…</span>
+      ) : off ? (
+        <StateMark state="off" />
       ) : q.isError ? (
         <InlineFailure
           error={q.error}
@@ -410,7 +421,7 @@ function ProductRow({
           failed="Couldn’t check"
         />
       ) : (
-        <StateMark state={q.data as ProbeState} />
+        <StateMark state="on" />
       )}
     </Row>
   );

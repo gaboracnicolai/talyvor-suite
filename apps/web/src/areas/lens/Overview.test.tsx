@@ -235,6 +235,59 @@ describe('the products strip reads unconfigured as calm state', () => {
   })
 })
 
+// ⚠ 404 IS A STATEMENT ABOUT AN ADDRESS, NOT ABOUT A DEPLOYMENT — and this strip was the
+// one place left that still read it as one.
+//
+// lib/productState.ts removed 404 from `isUnconfigured` and records why in full: the BFF
+// asked Docs for a path Docs does not register, and the screen reported "Docs is not
+// configured on this deployment — no upstream is wired" while Docs was RUNNING and had just
+// served the space list. Our routing bug, rendered as the operator's misconfiguration,
+// sending them to check env vars that were correct.
+//
+// `probeProduct` in Overview.tsx was a SECOND, HAND-ROLLED COPY of that predicate and still
+// held `res.status === 503 || res.status === 404 → "off"`. The shared classifier's two other
+// call sites (useTrackProbe in areas/track/data.ts, DocsUpstreamCard) both use the repaired
+// one; this was the third site the repair never reached.
+//
+// MEASURED IN REAL CHROME 151 on the built bundle against the real BFF binary, with only the
+// two probe paths' STATUS injected by a front proxy (a genuine upstream 404 needs
+// BFF_AUTH_MODE=oidc, which the BFF refuses to pair with a Track/Docs upstream in disabled
+// mode). The console's landing screen, counted in the DOM:
+//
+//   injected   "Not configured"  its hint   "Couldn’t check"   "Configured"
+//     200            0               0            0                3
+//     404            2               2            0                1     ← indistinguishable
+//     503            2               2            0                1     ←   from each other
+//     500            0               0            2                1
+//
+// 404 and 503 are the same picture on the surface an operator reads first.
+describe('the products strip does not read a 404 as a deployment fact', () => {
+  it('a 404 from a running product surfaces as a fault, never as "Not configured"', async () => {
+    const notFound = { status: 404, body: { error: 'not found' } }
+    mockBff({ track: notFound, docs: notFound })
+    renderOverview()
+
+    // Both probes settle as FAULTS — the state that sends someone to look at the address
+    // rather than at their env vars.
+    await waitFor(() => expect(screen.getAllByText(/Couldn’t check/)).toHaveLength(2))
+    expect(screen.queryAllByText('Not configured')).toHaveLength(0)
+    expect(screen.queryAllByText('Not configured on this BFF deployment.')).toHaveLength(0)
+    // …and the row that DID answer still reads Configured, so the absence above is not a
+    // screen that failed to render.
+    expect(screen.getByText('Configured')).toBeInTheDocument()
+  })
+
+  it('a 200 still reads Configured on both — the fault path did not swallow the good one', async () => {
+    const ok = { body: [] }
+    mockBff({ track: ok, docs: ok })
+    renderOverview()
+
+    await waitFor(() => expect(screen.getAllByText('Configured')).toHaveLength(3))
+    expect(screen.queryAllByText('Not configured')).toHaveLength(0)
+    expect(screen.queryAllByText(/Couldn’t check/)).toHaveLength(0)
+  })
+})
+
 describe('recent activity rides the shared history fetch', () => {
   it('renders ledger rows (capped at five), description first', async () => {
     mockBff()
