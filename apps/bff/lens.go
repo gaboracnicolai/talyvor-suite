@@ -697,6 +697,39 @@ func stripPageContentList(body []byte) ([]byte, error) {
 	return json.Marshal(rows)
 }
 
+// ⚠ THE TWO FILES IN THE BUNDLE A DEPLOY REPLACES IN PLACE.
+//
+// Everything Vite emits into assets/ carries a content hash in its NAME, so a new build cannot
+// collide with a cached copy of an old one — that is what the hash is for. These two keep their
+// names across every deploy and it is their CONTENT that changes, which makes them the only
+// files a browser can serve stale.
+//
+// They were served with no freshness information at all — measured against the real binary,
+// only Last-Modified. A browser then computes freshness heuristically FROM that Last-Modified
+// (RFC 9111 §4.2.2), so the older a running deploy's bundle is, the longer the window in which
+// a returning reader keeps the previous one. MEASURED IN CHROME against a matched control that
+// differed in this one header: with it absent the browser issued NO request on a normal
+// navigation and rendered the previous copy; with `no-cache` it asked and rendered the new one.
+//
+// The consequence is a blank page, not a lag: `pnpm build` empties dist, so a stale index.html
+// asks for an assets/index-<oldhash>.js that no longer exists — and the fallback below answers
+// a missing file with index.html, so the browser is handed HTML where it asked for a module.
+//
+// `no-cache`, not `no-store`: neither is a secret, and a stored copy is fine as long as the
+// browser asks before using it. This is the same decision keys.go, billing.go, auth.go and
+// version.go already make explicitly on every response that must not be stale — including
+// /api/version, which carries the SAME FACT as version.json from the other half of this binary.
+// See spa_cache_test.go for the measured rows.
+var unhashedBundleNames = map[string]bool{"index.html": true, "version.json": true}
+
+func isUnhashedBundleFile(cleanPath string) bool {
+	return unhashedBundleNames[filepath.Base(cleanPath)]
+}
+
+func setMustRevalidate(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-cache")
+}
+
 // spaHandler serves the built web bundle, falling back to index.html for any path that
 // is not an existing file (so client-side routes like /ledger survive a hard refresh).
 func (a *app) spaHandler() http.Handler {
@@ -715,9 +748,13 @@ func (a *app) spaHandler() http.Handler {
 			return
 		}
 		if st, err := os.Stat(full); err == nil && !st.IsDir() {
+			if isUnhashedBundleFile(clean) {
+				setMustRevalidate(w)
+			}
 			fs.ServeHTTP(w, r)
 			return
 		}
+		setMustRevalidate(w)        // the fallback is index.html, which every deploy replaces in place
 		http.ServeFile(w, r, index) // client route (or missing bundle → 404 from ServeFile)
 	})
 }
