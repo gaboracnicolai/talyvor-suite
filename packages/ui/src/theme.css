@@ -149,10 +149,16 @@ body {
   background: var(--canvas);
   color: var(--ink);
   font-family: var(--sans);
-  /* 14px, matching the `body` step of the type scale in preset.ts. It read 13px while
-     the scale said 14: anything not explicitly given `text-body` rendered one step
-     small, which is the kind of drift a scale exists to prevent. */
-  font-size: 14px;
+  /* 14px at a 16px root, matching the `body` step of the type scale in preset.ts. It read
+     13px while the scale said 14: anything not explicitly given `text-body` rendered one
+     step small, which is the kind of drift a scale exists to prevent.
+
+     ⚠ rem, NOT px, FOR THE SAME REASON THE SCALE IS. This is what an element with no
+     `text-*` class inherits, and there are such elements on every screen — five of
+     /setup's 88 text elements, measured. Converting the six steps and leaving this at
+     14px would have left the reader's browser font-size preference reaching all of the
+     product except its floor. apps/web/src/typeScaleUnits.test.ts holds both. */
+  font-size: 0.875rem;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

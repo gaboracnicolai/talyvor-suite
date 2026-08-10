@@ -185,7 +185,12 @@ describe('the small label is one thing', () => {
 
   it('the token carries the tracking, and a weight that leaves font-semibold meaning something', () => {
     const sizes = preset.theme!.extend!.fontSize as Record<string, [string, Record<string, string>]>
-    expect(sizes.eyebrow[0]).toBe('11px')
+    // 11px at the browser's default 16px root. The step is declared in `rem` so the reader's own
+    // font-size preference reaches it (preset.ts §THE CONSOLE SCALE); the SIZE is the same 11 it
+    // was, and that is what this line is about. The unit is guarded, both directions, by
+    // apps/web/src/typeScaleUnits.test.ts.
+    expect(sizes.eyebrow[0]).toBe('0.6875rem')
+    expect(Number(/^([0-9]*\.?[0-9]+)rem$/.exec(sizes.eyebrow[0])![1]) * 16).toBe(11)
     expect(sizes.eyebrow[1].letterSpacing).toBe('0.24em')
     // Members distinguishes owner from member by WEIGHT. If the token were 600, `font-semibold`
     // would be a no-op and that distinction would vanish without a single test going red.

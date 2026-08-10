@@ -339,7 +339,14 @@ export function Landing() {
 
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-10 border-b border-rule bg-canvas">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-gutter py-3">
+        {/* `flex-wrap gap-y-2` — the ONE row in the product that could not survive the type scale
+            becoming root-relative. MEASURED at 320px CSS width with a 24px root (Chrome's "Very
+            Large"): this row's "Open the app" button is `whitespace-nowrap`, so with the wordmark
+            beside it the header could not give the width back and /marketing's scrollWidth read
+            346 against a 320 client width — the only one of fifteen addresses that did. With the
+            wrap it reads 320. Zero-pixel while it fits: a row-gap applies only BETWEEN wrapped
+            lines, and the header measured 63.29px high with and without at the default root. */}
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-gutter py-3">
           <div>
             <div className="text-head text-ink">Talyvor</div>
             <div className="text-caption font-normal text-faint">Suite</div>
