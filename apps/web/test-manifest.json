@@ -74,5 +74,6 @@
   "src/SessionExpired.test.tsx": 20,
   "src/Sharing.test.tsx": 8,
   "src/tokenDoor.test.ts": 8,
-  "src/typeScaleUnits.test.ts": 10
+  "src/typeScaleUnits.test.ts": 10,
+  "src/writeUnderDeadCredential.test.tsx": 8
 }
