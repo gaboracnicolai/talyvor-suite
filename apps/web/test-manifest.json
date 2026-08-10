@@ -60,7 +60,7 @@
   "src/figureFace.test.ts": 12,
   "src/FirstRunGaps.test.tsx": 9,
   "src/focusAudit.test.tsx": 21,
-  "src/formatterReach.test.ts": 4,
+  "src/formatterReach.test.ts": 5,
   "src/glyphAudit.test.tsx": 28,
   "src/headerReflow.test.tsx": 4,
   "src/LandmarkCoverage.test.tsx": 25,

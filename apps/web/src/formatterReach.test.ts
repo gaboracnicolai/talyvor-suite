@@ -86,13 +86,59 @@ function allSources(): Source[] {
 const sources = allSources()
 const byAbs = new Map(sources.map((s) => [s.abs, s]))
 
-/** Every `format*` a non-test module DECLARES and exports, as `module#name`. */
+/**
+ * THE MODULES WHOSE WHOLE EXPORTED SURFACE IS PRESENTATION VOCABULARY.
+ *
+ * ⚠ THE `format*` NAME SHAPE WATCHED A DEFECT HAPPEN AND COULD NOT SEE IT. Until `63534de`,
+ * `areas/track/format.ts#priorityLabel` was exported, documented and unit-tested against
+ * model.IssuePriority with ZERO production call sites, while IssueDetail hand-rolled a second
+ * copy of the same five labels for the control that ships — and the Status control beside it
+ * rendered the RAW enum while the pill rendered `statusLabel`. Every name in that sentence is a
+ * `*Label`, so this file was structurally blind to all of it.
+ *
+ * ⚠ THE HANDOVER SAID WIDENING THIS NEEDED "A RULE FOR WHAT COUNTS AS A FORMATTER". MEASURED,
+ * IT DOES NOT — that framing is what kept the hole open for four sessions. A MODULE is a
+ * declaration a human already made: these three files exist to turn stored values into words,
+ * so every export of them is in scope whatever it is called, and no general definition of
+ * "formatter" has to be invented. The name rule is kept alongside rather than replaced, so
+ * `topupApi.ts#formatCents` — a formatter that lives outside these three — keeps its coverage.
+ *
+ * Widening added ZERO pins: measured at `63534de`, all five newly-visible exports
+ * (`statusLabel`, `priorityLabel`, `PRIORITY_VALUES`, `ledgerStatus`, `humanizeType`) have
+ * production call sites. That is not an assumption — rule B proves they are DECLARED in scope and
+ * rule A proves the zero-reach set is still exactly the two pins, so all five are reached.
+ *
+ * ⚠ THE WIDENED RULE PASSED ON ITS FIRST RUN, SO IT WAS CONTROLLED BOTH WAYS.
+ *   W1  re-inline the priority vocabulary in IssueDetail, so `priorityLabel` and
+ *       `PRIORITY_VALUES` lose their ONLY call sites -> rule A reds, naming both by
+ *       `module#name`, and it is the ONLY failure in 1052: `issueVocabulary.test.tsx` stays
+ *       green because the re-inlined labels still AGREE. Nothing else in this repo can see a
+ *       vocabulary export go dead.
+ *   W2  drop one path from FORMATTER_MODULES -> rule B reds and RULE A STAYS GREEN. That is the
+ *       measured blindness B exists for: A compares two sets that both shrink together.
+ */
+const FORMATTER_MODULES = [
+  'apps/web/src/areas/lens/format.ts',
+  'apps/web/src/areas/track/format.ts',
+  'packages/ui/src/lib/format.ts',
+]
+
+/**
+ * Every export in scope, as `module#name`: anything named `format*` in any non-test module, plus
+ * EVERY export of a formatter module whatever it is called.
+ */
 function declaredFormatters(): string[] {
   const out = new Set<string>()
   for (const f of sources) {
     if (f.test) continue
-    for (const m of f.text.matchAll(/export\s+(?:async\s+)?function\s+(format[A-Za-z0-9_]*)/g)) out.add(`${f.path}#${m[1]}`)
-    for (const m of f.text.matchAll(/export\s+const\s+(format[A-Za-z0-9_]*)\s*[:=]/g)) out.add(`${f.path}#${m[1]}`)
+    const wholeModule = FORMATTER_MODULES.includes(f.path)
+    const inScope = (name: string) => wholeModule || name.startsWith('format')
+    for (const m of f.text.matchAll(/export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/g)) {
+      if (inScope(m[1])) out.add(`${f.path}#${m[1]}`)
+    }
+    for (const m of f.text.matchAll(/export\s+const\s+([A-Za-z0-9_]+)\s*[:=]/g)) {
+      if (inScope(m[1])) out.add(`${f.path}#${m[1]}`)
+    }
   }
   return [...out].sort()
 }
@@ -199,6 +245,26 @@ describe('an exported formatter nobody calls', () => {
       `pinned but no longer declared: ${stale.join(', ') || 'none'}\n` +
         'an exported formatter nobody calls is a caller waiting to be written or an export waiting to be deleted',
     ).toEqual(Object.keys(DEAD).sort())
+  })
+
+  /**
+   * ⚠ RULE A CANNOT SEE THIS RULE BEING TURNED OFF, WHICH IS THE WHOLE REASON IT IS SEPARATE.
+   * Empty `FORMATTER_MODULES` and A still passes: the measured set shrinks back to the `format*`
+   * names, and BOTH pins in `DEAD` are `format*` names, so the two sides stay equal and A reports
+   * a clean product over a rule that now reads nothing. A source-derived scope needs a pinned
+   * claim beside it — the module paths, and two hardcoded names that only the widened scope can
+   * produce. `priorityLabel` is one of them on purpose: it is the export whose deadness this file
+   * was blind to.
+   */
+  it('B. the scope really does reach past the format* name shape, and its modules still exist', () => {
+    const present = new Set(sources.filter((s) => !s.test).map((s) => s.path))
+    expect(
+      FORMATTER_MODULES.filter((m) => !present.has(m)),
+      'a formatter module was renamed or moved; a scope that names a path nobody has silently reads nothing',
+    ).toEqual([])
+    expect(declared).toContain('apps/web/src/areas/track/format.ts#priorityLabel')
+    expect(declared).toContain('apps/web/src/areas/track/format.ts#statusLabel')
+    expect(declared).toContain('apps/web/src/areas/lens/format.ts#ledgerStatus')
   })
 
   it('C. the design system is namespace-imported only by the reach registry', () => {
