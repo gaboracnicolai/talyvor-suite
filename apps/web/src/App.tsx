@@ -233,7 +233,17 @@ function AppShell() {
       sidebar={<Sidebar />}
       nav={
         <>
-          <div className="min-w-0 truncate text-head text-ink">{page}</div>
+          {/* THE ONE HEADING ON A GATED SCREEN. This element already named the page; it was a
+              `<div>`, so a probe over all twelve CONSOLE_ROUTES addresses counted ZERO heading
+              elements in the rendered DOM at every one of them — nothing behind the gate could be
+              reached with the H key or listed in a headings rotor. It is the same computed `page`
+              the tab title takes, so the browser tab, the visible title and the heading are one
+              answer rather than three that agree today. MEASURED ZERO-PIXEL out of the built
+              stylesheet: the shipped sheet's only rules naming h1 are preflight's
+              `h1,…,h6{font-size:inherit;font-weight:inherit}` and `…,h1,…{margin:0}`, and
+              `.text-head` supplies 17px/600 either way. ConsoleHeading.test.tsx pins the name at
+              every address. */}
+          <h1 className="min-w-0 truncate text-head text-ink">{page}</h1>
           <div className="flex min-w-0 items-center gap-3">
             <SessionChip />
             <ThemeToggle />
