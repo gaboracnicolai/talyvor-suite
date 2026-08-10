@@ -51,6 +51,15 @@ import { stripComments } from '../../../packages/ui/src/lib/sourceText'
  * must still reach named files, and the public hero must still render `text-display-1` — a rule
  * about a scale nobody uses any more is a rule about nothing, and it should say so rather than
  * pass.
+ *
+ * ⚠⚠ AND THAT PARAGRAPH WAS TRUE OF THE WRONG SET FOR THREE MERGES. It says "the gated closure
+ * must still reach named files", which reads as cover for the sweep at the bottom of this file.
+ * It was not: the floor and the sweep each built their OWN closure from a different reader, so the
+ * floor vouched only for itself. `7513c91` emptied the reader the SWEEP used and every instrument
+ * in both packages stayed green. Measured at `298b659` — floor 67 files, sweep 0. Both now read
+ * one memoised `gatedFiles()` (§THE GATED CLOSURE below) and the sweep carries its own floor as
+ * well, because the lesson is not "add a floor", it is "a floor over a set nobody else reads is a
+ * fact about that set". Reproduced under control (scripts/w11-display-sweep-controls.py, C1c).
  */
 
 const WEB_SRC = resolve(import.meta.dirname)
@@ -190,6 +199,42 @@ function closure(entries: string[]): Set<string> {
   return seen
 }
 
+/**
+ * THE GATED CLOSURE, DEFINED ONCE — and the reason that is a rule rather than a tidy-up.
+ *
+ * This file used to spell "behind the gate" TWICE: the floor test unioned the JSX reader with the
+ * `CONSOLE_ROUTES` reader, and the sweep at the bottom used the JSX reader alone. `8555e1e` (#97)
+ * wrote both when they meant the same thing. `7513c91` (#108) moved every console page into the
+ * `CONSOLE_ROUTES` table, which empties the JSX reader — `git log -L` on the sweep line shows it
+ * was never touched again — and from that merge on the sweep ran over ZERO files. MEASURED at
+ * `298b659`, three merges later: the floor test's closure was 67 files and the sweep's was 0, so
+ * `expect(offenders).toEqual([])` was true of every possible state of the product. The rule this
+ * whole file exists to enforce was unenforced and green.
+ *
+ * ⚠ A FLOOR IN A NEIGHBOURING TEST CANNOT VOUCH FOR THIS SWEEP. #108 fixed the reader in the two
+ * tests that named it and left the third, and every instrument stayed green because each test's
+ * floor guarded only the set that test built. The structural fix is not a better floor, it is ONE
+ * set: both readers are unioned here, memoised, and every consumer below reads this. The sweep also
+ * keeps its OWN floor, so re-splitting the definition reds immediately rather than going quiet.
+ */
+let gatedCache: Set<string> | null = null
+function gatedFiles(): Set<string> {
+  if (gatedCache === null) {
+    // Both halves: anything still routed as JSX in the shell block, plus every page in the table.
+    // The union is what actually renders behind the gate, whichever shape the router is in today.
+    gatedCache = closure(
+      entryFiles([...new Set([...routedComponents(shellBlock ?? ''), ...consoleRouteComponents()])]),
+    )
+  }
+  return gatedCache
+}
+
+let publicCache: Set<string> | null = null
+function publicFiles(): Set<string> {
+  publicCache ??= closure(entryFiles(routedComponents(rootBlock ?? '').filter((n) => n !== 'AuthGate')))
+  return publicCache
+}
+
 function entryFiles(names: string[]): string[] {
   return names.map((n) => {
     const spec = importedFrom.get(n)
@@ -253,12 +298,9 @@ describe('the marketing type scale stops at the AuthGate', () => {
   })
 
   it('the two closures reach real files, and the shared package lands in both', () => {
-    // Both halves: anything still routed as JSX inside the shell block, plus every page in the
-    // CONSOLE_ROUTES table. The union is what actually renders behind the gate.
-    const gated = closure(
-      entryFiles([...new Set([...routedComponents(shellBlock ?? ''), ...consoleRouteComponents()])]),
-    )
-    const publik = closure(entryFiles(routedComponents(rootBlock ?? '').filter((n) => n !== 'AuthGate')))
+    // The ONE gated set — the same object the sweep at the bottom filters. See §THE GATED CLOSURE.
+    const gated = gatedFiles()
+    const publik = publicFiles()
     // Floors: a closure that collapsed to nothing would make the sweep below vacuous.
     expect(gated.size).toBeGreaterThan(25)
     expect(publik.size).toBeGreaterThan(5)
@@ -281,7 +323,13 @@ describe('the marketing type scale stops at the AuthGate', () => {
   })
 
   it('no console surface reaches for it', () => {
-    const gated = [...closure(entryFiles(routedComponents(shellBlock ?? '')))].sort()
+    const gated = [...gatedFiles()].sort()
+    // ⚠ THE SWEEP CARRIES ITS OWN FLOOR. A floor in a NEIGHBOURING test reads a set this line
+    // never sees, so it cannot vouch for this one — that is exactly how this sweep went vacuous.
+    expect(gated.length, 'the sweep below reached no files — it would report "no offenders" over an empty set').toBeGreaterThan(25)
+    for (const f of ['areas/track/IssueDetail.tsx', 'areas/lens/Overview.tsx']) {
+      expect(gated.some((p) => p.endsWith(f)), `${f} is routed behind the gate but the SWEEP's closure missed it`).toBe(true)
+    }
     const offenders = gated
       .filter((f) => MARKETING_RE.test(stripComments(readFileSync(f, 'utf8'))))
       .map((f) => {
