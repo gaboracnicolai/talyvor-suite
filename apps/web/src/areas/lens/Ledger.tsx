@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, MuNumeral, Pill } from '@talyvor/ui'
 
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
@@ -68,13 +68,29 @@ export function Ledger() {
     setOffset(0) // a different ledger starts at its own first page
   }
 
+  // ⚠ THE ROWS ON SCREEN ARE NOT ALWAYS THE ROWS REQUESTED, so nothing may be labelled from
+  // the REQUEST. `token` and `offset` move the instant a button is pressed; the response comes
+  // back one upstream round-trip later, and until it does the previous one is still on screen.
+  // Measured in Chrome on the built bundle against the real BFF with a 3s Lens: for 2.8s the
+  // LXC ledger sat under the header "LENS token ledger" with copper LENS ticks, `5.000000 LENS`
+  // on a purchased fiat grant, and a `settled` Pill on `reservation_hold`/`reservation_release`
+  // — the exact mint vocabulary `8ab7348` was merged to keep off those two types. See
+  // ledgerInFlightIdentity.test.tsx.
   const q = useQuery({
     queryKey: ['ledger', token, offset],
-    queryFn: () => api.ledger(token, PAGE, offset),
-    placeholderData: keepPreviousData,
+    // The answer carries the offset it is an answer TO, so the row range below counts the rows
+    // that are actually rendered rather than the page that was asked for.
+    queryFn: async () => ({ offset, rows: await api.ledger(token, PAGE, offset) }),
+    // Keep the previous PAGE of THIS ledger while the next loads — a table that blanks on every
+    // Next is unusable, which is what keepPreviousData was here for. Never keep the previous
+    // TOKEN: that is the OTHER ledger, in the other unit, under a lifecycle vocabulary that does
+    // not apply to it. Dropping the placeholder returns this screen to its own `Loading…`.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === token ? prev : undefined),
   })
-  const rows = q.data ?? []
-  const hasPrev = offset > 0
+  const rows = q.data?.rows ?? []
+  /** The offset the ROWS came from — `offset` is the one in flight. */
+  const shownOffset = q.data?.offset ?? offset
+  const hasPrev = shownOffset > 0
   const hasNext = rows.length === PAGE
 
   return (
@@ -145,7 +161,7 @@ export function Ledger() {
 
       <div className="flex items-center justify-between">
         <span className="font-figure text-body text-muted">
-          Rows {rows.length ? offset + 1 : 0}–{offset + rows.length}
+          Rows {rows.length ? shownOffset + 1 : 0}–{shownOffset + rows.length}
         </span>
         <div className="flex gap-2">
           <Button onClick={() => setOffset((o) => Math.max(0, o - PAGE))} disabled={!hasPrev}>
