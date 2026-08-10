@@ -5,8 +5,9 @@ import {
   Route,
   Routes,
   matchRoutes,
+  useHref,
+  useLinkClickHandler,
   useLocation,
-  useNavigate,
 } from 'react-router-dom'
 import { Mark, NavItem, Shell, ThemeToggle } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
@@ -126,16 +127,49 @@ function titleFor(pathname: string): string {
   return CONSOLE_ROUTES.find((r) => r.path === matched)?.title ?? NOT_FOUND_TITLE
 }
 
-function Sidebar() {
+/**
+ * ⚠ A DESTINATION, NOT A COMMAND — AND THE RULE IS THE ONE THIS FILE ALREADY STATES BELOW FOR
+ * PRIVACY AND TERMS. These ten rows were `<NavItem onClick={() => navigate(to)}>`: `<button>`s
+ * with no `href`. MEASURED by driving the real app to all twelve gated addresses and clicking
+ * every button on the page from a freshly mounted app — 9 or 10 of them changed the address, and
+ * not one carried an href. So on every screen behind the gate, the whole product was unreachable
+ * by cmd-click, by middle click (which raises `auxclick`, never `click`), by the context menu's
+ * "Open link in new tab" or "Copy link address", and by a screen reader's links list, which held
+ * Privacy and Terms and nothing else. See ConsoleNavLinks.test.tsx.
+ *
+ * ⚠ NOT `<Link>` WEARING THE ROW'S CLASSES, AND NOT A HAND-ROLLED MODIFIER CHECK. The row's
+ * `truncate` span has to survive (240px sidebar), which rules out cloning the caller's element,
+ * and "which clicks belong to the browser" is a rule react-router already owns. `useHref` +
+ * `useLinkClickHandler` are exactly what `Link` itself is built from: the handler preventDefaults
+ * and routes a plain left click, and returns untouched on a modified one, so the browser opens
+ * the new tab it was asked for.
+ */
+function NavDestination({
+  to,
+  label,
+  wildcard = false,
+}: {
+  to: string
+  label: string
+  wildcard?: boolean
+}) {
   const { pathname } = useLocation()
-  const navigate = useNavigate()
-  const item = (to: string, label: string, wildcard = false) => (
+  const href = useHref(to)
+  const onClick = useLinkClickHandler<HTMLAnchorElement>(to)
+  return (
     <NavItem
       active={wildcard ? pathname.startsWith(to) : pathname === to}
-      onClick={() => navigate(to)}
+      href={href}
+      onClick={onClick}
     >
       {label}
     </NavItem>
+  )
+}
+
+function Sidebar() {
+  const item = (to: string, label: string, wildcard = false) => (
+    <NavDestination to={to} label={label} wildcard={wildcard} />
   )
   return (
     <nav className="flex flex-col gap-4 pb-2" aria-label="Sections">

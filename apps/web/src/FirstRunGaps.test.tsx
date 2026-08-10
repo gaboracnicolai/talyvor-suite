@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { queryClient } from './App'
@@ -140,9 +140,15 @@ describe('first run routes a new user to Setup', () => {
     // Setup renders inside the normal shell, so every nav destination is one click away. A
     // first-run step with no way past is worse than no step at all: this asserts the nav is
     // present, not merely that Setup rendered.
-    expect(await screen.findByRole('button', { name: /^overview$/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^ledger$/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^api keys$/i })).toBeInTheDocument()
+    //
+    // ⚠ SCOPED TO THE NAV, and it is not decoration. Setup's prose carries its own
+    // `<Link to="/ledger">ledger</Link>`, so once the sidebar rows became links too (they were
+    // `<button>`s — ConsoleNavLinks.test.tsx) an unscoped `/^ledger$/i` matched both. The claim
+    // here is about the NAVIGATION, so it is now asked of the navigation.
+    const nav = within(await screen.findByRole('navigation', { name: /sections/i }))
+    expect(nav.getByRole('link', { name: /^overview$/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /^ledger$/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /^api keys$/i })).toBeInTheDocument()
   })
 
   it('a returning user is not sent to Setup again', async () => {
@@ -151,7 +157,7 @@ describe('first run routes a new user to Setup', () => {
     // needs_pooling_choice is false on every login after the one that created the workspace,
     // so the redirect must not fire. Landing a returning user on Setup every time would be a
     // different kind of broken.
-    await screen.findByRole('button', { name: /^ledger$/i })
+    await screen.findByRole('link', { name: /^ledger$/i })
     expect(window.location.pathname).toBe('/')
   })
 })
@@ -170,7 +176,10 @@ describe('the /specimen gallery is gone', () => {
   it('is not in the nav', async () => {
     mockBff()
     at('/')
-    await screen.findByRole('button', { name: /^ledger$/i })
-    expect(screen.queryByRole('button', { name: /^specimen$/i })).toBeNull()
+    // ⚠ `link`, NOT `button`: sidebar destinations are `<a href>` now (ConsoleNavLinks.test.tsx).
+    // As `button` the second line would be constant-true — no nav row carries that role any more,
+    // so a /specimen row restored tomorrow would be a link and would slip past this.
+    await screen.findByRole('link', { name: /^ledger$/i })
+    expect(screen.queryByRole('link', { name: /^specimen$/i })).toBeNull()
   })
 })
