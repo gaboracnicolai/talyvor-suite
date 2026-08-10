@@ -5,7 +5,7 @@ import postcss from 'postcss'
 import tailwind from 'tailwindcss'
 import { describe, expect, it } from 'vitest'
 import { Button, Switch, ThemeToggle } from '@talyvor/ui'
-import tailwindConfig, { absoluteContent } from '../tailwind.config'
+import tailwindConfig, { absoluteContent, buildContent } from '../tailwind.config'
 // Deep relative import, the same one deadClasses.test.ts takes and for the same reason:
 // ONE comment stripper with ONE set of positive controls (packages/ui/src/__tests__/
 // typeface.test.tsx). Two copies of a scanner is two chances for only one to be right.
@@ -74,7 +74,7 @@ const themeCssPath = resolve(appRoot, '../../packages/ui/src/theme.css')
 // any question below — importance does — but mirroring it keeps the artifact honest.
 let shipped: string | undefined
 /** The exact globs handed to the generator, kept so a test can assert they are the BUILD's. */
-let shippedContent: string[] | undefined
+let shippedContent: (string | { raw: string; extension: string })[] | undefined
 async function shippedCss(): Promise<string> {
   if (shipped) return shipped
   // ⚠ `absoluteContent`, NEVER `content.map((g) => resolve(root, g))` — see tailwind.config.ts.
@@ -84,8 +84,10 @@ async function shippedCss(): Promise<string> {
   // 28,351, because the destroyed `!` negations pulled every test file back into the content
   // set — including this one, whose docstring names `active:scale-[0.98]`. A guard that reads
   // its own prose back as product is `dc0bd07`'s finding, and it had survived here.
-  const content = absoluteContent(appRoot)
-  shippedContent = content
+  // ⚠ AND `buildContent`, not `absoluteContent` alone: the build strips comments before
+  // extraction, and an instrument that skips that step reads 20 classes the browser never gets.
+  const content = buildContent(appRoot)
+  shippedContent = content.files
   const generated = await postcss([tailwind({ ...tailwindConfig, content: content as never })]).process(
     readFileSync(resolve(appRoot, 'src/styles.css'), 'utf8'),
     { from: undefined },

@@ -108,12 +108,12 @@ const PINS: Record<string, Pin> = {
     fragment: 'placeholder={k.key_prefix}',
     why: 'the site that passes a placeholder THROUGH a component, the whole argument for reading the DOM',
   },
-  'apps/web/src/motion.test.tsx:152|packages/ui/src/preset.ts:119': {
+  'apps/web/src/motion.test.tsx:154|packages/ui/src/preset.ts:119': {
     kind: 'LIVE',
     fragment: 'active:scale-[0.98]',
     why: 'the comment that writes the press one way, half of the pair the motion lock exists to keep apart',
   },
-  'apps/web/src/motion.test.tsx:153|packages/ui/src/components/Button.tsx:37': {
+  'apps/web/src/motion.test.tsx:155|packages/ui/src/components/Button.tsx:37': {
     kind: 'LIVE',
     fragment: 'active:scale-98',
     why: 'the comment that writes the press the OTHER way — the two spellings are the point',

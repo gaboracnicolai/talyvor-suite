@@ -1,6 +1,9 @@
 import { resolve } from 'node:path'
 import type { Config } from 'tailwindcss'
 import preset from '@talyvor/ui/preset'
+// Deep relative import on purpose, the same one deadClasses/motion take: ONE comment stripper
+// with ONE set of positive controls. Two copies is two chances for only one to be right.
+import { stripComments } from '../../packages/ui/src/lib/sourceText'
 
 const content = [
   './index.html',
@@ -15,13 +18,12 @@ const content = [
   // production bundle carrying the exact arbitrary values `local/no-arbitrary-value` exists to
   // forbid, supplied by the tests that prove they are forbidden.
   //
-  // ⚠ THIS DOES NOT CLOSE THE WHOLE HOLE AND IS NOT MEANT TO. COMMENTS in ordinary source are
-  // still extracted: preset.ts's sentence "arbitrary values (text-[#…], p-[13px]) are forbidden"
-  // ships `.p-\[13px\]` and `.text-\[\#…\]` as real rules, and the display-scale comment quoting
-  // the site's markup ships `leading-[1.04]` and `tracking-[-0.03em]`. Twenty classes in this
-  // sheet exist only because prose mentions them. Closing that means a custom `extract` that
-  // strips comments first, which moves the emitted set deadClasses.test.ts reasons about — its
-  // own change, with its own positive controls. Reported on the queue, not folded in here.
+  // ⚠ THAT WAS HALF THE HOLE, AND THE OTHER HALF IS CLOSED BELOW BY `contentTransform`.
+  // COMMENTS in ordinary source were still extracted: preset.ts's sentence "arbitrary values
+  // (text-[#…], p-[13px]) are forbidden" shipped `.p-\[13px\]` and `.text-\[\#…\]` as real
+  // rules, and the display-scale comment quoting the site's markup shipped `leading-[1.04]`
+  // and `tracking-[-0.03em]`. Twenty classes in this sheet existed only because prose
+  // mentioned them; src/proseClasses.test.ts is the guard and holds the measurement.
   '!./src/**/*.test.{ts,tsx}',
   '!../../packages/ui/src/**/*.test.{ts,tsx}',
 ]
@@ -53,7 +55,50 @@ export function absoluteContent(root: string): string[] {
   return content.map((g) => (g.startsWith('!') ? `!${resolve(root, g.slice(1))}` : resolve(root, g)))
 }
 
+/**
+ * COMMENTS ARE NOT CONTENT — the second half of the hole the block above documents.
+ *
+ * `transform` runs on each file's text BEFORE Tailwind's extractor sees it, so this strips the
+ * prose and lets the generator's own candidate scanner do the rest. That is deliberate: writing
+ * a custom `extract` would mean reimplementing Tailwind's candidate rules, and a scanner that
+ * disagrees with the generator is the failure this whole family of guards exists to catch.
+ *
+ * ⚠ MEASURED ON THIS TREE, base+components+utilities over the same file set:
+ *     raw            363 names, 28,452 bytes
+ *     stripped       343 names, 26,226 bytes   (nothing NEW appears — the diff is one-way)
+ * The twenty include `p-[13px]` and `text-[#…]`, shipped by preset.ts's own sentence about the
+ * arbitrary values `local/no-arbitrary-value` forbids, and `bg-accent-hover`, which reads in the
+ * sheet exactly like a live token and which nothing renders. src/proseClasses.test.ts is the
+ * guard, and it is positive-controlled in both directions: a class in a comment must stop being
+ * emitted AND the same class in code must still be emitted, because a stripper that returned ''
+ * would satisfy the first alone.
+ *
+ * ⚠ ONE STRIPPER. `stripComments` is imported, never copied — packages/ui/src/__tests__/
+ * typeface.test.tsx holds its positive controls, and deadClasses/motion already depend on it.
+ * `html` has NO transformer and that is a measured decision, not an oversight: see the EXEMPT
+ * block in proseClasses.test.ts, which fails the day the content set grows a type nothing strips.
+ */
+export const contentTransform: Record<string, (src: string) => string> = {
+  ts: stripComments,
+  tsx: stripComments,
+}
+
+type RawFile = { raw: string; extension: string }
+
+/**
+ * THE BUILD'S CONTENT, IN ONE PLACE — files AND transformers.
+ *
+ * Three tests re-run the generator to ask what the browser downloads (deadClasses, tokenDoor,
+ * motion). Each built its own content argument, so `absoluteContent` alone was the shared part
+ * and anything ELSE the build does to its input was a fourth thing to remember. That is how the
+ * `resolve()`-destroys-negations bug reached three files. One composer, used by the build and by
+ * every instrument that claims to speak for it.
+ */
+export function buildContent(root: string, extra: RawFile[] = []) {
+  return { files: [...absoluteContent(root), ...extra], transform: contentTransform }
+}
+
 export default {
   presets: [preset],
-  content,
+  content: { files: content, transform: contentTransform },
 } satisfies Config

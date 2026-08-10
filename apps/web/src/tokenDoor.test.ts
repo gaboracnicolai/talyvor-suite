@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import postcss from 'postcss'
 import tailwind from 'tailwindcss'
 import { describe, expect, it } from 'vitest'
-import tailwindConfig, { absoluteContent } from '../tailwind.config'
+import tailwindConfig, { absoluteContent, buildContent } from '../tailwind.config'
 import preset from '@talyvor/ui/preset'
 // Deep relative import on purpose, exactly as deadClasses.test.ts does it: ONE implementation
 // of the comment stripper with ONE set of positive controls. Two copies of a scanner is two
@@ -204,7 +204,9 @@ type Emitted = { props: Set<string>; decls: string }
 
 /** Every class Tailwind emits over the real content, with what it declares — props AND values. */
 async function generate(withPreset: boolean, extra?: string): Promise<Map<string, Emitted>> {
-  const content = [...absoluteContent(appRoot), ...(extra ? [{ raw: extra, extension: 'html' }] : [])]
+  // ⚠ `buildContent` — the build's files AND its transformers. Reading the globs alone made
+  // this instrument answer for a sheet 20 classes larger than the one the browser downloads.
+  const content = buildContent(appRoot, extra ? [{ raw: extra, extension: 'html' }] : [])
   const cfg = withPreset ? { ...tailwindConfig, content } : { content }
   const css = await postcss([tailwind(cfg as never)]).process('@tailwind utilities;', { from: undefined })
   const byClass = new Map<string, Emitted>()
