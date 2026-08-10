@@ -730,8 +730,53 @@ func setMustRevalidate(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-cache")
 }
 
+// ⚠ A PATH THE BUILD OWNS IS ANSWERED BY THE BUILD OR BY 404 — NEVER BY THE SPA.
+//
+// The fallback below exists so a client-side route survives a hard refresh. It used to answer
+// EVERY path that is not a file, which meant a request for a bundle file that is not there came
+// back `200 text/html` — index.html, where the browser asked for a module. Measured against this
+// binary with the real dist: `GET /assets/index-OLDHASH1.js` → 200, text/html, 1695 bytes; the
+// same for a missing .css, a missing .woff2, and `/assets/` itself.
+//
+// That is the shape of two ordinary deploys: a browser holding the PREVIOUS index.html (see the
+// freshness note above — `pnpm build` empties dist, so the hashes it names are gone), and a
+// half-finished rsync that lands index.html without assets/. Measured in Chrome against a bundle
+// whose index.html names hashes that are not on disk: four requests, ALL 200, `#root` empty, zero
+// stylesheet rules, one console line about a MIME type. A white screen with nothing on the wire
+// to see it by — which is why deploy/FULL-STACK-DEPLOY.md had to write "every curl check in this
+// document passes, and the app is a white screen" instead of a check that catches it.
+//
+// WHY A PREFIX AND NOT AN EXTENSION. `/track/issues/42.5` is a page. Anything that reads the tail
+// of a path for a dot 404s a client route, so the rule is about WHERE the build writes, not what
+// a name looks like: `assets/` is Vite's assetsDir, every file in it is named by a hash of its own
+// content, and the set of valid names there IS what is on disk. deploy/decision-expiry.sh holds
+// the premise that vite.config.ts still leaves assetsDir at its default.
+//
+// `/index.html` IS DELIBERATELY NOT IN THE SET. The fallback is index.html: if it is missing,
+// http.ServeFile already 404s, and a second guard on the same path would be an invariant held
+// twice that no control could breach. `/version.json` IS in it — that one has no such second
+// door, and apps/web/vite.config.ts and deploy/README.md both work around its absence today
+// ("must PARSE as JSON", because `curl -f` succeeds against a bundle carrying no version at all).
+//
+// This is the same decision /api/* already gets one screen up: scoped away from the fallback so
+// an unknown path 404s honestly instead of handing back a document.
+const bundleAssetsDir = "assets"
+
+// buildOwnedFiles are bundle files the build emits at a stable path — not content-hashed, so
+// they are not under assetsDir, and not client routes either. A request for one of these is a
+// request for a FILE, and the honest answer when it is absent is that it is absent.
+var buildOwnedFiles = map[string]bool{"/version.json": true}
+
+func isBuildOwnedPath(cleanPath string) bool {
+	if cleanPath == "/"+bundleAssetsDir || strings.HasPrefix(cleanPath, "/"+bundleAssetsDir+"/") {
+		return true
+	}
+	return buildOwnedFiles[cleanPath]
+}
+
 // spaHandler serves the built web bundle, falling back to index.html for any path that
-// is not an existing file (so client-side routes like /ledger survive a hard refresh).
+// is not an existing file (so client-side routes like /ledger survive a hard refresh) —
+// except the paths the build owns, which 404. See isBuildOwnedPath above.
 func (a *app) spaHandler() http.Handler {
 	dist := filepath.Clean(a.cfg.webDist)
 	index := filepath.Join(dist, "index.html")
@@ -752,6 +797,10 @@ func (a *app) spaHandler() http.Handler {
 				setMustRevalidate(w)
 			}
 			fs.ServeHTTP(w, r)
+			return
+		}
+		if isBuildOwnedPath(clean) {
+			http.NotFound(w, r) // a bundle file that is not on disk does not exist; do not hand back a document
 			return
 		}
 		setMustRevalidate(w)        // the fallback is index.html, which every deploy replaces in place

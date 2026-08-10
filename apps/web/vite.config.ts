@@ -14,10 +14,18 @@ import { bundleVersionPayload, COMMIT_ENV_VAR, UNSTAMPED } from './src/buildIden
  *   · dist/version.json — the operator surface. `curl $APP/version.json | jq` during a deploy,
  *     and the file the BFF reads off disk to report which bundle it is serving.
  *
- *     ⚠ ON A BUNDLE THAT PREDATES THIS, THAT PATH RETURNS index.html WITH STATUS 200 — not a 404
- *     — because the BFF's spaHandler falls back to index.html for any path that is not a real
- *     file. So a check must require the response to PARSE AS JSON. A bare `curl -f`, or anything
- *     that tests the status code, passes against a bundle carrying no version at all.
+ *     ⚠ ON A BUNDLE THAT PREDATES THIS, THAT PATH RETURNS 404. It used to return index.html with
+ *     STATUS 200, because the BFF's spaHandler fell back to index.html for any path that is not a
+ *     real file — so `curl -f`, and anything else that tests the status code, passed against a
+ *     bundle carrying no version at all. `/version.json` and `/assets/…` are now excluded from
+ *     that fallback (apps/bff/lens.go, isBuildOwnedPath). A check should still require the
+ *     response to PARSE AS JSON: that proves it is a version payload rather than merely present,
+ *     and it stays true through a proxy or static host with a fallback of its own.
+ *
+ *     ⚠ THE BFF's EXCLUSION IS A PREFIX ON `assets/` — VITE'S DEFAULT assetsDir, WHICH THIS FILE
+ *     DOES NOT OVERRIDE. Setting `build.assetsDir` here would move the emitted files out from
+ *     under it and silently restore the 200-with-HTML answer for every missing asset.
+ *     deploy/decision-expiry.sh holds that premise.
  *
  *   · a <meta name="talyvor-build"> in index.html — immune to that ambiguity, because index.html
  *     IS the fallback: the tag is either there or it is not. Also readable from the DOM with no

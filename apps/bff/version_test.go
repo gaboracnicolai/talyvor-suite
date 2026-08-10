@@ -292,34 +292,15 @@ func writeFile(t *testing.T, path, body string) {
 	}
 }
 
-func TestBundleVersionPathFallsBackToHTMLOnAnOldBundle(t *testing.T) {
-	// ⚠ THIS PINS A RUNBOOK INSTRUCTION, NOT A FEATURE.
-	//
-	// deploy/README.md tells an operator to check the bundle's version with
-	// `curl -s $APP/version.json | jq .` and warns against testing the STATUS CODE. This test is
-	// why: spaHandler falls back to index.html for any path that is not a real file, so on a
-	// bundle built before the version surface existed, /version.json answers 200 with HTML.
-	//
-	// A check written as `curl -f $APP/version.json` therefore PASSES against a bundle that
-	// carries no version at all — a green check next to the exact condition it was meant to
-	// detect. If the fallback behaviour ever changes to a 404, this test fails and the runbook
-	// warning can be simplified.
-	dist := t.TempDir()
-	writeFile(t, dist+"/index.html", "<!doctype html><html>a bundle with no version.json</html>")
-
-	a := newApp(config{webDist: dist}, nil)
-	rec := httptest.NewRecorder()
-	a.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/version.json", nil))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; expected 200 (the SPA fallback). If this is now a 404, the runbook "+
-			"no longer needs its parse-the-JSON warning — update deploy/README.md step 6.", rec.Code)
-	}
-	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
-		t.Fatalf("content-type = %q; expected HTML from the fallback", ct)
-	}
-	var probe map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &probe); err == nil {
-		t.Error("the fallback body parsed as JSON; the runbook check relies on it NOT parsing")
-	}
-}
+// TestBundleVersionPathFallsBackToHTMLOnAnOldBundle LIVED HERE AND ITS PREMISE IS GONE.
+//
+// It pinned a runbook instruction rather than a feature: deploy/README.md warned against testing
+// /version.json by status code, because spaHandler answered a missing file with `200 text/html`,
+// so `curl -f` passed against a bundle carrying no version at all. The test said what to do when
+// that changed — "If this is now a 404, the runbook no longer needs its parse-the-JSON warning —
+// update deploy/README.md step 6" — and that is what happened: it failed on the change that made
+// a build-owned path 404 (lens.go, isBuildOwnedPath), the runbook was updated, and the assertion
+// worth keeping (the refusal body must not parse as JSON, because the runbook still pipes to jq)
+// moved to TestMissingVersionJSONIsNotTheApp in spa_fallback_test.go.
+//
+// This stub is the audit trail for a deleted test. The behaviour it covered is covered there.

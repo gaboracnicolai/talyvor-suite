@@ -488,11 +488,20 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/              # 2
 
 ⚠ **That last 200 proves only that `index.html` exists** — not that the bundle is
 complete or current. Assets are separate files, so a stale or half-copied
-`web-dist` answers 200 at `/` just the same. And because the SPA falls back to
-`index.html` for any path that is not a real file, **a status code cannot verify
-any other path on this origin either** — `curl -f /version.json`, `/ledger`,
-`/billing/success` all succeed whether or not the thing exists. Prove content,
-not status; for "is this the bundle I built?", use `/api/version` below.
+`web-dist` answers 200 at `/` just the same. Check the asset `index.html` names:
+
+```sh
+JS=$(curl -s http://127.0.0.1:8787/ | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)
+curl -sf -o /dev/null "http://127.0.0.1:8787$JS" || echo "MISSING — the app is a white screen"
+```
+
+That check works because `/assets/…` and `/version.json` are **excluded from the
+SPA fallback**: a path the build owns is answered by the build or by 404. It used
+to answer 200 with `index.html`, which is why this section once said a status code
+could verify nothing here. **A CLIENT ROUTE STILL CANNOT BE VERIFIED BY STATUS** —
+`curl -f /ledger`, `/billing/success` succeed whether or not the router draws
+them, because they are not files. Prove content, not status; for "is this the
+bundle I built?", use `/api/version` below.
 
 ### Which commit is actually running?
 
@@ -545,11 +554,14 @@ curl -s https://app.talyvor.com/version.json | jq .        # must PARSE as JSON
 curl -s https://app.talyvor.com/ | grep -o 'name="talyvor-build" content="[^"]*"'
 ```
 
-⚠ **Do not test `/version.json` by status code.** The SPA falls back to
-`index.html` for any path that is not a real file, so on a bundle built before
-this existed the request returns **200 with HTML**. `curl -f` passes, `jq`
-fails — which is why the check above pipes to `jq`. The `<meta>` tag has no such
-ambiguity: it lives in `index.html` itself, so it is either there or it is not.
+⚠ **Pipe it to `jq` — do not read the status code alone.** On a bundle built
+before this existed the request returns **404** (`/version.json` is excluded from
+the SPA fallback; it used to return **200 with HTML**, and `curl -f` passed
+against a bundle carrying no version at all). The status code is sound now, but
+`jq` proves the stronger thing — that the response IS a version payload — and it
+says the same thing through a proxy or CDN with a fallback of its own. The
+`<meta>` tag has no ambiguity at all: it lives in `index.html` itself, so it is
+either there or it is not.
 
 ## 7. The front door — lives in the talyvor-lens repo, NOT here
 

@@ -268,6 +268,37 @@ cannot "Docs' /v1/service/ lane skips membership authz but still requires the ga
     "talyvor-docs internal/gatewayauth/exempt.go" \
     "go test ./internal/trackintegration/ -run 'TestServiceRoute'   # accepts the BFF's exact request; still refuses without the proof"
 
+# ── D9 ───────────────────────────────────────────────────────────────────────
+# DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy
+#           checks in README.md §6 and FULL-STACK-DEPLOY.md can read a STATUS CODE for
+#           /assets/… and /version.json.
+# PREMISE:  the BFF excludes exactly `/assets/` from the SPA fallback (apps/bff/lens.go,
+#           bundleAssetsDir), and the web build still emits its files THERE — Vite's default
+#           assetsDir, which apps/web/vite.config.ts does not override.
+#
+# ⚠ THE TWO HALVES ARE IN DIFFERENT LANGUAGES IN DIFFERENT DIRECTORIES AND NEITHER CAN SEE THE
+#   OTHER. A Go test proves the BFF refuses `/assets/…`; nothing in it can observe where Vite
+#   writes. Set `build: { assetsDir: 'static' }` and every check in both runbooks silently goes
+#   back to reading a 200 that means nothing — with the BFF's test suite fully green, because
+#   its fixture writes its own assets/ directory.
+#
+# ⚠ THE FIRST DRAFT OF THIS CHECK GREPPED THE WHOLE FILE FOR `assetsDir` AND VOIDED IMMEDIATELY —
+#   on the COMMENT that was added in the same change to warn against setting it. A guard that
+#   cannot tell a mention from a setting reports the documentation as the defect. Comment lines
+#   are stripped first, and the two directions are controlled: adding `assetsDir: 'static'` to
+#   vite.config.ts voids this, and the warning prose alone does not.
+_d9_bff=0
+_d9_vite=0
+grep -qE '^const bundleAssetsDir = "assets"$' apps/bff/lens.go 2>/dev/null && _d9_bff=1
+grep -vE '^\s*(//|/\*|\*)' apps/web/vite.config.ts 2>/dev/null | grep -qE '\bassetsDir\b' || _d9_vite=1
+if [ "${_d9_bff}" = 1 ] && [ "${_d9_vite}" = 1 ]; then
+    ok "the BFF excludes /assets/ from the SPA fallback and vite still writes there (default assetsDir)"
+else
+    void "a missing bundle file 404s, so a deploy check may read its status code" \
+        "deploy/README.md §6 and deploy/FULL-STACK-DEPLOY.md §Reading verification output" \
+        "$( [ "${_d9_bff}" = 1 ] || echo 'apps/bff/lens.go no longer pins bundleAssetsDir = "assets". ' )$( [ "${_d9_vite}" = 1 ] || echo 'apps/web/vite.config.ts now sets assetsDir, so the build writes outside the directory the BFF refuses. ' )A missing asset answers 200 with index.html again and every status-code check in both runbooks passes against a white screen."
+fi
+
 # ── verdict ──────────────────────────────────────────────────────────────────
 echo
 printf 'checked here: %d   stale: %d   uncheckable here: %d\n' "${checked}" "${stale}" "${uncheckable}"
