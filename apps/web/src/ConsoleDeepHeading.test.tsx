@@ -246,11 +246,23 @@ describe('the addresses below the console still have exactly one top-level headi
     const levels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) =>
       Number(h.tagName.slice(1)),
     )
+    // ⚠ FIVE, NOT TWO, SINCE CardHeader BECAME A HEADING. The three extra 2s are this page's
+    // card headers — Description, Details, Comments — which were `<div>`s when this line read
+    // `[1, 2]` and are now section titles like every other card header behind the gate.
+    //
+    // ⚠ AND THE FLATNESS IS RECORDED RATHER THAN BLESSED. Description/Details/Comments are
+    // sections OF the issue, so an outline that named their relationship would read
+    // h1 → h2 → h3. It reads h1 → h2 → h2: no level is SKIPPED (which is the defect this
+    // assertion exists to catch, and it still catches one), but the three cards sit beside the
+    // issue title rather than under it. Giving `CardHeader` a level would be an API decision
+    // across 39 call sites and it was not made on the way past — see the ⚠ at the end of
+    // CardHeaderHeading.test.tsx. The literal below is the outline as measured, so the day
+    // somebody does make that decision this line is what tells them it moved.
     expect(
       levels,
-      'the heading outline at /track/issues/<id> is not h1 → h2 — a level was skipped, dropped ' +
-        'or duplicated',
-    ).toEqual([1, 2])
+      'the heading outline at /track/issues/<id> moved — a level was skipped, dropped or ' +
+        'duplicated, or a card header stopped being one',
+    ).toEqual([1, 2, 2, 2, 2])
   })
 })
 

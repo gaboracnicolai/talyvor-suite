@@ -1,0 +1,215 @@
+import { render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { Card, CardHeader, MuNumeral } from '@talyvor/ui'
+
+import { App, CONSOLE_ROUTES } from './App'
+
+/**
+ * EVERY SECTION TITLE BEHIND THE GATE WAS A `<div>`, ON PAGES WITH UP TO NINE OF THEM.
+ *
+ * `a19c18f` (#126) measured that the signed-in console rendered ZERO heading elements and fixed
+ * it by promoting the page name to `<h1>`. It stopped there. MEASURED IN REAL CHROME on the
+ * built artifact at `397b11d`, one level down, across the ten top-level gated addresses:
+ *
+ *     address     heading elements     cards on the page
+ *     /                   1                   6
+ *     /setup              1                   9
+ *     /spend              1                   3
+ *     /settings           1                   2
+ *     /ledger /billing /keys /members /track /docs   1 each, 1 card each
+ *
+ * Forty elements carry `text-head` — the token whose own definition in preset.ts reads "a card
+ * header and the shell title bar". Ten are the page `<h1>`, ten are the sidebar wordmark, and
+ * the remaining TWENTY are card headers. Not one of them was a heading element. So on /setup, a
+ * screen-reader user pressing H got "Setup" and then nothing, on a page with nine titled
+ * sections; the headings rotor listed one entry for the whole screen.
+ *
+ * ⚠ THE PRODUCT HAD ALREADY DECIDED THE ANSWER, ON THE PAGES A STRANGER SEES. `legalParts.tsx`
+ * writes its section titles `<h2 className="text-head text-ink">`, which is why the same census
+ * reads `1>2>2>2>2>2>2>2` on /privacy and `1>2>2>…` on /terms while every screen behind the gate
+ * reads `1`. The rule is this product's own; it had been applied to the two legal documents and
+ * to nothing else.
+ *
+ * ⚠ ONE SEAM, THIRTY-NINE CALL SITES. Every card header in the console goes through
+ * `CardHeader` in packages/ui — Card.tsx emitted one `<div className="text-head text-ink">` and
+ * that div is on 39 call sites across Lens, Track and Docs. The fix is the element, not the
+ * classes: preflight sets `h1,…,h6{font-size:inherit;font-weight:inherit}` and `…{margin:0}`,
+ * which is exactly why #126's promotion was byte-identical, and it is why this one is too.
+ *
+ * ⚠ `text-head` IS NOT THE RULE, AND THE LAST TWO CASES REFUSE THE OBVIOUS OVER-CORRECTION.
+ * Two other things wear that token and neither is a section title: the sidebar wordmark
+ * ("Talyvor", a brand mark that names the product, not a region) and `MuNumeral`'s whole-number
+ * span (a FIGURE — a heading element around a balance would put "2,350" in the rotor). A sweep
+ * written as "everything carrying text-head is a heading" would pass this file's other cases and
+ * be wrong; it is asserted from the other side instead.
+ *
+ * ⚠⚠ AND THAT REFUSAL TOOK TWO DRAFTS, BOTH CAUGHT BY CONTROLS RATHER THAN BY READING.
+ * The first was `querySelectorAll('span.text-head')` asserting each was a SPAN — constant-true,
+ * because the moment one BECAME a heading it left the selector and the loop ran over what was
+ * left. The second was a heading COUNT at `/`, which is not dodgeable — and still scored 0 red,
+ * because this file's BFF fake 404s the balance reads, so no `MuNumeral` renders at ANY address
+ * here. An address-shaped assertion cannot see a component the fixture never mounts. The figure
+ * is rendered directly for that reason, and the count is over the render.
+ *
+ * ⚠ NOT CLAIMED, AND NOT MEASURED: whether a card header should ever be an `h3`. On
+ * `/track/issues/<id>` the outline now reads h1 → h2 → h2 → h2 → h2 — the issue title and then
+ * its three cards, which are sections OF that issue and would be h3 in an outline that named
+ * the relationship. No level is SKIPPED, which is the defect ConsoleDeepHeading.test.tsx exists
+ * to catch and still catches; the cards simply sit beside the title rather than under it.
+ * Giving `CardHeader` a level is an API decision across 39 call sites and is not made here.
+ */
+
+/** Address (what a person types) from a route path (what `<Route path>` takes). */
+const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '')
+
+function mockBff() {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    if (url === '/auth/me') {
+      // disabled mode: the gate passes straight through, which is the signed-in shell.
+      return new Response(JSON.stringify({ mode: 'disabled', authenticated: false, user: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    return new Response('null', { status: 404 })
+  })
+}
+
+async function at(address: string) {
+  window.history.pushState({}, '', address)
+  render(<App />)
+  await screen.findByRole('navigation', { name: /sections/i })
+}
+
+/**
+ * The card headers ON the page, located STRUCTURALLY rather than by tag — the whole point is
+ * that the tag is what is under test, so a selector naming it would answer its own question.
+ * `CardHeader` renders one bordered row (`border-b border-rule px-gutter py-2.5`) whose single
+ * child carries `text-head text-ink`; that child is the title element.
+ */
+function cardHeaderTitles(root: ParentNode): Element[] {
+  return Array.from(root.querySelectorAll('div.border-b.border-rule > .text-head'))
+}
+
+beforeEach(mockBff)
+afterEach(() => {
+  vi.restoreAllMocks()
+  document.body.replaceChildren()
+})
+
+describe('a card header is a section title, so it is a heading element', () => {
+  it('CardHeader emits a heading, not a div', () => {
+    render(
+      <Card>
+        <CardHeader>Recent activity</CardHeader>
+      </Card>,
+    )
+    const title = screen.getByText('Recent activity')
+    expect(
+      title.tagName,
+      'CardHeader is the ONE seam every section title behind the gate goes through. As a `div` ' +
+        'it is an anonymous box to assistive technology: /setup renders nine of them and the ' +
+        'headings rotor listed one entry for the page.',
+    ).toBe('H2')
+    // The element moved, the type did not: `.text-head` supplies the size either way, and
+    // preflight neutralises a heading's own font-size, weight and margin.
+    expect(title.className).toContain('text-head')
+    expect(title.className).toContain('text-ink')
+  })
+
+  it('h2 is the right LEVEL — it sits under the page name the shell already writes', async () => {
+    await at('/setup')
+    const h1s = document.querySelectorAll('h1')
+    expect(h1s.length, 'the shell writes exactly one h1 per address (#126, #127)').toBe(1)
+    const titles = cardHeaderTitles(document.body)
+    expect(titles.length, '/setup renders nine cards; a sweep that found none would be vacuous').toBeGreaterThan(4)
+    for (const t of titles) {
+      expect(
+        t.tagName,
+        `"${t.textContent?.trim()}" on /setup is a section title under "${h1s[0].textContent?.trim()}" ` +
+          'and must be a heading one level down — not two (a skipped level is its own defect) and ' +
+          'not none',
+      ).toBe('H2')
+    }
+  })
+
+  it.each(CONSOLE_ROUTES.map((r) => addressOf(r.path)))(
+    '%s renders every card header it has as a heading',
+    async (address) => {
+      await at(address)
+      const titles = cardHeaderTitles(document.body)
+      for (const t of titles) {
+        expect(t.tagName, `"${t.textContent?.trim()}" at ${address} is a card header rendered as <${t.tagName.toLowerCase()}>`).toBe('H2')
+      }
+      // Recorded per address so the sweep cannot go quietly vacuous everywhere at once; the
+      // floor across the whole set is the next case.
+      expect(Number.isInteger(titles.length)).toBe(true)
+    },
+  )
+
+  it('the sweep actually reaches card headers — a floor over the whole gated set', async () => {
+    // MEASURED: 20 card headers across the ten top-level addresses, plus the three /billing*
+    // spellings of one page. A selector that stopped matching would make every case above pass
+    // by finding nothing, which is the failure mode a per-address assertion cannot see.
+    let found = 0
+    for (const route of CONSOLE_ROUTES) {
+      await at(addressOf(route.path))
+      found += cardHeaderTitles(document.body).length
+      document.body.replaceChildren()
+    }
+    expect(
+      found,
+      'the card-header selector matched (almost) nothing across every gated address — the sweep ' +
+        'above is passing because it has no subject, not because the product is right',
+    ).toBeGreaterThan(15)
+  })
+
+  it('nothing ELSE on the page became a heading — the over-correction this file refuses', async () => {
+    // The over-correction: `text-head` is a SIZE, a heading is a STRUCTURE, and two other things
+    // wear that token — the sidebar wordmark and MuNumeral's whole-number span.
+    //
+    // ⚠ THIS IS A COUNT, AND THE FIRST DRAFT WAS A TAG FILTER THAT COULD NOT FAIL. It read
+    // `querySelectorAll('span.text-head')` and asserted each was a SPAN — so the moment one
+    // BECAME a heading it left the selector, the loop ran over what was left, and the case
+    // passed. Control C3 (scripts/w11-card-heading-controls.py) turned MuNumeral's figure into
+    // an `<h2>` and scored 0 red. A selector that filters on the property under test answers its
+    // own question; the total is the thing that cannot be dodged.
+    await at('/')
+    const titles = cardHeaderTitles(document.body)
+    expect(titles.length, '/ renders six cards; a count against zero would prove nothing').toBeGreaterThan(4)
+    const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+    expect(
+      headings.map((h) => `${h.tagName}:${h.textContent?.trim().slice(0, 24)}`),
+      'the console shell writes exactly one h1 and every card header is an h2, so the page holds ' +
+        'ONE MORE heading than it has cards. A different number means something that is not a ' +
+        'section title has entered the headings rotor — a balance, a wordmark, a badge.',
+    ).toHaveLength(1 + titles.length)
+    const wordmark = Array.from(document.querySelectorAll('.text-head')).find(
+      (e) => e.textContent?.trim() === 'Talyvor',
+    )
+    expect(wordmark, 'the sidebar wordmark is gone — this case no longer measures anything').toBeTruthy()
+    expect(
+      wordmark!.tagName,
+      'the wordmark names the PRODUCT, not a region of this page. As a heading it would appear in ' +
+        'the rotor on every screen, above the page name, as a section nobody can navigate to.',
+    ).not.toMatch(/^H[1-6]$/)
+  })
+
+  it('a money FIGURE wearing the head step is not a heading either', () => {
+    // ⚠ MEASURED SEPARATELY BECAUSE THE ADDRESS SWEEP CANNOT REACH IT. The console's balances
+    // come from the BFF, and this file's fake answers /auth/me and 404s everything else — so no
+    // `MuNumeral` renders at any address here, and control C3 (turn its whole-number span into
+    // an `<h2>`) scored ZERO red against the count above. That is a fact about the fixture, not
+    // about the product: the component is rendered directly instead, and the assertion is a
+    // COUNT over the render rather than a filter on its tag.
+    render(<MuNumeral micros={2_350_340_567} unit="lxc" />)
+    const headings = document.querySelectorAll('h1,h2,h3,h4,h5,h6')
+    expect(
+      Array.from(headings).map((h) => h.textContent?.trim()),
+      'a balance is a FIGURE, not a section title. As a heading it enters the rotor — a reader ' +
+        'moving by heading would land on "2,350" as if it named a region of the page.',
+    ).toEqual([])
+  })
+})
