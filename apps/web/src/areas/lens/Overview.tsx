@@ -437,7 +437,10 @@ function ProductsCard() {
 /* ── 5 · Recent activity (last, small; rides the shared ledger fetch) ───── */
 
 function ActivityRow({ e }: { e: LedgerEntry }) {
-  const status = ledgerStatus(e.type);
+  // Recent activity rides `useHistory()` — the MINT ledger, and its numeral says so
+  // (`unit="lens"` below). The token is stated rather than defaulted so this row cannot
+  // quietly start describing LXC if the query it rides ever changes.
+  const status = ledgerStatus(e.type, "lens");
   return (
     <Row
       label={e.description || humanizeType(e.type)}

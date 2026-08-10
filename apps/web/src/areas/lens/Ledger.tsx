@@ -18,11 +18,13 @@ const PAGE = 20
 // and one URL. The unit tick follows the token (copper LENS / steel LXC) via MuNumeral —
 // the two-token colour signature that keeps them from being confused.
 
-function StatusCell({ type }: { type: string }) {
-  const status = ledgerStatus(type)
+function StatusCell({ type, token }: { type: string; token: Token }) {
+  const status = ledgerStatus(type, token)
   if (status) return <Pill status={status}>{status}</Pill>
   // Movements (grant/purchase/spend) have no lifecycle status → a plain ink label. The
   // mislabeled bootstrap `purchase` shows verbatim: the data is wrong, not the display.
+  // ⚠ `token` was in scope in LedgerTableRow and was dropped ONE LINE before the decision
+  // it selects — which is why the whole LXC ledger was read in the mint's vocabulary.
   return <span className="font-figure text-eyebrow uppercase text-muted">{humanizeType(type)}</span>
 }
 
@@ -31,7 +33,7 @@ function LedgerTableRow({ r, token }: { r: LedgerRow; token: Token }) {
     <tr className="border-b border-rule last:border-b-0">
       <td className="whitespace-nowrap px-gutter py-2 font-figure text-body text-muted">{formatWhen(r.created_at)}</td>
       <td className="px-gutter py-2">
-        <StatusCell type={r.type} />
+        <StatusCell type={r.type} token={token} />
       </td>
       <td className="px-gutter py-2 text-body text-ink">{r.description || humanizeType(r.type)}</td>
       <td className="px-gutter py-2 text-right">
