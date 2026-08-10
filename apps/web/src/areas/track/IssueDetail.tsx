@@ -15,6 +15,7 @@ import {
 } from '@talyvor/ui'
 import { getJSON, getJSONArray } from '../../lib/api'
 import { StatusPill } from './StatusPill'
+import { formatCost } from './format'
 import { memberName, teamIdentifier } from './data'
 import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackComment, type TrackMember, type TrackTeam } from './types'
 
@@ -48,13 +49,6 @@ const PRIORITIES: { value: number; label: string }[] = [
   { value: 3, label: 'Medium' },
   { value: 4, label: 'Low' },
 ]
-
-/** Money the way the ledger holds it — never rounded up into a friendlier number. */
-function costLabel(usd: number): string {
-  if (usd <= 0) return 'No AI spend recorded'
-  if (usd < 0.01) return `$${usd.toFixed(4)}`
-  return `$${usd.toFixed(2)}`
-}
 
 export function IssueDetail() {
   const { id = '' } = useParams()
@@ -283,7 +277,7 @@ export function IssueDetail() {
           {/* ⚠ THE NUMBER NO OTHER TRACKER HAS. It has worked all along and was never shown. */}
           <div className="flex flex-wrap items-center gap-3 border-t border-rule pt-4">
             <span className="text-caption text-muted">AI cost</span>
-            <span className="font-figure text-body text-ink">{costLabel(it.ai_cost_usd)}</span>
+            <span className="font-figure text-body text-ink">{formatCost(it.ai_cost_usd)}</span>
             {it.ai_tokens > 0 && (
               <span className="text-caption text-faint">{it.ai_tokens} tokens</span>
             )}
