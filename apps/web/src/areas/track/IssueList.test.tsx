@@ -355,7 +355,7 @@ describe('the view controls query the server, not the page', () => {
 //     Urgent — production is down        priority 1   ← FOURTH of five
 //     None — unprioritised note          priority 0
 //
-// model.IssuePriority (upstream internal/model/model.go:94-98) numbers 0 None, 1 Urgent,
+// model.IssuePriority (upstream `internal/model/model.go`, `type IssuePriority`) numbers 0 None, 1 Urgent,
 // 2 High, 3 Medium, 4 Low, so a numeric sort is not an importance sort in EITHER direction:
 // desc buries Urgent under everything, and asc puts the UNPRIORITISED rows above it.
 describe('the sort control offers only orderings the upstream can actually deliver', () => {
@@ -412,7 +412,7 @@ describe('the sort control offers only orderings the upstream can actually deliv
   // the product's own label map to do it. The day priority is renumbered so that one numeric
   // direction IS the importance order, this fails and says to put the option back.
   it('the priority enum is not ordered by importance in either direction', () => {
-    const VALUES = [0, 1, 2, 3, 4] as const // model.IssuePriority, upstream model.go:94-98
+    const VALUES = [0, 1, 2, 3, 4] as const // model.IssuePriority, upstream `model.go` `type IssuePriority`
     const IMPORTANCE = ['Urgent', 'High', 'Medium', 'Low', 'None'] // what "sort by priority" means
     const asc = [...VALUES].sort((a, b) => a - b).map((p) => priorityLabel(p))
     const desc = [...VALUES].sort((a, b) => b - a).map((p) => priorityLabel(p))

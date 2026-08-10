@@ -14,13 +14,14 @@ export interface TrackWorkspace {
   updated_at: string
 }
 
-/** model.IssueStatus — a FIXED six-value enum (model.go:54-63), not the per-team
+/** model.IssueStatus — a FIXED six-value enum (upstream `model.go`, `type IssueStatus`), not the per-team
  *  workflow-status catalog (that is a separate table driving kanban columns; see the
  *  BFF gap list in the PR). The list screen filters on THIS enum. */
 export const ISSUE_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'done', 'cancelled'] as const
 export type IssueStatus = (typeof ISSUE_STATUSES)[number]
 
-/** model.IssuePriority — 0 None, 1 Urgent, 2 High, 3 Medium, 4 Low (model.go:65-73). */
+/** model.IssuePriority — 0 None, 1 Urgent, 2 High, 3 Medium, 4 Low (upstream `model.go`,
+ *  `type IssuePriority`). */
 export type IssuePriority = 0 | 1 | 2 | 3 | 4
 
 /** GET /v1/workspaces/{wsID}/issues → []model.Issue (bare array, no envelope). */
