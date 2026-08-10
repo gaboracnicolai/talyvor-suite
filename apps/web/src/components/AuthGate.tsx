@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Button, Card } from '@talyvor/ui'
 import { api } from '../lib/api'
+import { useAuthMeReader } from '../lib/authMe'
 import { useDocumentTitle } from '../documentTitle'
 import { PoolingConsent } from './PoolingConsent'
 import { SignInCard } from '../areas/auth/Entry'
@@ -86,7 +87,7 @@ function SignedOut() {
 // SessionChip: who is signed in + the way out. Renders nothing when there is no
 // session to show (disabled mode, or the gate is about to take over anyway).
 export function SessionChip() {
-  const q = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
+  const q = useAuthMeReader()
   const qc = useQueryClient()
   if (!q.data?.authenticated || !q.data.user) return null
   return (

@@ -1,6 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { api } from '../lib/api'
+import { useAuthMeReader } from '../lib/authMe'
 import { useDocumentTitle } from '../documentTitle'
 
 // legalParts — the shared furniture for /privacy and /terms.
@@ -42,7 +41,7 @@ import { useDocumentTitle } from '../documentTitle'
  * product chrome was right; what was missing is a way out, and that is a different thing.
  */
 function ReturnLink() {
-  const q = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
+  const q = useAuthMeReader()
   const signedOut = q.data?.mode === 'oidc' && !q.data.authenticated
   return (
     <Link

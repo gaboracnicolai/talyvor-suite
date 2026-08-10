@@ -29,6 +29,7 @@
   "src/areas/track/IssueList.test.tsx": 15,
   "src/areas/track/TrackArea.test.tsx": 4,
   "src/AuthGate.test.tsx": 3,
+  "src/authProbeLoop.test.tsx": 8,
   "src/BillingRoutes.test.tsx": 4,
   "src/buildIdentity.test.ts": 9,
   "src/caseAudit.test.tsx": 24,
