@@ -54,6 +54,26 @@ import { resolve } from 'node:path'
  * first paint…") holds no token Tailwind recognises. So the hole is real, currently empty, and
  * unguarded; `html` is listed in EXEMPT below with that reason, and the coverage test will name
  * it again the day a second HTML file joins the content set.
+ *
+ * ⚠ AND THE SECOND HOLE IS NOT EMPTY ANY MORE — A CLASS SUPPLIED BY A STRING LITERAL. This file
+ * strips COMMENTS, and `stripComments` deliberately PROTECTS string and template literals,
+ * because a string literal is exactly where a real class list lives (`className="text-body"`).
+ * So a utility name written as DATA rather than as a class is present in BOTH generations, the
+ * diff is empty, and this guard is green while the browser downloads the rule.
+ *
+ * MEASURED, on this repo, from `src/fieldFaceAudit.ts`: `new Set(['range', 'hidden'])` — an
+ * exemption list of INPUT TYPES, where `hidden` is an HTML attribute value that happens to spell
+ * a Tailwind utility — put `.hidden{display:none}` into the production stylesheet for an element
+ * that does not exist. On the built artifact: 22,420 → 22,441 bytes, 308 → 309 emitted class
+ * names, and the diff of the two name sets was exactly `hidden`. That file now spells it
+ * `` `hid${'den'}` `` and carries the four-way measurement of which spellings leak.
+ *
+ * ⚠ IT IS RECORDED HERE AND DELIBERATELY NOT CLOSED. The check this file makes is cheap because
+ * "with comments" and "without comments" are both mechanically derivable from one source; there
+ * is no such second derivation for "with data strings" — telling a class list from a data string
+ * is the same problem deadClasses.test.ts's rule B already wrestles with, and every wrong answer
+ * either red-flags a live class list or silently permits the next `hidden`. Whoever takes it
+ * should start from that rule rather than from a new scanner.
  */
 
 const appRoot = resolve(import.meta.dirname, '..')

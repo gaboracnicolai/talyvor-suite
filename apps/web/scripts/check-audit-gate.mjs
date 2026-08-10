@@ -1,7 +1,7 @@
-// THE SEVEN DOM AUDITS HAVE ONE ENFORCEMENT POINT AND NOTHING CHECKED THAT IT THROWS.
+// THE EIGHT DOM AUDITS HAVE ONE ENFORCEMENT POINT AND NOTHING CHECKED THAT IT THROWS.
 //
-// `test-setup.ts` collects offenders from all seven audits — figure, case, focus, glyph,
-// placeholder, eyebrow, plane — into one `problems` array and ends with a single line:
+// `test-setup.ts` collects offenders from all eight audits — figure, case, focus, glyph,
+// placeholder, eyebrow, plane, field — into one `problems` array and ends with a single line:
 //
 //     if (problems.length > 0) throw new Error(problems.join('\n\n'))
 //
@@ -53,7 +53,7 @@
 //     this, "the armed run failed" and "vitest is broken" are the same observation — the trap
 //     `319335c`'s C3 paid for, where a broken build scored as a catch.
 //  2. ARMED HALF. Runs a probe rendering ONE offender per audit and requires it to FAIL.
-//  3. Requires every one of the seven audits to have NAMED ITSELF in the output, as a SET both
+//  3. Requires every one of the eight audits to have NAMED ITSELF in the output, as a SET both
 //     directions: the pinned list below is compared to the number of report blocks in
 //     test-setup.ts, so an eighth audit that forgets to wire itself fails here, and a deleted
 //     report block fails here too.
@@ -93,7 +93,7 @@ const PROJECTS = [
 ]
 
 /**
- * The seven audits, each matched by the OPENING PHRASE OF ITS OWN REPORT BLOCK.
+ * The eight audits, each matched by the OPENING PHRASE OF ITS OWN REPORT BLOCK.
  *
  * ⚠ THE FIRST VERSION MATCHED ON THE FILE NAME EACH MESSAGE CITES (`src/caseAudit.ts`) AND WAS
  * READING THE STACK TRACE. vitest prints `at MutationObserver.scan (…/src/caseAudit.ts:260:35)`
@@ -110,6 +110,7 @@ const AUDITS = [
   ['placeholder', 'placeholder(s) painted by the browser'],
   ['eyebrow', 'eyebrow(s) rendered without an uppercase transform in effect'],
   ['plane', 'text scored against the plane it renders on'],
+  ['field', 'numeric field(s) whose value is painted in the body sans'],
 ]
 
 /**
@@ -136,6 +137,7 @@ describe('audit gate probe', () => {
         <button>Go</button>
         <span>a ☃ snowman</span>
         <input placeholder="key prefix" />
+        <input inputmode="decimal" value="12.5" />
         <span class="text-eyebrow">spent</span>
         <div class="bg-lens"><span class="text-muted">on an unclassified plane</span></div>
       </div>\`
@@ -218,7 +220,7 @@ function checkProject(project) {
     if (armed.status === 0) {
       fail(
         `${project.label}: THE AUDIT GATE DID NOT THROW. A probe rendering one offender for each ` +
-          'of the seven DOM audits passed.\n' +
+          'of the eight DOM audits passed.\n' +
           `  ${project.setup}'s \`if (problems.length > 0) throw\` is the single enforcement point ` +
           'for ALL of them; with it disabled the whole suite stays green while the product ships ' +
           'the defects each rule exists to prevent.',
