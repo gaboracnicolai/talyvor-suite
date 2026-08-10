@@ -37,6 +37,7 @@
   "src/ClaimsAudit.test.tsx": 38,
   "src/ConsoleDeepHeading.test.tsx": 11,
   "src/ConsoleHeading.test.tsx": 13,
+  "src/ConsoleNavLinks.test.tsx": 20,
   "src/ConsoleTitle.test.tsx": 28,
   "src/controlParity.test.ts": 8,
   "src/deadClasses.test.ts": 4,

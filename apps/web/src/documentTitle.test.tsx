@@ -217,7 +217,7 @@ describe('every console address names itself to the browser', () => {
     // correct for exactly one route and wrong for every route the user walks to afterwards.
     await at('/')
     await waitFor(() => expect(document.title).toBe(`Overview | ${BRAND}`))
-    fireEvent.click(screen.getByRole('button', { name: 'Ledger' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Ledger' }))
     await waitFor(() => expect(document.title).toBe(`Ledger | ${BRAND}`))
   })
 })

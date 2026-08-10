@@ -78,6 +78,6 @@ describe('the billing routes Lens already redirects to', () => {
 
   it('reaches the top-up screen from the sidebar, so buying is discoverable', async () => {
     at('/')
-    expect(await screen.findByRole('button', { name: /^billing$/i })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /^billing$/i })).toBeInTheDocument()
   })
 })
