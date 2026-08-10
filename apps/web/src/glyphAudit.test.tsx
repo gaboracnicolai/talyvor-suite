@@ -11,7 +11,9 @@ import {
   effectiveFamily,
   servedFaces,
   unservedGlyphsIn,
+  woff2Axes,
   woff2Codepoints,
+  woff2FamilyName,
   woff2FeatureTags,
   woff2WeightClass,
 } from './glyphAudit'
@@ -112,9 +114,13 @@ describe('the served faces, read from theme.css and the binaries', () => {
    * rendered one step light on every surface, silently, exactly the failure theme.css warns about
    * for a MISSING file. The static faces are asked what weight they actually are.
    *
-   * The sans is excluded on purpose rather than by omission: it is a VARIABLE face declared
-   * `400 700`, and its usWeightClass is 300 (the default instance), so the descriptor and the
-   * binary are not supposed to agree there. Its range is covered by the test above.
+   * The sans is excluded HERE because it is a VARIABLE face declared `400 700` and its
+   * usWeightClass is 300 (the default instance), so the descriptor and the binary are not
+   * supposed to agree on a single number. ⚠ THIS COMMENT USED TO SAY "its range is covered by
+   * the test above", AND THAT WAS FALSE — the test below it compares the descriptor STRING
+   * theme.css writes to a copy of the same string, which is true of any file at all. The two
+   * tests that follow are what actually covers it, and they exist because a control walked
+   * through the gap the sentence described as closed. See `woff2FamilyName`.
    */
   it('each static mono face IS the weight theme.css declares it to be', () => {
     const statics = servedFaces().filter((f) => /^\d+$/.test(f.weight))
@@ -129,6 +135,64 @@ describe('the served faces, read from theme.css and the binaries', () => {
       [...new Set(servedFaces().filter((f) => f.family === fam).map((f) => f.weight))].sort()
     expect(weights('mono')).toEqual(['400', '500', '600'])
     expect(weights('sans')).toEqual(['400 700'])
+  })
+
+  /**
+   * ⚠ THE `src` IS A CLAIM ABOUT WHICH TYPEFACE THE PRODUCT IS SET IN, AND NOTHING CHECKED IT.
+   * Measured at `47486d3`, on the tree as shipped: repointing the sans `@font-face` at
+   * `ibm-plex-mono-400-latin.woff2` — the entire interface rendering in monospace — kept 1,010
+   * tests green across both packages. The mono and sans subsets declare the same
+   * `unicode-range` and carry the same characters, so `coverage()` cannot separate them;
+   * typeface.test.tsx asks only for the `wOF2` magic; and the weight test above skips the sans
+   * by design. Six honest faces were pinned to their weight and the seventh and eighth were
+   * pinned to nothing at all.
+   *
+   * The binary is now asked what it is. Word-boundary prefix rather than equality, because
+   * these subsets carry no nameID 16 and fold the style into nameID 1 ("IBM Plex Mono
+   * SemiBold", "Space Grotesk Light") — see `woff2FamilyName` for why neither equality nor a
+   * bare `startsWith` is the right comparison.
+   */
+  it('every served face NAMES ITSELF as the family theme.css points at it for', () => {
+    const faces = servedFaces()
+    expect(faces.length).toBe(8)
+    for (const f of faces) {
+      const actual = woff2FamilyName(f.file)
+      expect(
+        actual === f.declared || actual.startsWith(`${f.declared} `),
+        `theme.css serves '${f.declared}' from ${f.file.split('/').pop()}, which names itself ` +
+          `'${actual}' — the product would render in a typeface nobody chose`,
+      ).toBe(true)
+    }
+  })
+
+  /**
+   * ⚠ A WEIGHT RANGE IS A PROMISE ONLY A VARIABLE FILE CAN KEEP. `font-weight: 400 700` tells the
+   * browser this one file answers every weight in between; against a static file the browser
+   * SYNTHESISES them instead — faux bold on every heading, and nothing red. The static faces are
+   * held to their single weight above by OS/2; this is the same question asked of the other kind
+   * of face, so that no `@font-face` in this stylesheet is checked by nothing.
+   *
+   * ⚠ THE AXIS IS WIDER THAN THE DESCRIPTOR AND THAT IS THE CORRECT DIRECTION. Measured:
+   * `wght` runs 300–700 (default 300) while theme.css declares 400 700, so the file can draw
+   * everything it is asked for and 300–400 is simply never requested. The assertion is
+   * COVERAGE, not equality — pinning the axis to the descriptor would red on a re-subset that
+   * legitimately kept more range than the product uses.
+   */
+  it('a face declared as a weight RANGE really is variable across it', () => {
+    const ranges = servedFaces().filter((f) => /^\d+\s+\d+$/.test(f.weight))
+    expect(ranges.length).toBe(2)
+    for (const f of ranges) {
+      const [lo, hi] = f.weight.split(/\s+/).map(Number)
+      const axes = woff2Axes(f.file)
+      expect(axes, `${f.file} is declared '${f.weight}' but carries no fvar — it is a static file`)
+        .not.toBeNull()
+      const wght = axes!.find((a) => a.tag === 'wght')
+      expect(wght, `${f.file} is declared '${f.weight}' but has no wght axis`).toBeDefined()
+      expect(
+        wght!.min <= lo && wght!.max >= hi,
+        `${f.file} declares weights ${lo}–${hi} and its wght axis is ${wght!.min}–${wght!.max}`,
+      ).toBe(true)
+    }
   })
 
   /**

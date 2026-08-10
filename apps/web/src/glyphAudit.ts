@@ -176,6 +176,89 @@ export function woff2WeightClass(file: string): number {
   return os2.readUInt16BE(4)
 }
 
+/**
+ * The family a face's binary NAMES ITSELF, from its `name` table.
+ *
+ * ⚠ THIS EXISTS BECAUSE THE SANS HAD NO SUCH CHECK AND A CONTROL WALKED STRAIGHT THROUGH IT.
+ * `woff2WeightClass` above closed the mono half of `@font-face src` being a claim about a file —
+ * but it is only asked of the STATIC faces, and the variable sans was excluded with the reason
+ * "its range is covered by the test above". That test compares the DESCRIPTOR STRING theme.css
+ * writes to a copy of the same string in the test, so it is true of any file whatsoever. Measured
+ * at `47486d3`: repointing the sans `@font-face` at `ibm-plex-mono-400-latin.woff2` — the whole
+ * product rendering in monospace, every heading and every line of body text — left 1,010 tests
+ * across both packages GREEN. The two subsets cover the same ranges, so coverage cannot tell them
+ * apart, and typeface.test.tsx only asks for `wOF2`.
+ *
+ * ⚠ nameID 16 (typographic family) WHEN PRESENT, ELSE nameID 1, AND THE DIFFERENCE IS NOT
+ * COSMETIC. Static subsets in this repo carry no nameID 16, and their nameID 1 folds the style
+ * into the family — the 600 mono says "IBM Plex Mono SemiBold", the sans says "Space Grotesk
+ * Light". So the comparison is a WORD-BOUNDARY PREFIX, not equality: an exact match would red the
+ * six honest mono faces, and a bare `startsWith` would let a face declared 'IBM Plex' pass.
+ */
+export function woff2FamilyName(file: string): string {
+  const t = woff2Table(file, 'name')
+  if (!t) throw new Error(`no name table — ${file} does not say what it is`)
+  const count = t.readUInt16BE(2)
+  const storage = t.readUInt16BE(4)
+  // Windows/Unicode records are UTF-16BE; Macintosh Roman is single-byte. Prefer the
+  // typographic family (16) over the legacy one (1), and take the first record of either.
+  const found = new Map<number, string>()
+  for (let i = 0; i < count; i++) {
+    const rec = 6 + i * 12
+    const platform = t.readUInt16BE(rec)
+    const nameId = t.readUInt16BE(rec + 6)
+    if (nameId !== 1 && nameId !== 16) continue
+    if (found.has(nameId)) continue
+    const length = t.readUInt16BE(rec + 8)
+    const offset = t.readUInt16BE(rec + 10)
+    const raw = t.subarray(storage + offset, storage + offset + length)
+    // Buffer.swap16 mutates in place and throws on an odd length; copy, and only for the
+    // two-byte platforms (0 = Unicode, 3 = Windows). Platform 1 (Macintosh) is latin1.
+    const text =
+      platform === 1 ? raw.toString('latin1') : Buffer.from(raw).swap16().toString('utf16le')
+    found.set(nameId, text.trim())
+  }
+  const name = found.get(16) ?? found.get(1)
+  if (!name) throw new Error(`no family name — ${file} carries neither nameID 16 nor nameID 1`)
+  return name
+}
+
+/** One variable axis, as `fvar` declares it. */
+export interface Axis {
+  tag: string
+  min: number
+  def: number
+  max: number
+}
+
+/**
+ * The variation axes a face's binary carries, or `null` when it has no `fvar` at all.
+ *
+ * A `@font-face` whose `font-weight` descriptor is a RANGE ("400 700") is telling the browser
+ * one file answers every weight in it. That is only true of a variable face with a `wght` axis
+ * spanning the range — re-subset the sans to a static file and the descriptor keeps promising
+ * seven weights the file cannot draw, which the browser answers by SYNTHESISING them.
+ */
+export function woff2Axes(file: string): Axis[] | null {
+  const fvar = woff2Table(file, 'fvar')
+  if (!fvar) return null
+  const axisOffset = fvar.readUInt16BE(4)
+  const axisCount = fvar.readUInt16BE(8)
+  const axisSize = fvar.readUInt16BE(10)
+  const axes: Axis[] = []
+  for (let i = 0; i < axisCount; i++) {
+    const o = axisOffset + i * axisSize
+    // Fixed 16.16.
+    axes.push({
+      tag: fvar.toString('latin1', o, o + 4),
+      min: fvar.readInt32BE(o + 4) / 65536,
+      def: fvar.readInt32BE(o + 8) / 65536,
+      max: fvar.readInt32BE(o + 12) / 65536,
+    })
+  }
+  return axes
+}
+
 /** The codepoints a woff2's cmap maps to a real glyph. Glyph 0 (.notdef) is not coverage. */
 export function woff2Codepoints(file: string): Set<number> {
   // ⚠ THE EM DASH IS LOAD-BEARING AND IS NOT PUNCTUATION. deadClasses.test.ts harvests any
@@ -239,6 +322,12 @@ export type Family = 'sans' | 'mono'
 
 export interface ServedFace {
   family: Family
+  /**
+   * the `font-family` descriptor, verbatim — 'Space Grotesk'. Kept alongside the mapped
+   * `family` because the binary is asked to agree with what the STYLESHEET wrote, not with
+   * this file's classification of it.
+   */
+  declared: string
   /** the `font-weight` descriptor, verbatim — "400 700" for the variable sans. */
   weight: string
   file: string
@@ -293,7 +382,7 @@ export function servedFaces(): ServedFace[] {
         return [parseInt(lo, 16), parseInt(hi, 16)] as const
       })
     const file = resolve(UI_SRC, url)
-    faces.push({ family: mapped, weight, file, ranges, codepoints: woff2Codepoints(file) })
+    faces.push({ family: mapped, declared: family, weight, file, ranges, codepoints: woff2Codepoints(file) })
   }
   if (faces.length === 0) throw new Error('theme.css declared no @font-face — the guard read nothing')
   cachedFaces = faces
