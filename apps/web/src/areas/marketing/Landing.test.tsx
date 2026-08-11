@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTACT_EMAIL, Landing } from './Landing'
+import { LEDGER_HIT, micro } from './economics'
 
 // Area-owned test — replaces the deleted shared areas/scaffold.test.tsx (the
 // deadlock: a shared test over per-area screens; see #7). The marketing tab
@@ -119,14 +120,33 @@ describe('Landing', () => {
    * Advancing the stepper is what puts them in front of the audit. It also happens to be the only
    * test of the stepper at all: each beat must show its own figure and its own body, so a wiring
    * mistake that showed beat 1's number under beat 3's sentence is caught here too.
+   *
+   * ⚠ AND THE UNIT LABEL WAS THE ONLY THING ANYTHING CHECKED — THE NUMBER BESIDE IT WAS RENDERED
+   * BY NOTHING. MEASURED at `dfb6566`, not reasoned about: beat 3's figure re-wired to
+   * `LEDGER_HIT.contributorEarnedMicroLENS` (822) with its unit left as `µLXC saved`, then the
+   * FULL root `pnpm test` — EXIT 0, apps/web 1070/1070, packages/ui 350/350, test-manifest ok,
+   * audit-reach 72/72, audit-gate ok both projects. The front page would have told a visitor that
+   * 1,645 charged and 822 saved make 2,350, an arithmetic contradiction on the ONE part of this
+   * page its own caption presents as measured rather than modelled, and every gate in the repo
+   * agreed. A label check cannot see a wrong number under a right label; the table below now
+   * carries the value with its unit and the assertion binds the two.
+   *
+   * ⚠ THIS IS A WIRING GUARD, NOT A SECOND COPY OF THE ARITHMETIC — SAID PLAINLY BECAUSE THE
+   * DIFFERENCE IS WHAT MAKES IT HONEST. The expected strings are built from `economics.ts`'s own
+   * constants through the page's own `micro`, so MUTATING A CONSTANT MOVES BOTH SIDES AND IS NOT
+   * CAUGHT HERE. Its catcher is `economics.test.ts` ("adds up: charged + saved is list"), the file
+   * that owns the arithmetic — measured as a control, not predicted: `chargedMicroLXC` 1645→1700
+   * reds economics.test.ts ALONE and this file stays green. Re-pinning the four literals here
+   * would be the third copy of a number that already has two homes, which is the shape
+   * `site-parity.test.ts` warns against in its own header.
    */
-  it('advances through all four beats of the worked hit, so every unit label is rendered', async () => {
+  it('advances through all four beats of the worked hit, rendering each unit with its own figure', async () => {
     const { container } = render(<Landing />)
-    const beats: [RegExp, string][] = [
-      [/A request arrives/i, 'µLXC list'],
-      [/The pool has it/i, 'µLXC charged'],
-      [/The consumer keeps the difference/i, 'µLXC saved'],
-      [/The contributor is paid/i, 'µLENS earned'],
+    const beats: [RegExp, string, string][] = [
+      [/A request arrives/i, 'µLXC list', micro(LEDGER_HIT.listMicroLXC)],
+      [/The pool has it/i, 'µLXC charged', micro(LEDGER_HIT.chargedMicroLXC)],
+      [/The consumer keeps the difference/i, 'µLXC saved', micro(LEDGER_HIT.savedMicroLXC)],
+      [/The contributor is paid/i, 'µLENS earned', micro(LEDGER_HIT.contributorEarnedMicroLENS)],
     ]
     // ⚠ NOT `getByText`. CaseSafe splits a protected label into spans, so no element's OWN text is
     // "µLXC list" any more and Testing Library's default matcher reads own text — measured, that
@@ -139,10 +159,19 @@ describe('Landing', () => {
     // observer only ever saw the final DOM: with the fix reverted the audit named FOUR offenders,
     // not six, and `µLXC charged` and `µLXC saved` were invisible. Yielding lets the observer run
     // at each step. Verified by counting: 4 offenders without the yield, 6 with it.
-    for (const [label, unit] of beats) {
+    for (const [label, unit, value] of beats) {
       fireEvent.click(screen.getByRole('button', { name: label }))
       await new Promise((r) => setTimeout(r, 0))
-      expect(container.textContent ?? '').toContain(unit)
+      // ⚠ THE BEAT PANEL, NOT THE WHOLE PAGE, AND THAT IS MEASURED RATHER THAN TIDINESS. The
+      // compounding curve below renders its own `Figure`s and at its starting pool size one of
+      // them is "2,350µLXC you pay" — so a page-wide search for beat 1's number would be answered
+      // by a DIFFERENT section and would stay green with the stepper unwired. `.tal-rise` is the
+      // beat panel and the only className of that name in this app; rename it and this reads ''
+      // and reds, rather than quietly finding the number somewhere else.
+      const panel = container.querySelector('.tal-rise')?.textContent ?? ''
+      expect(panel, `beat "${unit}" must render ${value} beside its own unit`).toContain(
+        `${value}${unit}`,
+      )
       // and the step really MOVED — every other beat's unit is gone, so a mis-wired stepper
       // showing beat 1's figure under beat 3's sentence fails here rather than passing quietly.
       for (const [, other] of beats) {
