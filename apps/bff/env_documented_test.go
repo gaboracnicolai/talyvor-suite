@@ -57,6 +57,12 @@ func TestEveryEnvVarTheBinaryReadsIsDocumented(t *testing.T) {
 	docs := map[string]string{
 		"../../deploy/README.md":       "",
 		"../../deploy/bff.env.example": "",
+		// The BFF's OWN README joined this set when its table was measured against the binary: it
+		// named 3 of the 19 variables read here and marked two more **required** that nothing
+		// reads. A developer's first document is this one, and it was the only one of the three
+		// with no rule holding it to the config surface. See readme_boot_test.go for the inverse
+		// direction, which is the half this test states it cannot see.
+		"README.md": "",
 	}
 	for path := range docs {
 		b, err := os.ReadFile(path)
