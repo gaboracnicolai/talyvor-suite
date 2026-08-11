@@ -104,25 +104,52 @@ func TestDistillWriteForwardsUpstreamRefusal(t *testing.T) {
 // A3 — the must-stay-green companion, and the boundary of the new rule. An UNREACHABLE Lens is
 // not an upstream status at all and must stay a 502: this is the case that separates "Lens said
 // no" from "Lens said nothing".
+//
+// ⚠ THE FIRST VERSION OF THIS TEST PASSED FOR THE WRONG REASON AND ONLY A CONTROL SAID SO. It
+// closed the whole stub after building the app, so PROVISIONING failed too — and in disabled mode
+// requireTenant writes its own 502 ("lens upstream unreachable") without ever calling
+// handleDistill. The 502 it asserted was a different 502, and the control that makes an
+// unreachable Lens answer 401 inside lensGet was NOT CAUGHT: the assertion was earned by nothing.
+// So provisioning must SUCCEED here, and only the reads after it may fail — which is why the stub
+// hijacks and drops the connection instead of the server going away.
 func TestDistillUnreachableLensStays502(t *testing.T) {
+	var provisioned bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		serveFakeProvision(w, r)
+		if r.URL.Path == provisionPath {
+			provisioned = true
+			serveFakeProvision(w, r)
+			return
+		}
+		// Drop the connection with no response: the client sees a transport failure, which is
+		// what "Lens is unreachable" is, rather than any status at all.
+		if hj, ok := w.(http.Hijacker); ok {
+			conn, _, err := hj.Hijack()
+			if err == nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		t.Fatal("stub could not hijack — the transport-failure case would silently become a status")
 	}))
-	base := srv.URL
+	t.Cleanup(srv.Close)
 	a := newApp(config{
 		addr:            "127.0.0.1:0",
-		lensBaseURL:     base,
+		lensBaseURL:     srv.URL,
 		provisionSecret: testProvisionSecret,
 		webDist:         t.TempDir(),
 		authMode:        authModeDisabled,
 	}, nil)
-	srv.Close() // provisioning already happened at first request; now nothing answers
 
 	if rec := doJSON(a, http.MethodGet, "/api/distill", ""); rec.Code != http.StatusBadGateway {
 		t.Errorf("unreachable Lens → GET /api/distill = %d, want 502 (body %s)", rec.Code, rec.Body.String())
 	}
 	if rec := doJSON(a, http.MethodPost, "/api/distill", `{"distill_policy":"disabled"}`); rec.Code != http.StatusBadGateway {
 		t.Errorf("unreachable Lens → POST /api/distill = %d, want 502 (body %s)", rec.Code, rec.Body.String())
+	}
+	// The premise, asserted rather than assumed: if provisioning had failed, requireTenant would
+	// have written its own 502 and the assertions above would be about a handler never reached.
+	if !provisioned {
+		t.Fatal("the tenant was never provisioned, so handleDistill was never reached")
 	}
 }
 
