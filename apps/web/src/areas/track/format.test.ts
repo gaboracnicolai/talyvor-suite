@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { formatCost, formatWhen, priorityLabel, statusLabel } from './format'
 
 describe('track formatters', () => {
-  it('formatWhen renders the shared compact clock and passes garbage through', () => {
-    expect(formatWhen('2026-07-19T14:52:59Z')).toMatch(/Jul 19/)
+  // ⚠ THE `/Jul 19/` HALF IS GONE, AND IT WAS THE ONE ASSERTION IN THIS REPO THAT READ A RENDERED
+  // CLOCK. `formatWhen` passes no `timeZone`, so that day was true only where the developer was
+  // standing: green at UTC, Europe/Bucharest, America/Los_Angeles and Pacific/Midway, RED past
+  // UTC+9:08 where `2026-07-19T14:52:59Z` is already the 20th. CI is UTC, so the gate's verdict
+  // and the developer's location were the same fact. The clock is now pinned in vitest.config.ts
+  // and asserted as an exact string — for BOTH modules together — in src/renderedClock.test.ts.
+  it('echoes an unparseable timestamp unchanged rather than inventing one', () => {
     expect(formatWhen('not-a-date')).toBe('not-a-date')
   })
 
