@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTACT_EMAIL, Landing } from './Landing'
-import { LEDGER_HIT, micro } from './economics'
+import { LEDGER_HIT, SAVED_MICRO_LXC, micro } from './economics'
 
 // Area-owned test — replaces the deleted shared areas/scaffold.test.tsx (the
 // deadlock: a shared test over per-area screens; see #7). The marketing tab
@@ -145,7 +145,7 @@ describe('Landing', () => {
     const beats: [RegExp, string, string][] = [
       [/A request arrives/i, 'µLXC list', micro(LEDGER_HIT.listMicroLXC)],
       [/The pool has it/i, 'µLXC charged', micro(LEDGER_HIT.chargedMicroLXC)],
-      [/The consumer keeps the difference/i, 'µLXC saved', micro(LEDGER_HIT.savedMicroLXC)],
+      [/The consumer keeps the difference/i, 'µLXC saved', micro(SAVED_MICRO_LXC)],
       [/The contributor is paid/i, 'µLENS earned', micro(LEDGER_HIT.contributorEarnedMicroLENS)],
     ]
     // ⚠ NOT `getByText`. CaseSafe splits a protected label into spans, so no element's OWN text is

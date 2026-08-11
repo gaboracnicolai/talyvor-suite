@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, CaseSafe, ThemeToggle, focusRing } from '@talyvor/ui'
 import { useSignupProbe } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
-import { HOLDBACK_HOURS, LEDGER_HIT, billAt, micro, savedAt } from './economics'
+import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, billAt, micro, savedAt } from './economics'
 
 // The marketing landing (/marketing, OUTSIDE the AuthGate — see App.tsx). It must render with no
 // session, no router context, and no providers: Landing.test.tsx renders <Landing /> bare, so
@@ -218,7 +218,7 @@ function WorkedHit() {
     },
     {
       label: 'The consumer keeps the difference',
-      figure: <Figure value={micro(LEDGER_HIT.savedMicroLXC)} unit="µLXC saved" />,
+      figure: <Figure value={micro(SAVED_MICRO_LXC)} unit="µLXC saved" />,
       body: 'Not a discount anyone funds. The saving is a generation cost nobody had to pay a second time.',
     },
     {
