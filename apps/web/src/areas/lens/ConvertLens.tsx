@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button, Input, MuNumeral } from "@talyvor/ui";
+import { InlineFailure } from "../../components/SessionExpiredBar";
 import {
   ConvertError,
   convertApi,
@@ -88,11 +89,22 @@ export function ConvertLens({
       {quote.isLoading ? (
         <p className="text-caption text-muted">Reading the current rate…</p>
       ) : quote.isError ? (
-        <p className="text-caption text-muted">
-          {quote.error instanceof ConvertError
-            ? quote.error.message
-            : "Couldn’t read the conversion rate."}
-        </p>
+        // ⚠ THE READ AND THE WRITE GET DIFFERENT ANSWERS ON THE SAME 401, from one rule.
+        // The quote is a useQuery, so it lands in the cache `useSessionExpired` scans and the
+        // app-wide bar above has ALREADY named the cause and offered the click. A panel that
+        // adds its own sentence here is the second voice SessionExpiredBar.tsx exists to
+        // remove ("a card repeating it is the eighth voice this change exists to prevent"), so
+        // this defers to InlineFailure — the one place that decision lives. The convert
+        // MUTATION below is the opposite case and says so there.
+        <InlineFailure
+          error={quote.error}
+          className="text-caption text-muted"
+          failed={
+            quote.error instanceof ConvertError
+              ? quote.error.message
+              : "Couldn’t read the conversion rate."
+          }
+        />
       ) : quote.data ? (
         <>
           <div className="flex flex-col gap-1">
@@ -187,6 +199,11 @@ export function ConvertLens({
       ) : null}
 
       {run.isError ? (
+        // ⚠ AND HERE THE PANEL MUST SPEAK, INCLUDING ABOUT AN EXPIRED SESSION. This is a
+        // useMutation: `useSessionExpired` reads `cache.getAll()`, which is QUERIES, so no bar
+        // can ever appear for a refused conversion. The panel is not a second voice here — it
+        // is the only one. `classify` gives 401 its own `signed_out` sentence for that reason;
+        // it used to fall through to "Please try again", which is false for a verdict.
         <p className="text-caption text-muted">
           {run.error instanceof ConvertError
             ? run.error.message
