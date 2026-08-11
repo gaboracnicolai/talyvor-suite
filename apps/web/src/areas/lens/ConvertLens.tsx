@@ -56,6 +56,13 @@ export function ConvertLens({
       // screen's numbers the server's numbers.
       void qc.invalidateQueries({ queryKey: ["lens-balance"] });
       void qc.invalidateQueries({ queryKey: ["lxc-balance"] });
+      // ⚠ AND THE QUOTE, which this same reasoning always covered and this call did not reach.
+      // The rate is read at CONVERT time upstream (lens `internal/economy/dualtoken.go`,
+      // the `Convert` path's `s.engine.CurrentRate(ctx)` — a SYMBOL, because a line number in
+      // another repo decays with no commit here and cannot be checked from this one; see #153), not from the quote — so a ConvertResult whose `rate` is not
+      // the quoted one is proof the panel's rate is stale. Leaving it cached means the next
+      // "Costs …" line is computed from a number the server has already contradicted.
+      void qc.invalidateQueries({ queryKey: ["convert-quote"] });
     },
   });
 
@@ -186,9 +193,42 @@ export function ConvertLens({
             : "Couldn’t convert — nothing was converted."}
         </p>
       ) : null}
+      {/* ⚠ WHAT WAS ACTUALLY CHARGED — the one number this panel exists to be honest about, and
+          the one it used to throw away.
+
+          MEASURED on this component, not read: with the quote at 2 LENS per LXC and the server
+          charging at 3 (`lens_spent_ulens: 3_000_000`, `rate: 3`), the panel rendered
+          "Costs 2.000000 lens — rounded up, the way the server charges it" and then, after the
+          conversion, only the two new balances. The false sentence stayed on screen beside a
+          conversion that cost 50% more, and the workspace was never told.
+
+          ⚠ THE DIVERGENCE IS THE ORDINARY CASE, NOT AN EDGE ONE. The quote is a SNAPSHOT: this
+          file's own header says the rate "lives in Lens's conversion_rate_history and changes",
+          and Lens computes the charge from `CurrentRate(ctx)` at POST time. Between opening the
+          panel and clicking, nothing revalidates it.
+
+          ⚠ THE SERVER ALREADY SENT ALL OF THIS. `lens_spent_ulens`, `lxc_minted_ulxc` and `rate`
+          are on the wire, declared in ConvertResult and — before this — read by nothing: a census
+          of the whole app found `lens_spent_ulens` in exactly two places, the interface and a test
+          FIXTURE. The client's `lensCostForLXC` mirror is a prediction; this is the receipt. */}
       {run.isSuccess && run.data ? (
         <p className="text-caption text-muted">
-          Converted. LXC balance is now{" "}
+          Converted. Charged{" "}
+          <MuNumeral micros={run.data.lens_spent_ulens} unit="lens" /> for{" "}
+          <MuNumeral micros={run.data.lxc_minted_ulxc} unit="lxc" />
+          {quote.data && run.data.rate !== quote.data.lens_per_lxc ? (
+            <>
+              {" "}
+              at{" "}
+              <span className="font-figure text-ink">{run.data.rate}</span> LENS
+              per LXC — the rate moved after this panel read{" "}
+              <span className="font-figure text-ink">
+                {quote.data.lens_per_lxc}
+              </span>
+              , and the charge is the rate at the moment of conversion
+            </>
+          ) : null}
+          . LXC balance is now{" "}
           <MuNumeral micros={run.data.new_lxc_balance_ulxc} unit="lxc" />
           , LENS{" "}
           <MuNumeral micros={run.data.new_lens_balance_ulens} unit="lens" />.
