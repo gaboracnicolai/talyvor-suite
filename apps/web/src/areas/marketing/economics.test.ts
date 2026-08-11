@@ -56,3 +56,38 @@ describe('the compounding curve', () => {
     }
   })
 })
+
+// ⚠ WHERE THE MODELLED CURVE MEETS THE MEASURED ROW — the one relationship on this page that
+// spans its two halves, and the one nothing was checking.
+//
+// The page shows a real settled hit (1,645 µLXC charged on a 2,350 µLXC answer) and then, under
+// the heading "The same answer, at a pool of N contributors", a modelled bill for THAT answer.
+// `economics.ts` used to claim in a comment that the model had been fitted to the row — that the
+// first other contributor's arrival reproduces 1645/2350. It has not been, and no test could ever
+// have said so: every case above tests the curve against ITSELF (starts at list, falls, flattens,
+// sums) and none of them puts the model and the ledger row in the same sentence.
+//
+// So this pins the crossing: the pool size at which the modelled bill first falls to or below the
+// charge the ledger actually recorded. Today it is SEVEN — the curve quotes 2,194 at two
+// contributors, 549 µLXC ABOVE the measured row, and does not reach it until 7.
+//
+// ⚠ THIS PINS A DISAGREEMENT, NOT A TARGET. Whether the curve should be re-fitted so the crossing
+// is 2 is a decision about what the front page promises about price, and it is in the queue rather
+// than in this diff. When that decision is made this test FAILS, and the failure is the point: it
+// is the line that makes someone re-read the comment in economics.ts describing the shape.
+//
+// ⚠ ONE ASSERTION, DELIBERATELY. `billAt(2)` is the number a visitor sees and pinning it too was
+// tempting, but every parameter mutation that moves it moves the crossing as well — decay, floor
+// and the ledger charge all reach both — so a second case would have been justified by no mutation
+// of its own. The crossing is the wider statement: it reads the model AND the ledger row.
+describe('the modelled curve against the measured row', () => {
+  /** First pool size whose modelled bill is at or below `target` µLXC; null if the slider never gets there. */
+  function firstPoolSizeAtOrBelow(target: number): number | null {
+    for (let m = 1; m <= 61; m++) if (billAt(m) <= target) return m
+    return null
+  }
+
+  it('does not reach the charge the ledger recorded until 7 contributors', () => {
+    expect(firstPoolSizeAtOrBelow(LEDGER_HIT.chargedMicroLXC)).toBe(7)
+  })
+})
