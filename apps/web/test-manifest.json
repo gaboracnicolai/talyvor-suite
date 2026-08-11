@@ -25,7 +25,7 @@
   "src/areas/lens/spendWindowCeiling.test.tsx": 12,
   "src/areas/lens/TopUp.test.tsx": 16,
   "src/areas/lens/unpaidNotice.test.ts": 7,
-  "src/areas/marketing/economics.test.ts": 9,
+  "src/areas/marketing/economics.test.ts": 8,
   "src/areas/marketing/Journey.test.tsx": 4,
   "src/areas/marketing/Landing.test.tsx": 11,
   "src/areas/track/data.test.ts": 6,
