@@ -110,8 +110,21 @@ const EXPORTED_FORMAT = /export\s+(?:async\s+)?function\s+(format[A-Za-z0-9_]*)|
  */
 const FORMATTERS: Record<string, true | string> = {
   'apps/web/src/areas/lens/format.ts#formatUSD': true,
-  'apps/web/src/areas/lens/format.ts#formatWhen':
-    'a timestamp rendered as prose ("3 minutes ago", "12 Aug"), not a column of digits',
+  // ⚠ WAS EXEMPT, ON A DESCRIPTION OF ITS OUTPUT THAT WAS NOT ITS OUTPUT: 'a timestamp rendered
+  // as prose ("3 minutes ago", "12 Aug"), not a column of digits'. It renders neither shape.
+  // `formatWhen` returns "Jul 20, 04:52" — a numeric day and a zero-padded 24-hour clock — and
+  // Ledger.tsx draws it as the FIRST COLUMN of the ledger table, already `font-figure`. The
+  // exemption described something else and the face check believed it.
+  //
+  // MEASURED at 4bbf6d0: dropping `font-figure` from that `<td>` — the ledger's timestamp column
+  // falling into the body sans, beside a MuNumeral that stays on the face — left 1072/1072 green.
+  // The one guard written to catch "a figure rendered in the sans" was told this was not a figure.
+  //
+  // ⚠ THE TWO ENTRIES MOVE TOGETHER OR THE TABLE LIES. The face check's figure set is the NAME
+  // half of every `true` entry (a call site names a function, not a module), so classifying one
+  // `formatWhen` a figure classifies both. Track's copy is stated below rather than left to be
+  // inferred.
+  'apps/web/src/areas/lens/format.ts#formatWhen': true,
   // The money formatter that sat outside the old three-file list entirely: it prints the price
   // on /billing's buy buttons, the one numeral a stranger reads before spending money.
   'apps/web/src/areas/lens/topupApi.ts#formatCents': true,
@@ -122,8 +135,15 @@ const FORMATTERS: Record<string, true | string> = {
   // when an exported `format*` has no production call site, so this table can no longer classify
   // a formatter nothing renders without someone pinning it and saying why.
   'apps/web/src/areas/track/format.ts#formatCost': true,
-  'apps/web/src/areas/track/format.ts#formatWhen':
-    'a timestamp, as lens\'s is — a second formatWhen, same shape and same answer',
+  // A figure by the same rule as lens's, and it must carry the same classification because the
+  // face check keys by name. ⚠ ITS FACE CHECK IS VACUOUS AND SHIPS SAYING SO: this copy has ZERO
+  // render sites — formatterReach.test.ts pins it dead with that reason — so the scan finds
+  // nothing of its own to place. The classification is here to keep the table honest, not because
+  // anything is being enforced on Track today.
+  //
+  // "same shape and same answer" was a claim about two modules that nothing compared; it is now
+  // checked, in src/renderedClock.test.ts, as an exact string from both.
+  'apps/web/src/areas/track/format.ts#formatWhen': true,
   'packages/ui/src/lib/format.ts#formatDay':
     'a date label; dates are set in the sans everywhere in this product, deliberately',
 }
