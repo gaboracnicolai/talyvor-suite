@@ -61,6 +61,21 @@ void() {
 }
 
 # cannot DECISION REPO CHECK — the premise lives somewhere this script cannot read
+#
+# ⚠ THE CHECK MUST BE ABLE TO SAY NO. The footer tells a deployer to run these in the named
+# repo, so the whole uncheckable half is worth exactly what the commands are worth. Two shapes
+# were MEASURED to exit 0 while the premise is false or unmeasured, and both were in this file:
+#
+#   · `go test <pkg> -run <filter>` prints "ok … [no tests to run]" — and under -v the word
+#     "PASS" — and EXITS 0 when the filter matches NO test. The entry below about Track's
+#     200+[] said `-run Unknown`, and talyvor-track's internal/member/ has no test whose name
+#     contains "Unknown" (fifteen that do not, at 9cfad34). It had been reporting a pass from a
+#     run of nothing, while the test that DOES assert that premise sat there under another name.
+#   · `grep -c` exits 0 for any count ≥ 1, so a trailing `# expect 2` is enforced by whoever is
+#     reading, not by the command.
+#
+# So: pipe `go test -v` into a check on the `--- PASS: <TestName>` line, and compare a count
+# rather than trusting grep's status. apps/web/src/settleCommands.test.ts holds both rules.
 cannot() {
     uncheckable=$((uncheckable + 1))
     printf '  UNCHECKABLE  %s\n' "$1"
@@ -207,15 +222,15 @@ cannot "Docs' roster prune stays scoped to source='track' (what makes a seed row
 
 cannot "Track answers 200+[] for an unknown workspace and has no 404 branch on /v1/service/members (why an unknown id cannot error the sync)" \
     "talyvor-track internal/member/handler.go" \
-    "go test ./internal/member/ -run Unknown   # in a talyvor-track checkout"
+    "go test ./internal/member/ -run TestServiceMembers_NonExistentWorkspace_EmptyAndAudited -v 2>&1 | grep -q '^--- PASS: TestServiceMembers_NonExistentWorkspace_EmptyAndAudited'   # in a talyvor-track checkout, against its test Postgres; that test asserts the 200 AND the [] body"
 
 cannot "Docs enumerates workspaces from Track, not from its own content (the whole basis for deleting the seed)" \
     "talyvor-docs internal/trackintegration/enumerate.go" \
-    "go test ./internal/trackintegration/ -run TestSyncMembers_ReachesAWorkspaceWithNoContent"
+    "go test ./internal/trackintegration/ -run TestSyncMembers_ReachesAWorkspaceWithNoContent -v 2>&1 | grep -q '^--- PASS: TestSyncMembers_ReachesAWorkspaceWithNoContent'"
 
 cannot "one secret gates BOTH Track service endpoints (why MEMBER_SYNC_SECRET is a single .env key)" \
     "talyvor-track cmd/track/main.go" \
-    "grep -c 'cfg.MemberSyncSecret' cmd/track/main.go   # expect 2"
+    "[ \"\$(grep -c 'cfg.MemberSyncSecret' cmd/track/main.go)\" = 2 ]   # ONE secret read at BOTH mount points — a count of 1 is the failure, and grep -c's own exit status cannot see it"
 
 # ── W1.1's premise, and it is not in ANY repository ──────────────────────────
 # DECISION: the console's dark theme IS the public site's palette — canvas/surface/ink/muted/
@@ -266,7 +281,7 @@ fi
 
 cannot "Docs' /v1/service/ lane skips membership authz but still requires the gateway secret" \
     "talyvor-docs internal/gatewayauth/exempt.go" \
-    "go test ./internal/trackintegration/ -run 'TestServiceRoute'   # accepts the BFF's exact request; still refuses without the proof"
+    "[ \"\$(go test ./internal/trackintegration/ -run 'TestServiceRoute' -v 2>&1 | grep -c '^--- PASS: TestServiceRoute')\" = 2 ]   # BOTH halves: accepts the BFF's exact request, AND still refuses without the proof — one passing is not the premise"
 
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy

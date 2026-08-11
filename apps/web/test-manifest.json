@@ -78,6 +78,7 @@
   "src/restingAffordance.test.ts": 7,
   "src/scrollReset.test.tsx": 18,
   "src/SessionExpired.test.tsx": 20,
+  "src/settleCommands.test.ts": 7,
   "src/Sharing.test.tsx": 8,
   "src/statusChangeRefusal.test.tsx": 7,
   "src/tokenDoor.test.ts": 8,
