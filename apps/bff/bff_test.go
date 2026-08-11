@@ -11,8 +11,14 @@ import (
 	"testing"
 )
 
-// testKey is a stand-in workspace key with the real tlv_ws_ shape. If a single byte of
-// it ever appears in a response the proxy has failed at its one job.
+// testKey is a secret-shaped string used as a LENS_PROVISION_SECRET value in the
+// loadConfig tests below.
+//
+// ⚠ IT IS NOT A WORKSPACE KEY THIS BFF HOLDS, and its comment used to say it was. No
+// fixture in this package ever installs it, and `config` has no workspace-key field —
+// the BFF deliberately holds only the provisioning secret (tenant.go). Four leak sweeps
+// searched responses for this constant and could not have failed. Sweeps now derive
+// their needles from the app's config; see secretleak_test.go.
 const testKey = "tlv_ws_SECRET0000_must_never_reach_the_browser_0123456789"
 
 // newTestApp wires the BFF against a fake Lens that records the inbound Authorization
@@ -68,19 +74,10 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		rec := httptest.NewRecorder()
 		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, ep, nil))
 
-		if strings.Contains(rec.Body.String(), testKey) {
-			t.Fatalf("%s: the workspace key LEAKED into the response body", ep)
-		}
-		if strings.Contains(rec.Body.String(), "tlv_ws_") {
-			t.Fatalf("%s: a tlv_ws_ token appeared in the response body", ep)
-		}
-		for name, vals := range rec.Header() {
-			for _, v := range vals {
-				if strings.Contains(v, testKey) || strings.Contains(v, "tlv_ws_") {
-					t.Fatalf("%s: the workspace key LEAKED into response header %s", ep, name)
-				}
-			}
-		}
+		// Needles derived from the app's OWN config, plus the upstream credential shapes.
+		// This used to search for `testKey`/"tlv_ws_", neither of which any fixture in this
+		// package installs — see secretleak_test.go for the measurement.
+		assertNoSecretLeak(t, ep, a.cfg, rec.Body.String(), rec.Header())
 	}
 
 	// And the flip side: the upstream MUST have received the key — proving the proxy is

@@ -1019,21 +1019,14 @@ func TestAuthEndpointsInDisabledMode(t *testing.T) {
 func TestKeyNeverReachesResponseOIDC(t *testing.T) {
 	idp := newFakeIDP(t)
 	var gotAuth string
-	_, ts, client := startOIDCBFF(t, idp, &gotAuth, nil)
+	a, ts, client := startOIDCBFF(t, idp, &gotAuth, nil)
 
 	h := loginHops(t, ts, client, "/")
 	sweep := func(name string, resp *http.Response, body string) {
 		t.Helper()
-		if strings.Contains(body, testKey) || strings.Contains(body, "tlv_ws_") {
-			t.Fatalf("%s: key in body: %s", name, body)
-		}
-		for hn, vals := range resp.Header {
-			for _, v := range vals {
-				if strings.Contains(v, testKey) || strings.Contains(v, "tlv_ws_") {
-					t.Fatalf("%s: key in header %s", name, hn)
-				}
-			}
-		}
+		// Needles from the app's own config — this app holds BOTH the provisioning secret
+		// and the OIDC client secret, and the old form searched for neither.
+		assertNoSecretLeak(t, name, a.cfg, body, resp.Header)
 	}
 	sweep("login", h.login, h.loginBody)
 	sweep("callback", h.callback, h.cbBody)

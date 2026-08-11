@@ -196,10 +196,8 @@ func TestCheckoutForwardsToPinnedWorkspaceWithKeyAndReturnsTheURL(t *testing.T) 
 	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
 		t.Fatalf("Cache-Control = %q, want no-store", cc)
 	}
-	// The workspace key never rides back out.
-	if strings.Contains(rec.Body.String(), testKey) || strings.Contains(rec.Body.String(), "tlv_ws_") {
-		t.Fatalf("a secret reached the checkout response: %s", rec.Body.String())
-	}
+	// No secret this BFF holds rides back out on a payment response.
+	assertNoSecretLeak(t, "POST /api/lxc/checkout", a.cfg, rec.Body.String(), rec.Header())
 }
 
 /* ── The allow-list: refused HERE, before a Stripe customer is ever made ─── */
