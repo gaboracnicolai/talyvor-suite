@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,41 @@ import (
 // ride along on a screen about a saving. A person turning document conversion on has not thereby
 // agreed to share what those documents produced.
 
+// lensStatusError is an upstream REFUSAL: Lens answered, and the answer was no. It carries the
+// status so a composing handler can forward it, the way `forward` already does for every
+// workspace-scoped proxy in this BFF ("Upstream status is preserved so a real not-found or error
+// surfaces honestly rather than masked").
+//
+// ⚠ THE DISTINCTION IT DRAWS IS THE WHOLE POINT, AND IT IS WHY THIS IS A TYPE RATHER THAN AN INT.
+// "Lens said no" and "Lens said nothing" are different facts and the browser acts on them
+// differently. A transport failure never becomes one of these and stays a 502.
+//
+// ⚠ WHAT IT COST TO NOT HAVE ONE: this route collapsed every upstream refusal into 502, and the
+// app's three dead-credential mechanisms all key on 401 — the session bar (isSessionExpired), the
+// "a 401 is a verdict, not a flake" retry rule, and the gate re-probe. The document-conversion
+// panel was the one workspace-scoped surface that could not report a dead credential, and the
+// sentence it renders instead promises that its buttons still work.
+type lensStatusError struct {
+	path   string
+	status int
+}
+
+func (e *lensStatusError) Error() string { return fmt.Sprintf("lens %s: %d", e.path, e.status) }
+
+// upstreamStatusOr reports the status Lens refused with, or `fallback` when the failure was not
+// an upstream answer at all.
+//
+// ⚠ ONLY 4xx AND 5xx ARE FORWARDED. A 204 or a 302 from Lens is a protocol surprise rather than a
+// refusal, and re-emitting it here would send the browser a status this handler cannot honour
+// (a 204 carrying a JSON body is not a 204). Those stay a 502, which is what they are.
+func upstreamStatusOr(err error, fallback int) int {
+	var e *lensStatusError
+	if errors.As(err, &e) && e.status >= 400 && e.status <= 599 {
+		return e.status
+	}
+	return fallback
+}
+
 // distillState is what the screen renders: the recorded policy plus a COUNT of documents.
 type distillState struct {
 	DistillPolicy string `json:"distill_policy"`
@@ -39,7 +75,8 @@ func (a *app) handleDistill(w http.ResponseWriter, r *http.Request, t tenant) {
 	case http.MethodGet:
 		st, err := a.readDistillState(r.Context(), t)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "could not read the document setting"})
+			writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway),
+				map[string]string{"error": "could not read the document setting"})
 			return
 		}
 		writeJSON(w, http.StatusOK, st)
@@ -63,7 +100,8 @@ func (a *app) handleDistill(w http.ResponseWriter, r *http.Request, t tenant) {
 		}
 		recorded, err := a.setDistillPolicy(r.Context(), t, *in.DistillPolicy)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "could not record the choice"})
+			writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway),
+				map[string]string{"error": "could not record the choice"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"distill_policy": recorded})
@@ -89,7 +127,7 @@ func (a *app) setDistillPolicy(ctx context.Context, t tenant, policy string) (st
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("distill: lens returned %d", resp.StatusCode)
+		return "", &lensStatusError{path: "PUT " + lensWorkspacePath(t, "/distill"), status: resp.StatusCode}
 	}
 	var out struct {
 		DistillPolicy string `json:"distill_policy"`
@@ -151,7 +189,7 @@ func (a *app) lensGet(ctx context.Context, t tenant, path string) ([]byte, error
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("lens GET %s: %d", path, resp.StatusCode)
+		return nil, &lensStatusError{path: "GET " + path, status: resp.StatusCode}
 	}
 	return raw, nil
 }
