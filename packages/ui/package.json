@@ -12,7 +12,8 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node ../../scripts/check-test-manifest.mjs .",
+    "test:accept": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node ../../scripts/check-test-manifest.mjs . --update"
   },
   "peerDependencies": {
     "react": "^18.3.1",
