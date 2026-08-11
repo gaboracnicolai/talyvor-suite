@@ -186,12 +186,12 @@ const PINS: Record<string, Pin> = {
   // The four pointers the numeric-field audit and its tests write. Both sites they quote are the
   // MEASUREMENT that rule is built on: one is the offender it was written for, the other is the
   // exemption — a field whose value IS a figure and correctly is not on the face.
-  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:136': {
+  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:148': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the one field in the product that declares itself numeric — the defect this audit was written for',
   },
-  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:136': {
+  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:148': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the same site quoted where the rule argues the declaration is written in a DIFFERENT FILE from the class list',
@@ -206,7 +206,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'type="range"',
     why: 'the same slider quoted beside the exemption set itself, so the set cannot be widened without meeting it',
   },
-  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:136': {
+  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:148': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the unit case that pins the predicate to the real call site rather than to an invented fixture',
@@ -225,10 +225,24 @@ const PINS: Record<string, Pin> = {
     fragment: '.isError ?',
     why: 'the sibling with the same fallback shape — revoke gates on isError and picks its 404 words inside',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:189': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:201': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the closest sibling of all — ConvertError is the same pattern as CheckoutError, and it is used INSIDE the block',
+  },
+  // The two pointers #166 writes at ConvertError's own repair. Both name the line where this repo
+  // FIRST wrote the hazard down, at its third site; the fourth is what that merge fixed. The pin
+  // is what stops the citation from decaying into a sentence nobody can check — the exact rot this
+  // file was built for, and the reason a line citation is allowed here at all.
+  'apps/web/src/areas/lens/convertApi.ts:51|apps/web/src/areas/track/IssueList.tsx:252': {
+    kind: 'LIVE',
+    fragment: 'ApiError, NOT a bare Error',
+    why: 'the comment that names the hand-rolled-error-type hazard, quoted by the fix for its fourth occurrence',
+  },
+  'apps/web/src/areas/lens/convertRefusal.test.tsx:37|apps/web/src/areas/track/IssueList.tsx:252': {
+    kind: 'LIVE',
+    fragment: 'ApiError, NOT a bare Error',
+    why: 'the same line quoted by the guard, so the finding and its evidence cite one checked place rather than two drifting ones',
   },
   'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:305': {
     kind: 'LIVE',
