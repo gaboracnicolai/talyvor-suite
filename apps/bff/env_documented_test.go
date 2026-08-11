@@ -15,10 +15,11 @@ import (
 
 // EVERY VARIABLE THIS BINARY READS MUST BE NAMED WHERE AN OPERATOR LOOKS.
 //
-// The BFF's whole configuration surface is the environment, and an operator only ever learns a
-// variable's name from deploy/README.md's table or deploy/bff.env.example. A variable the binary
-// reads and neither document names is not "optional" — it is invisible, and the operator's
-// deployment is missing it for a reason nobody can find.
+// The BFF's whole configuration surface is the environment, and a variable's name is learned from
+// exactly three documents: deploy/README.md's table and deploy/bff.env.example for an operator,
+// apps/bff/README.md for a developer. A variable the binary reads and one of them fails to name is
+// not "optional" — it is invisible to that reader, and their deployment is missing it for a reason
+// nobody can find.
 //
 // ⚠ MEASURED, and the first count was wrong because of how I counted. A grep for
 // `os.Getenv("LITERAL")` said 17 of 18 variables were documented and LENS_PUBLIC_BASE_URL was the
@@ -57,6 +58,12 @@ func TestEveryEnvVarTheBinaryReadsIsDocumented(t *testing.T) {
 	docs := map[string]string{
 		"../../deploy/README.md":       "",
 		"../../deploy/bff.env.example": "",
+		// The BFF's OWN README joined this set when its table was measured against the binary: it
+		// named 3 of the 19 variables read here and marked two more **required** that nothing
+		// reads. A developer's first document is this one, and it was the only one of the three
+		// with no rule holding it to the config surface. See readme_boot_test.go for the inverse
+		// direction, which is the half this test states it cannot see.
+		"README.md": "",
 	}
 	for path := range docs {
 		b, err := os.ReadFile(path)
