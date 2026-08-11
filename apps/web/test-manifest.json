@@ -75,6 +75,7 @@
   "src/pointerAudit.test.ts": 6,
   "src/proseClasses.test.ts": 9,
   "src/reachAudit.test.ts": 12,
+  "src/renderedClock.test.ts": 3,
   "src/restingAffordance.test.ts": 7,
   "src/scrollReset.test.tsx": 18,
   "src/SessionExpired.test.tsx": 20,

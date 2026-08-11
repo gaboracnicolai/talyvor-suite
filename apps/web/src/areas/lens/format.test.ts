@@ -62,11 +62,13 @@ describe('formatters', () => {
     expect(humanizeType('pattern_mine_held')).toBe('pattern mine held')
   })
 
-  it('formatWhen is stable for a known instant and echoes junk unchanged', () => {
+  // ⚠ THE RENDERED CLOCK IS ASSERTED IN src/renderedClock.test.ts, NOT HERE. This case used to
+  // also claim to be "stable for a known instant" and checked only that the output was non-empty
+  // and was not the ISO string it was handed — measured at `3b27d13`, flipping this formatter to
+  // `hour12: true` left all 1069 tests green. Those two assertions are deleted rather than joined
+  // by a real one; what a literal needed was a pinned gate zone, which vitest.config.ts now sets.
+  // What survives here is the branch that has no clock in it at all.
+  it('echoes an unparseable timestamp unchanged rather than inventing one', () => {
     expect(formatWhen('not-a-date')).toBe('not-a-date')
-    // A real ISO parses to a non-empty, non-echoed label.
-    const out = formatWhen('2026-07-19T14:52:59.743069Z')
-    expect(out).not.toBe('2026-07-19T14:52:59.743069Z')
-    expect(out.length).toBeGreaterThan(0)
   })
 })
