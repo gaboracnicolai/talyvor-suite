@@ -47,8 +47,27 @@ export const HOLDBACK_HOURS = 72
  */
 export function remainingShareAt(members: number): number {
   if (members <= 1) return 1
-  // Decay tuned so the first member's arrival matches the real settled hit above (1645/2350) and
-  // the curve flattens toward a floor as the pool gets large.
+  // ⚠ THE DECAY IS NOT TUNED TO THE SETTLED HIT, AND THIS COMMENT USED TO SAY IT WAS. It read
+  // "Decay tuned so the first member's arrival matches the real settled hit above (1645/2350)".
+  // MEASURED, not read: at 2 contributors — the first OTHER contributor, the smallest pool in
+  // which a hit is possible at all — this curve renders 2,194 µLXC against the 1,645 the ledger
+  // row above it recorded, 549 µLXC HIGHER for the answer the page calls "the same answer". The
+  // modelled saving there is 156 against a measured 705, understated 4.5x. The curve does not
+  // fall to the settled charge until SEVEN contributors (1,564 at 7; 1,672 at 6, still above).
+  // No value of `members` makes the sentence true: matching 1645/2350 = 0.70 exactly needs a
+  // decay of ~5.25, not 14.
+  //
+  // 14 and 0.04 are CHOSEN shape parameters, which is what the page's own caption already tells
+  // the visitor ("the shape this is built to reach ... not a measurement"). The comment was the
+  // only place claiming the stronger thing — that the shape had been fitted to the measured row —
+  // and nothing could fail for it, because a calibration claim in prose is not an assertion.
+  // `economics.test.ts` now pins the crossing point so it cannot drift back into silence.
+  //
+  // ⚠ WHETHER THE CURVE SHOULD PASS THROUGH THE MEASURED ROW IS NOT FIXED HERE — see the queue.
+  // Re-fitting the decay changes the bill this page promises at every pool size, and what a
+  // front page promises about price is a decision, not a session's guess. Note the direction:
+  // today the curve UNDER-promises against the one real row, which is the safe side to be wrong
+  // on but is still not what the source said it was doing.
   const decay = Math.exp(-(members - 1) / 14)
   const floor = 0.04
   return floor + (1 - floor) * decay
