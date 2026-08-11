@@ -116,9 +116,17 @@ export function windowExceedsPage(
 export interface SignedRow {
   amount: number
   created_at: string
-  /** The lxc_ledger row type. ⚠ LOAD-BEARING — see SETTLED_CHARGE below. Optional so the LENS
-   *  ledger, which shares this shape, is unaffected. */
-  type?: string
+  /** The ledger row type. ⚠ LOAD-BEARING — see SETTLED_CHARGE below.
+   *
+   *  REQUIRED, and it was optional. The optionality existed for a fallback in `debitTotal`
+   *  justified as "the LENS ledger shares this shape and does not have lxc_ledger's types".
+   *  MEASURED, and false about the ledger it named: `api.LedgerRow.type` is a required string
+   *  that BOTH `api.lensLedger` and `api.lxcLedger` set from the wire, lens serialises
+   *  `Type string \`json:"type"\`` (no omitempty) over a NOT NULL column, and the LENS ledger's
+   *  own types are what `format.ts#ledgerStatus` classifies by suffix. Nothing this product can
+   *  fetch arrived without one — so the optional marker described no row and only invited a
+   *  caller to build the one shape that re-enabled the sign rule underneath a money figure. */
+  type: string
 }
 
 /** A signed row that still carries its lxc_ledger metadata document. */
@@ -209,16 +217,24 @@ export function lxcDebitsByModel(rows: SignedRowWithMeta[], days: number, now: D
 // count — what the workspace was actually billed. See SETTLED_CHARGE above for why this is an
 // allow-list on the type rather than a test on the sign.
 //
-// ⚠ A row with no `type` still falls back to the sign test, because the LENS ledger shares this
-// shape and does not have lxc_ledger's types. That fallback is only correct for ledgers whose
-// every negative row IS a charge — true of the mint ledger, and the reason this stayed unnoticed.
+// ⚠ THERE IS NO SIGN FALLBACK, AND THERE USED TO BE. A row whose `type` was not a string was
+// summed by SIGN — the exact rule SETTLED_CHARGE exists to replace, kept alive one branch below
+// it. The stated reason was "the LENS ledger shares this shape and does not have lxc_ledger's
+// types"; see SignedRow.type for why both halves of that are false. No row this product can
+// fetch ever took the branch, which is why nobody saw that its ONLY unit test lived inside it:
+// every fixture row here carried no `type`, so mutating SETTLED_CHARGE left this function's
+// test green. `type` is required now, so the shape the branch existed for cannot be built by a
+// call site, and `spendMath.test.ts` asserts a cast one still sums to zero.
+//
+// Same rule as `lxcDebitsByModel` one function up, and now spelled the same way: one predicate
+// on the type, no second opinion from the sign.
 export function debitTotal(rows: SignedRow[], days: number, now: Date): number {
   const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000
   let total = 0
   for (const r of rows) {
     const t = Date.parse(r.created_at)
     if (!Number.isFinite(t) || t < cutoff) continue
-    if (typeof r.type === 'string' ? r.type === SETTLED_CHARGE : r.amount < 0) {
+    if (r.type === SETTLED_CHARGE) {
       total += -r.amount
     }
   }

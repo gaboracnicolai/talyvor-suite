@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { byModel, debitTotal, inWindow, lxcDebitsByModel, type SpendLedgerRow } from './spendMath'
+import { byModel, debitTotal, inWindow, lxcDebitsByModel, type SignedRow, type SpendLedgerRow } from './spendMath'
 
 // Mint-ledger sample rows. Declared HERE, in the test, not exported from a module a screen
 // could import — the distinction areas/lens/fixtures.ts failed to hold.
@@ -93,21 +93,54 @@ describe('lxcDebitsByModel', () => {
   })
 
   it('returns nothing when no row carries a model — the honest empty, not a zero row', () => {
-    expect(lxcDebitsByModel([{ amount: -5, created_at: '2026-07-21T10:00:00Z', metadata: {} }], 30, now)).toEqual([])
+    // `type: 'spend'` so the MISSING MODEL is the only reason this drops. Without it the row was
+    // a settled charge and a modelless row at once, and the empty result had two explanations.
+    const row = { amount: -5, created_at: '2026-07-21T10:00:00Z', type: 'spend', metadata: {} }
+    expect(lxcDebitsByModel([row], 30, now)).toEqual([])
   })
 })
 
 describe('debitTotal', () => {
-  it('sums only in-window NEGATIVE amounts, returned positive — credits are not spend', () => {
+  // ⚠ THIS TEST USED TO CARRY NO `type` ON ANY ROW, AND SO COULD NOT SEE THE RULE THE FILE IS
+  // ABOUT. It asserted "sums only in-window NEGATIVE amounts" — the SIGN rule that read 4.5x
+  // high in production and that SETTLED_CHARGE replaced. Every row lacking `type` took
+  // debitTotal's `typeof`-fallback, so the allow-list was never once evaluated here.
+  // MEASURED, not argued: with the old fixture, mutating `SETTLED_CHARGE` to 'spend_x' left
+  // this describe block GREEN while four sibling `lxcDebitsByModel` tests went red — the money
+  // total's only unit test was blind to the constant that decides what money is.
+  it('sums the settled charges only — a negative reservation_hold is a bound, not a bill', () => {
     const now = new Date('2026-07-22T12:00:00Z')
-    const rows = [
-      { amount: -640_000, created_at: '2026-07-21T10:00:00Z' }, // debit, in window
-      { amount: -1_360_000, created_at: '2026-07-20T09:00:00Z' }, // debit, in window
-      { amount: 50_000_000, created_at: '2026-07-19T08:00:00Z' }, // grant credit — excluded by sign
-      { amount: -999, created_at: '2026-05-01T00:00:00Z' }, // debit, OUT of window
+    // Real lxc_ledger shapes, one complete request cycle plus a second charge.
+    const rows: SignedRow[] = [
+      { amount: -3_270, created_at: '2026-07-21T10:00:00Z', type: 'reservation_hold' }, // negative, NOT a bill
+      { amount: 3_270, created_at: '2026-07-21T10:00:02Z', type: 'reservation_release' }, // nets the hold
+      { amount: -920, created_at: '2026-07-21T10:00:02Z', type: 'spend' }, // the delivered charge
+      { amount: -1_360_000, created_at: '2026-07-20T09:00:00Z', type: 'spend' },
+      { amount: 50_000_000, created_at: '2026-07-19T08:00:00Z', type: 'purchase' }, // credit
+      { amount: -999, created_at: '2026-05-01T00:00:00Z', type: 'spend' }, // charge, OUT of window
     ]
-    expect(debitTotal(rows, 30, now)).toBe(2_000_000)
-    // a 2-day window keeps only the 26-hour-old debit (the 51-hour one drops out)
-    expect(debitTotal(rows, 2, now)).toBe(640_000)
+    // 1_360_000 + 920. The naive sum of negatives would be 1_365_189.
+    expect(debitTotal(rows, 30, now)).toBe(1_360_920)
+    // a 2-day window keeps only the 26-hour-old charge (the 51-hour one drops out)
+    expect(debitTotal(rows, 2, now)).toBe(920)
+  })
+
+  // ⚠ THE BRANCH THIS REPLACES WAS DEAD, AND ITS COMMENT WAS FALSE ABOUT THE LEDGER IT NAMED.
+  // debitTotal used to fall back to the sign test for any row whose `type` was not a string,
+  // "because the LENS ledger shares this shape and does not have lxc_ledger's types". MEASURED:
+  // `api.LedgerRow.type` is a REQUIRED string that BOTH `api.lensLedger` and `api.lxcLedger`
+  // set from the wire; lens serialises `Type string \`json:"type"\`` (no omitempty) over a
+  // NOT NULL column; and the LENS ledger's types are precisely what `format.ts#ledgerStatus`
+  // classifies by suffix. So no row this product can build reached the fallback, and a LENS row
+  // would have been excluded by the allow-list rather than sign-summed anyway.
+  //
+  // It is asserted rather than merely deleted because `type` being required is a compile-time
+  // claim over untyped JSON: a cast, an `any`, or a fetch that skips api.ts all reproduce the
+  // shape, and if the fallback ever returns, the 4.5x sign rule returns with it on the same
+  // money figure and nothing else in the tree would say so.
+  it('does not count a row whose type is missing — the sign rule is gone, not merely unused', () => {
+    const now = new Date('2026-07-22T12:00:00Z')
+    const untyped = [{ amount: -640_000, created_at: '2026-07-21T10:00:00Z' }] as unknown as SignedRow[]
+    expect(debitTotal(untyped, 30, now)).toBe(0)
   })
 })
