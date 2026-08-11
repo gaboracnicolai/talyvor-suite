@@ -355,8 +355,10 @@ func servingWorkspace(t *testing.T, wsBody string) *app {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/distill/usage"):
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = io.WriteString(w, `{"error":"no such route"}`)
+			// Served, not refused. A 404 here would couple these cases to the BEST-EFFORT
+			// property A4 owns — measured: it made a control aimed at A4 red here too, so the
+			// verdict could no longer say which guard saw it.
+			_, _ = io.WriteString(w, `{"converted":0,"vision_ocr":0,"days":30}`)
 		case r.Method == http.MethodPut:
 			raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 			_, _ = w.Write(raw) // Lens records what it was asked and says so
