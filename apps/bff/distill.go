@@ -61,6 +61,35 @@ func upstreamStatusOr(err error, fallback int) int {
 	return fallback
 }
 
+// distillPolicies is the vocabulary — declared ONCE and enforced in BOTH directions.
+//
+// ⚠ THE ASYMMETRY IT CLOSES. The write allow-listed the value going UP, with a comment stating
+// exactly why ("an unknown value forwarded from a browser is client input reaching a policy
+// write — the shape this codebase refuses elsewhere"), and the read passed anything coming DOWN.
+// MEASURED on the rendered panel: "opt_in", "", "weird" and a JSON null ALL draw "Document
+// conversion is currently off for this workspace." The screen HAS a third state ("could not be
+// read, so it is not shown") and NOTHING that arrives on a 200 can reach it — this handler emits
+// distill_policy unconditionally, so a Go zero value is a present empty string, not an absent
+// field. Every successful read became a positive claim about what happens to a customer's
+// documents, whatever Lens actually said.
+//
+// ⚠ 'opt_in' IS NOT COLLAPSED HERE and that boundary is the point. It is a RECOGNISED state with
+// a written reading on the screen (not on BY DEFAULT), so it passes through verbatim. Only the
+// UNRECOGNISED case changes, and it is routed into copy the screen already owns rather than into
+// new vocabulary. If Lens ever adds a fourth policy this route says "could not be read" instead
+// of silently asserting "off" — the safe direction, and the reason this is a refusal rather than
+// a default.
+var distillPolicies = map[string]bool{"always": true, "opt_in": true, "disabled": true}
+
+// truncate bounds an upstream string before it reaches an error message. The value is rejected
+// precisely because nothing here vouches for it, so its LENGTH is not vouched for either.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 // distillState is what the screen renders: the recorded policy plus a COUNT of documents.
 type distillState struct {
 	DistillPolicy string `json:"distill_policy"`
@@ -91,10 +120,10 @@ func (a *app) handleDistill(w http.ResponseWriter, r *http.Request, t tenant) {
 		// ⚠ ALLOW-LIST, not pass-through. Lens validates too, but an unknown value forwarded from a
 		// browser is client input reaching a policy write — the shape this codebase refuses
 		// elsewhere. 'opt_in' is accepted because it is a real Lens state, even though this screen
-		// offers only the two ends.
-		switch *in.DistillPolicy {
-		case "always", "opt_in", "disabled":
-		default:
+		// offers only the two ends. The set is `distillPolicies` so the READ enforces the same
+		// vocabulary; it was inline here, and widening it to accept "banana" reddened nothing in
+		// this package — measured, which is why the write half is now asserted too.
+		if !distillPolicies[*in.DistillPolicy] {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "distill_policy must be always, opt_in or disabled"})
 			return
 		}
@@ -156,6 +185,13 @@ func (a *app) readDistillState(ctx context.Context, t tenant) (distillState, err
 	}
 	if err := json.Unmarshal(wsRaw, &ws); err != nil {
 		return st, fmt.Errorf("distill: unreadable workspace: %w", err)
+	}
+	// A value this BFF cannot classify is not reported as a setting. The screen turns everything
+	// that is not "always" into the sentence "Document conversion is currently off", so handing it
+	// an unrecognised string is handing it a claim; its "could not be read" state is the honest
+	// one and it already exists. See distillPolicies.
+	if !distillPolicies[ws.DistillPolicy] {
+		return st, fmt.Errorf("distill: unrecognised distill_policy %q", truncate(ws.DistillPolicy, 32))
 	}
 	st.DistillPolicy = ws.DistillPolicy
 

@@ -263,3 +263,115 @@ func TestWorkspaceRoutesForwardARefusedCredential(t *testing.T) {
 		}
 	}
 }
+
+// ─── the vocabulary, and the direction it was never enforced in ─────────────────────────
+//
+// ⚠ MEASURED ON THE RENDERED PANEL, not read. DistillChoice computes `policy === 'always'` and
+// renders "Document conversion is currently {on|off} for this workspace". Feeding it each value
+// the BFF could hand it:
+//
+//	"always"    -> "…currently on…"
+//	"disabled"  -> "…currently off…"     ← the only correct off
+//	"opt_in"    -> "…currently off…"     ← a documented reading: not on BY DEFAULT
+//	""          -> "…currently off…"
+//	"weird"     -> "…currently off…"
+//	null        -> "…currently off…"
+//	(absent)    -> "…could not be read, so it is not shown…"
+//
+// The screen ALREADY HAS a third state, and the ONLY input that reaches it is the field being
+// ABSENT. A present value the BFF cannot classify becomes a POSITIVE CLAIM about what is
+// happening to a customer's documents.
+//
+// The route allow-listed the value going UP with a comment that says exactly why — "an unknown
+// value forwarded from a browser is client input reaching a policy write — the shape this
+// codebase refuses elsewhere" — and passed anything coming DOWN. That asymmetry is the defect;
+// the vocabulary is one declaration now and both directions read it.
+//
+// ⚠ NOT A PRODUCT DECISION, and the boundary matters: 'opt_in' still renders "off" exactly as
+// its comment argues, because it is a RECOGNISED value with a written reading. What changes is
+// only the UNRECOGNISED case, which is routed into copy the screen already has. If Lens ever
+// adds a fourth policy this route goes to "could not be read" rather than silently asserting
+// "off" — the safe direction, and the whole point.
+
+// B1 — the defect. An unclassifiable policy must not reach the screen as a claim.
+func TestDistillReadRefusesAnUnrecognisedPolicy(t *testing.T) {
+	for _, body := range []string{
+		`{"distill_policy":"weird"}`,
+		`{"distill_policy":""}`,
+		`{"distill_policy":null}`,
+		`{}`,
+	} {
+		a := servingWorkspace(t, body)
+		rec := doJSON(a, http.MethodGet, "/api/distill", "")
+		if rec.Code == http.StatusOK {
+			t.Errorf("Lens said %s → GET /api/distill = 200 %s — the panel renders that as "+
+				"\"currently off\", a positive claim the data does not support", body, rec.Body.String())
+		}
+	}
+}
+
+// B2 — the must-stay-green companion, and the one a careless allow-list breaks. All three real
+// Lens states pass through VERBATIM, 'opt_in' included: it is not this route's business to
+// collapse a state the screen has a documented reading for.
+func TestDistillReadPassesEveryRecognisedPolicy(t *testing.T) {
+	for _, p := range []string{"always", "opt_in", "disabled"} {
+		a := servingWorkspace(t, `{"distill_policy":"`+p+`"}`)
+		rec := doJSON(a, http.MethodGet, "/api/distill", "")
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"distill_policy":"`+p+`"`) {
+			t.Errorf("policy %q → %d %s, want 200 carrying %q", p, rec.Code, rec.Body.String(), p)
+		}
+	}
+}
+
+// B3 — the WRITE half of the same declaration. Measured before this diff: widening the inline
+// allow-list to accept "banana" reddened NOTHING in apps/bff, so the guard the route's own
+// comment argues for was enforced by whoever happened to be reading.
+func TestDistillWriteAllowList(t *testing.T) {
+	for _, p := range []string{"always", "opt_in", "disabled"} {
+		a := servingWorkspace(t, `{"distill_policy":"`+p+`"}`)
+		if rec := doJSON(a, http.MethodPost, "/api/distill", `{"distill_policy":"`+p+`"}`); rec.Code != http.StatusOK {
+			t.Errorf("POST %q = %d, want 200 — it is a real Lens state (%s)", p, rec.Code, rec.Body.String())
+		}
+	}
+	for _, p := range []string{"banana", "", "ALWAYS", "always "} {
+		a := servingWorkspace(t, `{"distill_policy":"always"}`)
+		rec := doJSON(a, http.MethodPost, "/api/distill", `{"distill_policy":"`+p+`"}`)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("POST %q = %d, want 400 — client input must not reach a policy write unchecked (%s)",
+				p, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// servingWorkspace builds an app whose Lens answers `wsBody` for the workspace read, echoes the
+// same policy back on the distill PUT, and 404s the best-effort usage route.
+func servingWorkspace(t *testing.T, wsBody string) *app {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/distill/usage"):
+			// Served, not refused. A 404 here would couple these cases to the BEST-EFFORT
+			// property A4 owns — measured: it made a control aimed at A4 red here too, so the
+			// verdict could no longer say which guard saw it.
+			_, _ = io.WriteString(w, `{"converted":0,"vision_ocr":0,"days":30}`)
+		case r.Method == http.MethodPut:
+			raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+			_, _ = w.Write(raw) // Lens records what it was asked and says so
+		default:
+			_, _ = io.WriteString(w, wsBody)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return newApp(config{
+		addr:            "127.0.0.1:0",
+		lensBaseURL:     srv.URL,
+		provisionSecret: testProvisionSecret,
+		webDist:         t.TempDir(),
+		authMode:        authModeDisabled,
+	}, nil)
+}
