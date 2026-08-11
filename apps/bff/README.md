@@ -6,9 +6,15 @@ proves the *proxy*; a later increment adds auth to something already known to wo
 
 Two jobs, and nothing else:
 
-1. **Hold the Lens workspace key server-side. The key never reaches the browser.** It is attached only
+1. **Hold the upstream credential server-side. It never reaches the browser.** It is attached only
    to the outbound upstream request and is never written into any response. `TestKeyNeverReachesResponse`
-   fails if a `tlv_ws_` string ever appears in a response body or header.
+   fails if any secret **this app's own config is holding** — read off `config` by
+   `installedSecrets`, not from a constant — appears in a response body or header, or if a
+   `tlv_ws_`/`gwsecret_` credential does.
+
+   ⚠ It used to search only for the constant `testKey` (`tlv_ws_…`), which **no fixture in the
+   package installs**, so it could not fail. See `secretleak_test.go` for the measurement and
+   `~/talyvor-queue/w11-secretleak-controls.py` for the controls.
 2. **Serve the built web app and its API from one origin** — so CORS never enters the picture.
 
 ## Safety: loopback only

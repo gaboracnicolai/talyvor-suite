@@ -359,20 +359,11 @@ func TestGatewaySecretsNeverReachResponse(t *testing.T) {
 		req.AddCookie(sess)
 		a.ServeHTTP(rec, req)
 		body := rec.Body.String()
-		for _, needle := range []string{testKey, "tlv_ws_", testTrackSecret, testDocsSecret, "gwsecret_"} {
-			if strings.Contains(body, needle) {
-				t.Fatalf("%s: secret %q reached the response body", ep, needle[:12])
-			}
-		}
-		for name, vals := range rec.Header() {
-			for _, v := range vals {
-				for _, needle := range []string{testKey, testTrackSecret, testDocsSecret} {
-					if strings.Contains(v, needle) {
-						t.Fatalf("%s: a secret reached response header %s", ep, name)
-					}
-				}
-			}
-		}
+		// The two gateway secrets ARE installed here, so this sweep was the one live member
+		// of the family — but it still could not see the provisioning secret, which this app
+		// also holds. Deriving the needles from config covers all three and cannot go stale
+		// when a fourth is added.
+		assertNoSecretLeak(t, ep, a.cfg, body, rec.Header())
 	}
 	if track.headers.Get("X-Gateway-Auth") != testTrackSecret {
 		t.Fatal("track upstream never received its transit proof")
