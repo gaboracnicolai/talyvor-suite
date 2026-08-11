@@ -43,14 +43,58 @@
 //     REVIEWABLE DIFF LINE in test-manifest.json. The "brittleness" of an
 //     exact count is the feature: the diff line is the alert.
 //
-// Usage:  node scripts/check-test-manifest.mjs           (check; exit 1 on drift)
-//         node scripts/check-test-manifest.mjs --update  (accept current counts)
-// Reads .vitest-report.json written by `vitest run --reporter=json`.
+// ── ⚠ AND IT GUARDED ONE OF THIS REPO'S TWO VITEST PROJECTS ──────────────────────────────────
+//
+// This lived in apps/web/scripts and its manifest's 85 files were all apps/web's. `packages/ui`'s
+// `test` script was a bare `vitest run` — 350 tests, no JSON report, no manifest, nothing counting
+// them.
+//
+// MEASURED at `8ed03da`: one `it(...)` block deleted from
+// packages/ui/src/__tests__/theme-storage.test.tsx —
+//
+//     packages/ui test:  Tests  349 passed (349)
+//     apps/web  test:  test-manifest: ok (85 files, 1063 tests, all run)
+//     pnpm test   EXIT 0
+//
+// — the #7 regression itself, verbatim, alive in the other project. `check-audit-gate.mjs` and
+// `check-audit-reach.mjs` each learned that this repo has TWO projects and were widened; this
+// guard, older than both, never was. Its own header said "silent test loss" without saying whose.
+//
+// So it takes the project directory as an ARGUMENT and lives at the repo root beside
+// build-release.sh, which both apps already share for the same reason. It is not a helper apps/web
+// lends to packages/ui: a package that reaches into an app's scripts directory has the dependency
+// backwards.
+//
+// ⚠ THE DIRECTORY IS ASSERTED, NOT ASSUMED. A wrong or missing argument must fail LOUDLY: resolved
+// against a directory with no package.json, every path below would simply be absent and the two
+// honest outcomes — "the manifest is missing" and "you pointed me at nothing" — would be the same
+// message. An instrument that reads nothing must never be able to report a clean product.
+//
+// Usage:  node ../../scripts/check-test-manifest.mjs .           (check; exit 1 on drift)
+//         node ../../scripts/check-test-manifest.mjs . --update  (accept current counts)
+// Run from the project directory. Reads its .vitest-report.json (`vitest run --reporter=json`).
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
-const appRoot = resolve(new URL('..', import.meta.url).pathname)
+const projectArg = process.argv[2]
+if (projectArg === undefined || projectArg.startsWith('--')) {
+  console.error(
+    'test-manifest: needs the project directory as its first argument, e.g. ' +
+      '`node ../../scripts/check-test-manifest.mjs .` — see the TWO PROJECTS note in this file.',
+  )
+  process.exit(1)
+}
+const appRoot = resolve(process.cwd(), projectArg)
+if (!existsSync(resolve(appRoot, 'package.json'))) {
+  console.error(
+    `test-manifest: ${appRoot} holds no package.json, so it is not a project I can check. ` +
+      'Every path below would be absent there and a missing manifest would read the same as a ' +
+      'wrong argument.',
+  )
+  process.exit(1)
+}
+const label = relative(resolve(appRoot, '../..'), appRoot) || appRoot
 const reportPath = resolve(appRoot, '.vitest-report.json')
 const manifestPath = resolve(appRoot, 'test-manifest.json')
 
@@ -71,7 +115,7 @@ for (const tr of report.testResults ?? []) {
 if (process.argv.includes('--update')) {
   const sorted = Object.fromEntries(Object.entries(actual).sort(([a], [b]) => a.localeCompare(b)))
   writeFileSync(manifestPath, JSON.stringify(sorted, null, 2) + '\n')
-  console.log(`test-manifest: accepted ${Object.keys(sorted).length} files, ${Object.values(sorted).reduce((a, b) => a + b, 0)} tests`)
+  console.log(`test-manifest: ${label}: accepted ${Object.keys(sorted).length} files, ${Object.values(sorted).reduce((a, b) => a + b, 0)} tests`)
   process.exit(0)
 }
 
@@ -114,7 +158,7 @@ for (const file of Object.keys(actual)) {
 }
 
 if (problems.length > 0) {
-  console.error('test-manifest: the test population changed without an accepted manifest:\n  ' + problems.join('\n  '))
+  console.error(`test-manifest: ${label}: the test population changed without an accepted manifest:\n  ` + problems.join('\n  '))
   // ⚠ THE ADVICE IS PER-KIND. `pnpm test:accept` clears a count line; it CANNOT clear a NOT RUN
   // line — the counts include skipped tests, so accepting writes the same numbers and this fires
   // again. Saying "accept it" under a NOT RUN would send a reader to a command that does nothing.
@@ -129,4 +173,4 @@ if (problems.length > 0) {
 }
 // "all run" is earned rather than decorative: any status other than `passed` is a problem above,
 // so reaching this line is what proves it.
-console.log(`test-manifest: ok (${Object.keys(manifest).length} files, ${Object.values(manifest).reduce((a, b) => a + b, 0)} tests, all run)`)
+console.log(`test-manifest: ${label}: ok (${Object.keys(manifest).length} files, ${Object.values(manifest).reduce((a, b) => a + b, 0)} tests, all run)`)

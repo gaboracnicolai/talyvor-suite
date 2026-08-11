@@ -29,7 +29,10 @@ import tempfile
 
 ROOT = pathlib.Path.home() / "talyvor-suite"
 CONVERT = ROOT / "apps/web/src/areas/lens/Convert.test.tsx"
-GUARD = ROOT / "apps/web/scripts/check-test-manifest.mjs"
+# ⚠ MOVED TO THE REPO ROOT by the packages/ui-scope merge — the script now takes the project
+#   directory as an argument and both projects run it. A harness that kept the old path would
+#   have thrown on read rather than matching zero bytes, which is the loud half of that class.
+GUARD = ROOT / "scripts/check-test-manifest.mjs"
 LEDGER = ROOT / "apps/web/src/areas/lens/Ledger.test.tsx"
 
 MONEY_DESCRIBE = "describe('the conversion says what it actually cost', () => {"
