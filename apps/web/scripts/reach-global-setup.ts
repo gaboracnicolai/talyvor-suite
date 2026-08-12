@@ -23,9 +23,18 @@ import type { GlobalSetupContext } from 'vitest/node'
  * ⚠ A SINGLE-FILE RUN THEREFORE LEAVES A PARTIAL RECORD, and the checker fails LOUDLY on it
  * rather than reporting most of the product unreached as if that were news. It is chained after
  * the full run in the `test` script and nowhere else.
+ *
+ * ⚠ AND THAT IS WHY `REACH_SHARD_DIR` EXISTS. The clearing above is unconditional, so ANY vitest
+ * run in this project destroys the record — including the two single-file probe runs
+ * check-audit-gate.mjs performs at the END of the same `test` script. MEASURED at `ed0425d`: a
+ * full run left 93 shards and 904 committed entries here and 11/19 in packages/ui, and after
+ * `node scripts/check-audit-gate.mjs` both directories held ONE shard and ZERO committed entries.
+ * The gate's probe is a legitimate vitest run; it just must not write here. It sets this variable
+ * to a throwaway directory, which this setup clears and hands out instead — so the probe still
+ * gets the same treatment and the evidence of the real run survives it.
  */
 export default function setup({ provide, config }: GlobalSetupContext): void {
-  const dir = resolve(config.root, '.reach')
+  const dir = resolve(config.root, process.env.REACH_SHARD_DIR ?? '.reach')
   rmSync(dir, { recursive: true, force: true })
   provide('reachDir', dir)
 }
