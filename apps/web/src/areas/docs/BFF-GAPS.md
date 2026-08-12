@@ -30,7 +30,7 @@ upstream-scoped to the pinned workspace by membership + tier checks).
 |---|---|---|
 | `GET /api/docs/spaces` | `GET /v1/workspaces/{ws}/spaces` | `[]model.Space` — **EXISTS** |
 | `GET /api/docs/spaces/{spaceID}` | `GET /v1/spaces/{spaceID}` | `model.Space` (View-gated; 404 outside workspace) — **EXISTS** (`docsSpaceDetail`) |
-| `GET /api/docs/spaces/{spaceID}/pages?limit=&offset=` | `GET /v1/spaces/{spaceID}/pages` | `[]model.Page` ordered `depth, position, created_at`; limit default 100, cap 500 — **EXISTS** (`docsPageList`, which also projects the heavy `content`/`content_text` off every list row) |
+| `GET /api/docs/spaces/{spaceID}/pages?limit=` | `GET /v1/spaces/{spaceID}/pages` | `[]model.Page` ordered `depth, position, created_at`; limit default 100, cap 500 — **EXISTS** (`docsPageList`, which also projects the heavy `content`/`content_text` off every list row). ⚠ NO PAGING: an `offset` is REFUSED with a 400, because talyvor-docs' page-list handler reads only `limit` and its `PageFilter.Offset` has no writer — forwarding one returned the FIRST page with a 200. So a space is listed one page deep, at most 500 rows, until that handler reads an offset. |
 | `GET /api/docs/spaces/{spaceID}/pages/{pageID}` | `GET /v1/spaces/{spaceID}/pages/{pageID}` | `model.Page` (View; 404-not-403 outside workspace) — **EXISTS** (`docsPageDetail`) |
 
 `model.Page` / `model.Space` field sets are mirrored verbatim in `./api.ts` (`DocsPage`, `DocsSpace`).
