@@ -67,8 +67,14 @@ func TestConfigCarriesNoStartupWorkspaceIdentity(t *testing.T) {
 	banned := map[string]string{
 		"workspaceID":  "a startup-scoped Lens workspace id — routes would close over it at registration and every session would share one workspace",
 		"workspaceKey": "a single shared Lens workspace key — each session must present its OWN provisioned token",
-		// Added when Track went per-session. Docs is NOT here: it has no workspaces table, it
-		// mirrors Track's roster, and it stays pinned by design — see TestDocs_RemainsPinnedByDesign.
+		// Added when Track went per-session. Docs is NOT here, and the reason USED TO BE "it stays
+		// pinned by design", pointing at a `…_RemainsPinnedByDesign` test. Both halves were stale:
+		// that test never existed, and Docs is not pinned any more. DOCS_WORKSPACE_ID is gone (main.go says so
+		// where it used to be read) and docsWorkspaceFor resolves the workspace from the SESSION,
+		// exactly as Track's does. The real reason Docs needs no line here is therefore stronger than
+		// the one that was written: there is no startup-scoped Docs identity left in config for this
+		// list to forbid, and TestDocsWorkspacePathUsedOnlyForTheListRoute is what holds the builder
+		// to the session-derived id.
 		"trackWorkspaceID": "a startup-scoped TRACK workspace id — every signed-in person would share one Track and read each other's issues",
 	}
 	for name, file := range bffSourceFiles(t) {

@@ -423,7 +423,7 @@ func TestTopUpOptionsRequiresSession(t *testing.T) {
 
 /* ── Failures the customer has to be able to tell apart ──────────────────── */
 
-// TestCheckoutTranslatesBillingDisabled: with LENS_BILLING_ENABLED unset, Lens
+// TestCheckoutTranslatesBillingDisabledInto503: with LENS_BILLING_ENABLED unset, Lens
 // never REGISTERS the checkout route, so the POST meets a chi-native 404. That
 // 404 is unambiguous here (see billing.go's argument) and must reach the screen
 // as "this deployment cannot sell LXC" — never as a generic fault, and never as

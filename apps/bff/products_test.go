@@ -273,8 +273,10 @@ func TestTrackProxyAttachesGatewayCredentials(t *testing.T) {
 	}
 }
 
-// TestDocsProxyPinsWorkspaceAndAttachesCredentials: same contract for Docs, and
-// the upstream path is built from the CONFIGURED workspace id — never client input.
+// TestDocsProxyScopesToTheSessionWorkspaceAndAttachesCredentials: same contract for
+// Docs, and the upstream path is built from the SESSION's workspace id — never client
+// input. (The heading kept the pre-rename spelling, "…PinsWorkspace…", through the move
+// off a pinned workspace; the name it gave was the one thing here that no longer existed.)
 func TestDocsProxyScopesToTheSessionWorkspaceAndAttachesCredentials(t *testing.T) {
 	docs := newCaptureUpstream(t, `[{"id":"sp-1","name":"Handbook"}]`)
 	a, sess := productApp(t, nil, docs)
