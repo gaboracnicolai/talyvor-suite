@@ -56,8 +56,31 @@
 // deliberately not read from the registry, computed from a count, or derived from anything this
 // script also checks: a guard that asks a set about itself passes for every value of that set.
 //
-// Usage:  node scripts/check-audit-reach.mjs        (after a FULL `vitest run`)
-// Reads .reach/*.json, written once per worker by test-setup.ts's afterAll.
+// ── ⚠ WHO INVOKES THIS, AND WHY IT IS NOT apps/web ───────────────────────────
+//
+// It reads TWO directories and neither is written by the caller alone: each project clears and
+// writes its OWN, once per ITS OWN vitest run. So this is a claim about a run of BOTH projects,
+// and it is invoked from the ROOT `test` script — `pnpm -r test && node …` — which is the only
+// command that produces both halves, in either order, before asking.
+//
+// It used to hang off `apps/web`'s own `test` script, which cannot satisfy that precondition.
+// MEASURED on `ed0425d` with `git status` EMPTY, in both directions:
+//   · `cd apps/web && npm run test` EXITED 1 on a tree nobody had touched, blaming packages/ui's
+//     DevTools hook — FALSELY: that project had simply last run something else. A gate red for a
+//     reason unrelated to the diff is a gate the next session learns to ignore.
+//   · Worse, with packages/ui's shards fresh and then HoldBar's ONLY render DELETED from the
+//     source, it printed "73 rendered under the audits in 2 projects" and EXITED 0. Re-running
+//     packages/ui alone turned it red on the same source. The verdict about the other project was
+//     a function of when that project last ran. .gitignore's per-run clearing exists to stop
+//     precisely that and cannot reach across a project boundary.
+// apps/web/src/reachGateScope.test.ts pins both halves of the rule.
+//
+// ⚠ RUNNING IT BY HAND IS STILL AS TRUSTWORTHY AS THE LAST RUN OF EACH PROJECT. Nothing here can
+// tell a shard written a second ago from one written yesterday — the two projects are two vitest
+// invocations and share no run identity. Run the ROOT `pnpm test`, never this script alone.
+//
+// Usage:  node apps/web/scripts/check-audit-reach.mjs   (from the root `test` script, after both)
+// Reads .reach/*.json, written once per worker by each project's test setup.
 
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'

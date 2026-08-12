@@ -64,7 +64,7 @@
 //
 // Usage:  node scripts/check-audit-gate.mjs
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
 const appRoot = resolve(new URL('..', import.meta.url).pathname)
@@ -167,14 +167,40 @@ function checkProject(project) {
   const probePath = resolve(project.root, project.probe)
   const setupPath = resolve(project.root, project.setup)
 
+  // ⚠ THE PROBE IS A REAL VITEST RUN, SO IT CLEARS THAT PROJECT'S REACH SHARDS — the global setup
+  // does it unconditionally, and it is right to. MEASURED at `ed0425d`: a full `pnpm -r test`
+  // left 93/904 shards/commits in apps/web and 11/19 in packages/ui, and this script reduced BOTH
+  // to one shard and zero commits. check-audit-reach.mjs then reads that and reports "that
+  // project's DevTools hook is not receiving commits" — a false diagnosis of an emptiness this
+  // script caused. It was invisible because reach ran one line EARLIER in the same script chain:
+  // the union check's green was a property of its position in a command line.
+  //
+  // REACH_SHARD_DIR sends the probe's shards somewhere else. The probe still gets cleared and
+  // recorded exactly as any run does; it just stops writing over the evidence of the real one.
+  const probeShardDir = '.reach-probe'
   const runProbe = (source) => {
     writeFileSync(probePath, source)
     const r = spawnSync('npx', ['vitest', 'run', project.probe], {
       cwd: project.root,
       encoding: 'utf8',
+      env: { ...process.env, REACH_SHARD_DIR: probeShardDir },
     })
     return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
   }
+
+  // ⚠ AND THE REDIRECTION IS CHECKED, NEVER TRUSTED. A variable a setup stops reading, or a spawn
+  // that stops passing it, restores the old behaviour silently — the run stays green and the NEXT
+  // guard is the one that reports a false failure. So the real directory's shard listing is taken
+  // before and after, and a change is this script's own failure to report.
+  const realShardDir = resolve(project.root, '.reach')
+  const shardListing = () => {
+    try {
+      return readdirSync(realShardDir).sort().join(',')
+    } catch {
+      return '<absent>'
+    }
+  }
+  const shardsBefore = shardListing()
 
   if (existsSync(probePath)) {
     fail(
@@ -249,6 +275,18 @@ function checkProject(project) {
           "vitest's include glob and will fail the next run. Remove it by hand.",
       )
       process.exitCode = 1
+    }
+    rmSync(resolve(project.root, probeShardDir), { recursive: true, force: true })
+    // Asked on EVERY exit path, including the early returns above: a probe that failed still ran.
+    if (shardListing() !== shardsBefore) {
+      fail(
+        `${project.label}: this script changed ${relative(project.root, realShardDir)} — the probe ` +
+          'run wrote over the reach shards of the run that preceded it.\n' +
+          '  check-audit-reach.mjs would then report that project\'s DevTools hook as broken, ' +
+          'which would be this script\'s doing and not the product\'s. REACH_SHARD_DIR is meant to ' +
+          `prevent it: check that ${project.setup}'s sibling reach-global-setup still reads it and ` +
+          'that runProbe still passes it.',
+      )
     }
   }
 }

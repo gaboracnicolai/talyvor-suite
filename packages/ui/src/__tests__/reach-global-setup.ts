@@ -20,9 +20,15 @@ import type { GlobalSetupContext } from 'vitest/node'
  *
  * The `config.root`-not-`import.meta.url` rule is apps/web's and applies unchanged — under vite
  * that URL is a `/@fs/…` address and every write fails with ENOENT under a green run.
+ *
+ * ⚠ `REACH_SHARD_DIR` IS APPS/WEB'S RULE TOO, AND THIS PROJECT NEEDS IT MORE. check-audit-gate.mjs
+ * probes BOTH projects, and its probe run here used to clear this directory as the last act of
+ * every root `pnpm test` — which is why `cd apps/web && npm run test` was structurally red
+ * afterwards, blaming a DevTools hook that was fine. See apps/web/scripts/reach-global-setup.ts
+ * for the measurement.
  */
 export default function setup({ provide, config }: GlobalSetupContext): void {
-  const dir = resolve(config.root, '.reach')
+  const dir = resolve(config.root, process.env.REACH_SHARD_DIR ?? '.reach')
   rmSync(dir, { recursive: true, force: true })
   provide('reachDir', dir)
 }
