@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -16,16 +17,72 @@ import (
 // testPublicOrigin is the app origin these tests enforce against.
 const testPublicOrigin = "https://app.talyvor.com"
 
+// originUpstream records what actually crossed to upstream, so "the write was not refused" can be
+// checked as an ARRIVAL rather than inferred from a status code the BFF chose for itself.
+//
+// ⚠ THE BOOTSTRAP AND THE PROVISION CALL ARE EXCLUDED ON PURPOSE, and this is the distinction the
+// whole assertion turns on. A Track write whose session has no workspace answers 503 having sent
+// exactly one thing upstream: POST /v1/bootstrap. Counting that as "reached upstream" is how six
+// of the twelve rows below looked covered while none of their own writes ever left the process.
+type originUpstream struct {
+	mu   sync.Mutex
+	reqs []string
+}
+
+func (u *originUpstream) record(method, path string) {
+	if path == provisionPath || path == "/v1/bootstrap" {
+		return
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.reqs = append(u.reqs, method+" "+path)
+}
+
+func (u *originUpstream) reset() {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.reqs = nil
+}
+
+// writes returns the unsafe-method requests this upstream received since the last reset.
+func (u *originUpstream) writes() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	var out []string
+	for _, r := range u.reqs {
+		if m, _, ok := strings.Cut(r, " "); ok && m != http.MethodGet && m != http.MethodHead {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 // sameOriginApp is an oidc-mode app with a seeded session and a public origin, pointed at a
 // fake upstream that accepts anything — so a route that reaches upstream is observably NOT
 // refused, and the only 403 a test can see is the Origin guard's own.
 func sameOriginApp(t *testing.T) (*app, string) {
 	t.Helper()
+	a, sid, _ := sameOriginAppRecording(t)
+	return a, sid
+}
+
+// sameOriginAppRecording is sameOriginApp plus the upstream recorder.
+//
+// ⚠ THE SESSION CARRIES A TRACK WORKSPACE, and it did not before. Without one, Track's idempotent
+// bootstrap runs on every Track/Docs request, this fixture's blanket `{"ok":true}` contains no
+// workspace, and all six Track/Docs writes answer 503 before their own upstream call — measured,
+// not supposed. Every test on this fixture asserts about 403-ness and was satisfied either way,
+// which is exactly why nobody noticed that half the swept table could not reach the thing it is
+// asserted to reach.
+func sameOriginAppRecording(t *testing.T) (*app, string, *originUpstream) {
+	t.Helper()
+	rec := &originUpstream{}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == provisionPath {
 			serveFakeProvision(w, r)
 			return
 		}
+		rec.record(r.Method, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -39,9 +96,12 @@ func sameOriginApp(t *testing.T) (*app, string) {
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
 	seedProvisionedSession(auth, "so-sid", "u1", "ng@example.com", "u-test-workspace")
+	s, _ := auth.sessions.get("so-sid")
+	s.trackWorkspaceID = "track-ws-7"
+	auth.sessions.put("so-sid", s)
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
-	return a, "so-sid"
+	return a, "so-sid", rec
 }
 
 // readBFFSource concatenates the package's non-test .go files. The structural assertion is
@@ -113,8 +173,12 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/distill", body: `{"distill_policy":"disabled"}`},
 		{method: http.MethodPost, path: "/api/keys", body: `{"name":"k","scopes":["proxy"]}`},
 		{method: http.MethodDelete, path: "/api/keys/abc", body: ``},
-		{method: http.MethodPost, path: "/api/lxc/checkout", body: `{"amount_usd":10}`},
-		{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc":100000}`},
+		// ⚠ `usd_cents` AND `lxc_amount_ulxc`, NOT `amount_usd` AND `lxc`. Both rows named a field
+		// their handler does not read, so both decoded to zero and answered 400 BEFORE dialling —
+		// the two MONEY routes in this table were the two that never reached upstream at all. The
+		// wrong names survived because no assertion here has ever looked past the status code.
+		{method: http.MethodPost, path: "/api/lxc/checkout", body: `{"usd_cents":5000}`},
+		{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc_amount_ulxc":100000}`},
 		{method: http.MethodPost, path: "/api/track/issues", body: `{"title":"t"}`},
 		{method: http.MethodPatch, path: "/api/track/issues/i1", body: `{"status":"todo"}`},
 		{method: http.MethodPost, path: "/api/track/issues/i1/comments", body: `{"body":"c"}`},
@@ -294,13 +358,37 @@ func TestEveryMutatingRoute_RefusesCrossOrigin(t *testing.T) {
 
 // (2) THE OTHER DIRECTION, which is what makes (1) meaningful. A same-origin write must still
 // reach upstream. A guard that refuses everything would pass (1) and be useless.
+//
+// ⚠⚠ THAT SENTENCE WAS THE CLAIM AND IT WAS ENFORCED BY NOTHING. The assertion was
+// `rr.Code == 403 && strings.Contains(body, "origin")` — a refusal recognised by the guard's own
+// ERROR TEXT, and nothing anywhere pins that text. MEASURED at 5888b31 rather than argued, with
+// verdicts read from `--- FAIL:` lines over the whole package
+// (~/talyvor-queue/w11-samewrite-controls-b3d7.py):
+//
+//	D1  the rule made to refuse EVERY write AND its message reworded → this test PASSED, and so
+//	    did every other test in this file whose subject is that rule. 42 tests went red and all
+//	    42 are route tests that happened to notice their own route break.
+//	D2  the same refuse-everything rule, message UNCHANGED → CAUGHT here. So the assertion is
+//	    armed only while the wording matches.
+//	D3  the message reworded ALONE, rule correct → ZERO tests fail. The wording is a free edit,
+//	    which is what makes D1 a realistic accident rather than a contrived one.
+//
+// ⚠ AND THE POSITIVE HALF WAS ABSENT TOO. "Must still reach upstream" was never checked, and
+// SIX OF THESE TWELVE ROWS DID NOT: the two money rows named a field their handler does not read
+// and answered 400 before dialling, and the four Track/Docs rows — six method×route shapes —
+// stopped at Track's bootstrap because this fixture's session had no workspace. Both are fixed
+// above, and the claim is now an assertion: the row's OWN write must arrive upstream.
+//
+// The refusal check is now on the STATUS, not on the words. A 403 on a same-origin write is a
+// failure whatever it says.
 func TestEveryMutatingRoute_AllowsSameOrigin(t *testing.T) {
 	for _, rt := range everyMutatingRoute() {
 		if rt.exempt {
 			continue
 		}
 		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
-			a, sid := sameOriginApp(t)
+			a, sid, up := sameOriginAppRecording(t)
+			up.reset()
 			req := httptest.NewRequest(rt.method, rt.path, strings.NewReader(rt.body))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Origin", testPublicOrigin)
@@ -308,9 +396,22 @@ func TestEveryMutatingRoute_AllowsSameOrigin(t *testing.T) {
 			rr := httptest.NewRecorder()
 			a.ServeHTTP(rr, req)
 
-			if rr.Code == http.StatusForbidden && strings.Contains(rr.Body.String(), "origin") {
-				t.Errorf("same-origin %s %s was refused as cross-origin (%d): %s — the guard "+
-					"must not refuse the app's own writes", rt.method, rt.path, rr.Code, rr.Body.String())
+			if rr.Code == http.StatusForbidden {
+				t.Errorf("same-origin %s %s was refused (%d): %s — the guard must not refuse the "+
+					"app's own writes, and this check is deliberately not keyed on the refusal's "+
+					"wording: a guard that refuses everything in different words is the exact "+
+					"failure this test exists to catch", rt.method, rt.path, rr.Code, rr.Body.String())
+			}
+
+			// ⚠ THE ARRIVAL ASSERTION — the half the comment above has always claimed. A status
+			// code is the BFF's own account of itself; this is the upstream's. Without it a change
+			// that stops every write reaching Lens leaves this test green, which is one layer
+			// subtler than the refuse-everything guard it was written to catch.
+			if w := up.writes(); len(w) == 0 {
+				t.Errorf("same-origin %s %s answered %d but sent NO write upstream: %s — a write "+
+					"the app's own origin is allowed to make must actually cross to Lens/Track/Docs, "+
+					"or this row is asserting nothing about the route it names",
+					rt.method, rt.path, rr.Code, rr.Body.String())
 			}
 		})
 	}
