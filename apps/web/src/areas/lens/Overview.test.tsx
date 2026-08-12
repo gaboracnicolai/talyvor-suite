@@ -245,9 +245,11 @@ describe('the products strip reads unconfigured as calm state', () => {
 // sending them to check env vars that were correct.
 //
 // `probeProduct` in Overview.tsx was a SECOND, HAND-ROLLED COPY of that predicate and still
-// held `res.status === 503 || res.status === 404 → "off"`. The shared classifier's two other
-// call sites (useTrackProbe in areas/track/data.ts, DocsUpstreamCard) both use the repaired
-// one; this was the third site the repair never reached.
+// held `res.status === 503 || res.status === 404 → "off"`. Every other read in the app uses the
+// repaired classifier; this was the one site the repair never reached. (The count that stood here
+// named `useTrackProbe in areas/track/data.ts` as one of "two other call sites" — that hook is
+// deleted, and the count was already stale: seven production call sites in six files at
+// `7474125`. The property is what matters here, not the tally.)
 //
 // MEASURED IN REAL CHROME 151 on the built bundle against the real BFF binary, with only the
 // two probe paths' STATUS injected by a front proxy (a genuine upstream 404 needs

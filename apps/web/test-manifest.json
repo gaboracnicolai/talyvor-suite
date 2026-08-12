@@ -29,7 +29,7 @@
   "src/areas/marketing/economics.test.ts": 8,
   "src/areas/marketing/Journey.test.tsx": 4,
   "src/areas/marketing/Landing.test.tsx": 11,
-  "src/areas/track/data.test.ts": 6,
+  "src/areas/track/data.test.ts": 1,
   "src/areas/track/format.test.ts": 10,
   "src/areas/track/IssueDetail.test.tsx": 15,
   "src/areas/track/IssueList.test.tsx": 20,

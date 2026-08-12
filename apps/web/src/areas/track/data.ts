@@ -26,14 +26,24 @@
 // day Track ships. When the TRACK_* trio appears the probe starts answering 200 and the
 // screens change on their own, with no edit to this app.
 //
-// The pure query semantics below are KEPT. filterIssues mirrors Track's own WHERE clauses and
-// is what the list will use once there is an upstream; it is tested against rows declared in
-// the test file, which is where sample data belongs — not in a module screens render from.
+// ⚠ "THE PURE QUERY SEMANTICS BELOW ARE KEPT ... WHAT THE LIST WILL USE ONCE THERE IS AN
+// UPSTREAM" — THAT SENTENCE STOOD HERE UNTIL `7474125`, AND THE LIST HAD ALREADY SHIPPED WITHOUT
+// IT. `filterIssues` mirrored three of Track's WHERE clauses client-side. The live list arrived
+// (#83, then the view rail) and REFUSED that shape in writing: "nothing here filters client-side,
+// because a control that narrowed only the rows already fetched would be a filter that lies about
+// what it searched" — every control on IssueList is a parameter the BFF validates and forwards.
+// So the caller it was kept for WAS written, and decided against it, and the export stayed
+// exported, documented and carrying five of its own tests. Deleted, with `IssueFilters`.
+//
+// ⚠ AND ITS DOCSTRING WAS FALSE ABOUT THE SERVER IT MIRRORED: it called `updated_at DESC` "the
+// server's default listing order". MEASURED against talyvor-track `internal/issue/store.go`
+// (`orderBy := "created_at"`, overridden only by an allowlisted `order_by`) — the default is
+// created_at, and this app sees updated_at only because `issuesQuery` SENDS `order_by=updated_at`
+// on every request. A mirror nobody calls is a mirror nobody checks.
 
 import { useQuery } from '@tanstack/react-query'
 import { ApiError } from '../../lib/api'
-import { isUnconfigured } from '../../lib/productState'
-import type { TrackIssue, TrackMember, TrackTeam, TrackWorkspace } from './types'
+import type { TrackMember, TrackTeam, TrackWorkspace } from './types'
 
 // The shared ApiError, so isUnconfigured() classifies a Track read exactly as it classifies
 // every other product read — one rule for "off", in one place.
@@ -60,49 +70,19 @@ export function useTrackWorkspaces() {
   })
 }
 
-/** What this deployment can tell us about a Track read, right now. */
-export type UpstreamState = 'loading' | 'unconfigured' | 'error' | 'configured'
-
 /**
- * Probe a Track route and classify the answer. This is the whole mechanism behind the
- * "not configured on this deployment" state: one real request, and the screen renders what
- * came back rather than what someone believed when they wrote the file.
+ * What this deployment can tell us about a Track read, right now — the vocabulary
+ * `UpstreamCard` renders, and the only export of this module that is a TYPE.
  *
- * A 200 means the upstream IS wired — at which point the screen says the data is reachable
- * but this view does not read it yet. That is true, and it is a visible prompt to finish the
- * job. It never invents rows to fill the gap.
+ * ⚠ THE HOOK THAT PRODUCED IT IS GONE, AND THE STATE VOCABULARY IS NOT. `useTrackProbe` wrapped
+ * one read and mapped it onto these four words; measured at `7474125`, NOTHING imported it, in
+ * any file, test or not. What replaced it is the shared classifier applied at the screen that
+ * owns the read (`isUnconfigured(issues.error)` in IssueList, `TrackArea`, `SpaceView`,
+ * `PageView`, `DocsUpstreamCard`, `Overview`, `Members`) — a card is handed the state it should
+ * draw rather than being given a path to go and probe. Deleting the hook and keeping the type is
+ * the shape that leaves: `UpstreamCard` takes `state`, and its four values still need a name.
  */
-export function useTrackProbe(path: string): { state: UpstreamState } {
-  const q = useQuery({
-    queryKey: ['track-probe', path],
-    queryFn: () => getJSON<unknown>(path),
-    retry: false,
-  })
-  if (q.isLoading) return { state: 'loading' }
-  if (isUnconfigured(q.error)) return { state: 'unconfigured' }
-  if (q.isError) return { state: 'error' }
-  return { state: 'configured' }
-}
-
-/** Mirrors issue/handler.go's IssueFilter subset this UI exposes. Empty string = no
- *  filter, exactly like the server treats an absent query param. */
-export interface IssueFilters {
-  status: string
-  assignee_id: string
-  team_id: string
-}
-
-/** Pure, tested separately. Mirrors the server's WHERE semantics for the three params:
- *  each non-empty filter is an exact-match AND. Order: updated_at DESC (the server's
- *  default listing order for a scanning surface). Kept for the live wiring. */
-export function filterIssues(issues: TrackIssue[], f: IssueFilters): TrackIssue[] {
-  return issues
-    .filter((i) => (f.status ? i.status === f.status : true))
-    .filter((i) => (f.assignee_id ? i.assignee_id === f.assignee_id : true))
-    .filter((i) => (f.team_id ? i.team_id === f.team_id : true))
-    .slice()
-    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
-}
+export type UpstreamState = 'loading' | 'unconfigured' | 'error' | 'configured'
 
 /** id → display name via the roster; an unknown/absent id renders as em-dash (the
  *  roster is the single naming authority — no name is ever invented client-side). */
