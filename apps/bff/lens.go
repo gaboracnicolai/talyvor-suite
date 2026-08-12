@@ -620,14 +620,37 @@ func (a *app) docsSpaceDetail() http.HandlerFunc {
 	}
 }
 
+// docsPageListOffsetRefusal is the 400 for an `offset` on the page list. It names the upstream
+// fact rather than the policy, because the policy expires the day the fact does: talyvor-docs
+// internal/page/handler.go#List parses `limit` alone, and internal/page/store.go's PageFilter.Offset
+// — bound into the statement's OFFSET — is written by NOTHING in that repository, so the value is 0
+// on every call. Wire that handler and this refusal should be lifted, not kept.
+const docsPageListOffsetRefusal = "offset is not implemented upstream — talyvor-docs' page-list " +
+	"handler reads only limit, so an offset would return the FIRST page with a 200 and no way to " +
+	"tell; omit it (this route does not page)"
+
 // docsPageList — GET /api/docs/spaces/{spaceID}/pages → GET /v1/spaces/{spaceID}/pages.
 // The upstream returns []model.Page carrying the FULL ProseMirror `content` (and the
 // `content_text` extraction) on EVERY row — listing a space would ship every page's whole
 // document to draw a sidebar tree. The BFF projects BOTH fields away here (stripPageContentList);
 // the full document is served by the page-DETAIL route. limit mirrors the upstream store's
-// own semantics (default 100, cap 500). NOTE: the upstream List HANDLER reads only `limit`
-// (offset is in its store filter but not wired to the query), so offset is forwarded for
-// contract-completeness but is a no-op upstream today — see the report.
+// own semantics (default 100, cap 500).
+//
+// ⚠ `offset` IS REFUSED, NOT FORWARDED — AND IT USED TO BE FORWARDED KNOWINGLY. This comment
+// said "the upstream List HANDLER reads only `limit` … so offset is forwarded for
+// contract-completeness but is a no-op upstream today", and the wire carried
+// `limit=100&offset=50` to an upstream that has never read the second half. track.go states this
+// repo's rule for exactly that shape and enacts it for `labels`: "A parameter the upstream
+// ignores is worse than one it rejects: the reply RENDERS AS FILTERED while being unfiltered …
+// not a silent no-op (and not a forward that pretends to work)." Two routes in one BFF answered
+// the same question in opposite directions; this one now gives the answer the repo already gave.
+// See docs_pagelist_offset_test.go for the upstream census and for the other three forwarding
+// routes, whose parameters ARE read.
+//
+// ⚠ CONSEQUENCE, STATED SO IT IS NOT MISTAKEN FOR PAGING: a space's page list is ONE page of at
+// most 500 rows (100 by default) and there is no second page to ask for. A space with more pages
+// than that cannot be listed in full through this route, by anyone, until the upstream handler
+// reads an offset.
 func (a *app) docsPageList() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -638,9 +661,16 @@ func (a *app) docsPageList() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		// The KEY's presence is the claim, whatever its value: `offset=0` asks for the page this
+		// route does serve, but a caller that sends it believes the route pages. Refused before
+		// any dial — an upstream asked at all would answer with a first page the caller reads as
+		// a later one.
+		if _, sent := r.URL.Query()["offset"]; sent {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": docsPageListOffsetRefusal})
+			return
+		}
 		limit := clampInt(r.URL.Query().Get("limit"), 100, 1, 500)
-		offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<31-1)
-		raw := "limit=" + strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
+		raw := "limit=" + strconv.Itoa(limit)
 		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
