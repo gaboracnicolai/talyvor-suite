@@ -18,8 +18,10 @@ import {
   debitTotal,
   inWindow,
   lxcDebitsByModel,
+  splitShortfall,
   windowExceedsPage,
 } from "./spendMath";
+import { SplitShortfall } from "./SplitShortfall";
 import { WindowFigure, WindowIncomplete } from "./WindowFloor";
 
 // Overview: the first screen a trial user sees. It answers, in order:
@@ -224,6 +226,13 @@ function SpendCard({ now }: { now: Date }) {
   const lxcSplit = lxc.data
     ? lxcDebitsByModel(lxc.data, 30, now).slice(0, 5)
     : [];
+  // ⚠ THE SLICE IS A SECOND WAY THIS SPLIT UNDER-SUMS THE TOTAL ABOVE IT, and unlike the
+  // unattributed rows it is this screen's own doing. `lxcSplit` is what is RENDERED, so the
+  // shortfall is measured against the five rows a reader can actually add up — not against the
+  // full split, which would report a number the screen does not show.
+  const lxcUnsplit = lxc.data
+    ? splitShortfall(lxc.data, lxcSplit, 30, now)
+    : { unattributed: 0, notShown: 0 };
   // THIRTY days summed from ONE 200-row page. A reserved request writes three lxc_ledger
   // rows, so this card's window overflows its page at about 67 requests a MONTH — see
   // spendMath.ts §LEDGER_PAGE for the measurement.
@@ -294,6 +303,12 @@ function SpendCard({ now }: { now: Date }) {
           </div>
         </>
       ) : null}
+      <SplitShortfall
+        {...lxcUnsplit}
+        shownCount={lxcSplit.length}
+        floor={lxcTruncated}
+        testId="lxc-unsplit"
+      />
       {lxcTruncated ? (
         <WindowIncomplete days={30} pageSize={LEDGER_PAGE} testId="lxc-window-incomplete" />
       ) : null}

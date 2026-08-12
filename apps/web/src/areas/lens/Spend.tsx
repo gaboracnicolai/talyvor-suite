@@ -6,7 +6,8 @@ import { api } from '../../lib/api'
 import { CacheCard } from './CacheCard'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { ModelTier } from './ModelTier'
-import { LEDGER_PAGE, byModel, debitTotal, inWindow, lxcDebitsByModel, windowExceedsPage } from './spendMath'
+import { SplitShortfall } from './SplitShortfall'
+import { LEDGER_PAGE, byModel, debitTotal, inWindow, lxcDebitsByModel, splitShortfall, windowExceedsPage } from './spendMath'
 import { WindowFigure, WindowIncomplete } from './WindowFloor'
 
 // Spend & routing — LIVE. The screen the design system's central distinction
@@ -20,9 +21,14 @@ import { WindowFigure, WindowIncomplete } from './WindowFloor'
 // THE TWO LEDGERS, kept apart (the inversion fix, same as Overview's):
 // /api/tokens/history is lens_token_ledger — LENS EARNED by mining, and its
 // by-model table is MINT ATTRIBUTION (copper), not provider spend. What you
-// SPEND is LXC (steel): /api/lxc/history debits — whose rows carry no model
-// attribution on any writer, so spend is shown as a window total, never
-// per-model. The month card reads /api/spend/month. Only the cache card is
+// SPEND is LXC (steel): /api/lxc/history debits — a window total AND, since
+// #343/#355 stamped the model and api.lxcLedger stopped discarding it, a
+// per-model split of that total. ⚠ THIS PARAGRAPH SAID THE OPPOSITE — "whose
+// rows carry no model attribution on any writer, so spend is shown as a window
+// total, never per-model" — while the split it denied was rendering further
+// down this same file. NOT every charge reaches that split, and what it
+// leaves out is now disclosed rather than left to be read off the arithmetic:
+// see SplitShortfall. The month card reads /api/spend/month. Only the cache card is
 // still a sample: Lens exposes no workspace cache-rate endpoint, and it says
 // so. Two-step TierDot only: hue is category (cheap | capable), never a rank.
 export function Spend({ now = new Date() }: { now?: Date }) {
@@ -43,6 +49,13 @@ export function Spend({ now = new Date() }: { now?: Date }) {
   const windowRows = ledger.data ? inWindow(ledger.data, days, now) : []
   const agg = byModel(windowRows)
   const lxcSplit = lxc.data ? lxcDebitsByModel(lxc.data, days, now) : []
+  // What that split does NOT account for. `lxcSplit` is the WHOLE split on this screen (no
+  // top-N slice), so `notShown` is structurally 0 here and only `unattributed` can speak — it
+  // is passed anyway rather than dropped, because the day this card slices is the day a
+  // hand-picked subset would go quietly missing again.
+  const lxcUnsplit = lxc.data
+    ? splitShortfall(lxc.data, lxcSplit, days, now)
+    : { unattributed: 0, notShown: 0 }
   // One page is all either ledger gets. When the window holds more rows than that, every
   // figure derived from it is a floor — see WindowFloor.tsx.
   const mintTruncated = ledger.data ? windowExceedsPage(ledger.data, LEDGER_PAGE, days, now) : false
@@ -186,6 +199,12 @@ export function Spend({ now = new Date() }: { now?: Date }) {
             ))}
           </div>
         ) : null}
+        <SplitShortfall
+          {...lxcUnsplit}
+          shownCount={lxcSplit.length}
+          floor={lxcTruncated}
+          testId="lxc-unsplit"
+        />
         {lxcTruncated ? (
           <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lxc-window-incomplete" />
         ) : null}

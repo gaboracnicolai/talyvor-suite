@@ -183,9 +183,27 @@ export interface LxcModelAgg {
 // (token_events / /api/usage), and the two must never be summed into one column: one is what
 // the customer paid, the other what the provider cost. Two ledgers, no mixing.
 //
-// Credits are excluded by SIGN, like debitTotal, so a grant or purchase can never read as
-// spend. Rows with no model claim are DROPPED, not bucketed as "unknown" — same rule as
-// byModel: absence of provenance is not a model.
+// ⚠ THE FALLBACK'S STATED REASON NAMED A ROW CLASS THIS FUNCTION DROPS. It used to read
+// "keeps hold-only rows (a settle that never completed, a swept reservation) attributed
+// instead of silently absent" — and `r.type !== SETTLED_CHARGE` below drops every hold
+// unconditionally, so no hold-only row has ever been attributed here. The fallback is NOT
+// dead, and the rows that take it are a different class entirely: talyvor-lens'
+// `SpendLXCForAgent` (the legacy pre-serve estimate debit, agent_subbudget.go:208) stamps
+// `meta.toMap()` — requested_model and request_id, NEVER served_model, because the debit is
+// taken before routing. Those are `spend` rows with a requested model and no served one, and
+// without the fallback every one of them would leave the split.
+//
+// Credits are excluded by SIGN as well as by type. ⚠ THIS IS THE ONE PLACE THE SIGN RULE
+// SURVIVES, and `debitTotal` has no equivalent — the asymmetry is deliberate and it is why
+// `splitShortfall` can go negative. A `spend` row with a NON-NEGATIVE amount is skipped here
+// and SUMMED (as a negative) by debitTotal. No lens writer can produce that row — all three
+// require a positive amount (dualtoken.go:432, agent_subbudget.go:150, and the settle's
+// `if finalLXC > 0` at agent_subbudget.go:391) — but if one ever did, the sign test is what
+// stops it becoming a NEGATIVE per-model figure, which is worse than an absent one.
+//
+// Rows with no model claim are DROPPED, not bucketed as "unknown" — same rule as
+// byModel: absence of provenance is not a model. What that costs the reader is disclosed at
+// the screen rather than hidden here: see splitShortfall below.
 export function lxcDebitsByModel(rows: SignedRowWithMeta[], days: number, now: Date): LxcModelAgg[] {
   const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000
   const agg = new Map<string, LxcModelAgg>()
@@ -226,8 +244,9 @@ export function lxcDebitsByModel(rows: SignedRowWithMeta[], days: number, now: D
 // test green. `type` is required now, so the shape the branch existed for cannot be built by a
 // call site, and `spendMath.test.ts` asserts a cast one still sums to zero.
 //
-// Same rule as `lxcDebitsByModel` one function up, and now spelled the same way: one predicate
-// on the type, no second opinion from the sign.
+// Same ALLOW-LIST as `lxcDebitsByModel` one function up — one predicate on the type. ⚠ NOT the
+// same rule end to end, and saying so was wrong: that function ALSO tests the sign, this one does
+// not. See its comment for what the surviving sign test is for and what the asymmetry costs.
 export function debitTotal(rows: SignedRow[], days: number, now: Date): number {
   const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000
   let total = 0
@@ -239,4 +258,50 @@ export function debitTotal(rows: SignedRow[], days: number, now: Date): number {
     }
   }
   return total
+}
+
+/** What a RENDERED per-model split leaves out of the window total it sits directly under. */
+export interface SplitShortfall {
+  /** µLXC of settled charges in the window whose row names NO model. */
+  unattributed: number
+  /** µLXC of ATTRIBUTED charges the caller is not rendering — a top-N slice. */
+  notShown: number
+}
+
+// ⚠ THE SPLIT IS RENDERED AS A DECOMPOSITION OF THE TOTAL AND CANNOT ADD UP TO IT.
+//
+// Both screens draw `debitTotal` — "every model — the window total that left the balance" — and
+// immediately below it the rows of `lxcDebitsByModel`, which Overview's own source calls "The
+// per-model split of that total". Two disjoint things sit in the total and in no row:
+//
+//   · UNATTRIBUTED — a settled charge whose row names no model. Dropped here on purpose
+//     (absence of provenance is not a model) and counted by debitTotal. Reachable, MEASURED in
+//     talyvor-lens at `a04310a`: `shadow_lxc.go:73` → `SpendLXC` inserts a `spend` row with
+//     metadata literally `nil` (dualtoken.go:448), and `AgentDebitMeta.toMap` OMITS an empty
+//     scalar (agent_subbudget.go:95), so a settle carrying neither model writes no model key
+//     either. `api.lxcLedger` maps an absent document to `{}`, so it arrives with no claim.
+//   · NOT SHOWN — an attributed charge outside a top-N slice. Overview renders `.slice(0, 5)`;
+//     the sixth model's µLXC is in the figure above and in none of the five rows.
+//
+// TWO NUMBERS, NOT ONE SUM. A single combined figure would need a sentence naming two causes for
+// one amount, and then neither half could be checked against anything. Each is derived from the
+// same rows the screen renders, so neither can drift from what is on it.
+//
+// ⚠ `unattributed` CAN GO NEGATIVE, and it is not clamped here. It does so for exactly one row
+// shape — a `spend` row with a non-negative amount, which debitTotal sums and lxcDebitsByModel's
+// sign test skips. No lens writer can produce one (see lxcDebitsByModel). A clamp would present
+// that row as "nothing missing"; left signed, the screen renders no clause for it (a shortfall
+// claim needs a positive shortfall) and the caller keeps the ability to tell the two apart.
+export function splitShortfall(
+  rows: SignedRowWithMeta[],
+  shown: readonly LxcModelAgg[],
+  days: number,
+  now: Date,
+): SplitShortfall {
+  const sum = (xs: readonly LxcModelAgg[]) => xs.reduce((n, a) => n + a.ulxc, 0)
+  const attributed = sum(lxcDebitsByModel(rows, days, now))
+  return {
+    unattributed: debitTotal(rows, days, now) - attributed,
+    notShown: attributed - sum(shown),
+  }
 }
