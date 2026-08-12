@@ -13,7 +13,7 @@ import {
   SelectValue,
   focusRing,
 } from '@talyvor/ui'
-import { getJSON, getJSONArray } from '../../lib/api'
+import { ApiError, getJSON, getJSONArray } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { StatusPill } from './StatusPill'
 import { PRIORITY_VALUES, formatCost, priorityLabel, statusLabel } from './format'
@@ -54,7 +54,12 @@ const UNASSIGNED = '__unassigned__'
 export function IssueDetail() {
   const { id = '' } = useParams()
   const qc = useQueryClient()
-  const [failed, setFailed] = useState<string | null>(null)
+  // ⚠ THE ERROR IS KEPT, NOT JUST ITS SENTENCE. Both write paths used to `catch {}` and set a
+  // finished string, so the screen chose its words with no error in hand — and every failure got
+  // the same ones. A 401 read "You can try again", byte-identical to a 500, on a screen whose
+  // reads had already succeeded. Holding the error lets the render classify it the way this app
+  // classifies every other refusal, with the shared predicate already imported below.
+  const [failure, setFailure] = useState<{ outcome: string; error: unknown } | null>(null)
   const [busy, setBusy] = useState(false)
   const [draft, setDraft] = useState<string | null>(null)
   const [comment, setComment] = useState('')
@@ -88,19 +93,25 @@ export function IssueDetail() {
   // description without a handler per control.
   async function patch(fields: Record<string, unknown>) {
     setBusy(true)
-    setFailed(null)
+    setFailure(null)
+    const path = `/api/track/issues/${encodeURIComponent(id)}`
     try {
-      const res = await fetch(`/api/track/issues/${encodeURIComponent(id)}`, {
+      const res = await fetch(path, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(fields),
       })
-      if (!res.ok) throw new Error(String(res.status))
+      // ⚠ ApiError, NOT `new Error(String(res.status))`. Every shared mechanism in this app keys on
+      // `instanceof ApiError`, so a bare Error carrying the status in its MESSAGE is invisible to
+      // all of them — the fifth instance of the repair recorded at IssueList.tsx:252, and the one
+      // `errorTypes.test.ts` says up front it cannot see, because that rule matches class
+      // declarations and this shape declares nothing.
+      if (!res.ok) throw new ApiError(res.status, path)
       // Re-read rather than trusting the click: the screen shows what Track RECORDED.
       await qc.invalidateQueries({ queryKey: ['track-issue', id] })
       setDraft(null)
-    } catch {
-      setFailed('That did not save, so nothing changed. You can try again.')
+    } catch (err) {
+      setFailure({ outcome: 'That did not save, so nothing changed.', error: err })
     } finally {
       setBusy(false)
     }
@@ -110,18 +121,19 @@ export function IssueDetail() {
     const body = comment.trim()
     if (body === '') return
     setBusy(true)
-    setFailed(null)
+    setFailure(null)
+    const path = `/api/track/issues/${encodeURIComponent(id)}/comments`
     try {
-      const res = await fetch(`/api/track/issues/${encodeURIComponent(id)}/comments`, {
+      const res = await fetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ body }),
       })
-      if (!res.ok) throw new Error(String(res.status))
+      if (!res.ok) throw new ApiError(res.status, path)
       setComment('')
       await qc.invalidateQueries({ queryKey: ['track-comments', id] })
-    } catch {
-      setFailed('That comment did not post, so nothing was added. You can try again.')
+    } catch (err) {
+      setFailure({ outcome: 'That comment did not post, so nothing was added.', error: err })
     } finally {
       setBusy(false)
     }
@@ -348,7 +360,22 @@ export function IssueDetail() {
         </div>
       </Card>
 
-      {failed && <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">{failed}</p>}
+      {/* ⚠ ONLY THE ADVICE MOVES — the rule IssueList applies at its create and its status change,
+          and Documents.tsx states: "You can try again" is true of a blip and false of a dead
+          credential, which will refuse the identical request until the session is renewed. The
+          OUTCOME is owed either way, because the reader pressed a button and needs to know it did
+          not take.
+          ⚠ AND THE BAR IS NOT GUARANTEED TO BE HERE, unlike at the surfaces that rule came from.
+          It is derived from errors in the QUERY cache; these two writes are not queries, and on
+          this screen the reads have already succeeded — so a mid-session expiry leaves the remedy
+          unsaid rather than said twice. Measured, and pinned in writeUnderDeadCredential.test.tsx
+          for all three write surfaces rather than papered over here: one screen inventing its own
+          sign-in sentence is how the app comes to have two. */}
+      {failure && (
+        <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">
+          {isSessionExpired(failure.error) ? failure.outcome : `${failure.outcome} You can try again.`}
+        </p>
+      )}
     </div>
   )
 }
