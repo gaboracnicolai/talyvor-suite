@@ -48,8 +48,28 @@ type convertQuote struct {
 
 // minConversionULXC mirrors economy.MinConversionLXC. Duplicated deliberately and named so:
 // the BFF cannot import Lens's internal package, and a screen that discovers the minimum by being
-// refused is a worse experience than one that knows it. TestConvertQuote_MinimumMatchesLens pins
-// the value against the number Lens actually enforces.
+// refused is a worse experience than one that knows it.
+//
+// ⚠ WHAT PINS IT, STATED AFTER MEASURING RATHER THAN CLAIMED. This comment used to name a test as
+// pinning the value "against the number Lens actually enforces". No such test existed, and NOTHING
+// in this repo compares this constant to Lens — the BFF cannot import that package and CI does not
+// check talyvor-lens out, so a cross-repo pin is not available here to write honestly.
+//
+// What DOES hold the value is incidental and worth knowing precisely, because it decides what a
+// reader may rely on. The conversion tests post literal amounts either side of this boundary, so
+// the constant cannot move without reding them — MEASURED by moving it: to 1 reds
+// TestConvert_BelowMinimumRefusedBeforeDialing, and by a SINGLE micro-unit (100_001) reds
+// TestConvert_AddressesTheSessionWorkspaceOnly and TestConvert_InsufficientLENSReachesTheScreen.
+// So an ACCIDENTAL edit here is caught. DRIFT IN LENS IS NOT: if economy.MinConversionLXC changes,
+// every test here stays green and this deployment quotes a minimum the upstream no longer
+// enforces — the screen would then either refuse a conversion Lens would take, or promise one it
+// would refuse after the round trip this constant exists to save.
+//
+// The one change that would close it lives in the other repo, exactly as with the top-up
+// allow-list: serve the minimum on a public Lens route and read it here instead of copying it.
+// Verified read-only against talyvor-lens `a04310a`: internal/economy/dualtoken.go declares
+// MinConversionLXC = 100_000, so the copy is correct as of that commit — and that sentence is a
+// dated observation, not a guarantee, which is the whole point of writing it this way.
 const minConversionULXC int64 = 100_000
 
 // handleConvertQuote — GET /api/lens/convert-quote. Reads the LIVE rate from Lens so the screen

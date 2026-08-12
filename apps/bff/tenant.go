@@ -126,8 +126,9 @@ func (a *app) provision(ctx context.Context, identity string, cachePoolable *boo
 // comes from the tenant — i.e. from the session — and suffix is a fixed literal from the route
 // table. A caller cannot pass a workspace id, because there is no parameter for one.
 //
-// Guarded by TestNoRouteClosesOverAStartupWorkspaceID: nothing else in this package may build
-// this prefix for Lens.
+// Guarded by TestLensWorkspacePathBuiltInExactlyOnePlace: nothing else in this package may build
+// this prefix for Lens. (That citation named a test that does not exist until `cited_guard_test.go`
+// swept for it — the guard was real and had been renamed, and the comment had not moved with it.)
 func lensWorkspacePath(t tenant, suffix string) string {
 	return "/v1/workspaces/" + t.workspaceID + suffix
 }
