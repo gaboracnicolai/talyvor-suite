@@ -84,6 +84,73 @@ describe('the guard has teeth', () => {
   })
 })
 
+// THE WALK IS THE GUARD'S OTHER INPUT, AND IT WAS THE UNCONTROLLED ONE.
+//
+// awaiting.ts exports both matchers so they can be positive-controlled, and says why: "a matcher
+// that silently stops matching would make the guard vacuously green". The sweep below has a
+// SECOND input the matchers cannot speak for — tsFiles(webSrc), which decides WHICH files are
+// read. Nothing asserted it read anything, and the guard's output for "read nothing" is
+// byte-identical to its output for "read everything and found nothing wrong".
+//
+// MEASURED, not reasoned about (~/talyvor-queue/w11-awaitingwalk-controls-2b8f.py, each mutation
+// restored in a `finally` and verified back by sha256), 3/3 as predicted:
+//   C1  a caption in areas/lens/Overview.tsx naming `/api/members` — a route lens.go:214 really
+//       registers, i.e. the exact #339 rot this module exists to close — REDS the guard. The
+//       comparison is armed on real production files.
+//   C2  THE HOLE: the same caption, with one line added to tsFiles so it does not descend into
+//       `areas` — rc=0, GREEN. 43 of the 70 production files live there, including every screen.
+//   C3  the skip ALONE, no caption — GREEN. Nothing anywhere notices the population shrank.
+//
+// ⚠ AND THE POPULATION IS CURRENTLY ZERO. No production file calls awaitingRoute() at all (the
+// only occurrences repo-wide are this file's samples and awaiting.ts's own doc comments), so the
+// real-file guard has never had a subject to read. That is a fine state for the PRODUCT — no
+// screen is making an unverifiable claim — but it means C3's invisibility is not a latent risk,
+// it is the permanent condition: the sweep could have been broken at any point in this file's
+// life and every run would have looked exactly the same.
+//
+// So the walk gets an INDEPENDENT ENUMERATION rather than a bigger comment. import.meta.glob is
+// resolved by Vite at transform time and touches node:fs not at all, so a skip map, a changed
+// extension filter or a wrong `webSrc` in the fs walk cannot move both instruments the same way.
+// The floor is there for the one failure that CAN: an anchor that resolves to an empty tree
+// leaves both enumerations agreeing on nothing.
+//
+// ⚠ A CONTROL FOUND A COUPLING NOBODY HAD WRITTEN DOWN, and it belongs here rather than in a
+// commit message. Widening tsFiles' filter to keep `.test.ts` reds the set comparison AS
+// EXPECTED — and it also reds the ORIGINAL guard, because the sweep then reads THIS FILE, whose
+// own positive-control fixture on line 75 names `/api/members`, a route lens.go:214 registers.
+// Verified as the sole cause: it is the only awaitingRoute() sample in any test file naming a
+// registered route. So the guard below is kept off its own fixtures by the walk's test-file
+// exclusion and by nothing else — if a sample ever moves into production source, it will be
+// reported as a rotting caption, which is the correct answer for the wrong reason.
+describe('the sweep reads the whole tree', () => {
+  // Keys only — the glob is lazy, so nothing here imports a module or runs a side effect.
+  const globbed = Object.keys(import.meta.glob('../**/*.{ts,tsx}'))
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => resolve(import.meta.dirname, k))
+
+  it('finds a substantial production tree, so an empty anchor cannot pass', () => {
+    // Deliberately far below the 70 counted at 4a1c138: this catches an anchor that resolves to
+    // nothing, not a refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(40)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    const walked = new Set(tsFiles(webSrc))
+    const glob = new Set(globbed)
+    const rel = (p: string) => p.slice(webSrc.length + 1)
+    expect(
+      [...glob].filter((f) => !walked.has(f)).map(rel).sort(),
+      'Vite sees production files that tsFiles() does not. The sweep below reads whatever this ' +
+        'walk returns, so anything missing here is a file no caption guard has ever looked at.',
+    ).toEqual([])
+    expect(
+      [...walked].filter((f) => !glob.has(f)).map(rel).sort(),
+      'tsFiles() returns files Vite does not see. Either the walk picked up something outside ' +
+        'apps/web/src, or the two disagree about what a production source file is.',
+    ).toEqual([])
+  })
+})
+
 describe('no caption claims a route the BFF already serves', () => {
   it('every awaitingRoute() names a route that is genuinely absent', () => {
     const registered = new Set(registeredBffRoutes(readFileSync(bffLens, 'utf8')))
