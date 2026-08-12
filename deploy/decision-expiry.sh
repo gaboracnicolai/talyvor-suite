@@ -30,6 +30,11 @@
 # passes — with the repo and the check that would settle them. An expiry register that silently
 # scores a cross-repo premise as "fine" would be the exact failure it exists to prevent.
 #
+# ⚠ AND IT WAS DOING EXACTLY THAT TO ITS OWN LOCAL HALF, through a door nobody was watching: a
+# premise read out of a path THAT IS NOT THERE. Seven of these nine checks reported their
+# premise as holding with their subject file moved aside — see `subject` below, which is the
+# floor that closed it, and apps/web/src/expirySubjects.test.ts, which is what keeps it closed.
+#
 # Usage:  deploy/decision-expiry.sh          # CI runs this
 #         deploy/decision-expiry.sh -v       # also print each premise as it is checked
 
@@ -83,6 +88,41 @@ cannot() {
     printf '               settle it with:   %s\n' "$3"
 }
 
+# subject FILE DECISION — the premise below is read out of FILE. Returns non-zero, and records
+# a STALE, when that path is not a readable non-empty file.
+#
+# ⚠ MOST CHECKS HERE ARE ABSENCE TESTS: they grep a path and VOID when the pattern is FOUND.
+# `grep` exits 1 with no output both for "the pattern is not in that file" AND for "there is no
+# such file" — so a subject that has MOVED reads exactly like a premise in perfect health.
+#
+# MEASURED at 9d3d6c8, not reasoned about (~/talyvor-queue/w11-expiry-vacuity-census-3f7a.py
+# moved each subject aside in turn, restored in a `finally`, sha256-verified back): SEVEN of the
+# nine locally-checkable decisions printed `ok` with the file their premise lives in gone, and
+# FOUR of those runs exited 0 under "All locally-checkable premises still hold."
+#
+# ⚠ D3 IS THE ONE THAT SETTLES IT, because it did not merely mis-answer — it ERRORED and was
+# scored as a pass. With the compose fragment gone `grep -c` wrote nothing, so `[ "" -ne 3 ]`
+# printed `integer expression expected` and exited 2; a non-zero `[` sends the `if` down its
+# ELSE branch, which is `ok "member sync wired — all 3 variables present"`. The check announced
+# three variables it had not counted. (Its count is now range-checked too — see D3.)
+#
+# ⚠ A MISSING LOCAL PATH IS A STALE DECISION, NOT AN UNCHECKABLE. `cannot` is for premises that
+# live where this repo cannot read. A local anchor that stopped resolving is a different event:
+# the decision is still documented, the runbook still tells an operator to rely on it, and
+# nothing is watching it any more. That is what `void` is for, and it is what makes CI red.
+#
+# Guarded by apps/web/src/expirySubjects.test.ts, which runs THIS file against a sandbox with
+# one subject removed at a time and fails on any `ok` that survives its own subject.
+subject() {
+    [ -s "$1" ] && return 0
+    stale=$((stale + 1))
+    printf '\n  ⚠ UNREADABLE PREMISE: %s\n' "$2"
+    printf '    subject file:  %s — missing, empty, or not readable\n' "$1"
+    printf '    consequence:   %s\n' \
+        "this decision is checked by grepping that path, and no file means no match. For an absence test no match is the shape of a premise that HOLDS, so this check would otherwise have scored a pass from an instrument that read nothing. Re-anchor it on the file's new location, deliberately."
+    return 1
+}
+
 echo "== deploy decision expiry =="
 echo
 
@@ -91,12 +131,14 @@ echo
 # PREMISE:  the BFF does not pin a Docs workspace — every route resolves it from the session.
 # If the pin returns, the seed is the only grant for the pinned workspace again and its
 # deletion is void. (Also guarded, more strongly, by TestDocs_IsPerSessionNotPinned.)
-if grep -qE '^\s*docsWorkspaceID\b' apps/bff/main.go 2>/dev/null; then
-    void "STEP 3a's deletion of the Docs membership seed" \
-        "deploy/FULL-STACK-DEPLOY.md § '3a. Docs is PER-IDENTITY'" \
-        "docsWorkspaceID is back on the BFF config ⇒ Docs is pinned again ⇒ RESTORE the seed step from git history, or every tester 403s on Docs."
-else
-    ok "STEP 3a seed deleted — BFF holds no docsWorkspaceID"
+if subject apps/bff/main.go "STEP 3a's deletion of the Docs membership seed"; then
+    if grep -qE '^\s*docsWorkspaceID\b' apps/bff/main.go 2>/dev/null; then
+        void "STEP 3a's deletion of the Docs membership seed" \
+            "deploy/FULL-STACK-DEPLOY.md § '3a. Docs is PER-IDENTITY'" \
+            "docsWorkspaceID is back on the BFF config ⇒ Docs is pinned again ⇒ RESTORE the seed step from git history, or every tester 403s on Docs."
+    else
+        ok "STEP 3a seed deleted — BFF holds no docsWorkspaceID"
+    fi
 fi
 
 # ── D2 ───────────────────────────────────────────────────────────────────────
@@ -105,12 +147,14 @@ fi
 # PREMISE:  the BFF has no boot refusal for it (unlike TRACK_WORKSPACE_ID).
 # If a refusal is added, "silently ignored" becomes wrong in the dangerous direction: the
 # operator would be told a stale line is harmless when it now prevents boot.
-if grep -q 'DOCS_WORKSPACE_ID must not be set' apps/bff/main.go 2>/dev/null; then
-    void "the 'leaving DOCS_WORKSPACE_ID set is silently ignored' warning" \
-        "deploy/README.md §4 table, deploy/bff.env.example, FULL-STACK-DEPLOY.md § 'Docs now DEPENDS ON TRACK'" \
-        "the BFF now REFUSES DOCS_WORKSPACE_ID. A stale line no longer sits harmless — it stops the boot. Reword all three to 'refuses to start'."
-else
-    ok "DOCS_WORKSPACE_ID is ignored, not refused — the warning is accurate"
+if subject apps/bff/main.go "the 'leaving DOCS_WORKSPACE_ID set is silently ignored' warning"; then
+    if grep -q 'DOCS_WORKSPACE_ID must not be set' apps/bff/main.go 2>/dev/null; then
+        void "the 'leaving DOCS_WORKSPACE_ID set is silently ignored' warning" \
+            "deploy/README.md §4 table, deploy/bff.env.example, FULL-STACK-DEPLOY.md § 'Docs now DEPENDS ON TRACK'" \
+            "the BFF now REFUSES DOCS_WORKSPACE_ID. A stale line no longer sits harmless — it stops the boot. Reword all three to 'refuses to start'."
+    else
+        ok "DOCS_WORKSPACE_ID is ignored, not refused — the warning is accurate"
+    fi
 fi
 
 # ── D3 ───────────────────────────────────────────────────────────────────────
@@ -118,49 +162,62 @@ fi
 #           in the docs logs is a FAULT.
 # PREMISE:  the compose fragment actually sets all three variables. SyncMembers returns SILENTLY
 #           when unconfigured, so nothing else would report it.
-n=$(grep -cE '^\s+(TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_URL):' deploy/track-docs.compose.yaml 2>/dev/null || true)
-if [ "${n}" -ne 3 ]; then
-    void "the member sync is ON, and log silence is a fault" \
-        "deploy/FULL-STACK-DEPLOY.md § '3a' and § 'the member-sync lines'" \
-        "the fragment sets ${n} of 3 sync variables. SyncMembers no-ops SILENTLY, so the runbook's 'silence is a fault' is now backwards."
-else
-    ok "member sync wired — all 3 variables present in the fragment"
+if subject deploy/track-docs.compose.yaml "the member sync is ON, and log silence is a fault"; then
+    n=$(grep -cE '^\s+(TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_MEMBER_SYNC_SECRET|DOCS_TRACK_URL):' deploy/track-docs.compose.yaml 2>/dev/null || true)
+    # ⚠ A COUNT THAT IS NOT A NUMBER IS NOT A COUNT. `n` empty (grep could not read the file at
+    # all) made `[ "${n}" -ne 3 ]` exit 2 — non-zero, so the `if` took the ELSE branch and this
+    # check reported all three variables present. `subject` above closes the missing-file door;
+    # this closes the door for every other way grep can fail to produce a number.
+    case "${n}" in '' | *[!0-9]*) n=-1 ;; esac
+    if [ "${n}" -ne 3 ]; then
+        void "the member sync is ON, and log silence is a fault" \
+            "deploy/FULL-STACK-DEPLOY.md § '3a' and § 'the member-sync lines'" \
+            "the fragment sets ${n} of 3 sync variables (-1 = the count could not be read at all). SyncMembers no-ops SILENTLY, so the runbook's 'silence is a fault' is now backwards."
+    else
+        ok "member sync wired — all 3 variables present in the fragment"
+    fi
 fi
 
 # ── D4 ───────────────────────────────────────────────────────────────────────
 # DECISION: STEP 4 is an ADD, not a swap, and rollback is a binary swap alone.
 # PREMISE:  the current BFF tolerates LENS_WORKSPACE_KEY / LENS_WORKSPACE_ID (reads neither,
 #           refuses neither), so one env file boots either binary.
-if grep -qE 'LENS_WORKSPACE_(KEY|ID)' apps/bff/main.go 2>/dev/null; then
-    void "STEP 4 'ADD, DO NOT DELETE' and the binary-swap-only rollback" \
-        "deploy/FULL-STACK-DEPLOY.md § 'STEP 4' and § 'Why the BFF env change is NOT one-way'" \
-        "main.go now mentions LENS_WORKSPACE_KEY/_ID. If it READS them the variables are live again; if it REFUSES them, one file no longer boots both binaries and rollback needs an env restore."
-else
-    ok "LENS_WORKSPACE_* inert on the BFF — one file boots either binary"
+if subject apps/bff/main.go "STEP 4 'ADD, DO NOT DELETE' and the binary-swap-only rollback"; then
+    if grep -qE 'LENS_WORKSPACE_(KEY|ID)' apps/bff/main.go 2>/dev/null; then
+        void "STEP 4 'ADD, DO NOT DELETE' and the binary-swap-only rollback" \
+            "deploy/FULL-STACK-DEPLOY.md § 'STEP 4' and § 'Why the BFF env change is NOT one-way'" \
+            "main.go now mentions LENS_WORKSPACE_KEY/_ID. If it READS them the variables are live again; if it REFUSES them, one file no longer boots both binaries and rollback needs an env restore."
+    else
+        ok "LENS_WORKSPACE_* inert on the BFF — one file boots either binary"
+    fi
 fi
 
 # ── D5 ───────────────────────────────────────────────────────────────────────
 # DECISION: the runbook's bundle checks read a version rather than grepping content, and the
 #           tester-notice grep is kept only as a transitional fallback.
 # PREMISE:  the build stamps a version into the bundle.
-if ! grep -q 'stampBuild' apps/web/vite.config.ts 2>/dev/null; then
-    void "version comparison replaces the bundle content grep" \
-        "deploy/FULL-STACK-DEPLOY.md § 'STEP 6d'" \
-        "the stamping plugin is gone from vite.config.ts, so dist/version.json is not emitted and every version-based check silently reads nothing."
-else
-    ok "bundle stamping present — version checks are readable"
+if subject apps/web/vite.config.ts "version comparison replaces the bundle content grep"; then
+    if ! grep -q 'stampBuild' apps/web/vite.config.ts 2>/dev/null; then
+        void "version comparison replaces the bundle content grep" \
+            "deploy/FULL-STACK-DEPLOY.md § 'STEP 6d'" \
+            "the stamping plugin is gone from vite.config.ts, so dist/version.json is not emitted and every version-based check silently reads nothing."
+    else
+        ok "bundle stamping present — version checks are readable"
+    fi
 fi
 
 # ── D6 ───────────────────────────────────────────────────────────────────────
 # DECISION: the deploy builds through scripts/build-release.sh in BOTH places (STEP 2 and the
 #           redeploy section), so CI's stamp guard covers the path humans actually run.
 # PREMISE:  no hand-rolled build survives in the runbook.
-if grep -qE '^\s*\(\s*cd apps/bff && .*go build|^\s*pnpm --filter @talyvor/web build' deploy/README.md 2>/dev/null; then
-    void "the runbook builds only through scripts/build-release.sh" \
-        "deploy/README.md § '2. Build' and § 'Redeploying after a merge'" \
-        "a hand-rolled build is back in the runbook. It does not stamp, so CI's guard passes while the deployed artifacts are unidentifiable."
-else
-    ok "no hand-rolled build in the runbook"
+if subject deploy/README.md "the runbook builds only through scripts/build-release.sh"; then
+    if grep -qE '^\s*\(\s*cd apps/bff && .*go build|^\s*pnpm --filter @talyvor/web build' deploy/README.md 2>/dev/null; then
+        void "the runbook builds only through scripts/build-release.sh" \
+            "deploy/README.md § '2. Build' and § 'Redeploying after a merge'" \
+            "a hand-rolled build is back in the runbook. It does not stamp, so CI's guard passes while the deployed artifacts are unidentifiable."
+    else
+        ok "no hand-rolled build in the runbook"
+    fi
 fi
 
 # ── D7 ───────────────────────────────────────────────────────────────────────
@@ -196,22 +253,32 @@ fi
 # breaking it rather than by reading it: a guard nobody has watched fail is not known to guard.
 # It now matches the CALL, in non-test source only. Keep it that way: widening it back to a
 # word that appears in prose restores the hole.
-_d7_code=0; _d7_doc=0
-for _f in apps/bff/*.go; do
-    case "$_f" in *_test.go) continue ;; esac
-    grep -qF 'a.nudgeDocsMemberSync(' "$_f" 2>/dev/null && _d7_code=1
-done
-grep -qF 'membership row exists' deploy/FULL-STACK-DEPLOY.md 2>/dev/null && _d7_doc=1
-if [ "$_d7_code" = 1 ] && [ "$_d7_doc" = 1 ]; then
-    ok "3a-bis promises login-time membership, and the BFF delivers it"
-elif [ "$_d7_code" = 0 ] && [ "$_d7_doc" = 1 ]; then
-    void "STEP 3a-bis's promise that membership lands at login" \
-        "deploy/FULL-STACK-DEPLOY.md § '3a-bis. THE FIRST-VISIT WINDOW'" \
-        "the BFF NO LONGER calls Docs' on-demand member-sync, so the first-visit window is open again — but 3a-bis still says a 403 there is a fault to investigate. It would send an operator hunting a misconfiguration that does not exist, and the 2-minute sweep hides it by making the write succeed on a retry. Restore the call (apps/bff/docs_membersync.go) or rewrite 3a-bis to describe a wait again."
-else
-    void "STEP 3a-bis does not describe the login-time nudge" \
-        "deploy/FULL-STACK-DEPLOY.md § '3a-bis. THE FIRST-VISIT WINDOW'" \
-        "the section no longer states that the membership row exists before the redirect completes. Either it was rewritten back to describing a wait while the code still nudges, or the wording this check anchors on moved — re-anchor it deliberately rather than loosening the match."
+#
+# ⚠ ONLY THE DOCUMENT HALF TAKES A `subject` GATE, and that is a statement about the two halves
+# rather than an omission. The code half is a GLOB over apps/bff/*.go looking for the CALL: it
+# already fails closed, because a glob that matches nothing leaves `_d7_code=0` and voids. The
+# document half names ONE path, which is the shape that cannot tell a missing file from a
+# rewritten section — and the void it would otherwise print blames the wording for the absence
+# of the whole document, which is the wrong diagnosis by exactly the distance that costs a
+# reader an hour.
+if subject deploy/FULL-STACK-DEPLOY.md "STEP 3a-bis's promise that membership lands at login"; then
+    _d7_code=0; _d7_doc=0
+    for _f in apps/bff/*.go; do
+        case "$_f" in *_test.go) continue ;; esac
+        grep -qF 'a.nudgeDocsMemberSync(' "$_f" 2>/dev/null && _d7_code=1
+    done
+    grep -qF 'membership row exists' deploy/FULL-STACK-DEPLOY.md 2>/dev/null && _d7_doc=1
+    if [ "$_d7_code" = 1 ] && [ "$_d7_doc" = 1 ]; then
+        ok "3a-bis promises login-time membership, and the BFF delivers it"
+    elif [ "$_d7_code" = 0 ] && [ "$_d7_doc" = 1 ]; then
+        void "STEP 3a-bis's promise that membership lands at login" \
+            "deploy/FULL-STACK-DEPLOY.md § '3a-bis. THE FIRST-VISIT WINDOW'" \
+            "the BFF NO LONGER calls Docs' on-demand member-sync, so the first-visit window is open again — but 3a-bis still says a 403 there is a fault to investigate. It would send an operator hunting a misconfiguration that does not exist, and the 2-minute sweep hides it by making the write succeed on a retry. Restore the call (apps/bff/docs_membersync.go) or rewrite 3a-bis to describe a wait again."
+    else
+        void "STEP 3a-bis does not describe the login-time nudge" \
+            "deploy/FULL-STACK-DEPLOY.md § '3a-bis. THE FIRST-VISIT WINDOW'" \
+            "the section no longer states that the membership row exists before the redirect completes. Either it was rewritten back to describing a wait while the code still nudges, or the wording this check anchors on moved — re-anchor it deliberately rather than loosening the match."
+    fi
 fi
 
 # ── UNCHECKABLE FROM THIS REPO ───────────────────────────────────────────────
@@ -271,12 +338,23 @@ cannot "the console's dark palette IS the public site's (canvas #060A12, surface
 #   email and passes one resolving to zero memberships, so adding X-User-Email here would make
 #   a future 403 disappear while re-coupling a service call to the user lane. That is the fix
 #   someone reaches for at 2am, and this is what stops it.
-if grep -qE 'X-User-(Email|Id|Teams)|X-Auth-Iss' apps/bff/docs_membersync.go 2>/dev/null; then
-    void "the Docs nudge is a SERVICE call carrying only the transit proof" \
-        "apps/bff/docs_membersync.go and talyvor-docs internal/gatewayauth/exempt.go" \
-        "the nudge now sends an identity header. Docs' service lane resolves no identity, so this either does nothing or makes the call depend on the USER lane — which 403s for exactly the workspace this route exists to serve."
-else
-    ok "the Docs nudge sends no identity headers — service lane, transit proof only"
+#
+# ⚠ THIS IS THE ONE WHERE THE MISSING-SUBJECT HOLE HAD TEETH, and it is why `subject` was added
+# rather than the four cheaper checks being left alone. D7's code half asks whether the nudge is
+# CALLED and globs the whole package for it; D8 asks what the nudge SENDS and names one file. So
+# a refactor that moves the request construction out of apps/bff/docs_membersync.go — into the
+# caller, into a shared client — keeps D7 green (the call is still somewhere in apps/bff/*.go)
+# and leaves D8 grepping a path that no longer exists, which is a pass. The register would have
+# gone on certifying "no identity headers" about code it could not see, on the lane whose whole
+# point is that it carries none.
+if subject apps/bff/docs_membersync.go "the Docs nudge is a SERVICE call carrying only the transit proof"; then
+    if grep -qE 'X-User-(Email|Id|Teams)|X-Auth-Iss' apps/bff/docs_membersync.go 2>/dev/null; then
+        void "the Docs nudge is a SERVICE call carrying only the transit proof" \
+            "apps/bff/docs_membersync.go and talyvor-docs internal/gatewayauth/exempt.go" \
+            "the nudge now sends an identity header. Docs' service lane resolves no identity, so this either does nothing or makes the call depend on the USER lane — which 403s for exactly the workspace this route exists to serve."
+    else
+        ok "the Docs nudge sends no identity headers — service lane, transit proof only"
+    fi
 fi
 
 cannot "Docs' /v1/service/ lane skips membership authz but still requires the gateway secret" \
@@ -302,6 +380,20 @@ cannot "Docs' /v1/service/ lane skips membership authz but still requires the ga
 #   cannot tell a mention from a setting reports the documentation as the defect. Comment lines
 #   are stripped first, and the two directions are controlled: adding `assetsDir: 'static'` to
 #   vite.config.ts voids this, and the warning prose alone does not.
+#
+# ⚠ THE VITE HALF IS AN ABSENCE TEST. `_d9_vite=1` means "assetsDir is NOT set", which is what a
+# missing vite.config.ts also looks like: measured, D9 printed `ok` — "vite still writes there
+# (default assetsDir)" — about a build configuration that was not on disk. The BFF half is a
+# POSITIVE match and would void on its own, so gating it changes no verdict; it is gated anyway
+# so the RULE is uniform — every literal path this file greps is asserted present first — and
+# because "lens.go is not there" is a better thing to tell a deployer than "lens.go no longer
+# pins bundleAssetsDir".
+_d9_read=0
+subject apps/bff/lens.go "a missing bundle file 404s, so a deploy check may read its status code" || _d9_read=1
+subject apps/web/vite.config.ts "a missing bundle file 404s, so a deploy check may read its status code" || _d9_read=1
+# BOTH are asked, and neither short-circuits the other: with both files gone a deployer should
+# be told both anchors moved, not the first one this file happens to name.
+if [ "${_d9_read}" = 0 ]; then
 _d9_bff=0
 _d9_vite=0
 grep -qE '^const bundleAssetsDir = "assets"$' apps/bff/lens.go 2>/dev/null && _d9_bff=1
@@ -312,6 +404,7 @@ else
     void "a missing bundle file 404s, so a deploy check may read its status code" \
         "deploy/README.md §6 and deploy/FULL-STACK-DEPLOY.md §Reading verification output" \
         "$( [ "${_d9_bff}" = 1 ] || echo 'apps/bff/lens.go no longer pins bundleAssetsDir = "assets". ' )$( [ "${_d9_vite}" = 1 ] || echo 'apps/web/vite.config.ts now sets assetsDir, so the build writes outside the directory the BFF refuses. ' )A missing asset answers 200 with index.html again and every status-code check in both runbooks passes against a white screen."
+fi
 fi
 
 # ── verdict ──────────────────────────────────────────────────────────────────
