@@ -70,9 +70,18 @@ interface Decl {
 /**
  * Every `class X extends Y` in the two source trees, as `module#X extends Y`.
  *
- * ⚠ IT MATCHES DECLARATIONS, NOT THROWS. A thrown object literal or a `new Error()` with fields
- * bolted on would not be seen — that shape is not what any of the five instances looked like, and a
- * rule keyed on the declaration is the one that can name a file and a line.
+ * ⚠ IT MATCHES DECLARATIONS, NOT THROWS — and the reason this file gave for that was WRONG ABOUT
+ * THE POPULATION. It read "a thrown object literal or a `new Error()` with fields bolted on would
+ * not be seen — that shape is not what any of the five instances looked like". Measured at
+ * `d7652cf` with all 1134 tests green, a SIXTH and SEVENTH instance were exactly that shape:
+ *
+ *     apps/web/src/areas/track/IssueDetail.tsx:98   throw new Error(String(res.status))   PATCH
+ *     apps/web/src/areas/track/IssueDetail.tsx:120  throw new Error(String(res.status))   POST
+ *
+ * A bare Error carrying the status — in its MESSAGE, where nothing reads it — on the two write
+ * paths of the same area as three of the five, in a file that imports `isSessionExpired` and uses
+ * it 200 lines below for a read. The declaration rule is still the right shape for a TYPE, so it
+ * is unchanged; the gap it left is now covered by rule D rather than excused in this comment.
  */
 function declaredClasses(): Decl[] {
   const out: Decl[] = []
@@ -151,6 +160,46 @@ function errorTypes(decls: Decl[]): Chain[] {
   return out
 }
 
+/**
+ * Rule D's population: every non-test module that CALLS `fetch`. It is scoped that way rather
+ * than to all source because the blind spot is specific — an error about a REFUSED REQUEST is the
+ * only kind that gets handed to `isSessionExpired`, `isUnconfigured`, `QueryCache.onError` or the
+ * retry predicate, and all four are `instanceof ApiError`. A `throw new Error` elsewhere is a
+ * programmer error nobody classifies: `glyphAudit.ts` refusing a malformed woff2 and
+ * `packages/ui/src/lib/contrast.ts` refusing an unreadable colour are the ten and three sites
+ * this scope deliberately leaves alone, and neither is on a request path.
+ */
+function fetchingModules(): { path: string; text: string }[] {
+  const out: { path: string; text: string }[] = []
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = resolve(dir, e.name)
+      if (e.isDirectory()) {
+        walk(p)
+        continue
+      }
+      if (!/\.tsx?$/.test(e.name)) continue
+      const path = relOf(p)
+      if (isTestFile(path)) continue
+      const text = readFileSync(p, 'utf8')
+      if (text.includes('fetch(')) out.push({ path, text })
+    }
+  }
+  for (const r of roots) walk(r)
+  return out.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/** `throw new Error(...)` and the other built-in roots, as `module:line`. */
+const THROWN_BUILTIN = new RegExp(`throw\\s+new\\s+(?:${[...ERROR_ROOTS].join('|')})\\s*\\(`, 'g')
+
+function builtinThrows(text: string): number[] {
+  const lines: number[] = []
+  for (const m of text.matchAll(THROWN_BUILTIN)) {
+    lines.push(text.slice(0, m.index).split('\n').length)
+  }
+  return lines
+}
+
 /** A class carrying a status that is NOT an ApiError — the shape every instance had. */
 class StatusLookAlike extends Error {
   constructor(readonly status: number) {
@@ -212,5 +261,45 @@ describe('an error type nothing shared can classify', () => {
     expect(retry(0, new ApiError(401, '/api/x'))).toBe(false)
     // And QueryCache.onError's re-probe keys on the same instanceof, so it never fires either.
     expect(new StatusLookAlike(401) instanceof ApiError).toBe(false)
+  })
+
+  /**
+   * ⚠ RULE D — THE HALF RULE A SAYS IT CANNOT SEE. A refusal does not have to be a declared TYPE
+   * to be invisible: `throw new Error(String(res.status))` is the same blindness with no class to
+   * name, and it shipped twice on IssueDetail's write paths. Scoped to modules that call `fetch`,
+   * because that is where an error becomes something a shared HTTP predicate will be asked about.
+   */
+  it('D. no module that speaks to the network throws an error nothing can classify', () => {
+    const offenders = fetchingModules()
+      .flatMap((m) => builtinThrows(m.text).map((line) => `${m.path}:${line}`))
+      .sort()
+    expect(
+      offenders,
+      'a built-in Error thrown from a request path is refused by isSessionExpired, ' +
+        'isUnconfigured, QueryCache.onError and the retry predicate alike — the status ends up in ' +
+        'a MESSAGE, which nothing reads. Throw `new ApiError(res.status, path)`.',
+    ).toEqual([])
+  })
+
+  /**
+   * ⚠ RULE D CANNOT SEE ITS OWN DETECTOR GO BLIND EITHER, and its expectation is `[]` — the value
+   * a scan of nothing also produces. Two independent things are pinned: the POPULATION contains
+   * the request modules by name (not a floor, which a collapsed walk can still clear), and the
+   * MATCHER fires on the exact shipped line.
+   */
+  it('E. rule D reads the request modules, and its matcher sees the shape that shipped', () => {
+    const scanned = new Set(fetchingModules().map((m) => m.path))
+    for (const m of [
+      'apps/web/src/lib/api.ts',
+      'apps/web/src/areas/track/IssueDetail.tsx',
+      'apps/web/src/areas/track/IssueList.tsx',
+      'apps/web/src/areas/lens/topupApi.ts',
+      'apps/web/src/areas/docs/api.ts',
+    ]) {
+      expect(scanned.has(m), `rule D never read ${m}`).toBe(true)
+    }
+    // The line as it stood at d7652cf, and the replacement — the matcher must part them.
+    expect(builtinThrows('      if (!res.ok) throw new Error(String(res.status))\n')).toEqual([1])
+    expect(builtinThrows('      if (!res.ok) throw new ApiError(res.status, path)\n')).toEqual([])
   })
 })

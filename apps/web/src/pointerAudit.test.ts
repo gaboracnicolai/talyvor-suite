@@ -159,6 +159,21 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-display-3',
     why: 'the console surface that reached for display type AS AT `c71ca9c`, quoted with that SHA',
   },
+  'apps/web/src/areas/track/IssueDetail.tsx:106|apps/web/src/areas/track/IssueList.tsx:252': {
+    kind: 'LIVE',
+    fragment: 'ApiError, NOT a bare Error',
+    why: 'the sentence this write path is the fifth instance of — quoted so the two Track write paths cannot state the rule differently',
+  },
+  'apps/web/src/errorTypes.test.ts:78|apps/web/src/areas/track/IssueDetail.tsx:98': {
+    kind: 'HISTORICAL',
+    fragment: 'throw new Error(String(res.status))',
+    why: 'the sixth instance AS IT STOOD AT `d7652cf`, quoted with that SHA; this merge made it an ApiError, and rule D is what now holds it there',
+  },
+  'apps/web/src/errorTypes.test.ts:79|apps/web/src/areas/track/IssueDetail.tsx:120': {
+    kind: 'HISTORICAL',
+    fragment: 'throw new Error(String(res.status))',
+    why: 'the seventh, the comment POST, same SHA and same repair — filed separately because the two paths were controlled separately',
+  },
 
   // The four pointers packages/ui's setup writes when it explains why the audits are installed
   // there. The first two are the evidence that check-audit-reach.mjs's "NO test renders it" was
