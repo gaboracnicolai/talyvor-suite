@@ -44,6 +44,12 @@ import (
 // the Origin family in sameorigin_test.go, and a GET sweep has no response of its own to
 // search. The absentee count was 2 read off two lists; driven against the router it is 9.
 //
+// ⚠⚠ AND "SWEPT BY THE ORIGIN FAMILY" WAS THE NEXT HOLE, BECAUSE IT ANSWERS A DIFFERENT
+// QUESTION. sameorigin_test.go asks whether a write REFUSES a foreign Origin. It never looks
+// at what a write ANSWERS. So every sentence above that excused a route for being write-only
+// was excusing it from a sweep it was never in — see TestLeakSweep_CoversEveryMountedWriteRoute
+// below, which is the other half and was measured to be missing at a1bf848.
+//
 // ── WHY THIS IS NOT "ADD NINE LINES TO THE LIST" ─────────────────────────────
 //
 // Adding them fixes today's nine and leaves the shape: the tenth route mounted tomorrow is
@@ -161,12 +167,168 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// ⚠ THE UPPER BOUND IS THE OTHER HALF, and without it the floor is escapable. A route that
 	// stops answering GET leaves the swept population SILENTLY: the floor still passes while
 	// coverage shrinks. Four are POST-only today (/api/keys/{id}, /api/lens/convert,
-	// /api/lxc/checkout, /api/pooling — all write routes the Origin sweep covers). A fifth is a
-	// change in what this guard can see, and it has to be looked at.
+	// /api/lxc/checkout, /api/pooling). A fifth is a change in what this guard can see, and it
+	// has to be looked at. Their WRITE responses are searched by the write sweep below — for the
+	// year this bound existed the excuse was "the Origin sweep covers them", and it did not.
 	if len(methodOnly) > 4 {
 		sort.Strings(methodOnly)
 		t.Fatalf("routes answering 405 to GET = %d, want at most 4 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
+	}
+}
+
+// ── THE WRITE HALF ───────────────────────────────────────────────────────────
+//
+// TestLeakSweep_CoversEveryMountedWriteRoute is the same population argument for the verbs a
+// GET sweep cannot see. Every leak sweep in this package searches a GET response; four of them
+// skip a route the moment it answers 405 to GET, and the excuse written beside three of those
+// skips was that the Origin family covers write routes. THE ORIGIN FAMILY ASKS A DIFFERENT
+// QUESTION — whether a write refuses a foreign Origin — and never reads what a write answers.
+//
+// ⚠ MEASURED AT a1bf848, not read off the lists: every unsafe method driven at every mounted
+// pattern through a.ServeHTTP in the three fixtures below reaches a handler in 37 method×route
+// shapes. Exactly ONE of those 37 is searched by assertNoSecretLeak today (POST /api/lxc/checkout,
+// from billing_test.go). The other 36 are searched by nothing.
+//
+// ⚠ AND IT IS LIVE, NOT LATENT — positive-controlled, verdicts read from `--- FAIL:` lines over
+// the whole package, never from an exit code (~/talyvor-queue/w11-writeleak-controls-b3d7.py):
+//
+//	S1  the provisioning secret in POST /api/lxc/checkout's response HEADER (the ONE swept
+//	    write) → CAUGHT, by TestCheckoutForwardsToPinnedWorkspaceWithKeyAndReturnsTheURL. The
+//	    armed control: without it every verdict below is unreadable.
+//	U1  THE SAME SECRET in POST /api/keys' response header — the mint, the one response in this
+//	    BFF that legitimately carries a credential → NOT CAUGHT. 350 tests ran; none failed.
+//	U2  the same secret in POST /api/pooling's BODY → NOT CAUGHT (so it is not header-blindness).
+//	U3  a GATEWAY secret on DELETE /api/keys/{id} → NOT CAUGHT (not one needle, not one verb).
+//	U4  the same secret in POST /api/distill's BODY → NOT CAUGHT, and GET on that same path IS
+//	    swept by the test above. The blindness is the VERB, not the route.
+//
+// ⚠ NO LEAK EXISTS TODAY. All 37 shapes were measured clean before this was written; this
+// closes a blindness, it does not patch a disclosure.
+//
+// ⚠ THREE FIXTURES, AND THE THIRD IS NOT DECORATION. productApp is the only one whose session
+// carries a Track workspace, so it is the only one where the Track and Docs writes get PAST the
+// bootstrap and stream real upstream bytes back — in sameOriginApp those five routes answer 503
+// before any proxy copy happens. A sweep that only ever saw 503 envelopes would be searching the
+// BFF's own error strings for a secret that could only arrive in a body it never produced, which
+// is why the 2xx floor below is a separate assertion from the reached floor.
+func TestLeakSweep_CoversEveryMountedWriteRoute(t *testing.T) {
+	so, soSid := sameOriginApp(t)
+	op, opSess, _ := operatorApp(t, []string{"sub-operator"})
+	prod, prodSess := productApp(t, newCaptureUpstream(t, `[{"id":"ws-t1"}]`), newCaptureUpstream(t, `[{"id":"sp-1"}]`))
+
+	fixtures := []struct {
+		name   string
+		a      *app
+		cookie *http.Cookie
+		// origin is the Origin header this fixture's writes must carry to get past the gate.
+		// EMPTY IS NOT "unset by accident": productApp has no publicBaseURL, and the single
+		// Origin rule compares Origin against it, so sending none is what that app accepts.
+		origin string
+	}{
+		{"same-origin", so, &http.Cookie{Name: sessionCookieName, Value: soSid}, testPublicOrigin},
+		{"product", prod, prodSess, ""},
+		{"operator", op, opSess, opOrigin},
+	}
+
+	// One body naming every field the swept handlers read. A handler that decodes none of them
+	// answers 400 and is still swept — the response is the point, not the happy path.
+	//
+	// ⚠ `lxc_amount_ulxc`, NOT `lxc`. everyMutatingRoute() sends {"lxc":100000} to
+	// /api/lens/convert and handleConvert reads lxc_amount_ulxc, so that row has always decoded
+	// to zero and answered "below the minimum conversion". Harmless there — that test only asks
+	// whether the Origin gate refused — but with the wrong name this sweep never reaches the
+	// route's upstream copy, which is the only place a proxy leak can be.
+	const probeBody = `{"title":"t","name":"n","body":"b","lxc_amount_ulxc":100000,` +
+		`"usd_cents":5000,"cache_poolable":true,"distill_policy":"disabled",` +
+		`"scopes":["proxy"],"status":"todo"}`
+
+	patterns := mountedPatterns(t)
+	// The same literal population floor as the GET sweep, for the same reason: if the route-table
+	// scan ever reads nothing, every assertion below is vacuously satisfied.
+	if len(patterns) < 20 {
+		t.Fatalf("mounted patterns found = %d, want at least 20 — the route-table scan read almost nothing", len(patterns))
+	}
+
+	reached, succeeded := map[string]bool{}, map[string]bool{}
+	accepted := map[string]bool{}
+	for _, pat := range patterns {
+		if strings.HasSuffix(pat, "/") {
+			continue // the /api/ catch-all and the SPA root are not routes with verbs of their own
+		}
+		path := regexp.MustCompile(`\{[^}]*\}`).ReplaceAllString(pat, "x1")
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+			for _, f := range fixtures {
+				req := httptest.NewRequest(m, path, strings.NewReader(probeBody))
+				req.Header.Set("Content-Type", "application/json")
+				if f.origin != "" {
+					req.Header.Set("Origin", f.origin)
+				}
+				req.AddCookie(f.cookie)
+				rec := httptest.NewRecorder()
+				f.a.ServeHTTP(rec, req)
+
+				// 405 = this verb is not served here; 404 = nothing is mounted at this path for
+				// this verb. Neither is a response this route produces, so there is nothing of its
+				// own to search. EVERY OTHER CODE IS SWEPT, including 401/403 — a refusal is still
+				// bytes the browser receives.
+				if rec.Code == http.StatusMethodNotAllowed || rec.Code == http.StatusNotFound {
+					continue
+				}
+				shape := m + " " + pat
+				accepted[shape] = true
+				if rec.Code != http.StatusUnauthorized && rec.Code != http.StatusForbidden {
+					reached[shape] = true
+				}
+				if rec.Code/100 == 2 {
+					succeeded[shape] = true
+				}
+				assertNoSecretLeak(t, f.name+" "+m+" "+pat, f.a.cfg, rec.Body.String(), rec.Header())
+			}
+		}
+	}
+
+	// ⚠ WHAT MAKES "SWEPT" MEAN SOMETHING, exactly as in the GET sweep above. A write whose gate
+	// refuses every fixture has had its handler produce no byte this test has ever seen, and
+	// counting that as coverage is how the six /api/admin/* routes were "swept" by the GET sweep
+	// while a leak planted in their shared handler went uncaught.
+	var refusedEverywhere []string
+	for shape := range accepted {
+		if !reached[shape] {
+			refusedEverywhere = append(refusedEverywhere, shape)
+		}
+	}
+	if len(refusedEverywhere) > 0 {
+		sort.Strings(refusedEverywhere)
+		t.Fatalf("write(s) whose handler no fixture can reach — every response searched was an auth "+
+			"refusal, so this sweep vouches for the gate and not for the route. Give it a fixture "+
+			"whose session passes that gate:\n  %s", strings.Join(refusedEverywhere, "\n  "))
+	}
+
+	// The reached floor, as a literal — never len() of anything this test builds, which passes at
+	// zero. 37 shapes were reached when this was written.
+	if len(reached) < 30 {
+		t.Fatalf("write shapes reaching a handler = %d, want at least 30 — the probe found almost no "+
+			"write responses, so the assertions above checked almost nothing", len(reached))
+	}
+
+	// ⚠ THE 2xx FLOOR IS A SEPARATE ASSERTION AND IT IS THE LOAD-BEARING ONE. Every route in this
+	// BFF answers its errors from writeJSON with a literal string; the only responses that can
+	// carry a credential are the ones that COPY UPSTREAM BYTES, and those exist only on success.
+	// A fixture change that quietly turns the product routes into 503s would leave the reached
+	// floor above untouched while this sweep degraded into searching the BFF's own error text —
+	// green, and blind to the entire class it exists for. 12 shapes answered 2xx when this was
+	// written; the bound is set below that so an upstream-shape change is not a false red, and a
+	// collapse is.
+	if len(succeeded) < 10 {
+		var got []string
+		for s := range succeeded {
+			got = append(got, s)
+		}
+		sort.Strings(got)
+		t.Fatalf("write shapes answering 2xx = %d, want at least 10 — this sweep is now searching "+
+			"almost nothing but error envelopes, and an upstream credential can only arrive in a "+
+			"body a handler actually copied:\n  %s", len(succeeded), strings.Join(got, "\n  "))
 	}
 }
