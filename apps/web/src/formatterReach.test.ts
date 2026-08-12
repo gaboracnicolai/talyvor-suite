@@ -87,7 +87,36 @@ const sources = allSources()
 const byAbs = new Map(sources.map((s) => [s.abs, s]))
 
 /**
- * THE MODULES WHOSE WHOLE EXPORTED SURFACE IS PRESENTATION VOCABULARY.
+ * THE MODULES WHOSE WHOLE EXPORTED SURFACE EXISTS TO BE CALLED BY A SCREEN.
+ *
+ * ⚠ IT IS NOT `FORMATTER_MODULES` ANY MORE, AND THE RENAME IS THE FINDING. Three of these are
+ * presentation vocabulary; `areas/track/data.ts` is QUERY SEMANTICS, and calling it a formatter
+ * module to get it in scope would have been a lie in a constant name. What the four share is the
+ * only property this file needs: a human already declared that the module exists to be called
+ * from somewhere else, so every export of it is in scope whatever it is called.
+ *
+ * ⚠ MEASURED AT `7474125`, EVERY GATE GREEN — the Track data layer had THREE exports with zero
+ * production importers, and this file could not see one of them:
+ *
+ *     areas/track/data.ts#filterIssues    imported ONLY by data.test.ts, which carries 5 tests
+ *                                         for it — and the screen that finally shipped the live
+ *                                         list REFUSED client-side filtering in writing
+ *                                         ("a control that narrowed only the rows already
+ *                                         fetched would be a filter that lies about what it
+ *                                         searched"), so the caller it was kept for was written
+ *                                         and chose not to call it
+ *     areas/track/data.ts#IssueFilters    its parameter type, and INVISIBLE to this file — see
+ *                                         the stated limit on `declaredFormatters`
+ *     areas/track/data.ts#useTrackProbe   imported by NOTHING, in any file, test or not
+ *
+ * ⚠ AND `export class` WAS INVISIBLE TOO, WHICH IS HOW A FIFTH DEFECT SAT AT THE TOP OF THAT
+ * MODULE. `TrackApiError extends Error` was exported, area-named and constructed by nothing
+ * (#172). The declaration matchers below read `export function` and `export const` only, so a
+ * whole KIND of export was outside a rule whose whole subject is exports. It reads classes now.
+ *
+ * WHAT THIS FILE STILL CANNOT SEE, stated rather than implied: `export interface` and
+ * `export type`. A dead type is a weaker hazard than a dead value — nothing can call it and it
+ * emits no code — but it is not zero, and `IssueFilters` above is the instance.
  *
  * ⚠ THE `format*` NAME SHAPE WATCHED A DEFECT HAPPEN AND COULD NOT SEE IT. Until `63534de`,
  * `areas/track/format.ts#priorityLabel` was exported, documented and unit-tested against
@@ -98,10 +127,11 @@ const byAbs = new Map(sources.map((s) => [s.abs, s]))
  *
  * ⚠ THE HANDOVER SAID WIDENING THIS NEEDED "A RULE FOR WHAT COUNTS AS A FORMATTER". MEASURED,
  * IT DOES NOT — that framing is what kept the hole open for four sessions. A MODULE is a
- * declaration a human already made: these three files exist to turn stored values into words,
- * so every export of them is in scope whatever it is called, and no general definition of
- * "formatter" has to be invented. The name rule is kept alongside rather than replaced, so
- * `topupApi.ts#formatCents` — a formatter that lives outside these three — keeps its coverage.
+ * declaration a human already made: three of these files exist to turn stored values into words
+ * and the fourth exists to shape a query, so every export of them is in scope whatever it is
+ * called, and no general definition of "formatter" has to be invented. The name rule is kept
+ * alongside rather than replaced, so `topupApi.ts#formatCents` — a formatter that lives outside
+ * the audited modules — keeps its coverage.
  *
  * Widening added ZERO pins: measured at `63534de`, all five newly-visible exports
  * (`statusLabel`, `priorityLabel`, `PRIORITY_VALUES`, `ledgerStatus`, `humanizeType`) have
@@ -114,29 +144,37 @@ const byAbs = new Map(sources.map((s) => [s.abs, s]))
  *       `module#name`, and it is the ONLY failure in 1052: `issueVocabulary.test.tsx` stays
  *       green because the re-inlined labels still AGREE. Nothing else in this repo can see a
  *       vocabulary export go dead.
- *   W2  drop one path from FORMATTER_MODULES -> rule B reds and RULE A STAYS GREEN. That is the
+ *   W2  drop one path from AUDITED_MODULES -> rule B reds and RULE A STAYS GREEN. That is the
  *       measured blindness B exists for: A compares two sets that both shrink together.
  */
-const FORMATTER_MODULES = [
+const AUDITED_MODULES = [
   'apps/web/src/areas/lens/format.ts',
   'apps/web/src/areas/track/format.ts',
+  'apps/web/src/areas/track/data.ts',
   'packages/ui/src/lib/format.ts',
 ]
 
 /**
  * Every export in scope, as `module#name`: anything named `format*` in any non-test module, plus
- * EVERY export of a formatter module whatever it is called.
+ * EVERY export of an audited module whatever it is called.
+ *
+ * ⚠ VALUES ONLY — functions, consts and classes. `export interface` / `export type` are outside
+ * it, and that limit is measured rather than assumed: `areas/track/data.ts#IssueFilters` is a
+ * dead exported interface this rule cannot name.
  */
 function declaredFormatters(): string[] {
   const out = new Set<string>()
   for (const f of sources) {
     if (f.test) continue
-    const wholeModule = FORMATTER_MODULES.includes(f.path)
+    const wholeModule = AUDITED_MODULES.includes(f.path)
     const inScope = (name: string) => wholeModule || name.startsWith('format')
     for (const m of f.text.matchAll(/export\s+(?:async\s+)?function\s+([A-Za-z0-9_]+)/g)) {
       if (inScope(m[1])) out.add(`${f.path}#${m[1]}`)
     }
     for (const m of f.text.matchAll(/export\s+const\s+([A-Za-z0-9_]+)\s*[:=]/g)) {
+      if (inScope(m[1])) out.add(`${f.path}#${m[1]}`)
+    }
+    for (const m of f.text.matchAll(/export\s+(?:abstract\s+)?class\s+([A-Za-z0-9_]+)/g)) {
       if (inScope(m[1])) out.add(`${f.path}#${m[1]}`)
     }
   }
@@ -249,22 +287,24 @@ describe('an exported formatter nobody calls', () => {
 
   /**
    * ⚠ RULE A CANNOT SEE THIS RULE BEING TURNED OFF, WHICH IS THE WHOLE REASON IT IS SEPARATE.
-   * Empty `FORMATTER_MODULES` and A still passes: the measured set shrinks back to the `format*`
+   * Empty `AUDITED_MODULES` and A still passes: the measured set shrinks back to the `format*`
    * names, and BOTH pins in `DEAD` are `format*` names, so the two sides stay equal and A reports
    * a clean product over a rule that now reads nothing. A source-derived scope needs a pinned
-   * claim beside it — the module paths, and two hardcoded names that only the widened scope can
+   * claim beside it — the module paths, and hardcoded names that only the widened scope can
    * produce. `priorityLabel` is one of them on purpose: it is the export whose deadness this file
-   * was blind to.
+   * was blind to. `memberName` is the newest: it is the only pin that dies if `data.ts` is
+   * dropped from the list, so the module that was added to this scope cannot leave it silently.
    */
   it('B. the scope really does reach past the format* name shape, and its modules still exist', () => {
     const present = new Set(sources.filter((s) => !s.test).map((s) => s.path))
     expect(
-      FORMATTER_MODULES.filter((m) => !present.has(m)),
-      'a formatter module was renamed or moved; a scope that names a path nobody has silently reads nothing',
+      AUDITED_MODULES.filter((m) => !present.has(m)),
+      'an audited module was renamed or moved; a scope that names a path nobody has silently reads nothing',
     ).toEqual([])
     expect(declared).toContain('apps/web/src/areas/track/format.ts#priorityLabel')
     expect(declared).toContain('apps/web/src/areas/track/format.ts#statusLabel')
     expect(declared).toContain('apps/web/src/areas/lens/format.ts#ledgerStatus')
+    expect(declared).toContain('apps/web/src/areas/track/data.ts#memberName')
   })
 
   it('C. the design system is namespace-imported only by the reach registry', () => {

@@ -1,57 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { filterIssues, memberName, teamIdentifier } from './data'
-import type { TrackIssue, TrackMember, TrackTeam } from './types'
+import { memberName, teamIdentifier } from './data'
+import type { TrackMember, TrackTeam } from './types'
 
-// The query semantics mirror Track's own WHERE clauses, so they are worth keeping tested even
-// while no upstream is wired — they are what the live list will use.
+// ⚠ FIVE TESTS FOR `filterIssues` STOOD HERE, AND THE FUNCTION THEY EXERCISED WAS NEVER CALLED BY
+// THE PRODUCT. They are deleted with it (#173): the live list forwards every control to the BFF
+// and filters nothing client-side, so a mirror of Track's WHERE clauses had no caller and no
+// second opinion — its own docstring called `updated_at DESC` "the server's default listing
+// order" while the server defaults to created_at, and five green tests could not see that,
+// because they compared the function to itself.
 //
-// NOTE WHERE THIS SAMPLE DATA LIVES: here, in the test, not in a fixtures.ts that screens
-// render from. That distinction is the whole lesson of this change. Rows a test declares are
-// inputs to an assertion; rows a module exports become numbers on someone's screen.
-
-const ISSUE = (over: Partial<TrackIssue>): TrackIssue => ({
-  id: 'i', workspace_id: 'w', team_id: 'team-a', number: 1, identifier: 'A-1',
-  title: 't', description: '', status: 'todo', priority: 0, creator_id: 'm1',
-  lens_feature: '', ai_cost_usd: 0, ai_tokens: 0,
-  created_at: '2026-07-01T00:00:00Z', updated_at: '2026-07-01T00:00:00Z',
-  ...over,
-})
-
-const ISSUES: TrackIssue[] = [
-  ISSUE({ id: 'i1', status: 'done', assignee_id: 'm1', team_id: 'team-a', updated_at: '2026-07-03T00:00:00Z' }),
-  ISSUE({ id: 'i2', status: 'todo', assignee_id: 'm2', team_id: 'team-a', updated_at: '2026-07-05T00:00:00Z' }),
-  ISSUE({ id: 'i3', status: 'done', assignee_id: 'm2', team_id: 'team-b', updated_at: '2026-07-04T00:00:00Z' }),
-  ISSUE({ id: 'i4', status: 'todo', team_id: 'team-b', updated_at: '2026-07-02T00:00:00Z' }), // unassigned
-]
-
-const NONE = { status: '', assignee_id: '', team_id: '' }
-
-describe('filterIssues mirrors the server WHERE semantics', () => {
-  it('empty filter returns everything, newest-updated first', () => {
-    expect(filterIssues(ISSUES, NONE).map((i) => i.id)).toEqual(['i2', 'i3', 'i1', 'i4'])
-  })
-
-  it('each filter narrows to an exact match', () => {
-    expect(filterIssues(ISSUES, { ...NONE, status: 'done' }).map((i) => i.id)).toEqual(['i3', 'i1'])
-    expect(filterIssues(ISSUES, { ...NONE, assignee_id: 'm2' }).map((i) => i.id)).toEqual(['i2', 'i3'])
-    expect(filterIssues(ISSUES, { ...NONE, team_id: 'team-b' }).map((i) => i.id)).toEqual(['i3', 'i4'])
-  })
-
-  it('an assignee filter never matches an unassigned issue', () => {
-    expect(filterIssues(ISSUES, { ...NONE, assignee_id: 'm1' }).map((i) => i.id)).toEqual(['i1'])
-  })
-
-  it('filters AND together, and an impossible combination is empty rather than an error', () => {
-    expect(filterIssues(ISSUES, { status: 'done', assignee_id: 'm2', team_id: 'team-b' }).map((i) => i.id)).toEqual(['i3'])
-    expect(filterIssues(ISSUES, { status: 'done', assignee_id: 'm1', team_id: 'team-b' })).toEqual([])
-  })
-
-  it('does not mutate its input', () => {
-    const before = ISSUES.map((i) => i.id)
-    filterIssues(ISSUES, NONE)
-    expect(ISSUES.map((i) => i.id)).toEqual(before)
-  })
-})
+// NOTE WHERE THIS SAMPLE DATA LIVES: here, in the test, not in a fixtures.ts that screens render
+// from. That distinction is the whole lesson of the change that created this file. Rows a test
+// declares are inputs to an assertion; rows a module exports become numbers on someone's screen.
 
 describe('ids resolve through the roster, never inventing a name', () => {
   const members: TrackMember[] = [

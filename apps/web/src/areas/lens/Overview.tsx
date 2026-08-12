@@ -370,8 +370,12 @@ type ProbeState = "on" | "off";
 // — the BFF asked Docs for a path Docs does not register, and the screen reported "Docs is not
 // configured on this deployment" while Docs was RUNNING and had just served the space list.
 // A 404 is a statement about an ADDRESS; it is never evidence about whether a product is
-// deployed. The shared classifier's two other call sites (useTrackProbe, DocsUpstreamCard)
-// both took the repair; this strip was the site it never reached.
+// deployed. Every OTHER read in the app already went through the shared classifier and took the
+// repair with it; this strip was the site it never reached. (The count that stood here — "the
+// shared classifier's two other call sites" — named `useTrackProbe`, which is deleted, and was
+// already wrong: measured at `7474125`, `isUnconfigured` has seven production call sites in six
+// files. A census written into prose decays with the thing it counts, so this one states the
+// property instead.)
 //
 // So the probe now reports only what it saw and the CLASSIFICATION happens once, in the
 // shared predicate, at the call site below.
