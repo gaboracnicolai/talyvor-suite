@@ -47,9 +47,19 @@ func newTestApp(t *testing.T, gotAuth *string) *app {
 	}, nil)
 }
 
-// TestKeyNeverReachesResponse is THE assertion of this increment: the Lens key is
-// attached to the upstream request server-side, and never appears in any response the
-// browser would receive (body or headers), on any /api endpoint.
+// TestKeyNeverReachesResponse is THE assertion of this increment: the Lens key is attached
+// to the upstream request server-side, and never appears in the response the browser would
+// receive (body or headers), for the routes listed below — plus the flip side, that the
+// upstream actually RECEIVED it, which is the part no other sweep asserts.
+//
+// ⚠ THE SCOPE SENTENCE USED TO READ "on any /api endpoint" AND THE LIST BELOW IS FOURTEEN
+// HAND-WRITTEN LINES. Driven against the router rather than read: 30 mounted /api patterns
+// answer GET, this list names 14, and the other two sweeps in this package bring the union to
+// 21 — nine were swept by nothing, and a control that leaked the provisioning secret out of
+// GET /api/lens/convert-quote came back uncaught by all 350 tests. The universal claim is now
+// held by TestLeakSweep_CoversEveryMountedGETRoute in leaksweep_population_test.go, which takes
+// its population FROM mountedPatterns() and therefore cannot go stale as this list did. This
+// list stays as the named-route sweep it always was.
 func TestKeyNeverReachesResponse(t *testing.T) {
 	var gotAuth string
 	a := newTestApp(t, &gotAuth)
