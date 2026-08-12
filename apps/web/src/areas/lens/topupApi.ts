@@ -54,24 +54,52 @@ export type CheckoutFailureKind =
   | 'amount_refused' //   400 — this app offered an amount the BFF won't accept
   | 'upstream' //         502/other — Lens errored, was unreachable, or drifted
 
-export class CheckoutError extends Error {
+/** The route every CheckoutError is about, so the type carries the address it failed at. */
+const CHECKOUT_PATH = '/api/lxc/checkout'
+
+/**
+ * ⚠ IT EXTENDS ApiError, AND IT USED TO EXTEND BARE `Error`.
+ *
+ * Every shared mechanism in this app keys on `instanceof ApiError`: `isSessionExpired`,
+ * `isUnconfigured`, App.tsx's "a 401 is a verdict, not a flake" retry rule and the
+ * QueryCache.onError gate re-probe. A hand-rolled Error subclass turns all four off without one
+ * line of any of them changing — this repo has repaired that four times at the instance (#136 a
+ * read, #140 a create, IssueList.tsx:252 the third site, `ConvertError` the fourth) and this was
+ * the fifth, still standing on the path that takes money.
+ *
+ * ⚠ LATENT, NOT LIVE, AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. The only producer is
+ * `checkout` below, which TopUp.tsx calls from a useMutation — and a mutation's error never enters
+ * the query cache the bar, the re-probe and the retry rule all read. So no sentence on any screen
+ * was wrong. `ConvertError`'s WRITE half was latent for the same reason while its READ half was
+ * the live defect; the difference between the two is one `useQuery`, which is not a property of
+ * the error type. Fixed as the type it should have been rather than left for that day.
+ *
+ * `kind` stays: the five sentences TopUp renders are not derivable from a status alone, and the
+ * `instanceof CheckoutError` at its render site is unaffected by gaining a base class. `message`
+ * is kept verbatim — ApiError's constructor writes `${path} -> HTTP ${status}` and this type has
+ * always read `checkout failed: ${kind}`, so it is restored after the super call rather than
+ * silently changed under whatever reads it.
+ */
+export class CheckoutError extends ApiError {
   constructor(
     readonly kind: CheckoutFailureKind,
     /** The BFF's own sentence when it has one — it knows things the UI does not. */
     readonly detail: string,
+    status: number,
   ) {
-    super(`checkout failed: ${kind}`)
+    super(status, CHECKOUT_PATH)
+    this.message = `checkout failed: ${kind}`
     this.name = 'CheckoutError'
   }
 }
 
 function classify(status: number, body: { error?: string; billing_enabled?: boolean }): CheckoutError {
   const detail = body.error ?? ''
-  if (status === 503 && body.billing_enabled === false) return new CheckoutError('billing_disabled', detail)
-  if (status === 401) return new CheckoutError('signed_out', detail)
-  if (status === 403) return new CheckoutError('origin_refused', detail)
-  if (status === 400) return new CheckoutError('amount_refused', detail)
-  return new CheckoutError('upstream', detail)
+  if (status === 503 && body.billing_enabled === false) return new CheckoutError('billing_disabled', detail, status)
+  if (status === 401) return new CheckoutError('signed_out', detail, status)
+  if (status === 403) return new CheckoutError('origin_refused', detail, status)
+  if (status === 400) return new CheckoutError('amount_refused', detail, status)
+  return new CheckoutError('upstream', detail, status)
 }
 
 /* ── The pre-purchase balance, carried across the Stripe round trip ───────── */
@@ -169,7 +197,13 @@ export const topupApi = {
     // success would leave the click doing nothing at all — indistinguishable
     // from a dead button, which is the one outcome this screen must not have.
     if (!body.url) {
-      throw new CheckoutError('upstream', 'Couldn’t start the payment — nothing was charged. Please try again.')
+      // The status is the one the BFF actually sent — a 200 whose body has nothing to navigate
+      // to. Inventing a 502 here would put a status on the record that no server produced.
+      throw new CheckoutError(
+        'upstream',
+        'Couldn’t start the payment — nothing was charged. Please try again.',
+        res.status,
+      )
     }
     return { url: body.url }
   },
