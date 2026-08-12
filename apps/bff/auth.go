@@ -153,6 +153,14 @@ func (s *ttlMap[T]) delete(id string) {
 // between (the pooling choice clearing needsPoolingChoice, a Track bootstrap writing back its
 // workspace) has its change silently overwritten by the stale copy. Rare, invisible, and
 // exactly the kind of thing that surfaces as "I answered that question and it asked again".
+//
+// ⚠ BOTH SITES NAMED ABOVE WENT ON DOING get → change → put FOR THE LIFE OF THIS COMMENT, and the
+// Track one held an HTTP round trip inside the window. There is a third consequence this comment
+// did not state and `put` also has: it stores UNCONDITIONALLY, so a stale put RESURRECTS a session
+// that logged out in between. `update` refuses an id that is gone, which is why it is the whole
+// answer rather than half of one. Enforced now, not described: session_clobber_test.go parks each
+// upstream mid-request to measure all three, and its census fails the build on the next
+// `sessions.put` outside the login callback.
 func (s *ttlMap[T]) update(id string, fn func(T) T) (T, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

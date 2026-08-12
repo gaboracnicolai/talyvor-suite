@@ -150,8 +150,22 @@ func (a *app) trackWorkspaceFor(w http.ResponseWriter, r *http.Request) (string,
 				"Nothing else is affected; try again shortly."})
 		return "", false
 	}
-	s.trackWorkspaceID = ws
-	a.auth.sessions.put(sid, s)
+	// ⚠ MERGED UNDER THE LOCK, NOT PUT BACK. `s` was read BEFORE bootstrapTrackWorkspace, and that
+	// is an HTTP round trip: anything another in-flight request stored during it — a re-minted Lens
+	// token, the pooling answer — is in the store and NOT in this copy, so a whole-struct put
+	// reverts it. Worse, `put` stores unconditionally, so a session deleted by POST /auth/logout
+	// during the bootstrap comes back to life for the rest of its TTL. `update` writes the one
+	// field this handler owns onto the CURRENT value, and declines an id that is no longer there.
+	// All three are measured in session_clobber_test.go.
+	if _, ok := a.auth.sessions.update(sid, func(cur session) session {
+		cur.trackWorkspaceID = ws
+		return cur
+	}); !ok {
+		// The session ended while Track was answering (logout, expiry). There is nothing to cache
+		// the workspace on — and it must NOT be re-created. This request still completes with the
+		// workspace it resolved; the next one will have no session and be turned away by the gate.
+		log.Printf("bff: track workspace resolved for a session that ended mid-bootstrap (sub=%s); not stored", s.sub)
+	}
 	return ws, true
 }
 
