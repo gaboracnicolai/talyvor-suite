@@ -14,6 +14,7 @@ import {
   focusRing,
 } from '@talyvor/ui'
 import { getJSON, getJSONArray } from '../../lib/api'
+import { isSessionExpired } from '../../lib/productState'
 import { StatusPill } from './StatusPill'
 import { PRIORITY_VALUES, formatCost, priorityLabel, statusLabel } from './format'
 import { memberName, teamIdentifier } from './data'
@@ -293,8 +294,26 @@ export function IssueDetail() {
       <Card>
         <CardHeader>Comments</CardHeader>
         <div className="flex flex-col gap-4 px-gutter py-4">
+          {/* ⚠ THE FAULT ARM IS NOT DECORATION — WITHOUT IT THIS PANEL PRINTED "No comments yet."
+              OVER A THREAD IT HAD FAILED TO READ. `comments.data` is undefined on a refused read,
+              so the empty branch below caught 500, 403 and 401 alike and rendered the same
+              sentence a genuinely empty thread gets. That sentence also INVITES A WRITE, which is
+              why this panel is worse than a list: it asks someone to re-post a reply that may
+              already be there. Same shape and same reasoning as IssueList's issues and
+              SpaceView's pages; emptyVsFault.test.ts now enumerates all thirteen.
+
+              The 401 arm is separate because `sessionExpiredCopy` is said ONCE at the top of the
+              app — a panel that cannot read for want of a credential says only that it is
+              unavailable, and the bar explains why. */}
           {comments.isLoading ? (
             <p className="text-body text-muted">Loading the thread…</p>
+          ) : isSessionExpired(comments.error) ? (
+            <p className="text-body text-muted">Unavailable.</p>
+          ) : comments.isError ? (
+            <p className="text-body text-muted">
+              Couldn’t reach Track, so the thread can’t be shown. This is a fault, not an empty
+              thread.
+            </p>
           ) : (comments.data ?? []).length === 0 ? (
             <p className="text-body text-muted">No comments yet. Add the first one below.</p>
           ) : (
