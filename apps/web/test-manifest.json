@@ -56,6 +56,7 @@
   "src/documentTitle.test.tsx": 35,
   "src/EmptyStates.test.tsx": 12,
   "src/emptyVsFault.test.ts": 14,
+  "src/errorTypes.test.ts": 3,
   "src/expirySubjects.test.ts": 34,
   "src/eyebrowAudit.test.tsx": 14,
   "src/fieldFaceAudit.test.tsx": 16,

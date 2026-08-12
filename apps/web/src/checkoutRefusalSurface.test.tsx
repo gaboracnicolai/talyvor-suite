@@ -25,7 +25,7 @@ import { PENDING_TOPUP_KEY } from './areas/lens/topupApi'
 // `.isError ?` in any .tsx).
 //
 // WHAT REACHES IT. `topupApi.checkout` raises a CheckoutError for every answer it gets — every
-// status, and even a 200 with no url (topupApi.ts:171). What it cannot convert is not getting
+// status, and even a 200 with no url (topupApi.ts:199). What it cannot convert is not getting
 // an answer at all: `fetch` REJECTS (offline, DNS failure, connection reset, TLS failure) with
 // a TypeError, which is not a CheckoutError.
 //
@@ -59,7 +59,7 @@ import { PENDING_TOPUP_KEY } from './areas/lens/topupApi'
 // `QueryCache.onError` (App.tsx:44) — queries, not mutations.
 //
 // THE FIX SAYS NOTHING NEW. The fallback is the sentence topupApi.ts already raises for an
-// answer it cannot use (`'upstream'`, topupApi.ts:172): "Couldn't start the payment — nothing
+// answer it cannot use (`'upstream'`, topupApi.ts:203): "Couldn't start the payment — nothing
 // was charged. Please try again." It is honest for a rejection by construction — this call only
 // asks Lens to create a Stripe Checkout Session, and the payment happens at Stripe AFTER the
 // redirect (TopUp.tsx:22, apps/bff/billing.go:180), so a call that never completed cannot

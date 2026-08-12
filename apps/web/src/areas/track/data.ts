@@ -35,18 +35,16 @@ import { ApiError } from '../../lib/api'
 import { isUnconfigured } from '../../lib/productState'
 import type { TrackIssue, TrackMember, TrackTeam, TrackWorkspace } from './types'
 
-export class TrackApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly path: string,
-  ) {
-    super(`${path} -> HTTP ${status}`)
-    this.name = 'TrackApiError'
-  }
-}
-
 // The shared ApiError, so isUnconfigured() classifies a Track read exactly as it classifies
 // every other product read — one rule for "off", in one place.
+//
+// ⚠ THIS MODULE ALSO EXPORTED A `TrackApiError extends Error`, AND NOTHING ANYWHERE CONSTRUCTED
+// IT. It was the leftover of the read below being switched to the shared type, left exported at
+// the top of the area's data layer — an area-named error class the next reader would find first,
+// which `instanceof ApiError` is false for, so isSessionExpired, isUnconfigured, the retry rule
+// and the QueryCache re-probe would all have gone silent together. Deleted rather than rebased
+// onto ApiError: a second name for ApiError with no callers is not a type this area needs.
+// src/errorTypes.test.ts is the census that makes the sixth instance fail rather than sit here.
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new ApiError(res.status, path)

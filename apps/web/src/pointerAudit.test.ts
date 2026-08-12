@@ -249,7 +249,7 @@ const PINS: Record<string, Pin> = {
     fragment: '.isError ?',
     why: 'the surface #141 fixed, quoted so the two findings are visibly the same shape one area over',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:28|apps/web/src/areas/lens/topupApi.ts:171': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:28|apps/web/src/areas/lens/topupApi.ts:199': {
     kind: 'LIVE',
     fragment: '!body.url',
     why: 'the reason a 200 with no url is NOT the finding — it is already converted, so the gate lets it through',
@@ -259,10 +259,23 @@ const PINS: Record<string, Pin> = {
     fragment: 'onError',
     why: 'the app\'s only global error handler, quoted to show it hangs off the QUERY cache and cannot see a mutation',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:62|apps/web/src/areas/lens/topupApi.ts:172': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:62|apps/web/src/areas/lens/topupApi.ts:203': {
     kind: 'LIVE',
     fragment: "'upstream'",
     why: 'the sentence the fix reuses — pinned so "the fix says nothing new" stays a fact rather than a claim',
+  },
+  // The two pointers the error-type CENSUS writes. Both name the line where this repo first wrote
+  // the hazard down, at its third site — the same line convertApi.ts and convertRefusal.test.tsx
+  // already cite for the fourth. Four citations of one sentence, all checkable, none drifting.
+  'apps/web/src/areas/lens/topupApi.ts:67|apps/web/src/areas/track/IssueList.tsx:252': {
+    kind: 'LIVE',
+    fragment: 'ApiError, NOT a bare Error',
+    why: 'the hazard named at the site of its FIFTH occurrence, on the path that takes money',
+  },
+  'apps/web/src/errorTypes.test.ts:18|apps/web/src/areas/track/IssueList.tsx:252': {
+    kind: 'LIVE',
+    fragment: 'ApiError, NOT a bare Error',
+    why: 'the census quoting the one place the repo recorded the class, so its list of four is checkable',
   },
   'apps/web/src/checkoutRefusalSurface.test.tsx:65|apps/web/src/areas/lens/TopUp.tsx:22': {
     kind: 'LIVE',
