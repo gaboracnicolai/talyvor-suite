@@ -354,11 +354,19 @@ func (a *app) handlePoolingChoice(w http.ResponseWriter, r *http.Request, t tena
 		return
 	}
 	// Persist the recorded state and clear the prompt, so the screen does not reappear.
+	//
+	// ⚠ TWO FIELDS, MERGED UNDER THE LOCK — the same rule refreshWorkspaceToken follows. The read
+	// here sits BELOW setCachePoolable, so this window holds no I/O and is a few instructions wide;
+	// it is still a read-modify-write across three critical sections, and `put` would additionally
+	// resurrect a session that logged out in between. There is no version of this worth leaving
+	// narrow: see session_clobber_test.go, where the same shape one file away costs a logout.
 	if a.auth != nil {
-		if sid, s, ok := a.auth.sessionAndIDFrom(r); ok {
-			s.cachePoolable = recorded
-			s.needsPoolingChoice = false
-			a.auth.sessions.put(sid, s)
+		if sid, _, ok := a.auth.sessionAndIDFrom(r); ok {
+			a.auth.sessions.update(sid, func(cur session) session {
+				cur.cachePoolable = recorded
+				cur.needsPoolingChoice = false
+				return cur
+			})
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"cache_poolable": recorded})
