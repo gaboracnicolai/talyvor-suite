@@ -214,3 +214,77 @@ describe('a ticket can be worked', () => {
     expect(screen.queryByLabelText(/^team$/i)).not.toBeInTheDocument()
   })
 })
+
+// ─── A REFUSED THREAD IS NOT AN EMPTY THREAD ────────────────────────────────────────────────
+//
+// ⚠ THE DEFECT, MEASURED BEFORE IT WAS FIXED. The comments panel branched on `isLoading` and then
+// straight to `(comments.data ?? []).length === 0`. A refused read leaves `data` undefined, so the
+// screen printed "No comments yet. Add the first one below." — the same sentence a genuinely empty
+// thread gets — on 500, on 403 and on 401 alike. Measured on the real component with only the
+// comments route refused: the panel's whole text was
+// "CommentsNo comments yet. Add the first one below.Add a commentComment" at all three codes.
+//
+// ⚠ WHY THAT IS WORSE HERE THAN ON A LIST. Every other list in this product already separates the
+// two, and two of them say why in their own source: "A fault must not read as an empty tracker:
+// those are different states and conflating them tells a tester their work vanished"
+// (IssueList.tsx) and "This is a fault, not an empty space" (SpaceView.tsx). The comment thread is
+// the one place the reader is invited to WRITE in response to what they were shown — an invitation
+// to add the first comment, printed over a thread the screen could not read, asks someone to
+// re-post a reply that may already be there, or to conclude a colleague never answered.
+//
+// ⚠ THE 401 ARM IS SEPARATE ON PURPOSE. `sessionExpiredCopy` is said ONCE at the top of the app,
+// so a panel that cannot read for want of a credential says "Unavailable." and nothing more —
+// the house rule IssueList and SpaceView already follow.
+describe('the comment thread distinguishes a fault from an empty thread', () => {
+  function refuseComments(status: number) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input)
+      const method = init?.method ?? 'GET'
+      const json = (b: unknown, code = 200) =>
+        new Response(JSON.stringify(b), { status: code, headers: { 'Content-Type': 'application/json' } })
+      if (path === '/api/members') return json([{ id: 'u-1', name: 'Ada' }])
+      if (path === '/api/track/teams') return json([{ id: 'team-1', identifier: 'ENG', name: 'Eng' }])
+      if (path.endsWith('/comments')) return json({ error: 'refused' }, status)
+      if (path === '/api/track/issues/iss-1' && method === 'GET') return json(ISSUE)
+      return json(null, 404)
+    })
+  }
+
+  for (const status of [500, 403]) {
+    it(`does not claim the thread is empty when the read is refused with ${status}`, async () => {
+      refuseComments(status)
+      open()
+      await screen.findByText('Original description.')
+      expect(await screen.findByText(/fault, not an empty thread/i)).toBeInTheDocument()
+      expect(screen.queryByText(/no comments yet/i)).toBeNull()
+    })
+  }
+
+  it('says only "Unavailable." on a 401, because the bar already explains it', async () => {
+    refuseComments(401)
+    open()
+    await screen.findByText('Original description.')
+    expect(await screen.findByText(/^unavailable\.$/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no comments yet/i)).toBeNull()
+    expect(screen.queryByText(/fault, not an empty thread/i)).toBeNull()
+  })
+
+  // ⚠ THE OTHER DIRECTION, AND IT IS THE HALF THAT KEEPS THE FIX HONEST. A panel that answered
+  // "couldn't read it" to everything would pass the three cases above and be just as wrong: a
+  // thread that really has no comments must still get the invitation to write the first one.
+  it('still invites the first comment when the thread is genuinely empty', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = String(input)
+      const json = (b: unknown, code = 200) =>
+        new Response(JSON.stringify(b), { status: code, headers: { 'Content-Type': 'application/json' } })
+      if (path === '/api/members') return json([])
+      if (path === '/api/track/teams') return json([])
+      if (path.endsWith('/comments')) return json([])
+      if (path === '/api/track/issues/iss-1') return json(ISSUE)
+      return json(null, 404)
+    })
+    open()
+    expect(await screen.findByText(/no comments yet/i)).toBeInTheDocument()
+    expect(screen.queryByText(/fault, not an empty thread/i)).toBeNull()
+  })
+})
