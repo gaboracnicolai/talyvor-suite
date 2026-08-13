@@ -14,7 +14,7 @@ import type { SignedRow } from './spendMath'
 // independent places:
 //
 //   apps/bff/lens.go:348          clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
-//   lens internal/economy/dualtoken.go:627   if limit > 200 { limit = 200 }
+//   lens internal/economy/dualtoken.go#DualTokenStore.GetLXCHistory   if limit > 200 { limit = 200 }
 //
 // MEASURED on the real BFF binary against an upstream holding 260 rows: asking for
 // limit=1000 served 200. The control — the same binary, the same question, an upstream
@@ -24,7 +24,8 @@ import type { SignedRow } from './spendMath'
 // truncation drops the OLDEST rows in the window: every total over it is a FLOOR.
 //
 // ⚠ ORDINARY VOLUME REACHES IT. A reserved request writes THREE lxc_ledger rows —
-// reservation_hold, reservation_release and spend (lens agent_subbudget.go:307/386/394) —
+// reservation_hold, reservation_release and spend (lens agent_subbudget.go#ReserveLXCForAgent,
+// and #SettleLXCReservation's release + delivered-charge writes) —
 // so 200 rows is ~67 requests. Overview's window is THIRTY DAYS.
 //
 // This stub is the WIRE, not a fixture opinion: it holds `rows` and answers `limit`/`offset`

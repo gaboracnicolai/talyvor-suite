@@ -10,11 +10,18 @@ import { Spend } from './Spend'
 // summed every NEGATIVE lxc_ledger row, and `reservation_hold` is negative — it is money reserved
 // BEFORE serving, released moments later, netting to zero against its `reservation_release`.
 //
-// Lens says so itself, next to the code that writes the row
-// (internal/economy/agent_subbudget.go:191):
+// Lens says so itself, on the constant declaration
+// (internal/economy/agent_subbudget.go#LXCTypeReservationHold):
 //
 //     "LXCTypeReservationHold marks the pre-serve HOLD debit — a bound, NOT a bill. Revenue readers
 //      (sum type='spend') MUST exclude it; it nets to zero against its release."
+//
+// ⚠ THIS POINTER USED TO NAME A LINE, AND THE LINE WAS BLANK. #198 found the same quote in
+// `spendMath.ts` citing a position 45 lines above the constant and corrected it there; the copy
+// here — quote and number together, in the file whose whole subject is this defect — was outside
+// that merge's per-file rule and stayed false. See rule D in `upstreamCitations.test.ts`. It also
+// said "next to the code that writes the row": the writer is `#ReserveLXCForAgent`, and the
+// sentence is not there. It is on the constant, which is what the symbol now names.
 //
 // The invariant was documented at the writer and never reached the reader. `type` survives the whole
 // way — Lens selects it, the BFF proxies it, api.ts maps it — and only spendMath's row interface

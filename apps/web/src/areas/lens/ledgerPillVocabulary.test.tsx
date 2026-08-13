@@ -13,10 +13,10 @@ import { ledgerStatus } from './format'
 //
 // lxc_ledger writes SIX types, all Lens constants:
 //
-//   lens internal/economy/dualtoken.go:62/63/64/70          convert_from_lens, spend,
-//                                                            purchase, admin_grant
-//   lens internal/economy/agent_subbudget.go:238/241         reservation_hold,
-//                                                            reservation_release
+//   lens internal/economy/dualtoken.go#LXCTypeConvertFromLENS,      convert_from_lens, spend,
+//        #LXCTypeSpend, #LXCTypePurchase, #LXCTypeGrant             purchase, admin_grant
+//   lens internal/economy/agent_subbudget.go                        reservation_hold,
+//        #LXCTypeReservationHold, #LXCTypeReservationRelease        reservation_release
 //
 // The movement allow-list in format.ts named FOUR of the six (plus convert_to_lxc, a LENS-side
 // type), and the `*_held` suffix rule misses `reservation_hold` BY ONE LETTER — so both

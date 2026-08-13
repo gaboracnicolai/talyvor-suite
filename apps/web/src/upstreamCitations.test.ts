@@ -229,14 +229,18 @@ describe('citations of upstream Go source', () => {
    * against the real talyvor-lens tree at `a04310a`. Nine were true. TWO WERE FALSE, and both are
    * load-bearing on the LXC spend math:
    *
-   *   · it cited agent_subbudget.go line 191 for a statement it QUOTES verbatim — "a bound, NOT a
-   *     bill … revenue readers MUST exclude it". Line 191 is BLANK; the statement is 45 lines
-   *     away, at 236-237. That quote is the entire justification for the allow-list rule that
-   *     replaced a sign test, after real rows summed 8,380 where 1,840 was spent. A reader
-   *     checking whether Lens still says it lands on nothing and may put the sign rule back.
-   *   · it cited dualtoken.go line 432 as one of three writers that "require a positive amount".
-   *     432 is a bare closing brace of an unrelated nil-check; the guard is at 427-428. That claim
-   *     is why `splitShortfall` is allowed to go negative.
+   *   · it cited a position inside `SpendLXCForAgent` for a statement it QUOTES verbatim — "a
+   *     bound, NOT a bill … revenue readers MUST exclude it". That position is a BLANK LINE; the
+   *     statement is 45 lines away, on the `LXCTypeReservationHold` constant. That quote is the
+   *     entire justification for the allow-list rule that replaced a sign test, after real rows
+   *     summed 8,380 where 1,840 was spent. A reader checking whether Lens still says it lands on
+   *     nothing and may put the sign rule back.
+   *   · it cited a position in `dualtoken.go` as one of three writers that "require a positive
+   *     amount". That position is a bare closing brace of an unrelated nil-check inside
+   *     `DualTokenStore.SpendLXC`; the guard is two lines above it. That claim is why
+   *     `splitShortfall` is allowed to go negative.
+   *   (Both are named in words rather than in the banned spelling — rule D below sweeps this file
+   *   too, and these two sentences are the reason it had to.)
    *
    * ⚠ WHY THIS IS A PER-FILE OPT-IN AND NOT A TREE-WIDE BAN. A tree-wide ban is the right end
    * state and it forces ~50 rewrites at once, including line-RANGE citations that name three
@@ -275,6 +279,94 @@ describe('citations of upstream Go source', () => {
       offenders,
       'a Go line citation in an enrolled file. Every citation in these files was resolved against ' +
         'the real upstream tree once; a line number puts that back to unverifiable — cite the symbol.',
+    ).toEqual([])
+  })
+
+  /**
+   * RULE D — THE RATCHET'S UNIT IS THE UPSTREAM PATH, BECAUSE A PER-FILE ONE LET THE VERBATIM
+   * TWIN OF THE CITATION IT FIXED SURVIVE THE SAME MERGE.
+   *
+   * ⚠ MEASURED at merged main `766427d`, by re-running the census rule C's note asks a widening
+   * session to re-run rather than trust. #198 resolved every citation in `areas/lens/spendMath.ts`
+   * against the real Lens tree and found two false ones on the LXC spend math. One of them — the
+   * pre-serve-hold quote, cited at a position in `agent_subbudget.go` that is a BLANK LINE — is
+   * copied VERBATIM into `areas/lens/spendHolds.test.tsx`, quote and number together. That is the
+   * file whose entire subject IS the defect the quote justifies: the panel that summed every
+   * negative row and read 8,380 where 1,840 was spent.
+   *
+   * Rule C could not see it, and not by accident: its population is a list of FILE names, and
+   * that file is not on the list. The repair landed on the file somebody read, and the identical
+   * false claim one directory entry away stayed false.
+   *
+   * ⚠ SO THE UNIT WAS WRONG. What #198 established is not a fact about `spendMath.ts`. It is a
+   * fact about an upstream PATH: every citation in this tree naming `agent_subbudget.go` was
+   * walked against the real Lens source. That fact does not belong to the file that happened to
+   * carry it. Once a path is resolved, no file here may cite it by line — and a NEW file cannot
+   * arrive carrying the old pointer, which is the case a file list structurally cannot pose.
+   *
+   * WHAT IS ENROLLED AND WHY ONLY THAT. The two paths #198 resolved. Enrolling a path means
+   * every citation of it in the tree has been walked upstream; measured at Lens `a04310a`, that
+   * is seven sites across four files, and ONE of the seven was false. The other ~25 upstream
+   * paths in the census are still a census — a pass here is not coverage and the list says so.
+   *
+   * ⚠ IT BANS THE PROSE SPELLING TOO, AND THAT IS NOT PEDANTRY. `some_upstream.go, line 191` is
+   * exactly as unverifiable as the same path with a colon and 191, and rule C's regex cannot see
+   * it — so with only the colon form banned, a future author "converts" a citation by deleting
+   * one character and the pointer stays as false as it was. Measured: that spelling is live in
+   * this tree today (this file used it twice, and `apps/bff/cited_lines_test.go` uses it for two
+   * paths that are NOT enrolled).
+   *
+   * ⚠ NO SELF-EXEMPTION, AND IT COST THIS FILE TWO LINES. Rule A skips its own file because its
+   * prose quotes the dead `model.go` form. Rule D does not skip anything: the two sentences above
+   * that used to name these paths in the prose spelling now name the position in words instead.
+   * Excluding the guard would leave unswept exactly the file most likely to carry an example.
+   */
+  const RESOLVED_UPSTREAM_PATHS = [
+    'internal/economy/agent_subbudget.go',
+    'internal/economy/dualtoken.go',
+  ]
+
+  /** `foo.go:191`, `foo.go:307/386/394`, and the prose spelling `foo.go, line 191`. */
+  const lineCitationOf = (base: string) =>
+    new RegExp(
+      `\\b${base.replace(/\./g, '\\.')}(?::\\d+(?:[-/]\\d+)*|[^\\n]{0,24}?\\blines?\\s+\\d+)`,
+      'g',
+    )
+
+  const baseOf = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+
+  it('a resolved upstream path is still cited by symbol — the ratchet must guard something', () => {
+    // THE FLOOR. Rule D is an ABSENCE sweep over a NAMED list, so it is satisfied for free by a
+    // path nothing mentions any more: renamed upstream, or every pointer to it deleted. Deleting
+    // the pointer is the cheapest way to satisfy "cite the symbol instead", and it trades a false
+    // pointer for no pointer at all — the same trade rule B exists to refuse.
+    const all = sources()
+    expect(all.length).toBeGreaterThan(80)
+    for (const path of RESOLVED_UPSTREAM_PATHS) {
+      const base = baseOf(path)
+      const withSymbol = all.filter((s) => s.text.includes(`${base}#`))
+      expect(
+        withSymbol.map((s) => s.path),
+        `${path} is enrolled in the resolved-path ratchet and no file cites it by symbol any ` +
+          'more. An absence rule over a path nobody names passes for free.',
+      ).not.toEqual([])
+    }
+  })
+
+  it('a resolved upstream path is never cited by line, in any file including this one', () => {
+    const offenders: string[] = []
+    for (const path of RESOLVED_UPSTREAM_PATHS) {
+      for (const s of sources()) {
+        for (const m of s.text.matchAll(lineCitationOf(baseOf(path)))) {
+          offenders.push(`${s.path}: ${m[0].replace(/\s+/g, ' ')}…`)
+        }
+      }
+    }
+    expect(
+      offenders,
+      'a line citation of an upstream path that was already resolved once. The walk that resolved ' +
+        'it belongs to the PATH, not to the file it was done in — cite the symbol, which survives ' +
+        'the insert that made this number false.',
     ).toEqual([])
   })
 })
