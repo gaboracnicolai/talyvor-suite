@@ -2,7 +2,7 @@
   "src/AdminRemoved.test.tsx": 4,
   "src/areas/auth/Entry.test.tsx": 14,
   "src/areas/docs/DocsArea.test.tsx": 24,
-  "src/areas/docs/docsWrites.test.tsx": 9,
+  "src/areas/docs/docsWrites.test.tsx": 10,
   "src/areas/docs/pm.test.tsx": 3,
   "src/areas/docs/tree.test.ts": 4,
   "src/areas/lens/BillingReturn.test.tsx": 11,

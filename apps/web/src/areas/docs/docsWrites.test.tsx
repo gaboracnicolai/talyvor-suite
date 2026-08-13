@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { focusRing } from '@talyvor/ui'
 import { DocsArea } from './DocsArea'
 
 // docsWrites.test.tsx — the Docs area's WRITE half, which nothing executed.
@@ -171,6 +172,64 @@ describe('the page editor re-reads what Docs recorded', () => {
 
     expect(await screen.findByText(/Couldn’t save/)).toBeTruthy()
     expect(box.value).toBe('still mine')
+  })
+})
+
+describe('the draft belongs to one page', () => {
+  /** A second page on the same space, and a way to reach it without going up through the space. */
+  function mockTwoPages() {
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/docs/spaces') return json(SPACES)
+      if (url === '/api/docs/spaces/sp%20eng/pages/pg-1')
+        return json({ id: 'pg-1', title: 'First page', content_text: 'ONE' })
+      if (url === '/api/docs/spaces/sp%20eng/pages/pg-2')
+        return json({ id: 'pg-2', title: 'Second page', content_text: 'TWO' })
+      return new Response('null', { status: 404 })
+    })
+  }
+
+  function Jump() {
+    const navigate = useNavigate()
+    return (
+      <button className={focusRing} onClick={() => navigate('/docs/spaces/sp eng/pages/pg-2')}>
+        jump
+      </button>
+    )
+  }
+
+  // ⚠ THE ROUTE IS THE SAME ROUTE. React Router matches both pages to one <Route> element, so
+  // PageView is NOT remounted when only :pageId changes — the params move underneath it and
+  // useState survives. The seeding effect fills the draft only `while it is null`, and after the
+  // first page it never is again. Unfixed, this leaves page A's text in the box under page B's
+  // title, and Save writes A's content INTO B.
+  //
+  // Nothing in this UI links one page to a sibling today; the button below is what a page tree,
+  // a "next page" link or a search result would be. That is why this is a test and not a bug
+  // report: the failure is in the component, one ordinary link away from being live.
+  it('a different page gets a different draft, not the last one’s text', async () => {
+    mockTwoPages()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[PAGE_URL]}>
+          <Jump />
+          <Routes>
+            <Route path="/docs/*" element={<DocsArea />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
+    await waitFor(() => expect(box.value).toBe('ONE'))
+
+    fireEvent.click(screen.getByText('jump'))
+    await screen.findByText('Second page')
+
+    await waitFor(() => expect((screen.getByLabelText('Content') as HTMLTextAreaElement).value).toBe('TWO'))
   })
 })
 
