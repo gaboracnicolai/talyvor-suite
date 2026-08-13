@@ -35,7 +35,7 @@
   "src/areas/track/format.test.ts": 10,
   "src/areas/track/IssueDetail.test.tsx": 15,
   "src/areas/track/IssueList.test.tsx": 20,
-  "src/areas/track/issueVocabulary.test.tsx": 18,
+  "src/areas/track/issueVocabulary.test.tsx": 32,
   "src/areas/track/TrackArea.test.tsx": 4,
   "src/AuthGate.test.tsx": 3,
   "src/authProbeLoop.test.tsx": 10,

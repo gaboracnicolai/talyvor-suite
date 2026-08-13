@@ -15,7 +15,7 @@ import { isSessionExpired, isUnconfigured } from './lib/productState'
  *   · #136  `readDistill` threw a bare `Error` — "all three mechanisms went silent at once"
  *   · #140  the Track create's refusal, same shape (IssueList.tsx: `CreateRefusal extends ApiError`,
  *           "it used to extend the bare `Error`")
- *   · the third site, the Track status change (IssueList.tsx:252 names it: "a hand-rolled error type
+ *   · the third site, the Track status change (IssueList.tsx:260 names it: "a hand-rolled error type
  *           turns the shared predicate off without one line of the predicate changing — #136 for a
  *           read, #140 for the create four lines above, and this was the third site")
  *   · the fourth, `ConvertError` (convertRefusal.test.tsx), which MEASURED the four consequences
