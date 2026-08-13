@@ -55,8 +55,8 @@ export function inWindow(rows: SpendLedgerRow[], days: number, now: Date): Spend
 //
 // 200 is clamped in TWO independent servers, so no client can ask past it:
 //
-//   apps/bff/lens.go:348                    clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
-//   lens internal/economy/dualtoken.go:627  if limit > 200 { limit = 200 }
+//   apps/bff/lens.go#proxyPaged            clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
+//   lens internal/economy/dualtoken.go#DualTokenStore.GetLXCHistory  if limit > 200 { limit = 200 }
 //
 // MEASURED on the real BFF binary (not on this constant): an upstream holding 260 rows,
 // asked for limit=1000, served 200. The control — same binary, same question, an upstream
@@ -67,7 +67,7 @@ export function inWindow(rows: SpendLedgerRow[], days: number, now: Date): Spend
 // FLOOR, and a count over it is a floor too.
 //
 // ⚠ ORDINARY VOLUME REACHES IT. A reserved request writes THREE lxc_ledger rows —
-// reservation_hold, reservation_release, spend (lens agent_subbudget.go:307/386/394) — so
+// reservation_hold, reservation_release, spend (lens agent_subbudget.go#ReserveLXCForAgent, and #SettleLXCReservation's release + delivered-charge writes) — so
 // 200 rows is about 67 requests. Overview's window is THIRTY DAYS.
 //
 // Lives here, next to the derivations it bounds, and is passed to the fetch by the screens:
@@ -149,7 +149,7 @@ export interface SignedRowWithMeta extends SignedRow {
 // rows — a -3270 hold, its +3270 release, and the -920 that was actually billed — summed to 8,380
 // where 1,840 was spent.
 //
-// Lens states this at the writer (internal/economy/agent_subbudget.go:191):
+// Lens states this on the constant itself (internal/economy/agent_subbudget.go#LXCTypeReservationHold):
 //   "LXCTypeReservationHold marks the pre-serve HOLD debit — a bound, NOT a bill. Revenue readers
 //    (sum type='spend') MUST exclude it; it nets to zero against its release."
 // `type` survives the whole path — Lens selects it, the BFF proxies it, api.ts maps it — and only
@@ -188,7 +188,7 @@ export interface LxcModelAgg {
 // instead of silently absent" — and `r.type !== SETTLED_CHARGE` below drops every hold
 // unconditionally, so no hold-only row has ever been attributed here. The fallback is NOT
 // dead, and the rows that take it are a different class entirely: talyvor-lens'
-// `SpendLXCForAgent` (the legacy pre-serve estimate debit, agent_subbudget.go:208) stamps
+// `SpendLXCForAgent` (the legacy pre-serve estimate debit, agent_subbudget.go#DualTokenStore.SpendLXCForAgent) stamps
 // `meta.toMap()` — requested_model and request_id, NEVER served_model, because the debit is
 // taken before routing. Those are `spend` rows with a requested model and no served one, and
 // without the fallback every one of them would leave the split.
@@ -197,8 +197,8 @@ export interface LxcModelAgg {
 // SURVIVES, and `debitTotal` has no equivalent — the asymmetry is deliberate and it is why
 // `splitShortfall` can go negative. A `spend` row with a NON-NEGATIVE amount is skipped here
 // and SUMMED (as a negative) by debitTotal. No lens writer can produce that row — all three
-// require a positive amount (dualtoken.go:432, agent_subbudget.go:150, and the settle's
-// `if finalLXC > 0` at agent_subbudget.go:391) — but if one ever did, the sign test is what
+// require a positive amount (dualtoken.go#DualTokenStore.SpendLXC, agent_subbudget.go#DualTokenStore.SpendLXCForAgent,
+// and the settle's `if finalLXC > 0` in agent_subbudget.go#DualTokenStore.SettleLXCReservation) — but if one ever did, the sign test is what
 // stops it becoming a NEGATIVE per-model figure, which is worse than an absent one.
 //
 // Rows with no model claim are DROPPED, not bucketed as "unknown" — same rule as
@@ -276,9 +276,9 @@ export interface SplitShortfall {
 //
 //   · UNATTRIBUTED — a settled charge whose row names no model. Dropped here on purpose
 //     (absence of provenance is not a model) and counted by debitTotal. Reachable, MEASURED in
-//     talyvor-lens at `a04310a`: `shadow_lxc.go:73` → `SpendLXC` inserts a `spend` row with
-//     metadata literally `nil` (dualtoken.go:448), and `AgentDebitMeta.toMap` OMITS an empty
-//     scalar (agent_subbudget.go:95), so a settle carrying neither model writes no model key
+//     talyvor-lens at `a04310a`: `shadow_lxc.go#Proxy.shadowSpendLXC` → `SpendLXC` inserts a `spend` row with
+//     metadata literally `nil` (dualtoken.go#DualTokenStore.SpendLXC), and `AgentDebitMeta.toMap` OMITS an empty
+//     scalar (agent_subbudget.go#AgentDebitMeta.toMap), so a settle carrying neither model writes no model key
 //     either. `api.lxcLedger` maps an absent document to `{}`, so it arrives with no claim.
 //   · NOT SHOWN — an attributed charge outside a top-N slice. Overview renders `.slice(0, 5)`;
 //     the sixth model's µLXC is in the figure above and in none of the five rows.

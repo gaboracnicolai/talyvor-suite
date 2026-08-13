@@ -216,4 +216,65 @@ describe('citations of upstream Go source', () => {
       }
     }
   })
+
+  /**
+   * RULE C — A PER-FILE RATCHET, BECAUSE THE CENSUS THIS FILE DEFERRED CAME BACK BIGGER THAN THE
+   * PARAGRAPH THAT DEFERRED IT, AND TWO OF ITS CITATIONS ARE ALREADY FALSE ON THE MONEY PATH.
+   *
+   * ⚠ RE-MEASURED at suite `91bd1eb`, as this file's header asks a widening session to do rather
+   * than trusting its numbers. The unrestricted scan finds **57 Go line citations across 27
+   * distinct upstream paths** — the header says 44 across 24. It grew, and it will keep growing.
+   *
+   * ⚠ AND THE DECAY IS NOT HYPOTHETICAL. Every citation in `areas/lens/spendMath.ts` was resolved
+   * against the real talyvor-lens tree at `a04310a`. Nine were true. TWO WERE FALSE, and both are
+   * load-bearing on the LXC spend math:
+   *
+   *   · it cited agent_subbudget.go line 191 for a statement it QUOTES verbatim — "a bound, NOT a
+   *     bill … revenue readers MUST exclude it". Line 191 is BLANK; the statement is 45 lines
+   *     away, at 236-237. That quote is the entire justification for the allow-list rule that
+   *     replaced a sign test, after real rows summed 8,380 where 1,840 was spent. A reader
+   *     checking whether Lens still says it lands on nothing and may put the sign rule back.
+   *   · it cited dualtoken.go line 432 as one of three writers that "require a positive amount".
+   *     432 is a bare closing brace of an unrelated nil-check; the guard is at 427-428. That claim
+   *     is why `splitShortfall` is allowed to go negative.
+   *
+   * ⚠ WHY THIS IS A PER-FILE OPT-IN AND NOT A TREE-WIDE BAN. A tree-wide ban is the right end
+   * state and it forces ~50 rewrites at once, including line-RANGE citations that name three
+   * adjacent route registrations (`cmd/lens/main.go` lines 1832-1835, 1869-1871, 1878-1879) and
+   * have no clean symbol form. Converting comments in files nobody re-measured is the wide diff
+   * resting on no measurement this file's header already refused once. So the rule takes the shape
+   * this repo chose for the same problem in `formatterReach` — a per-module opt-in — and a file
+   * joins the list only when EVERY citation in it has been resolved against the upstream tree.
+   *
+   * SO A PASS HERE IS NOT COVERAGE, AND THE LIST SAYS SO: one file is enrolled. The other ~26
+   * upstream paths are a census handed to the queue, not a swept set.
+   *
+   * WHAT IT CLAIMS: an enrolled file cites no Go file by line — not upstream, and not this repo's
+   * own `apps/bff`, because "verifiable in principle" is not "verified" and nothing verifies them.
+   */
+  const SYMBOL_ONLY_FILES = ['apps/web/src/areas/lens/spendMath.ts']
+  const ANY_GO_LINE = /\b([A-Za-z0-9_./-]+\.go):(\d+(?:-\d+)?)/g
+
+  it('the enrolled files cite Go source by symbol only, never by line', () => {
+    const byPath = new Map(sources().map((s) => [s.path, s.text]))
+    const offenders: string[] = []
+    for (const path of SYMBOL_ONLY_FILES) {
+      const text = byPath.get(path)
+      // THE FLOOR. This is an ABSENCE rule over a NAMED list, so a file that is renamed, moved or
+      // dropped from the walk would satisfy it by not existing — the loudest possible pass. An
+      // enrolled file that the walk cannot produce is a red, not a silence.
+      expect(
+        text,
+        `${path} is enrolled in the symbol-only rule but the walk did not produce it — an absence ` +
+          'rule over a file that is not there passes for free',
+      ).toBeDefined()
+      expect(text!.length).toBeGreaterThan(0)
+      for (const m of text!.matchAll(ANY_GO_LINE)) offenders.push(`${path}: ${m[1]}:${m[2]}`)
+    }
+    expect(
+      offenders,
+      'a Go line citation in an enrolled file. Every citation in these files was resolved against ' +
+        'the real upstream tree once; a line number puts that back to unverifiable — cite the symbol.',
+    ).toEqual([])
+  })
 })
