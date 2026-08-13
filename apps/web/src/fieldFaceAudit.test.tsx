@@ -48,7 +48,7 @@ describe('what declares itself numeric', () => {
 
   // ⚠ THIS PAIR EXISTS BECAUSE THE FIRST VERSION OF IT PASSED FOR THE WRONG REASON, and only a
   // control said so. C3 deletes the `PAINTS_NO_TEXT` line and the range case stayed GREEN: the
-  // slider Landing.tsx:292 actually ships declares NO inputMode, so it never reaches the exemption
+  // slider Landing.tsx:320 actually ships declares NO inputMode, so it never reaches the exemption
   // — it is excluded one line lower, by not declaring itself numeric at all. The first case below
   // is the shipped slider, and it is NOT what pins the exemption. The second one declares BOTH, so
   // it is the only case that reaches the line, and it is what reds when the line goes.

@@ -137,12 +137,40 @@ function DescentCurve({ members }: { members: number }) {
 // · PER-ISSUE COST IS REAL and stays: talyvor-track's issues.ai_cost_usd is a running sum of the
 //   ai_spend_events ledger, idempotent on request_id (internal/issue/store.go, migration 0017).
 //
-// · PER-DOCUMENT COST IS NOT. talyvor-docs' pages.ai_cost_usd is rolled up from LINKED TRACK ISSUES
-//   by trackintegration/syncer.go — it is not AI work done on the document. Docs tags its own Lens
-//   calls by FEATURE (docs-ai-write, docs-ai-summarize) and never by page, so there is no per-page
-//   attribution to report. ⚠ RESTORE THE CLAIM ONLY WHEN Docs tags its own calls with a page
-//   identifier and pages.ai_cost_usd stops being a roll-up of something else — that work is in
-//   flight in talyvor-docs; this page must not describe it before it ships.
+// · PER-DOCUMENT COST STAYS OFF THE PAGE — AND THE REASON IT USED TO GIVE HAS EXPIRED, which is
+//   why this bullet is longer than the others. It read: "Docs tags its own Lens calls by FEATURE
+//   (docs-ai-write, docs-ai-summarize) and never by page, so there is no per-page attribution to
+//   report", with the restore condition "when Docs tags its own calls with a page identifier AND
+//   pages.ai_cost_usd stops being a roll-up of something else".
+//
+//   MEASURED read-only against talyvor-docs `63b7ea6`, three ways, none of them a reading of that
+//   repo's prose: `go test ./internal/ai/ -run TestAttribution_EachSinglePageOperationBindsItsPage`
+//   PASSES; migration 0018 adds `pages.own_ai_cost_usd` and the `page_ai_spend_events` ledger
+//   (request_id PRIMARY KEY, page_id NOT NULL REFERENCES pages); and cmd/docs/main.go:234 wires the
+//   binder into the production engine (`ai.New(lensClient).WithSpendBinder(pageStore)`). DOCS
+//   ATTRIBUTES AI SPEND TO A PAGE TODAY. 0018's own header names the sentence on THIS page as the
+//   thing it was built to make true.
+//
+//   ⚠ THE RESTORE CONDITION AS WRITTEN CAN NOW NEVER BE MET, and that is the part worth keeping.
+//   Its second half asked for `pages.ai_cost_usd` to stop being a roll-up. It did not: Docs added a
+//   SECOND column instead, deliberately — ai_cost_usd is RECOMPUTED AND OVERWRITTEN from the linked
+//   issues on every sweep, so an accumulated per-page total added into it would be erased by the
+//   next sweep, silently and only for the pages that had AI work. So ai_cost_usd still means what
+//   this page's Docs blurb says it means, `own_ai_cost_usd` is the new number, and their sum is
+//   exposed as a third derived field. A condition written against a shape the upstream then chose
+//   not to take is a condition that stays unmet while the fact underneath it changes.
+//
+//   WHAT STILL KEEPS THE SENTENCE OFF THE PAGE, stated so the next session need not re-derive it:
+//   (a) the claim is the ENUMERATION "an issue, a document or a change", and the change half has no
+//   surface at all — see the next bullet — so the sentence cannot be restored whole; and (b)
+//   own_ai_cost_usd is a documented LOWER BOUND: docs-ai-ask (many pages by construction) and
+//   docs-search (workspace-wide) have no single page and are excluded by design. Whether a lower
+//   bound may be sold as "the cost of a document" is a claim decision, not a session's.
+//   ⚠ AND NOTHING IN THIS REPOSITORY CAN SEE ANY OF IT. Landing.test.tsx asserts the page stays
+//   SILENT, which is green for every possible state of talyvor-docs — the assertion could not have
+//   noticed this and cannot notice the next move either. The premise is therefore registered in
+//   deploy/decision-expiry.sh's uncheckable half, where the repo already keeps the cross-repo
+//   premises it cannot check, with a command a deployer runs in a talyvor-docs checkout.
 //
 // · PER-CHANGE COST HAS NO SURFACE. talyvor-code has no route in this app and no proxy in the BFF,
 //   so a reader has nowhere to go and look.

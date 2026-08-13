@@ -241,12 +241,12 @@ const PINS: Record<string, Pin> = {
     fragment: 'inputMode="decimal"',
     why: 'the same site quoted where the rule argues the declaration is written in a DIFFERENT FILE from the class list',
   },
-  'apps/web/src/fieldFaceAudit.ts:20|apps/web/src/areas/marketing/Landing.tsx:292': {
+  'apps/web/src/fieldFaceAudit.ts:20|apps/web/src/areas/marketing/Landing.tsx:320': {
     kind: 'LIVE',
     fragment: 'type="range"',
     why: 'the live slider whose value is a figure OFF the face, and correctly so — the exemption, not a hypothetical',
   },
-  'apps/web/src/fieldFaceAudit.ts:104|apps/web/src/areas/marketing/Landing.tsx:292': {
+  'apps/web/src/fieldFaceAudit.ts:104|apps/web/src/areas/marketing/Landing.tsx:320': {
     kind: 'LIVE',
     fragment: 'type="range"',
     why: 'the same slider quoted beside the exemption set itself, so the set cannot be widened without meeting it',
@@ -256,7 +256,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'inputMode="decimal"',
     why: 'the unit case that pins the predicate to the real call site rather than to an invented fixture',
   },
-  'apps/web/src/fieldFaceAudit.test.tsx:51|apps/web/src/areas/marketing/Landing.tsx:292': {
+  'apps/web/src/fieldFaceAudit.test.tsx:51|apps/web/src/areas/marketing/Landing.tsx:320': {
     kind: 'LIVE',
     fragment: 'type="range"',
     why: 'the unit case for the exemption, naming the render it exists to keep quiet',
