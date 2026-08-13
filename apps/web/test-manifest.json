@@ -84,6 +84,7 @@
   "src/reachGateScope.test.ts": 5,
   "src/renderedClock.test.ts": 3,
   "src/restingAffordance.test.ts": 9,
+  "src/routeParamState.test.ts": 10,
   "src/scrollReset.test.tsx": 18,
   "src/SessionExpired.test.tsx": 20,
   "src/settleCommands.test.ts": 7,
