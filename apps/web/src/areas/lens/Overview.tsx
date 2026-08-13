@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Card, CardHeader, MuNumeral, Pill, Row } from "@talyvor/ui";
+import { Button, Card, CardHeader, MuNumeral, Pill, Row, cn } from "@talyvor/ui";
 import { api, ApiError, type Bond, type LedgerEntry } from "../../lib/api";
 import { CacheCard } from "./CacheCard";
 import { ConvertLens } from "./ConvertLens";
@@ -546,16 +546,214 @@ function RecentActivity() {
 }
 
 /* ── The screen ─────────────────────────────────────────────────────────── */
+//
+// W1.1.1 — WHAT THIS REPLACED. Six cards in a two-column grid, `max-w-3xl`, no heading of the
+// screen's own and no label above any group of them. The sticky banner wrote "Overview" and
+// everything below it was one undifferentiated run of panels — so the five questions this file's
+// header says the screen answers "in order" were answered in an order nothing on the page stated.
+// The empty state was six zeros with no next action above the fold.
+//
+// The language is the PUBLIC SITE's, in the console's type scale — the same port `6aecb0d` made
+// of the palette and the faces, applied to a layout for the first time:
+//
+//   · the section marking from areas/marketing/Landing.tsx §SectionLabel — a 2px accent tick
+//     (colour on a tick, never on text), a mono index, one uppercase eyebrow;
+//   · ONE page-scale heading. `text-title` is the top of the console ramp (24px) and the
+//     marketing display steps stop at the gate (displayScale.test.ts), so it is the largest type
+//     a console screen may write — and it had never been written on this one;
+//   · air between regions rather than a gutter between cards: a section is one idea, and the
+//     rule under it is where that idea ends.
+//
+// ⚠ EVERY REGION IS A NAMED LANDMARK, which is the half of the marking that is not decoration.
+// The screen used to be one `main` containing six anonymous panels; a reader moving by region got
+// one stop. Six now, each named by the question it answers.
+
+/**
+ * The region marking. `id` is what the section's `aria-labelledby` points at, so the visible
+ * label and the accessible name are ONE string rather than two that agree today.
+ *
+ * ⚠ THE INDEX IS A NUMERAL, so it is on the figure face like every other numeral in the product
+ * (figureAudit runs on every render in this app and would say so). The eyebrow carries its own
+ * `uppercase` in the same class list — eyebrowAudit's source rule, which exists because a
+ * transform inherited from an ancestor is invisible to a reader of the call site.
+ */
+function RegionLabel({
+  id,
+  index,
+  children,
+}: {
+  id?: string;
+  index: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-2.5" data-testid="region-label">
+      <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />
+      <span className="font-figure text-caption text-faint" data-testid="region-index">
+        {index}
+      </span>
+      <span id={id} className="font-figure text-eyebrow uppercase text-muted">
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function Region({
+  index,
+  label,
+  children,
+  className,
+}: {
+  index: string;
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const id = `ov-region-${index}`;
+  return (
+    <section
+      aria-labelledby={id}
+      className="border-b border-rule px-gutter py-10 last:border-b-0 wide:py-12"
+    >
+      <RegionLabel id={id} index={index}>
+        {label}
+      </RegionLabel>
+      {/* ⚠ THE MEASURE IS NARROWER THAN THE SECTION, which is the public page's shape (its
+          `max-w-5xl` sections hold `max-w-3xl` and `max-w-2xl` blocks) and here it is also a
+          READING decision, measured in Chrome at 1280 with the sidebar: a settings row stretched
+          across the full column puts its label and its figure ~800px apart, and the eye has to
+          travel the gap on every row. The left edges of every region still line up, so the air on
+          the right reads as air rather than as a broken grid. */}
+      <div className={cn("mt-6 max-w-3xl", className)}>{children}</div>
+    </section>
+  );
+}
+
+// The two headlines. Written out here rather than inline so the screen's one page-scale claim is
+// readable in one place, and so the first-run wording cannot drift from the predicate below it.
+const HEADLINE = "Everything this workspace has, spends and earns.";
+const HEADLINE_FIRST_RUN = "Nothing has arrived in this workspace yet.";
+
+/**
+ * ⚠ FIRST RUN IS A MEASUREMENT, NOT A DEFAULT — and the direction that matters is the one this
+ * returns FALSE for. It is claimed only when BOTH balance reads ANSWERED and all four totals are
+ * zero: nothing minted, nothing spendable, nothing earned, nothing held in LENS. A read that
+ * FAILED is not a workspace with nothing in it, and this project has already paid twice for that
+ * conflation (a Track fault drawn identically to an empty tracker; a held balance of 0 rendered
+ * beside a ledger of 822). Told wrongly, it says to a paying customer, on the first screen after
+ * sign-in, that nothing has ever arrived.
+ *
+ * Both queries share their keys with the two balance cards below, so this costs no request.
+ */
+function useFirstRun(): boolean {
+  const lxc = useQuery({ queryKey: ["lxc-balance"], queryFn: api.lxcBalance });
+  const lens = useQuery({ queryKey: ["lens-balance"], queryFn: api.lensBalance });
+  if (!lxc.data || !lens.data) return false;
+  return (
+    lxc.data.balance_ulxc === 0 &&
+    lxc.data.lifetime_minted_ulxc === 0 &&
+    lens.data.balance_ulens === 0 &&
+    lens.data.lifetime_earned_ulens === 0
+  );
+}
+
+/**
+ * The two steps that put the first number on this screen.
+ *
+ * ⚠ NEITHER STEP PROMISES ANYTHING THIS DEPLOYMENT MIGHT NOT HAVE. Billing is OFF by default
+ * (`LENS_BILLING_ENABLED`, plus its Stripe keys — see TopUp.tsx, which draws a capability-off
+ * panel instead of buy buttons), so "buy credit" is a claim this screen cannot check. The step
+ * names the DESTINATION and lets that page state its own capability, which is the same rule the
+ * held-LENS hint took when it stopped printing an operator's holdback window it could not read.
+ */
+function FirstSteps() {
+  const steps = [
+    {
+      index: "01",
+      title: "Point a tool at Lens.",
+      body:
+        "Mint a key and copy the base URL. The first request through it writes the first row on " +
+        "this screen.",
+      to: "/setup",
+      cta: "Open Setup",
+    },
+    {
+      index: "02",
+      title: "Check what this workspace can spend.",
+      body:
+        "Inference is charged in LXC. Billing carries the balance, and says whether this " +
+        "deployment can sell more of it.",
+      to: "/billing",
+      cta: "Open Billing",
+    },
+  ];
+  return (
+    <ol className="mt-8 grid gap-px border border-rule bg-rule wide:grid-cols-2">
+      {steps.map((s) => (
+        <li key={s.index} className="flex flex-col items-start bg-surface px-gutter py-5">
+          <span className="font-figure text-eyebrow uppercase text-faint">
+            Step {s.index}
+          </span>
+          <p className="mt-3 text-body text-ink">{s.title}</p>
+          <p className="mt-1 text-caption font-normal text-muted">{s.body}</p>
+          <Button asChild variant="primary" className="mt-5">
+            <Link to={s.to}>{s.cta}</Link>
+          </Button>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export function Overview({ now = new Date() }: { now?: Date } = {}) {
+  const firstRun = useFirstRun();
   return (
-    <div className="mx-auto grid max-w-3xl grid-cols-1 gap-gutter wide:grid-cols-2">
-      <LxcCard />
-      <LensCard />
-      <SpendCard now={now} />
-      <CacheCard days={30} />
-      <ProductsCard />
-      <RecentActivity />
+    <div className="mx-auto w-full max-w-5xl">
+      {/* THE OPENING. Labelled by its heading rather than by its eyebrow: where a section has a
+          heading, that is its name, and a landmark named "Workspace" beside a heading saying
+          something else would be two answers to one question. */}
+      <section
+        aria-labelledby="ov-opening"
+        className="border-b border-rule px-gutter pb-10 pt-4 wide:pb-12"
+      >
+        <RegionLabel index="00">Workspace</RegionLabel>
+        <h2 id="ov-opening" className="mt-6 max-w-3xl text-title text-ink">
+          {firstRun ? HEADLINE_FIRST_RUN : HEADLINE}
+        </h2>
+        {firstRun ? (
+          <>
+            <p className="mt-4 max-w-2xl text-body text-muted">
+              Both balances are zero: no LXC has been granted, bought or converted, and no LENS
+              has been earned. Two things put the first number here.
+            </p>
+            <FirstSteps />
+          </>
+        ) : null}
+      </section>
+      {/* `items-start`: a two-column grid stretches its children to the tallest, and the LENS card
+          carries three more rows plus the conversion panel — so the LXC card was drawing 150px of
+          empty surface under its last row. Measured in Chrome at 1280. */}
+      <Region
+        index="01"
+        label="What you have"
+        className="grid items-start gap-gutter wide:max-w-none wide:grid-cols-2"
+      >
+        <LxcCard />
+        <LensCard />
+      </Region>
+      <Region index="02" label="What it costs, and what it earns">
+        <SpendCard now={now} />
+      </Region>
+      <Region index="03" label="What the cache answered">
+        <CacheCard days={30} />
+      </Region>
+      <Region index="04" label="What is switched on">
+        <ProductsCard />
+      </Region>
+      <Region index="05" label="What just happened">
+        <RecentActivity />
+      </Region>
     </div>
   );
 }
