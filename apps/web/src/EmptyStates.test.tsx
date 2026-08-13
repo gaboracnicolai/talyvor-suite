@@ -23,20 +23,61 @@ import { join, relative } from 'node:path'
 // sentence that only restates the emptiness is a sentence the user cannot act on.
 
 const SRC = join(__dirname)
+const UI_SRC = join(__dirname, '../../../packages/ui/src')
 
-// Surfaces only. routes/ is legal copy (Terms has a section literally titled "No uptime
-// promise") and lib/ has no JSX — including them would add noise, and noise is how a guard
-// gets deleted.
-const SCANNED = ['areas', 'components']
+// ⚠ THE POPULATION WAS A WHITELIST AND IT MISSED A REAL SURFACE — MEASURED, NOT SUSPECTED.
+// This read `const SCANNED = ['areas', 'components']` under the prose "Surfaces only. routes/ is
+// legal copy and lib/ has no JSX", i.e. it stated an EXCLUSION and implemented an INCLUSION. The
+// two are not the same boundary and one real surface fell in the gap: `apps/web/src/App.tsx`
+// renders the catch-all "Nothing at this address — pick a section from the sidebar." — an empty
+// state by this file's own detector, in neither routes/ nor lib/, and no rule here had ever been
+// applied to it. Found by RECORDING every path this test opens (`node:fs` wrapped inside the
+// vitest worker, `~/talyvor-queue/w11-population-census-4b2e.py`) rather than by reading the walk:
+// 33 of the 102 production files under the two roots, and the walk's source says nothing about
+// which 69 it never reached.
+//
+// ⚠ A PRUNE COULD NOT HAVE FOUND THIS AND THE DISTINCTION IS THE WHOLE POINT. Every census in
+// this class deleted part of the tree and asked who reddened. A file that was NEVER in the
+// population cannot be deleted from it, so the realistic rot — a screen landing under a path the
+// walk does not reach — is invisible to that instrument. Measured directly instead
+// (`... 4b2e.py handed arrival`): a new file at `apps/web/src/panels/CostPanel.tsx`, the exact
+// shape areas/ components/ routes/ lib/ already have, was opened by SIX of the eight sweeps in
+// this class and by neither this one nor emptyVsFault.test.ts.
+//
+// THE FIX IS THE INVERSION, NOT A SIXTH DIRECTORY NAME. The boundary is now what the prose always
+// said — everything the product ships, minus exclusions that each carry their reason — so a new
+// top-level directory is IN by default and a new EXCLUSION is what has to be argued for. Adding
+// `'panels'` to a list would have armed the rule for panels/ and left the next directory exactly
+// as blind, which is the shape tab-3a6d measured across this whole class.
+const ROOTS = [SRC, UI_SRC]
+
+// ⚠ EACH EXCLUSION IS A CLAIM AND EACH WAS RE-MEASURED, because two of them turned out not to be
+// doing what their reason said.
+//   · routes/  LOAD-BEARING. The detector really does fire four times there and all four are
+//              legal prose, not empty states: Terms' "No refund policy exists in the code or in
+//              this document.", Privacy's "Nothing else leaves.", and two more. Confirmed by
+//              running this file's own EMPTY_STATE over routes/ — see the control at the bottom,
+//              which pins one of them so the exclusion cannot go stale silently.
+//   · lib/     INERT, and shipped saying so. `apps/web/src/lib` and `packages/ui/src/lib` hold
+//              ZERO `.tsx` files, so a `.tsx`-only walk never reached them and this name has
+//              never excluded anything. It stays because lib/ is where JSX would be wrong, not
+//              because it is currently doing work.
+const EXCLUDED = ['routes', 'lib']
 
 function walk(dir: string): string[] {
   const out: string[] = []
   for (const name of readdirSync(dir)) {
     const p = join(dir, name)
-    if (statSync(p).isDirectory()) out.push(...walk(p))
-    else if (p.endsWith('.tsx') && !p.endsWith('.test.tsx')) out.push(p)
+    if (statSync(p).isDirectory()) {
+      if (!EXCLUDED.includes(name) && name !== 'node_modules') out.push(...walk(p))
+    } else if (p.endsWith('.tsx') && !p.endsWith('.test.tsx')) out.push(p)
   }
   return out
+}
+
+/** Every surface the product ships, both packages, tests and the excluded directories out. */
+function surfaces(): string[] {
+  return ROOTS.flatMap(walk)
 }
 
 // Comments are stripped FIRST, for the reason ClaimsAudit documents: the corrections below are
@@ -86,30 +127,83 @@ const EXEMPT: Record<string, string> = { ...NOT_AN_EMPTY_STATE, ...NO_NEXT_ACTIO
 
 type Found = { file: string; text: string; actioned: boolean; why: string }
 
+/** Repo-relative, so a `packages/ui` surface reports as itself and not as `../../../…`. */
+const rel = (file: string) => relative(join(SRC, '../../..'), file)
+
 function findEmptyStates(): Found[] {
   const out: Found[] = []
-  for (const dir of SCANNED) {
-    for (const file of walk(join(SRC, dir))) {
-      const src = flat(readFileSync(file, 'utf8'))
-      for (const m of src.matchAll(EMPTY_STATE)) {
-        const text = m[1].trim()
-        // The window is the copy plus the markup immediately around it — a link sits inside the
-        // same element, and an imperative sits inside the same sentence or the next one.
-        const from = Math.max(0, m.index - 200)
-        const window = src.slice(from, m.index + text.length + 400)
-        const actioned =
-          GOES_SOMEWHERE.test(window) || TELLS_YOU_WHAT_TO_DO.test(window)
-        out.push({
-          file: relative(SRC, file),
-          text,
-          actioned,
-          why: EXEMPT[text] ?? '',
-        })
-      }
+  for (const file of surfaces()) {
+    const src = flat(readFileSync(file, 'utf8'))
+    for (const m of src.matchAll(EMPTY_STATE)) {
+      const text = m[1].trim()
+      // The window is the copy plus the markup immediately around it — a link sits inside the
+      // same element, and an imperative sits inside the same sentence or the next one.
+      const from = Math.max(0, m.index - 200)
+      const window = src.slice(from, m.index + text.length + 400)
+      const actioned = GOES_SOMEWHERE.test(window) || TELLS_YOU_WHAT_TO_DO.test(window)
+      out.push({ file: rel(file), text, actioned, why: EXEMPT[text] ?? '' })
     }
   }
   return out
 }
+
+/**
+ * ⚠ THE POPULATION IS NOW ASSERTED, BY A SECOND INSTRUMENT THAT CANNOT FAIL THE SAME WAY.
+ * `import.meta.glob` is resolved by Vite at TRANSFORM time and touches `node:fs` not at all, so a
+ * wrong root, a changed extension filter, a directory that stops being readable or a walk that
+ * quietly stops descending cannot move both enumerations together. Compared BOTH DIRECTIONS: a
+ * file Vite sees and the walk does not is a surface no rule here has been applied to, which is
+ * the exact defect this file shipped with; a file the walk returns and Vite does not means the
+ * walk has left its own roots.
+ *
+ * ⚠ THE CALL IS LITERAL ON PURPOSE — Vite rewrites `import.meta.glob` by matching the SYNTAX at
+ * transform time, so hoisting the patterns into a variable typechecks and then dies at runtime.
+ * The EXCLUDED directories are subtracted from the glob side in code rather than expressed as a
+ * negative pattern, so the exclusion list is enforced once and read from one place.
+ */
+describe('the sweep reads every surface the product ships', () => {
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.tsx', '../../../packages/ui/src/**/*.tsx']),
+  )
+    .filter((k) => !k.endsWith('.test.tsx'))
+    .map((k) => rel(join(SRC, k)))
+    .filter((p) => !EXCLUDED.some((d) => p.includes(`/src/${d}/`)))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Deliberately far below the count at 5d297e9 (51): this catches a root that resolves to
+    // nothing, not a refactor that moves files. The set comparison is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(30)
+  })
+
+  it('the fs walk and Vite’s glob agree on the surface set, both directions', () => {
+    const swept = new Set(surfaces().map(rel))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees surfaces this walk never opens. Every rule below is applied to whatever the ' +
+        'walk returns, so a file missing here is a screen whose empty states have never been ' +
+        'checked — App.tsx was exactly that until 5d297e9.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk opened files Vite does not see. Either it left the two roots, or the two ' +
+        'disagree about what a surface is.',
+    ).toEqual([])
+  })
+
+  it('the routes/ exclusion is load-bearing and its reason is still true', () => {
+    // ⚠ AN EXCLUSION NOBODY RE-MEASURES IS A HOLE WITH A COMMENT ON IT. routes/ is excluded
+    // because the detector fires there on legal prose; this reads the real file and fails if
+    // that stops being true, so the day Terms is rewritten the exclusion is re-decided rather
+    // than inherited.
+    const terms = flat(readFileSync(join(SRC, 'routes/Terms.tsx'), 'utf8'))
+    expect(
+      [...terms.matchAll(EMPTY_STATE)].length,
+      'routes/Terms.tsx no longer trips the empty-state detector, so the stated reason for ' +
+        'excluding routes/ no longer holds. Re-decide the exclusion instead of keeping it.',
+    ).toBeGreaterThan(0)
+  })
+})
 
 describe('empty states — a correct system that explains nothing reads as broken', () => {
   const found = findEmptyStates()
