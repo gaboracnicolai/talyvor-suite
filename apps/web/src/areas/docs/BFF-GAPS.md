@@ -83,7 +83,16 @@ segments (they are upstream-scoped to that workspace by membership + tier checks
   must terminate the browser socket and dial upstream with the secret (a small dedicated proxy, not
   `proxyProduct`).
 - **`GET /v1/public/s/{token}`** — public share links bypass the gateway by design; out of scope.
-- **DB-REST / MCP / AI / importer surfaces** — not part of a read-only reader.
+- **DB-REST / MCP / importer surfaces** — not part of a read-only reader.
+- ~~**AI**~~ — **ONE of the five is now proxied.** `POST /api/docs/ai/ask` →
+  `POST /v1/workspaces/{ws}/ai/ask` (`apps/bff/docs_ai.go`), driven by the Ask card on `/docs`.
+  The other four (`ai/write`, `ai/transform`, `ai/translate`, `ai/suggest-title`) all take page
+  content or a page id and belong to the editor arc; they stay unproxied and unreachable from a
+  browser. ⚠ THE ASK RESPONSE CARRIES NO COST: `Engine.AskDocs` binds an EMPTY page id by design,
+  so no `page_ai_spend_events` row is written and no page's `own_ai_cost_usd` moves — an ask is
+  visible only in the workspace's Lens spend under the feature tag `docs-ai-ask`.
+- **`GET /api/docs/search`** is still Tier 2 above and still absent — the item that asked for
+  ask-AI asked for semantic page search beside it, and this is the half that was not built.
 
 ## Error + auth semantics the area already assumes
 

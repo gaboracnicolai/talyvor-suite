@@ -1,6 +1,7 @@
 {
   "src/AdminRemoved.test.tsx": 4,
   "src/areas/auth/Entry.test.tsx": 14,
+  "src/areas/docs/askAI.test.tsx": 11,
   "src/areas/docs/DocsArea.test.tsx": 24,
   "src/areas/docs/docsWrites.test.tsx": 13,
   "src/areas/docs/pm.test.tsx": 3,

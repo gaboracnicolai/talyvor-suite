@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Row, focusRing } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
+import { AskAI } from './AskAI'
 import { docsApi, type DocsSpace } from './api'
 import { Chip } from './components'
 import { isSessionExpired } from '../../lib/productState'
@@ -133,6 +134,12 @@ export function SpaceList() {
             a button that answers 503 is a worse empty state than an honest sentence. */}
         {q.isSuccess ? <CreateSpaceForm /> : null}
       </Card>
+      {/* THE ASK CONTROL, on the same gate as the create form and for the same reason: it may
+          only be offered where it can work. When the spaces read succeeded, Docs is reachable —
+          whether its AI is configured is a SEPARATE question this card answers by asking, not by
+          a sentence written here (see AskAI.tsx, and lib/productState.ts for why a deployment
+          state is detected rather than asserted). */}
+      {q.isSuccess ? <AskAI /> : null}
       {/* The caption is STATE-DEPENDENT: a liveness claim may only ever sit under
           data that is actually live. A failure state carrying "Live from …" was
           the review's worst finding — never reintroduce an unconditional caption. */}

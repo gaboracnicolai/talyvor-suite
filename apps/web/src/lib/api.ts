@@ -134,6 +134,23 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly path: string,
+    /**
+     * The upstream's own `code`, when the failing body carried one.
+     *
+     * ⚠ IT EXISTS BECAUSE ONE STATUS NOW MEANS TWO OPPOSITE THINGS. 503 is the BFF's "this
+     * product has no upstream wired here" — and it is ALSO what talyvor-docs answers when Docs
+     * itself is running perfectly and only its Lens credential is missing
+     * (`{"error":…,"code":"AI_UNAVAILABLE"}`). Read off the status alone, the second renders as
+     * the first: "Docs is not configured on this deployment", pointing an operator at env vars
+     * that are correct. lib/productState.ts's own header records that exact failure costing a
+     * day the last time it happened, for the same reason — a diagnosis inferred from a status
+     * code that could not carry it.
+     *
+     * Optional, and absence is not evidence: a body that is not JSON, or a BFF-originated error
+     * (which never carries a code), leaves it undefined. Predicates must therefore test for the
+     * code they mean rather than treat `undefined` as a value.
+     */
+    readonly code?: string,
   ) {
     super(`${path} -> HTTP ${status}`)
     this.name = 'ApiError'
