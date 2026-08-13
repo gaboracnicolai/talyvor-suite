@@ -212,6 +212,18 @@ func newApp(cfg config, auth *authenticator) *app {
 		a.trackIssueDetail()(w, r)
 	}))
 	a.mux.HandleFunc("/api/track/issues/{id}/comments", a.requireSession(a.trackIssueComments()))
+	// Track's AI thread summary — a GET, and the first browser control for any Track AI feature.
+	// See track_ai.go for the three shapes it can answer with and why the body is not re-encoded.
+	//
+	// ⚠ NO OUTER requireSession HERE, AND THAT IS DELIBERATE — `/api/docs/ai/ask` above is
+	// registered the same way. trackIssueSummary() wraps ITSELF, so a second wrapper is a no-op.
+	// MEASURED, not assumed: control C1 of w17-tracksummary-controls-9e42.py deleted the outer
+	// wrapper from this line and NOTHING in the package went red, because the inner one was still
+	// doing the work. Two lines above, `/comments` and `/teams` ARE double-wrapped — so for those
+	// two the `requireSession` written in this table is decoration, and a reader who takes this
+	// column as the authority on which routes are gated is reading a claim nothing enforces. Not
+	// changed here: that is a separate finding about six existing routes, not this one's to ride.
+	a.mux.HandleFunc("/api/track/issues/{id}/summary", a.trackIssueSummary())
 	a.mux.HandleFunc("/api/track/teams", a.requireSession(a.trackTeams()))
 
 	// The Track roster and Lens month-spend, both pinned at registration from
