@@ -41,8 +41,16 @@ import { describe, expect, it } from 'vitest'
  *     a divergence my extractor flagged and the file itself EXPLAINS twenty lines below the
  *     header: "Optional because a Lens older than the change that added it omits the field; `?? 0`
  *     at the read sites is a deployment-skew tolerance, not a default." A deliberate, documented,
- *     load-bearing divergence. It is NOT a defect and it is NOT in the table — a rule that made a
- *     considered tolerance into a red would be read as noise and then routed around.
+ *     load-bearing divergence, and NOT a defect.
+ *
+ * ⚠ AND THE FIRST VERSION OF THIS FILE HANDLED THAT ONE BY LEAVING IT OUT OF THE TABLE AND SAYING
+ * SO IN THIS PARAGRAPH — a hand exclusion, recorded as prose, inside the guard written to stop
+ * trusting prose. It is `UPSTREAM-SPELLING` now: declared in the file that makes the divergence,
+ * so the register still asks Lens about the shape Lens actually has, and a SECOND field quietly
+ * acquiring a `?` reds instead of joining an unwritten exception. The rest of `lib/api.ts` was
+ * measured at lens `a04310a` while doing it — `LXCSnapshot`, `LedgerEntry` and `LXCLedgerEntry`
+ * match their Go structs field for field, which is a negative result and is why nothing in those
+ * three changed.
  *
  * ── WHY THE FIX IS A DECLARED SUBSET AND NOT NINE MORE FIELDS ────────────────
  *
@@ -116,10 +124,58 @@ const MIRRORS: Mirror[] = [
   { file: 'apps/web/src/areas/track/types.ts', iface: 'TrackMember', repo: 'talyvor-track', path: 'internal/member/mgmt_handler.go', struct: 'memberView' },
   { file: 'apps/web/src/areas/docs/api.ts', iface: 'DocsSpace', repo: 'talyvor-docs', path: 'internal/model/model.go', struct: 'Space' },
   { file: 'apps/web/src/areas/docs/api.ts', iface: 'DocsPage', repo: 'talyvor-docs', path: 'internal/model/model.go', struct: 'Page' },
+  { file: 'apps/web/src/lib/api.ts', iface: 'LXCSnapshot', repo: 'talyvor-lens', path: 'internal/economy/dualtoken.go', struct: 'LXCSnapshot' },
+  { file: 'apps/web/src/lib/api.ts', iface: 'LXCLedgerEntry', repo: 'talyvor-lens', path: 'internal/economy/dualtoken.go', struct: 'LXCLedgerEntry' },
+  { file: 'apps/web/src/lib/api.ts', iface: 'LensBalance', repo: 'talyvor-lens', path: 'internal/mining/cache_mining.go', struct: 'BalanceSnapshot' },
+  { file: 'apps/web/src/lib/api.ts', iface: 'LedgerEntry', repo: 'talyvor-lens', path: 'internal/mining/cache_mining.go', struct: 'LedgerEntry' },
 ]
 
-/** Words that assert the mirror IS its upstream. A mirror file's header may not use them. */
-const IDENTITY_WORDS = ['verbatim', 'field-for-field', 'exactly']
+/**
+ * The names a mirror file declares it spells DIFFERENTLY from upstream, on purpose, given in the
+ * UPSTREAM spelling (`x` required upstream, `x?` omitempty upstream). It overrides that field's own
+ * marker when the union is built, so the register still asks about the struct Lens actually has.
+ *
+ * ⚠ THIS EXISTS BECAUSE THE FIRST VERSION OF THIS FILE EXCLUDED THE ONE DIVERGENT MIRROR BY HAND,
+ * IN A PARAGRAPH. `lib/api.ts#LensBalance.held_balance_ulens` is `?:` against a Go field with no
+ * omitempty, and the file explains why twenty lines below its header: a Lens older than the change
+ * that added it omits the field, and `?? 0` at the read sites is a deployment-skew tolerance. That
+ * is a real, load-bearing, considered divergence — and "it is considered" was recorded as PROSE in
+ * a guard's header, which is the exact form this whole file exists to stop trusting. A hand
+ * exclusion cannot be checked, cannot be found by a census, and goes stale in silence. Declared
+ * here it is structure: the divergence is named in the file that makes it, the register still asks
+ * about the upstream shape, and a SECOND field quietly acquiring a `?` is a red rather than a
+ * shrug.
+ */
+function upstreamSpelling(file: string, iface: string): string[] {
+  const re = new RegExp(`UPSTREAM-SPELLING ${iface}:([a-z0-9_?,\\s*]*)`, 'g')
+  const hits = [...source(file).matchAll(re)]
+  if (hits.length !== 1) return []
+  return hits[0][1]
+    .replace(/\*/g, ' ')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
+    .map((n) => (n.endsWith('?') ? `${n.slice(0, -1)},omitempty` : n))
+}
+
+/**
+ * Words that assert the mirror IS its upstream. A mirror file's header may not use them.
+ *
+ * ⚠ THIS LIST IS DELIBERATELY BLUNT, AND BOTH OF ITS FAILURE MODES WERE MET WHILE EXTENDING IT TO
+ * lib/api.ts — by me, in the same sitting, which is the argument for the shape it has:
+ *
+ *   · FALSE POSITIVE. `exactly` is an ordinary adverb. My retraction paragraph read "far enough
+ *     away that a reader of the header never meets it" with an `exactly` in the middle of it, and
+ *     the rule red. The remedy is to reword, which costs a minute.
+ *   · FALSE NEGATIVE. The same paragraph asserted three interfaces "match their Go structs field
+ *     for field" — an identity claim in the file's own voice — and the rule did NOT see it,
+ *     because the list held the HYPHENATED spelling only. That one would have shipped.
+ *
+ * The two costs are not symmetric: a false positive is a rewrite, a false negative is the finding
+ * this whole file exists for, arriving back through a spelling. So the spaced form is matched too
+ * and the adverb stays in, rather than tuning the rule down to where I happened to be standing.
+ */
+const IDENTITY_WORDS = ['verbatim', 'field-for-field', 'field for field', 'exactly']
 
 /**
  * A header with its DOUBLE-QUOTED SPANS REMOVED — a quotation is not an assertion.
@@ -242,6 +298,16 @@ function entryFor(m: Mirror): string[] | null {
   return hits.length === 1 ? hits[0] : null
 }
 
+/**
+ * The whole upstream struct as this repo believes it: the interface's own fields, with any field
+ * whose spelling is declared to diverge replaced by its UPSTREAM spelling, plus the names declared
+ * present-upstream-and-not-mirrored.
+ */
+function unionFor(m: Mirror, fields: string[], omitted: string[]): string[] {
+  const diverge = new Map(upstreamSpelling(m.file, m.iface).map((f) => [f.split(',')[0], f]))
+  return [...fields.map((f) => diverge.get(f.split(',')[0]) ?? f), ...omitted].sort()
+}
+
 /** The field list a settle command compares the upstream struct's json tags against. */
 function expectedInCommand(command: string): string[] | null {
   const m = /=\s*"([a-z0-9_,\s]*)"\s*\]/.exec(command)
@@ -323,7 +389,7 @@ describe('every cross-repo struct mirror is still readable from both sides', () 
             'gets a confident yes about a struct this repo does not believe in — a pass for the ' +
             'wrong question, which is worse than no entry at all. The union is the whole claim: ' +
             'change the interface or the UPSTREAM-ONLY line, and change the command with it.',
-        ).toEqual([...(fields ?? []), ...(omitted ?? [])].sort())
+        ).toEqual(unionFor(m, fields ?? [], omitted ?? []))
       })
     })
   }

@@ -1,8 +1,23 @@
-// Typed reads against the BFF (same origin, /api/*). The shapes mirror the Lens source
-// verbatim (internal/economy/dualtoken.go, internal/mining/cache_mining.go) — every
-// money field is an integer count of µ-units (1e-6), never a float.
+// Typed reads against the BFF (same origin, /api/*). Every money field is an integer count of
+// µ-units (1e-6), never a float.
+//
+// The four interfaces below that name a Lens struct are a DECLARED MIRROR of it
+// (internal/economy/dualtoken.go, internal/mining/cache_mining.go): each declares the upstream
+// fields it does not carry (`UPSTREAM-ONLY <Interface>: …`) and any field it deliberately spells
+// differently (`UPSTREAM-SPELLING <Interface>: …`, given in the UPSTREAM spelling). That union is
+// what deploy/decision-expiry.sh asks a deployer to check against the Go source — the only place
+// it can be checked, because CI checks out this repository alone.
+// apps/web/src/mirrorSubsetRegister.test.ts keeps the two halves equal.
+//
+// ⚠ THE HEADER USED TO SAY THESE SHAPES MIRROR THE LENS SOURCE "VERBATIM", AND ONE OF THEM DOES
+// NOT — deliberately, with the reason far enough below that a reader of the header never meets it.
+// MEASURED at lens `a04310a`: three of the four interfaces below carry every json field of their
+// Go struct and no others, and LensBalance.held_balance_ulens is `?:` against a Go field with no
+// omitempty. That divergence is right and is DECLARED now rather than being an unwritten
+// exception to a word in a header.
 
-/** GET /v1/workspaces/{ws}/lxc/balance → economy.LXCSnapshot */
+/** GET /v1/workspaces/{ws}/lxc/balance → economy.LXCSnapshot.
+ *  UPSTREAM-ONLY LXCSnapshot: none */
 export interface LXCSnapshot {
   workspace_id: string
   balance_ulxc: number
@@ -11,7 +26,14 @@ export interface LXCSnapshot {
   usd_value_uusd: number
 }
 
-/** GET /v1/workspaces/{ws}/tokens/balance → mining.BalanceSnapshot */
+/** GET /v1/workspaces/{ws}/tokens/balance → mining.BalanceSnapshot.
+ *
+ *  ⚠ `held_balance_ulens` is the ONE field in this file spelled differently from its upstream, and
+ *  the reason is on the field itself. Declared so the deploy register still asks Lens about the
+ *  struct Lens has, and so a SECOND field acquiring a `?` is a red rather than an unwritten
+ *  exception. Its own doc comment below is the reason; this line is only the fact.
+ *  UPSTREAM-SPELLING LensBalance: held_balance_ulens
+ *  UPSTREAM-ONLY LensBalance: none */
 export interface LensBalance {
   workspace_id: string
   /** SPENDABLE LENS. A held mint does not touch this. */
@@ -42,7 +64,8 @@ export interface LensBalance {
  *  the map is `{request_id, traffic_hold}` (mining/traffic_holds.go:181) or `{request_id}`
  *  (poolroyalty/sweeper.go:257) — no model, no latency. Read no key out of this map without
  *  checking which writer puts it there; spendMath.byModel reads `model_used` and the
- *  screens now state what an empty result means. */
+ *  screens now state what an empty result means.
+ *  UPSTREAM-ONLY LedgerEntry: none */
 export interface LedgerEntry {
   id: string
   workspace_id: string
@@ -55,7 +78,8 @@ export interface LedgerEntry {
 }
 
 /** GET /v1/workspaces/{ws}/lxc/history → []economy.LXCLedgerEntry. Same shape as the LENS
- *  ledger but for the pegged token: the µ-fields are `_ulxc`, not `_ulens`. */
+ *  ledger but for the pegged token: the µ-fields are `_ulxc`, not `_ulens`.
+ *  UPSTREAM-ONLY LXCLedgerEntry: none */
 export interface LXCLedgerEntry {
   id: string
   workspace_id: string
