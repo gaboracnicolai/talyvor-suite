@@ -42,17 +42,39 @@ import { join, relative } from 'node:path'
 // a substitute for a test that refuses the read and reads the screen.
 
 const SRC = join(__dirname)
+const UI_SRC = join(__dirname, '../../../packages/ui/src')
 
-// Surfaces only, same boundary EmptyStates.test.tsx draws and for the same reason: routes/ is
-// legal copy and lib/ has no JSX.
-const SCANNED = ['areas', 'components']
+// ⚠ THE BOUNDARY THIS CLAIMED TO SHARE WITH EmptyStates.test.tsx WAS THE SAME BOUNDARY AND THE
+// SAME DEFECT. Both stated an EXCLUSION in prose ("routes/ is legal copy and lib/ has no JSX")
+// and implemented an INCLUSION (`['areas', 'components']`), so both were blind to everything
+// else the product ships — App.tsx, and any top-level directory added after they were written.
+// MEASURED by recording every path this test opens rather than by reading the walk
+// (`~/talyvor-queue/w11-population-census-4b2e.py`): 33 of 102 production files, and the arrival
+// probe in the same harness showed a new file at `apps/web/src/panels/CostPanel.tsx` — the shape
+// areas/ components/ routes/ lib/ already have — opened by six of the eight sweeps in this class
+// and by neither of these two.
+//
+// ⚠ THE MISSED REGION IS EMPTY OF THIS FILE'S SUBJECT TODAY, AND THAT IS REPORTED RATHER THAN
+// USED TO CLOSE THE QUESTION. `findEmptyBranches` was run over all 22 `.tsx` files the old walk
+// never opened and found ZERO `.length === 0` branches — so unlike EmptyStates, which really had
+// missed a live empty state in App.tsx, nothing had escaped here YET. The population is asserted
+// anyway: "nothing has landed there so far" is a fact about today, not a property of the guard.
+const ROOTS = [SRC, UI_SRC]
+
+// Each exclusion re-measured, same as EmptyStates.test.tsx and with the same two answers:
+// routes/ is load-bearing THERE (legal prose trips that detector) and inert here — routes/*.tsx
+// hold no empty-collection branch at all — while lib/ is inert in both, since no lib/ directory
+// in either package contains a single `.tsx`. Both stay so the two files draw one boundary; the
+// claim that they do is now enforced by the set comparison below rather than by a comment.
+const EXCLUDED = ['routes', 'lib']
 
 function walk(dir: string): string[] {
   const out: string[] = []
   for (const name of readdirSync(dir)) {
     const p = join(dir, name)
-    if (statSync(p).isDirectory()) out.push(...walk(p))
-    else if (p.endsWith('.tsx') && !p.endsWith('.test.tsx')) out.push(p)
+    if (statSync(p).isDirectory()) {
+      if (!EXCLUDED.includes(name) && name !== 'node_modules') out.push(...walk(p))
+    } else if (p.endsWith('.tsx') && !p.endsWith('.test.tsx')) out.push(p)
   }
   return out
 }
@@ -156,15 +178,58 @@ export function findEmptyBranches(src: string, file = '<memory>'): Branch[] {
   return out
 }
 
+/** Every surface the product ships, both packages, tests and the excluded directories out. */
 function surfaces(): string[] {
-  return SCANNED.flatMap((dir) => walk(join(SRC, dir)))
+  return ROOTS.flatMap(walk)
 }
 
+/** Repo-relative, so a `packages/ui` surface reports as itself and not as `../../../…`. */
+const rel = (file: string) => relative(join(SRC, '../../..'), file)
+
 function sweep(): Branch[] {
-  return surfaces().flatMap((file) =>
-    findEmptyBranches(readFileSync(file, 'utf8'), relative(SRC, file)),
-  )
+  return surfaces().flatMap((file) => findEmptyBranches(readFileSync(file, 'utf8'), rel(file)))
 }
+
+/**
+ * ⚠ THE POPULATION IS ASSERTED BY A SECOND INSTRUMENT THAT CANNOT FAIL THE SAME WAY, which is
+ * the repair #183 established and this file did not carry. `import.meta.glob` is resolved by Vite
+ * at TRANSFORM time and touches `node:fs` not at all, so a wrong root, a changed extension
+ * filter, or a walk that quietly stops descending cannot move both enumerations together. A floor
+ * cannot do this job: `found.length >= 10` is satisfied by the files that survive any of those.
+ *
+ * ⚠ THE CALL IS LITERAL ON PURPOSE — Vite rewrites `import.meta.glob` by matching the SYNTAX at
+ * transform time, so hoisting the patterns into a variable typechecks and then dies at runtime.
+ */
+describe('the sweep reads every surface the product ships', () => {
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.tsx', '../../../packages/ui/src/**/*.tsx']),
+  )
+    .filter((k) => !k.endsWith('.test.tsx'))
+    .map((k) => rel(join(SRC, k)))
+    .filter((p) => !EXCLUDED.some((d) => p.includes(`/src/${d}/`)))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Far below the count at 5d297e9 (51): this catches a root that resolves to nothing, not a
+    // refactor that moves files. The set comparison is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(30)
+  })
+
+  it('the fs walk and Vite’s glob agree on the surface set, both directions', () => {
+    const swept = new Set(surfaces().map(rel))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees surfaces this walk never opens. Every branch rule is applied to whatever the ' +
+        'walk returns, so a file missing here is a panel whose empty branches have never been ' +
+        'asked whether a refused read can reach them.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk opened files Vite does not see. Either it left the two roots, or the two ' +
+        'disagree about what a surface is.',
+    ).toEqual([])
+  })
+})
 
 describe('an empty state must not be what a refused read looks like', () => {
   const found = sweep()
