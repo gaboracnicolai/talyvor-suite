@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
+import { focusRing } from '@talyvor/ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IssueDetail } from './IssueDetail'
 
@@ -286,5 +287,176 @@ describe('the comment thread distinguishes a fault from an empty thread', () => 
     open()
     expect(await screen.findByText(/no comments yet/i)).toBeInTheDocument()
     expect(screen.queryByText(/fault, not an empty thread/i)).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// THE DRAFT, THE COMMENT AND THE REFUSAL ALL BELONG TO ONE ISSUE.
+//
+// React Router matches /track/issues/:id to ONE <Route> element, so moving from issue A to issue B
+// changes the params underneath this component and does NOT remount it — every useState survives.
+// This is the Track half of the shape `f4c1e97` (#190) fixed in areas/docs; the two screens were
+// written months apart and arrived at the same defect independently.
+//
+// ⚠ NOT REACHABLE FROM THIS UI TODAY, and fixed anyway for the reason #190 gives. Nothing on this
+// screen links to another issue: the only way out is "‹ Issues", which goes up to the list and DOES
+// remount. One ordinary addition — a parent link (`parent_id` is already on the type), a related
+// list, a search result, prev/next — makes it live, and the person adding that link has no reason
+// to suspect this file.
+//
+// MEASURED before the fix existed: with a draft open on issue A, arriving at B and pressing Save
+// sent `PATCH /api/track/issues/b {"description":"<the words typed on A>"}`. The three cases below
+// were RED; the fourth was already green, which is what makes it worth keeping.
+//
+// CONTROLS — ~/talyvor-queue/w11-issuestate-controls-5c3a.py, 6 mutations, green baseline,
+// sha256 byte-restore:
+//   C1 the whole reset removed          -> the 3 positive cases red, the must-stay-green stays green
+//   C2 the reset forgets setDraft       -> EXACTLY the description case. This one assertion is what
+//                                          stands between a reader and a cross-issue write.
+//   C3 the reset forgets setComment     -> EXACTLY the comment case
+//   C4 the reset forgets setFailure     -> EXACTLY the refusal case
+//   C5 the reset fires on EVERY render  -> the MUST-STAY-GREEN reds, plus four cases in
+//                                          writeUnderDeadCredential.test.tsx. The negative half is
+//                                          load-bearing: over-resetting eats the keystrokes of the
+//                                          issue you are actually on, and it would otherwise pass
+//                                          all three positive cases.
+//   NEG ordinary growth                 -> 0 red
+// ⚠ C1–C4 each ALSO redded pointerAudit.test.ts, and that is an artefact of the harness, not a
+// second catcher: deleting lines from IssueDetail.tsx moves the line another file cites.
+
+/** A BFF that serves any issue id, so the same <Route> can be driven from one issue to another. */
+function mockTwoIssues() {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const path = String(input)
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    recorded.push({ method, path, body })
+    const json = (b: unknown, status = 200) =>
+      new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+    if (path === '/api/members') return json([])
+    if (path === '/api/track/teams') return json([])
+    if (path.endsWith('/comments') && method === 'POST') return json({ ok: true })
+    if (path.endsWith('/comments')) return json([])
+    const m = path.match(/^\/api\/track\/issues\/([^/]+)$/)
+    if (m && method === 'PATCH') return json({})
+    if (m) {
+      return json({
+        ...ISSUE,
+        id: m[1],
+        identifier: m[1].toUpperCase(),
+        title: `Title ${m[1]}`,
+        description: `Description of ${m[1]}.`,
+      })
+    }
+    return json(null, 404)
+  })
+}
+
+/** Renders the SAME <Route> the app has, plus one control that moves between two issues. */
+function openTwoIssues() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  function Jump() {
+    const nav = useNavigate()
+    // `focusRing` because src/focusAudit.ts sweeps the live DOM at teardown and a bare focusable
+    // control in a fixture fails the test that renders it.
+    return (
+      <button className={focusRing} onClick={() => nav('/track/issues/bbb')}>
+        go to bbb
+      </button>
+    )
+  }
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={['/track/issues/aaa']}>
+        <Jump />
+        <Routes>
+          <Route path="/track/issues/:id" element={<IssueDetail />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+describe('the state on this screen belongs to the issue that is open', () => {
+  it('an unsaved description typed on one issue is never saved onto another', async () => {
+    mockTwoIssues()
+    openTwoIssues()
+    await screen.findByText('Description of aaa.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit description' }))
+    fireEvent.change(screen.getByLabelText('Description'), {
+      target: { value: 'Words that belong to aaa.' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'go to bbb' }))
+    await screen.findByText('Title bbb')
+
+    // The reader is on bbb. Whatever the editor is showing, it must not be aaa's words — and the
+    // save that a reader would now reach for must not carry them either.
+    const box = document.querySelector('#issue-description') as HTMLTextAreaElement | null
+    expect(box?.value ?? '').not.toContain('aaa')
+
+    if (box) {
+      fireEvent.click(screen.getByRole('button', { name: 'Save description' }))
+      await waitFor(() => expect(lastWrite('PATCH')).toBeTruthy())
+      expect((lastWrite('PATCH')?.body as { description?: string })?.description).not.toContain('aaa')
+    }
+  })
+
+  it('a comment typed on one issue is never posted to another thread', async () => {
+    mockTwoIssues()
+    openTwoIssues()
+    await screen.findByText('Description of aaa.')
+
+    fireEvent.change(screen.getByLabelText('Add a comment'), {
+      target: { value: 'A reply meant for aaa.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'go to bbb' }))
+    await screen.findByText('Title bbb')
+
+    expect((document.querySelector('#new-comment') as HTMLInputElement).value).toBe('')
+  })
+
+  it('a refusal about one issue is not still on screen over another', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const path = String(input)
+      const method = init?.method ?? 'GET'
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      if (path === '/api/members') return json([])
+      if (path === '/api/track/teams') return json([])
+      if (path.endsWith('/comments')) return json([])
+      if (method === 'PATCH') return json({ error: 'no' }, 500)
+      const m = path.match(/^\/api\/track\/issues\/([^/]+)$/)
+      if (m) return json({ ...ISSUE, id: m[1], identifier: m[1].toUpperCase(), title: `Title ${m[1]}`, description: `Description of ${m[1]}.` })
+      return json(null, 404)
+    })
+    openTwoIssues()
+    await screen.findByText('Description of aaa.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit description' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save description' }))
+    expect(await screen.findByText(/did not save/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'go to bbb' }))
+    await screen.findByText('Title bbb')
+    expect(screen.queryByText(/did not save/i)).toBeNull()
+  })
+
+  // ⚠ THE OTHER DIRECTION. A component that threw its state away on every render would pass all
+  // three above and be useless: typing into the editor must survive an ordinary re-render of the
+  // SAME issue, or the reset is a keystroke eater rather than a boundary.
+  it('MUST STAY GREEN — editing the issue you are on is not disturbed', async () => {
+    mockTwoIssues()
+    openTwoIssues()
+    await screen.findByText('Description of aaa.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit description' }))
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Still editing aaa.' } })
+    fireEvent.change(screen.getByLabelText('Add a comment'), { target: { value: 'Still typing.' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save description' }))
+    await waitFor(() => expect(lastWrite('PATCH')).toBeTruthy())
+    expect((lastWrite('PATCH')?.body as { description?: string })?.description).toBe('Still editing aaa.')
   })
 })
