@@ -11,18 +11,25 @@ Enumerated from **talyvor-docs @ `e0cf605`** (origin/main), read-only.
 > therefore probe and report what the deployment says — see `lib/productState.ts`. When a Docs
 > upstream appears they light up without an edit here.
 
-**Proxy mechanics (same as the existing route, `apps/bff/lens.go:74`):** upstream base
+**Proxy mechanics (same as the existing route, `apps/bff/lens.go:87`):** upstream base
 `cfg.docsBaseURL`, transit proof `X-Gateway-Auth: cfg.docsGatewaySecret`, identity headers from the
 session (gatewayauth reads user email/id/teams/issuer AFTER the constant-time proof), workspace
-pinned server-side to `cfg.docsWorkspaceID`, upstream body streamed **verbatim**. Every route below
-is GET (one optional POST noted), so the BFF's read-only posture holds. Upstream errors are
-`{"error":…,"code":…}` and pass through honestly. Authorization stays upstream: the session user
-must be a member of the pinned workspace, and space/page tiers (View) are enforced by talyvor-docs
-per route — a 403 means "not your tier", not a BFF bug.
+resolved **per request from the SESSION** (`docsWorkspaceFor`), upstream body streamed **verbatim**.
+Every route below is GET (one optional POST noted), so the BFF's read-only posture holds. Upstream
+errors are `{"error":…,"code":…}` and pass through honestly. Authorization stays upstream: the
+session user must be a member of that workspace, and space/page tiers (View) are enforced by
+talyvor-docs per route — a 403 means "not your tier", not a BFF bug.
 
-Path-shape rule, following the existing route: the BFF strips `/api/docs` and pins the workspace
-where the upstream path carries `{wsID}`; space/page ids pass through as opaque segments (they are
-upstream-scoped to the pinned workspace by membership + tier checks).
+> ⚠ This paragraph said "workspace **pinned server-side to `cfg.docsWorkspaceID`**" until it was
+> measured. There is no such config field: suite #59 (`030ea53`) deleted `DOCS_WORKSPACE_ID`, and
+> `track_tenant_test.go`'s `configHasField` check now FAILS if it ever returns, because a handler
+> closing over one workspace at registration is how every signed-in person came to share one.
+> Docs is per-identity — the id is the session's Track workspace by construction
+> (`docsWorkspacePath`).
+
+Path-shape rule, following the existing route: the BFF strips `/api/docs` and substitutes the
+SESSION's workspace where the upstream path carries `{wsID}`; space/page ids pass through as opaque
+segments (they are upstream-scoped to that workspace by membership + tier checks).
 
 ## Tier 1 — MUST: makes browse + read live (this area flips off fixtures)
 
