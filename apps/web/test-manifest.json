@@ -92,7 +92,7 @@
   "src/Sharing.test.tsx": 8,
   "src/statusChangeRefusal.test.tsx": 7,
   "src/tokenDoor.test.ts": 10,
-  "src/topUpMirrorRegister.test.ts": 3,
+  "src/topUpMirrorRegister.test.ts": 9,
   "src/typeScaleUnits.test.ts": 10,
   "src/upstreamCitations.test.ts": 8,
   "src/writeUnderDeadCredential.test.tsx": 15
