@@ -94,6 +94,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	// the session user's membership + View tier; a 403/404 passes through honestly.
 	// The page LIST projects away the heavy `content`/`content_text` fields (see
 	// docsPageList) — a tree view has no business transferring whole documents.
+	// ASK-AI. The first browser-reachable AI control in this product — see docs_ai.go, and
+	// docs_ai_test.go for why this route's 503 must stay distinguishable from the BFF's own.
+	// Registered ABOVE the id-routes only for reading order; ServeMux prefers the more specific
+	// literal regardless, so `/api/docs/ai/ask` can never be taken for a `{spaceID}` of "ai".
+	a.mux.HandleFunc("/api/docs/ai/ask", a.docsAskAI())
+
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}", a.requireSession(a.docsSpaceDetail()))
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
