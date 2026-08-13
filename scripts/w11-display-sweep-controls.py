@@ -16,6 +16,18 @@ EVERY CONTROL, WITHOUT EXCEPTION:
     a control that breaks the build is not a control;
   · restores the tree byte-identically and verifies it against git.
 
+⚠ RE-ANCHORED (tab-5e8a). This harness had refused to run since `a19c18f` (#126): FIVE of its eight
+controls quoted `<h1 className="text-title text-ink">` out of IssueDetail.tsx and the heading became
+an `<h2>` when that merge made the console shell's banner the one h1 per address. C2's anchor was
+dead too — `<div className="mx-auto …">` became `<main …>` for the landmark — and NOTHING KNEW,
+because `apply_edits` refuses at the FIRST miss, so the second death was invisible behind the first.
+Both deaths are the ELEMENT NAME moving while the className stayed put, which is why the anchors
+below no longer quote a tag: `text-title text-ink`, `mx-auto w-full max-w-3xl px-gutter py-10` and
+`{it.title}`, each MEASURED to occur exactly once before being chosen. Quoting the whole element
+re-arms the decay on every future edit to a part the control does not care about. C4 now hangs its
+comment INSIDE the heading (`{/* … */}{it.title}`) rather than beside it, same construct and the
+same demand on `stripComments`, one less tag to depend on.
+
 ⚠ C1c IS THE ONE THAT EARNS THE MERGE. C1a shows the FIXED sweep catches a planted offender — that
 would also be true of a sweep that had never been broken, so it is necessary and not sufficient.
 C1c restores the pre-fix reader AND removes the floor this merge adds, reproducing main exactly, and
@@ -117,7 +129,7 @@ CONTROLS: list[Control] = [
     Control(
         name="C1a  planted offender, FIXED reader",
         why="a console surface reaching for display type is the defect the file exists to refuse",
-        edits=[Edit(ISSUE_DETAIL, '<h1 className="text-title text-ink">', '<h1 className="text-display-3 text-ink">')],
+        edits=[Edit(ISSUE_DETAIL, "text-title text-ink", "text-display-3 text-ink")],
         must_red=SWEEP_TEST,
         must_green="the scale is still in use on the public page",
     ),
@@ -125,7 +137,7 @@ CONTROLS: list[Control] = [
         name="C1b  planted offender, PRE-FIX reader, floor PRESENT",
         why="re-splitting the definition must red on the sweep's OWN floor rather than going quiet",
         edits=[
-            Edit(ISSUE_DETAIL, '<h1 className="text-title text-ink">', '<h1 className="text-display-3 text-ink">'),
+            Edit(ISSUE_DETAIL, "text-title text-ink", "text-display-3 text-ink"),
             Edit(GUARD, FIXED_READER, BROKEN_READER),
         ],
         # The sweep's own floor is what speaks now. It MUST red — but on the FLOOR, not the offender.
@@ -136,7 +148,7 @@ CONTROLS: list[Control] = [
         name="C1c  planted offender, PRE-FIX reader AND the sweep's floor blinded",
         why="the exact state main was in: reader empty, nothing asserting it read anything. MUST NOT CATCH.",
         edits=[
-            Edit(ISSUE_DETAIL, '<h1 className="text-title text-ink">', '<h1 className="text-display-3 text-ink">'),
+            Edit(ISSUE_DETAIL, "text-title text-ink", "text-display-3 text-ink"),
             Edit(GUARD, FIXED_READER, BROKEN_READER),
             Edit(GUARD, "expect(gated.length, 'the sweep below reached no files", "expect(gated.length + 99, 'the sweep below reached no files"),
             Edit(
@@ -157,7 +169,7 @@ CONTROLS: list[Control] = [
             "about the sweep. Privacy is routed publicly and carries none, so the edit is the only "
             "marketing step in the file."
         ),
-        edits=[Edit(PRIVACY, '<div className="mx-auto w-full max-w-3xl px-gutter py-10">', '<div className="text-lede mx-auto w-full max-w-3xl px-gutter py-10">')],
+        edits=[Edit(PRIVACY, "mx-auto w-full max-w-3xl px-gutter py-10", "text-lede mx-auto w-full max-w-3xl px-gutter py-10")],
         must_red=SWEEP_TEST,
         must_green="the scale is still in use on the public page",
         expect_red=False,
@@ -172,7 +184,7 @@ CONTROLS: list[Control] = [
     Control(
         name="C4   offender in a COMMENT in a gated file",
         why="stripComments is load-bearing; prose about a class is not a use of it (the W1.8 trap)",
-        edits=[Edit(ISSUE_DETAIL, '<h1 className="text-title text-ink">', '{/* never text-display-3 here */}\n          <h1 className="text-title text-ink">')],
+        edits=[Edit(ISSUE_DETAIL, "{it.title}", "{/* never text-display-3 here */}{it.title}")],
         must_red=SWEEP_TEST,
         must_green="the detector tells a class from a sentence about one",
         expect_red=False,
@@ -180,7 +192,7 @@ CONTROLS: list[Control] = [
     Control(
         name="C5   the FAMILY, not the size, in a gated file",
         why="`font-figure` is what eight money surfaces wear; a /figure/ detector would red them all",
-        edits=[Edit(ISSUE_DETAIL, '<h1 className="text-title text-ink">', '<h1 className="font-figure text-title text-ink">')],
+        edits=[Edit(ISSUE_DETAIL, "text-title text-ink", "font-figure text-title text-ink")],
         must_red=SWEEP_TEST,
         must_green="the detector tells a class from a sentence about one",
         expect_red=False,
