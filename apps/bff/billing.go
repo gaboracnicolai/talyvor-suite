@@ -25,11 +25,27 @@ package main
 //   · one declaration (allowedTopUpCents), served to the UI by
 //     /api/lxc/topup-options — the SCREEN never hardcodes an amount, so it can
 //     never offer a button this BFF would refuse;
-//   · a test pins the values against the Lens source, so changing them is
-//     deliberate rather than accidental;
+//   · TestAllowedTopUpsRestatedDeliberately makes a change to THIS list a
+//     two-place edit rather than a slip. ⚠ IT IS NOT A PIN AGAINST LENS, AND
+//     THIS LINE USED TO CLAIM IT WAS. The test declares the same three literals
+//     in the same package and compares copy to copy; it reads nothing of
+//     talyvor-lens and no test here can, because CI checks out this repository
+//     alone. A guard that reads a sibling repo only when it happens to be
+//     present is inert in CI — which is precisely where it would have to fire.
+//     The cross-repo half is a DEPLOY-TIME command instead:
+//     deploy/decision-expiry.sh prints it in its UNCHECKABLE-HERE half with the
+//     exact grep to run in a talyvor-lens checkout, and
+//     apps/web/src/topUpMirrorRegister.test.ts keeps the amounts in that command
+//     equal to the amounts declared below;
 //   · and if the two repos ever DO drift, Lens answers 400 and this file
 //     reports that as a version mismatch naming both lists — not as the
-//     customer having typed something wrong.
+//     customer having typed something wrong. ⚠ THAT COVERS REMOVAL ONLY, and
+//     removal is the direction the list is documented never to move in. The
+//     expected drift is an APPEND: Lens starts selling a fourth size,
+//     amountAllowed refuses it before any dial, /api/lxc/topup-options never
+//     offers it, the screen never draws the button, and NOTHING goes red in
+//     either repo — the only symptom is revenue that does not arrive. That
+//     direction is the register entry's whole subject.
 //
 // The one-line fix that would remove the copy entirely lives in the other repo:
 // expose AllowedTopUpCents() on a public Lens route and read it here.
@@ -68,7 +84,11 @@ import (
 // allowedTopUpCents MIRRORS talyvor-lens internal/billing/billing.go
 // `allowedTopUps` — the server-side top-up sizes in USD cents ($10 / $50 / $100).
 // Lens exposes this list on no endpoint (AllowedTopUpCents has zero callers), so
-// this copy is unavoidable; TestAllowedTopUpsMirrorLens is what keeps it honest.
+// this copy is unavoidable. What keeps it honest is a DEPLOY-TIME check and not
+// a test: deploy/decision-expiry.sh's uncheckable half carries the grep to run
+// in a talyvor-lens checkout, and apps/web/src/topUpMirrorRegister.test.ts keeps
+// that grep's amounts equal to the ones below. TestAllowedTopUpsRestatedDeliberately
+// makes an edit here a two-place edit — it reads nothing of Lens.
 //
 // ADDITIVE-ONLY, for the reason Lens states: async payment methods can settle
 // days after a session is created and the webhook re-checks the list, so

@@ -299,6 +299,45 @@ cannot "one secret gates BOTH Track service endpoints (why MEMBER_SYNC_SECRET is
     "talyvor-track cmd/track/main.go" \
     "[ \"\$(grep -c 'cfg.MemberSyncSecret' cmd/track/main.go)\" = 2 ]   # ONE secret read at BOTH mount points — a count of 1 is the failure, and grep -c's own exit status cannot see it"
 
+# ── THE MONEY ALLOW-LIST, AND WHY IT IS HERE RATHER THAN IN A TEST ───────────
+# DECISION: apps/bff/billing.go keeps its OWN copy of Lens's accepted top-up sizes
+#           (allowedTopUpCents), refuses anything else in amountAllowed BEFORE dialing Lens, and
+#           serves the list to the screen from /api/lxc/topup-options so the UI can never draw a
+#           button this BFF would reject.
+# PREMISE:  Lens still accepts exactly those three sizes.
+#
+# ⚠ THE MITIGATION THIS ENTRY REPLACES WAS A RESTATEMENT WEARING THE WORD "PIN". billing.go's
+# header said "a test pins the values against the Lens source". MEASURED: the test declared the
+# same three literals in the same package and compared copy to copy — it read nothing of
+# talyvor-lens, and no test here can. CI checks out this repository alone, so a guard that reads a
+# sibling repo only when it happens to be present is inert in CI, which is exactly where it would
+# have to fire. That is this register's own "weakest of the three forms" argument arriving from
+# below: form 2 was unavailable, and calling it form 2 anyway is worse than admitting form 3.
+#
+# ⚠ THE OPEN DIRECTION IS THE APPEND, WHICH IS ALSO THE ONLY DIRECTION THE LIST IS DOCUMENTED TO
+# MOVE IN. Both repos state the list is ADDITIVE-ONLY (an async payment can settle days after the
+# session is created and the webhook re-checks the list, so removing a size would mark a
+# legitimately-paid purchase anomalous). Removal is already covered at runtime — Lens answers 400
+# and handleLXCCheckout reports allow-list drift naming both lists. An APPEND is silent in both
+# repos: Lens sells a fourth size, this BFF refuses it before any dial, the screen never offers it,
+# nothing goes red, and the only symptom is revenue that never arrives.
+#
+# ⚠ THE COMMAND WAS RUN IN A REAL talyvor-lens CHECKOUT IN EVERY STATE BEFORE BEING WRITTEN DOWN,
+# because a prescription nobody has watched fail is not known to fail:
+#   today's three sizes                                                        EXIT 0
+#   the same command against an APPENDED fourth size — the arrival case        EXIT 1
+#   the file absent: grep writes nothing to stdout, so `[ "" = 1 ]` is false   EXIT 1
+#   the bare `grep -c … FILE` form this register forbids, same absent file     EXIT 2
+# It greps the WHOLE declaration line for that reason: a pattern matching only the name would go
+# on saying yes across the one change this premise exists to catch.
+#
+# apps/web/src/topUpMirrorRegister.test.ts keeps the amounts in this command equal to the amounts
+# apps/bff/billing.go enforces. Without it a deployer can get a confident yes about a list this
+# BFF does not use — a pass for the wrong question, which is worse than no entry at all.
+cannot "Lens still accepts exactly \$10 / \$50 / \$100 (the BFF copies this list into allowedTopUpCents and refuses anything else before it dials Lens)" \
+    "talyvor-lens internal/billing/billing.go" \
+    "[ \"\$(grep -c '^var allowedTopUps = \[\]int64{1000, 5000, 10000}\$' internal/billing/billing.go)\" = 1 ]   # in a talyvor-lens checkout; the WHOLE declaration line, so an APPENDED fourth size fails it — and a count of 0, which is also what an absent file produces, is the failure grep -c's own exit status cannot see"
+
 # ── W1.1's premise, and it is not in ANY repository ──────────────────────────
 # DECISION: the console's dark theme IS the public site's palette — canvas/surface/ink/muted/
 #           accent taken byte for byte, with every divergence named and measured.
