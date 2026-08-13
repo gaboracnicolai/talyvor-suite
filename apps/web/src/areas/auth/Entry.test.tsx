@@ -195,8 +195,13 @@ describe('what the page promises tracks the actual gate', () => {
   })
 
   it('an OLDER BFF that does not report signup_open is treated as unknown, not as open', async () => {
-    // signup_open omitted entirely. Silence must not manufacture a promise — the same rule
-    // docs_shared follows.
+    // signup_open omitted entirely. Silence must not manufacture a promise.
+    //
+    // ⚠ This named `docs_shared` as the field following the same rule until #59 deleted that
+    // field — and the comparison had been the wrong way round even while it stood: an absent
+    // docs_shared was treated as FALSE, whereas an absent signup_open is UNKNOWN, a third state
+    // of its own (lib/signupOpen.ts). Both refuse to manufacture a claim from silence; they do
+    // it differently, and only one of them still exists.
     mockMe({})
     at('/signup')
     await screen.findByRole('heading', { level: 1 })

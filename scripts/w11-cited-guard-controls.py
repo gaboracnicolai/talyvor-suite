@@ -46,10 +46,17 @@ CONTROLS = [
           '"TestLogout_RefusesCrossOrigin": "x", "TestMembersProxiesPinnedTrackWorkspace": '
           '"keys_test.go records it as replaced when Track went " +')]),
 
+    # ⚠ THIS ANCHOR QUOTES THE REASON STRING, so correcting that string breaks the control — and
+    # the correction was made (the old reason claimed the docs_shared disclosure "cannot outlive
+    # the pin it described"; it outlived it four times). The runner reports ANCHOR-MISS and exits
+    # 1 rather than scoring an un-applied patch as a pass, which is the only reason this was
+    # noticed at all. Re-anchored on the corrected text.
     ("K4", "TestCitedButGoneEntriesAreActuallyGone", "an exemption with no reason", [
         (CITED,
          '"TestAuthMeDocsSharedIsDerivedNotHardcoded": "track_tenant_test.go records its deletion as the point: " +\n'
-         '\t\t"/auth/me no longer serves docs_shared, so the disclosure cannot outlive the pin it described.",',
+         '\t\t"/auth/me no longer serves docs_shared, so a test asserting how it is derived would assert " +\n'
+         '\t\t"nothing. The prose describing the field is NOT covered by that and had to be swept " +\n'
+         '\t\t"separately — see apps/web/src/danglingClaimAudit.test.ts.",',
          '"TestAuthMeDocsSharedIsDerivedNotHardcoded": "",')]),
 
     ("K5", "TestCitedTestCensusFindsAPopulation",
@@ -65,9 +72,17 @@ CONTROLS = [
           '\ta.mux.HandleFunc("/api/zzz-control", a.requireTenant(a.handlePoolingChoice))\n'
           '\ta.mux.HandleFunc("/api/", a.requireSession(a.handleAPINotFound))')]),
 
+    # ⚠ K7 HAD BEEN APPLYING NOTHING, AND IT IS NOT A CONTROL THAT WENT WRONG — IT IS THE SHAPE
+    # THE WHOLE FILE IS ABOUT, ONE LEVEL UP. The anchor quotes a route's REQUEST BODY verbatim,
+    # and the convert route's field was renamed `lxc` → `lxc_amount_ulxc` in production source
+    # with no reason for anyone to look here. From that commit on, K7 patched nothing, the suite
+    # went green, and the run printed `invalid 1` — loudly, which is the only reason this was
+    # caught. Found at 8ba994f by running the script, not by reading it. Re-anchored on the
+    # method and path only: the body is not what the control is about, and quoting it again
+    # would re-arm the same decay.
     ("K7", "TestEveryMutatingRoute_IsGuardedOrExplicitlyExempt",
      "a real write route is REMOVED from the swept list", [
-         (SAME, '\t\t{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc":100000}`},\n', "")]),
+         (SAME, '\t\t{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc_amount_ulxc":100000}`},\n', "")]),
 
     ("K8", "TestEveryMutatingRoute_IsGuardedOrExplicitlyExempt",
      "the route-table scan reads nothing (the sweep would check no route)", [
