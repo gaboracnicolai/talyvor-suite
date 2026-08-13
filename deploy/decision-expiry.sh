@@ -441,6 +441,77 @@ cannot "Docs' /v1/service/ lane skips membership authz but still requires the ga
     "talyvor-docs internal/gatewayauth/exempt.go" \
     "[ \"\$(go test ./internal/trackintegration/ -run 'TestServiceRoute' -v 2>&1 | grep -c '^--- PASS: TestServiceRoute')\" = 2 ]   # BOTH halves: accepts the BFF's exact request, AND still refuses without the proof — one passing is not the premise"
 
+# ── THE SEVEN CROSS-REPO STRUCT MIRRORS, AND THE SENTENCE THAT STOOD IN FOR THEM ────
+# DECISION: apps/web/src/areas/track/types.ts and apps/web/src/areas/docs/api.ts declare
+#           TypeScript shapes for structs that live in talyvor-track and talyvor-docs, and every
+#           screen and fixture in those areas is typed off them.
+# PREMISE:  each interface, PLUS the upstream fields it declares it does not mirror, is still the
+#           whole upstream struct.
+#
+# ⚠ THESE ENTRIES EXIST BECAUSE THE PREMISE WAS CARRIED BY A SENTENCE INSTEAD, AND THE SENTENCE WAS
+# FALSE IN BOTH FILES. types.ts said "JSON-verbatim from talyvor-track @ a3bc7b2 … so the day the
+# BFF proxies these routes, the fixture types are already the live types" while TrackIssue held 21
+# of model.Issue's 30 json fields; `labels` and `sort_order` carry no omitempty, so they are on
+# EVERY issue response. api.ts said "Shapes mirror talyvor-docs internal/model/model.go VERBATIM
+# (field-for-field, at e0cf605) — the types already speak the upstream shape" while DocsPage held
+# 29 of model.Page's 31, missing own_ai_cost_usd and total_ai_cost_usd, both without omitempty.
+# Neither is a live bug: the BFF streams these bodies through and the extra keys are invisible to
+# TypeScript. The PROMISE is what was false, and no change in this repository could falsify it.
+#
+# ⚠ WHY THIS IS THE WEAK FORM AND NOT A TEST, AGAIN. A test here would have to read a sibling
+# repository. CI checks out this one alone, so it would be inert exactly where it must fire — the
+# argument topUpMirrorRegister.test.ts measured for the money allow-list, arriving unchanged for
+# shapes. apps/web/src/mirrorSubsetRegister.test.ts holds the half that IS local: the field set
+# each command below asks about equals the interface's own fields plus its declared UPSTREAM-ONLY
+# names. Without it a deployer can get a confident yes about a struct this repo does not believe
+# in, which is a pass for the wrong question.
+#
+# ⚠ THE COMMAND IS A THIRD SHAPE, SO IT WAS RUN IN EVERY STATE BEFORE BEING WRITTEN DOWN — the
+# register's two known hazards (`go test -run` matching nothing, `grep -c` trusted for its exit
+# status) are both about a pipeline that answers yes having looked at nothing:
+#   the struct as it is today                                                    EXIT 0
+#   one field APPENDED to the struct — the arrival case                          EXIT 1
+#   one field DELETED from the struct                                            EXIT 1
+#   `omitempty` added to a field that had none — optionality is half the claim    EXIT 1
+#   the struct RENAMED: sed matches nothing, "" is not the expected list          EXIT 1
+#   the FILE absent: sed writes nothing to stdout, same comparison                EXIT 1
+#   the forbidden shape — the same pipeline ending `| grep -q .` instead of comparing:
+#     file absent EXIT 1, struct renamed EXIT 1 — so it is NOT blind where I predicted, because
+#     sed keys on the struct name and prints nothing either way. It is blind to the three cases
+#     this premise is actually about: a field APPENDED  EXIT 0, a field DELETED  EXIT 0, and an
+#     omitempty that came or went  EXIT 0. The struct still prints tags, so the shape that reads
+#     "did anything come out" confirms a field set that has moved underneath it — and the APPEND
+#     is the documented arrival case. Comparing the captured list is the only form that sees it.
+# LC_ALL=C is not decoration: the expected list is sorted in this repo by codepoint, and a
+# collation that ignores `_` would order `created_at` against `creator_id` differently.
+cannot "TrackWorkspace mirrors talyvor-track Workspace — the workspace row the console renders from the ONE Track route the BFF proxies today" \
+    "talyvor-track internal/model/model.go" \
+    "[ \"\$(sed -n '/^type Workspace struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"created_at id logo_url name plan slug updated_at \" ]   # in a talyvor-track checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "TrackIssue mirrors talyvor-track Issue — the issue shape the list and detail screens read, and the one this subset was measured short on (labels and sort_order are on every response)" \
+    "talyvor-track internal/model/model.go" \
+    "[ \"\$(sed -n '/^type Issue struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"ai_cost_usd ai_tokens assignee_id,omitempty completed_at,omitempty created_at creator_id cycle_id,omitempty description due_date,omitempty field_values,omitempty ice_score,omitempty id identifier is_blocked,omitempty labels lens_feature milestone_id,omitempty number parent_id,omitempty priority project_id,omitempty relations,omitempty rice_score,omitempty sort_order status team_id time_tracked_sec,omitempty title updated_at workspace_id \" ]   # in a talyvor-track checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "TrackComment mirrors talyvor-track Comment — the comment thread shape" \
+    "talyvor-track internal/model/model.go" \
+    "[ \"\$(sed -n '/^type Comment struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"author_id body created_at edited_at,omitempty id issue_id updated_at \" ]   # in a talyvor-track checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "TrackTeam mirrors talyvor-track Team — the team shape behind the identifier this UI renders" \
+    "talyvor-track internal/model/model.go" \
+    "[ \"\$(sed -n '/^type Team struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"color created_at icon id identifier name updated_at workspace_id \" ]   # in a talyvor-track checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "TrackMember mirrors talyvor-track memberView — the assignee-picker projection, mirrored twice in this repo (areas/track/types.ts and areas/lens/Members.tsx)" \
+    "talyvor-track internal/member/mgmt_handler.go" \
+    "[ \"\$(sed -n '/^type memberView struct/,/^}/p' internal/member/mgmt_handler.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"avatar_url email id name role \" ]   # in a talyvor-track checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "DocsSpace mirrors talyvor-docs Space — the space row SpaceList renders from the one live Docs read" \
+    "talyvor-docs internal/model/model.go" \
+    "[ \"\$(sed -n '/^type Space struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"color created_at created_by description icon id name private slug updated_at workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "DocsPage mirrors talyvor-docs Page — the page shape the tree and reader read, and the one that grew own_ai_cost_usd / total_ai_cost_usd while this repo said it mirrored the struct whole" \
+    "talyvor-docs internal/model/model.go" \
+    "[ \"\$(sed -n '/^type Page struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"ai_cost_usd content content_text cover_url created_at created_by depth doc_status,omitempty icon id is_template last_verified_at,omitempty last_viewed_at,omitempty linked_issues,omitempty locked locked_at,omitempty locked_by,omitempty own_ai_cost_usd page_type,omitempty parent_id,omitempty position slug space_id stale_after_days title total_ai_cost_usd updated_at updated_by verified_by,omitempty view_count workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy
 #           checks in README.md §6 and FULL-STACK-DEPLOY.md can read a STATUS CODE for

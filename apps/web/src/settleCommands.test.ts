@@ -148,6 +148,35 @@ function parseUncheckable(text: string): Uncheckable[] {
 const ENTRIES = parseUncheckable(readFileSync(REGISTER, 'utf8'))
 const GO_TEST = ENTRIES.filter((e) => /\bgo test\b/.test(e.command))
 const GREP_C = ENTRIES.filter((e) => /\bgrep -c\b/.test(e.command))
+/**
+ * H3 — AN EXTRACTION PIPELINE ANSWERS YES ABOUT WHATEVER IT FOUND, INCLUDING NOTHING. The seven
+ * struct-mirror entries added with mirrorSubsetRegister.test.ts read a Go struct's json tags with
+ * `sed … | grep -o … | sort`. That is neither of the two shapes above, and the header's own
+ * warning — "a new command in a new shape is covered by nothing here" — is why this rule exists in
+ * the same change as the commands.
+ *
+ * ⚠ AND THE FIRST VERSION OF THIS PARAGRAPH WAS WRONG, IN THE DIRECTION THAT FLATTERS THE RULE. It
+ * said the careful-looking `| grep -q .` form confirms a premise nobody checked when the struct is
+ * renamed or the file is gone. MEASURED, in throwaway checkouts of talyvor-track's model.go: it
+ * EXITS 1 in both — sed keys on the struct name and prints nothing either way, so that shape is
+ * not blind where I claimed it was. What it IS blind to is the set of changes this premise exists
+ * for: a field APPENDED, a field DELETED, an omitempty that came or went. The struct still prints
+ * tags, `grep -q .` still says yes, and the field set has moved underneath it. The append is the
+ * documented arrival case and nothing in either repository can see it. Comparing the captured list
+ * is the only shape that can.
+ *
+ * ⚠ THE ONE `grep -o` COMMAND THIS RULE DOES NOT REACH IS EXCLUDED DELIBERATELY, AND NOT BY BEING
+ * OVERLOOKED. The palette entry pipes `curl` through `grep -o` and PRINTS nine values for a
+ * deployer to compare against packages/ui site-parity.test.ts. A previous session measured what
+ * fail-closing it would cost — the nine values written down a THIRD time, which that file's own
+ * header exists to warn against — and left it a human read on purpose. It reads a third-party
+ * origin rather than a file in a checkout, which is the line drawn here: a command that extracts
+ * from a FILE has a source of truth to be compared against, and one that extracts from a live
+ * origin does not.
+ */
+const EXTRACT = ENTRIES.filter(
+  (e) => /\bgrep -o\b/.test(e.command) && !/\bcurl\b/.test(e.command),
+)
 
 /** A short, stable handle for a test name — the premise lines are paragraphs. */
 const handle = (e: Uncheckable) => e.premise.slice(0, 56)
@@ -160,6 +189,15 @@ describe('the expiry register still has an uncheckable half to police', () => {
         'deleted — in which case delete them here deliberately — or the parse above stopped ' +
         'matching the file, which silently empties every rule below.',
     ).toBeGreaterThanOrEqual(6)
+  })
+
+  it('the struct-mirror entries are still parsed as extraction commands', () => {
+    expect(
+      EXTRACT.length,
+      'the `grep -o` rule has lost its subject. It is a loop, so with no extraction commands ' +
+        'left it passes reading nothing — seven cross-repo struct mirrors are settled by that ' +
+        'shape and this floor is what makes their disappearance a red instead of a silence.',
+    ).toBeGreaterThanOrEqual(7)
   })
 
   it('at least three of them are settled by running `go test` upstream', () => {
@@ -182,6 +220,19 @@ describe('a settle command exits non-zero when its premise does not hold', () =>
           "through a check on the `--- PASS: <TestName>` line so the deployer's run fails when " +
           'the named test is not there to run.',
       ).toContain('--- PASS:')
+    })
+  }
+
+  for (const entry of EXTRACT) {
+    it(`${handle(entry)} — compares the extracted list instead of trusting the pipeline`, () => {
+      expect(
+        entry.command,
+        'this settle command extracts a list with `grep -o` and must compare it to an expected ' +
+          'one. MEASURED: with the struct renamed, or the file absent, every stage of the ' +
+          'pipeline still exits 0 and writes an empty line — so a form that reads the exit ' +
+          'status confirms a premise it never looked at. Capture it and compare: ' +
+          '[ "$(… | grep -o … )" = "field field,omitempty …" ].',
+      ).toMatch(/\[\s*"\$\(.*grep -o.*\)"\s*=\s*"[^"]*"\s*\]/)
     })
   }
 

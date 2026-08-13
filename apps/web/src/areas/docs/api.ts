@@ -15,11 +15,25 @@
 // lib/productState.ts for why the "not configured" state must be detected rather than written
 // down, and areas/docs/BFF-GAPS.md for the Tier-2/3 reads that genuinely do not exist yet.
 //
-// Shapes mirror talyvor-docs internal/model/model.go VERBATIM (field-for-field, at e0cf605),
-// so wiring the tree and reader is adding a fetch — the types already speak the upstream shape.
+// The shapes below are a DECLARED SUBSET of talyvor-docs internal/model/model.go, not a copy of
+// it. Each interface names the upstream fields it does not mirror (`UPSTREAM-ONLY <Interface>: …`,
+// `?` meaning the upstream tag carries omitempty); interface fields ∪ that list = the whole
+// upstream struct, and deploy/decision-expiry.sh tells a deployer to check that union against the
+// Go source. mirrorSubsetRegister.test.ts keeps the two halves equal.
+//
+// ⚠ THE SENTENCE THAT USED TO BE HERE WAS FALSE. It read "Shapes mirror talyvor-docs
+// internal/model/model.go VERBATIM (field-for-field, at e0cf605), so wiring the tree and reader is
+// adding a fetch — the types already speak the upstream shape". MEASURED at talyvor-docs d89a005:
+// `DocsPage` held 29 of `model.Page`'s 31 json fields, and both missing ones — `own_ai_cost_usd`
+// and `total_ai_cost_usd` — carry NO omitempty, so they are on every page response. One of them
+// is the column suite #204 registered an entire front-page premise about, added upstream while
+// this header went on saying the types already spoke the upstream shape. Nothing broke (the BFF
+// streams the body and the extra keys are invisible to TypeScript); the promise was what was
+// false, and no change in this repository could have made it go red.
 import { ApiError } from '../../lib/api'
 
-/** talyvor-docs model.Space (model.go), verbatim. */
+/** talyvor-docs model.Space (model.go).
+ *  UPSTREAM-ONLY DocsSpace: none */
 export interface DocsSpace {
   id: string
   workspace_id: string
@@ -37,9 +51,17 @@ export interface DocsSpace {
   updated_at: string
 }
 
-/** talyvor-docs model.Page (model.go), verbatim. `content` is the canonical
- *  ProseMirror doc JSON (string-encoded); `content_text` is the plain-text
- *  projection the server derives for search. */
+/** talyvor-docs model.Page (model.go). `content` is the canonical ProseMirror doc JSON
+ *  (string-encoded); `content_text` is the plain-text projection the server derives for search.
+ *
+ *  ⚠ THE TWO OMITTED FIELDS ARE THE PER-PAGE AI SPEND, AND THEY ARE NOT MIRRORED ON PURPOSE.
+ *  `own_ai_cost_usd` is a documented LOWER BOUND upstream (docs-ai-ask and docs-search have no
+ *  single page and are excluded by design) and `ai_cost_usd`, which IS mirrored, is recomputed
+ *  and overwritten from the linked issues on every sweep. Rendering either as "the cost of this
+ *  document" is a claim decision this app has not made — see deploy/decision-expiry.sh, where
+ *  that premise is already registered. Mirroring them here would put the number one `.tsx` away
+ *  from a screen, which is not a shape decision.
+ *  UPSTREAM-ONLY DocsPage: own_ai_cost_usd, total_ai_cost_usd */
 export interface DocsPage {
   id: string
   space_id: string
