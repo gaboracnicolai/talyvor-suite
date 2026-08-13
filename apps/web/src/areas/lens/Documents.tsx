@@ -47,11 +47,29 @@ export function DocumentFacts() {
   )
 }
 
+/**
+ * ⚠ THE COUNTS ARE OPTIONAL BECAUSE THE SERVER MAY LEGITIMATELY NOT SEND THEM, AND THIS TYPE USED
+ * TO SAY OTHERWISE. Lens answers 503 ("not wired") rather than 200-with-a-zero on
+ * /distill/usage precisely so that an absent reader and a workspace that converted nothing do not
+ * render identically (talyvor-lens internal/api/distill_usage.go, on ErrNoDistillUsageStore). The
+ * BFF used to flatten that 503 into converted:0, vision_ocr:0, days:0; it now leaves the keys
+ * absent, so this type must be able to say "absent".
+ *
+ * They arrive TOGETHER or not at all — apps/bff/distill.go sets all three in one assignment — and
+ * `usageOf` below is what turns that into something the renderer cannot get wrong. Reading them
+ * individually is how "in the last  days" gets rendered with a hole in it.
+ */
 type DistillState = {
   distill_policy: 'always' | 'opt_in' | 'disabled'
-  converted: number
-  vision_ocr: number
-  days: number
+  converted?: number
+  vision_ocr?: number
+  days?: number
+}
+
+/** The counts as one reading, or null when this deployment could not produce one. */
+function usageOf(s: DistillState): { converted: number; visionOCR: number; days: number } | null {
+  if (s.converted === undefined || s.vision_ocr === undefined || s.days === undefined) return null
+  return { converted: s.converted, visionOCR: s.vision_ocr, days: s.days }
 }
 
 async function readDistill(): Promise<DistillState> {
@@ -74,6 +92,7 @@ export function DistillChoice() {
   const [failed, setFailed] = useState<string | null>(null)
 
   const policy = q.data?.distill_policy
+  const usage = q.data ? usageOf(q.data) : null
   // opt_in is a real third state (convert only when the request asks). For this screen the
   // question is "is it happening to me by default", and only 'always' means yes.
   const on = policy === 'always'
@@ -138,14 +157,14 @@ export function DistillChoice() {
           uses. A number we cannot compute honestly is not shown at all.
           Rendered only when non-zero: a permanent "0 documents" is noise on every workspace that
           has never attached one, and reads as though the feature were broken. */}
-      {q.data && q.data.converted > 0 && (
+      {usage && usage.converted > 0 && (
         <p className="text-body text-muted">
-          {q.data.converted} documents converted in the last {q.data.days} days.
+          {usage.converted} documents converted in the last {usage.days} days.
         </p>
       )}
-      {q.data && q.data.vision_ocr > 0 && (
+      {usage && usage.visionOCR > 0 && (
         <p className="text-body text-muted">
-          {q.data.vision_ocr} of them had no text to extract and were read by a vision model.
+          {usage.visionOCR} of them had no text to extract and were read by a vision model.
         </p>
       )}
 

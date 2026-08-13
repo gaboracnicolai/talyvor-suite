@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -374,4 +375,119 @@ func servingWorkspace(t *testing.T, wsBody string) *app {
 		webDist:         t.TempDir(),
 		authMode:        authModeDisabled,
 	}, nil)
+}
+
+// ── THE COUNTS LENS DID NOT GIVE US MUST NOT ARRIVE AS COUNTS ────────────────
+//
+// A4 above pins the half that was owed: a refused /distill/usage must still leave the SETTING
+// readable. It says nothing about what the counts look like afterwards, and that is where the
+// distinction Lens deliberately paid for was being discarded.
+//
+// ⚠ MEASURED AT THE UPSTREAM, IN LENS'S OWN WORDS (talyvor-lens a04310a,
+// internal/api/distill_usage.go, on ErrNoDistillUsageStore):
+//
+//	"so the route can answer 503 ('not wired') rather than 200 with a zero — an absent reader
+//	 and a workspace that converted nothing must not render identically."
+//
+// That requirement is written about RENDERING, and this repository holds the only renderer. Lens
+// spends a distinct status code on it, this BFF read the 503 and then emitted converted:0,
+// vision_ocr:0, days:0 — the exact 200-with-a-zero Lens refused to send. `days:0` is the tell:
+// no window was read, and zero days is not a window.
+//
+// Nothing FALSE reached a reader (Documents.tsx gates both count lines on `> 0`), which is why
+// this is a distinction restored rather than a bug fixed. The consequence was that the screen
+// could never say "not wired" no matter what it wanted to say, because the fact had already been
+// destroyed one layer below it.
+//
+// ⚠ WHY POINTERS AND NOT `omitempty` ON THE INTS. `omitempty` on an int drops ZERO, so a
+// workspace that genuinely converted nothing would go absent too — the same collapse, arriving
+// from the other side and harder to see. A *int distinguishes "not read" (nil, absent) from
+// "read, and it was zero" (present, 0). The second test below is the control for that, and it is
+// the one that fails if anyone simplifies these back to ints.
+func TestDistillUsageUnwiredIsNotReportedAsCounts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/distill/usage") {
+			// Exactly what Lens answers when the usage reader is unconfigured.
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"distill usage: no store configured"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"distill_policy":"always"}`)
+	}))
+	t.Cleanup(srv.Close)
+	a := newApp(config{
+		addr:            "127.0.0.1:0",
+		lensBaseURL:     srv.URL,
+		provisionSecret: testProvisionSecret,
+		webDist:         t.TempDir(),
+		authMode:        authModeDisabled,
+	}, nil)
+
+	rec := doJSON(a, http.MethodGet, "/api/distill", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/distill = %d, want 200 — the setting is still owed (body %s)", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unreadable body %s: %v", rec.Body.String(), err)
+	}
+	if got["distill_policy"] != "always" {
+		t.Errorf("the setting did not survive an unwired usage read: %s", rec.Body.String())
+	}
+	for _, k := range []string{"converted", "vision_ocr", "days"} {
+		if v, ok := got[k]; ok {
+			t.Errorf("%q is present as %v after Lens answered 503. Lens spends a distinct status "+
+				"on 'not wired' precisely so it does not render as 'converted nothing'; emitting a "+
+				"count here is the 200-with-a-zero it refused to send. Leave the key absent.", k, v)
+		}
+	}
+}
+
+// The control for the line above, and the one that reds if the *int fields are ever simplified
+// back to plain ints with omitempty: Lens ANSWERED, and the answer was zero. That is a real
+// reading of a real window and every key must be present, zeroes included.
+func TestDistillUsageGenuineZeroesAreReported(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/distill/usage") {
+			_, _ = io.WriteString(w, `{"converted":0,"vision_ocr":0,"days":30}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"distill_policy":"always"}`)
+	}))
+	t.Cleanup(srv.Close)
+	a := newApp(config{
+		addr:            "127.0.0.1:0",
+		lensBaseURL:     srv.URL,
+		provisionSecret: testProvisionSecret,
+		webDist:         t.TempDir(),
+		authMode:        authModeDisabled,
+	}, nil)
+
+	rec := doJSON(a, http.MethodGet, "/api/distill", "")
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unreadable body %s: %v", rec.Body.String(), err)
+	}
+	for k, want := range map[string]float64{"converted": 0, "vision_ocr": 0, "days": 30} {
+		v, ok := got[k]
+		if !ok {
+			t.Errorf("%q is ABSENT after Lens answered 200 with a real reading. Absent means "+
+				"'not read' on this route; a workspace that converted nothing read a real window "+
+				"and must say so. This is what `omitempty` on a plain int would do to it.", k)
+			continue
+		}
+		if v != want {
+			t.Errorf("%q = %v, want %v", k, v, want)
+		}
+	}
 }
