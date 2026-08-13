@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Row, focusRing } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { AskAI } from './AskAI'
+import { SearchDocs } from './SearchDocs'
 import { docsApi, type DocsSpace } from './api'
 import { Chip } from './components'
 import { isSessionExpired } from '../../lib/productState'
@@ -140,6 +141,10 @@ export function SpaceList() {
           a sentence written here (see AskAI.tsx, and lib/productState.ts for why a deployment
           state is detected rather than asserted). */}
       {q.isSuccess ? <AskAI /> : null}
+      {/* SEARCH, on the same gate and for the same reason. Whether Docs' SEMANTIC half is
+          configured is a separate question again — and one no search response can answer, which is
+          why SearchDocs.tsx hedges instead of captioning itself. */}
+      {q.isSuccess ? <SearchDocs /> : null}
       {/* The caption is STATE-DEPENDENT: a liveness claim may only ever sit under
           data that is actually live. A failure state carrying "Live from …" was
           the review's worst finding — never reintroduce an unconditional caption. */}

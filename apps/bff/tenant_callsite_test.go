@@ -339,6 +339,13 @@ func TestDocsWorkspacePathOnlyForWorkspaceScopedUpstreamRoutes(t *testing.T) {
 		"docsSpaces:/spaces": "GET /v1/workspaces/{wsID}/spaces — internal/space/handler.go " +
 			"(LIST only; create is POST /v1/spaces with the workspace in the body)",
 		"docsAskAI:/ai/ask": "POST /v1/workspaces/{wsID}/ai/ask — internal/ai/handler.go Mount",
+		// Checked at talyvor-docs `7bfa1cf`, and checked by RUNNING it rather than by reading:
+		// internal/search/handler.go Mount registers `GET /workspaces/{wsID}/search` on both arms
+		// (with the per-workspace rate limiter when one is wired, bare when it is not), and the
+		// handler's first act is AuthorizeWorkspace on that {wsID}. Driving the mounted router in
+		// a scratch copy answered `/v1/workspaces/ws-1/search` 200 — see docs_search_test.go for
+		// the full set of measured responses.
+		"docsSearch:/search": "GET /v1/workspaces/{wsID}/search — internal/search/handler.go Mount",
 	}
 
 	type site struct{ fn, suffix string }

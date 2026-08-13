@@ -197,6 +197,22 @@ export const docsApi = {
    */
   ask: (question: string) => send<AskAnswer>('/api/docs/ai/ask', 'POST', { question }),
 
+  /**
+   * Search this workspace's documents — full text and, where Lens is wired, semantic.
+   *
+   * ⚠ IT RETURNS `unknown` ON PURPOSE, AND THAT IS THE ONLY SHAPE THIS FILE IS WILLING TO PROMISE.
+   * Every other read here declares an interface because a wrong field would be visible as a wrong
+   * value; on this one the whole diagnosis lives in the SHAPE — `{results:[]}` and a renamed
+   * `results` are the same "nothing to show" to a typed cast and opposite facts to a reader. So
+   * the parse is a decision (readSearch in ./search), not an assertion, and the type says so.
+   *
+   * ⚠ NO `type`, NO `offset`. The BFF accepts both (docs_search.go, which refuses the values
+   * upstream answers with a confident empty list); this caller sends neither. An absent type is
+   * upstream's own default and a default written here would be a second author of it; an absent
+   * offset is why this card never reaches the 50-row merged window the BFF refuses.
+   */
+  search: (q: string): Promise<unknown> => getJSON<unknown>(`/api/docs/search?q=${encodeURIComponent(q)}`),
+
   updatePage: (spaceId: string, pageId: string, patch: { title?: string; content_text?: string }) =>
     send<DocsPageRow>(
       `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`,
