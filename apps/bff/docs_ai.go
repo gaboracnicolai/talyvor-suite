@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -54,5 +56,106 @@ func (a *app) docsAskAI() http.HandlerFunc {
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
 			docsWorkspacePath(ws, "/ai/ask"), "", http.MethodPost,
 			strings.NewReader(string(raw)), nil)
+	})
+}
+
+// docsSummarizeAction is the ONE action this BFF exposes of the four talyvor-docs' transform route
+// dispatches (summarize / grammar / shorter / longer, internal/ai/handler.go#Transform).
+//
+// ⚠ IT IS A CONSTANT HERE RATHER THAN A PARAMETER, AND THAT IS THE ROUTE'S MAIN DECISION. The
+// other three REWRITE text for insertion, and this app has nowhere to put the result: the only
+// editable box in the reader writes `content_text`, the search projection Docs DERIVES from the
+// document — a write path whose semantics are an open product decision (see the queue's W1.1 note
+// and areas/docs/EDITOR-SIZING.md). Landing model output there would settle that decision
+// sideways. A summary is different in kind: it is READ, not inserted, so it needs no editor at all
+// — which is why this is the one that could be built now.
+const docsSummarizeAction = "summarize"
+
+// docsSummarizeBody is the upstream schema, built HERE. Every other Docs route in this BFF
+// forwards the caller's body verbatim, and each of them says why; this one does not, because two
+// of the three fields are authority, not content: `action` chooses which operation the workspace
+// pays for, and `page_id` is what Docs binds the COST to (Engine.run → BindAISpend → later
+// `UPDATE pages SET own_ai_cost_usd …`). A body the browser writes is a body the browser chooses.
+type docsSummarizeBody struct {
+	Action string `json:"action"`
+	Text   string `json:"text"`
+	PageID string `json:"page_id"`
+}
+
+// docsSummarizePage — POST /api/docs/pages/{pageID}/summarize → POST /v1/workspaces/{ws}/ai/transform.
+//
+// ⚠⚠ THE EMPTY-PAGE REFUSAL IS THE FINDING, AND IT WAS MEASURED UPSTREAM RATHER THAN ASSUMED.
+// talyvor-docs at e70ff61, its own Transform handler mounted in a scratch copy over a fake Lens
+// that COUNTS completions (tab-7b42; that repo was held by another tab and was never written to):
+//
+//	{"action":"summarize","text":"",         "page_id":"pg-1"} → 200, completions 0→1, user bytes 0
+//	{"action":"summarize","text":"   \n\t  ","page_id":"pg-1"} → 200, completions 1→2, user bytes 7
+//
+// Nothing on that path has an empty-content precondition — Transform switches on the action and
+// Engine.run's only gate is IsAvailable() — so summarising a blank page is a real metered Lens
+// completion, attributed to that page, that summarises nothing. Refused here, before the money
+// moves. THE REFUSAL IS EXACTLY AS WIDE AS THE MEASUREMENT: empty after trimming, and nothing
+// else. "Too short to be worth summarising" would be a product threshold invented in a proxy.
+//
+// ⚠ THE CAP IS maxDocsBody, THE PAGE CAP — not maxDocsAskBody, the question cap. What travels here
+// is a page's stored text, so any page this BFF would accept a WRITE of is one it will accept a
+// summarise of. Upstream has no cap at all: in the same harness a 2 MiB text reached Lens whole.
+//
+// ⚠ THE PAGE ID IS A PATH SEGMENT, WHICH IS WHY IT CANNOT ARRIVE EMPTY. Upstream, an empty
+// `page_id` is explicitly ALLOWED and gated by nothing — attributable() returns early on it — so
+// an empty id does not fail, it silently produces an UNATTRIBUTED charge. ServeMux only matches
+// `{pageID}` against a non-empty segment, so the shape of the route is what forbids that, and
+// docs_summarize_test.go drives the empty-segment address to keep it that way.
+//
+// ⚠ COST, AND IT IS THE OPPOSITE OF ASK'S. Ask passes an empty page id by upstream design, so no
+// page's AI cost moves. This one names the page, so the charge DOES land on it: Lens meters the
+// completion under the feature tag `docs-ai-summarize` and Docs rolls it onto that page's
+// `own_ai_cost_usd`. Any screen offering this button must say that, and must not imply the
+// summary is free.
+func (a *app) docsSummarizePage() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDocsBody))
+		if err != nil {
+			// 413 rather than a failure inside the forward, which reads from the outside as
+			// "docs upstream unreachable" — a false statement about a healthy upstream.
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": "page text too large to summarise"})
+			return
+		}
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json"})
+			return
+		}
+		if strings.TrimSpace(in.Text) == "" {
+			// NOT a fault: nothing is broken and nothing is missing — there is simply nothing
+			// to summarise. Upstream would answer 200 to this and bill for it.
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "there is no text on this page to summarise"})
+			return
+		}
+		payload, err := json.Marshal(docsSummarizeBody{
+			Action: docsSummarizeAction,
+			Text:   in.Text,
+			PageID: r.PathValue("pageID"),
+		})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "could not build the summarise request"})
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/ai/transform"), "", http.MethodPost,
+			bytes.NewReader(payload), nil)
 	})
 }

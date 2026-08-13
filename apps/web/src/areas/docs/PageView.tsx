@@ -12,6 +12,7 @@ import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
 import { BackButton, Crumbs, spaceCrumbLabel } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
+import { PageSummary } from './PageSummary'
 
 export function PageView() {
   const { spaceId = '', pageId = '' } = useParams()
@@ -145,6 +146,17 @@ export function PageView() {
           </div>
         </Card>
       )}
+      {/* ⚠ THE SUMMARY IS FED THE STORED PAGE, NOT `draft`. The charge lands on this page
+          (docs_ai.go#docsSummarizePage), so the bytes sent have to be this page's — summarising
+          unsaved keystrokes would bill a document for words it does not contain. It is also why
+          this control needs no editor at all, which is the claim W1.7 recorded as blocking it.
+
+          ⚠ AND IT IS GATED ON THE PAGE HAVING LOADED, not merely on the id being present: a
+          summarise button over a page that failed to load would send an empty text and, but for
+          the refusal on both sides, buy a completion of nothing. */}
+      {page.data ? (
+        <PageSummary pageId={pageId} text={page.data.content_text ?? ''} />
+      ) : null}
     </div>
   )
 }

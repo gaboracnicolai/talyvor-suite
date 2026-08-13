@@ -166,9 +166,9 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 
 	// ⚠ THE UPPER BOUND IS THE OTHER HALF, and without it the floor is escapable. A route that
 	// stops answering GET leaves the swept population SILENTLY: the floor still passes while
-	// coverage shrinks. FIVE are write-only today (/api/keys/{id}, /api/lens/convert,
-	// /api/lxc/checkout, /api/pooling, /api/docs/ai/ask). A sixth is a change in what this guard
-	// can see, and it has to be looked at. Their WRITE responses are searched by the write sweep
+	// coverage shrinks. SIX are write-only today (/api/keys/{id}, /api/lens/convert,
+	// /api/lxc/checkout, /api/pooling, /api/docs/ai/ask, /api/docs/pages/{pageID}/summarize). A
+	// seventh is a change in what this guard can see, and it has to be looked at. Their WRITE responses are searched by the write sweep
 	// below — for the year this bound existed the excuse was "the Origin sweep covers them", and
 	// it did not.
 	//
@@ -178,9 +178,18 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// the write half below derives its population from mountedPatterns(), so it drives POST at
 	// this route in all three fixtures and searches what comes back, including the Docs upstream
 	// bytes the productApp fixture streams.
-	if len(methodOnly) > 5 {
+	//
+	// ⚠ THE SIXTH, /api/docs/pages/{pageID}/summarize, WAS LOOKED AT ON THE SAME TERMS AND FOR A
+	// STRONGER REASON THAN ASK'S. It is POST-only because the thing it sends is a whole page of
+	// text: as a GET that body would have to be a query string, which means a customer's document
+	// in every access log and proxy buffer along the way — the leak this file exists to hunt,
+	// created by the shape of the route rather than by anything in a response. It is METERED, so
+	// it is also not idempotent in the way a GET promises: each call is a Lens completion the
+	// workspace pays for and Docs attributes to that page. Like ask, it is inside the write half
+	// below, which drives POST at every mounted pattern in all three fixtures.
+	if len(methodOnly) > 6 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 5 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 6 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

@@ -189,6 +189,17 @@ func everyMutatingRoute() []mutatingRoute {
 		// Lens completion billed to the caller's workspace, so a cross-origin one is a stranger
 		// spending someone else's balance. That is the reason it is a write path here.
 		{method: http.MethodPost, path: "/api/docs/ai/ask", body: `{"question":"q"}`},
+		// Summarise — a write path here for the same reason ask is: it writes nothing in Docs and
+		// it SPENDS, and this one's charge lands on a named document.
+		//
+		// ⚠ THE BODY CANNOT BE `{}`, AND THAT IS THE TRAP THIS TABLE ALREADY FELL INTO ONCE. The
+		// two money rows above named fields their handlers do not read, decoded to zero and
+		// answered 400 BEFORE dialling — so they were swept for a refusal they would have produced
+		// with the Origin rule deleted. This route refuses an empty or whitespace-only `text` for
+		// its own measured reason (docs_ai.go: upstream bills for it), so an empty body here would
+		// reproduce that defect exactly: the same-origin half asserts the row's own write ARRIVES
+		// upstream, and it cannot arrive if this handler refuses it first.
+		{method: http.MethodPost, path: "/api/docs/pages/p1/summarize", body: `{"text":"real page text"}`},
 
 		// EXEMPT — a machine caller has no Origin to send, so requiring one would break it.
 		// None exists in this BFF today; the row documents the rule and the test asserts the

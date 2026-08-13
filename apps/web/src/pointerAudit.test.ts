@@ -113,7 +113,7 @@ const SELF = 'apps/web/src/pointerAudit.test.ts'
  *
  * ⚠ `.go` WAS MISSING AND THE OMISSION HAD ALREADY COST SOMETHING. `upstreamCitations.test.ts`
  * bans line citations into talyvor-track because the premise lives in another repo and cannot be
- * checked from here; it says in the same breath that `apps/bff/lens.go:372` and
+ * checked from here; it says in the same breath that `apps/bff/lens.go:380` and
  * `apps/bff/billing.go:180` "name a file IN THIS REPOSITORY … verifiable from here — a guard
  * could actually check them". None did. MEASURED at `eb051cd`: of the three such citations,
  * `checkoutRefusalSurface.test.tsx`'s `apps/bff/billing.go:180` was written at `31095b7` when 180
@@ -364,7 +364,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the BFF half of the same parenthesis — the sentence promises this line says the payment happens at Stripe AFTER the redirect',
   },
-  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:372': {
+  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:380': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'the first of the TWO independent clamps the page ceiling rests on, quoted verbatim by the sentence that cites it',
@@ -374,7 +374,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the example that paragraph gives of a citation checkable from here — now checked, which is what it asked for',
   },
-  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:372': {
+  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:380': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'its second example, pinned for the same reason',
