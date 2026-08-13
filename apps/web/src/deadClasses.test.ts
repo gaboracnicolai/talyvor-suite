@@ -120,6 +120,13 @@ function handWrittenClassNames(): Set<string> {
  *      Tailwind actually emitted. Self-calibrating: a variant table always contains real
  *      classes, a sentence never does. No prefix table to drift.
  */
+/**
+ * Every file the walk below actually READ, recorded by the walk itself. Not a second traversal:
+ * a walk written here to produce the expected set would be free to drift from the one under
+ * test, which is the whole defect. See THE SWEEP'S OTHER INPUT below.
+ */
+const swept = new Set<string>()
+
 function collectUsedTokens(emitted: Set<string>): Map<string, string[]> {
   const used = new Map<string, string[]>()
   const SHAPE = /^[a-z0-9][a-z0-9:/._-]*$/
@@ -140,6 +147,7 @@ function collectUsedTokens(emitted: Set<string>): Map<string, string[]> {
       const p = resolve(dir, entry.name)
       if (entry.isDirectory()) walk(p)
       else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+        swept.add(p)
         // Comments are prose. A sentence quoting "4 charges" is not a class list.
         const src = stripComments(readFileSync(p, 'utf8'))
         const where = p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
@@ -219,6 +227,103 @@ describe('the generator is asked, not a table', () => {
     expect(names.has('hover:bg-accent-tint')).toBe(true)
     expect(names.has('wide:w-60')).toBe(true)
     expect(names.has('last:border-b-0')).toBe(true)
+  })
+})
+
+/**
+ * THE SWEEP'S OTHER INPUT: WHICH FILES IT READS, AND IT WAS THE UNCONTROLLED ONE.
+ *
+ * The generator is asked rather than a table, and that half is controlled above on known answers
+ * in both directions. The other half is `collectUsedTokens`, and its FIRST decision is which
+ * files to open. Nothing controlled that, and this sweep's output for "read nothing" is
+ * byte-identical to its output for "read everything and found no dead class": `[]`.
+ *
+ * MEASURED at db85e4d on the real tree, not reasoned about
+ * (`~/talyvor-queue/w11-blindwalk-controls-9e73.py` and `w11-blindwalk-armed-9e73.py`, every
+ * mutation anchor-count-asserted before the edit, restored in a `finally` and verified back by
+ * sha256, verdicts read from vitest's own per-test lines):
+ *   A1  `text-mono` — the exact shape that shipped seven times, and which this file exists to
+ *       catch — put into a real screen at `areas/lens/Ledger.tsx`: REDS `every class the source
+ *       writes is a class Tailwind emits`, and only that case. The comparison is armed on real
+ *       production files.
+ *   A2  THE HOLE: the same dead class, plus ONE line so the walk does not descend into `areas` —
+ *       rc=0, GREEN. 43 of the 70 production files under apps/web/src live there, which is every
+ *       product screen — including `Setup.tsx` and `Landing.tsx`, where BOTH original defects were.
+ *   C3  the skip ALONE, no dead class: GREEN. Nothing anywhere notices the population shrank.
+ *
+ * That is #183's C1/C2/C3, in this file. #183 closed it in `lib/awaiting.test.ts` and named the
+ * three sweeps it had not been run against; this is one of them.
+ *
+ * THE REPAIR IS #183's AND IT IS THRESHOLD-FREE — an INDEPENDENT ENUMERATION, not a bigger floor.
+ * The `>150` floor below is already substantive and is satisfied by the 27 files that survive the
+ * skip, so raising a number would be a threshold nobody measured. `import.meta.glob` is resolved
+ * by Vite at transform time and touches `node:fs` not at all, so a skip map, a changed extension
+ * filter or a wrong `roots` cannot move both instruments the same way. Compared BOTH DIRECTIONS,
+ * with a floor for the one failure that CAN move both: an anchor resolving to an empty tree
+ * leaves the two enumerations agreeing on nothing.
+ *
+ * ⚠ IT PASSED ON ITS FIRST RUN, so every assertion in it has its own control and every verdict is
+ * read from the FAILING TEST NAME rather than from the file's exit code
+ * (`~/talyvor-queue/w11-blindwalk-guard-controls-9e73.py`, 7/7):
+ *   P1 walk skips `areas/` → the SET comparison reds and it is the ONLY newly-failing case, so the
+ *      catch is this block's and not something else noticing.
+ *   P2 the glob pattern pointed at a directory that does not exist → the FLOOR *and* the SET red,
+ *      so the floor is armed rather than decorative.
+ *   P3 the walk widened to keep `.test.*` → the SET reds AS EXPECTED, and it also reds the sweep
+ *      below. ⚠ RECORDED RATHER THAN PREDICTED AWAY, and it is a coupling worth knowing: the
+ *      generator control above hands Tailwind `text-mono bg-bg text-nonesuch-9` — three classes it
+ *      asserts are NOT emitted — inside a `class=` attribute. Widening the walk pulls this file
+ *      into its own swept population and those fixtures report as dead classes, which is the right
+ *      answer for the wrong reason. The sweep is kept off its own negative controls by the walk's
+ *      test-file exclusion and by NOTHING ELSE.
+ *   P4 the `text-mono` defect with the walk intact → the ORIGINAL guard reds ALONE and the SET
+ *      stays green, so the repair was ADDED to the sweep rather than swapped in for it.
+ *   P5 the A2 combination → CAUGHT. The flip is the finding.
+ *   P6 BLINDING: this block skipped and the A2 defect restored → rc=0, NOT CAUGHT. Nothing else
+ *      in the repo was watching.
+ *   G1 a new production file that both instruments can see → STAYS GREEN. It is a set comparison,
+ *      not a snapshot of a file list somebody would have to re-baseline.
+ *
+ * ⚠ `walkStyles` ABOVE IS A SECOND WALK AND IT IS DELIBERATELY NOT GUARDED HERE, because it fails
+ * in the opposite direction. It builds the hand-written-CSS ALLOWLIST: a walk that reads fewer
+ * files hands the sweep fewer excuses, so a class defined in a missed `<style>` block is reported
+ * as dead. That is a loud false positive, not a silent pass — the failure mode this block exists
+ * for cannot happen through it.
+ */
+describe('the sweep reads the whole tree', () => {
+  // Keys only — the glob is lazy, so nothing here imports a module or runs a side effect. BOTH
+  // roots, because `roots` has two: a comparison that saw only `apps/web/src` would be green
+  // while packages/ui — where the component layer keeps its variant tables — went unread.
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => resolve(import.meta.dirname, k))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Deliberately far below the 102 counted at db85e4d: this catches an anchor that resolves to
+    // nothing, not a refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(60)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', async () => {
+    swept.clear()
+    // The REAL sweep, called exactly as the guard below calls it. Reading `swept` afterwards is
+    // what makes this an assertion about the walk under test rather than about a copy of it.
+    collectUsedTokens(await generatedClassNames())
+    const glob = new Set(globbed)
+    const rel = (p: string) =>
+      p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).map(rel).sort(),
+      'Vite sees production files this walk never read. The sweep below checks whatever the walk ' +
+        'returns, so a dead class in any of these would render unstyled with nothing red.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).map(rel).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a production source file is.',
+    ).toEqual([])
   })
 })
 
