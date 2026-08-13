@@ -63,6 +63,29 @@ def failing_cases(out: str) -> list[str]:
             if s.strip().startswith("×") or s.strip().startswith("FAIL")]
 
 
+def anchor_verdict(text: str, old: str) -> tuple[bool, str]:
+    """Whether one anchor can be applied EXACTLY once, and what to say if it cannot.
+
+    ⚠ THIS USED TO ASK `old not in text`, WHICH IS THE WRONG QUESTION BY ONE OUTCOME. Presence has
+    two failure modes and that check saw one of them. An anchor that has DECAYED is caught either
+    way. An anchor that has been DUPLICATED — the same line now appearing twice because the code
+    it quotes was copied — passes a presence check, and `str.replace(old, new, 1)` below then
+    patches the FIRST occurrence and leaves the second standing. The control applies half of
+    itself and reports a verdict as though it had applied all of it, which is the same failure the
+    accumulate-per-file comment further down was written for. Measured at the commit that changed
+    this: all four anchors here occur exactly once, so this is a hole closed before it opened,
+    not a defect repaired. Driven both ways by `--selftest`, because a check with no live instance
+    and no control is a check nobody can tell is working.
+    """
+    n = text.count(old)
+    if n == 1:
+        return True, "ok"
+    if n == 0:
+        return False, "ANCHOR ABSENT — control cannot apply; this is NOT a NOT-CAUGHT result"
+    return False, (f"ANCHOR DUPLICATED ({n}x) — a one-shot replace would patch the first and "
+                   f"leave the rest; this is NOT a NOT-CAUGHT result")
+
+
 def control(label: str, edits: list[tuple[pathlib.Path, str, str]], predicted: str | None,
             must_stay_green: str | None = None) -> bool:
     """predicted=None means the control is EXPECTED to be NOT CAUGHT (a blinding control)."""
@@ -72,8 +95,9 @@ def control(label: str, edits: list[tuple[pathlib.Path, str, str]], predicted: s
     print(f"    PREDICTED : {predicted if predicted else 'NOT CAUGHT (blinding control)'}")
     for p, old, _ in edits:
         print(f"    file      : {p.relative_to(ROOT)}")
-        if old not in originals[p]:
-            print(f"    !! ANCHOR ABSENT — control cannot apply; this is NOT a NOT-CAUGHT result")
+        applies, why = anchor_verdict(originals[p], old)
+        if not applies:
+            print(f"    !! {why}")
             return False
     ok = False
     try:
@@ -115,7 +139,42 @@ def control(label: str, edits: list[tuple[pathlib.Path, str, str]], predicted: s
     return ok
 
 
+def selftest() -> int:
+    """Drive anchor_verdict both ways, and prove the live anchors are each unique.
+
+    `--selftest` runs in milliseconds and does not touch the tree. It exists because the anchor
+    check is the one part of this script that has no observable effect when it is working: a
+    control whose anchor is fine looks exactly like a control whose anchor check has been
+    commented out. The three synthetic cases below are the only thing that can tell them apart.
+    """
+    cases = [
+        ("unique anchor applies", "a\nB\nc\n", "B", True),
+        ("absent anchor refuses", "a\nc\n", "B", False),
+        ("DUPLICATED anchor refuses — the outcome the presence check missed", "a\nB\nc\nB\n", "B", False),
+    ]
+    ok = True
+    for name, text, old, want in cases:
+        got, why = anchor_verdict(text, old)
+        mark = "ok  " if got == want else "*** WRONG ***"
+        if got != want:
+            ok = False
+        print(f"  {mark} {name}: applies={got} ({why})")
+
+    # And the live anchors, so a decayed or copied one is reported without a suite run.
+    live = [(LEDGER, TD_ON), (FACE, CLASSIFIED), (FACE, TRACK_CLASSIFIED), (FACE, CLASSIFIED + "\n")]
+    for p, old in live:
+        applies, why = anchor_verdict(p.read_text(), old)
+        if not applies:
+            ok = False
+        print(f"  {'ok  ' if applies else '*** WRONG ***'} live anchor in {p.name}: {why}")
+    print(f"\nselftest {'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
 def main() -> int:
+    if "--selftest" in sys.argv:
+        return selftest()
+
     print("D0 — no mutation: the tree as committed must be green.")
     code, out = run_web()
     print(f"    verdict   : exit {code}")
