@@ -84,7 +84,7 @@ export interface IssueView {
  * looked like a fourth free option. It is not an ordering this product can deliver.
  *
  * MEASURED, real Chrome on the built bundle, against the real `issues` DDL in a real Postgres
- * running the ORDER BY talyvor-track's own store builds (internal/issue/store.go:689-709).
+ * running the ORDER BY talyvor-track's own store builds (internal/issue/store.go#Store.List).
  * The control read "Priority" and the screen read, top to bottom:
  *
  *     Low — rename a variable             priority 4

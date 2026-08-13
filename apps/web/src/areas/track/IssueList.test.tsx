@@ -346,7 +346,7 @@ describe('the view controls query the server, not the page', () => {
 // It is not a property of every column in the upstream allowlist.
 //
 // MEASURED, real Chrome on the built bundle, the real issues DDL in a real Postgres running
-// the ORDER BY talyvor-track's own store builds (internal/issue/store.go:689-709). The control
+// the ORDER BY talyvor-track's own store builds (internal/issue/store.go#Store.List). The control
 // read "Priority" and the screen read, top to bottom:
 //
 //     Low — rename a variable            priority 4
@@ -397,8 +397,16 @@ describe('the sort control offers only orderings the upstream can actually deliv
     const src = blankComments(
       readFileSync(resolve(import.meta.dirname, 'IssueList.tsx'), 'utf8'),
     )
-    // The upstream's ORDER BY allowlist (talyvor-track store.go:691-693), mirrored by the BFF
-    // in trackOrderBy — a closed set, not a hand-kept list of things to avoid.
+    // The upstream's ORDER BY allowlist (talyvor-track internal/issue/store.go#Store.List, the
+    // "Order column allowlist" switch), mirrored by the BFF in trackOrderBy — a closed set, not
+    // a hand-kept list of things to avoid.
+    //
+    // ⚠ THIS AND THE TWO POINTERS ABOVE USED TO NAME LINES, AND ALL THREE NAMED THE WRONG
+    // FUNCTION. They pointed inside `attachBlocked` / `attachTimeTracked` — the badge helpers
+    // whose own upstream comment says they are "informational, not load-bearing" and which
+    // swallow their errors. A reader checking whether this closed set is still closed landed
+    // there and had every reason to conclude the premise was dead. The allowlist is real and
+    // unchanged; only the pointers were false. See rule D in `upstreamCitations.test.ts`.
     for (const col of ['created_at', 'updated_at', 'priority', 'sort_order']) {
       expect(src, `an ORDER BY column is a literal <SelectItem>: ${col}`).not.toContain(
         `<SelectItem value="${col}"`,

@@ -324,6 +324,7 @@ describe('citations of upstream Go source', () => {
   const RESOLVED_UPSTREAM_PATHS = [
     'internal/economy/agent_subbudget.go',
     'internal/economy/dualtoken.go',
+    'internal/issue/store.go',
   ]
 
   /** `foo.go:191`, `foo.go:307/386/394`, and the prose spelling `foo.go, line 191`. */
@@ -340,15 +341,25 @@ describe('citations of upstream Go source', () => {
     // path nothing mentions any more: renamed upstream, or every pointer to it deleted. Deleting
     // the pointer is the cheapest way to satisfy "cite the symbol instead", and it trades a false
     // pointer for no pointer at all — the same trade rule B exists to refuse.
+    // ⚠ THE FLOOR KEYS ON THE FULL WRITTEN PATH, NOT THE BASENAME, AND THAT IS A REPAIR TO THE
+    // VERSION #199 SHIPPED. `store.go` is the name of a file in THREE of the repos this tree
+    // cites — talyvor-track `internal/issue/store.go`, talyvor-docs `internal/page/store.go`,
+    // talyvor-lens `internal/economy/store.go`. A floor asking "does anything say `store.go#`"
+    // is therefore satisfied by a citation of a DIFFERENT repository's file that happens to
+    // share the name: every pointer to the enrolled path could be deleted and the floor would
+    // still be green, which is the exact failure the floor exists to prevent. The BAN below
+    // stays keyed on the basename deliberately — a bare-basename line citation is ambiguous
+    // across those three repos, and that ambiguity is why the false pointer that provoked this
+    // enrolment was written bare. (Rule D swept this comment too: naming that spelling here as
+    // an example was itself a violation, which is what no-self-exemption is for.)
     const all = sources()
     expect(all.length).toBeGreaterThan(80)
     for (const path of RESOLVED_UPSTREAM_PATHS) {
-      const base = baseOf(path)
-      const withSymbol = all.filter((s) => s.text.includes(`${base}#`))
+      const withSymbol = all.filter((s) => s.text.includes(`${path}#`))
       expect(
         withSymbol.map((s) => s.path),
-        `${path} is enrolled in the resolved-path ratchet and no file cites it by symbol any ` +
-          'more. An absence rule over a path nobody names passes for free.',
+        `${path} is enrolled in the resolved-path ratchet and no file cites it by symbol at its ` +
+          'full path any more. An absence rule over a path nobody names passes for free.',
       ).not.toEqual([])
     }
   })
