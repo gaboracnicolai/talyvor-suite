@@ -17,9 +17,10 @@ import { Spend } from './Spend'
 //       talyvor-lens at `a04310a`, this is not hypothetical — THREE writers put `type='spend'`
 //       rows on lxc_ledger and two of them can omit the model:
 //         · internal/proxy/shadow_lxc.go:73 → DualTokenStore.SpendLXC → insertLXCLedger(...,
-//           LXCTypeSpend, description, nil) — metadata literally nil (dualtoken.go:448);
+//           LXCTypeSpend, description, nil) — metadata literally nil
+//           (dualtoken.go#DualTokenStore.SpendLXC);
 //         · SettleLXCReservation stamps AgentDebitMeta.toMap, which OMITS an empty scalar
-//           (agent_subbudget.go:95-110), so a settle whose reservation carried no
+//           (agent_subbudget.go#AgentDebitMeta.toMap), so a settle whose reservation carried no
 //           requested_model and whose caller passed no ServedModel writes a spend row with
 //           neither key.
 //       api.ts then maps `metadata: r.metadata ?? {}`, so an absent document arrives as `{}`
