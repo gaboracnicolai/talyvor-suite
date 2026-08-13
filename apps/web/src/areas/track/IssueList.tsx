@@ -15,6 +15,14 @@ import { ApiError } from '../../lib/api'
 import { isUnconfigured } from '../../lib/productState'
 import { isSessionExpired } from '../../lib/productState'
 import { Link } from 'react-router-dom'
+// ⚠ THE STATUS WORDS COME FROM ./format AND ARE NOT SPELLED HERE. Both controls below used to
+// render `s.replace('_', ' ')`, which is a THIRD vocabulary for one field: the pill beside the row
+// control says "In progress" through `statusLabel` and the control said "in progress". That is the
+// same defect `63534de` (#150) fixed on the DETAIL screen and did not carry across — and the guard
+// it added, issueVocabulary.test.tsx, rendered only IssueDetail, so nothing looked here. The
+// partial humanising is also why the guard's raw-enum sweep would not have caught it if it had:
+// `in_progress` is not on screen once the underscore is gone. Do not re-inline the list.
+import { statusLabel } from './format'
 import { StatusPill } from './StatusPill'
 import { UpstreamCard } from './UpstreamCard'
 import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackMember } from './types'
@@ -347,7 +355,7 @@ export function IssueList() {
                 <SelectItem value="any">Any status</SelectItem>
                 {ISSUE_STATUSES.map((st) => (
                   <SelectItem key={st} value={st}>
-                    {st.replace('_', ' ')}
+                    {statusLabel(st)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -455,7 +463,7 @@ export function IssueList() {
                       >
                         {ISSUE_STATUSES.map((s) => (
                           <option key={s} value={s}>
-                            {s.replace('_', ' ')}
+                            {statusLabel(s)}
                           </option>
                         ))}
                       </select>

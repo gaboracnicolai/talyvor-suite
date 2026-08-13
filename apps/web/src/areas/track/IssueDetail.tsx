@@ -103,7 +103,7 @@ export function IssueDetail() {
       })
       // ⚠ ApiError, NOT `new Error(String(res.status))`. Every shared mechanism in this app keys on
       // `instanceof ApiError`, so a bare Error carrying the status in its MESSAGE is invisible to
-      // all of them — the fifth instance of the repair recorded at IssueList.tsx:252, and the one
+      // all of them — the fifth instance of the repair recorded at IssueList.tsx:260, and the one
       // `errorTypes.test.ts` says up front it cannot see, because that rule matches class
       // declarations and this shape declares nothing.
       if (!res.ok) throw new ApiError(res.status, path)

@@ -34,7 +34,7 @@ import { queryClient } from '../../App'
  *     App.tsx retry(0, e)                          TRUE    → the app RETRIES a 401
  *     ...for the same 401 as an ApiError, retry()  false
  *
- * IssueList.tsx:252 wrote that hazard down in this repo, at its third site: "a hand-rolled error
+ * IssueList.tsx:260 wrote that hazard down in this repo, at its third site: "a hand-rolled error
  * type turns the shared predicate off without one line of the predicate changing — #136 for a
  * read, #140 for the create four lines above, and this was the third site." The convert quote is
  * the fourth, and it is a READ IN THE QUERY CACHE — which is the store `useSessionExpired`

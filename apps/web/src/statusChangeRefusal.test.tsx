@@ -114,6 +114,24 @@ async function listWithOneIssue(): Promise<HTMLSelectElement> {
 const OUTCOME = /Couldn’t change the status/
 const REMEDY = /try again/i
 
+/**
+ * The PILL's words — the row's own answer about what Track holds — read structurally rather than
+ * by text.
+ *
+ * ⚠ THIS USED TO BE `screen.getByText('In progress')`, AND IT WAS UNIQUE ONLY BECAUSE OF A DEFECT.
+ * The pill said "In progress" and the `<option>` two nodes away said "in progress": one field,
+ * two vocabularies, and a case difference is what made the query resolve. Once both controls
+ * speak `statusLabel` (the repair #150 made on the detail screen and did not carry across), the
+ * text matches TWICE and the query throws "Found multiple elements". The assertion was always
+ * about the pill; it now says so instead of relying on the option being wrong.
+ */
+function pillWords(): string {
+  // <td><div class="flex …"><Pill/><select/></div></td> — the Pill is the cell's first <span>,
+  // and an <option> is never a <span>, so this cannot drift onto the control.
+  const cell = screen.getByLabelText('Status for ENG-7').closest('td')
+  return cell?.querySelector('span')?.textContent ?? ''
+}
+
 beforeEach(() => {
   refuseWrites = null
   stored = { ...ISSUE }
@@ -177,7 +195,7 @@ describe('a status change refused on the issue list says so', () => {
 
     await waitFor(() => expect(screen.getByText(OUTCOME)).toBeInTheDocument())
     expect((screen.getByLabelText('Status for ENG-7') as HTMLSelectElement).value).toBe('in_progress')
-    expect(screen.getByText('In progress')).toBeInTheDocument()
+    expect(pillWords()).toBe('In progress')
   })
 
   it('MUST STAY GREEN — an accepted change moves the row and adds no failure sentence', async () => {
@@ -190,7 +208,7 @@ describe('a status change refused on the issue list says so', () => {
     await waitFor(() =>
       expect((screen.getByLabelText('Status for ENG-7') as HTMLSelectElement).value).toBe('done'),
     )
-    expect(screen.getByText('Done')).toBeInTheDocument()
+    expect(pillWords()).toBe('Done')
     expect(screen.queryByText(OUTCOME)).toBeNull()
   })
 

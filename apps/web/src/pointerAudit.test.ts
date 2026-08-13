@@ -159,7 +159,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-display-3',
     why: 'the console surface that reached for display type AS AT `c71ca9c`, quoted with that SHA',
   },
-  'apps/web/src/areas/track/IssueDetail.tsx:106|apps/web/src/areas/track/IssueList.tsx:252': {
+  'apps/web/src/areas/track/IssueDetail.tsx:106|apps/web/src/areas/track/IssueList.tsx:260': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the sentence this write path is the fifth instance of — quoted so the two Track write paths cannot state the rule differently',
@@ -249,17 +249,17 @@ const PINS: Record<string, Pin> = {
   // FIRST wrote the hazard down, at its third site; the fourth is what that merge fixed. The pin
   // is what stops the citation from decaying into a sentence nobody can check — the exact rot this
   // file was built for, and the reason a line citation is allowed here at all.
-  'apps/web/src/areas/lens/convertApi.ts:51|apps/web/src/areas/track/IssueList.tsx:252': {
+  'apps/web/src/areas/lens/convertApi.ts:51|apps/web/src/areas/track/IssueList.tsx:260': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the comment that names the hand-rolled-error-type hazard, quoted by the fix for its fourth occurrence',
   },
-  'apps/web/src/areas/lens/convertRefusal.test.tsx:37|apps/web/src/areas/track/IssueList.tsx:252': {
+  'apps/web/src/areas/lens/convertRefusal.test.tsx:37|apps/web/src/areas/track/IssueList.tsx:260': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the same line quoted by the guard, so the finding and its evidence cite one checked place rather than two drifting ones',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:305': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:313': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the surface #141 fixed, quoted so the two findings are visibly the same shape one area over',
@@ -282,12 +282,12 @@ const PINS: Record<string, Pin> = {
   // The two pointers the error-type CENSUS writes. Both name the line where this repo first wrote
   // the hazard down, at its third site — the same line convertApi.ts and convertRefusal.test.tsx
   // already cite for the fourth. Four citations of one sentence, all checkable, none drifting.
-  'apps/web/src/areas/lens/topupApi.ts:67|apps/web/src/areas/track/IssueList.tsx:252': {
+  'apps/web/src/areas/lens/topupApi.ts:67|apps/web/src/areas/track/IssueList.tsx:260': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the hazard named at the site of its FIFTH occurrence, on the path that takes money',
   },
-  'apps/web/src/errorTypes.test.ts:18|apps/web/src/areas/track/IssueList.tsx:252': {
+  'apps/web/src/errorTypes.test.ts:18|apps/web/src/areas/track/IssueList.tsx:260': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the census quoting the one place the repo recorded the class, so its list of four is checkable',

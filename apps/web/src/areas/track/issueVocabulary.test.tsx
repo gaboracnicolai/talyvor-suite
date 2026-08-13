@@ -1,8 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssueDetail } from './IssueDetail'
+import { IssueList } from './IssueList'
+import type { TrackIssue } from './types'
 
 /**
  * THE VOCABULARY A USER READS, ASSERTED ON THE SCREEN THAT DRAWS IT.
@@ -64,6 +66,46 @@ import { IssueDetail } from './IssueDetail'
  * so `noUnusedLocals` failed the typecheck and the run reds without a single assertion being
  * evaluated. A compile error is not a caught mutation. Both were re-cut as
  * `{statusLabel(s) && s}` so the import stays live, tsc stays clean, and the red is an assertion.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
+ * ⚠ THIS FILE RENDERED ONE OF THE TWO SCREENS, AND THE OTHER ONE STILL HAD THE DEFECT.
+ *
+ * MEASURED 2026-08-13 at `0f83896`, whole suite green: `IssueList.tsx` rendered BOTH of its
+ * status controls as `s.replace('_', ' ')`. The row's status cell — pill and control in one
+ * `<div>` — read, verbatim off the DOM:
+ *
+ *     "In progressbacklogtodoin progressin reviewdonecancelled"
+ *
+ * which is the list's version of the "StatusDonedone" above, one screen over and 24 hours later.
+ * The status FILTER offered the same seven words. Nothing pinned either: a grep for the lowercase
+ * forms across every test in the repo returns zero, so the vocabulary that ships on the list
+ * screen was asserted by nothing at all.
+ *
+ * ⚠ AND THE RAW-ENUM SWEEP ABOVE WOULD NOT HAVE CAUGHT IT EVEN IF IT HAD RENDERED THE LIST.
+ * `replace('_', ' ')` humanises PARTLY, so `in_progress` is genuinely not on screen — measured:
+ * red-first, 12 of the 14 new cases failed and the two that PASSED were exactly
+ * `in_progress`/`in_review` "never puts the raw enum on the list screen". A sweep for the raw
+ * spelling is blind to a vocabulary that is wrong in some other way.
+ *
+ * ⚠ THE CONTROLS FOR THE NEW CASES (~/talyvor-queue/w11-listvocab-controls-5c3a.py, 5 mutations
+ * of the production source against a green baseline, sha256-verified byte restore):
+ *
+ *   C1  row <option> renders the enum-with-a-space again   -> 11 red, ALL in this file, 0 elsewhere
+ *   C2  the FILTER alone renders it again, row left right  -> EXACTLY 1 red, the filter case.
+ *                                                             Nothing else in the repo can see a
+ *                                                             wrong word inside a closed menu.
+ *   C4  the Escape in filterOptionWords() removed          -> 1 red, and it is a TEARDOWN failure
+ *                                                             ("no accent focus ring"), which is
+ *                                                             the docstring's claim, verified.
+ *   C3  STATUS_LABELS.in_progress renamed                  -> here AND format.test.ts AND
+ *                                                             statusChangeRefusal.test.tsx.
+ *                                                             ⚠ I PREDICTED TWO CATCHERS AND THERE
+ *                                                             WERE THREE — the same under-listing
+ *                                                             the note above records for its own
+ *                                                             C3. Justifies none of these cases.
+ *   NEG ordinary growth (a caption using this file's own class pair) -> 0 red.
+ *       ⚠ THE FIRST NEG WENT RED AND THE GUARD WAS INNOCENT: it added a `{it.number}` column,
+ *       which is a numeral in the body sans, and src/figureAudit.ts caught it correctly.
  */
 
 const BASE = {
@@ -173,5 +215,112 @@ describe('the Issue detail screen speaks one vocabulary per field', () => {
     await openDetail({ priority: 99 })
     expect(screen.getByLabelText('Priority').textContent).toBe('')
     expect(document.body.textContent).not.toContain('None')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE LIST SCREEN, WHICH THE SECTION ABOVE NEVER RENDERED.
+
+function listIssue(over: Partial<TrackIssue> = {}): TrackIssue {
+  return {
+    id: 'iss-1',
+    workspace_id: 'ws-1',
+    team_id: 'team-1',
+    number: 9,
+    identifier: 'TAL-9',
+    title: 'Cold start',
+    description: '',
+    status: 'todo',
+    priority: 0,
+    creator_id: 'mem-1',
+    lens_feature: '',
+    ai_cost_usd: 0,
+    ai_tokens: 0,
+    created_at: '2026-07-27T00:00:00Z',
+    updated_at: '2026-07-27T00:00:00Z',
+    ...over,
+  }
+}
+
+async function openList(status: string) {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    const json = (v: unknown) =>
+      new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    if (url.startsWith('/api/track/issues')) return json([listIssue({ status: status as never })])
+    if (url.startsWith('/api/members')) return json([])
+    return new Response('null', { status: 404 })
+  })
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <IssueList />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+  // The ref proves the table actually rendered — an absence assertion on a screen that never
+  // rendered is green for the wrong reason.
+  await waitFor(() => expect(screen.getByText('TAL-9')).toBeTruthy())
+}
+
+/** Every option text of the row's NATIVE select, which is fully in the DOM with no menu to open. */
+function rowOptionWords(): string[] {
+  const select = screen.getByLabelText('Status for TAL-9')
+  return Array.from(select.querySelectorAll('option')).map((o) => o.textContent ?? '')
+}
+
+/**
+ * Every option text of the FILTER, which is a Radix Select and mounts its items only while open.
+ *
+ * ⚠ THE MENU DOES OPEN UNDER JSDOM — the note 60 lines up says it does not, and that note is
+ * right about the input it tried and wrong about the conclusion. `fireEvent.pointerDown` leaves
+ * `aria-expanded="false"` and zero `role="option"` nodes (re-measured today, unchanged);
+ * `fireEvent.keyDown(trigger, { key: 'ArrowDown' })` opens it and mounts all seven items. That
+ * distinction is the whole reason this file could previously read only the SELECTED label
+ * through the closed trigger, and the reason the list's option LIST was asserted nowhere.
+ *
+ * ⚠ IT MUST BE CLOSED AGAIN BEFORE THE TEST ENDS, and that is not tidiness. While the menu is
+ * open, `react-focus-guards` (Radix's dependency) mounts two `<span tabindex="0" aria-hidden>`
+ * sentinels on <body>, and src/test-setup.ts's afterEach focus sweep scans the live DOM and
+ * fails the test with "keyboard-focusable element(s) with no accent focus ring — <span>".
+ * MEASURED: with the Escape below removed, this test fails at teardown having passed every
+ * assertion. That sweep is why no test in this suite had ever opened one of these menus.
+ */
+function filterOptionWords(): string[] {
+  const trigger = screen.getByLabelText('Filter by status')
+  fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+  const words = Array.from(document.querySelectorAll('[role="option"]')).map((o) => o.textContent ?? '')
+  fireEvent.keyDown(trigger, { key: 'Escape' })
+  return words
+}
+
+/** The six labels in ISSUE_STATUSES order. Literals, for the reason given at the top of the file. */
+const STATUS_WORDS_IN_ORDER = ['Backlog', 'Todo', 'In progress', 'In review', 'Done', 'Cancelled']
+
+describe('the Issue LIST screen speaks the same one vocabulary', () => {
+  it('the row status control offers the six labels, not the enum spelled with a space', async () => {
+    await openList('in_progress')
+    expect(rowOptionWords()).toEqual(STATUS_WORDS_IN_ORDER)
+  })
+
+  it('the status FILTER offers the six labels, not the enum spelled with a space', async () => {
+    await openList('in_progress')
+    expect(filterOptionWords()).toEqual(['Any status', ...STATUS_WORDS_IN_ORDER])
+  })
+
+  it.each(STATUS_WORDS)('status %s: the pill and the control beside it read alike', async (value, words) => {
+    await openList(value)
+    // The pill and the select share one cell, so this string IS what a reader sees in that
+    // column, in order — the list's answer to the detail screen's "StatusDonedone".
+    const cell = screen.getByLabelText('Status for TAL-9').closest('td')
+    expect(cell?.textContent, `the status cell for ${value}`).toBe(
+      words + STATUS_WORDS_IN_ORDER.join(''),
+    )
+  })
+
+  it.each(STATUS_WORDS)('status %s never puts the raw enum on the list screen', async (value) => {
+    await openList(value)
+    expect(document.body.textContent, `raw enum ${value} on screen`).not.toContain(value)
   })
 })
