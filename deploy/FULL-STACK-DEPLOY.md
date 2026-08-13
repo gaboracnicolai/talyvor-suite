@@ -36,8 +36,8 @@ trust this table.
 
 | Change | Verified at | Failure if ignored |
 |---|---|---|
-| BFF **requires** `LENS_PROVISION_SECRET` | `apps/bff/main.go:94` | Refuses to start, names itself |
-| BFF **refuses to boot** if `LENS_API_KEY` is set | `apps/bff/main.go:96` | Refuses to start, names itself |
+| BFF **requires** `LENS_PROVISION_SECRET` | `apps/bff/main.go:111` | Refuses to start, names itself |
+| BFF **refuses to boot** if `LENS_API_KEY` is set | `apps/bff/main.go:120` | Refuses to start, names itself |
 | BFF no longer reads `LENS_WORKSPACE_KEY` / `_ID` | absent from `apps/bff/*.go` | Silently ignored — they do nothing now |
 | Lens fails **closed** without `LENS_PROVISION_SECRET` | `cmd/lens/provision_handler.go` `mountProvisionRoute` returns early on `""` | Route not registered → provisioning 404 → **every login fails** |
 | Lens migration count is **derived, never quoted** | `ls migrations/*.sql \| wc -l` in the checkout | A number written here goes stale on the next merge and then STEP 2b fails for the wrong reason |

@@ -80,7 +80,7 @@
   "src/PanelReportsItsOwnQuery.test.tsx": 53,
   "src/placeholderAudit.test.tsx": 15,
   "src/planeAudit.test.tsx": 17,
-  "src/pointerAudit.test.ts": 8,
+  "src/pointerAudit.test.ts": 10,
   "src/proseClasses.test.ts": 9,
   "src/reachAudit.test.ts": 12,
   "src/reachGateScope.test.ts": 5,

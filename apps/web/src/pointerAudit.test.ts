@@ -58,6 +58,38 @@ import { describe, expect, it } from 'vitest'
  * wrongly still passes — this pins WHERE, not WHAT. It also reads raw source including comments,
  * deliberately: a pointer inside a comment is exactly the thing being checked, so blanking
  * comments here would empty the closure entirely.
+ *
+ * ── AND THE WALK WAS `/\.tsx?$/`, SO THE FILES A DEPLOYER READS WERE OUTSIDE IT ──────────────
+ *
+ * Every claim above is about source comments, and the extension filter made that scope literal:
+ * markdown was never opened. MEASURED at `6340cf8` — this repository's six `.md` files carry FIVE
+ * in-repo pointers and FOUR ARE STALE:
+ *
+ *     deploy/README.md:385             "REFUSES TO START if this is set"   apps/bff/main.go:112 → `}`
+ *     deploy/FULL-STACK-DEPLOY.md:39   "BFF requires LENS_PROVISION_SECRET"          main.go:94  → a comment line
+ *     deploy/FULL-STACK-DEPLOY.md:40   "refuses to boot if LENS_API_KEY is set"      main.go:96  → docsGatewaySecret
+ *     areas/docs/BFF-GAPS.md:14        "same as the existing route"       apps/bff/lens.go:74    → /api/bonds
+ *
+ * TWO of the four are rows of a table whose own header is "Verified from source, with the file and
+ * line so you can re-check rather than trust this table" — the column exists so a reader does not
+ * have to trust the table, and following those two lands on a comment line and an unrelated struct
+ * field. The third is the env-table row telling an operator that `TRACK_WORKSPACE_ID` now stops the
+ * boot, cited at a closing brace. The fourth is an area note's account of the Docs proxy.
+ *
+ * The fifth (`apps/bff/auth.go:14-15`, a note that stale prose still sits there) is CORRECT, so
+ * the rot is not universal and the pins are not a formality. None of the four rotted by anyone
+ * editing them: main.go's refusals moved ~20 lines down when the config struct grew comments, and
+ * lens.go:74 was the ONE Docs route before three more were mounted above it.
+ *
+ * ⚠ THE POPULATION IS EVERY `.md` IN THE REPOSITORY, not the two package roots — a guard scoped
+ * to where the defect was found is how this item keeps re-finding the same shape one directory
+ * over. Both enumerations are widened together and still compared both directions.
+ *
+ * ⚠ THE ONE FORM STILL OUT OF SCOPE, SAID OUT LOUD: `IN_REPO_GO` requires a repo-relative
+ * `apps/…` path, so FULL-STACK-DEPLOY.md's two `old main.go:89` / `:92` pointers — deliberately
+ * historical, naming a PRE-#30 binary — are skipped as unresolvable rather than swept in. A bare
+ * `main.go` names three repositories' main.go and this file cannot tell which; that is the same
+ * cross-repo boundary `upstreamCitations.test.ts` refuses to guess at.
  */
 
 const WEB_SRC = resolve(import.meta.dirname)
@@ -357,6 +389,39 @@ const PINS: Record<string, Pin> = {
     fragment: 'must not leave a pending marker behind',
     why: 'the rule the marker test asserts, quoted from the code that states it rather than restated',
   },
+
+  // ── THE RUNBOOKS ────────────────────────────────────────────────────────────────────────────
+  // A deployer following one of these is mid-deploy and checking a refusal before they trip it.
+  // The fragment is the REFUSAL ITSELF: a claim that the BFF stops for a variable is worth
+  // exactly the line that stops it, so deleting the refusal reds the runbook that promises it.
+  'deploy/README.md:385|apps/bff/main.go:117': {
+    kind: 'LIVE',
+    fragment: 'TRACK_WORKSPACE_ID must not be set',
+    why: 'the ~~TRACK_WORKSPACE_ID~~ row promises "the BFF now REFUSES TO START if this is set"; it cited 112, which is a closing brace',
+  },
+  'deploy/FULL-STACK-DEPLOY.md:39|apps/bff/main.go:111': {
+    kind: 'LIVE',
+    fragment: 'LENS_PROVISION_SECRET is required',
+    why: '"BFF requires LENS_PROVISION_SECRET … Refuses to start, names itself" — it cited 94, a comment line naming a test',
+  },
+  'deploy/FULL-STACK-DEPLOY.md:40|apps/bff/main.go:120': {
+    kind: 'LIVE',
+    fragment: 'LENS_API_KEY must not be set',
+    why: '"BFF refuses to boot if LENS_API_KEY is set" — it cited 96, the docsGatewaySecret field',
+  },
+  // The one that was RIGHT, and it is a note about stale prose rather than about behaviour — so it
+  // is LIVE on the prose: the day someone rewrites that comment, the note stops being true and
+  // this reds instead of quietly outliving the thing it reports.
+  'deploy/FULL-STACK-DEPLOY.md:48|apps/bff/auth.go:14': {
+    kind: 'LIVE',
+    fragment: 'one configured workspace credential',
+    why: 'the "cosmetic, not blocking" note that auth.go still describes the old one-workspace model — the only in-repo runbook pointer that was accurate',
+  },
+  'apps/web/src/areas/docs/BFF-GAPS.md:14|apps/bff/lens.go:87': {
+    kind: 'LIVE',
+    fragment: '"/api/docs/spaces"',
+    why: 'the Docs proxy mechanics are "same as the existing route"; it cited lens.go:74, which is /api/bonds — three more Docs routes were mounted above it',
+  },
 }
 
 /** Every .ts/.tsx in both packages, TESTS INCLUDED — a failure message is developer-facing text. */
@@ -377,6 +442,31 @@ function sourceFiles(): string[] {
   }
   walk(WEB_SRC)
   walk(UI_SRC)
+  return out.sort()
+}
+
+/**
+ * Every `.md` in the repository — the runbooks, the two area notes, both READMEs.
+ *
+ * They are SOURCES of pointers, never targets: `resolveTarget` still resolves against
+ * `sourceFiles()` and the disk, so a markdown file cannot be cited by line here. That is
+ * deliberate rather than incidental — a pointer INTO prose would pin a paragraph's position, and
+ * paragraphs move for reasons that are not claims.
+ */
+function docFiles(): string[] {
+  const out: string[] = []
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      if (name === 'node_modules' || name === 'dist' || name.startsWith('.')) continue
+      const p = resolve(dir, name)
+      if (statSync(p).isDirectory()) {
+        walk(p)
+        continue
+      }
+      if (name.endsWith('.md')) out.push(p)
+    }
+  }
+  walk(REPO)
   return out.sort()
 }
 
@@ -435,6 +525,35 @@ describe('the sweep reads the whole tree', () => {
         'about what a source file is.',
     ).toEqual([])
   })
+
+  /**
+   * The SAME both-directions floor for the markdown half, and it needs it more: the `.md` walk
+   * starts at the repository root, so it has further to fall. A walk that stopped before `deploy/`
+   * would take four pinned runbook pointers out of the census and leave their entries in `PINS`
+   * reading as though something still checked them — which is why the set comparison, not a count,
+   * is the floor.
+   */
+  const globbedDocs = Object.keys(
+    import.meta.glob(['../../../**/*.md', '!../../../node_modules/**']),
+  ).map((k) => relative(REPO, resolve(import.meta.dirname, k)))
+
+  it('finds the markdown files at all, so an empty second walk cannot pass', () => {
+    // Six at this commit. A floor, not a pin: this catches a root that resolves to nothing.
+    expect(globbedDocs.length).toBeGreaterThan(3)
+  })
+
+  it('the .md walk and Vite’s glob agree on the file set, both directions', () => {
+    const swept = new Set(docFiles().map((p) => relative(REPO, p)))
+    const glob = new Set(globbedDocs)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees markdown this walk never read — a runbook whose pointers nothing verifies.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read markdown Vite does not see. The two disagree about the repository’s shape.',
+    ).toEqual([])
+  })
 })
 
 interface Found {
@@ -462,9 +581,12 @@ function resolveTarget(written: string, all: string[]): string | null {
 
 function census(): { found: Found[]; unresolved: string[] } {
   const all = sourceFiles()
+  // Sources: both packages' source AND every markdown file. Targets resolve against `all` (and
+  // the disk, for Go), so widening the SOURCE set cannot widen what counts as a target.
+  const sources = [...all, ...docFiles()]
   const found: Found[] = []
   const unresolved: string[] = []
-  for (const p of all) {
+  for (const p of sources) {
     const rel = relative(REPO, p)
     const text = readFileSync(p, 'utf8')
     const lines = text.split('\n')

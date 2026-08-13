@@ -382,7 +382,7 @@ Every variable the BFF reads, and what happens without it:
 | `BFF_SESSION_TTL` | no | `12h` | Absolute session lifetime (Go duration). Unparseable or ≤0 → refuses to start. Sessions are **in-memory**: every BFF restart signs everyone out (they just re-login). |
 | `TRACK_BASE_URL` | no† | — | Track upstream base (reachable from this box). |
 | `TRACK_GATEWAY_SECRET` | no† | — | Track's own `GATEWAY_AUTH_SECRET`, replayed as the `X-Gateway-Auth` transit proof. Held server-side, never emitted. |
-| ~~`TRACK_WORKSPACE_ID`~~ | **MUST BE ABSENT** | — | ⚠ **The BFF now REFUSES TO START if this is set** (`apps/bff/main.go:112`). Track is per-session: each person is bootstrapped their own workspace at login. Delete the line from any existing env file. |
+| ~~`TRACK_WORKSPACE_ID`~~ | **MUST BE ABSENT** | — | ⚠ **The BFF now REFUSES TO START if this is set** (`apps/bff/main.go:117`). Track is per-session: each person is bootstrapped their own workspace at login. Delete the line from any existing env file. |
 | `DOCS_BASE_URL` | no‡ | — | Docs upstream base. |
 | `DOCS_GATEWAY_SECRET` | no‡ | — | Docs' `GATEWAY_AUTH_SECRET`, as above. |
 | `DOCS_WORKSPACE_ID` | **gone** | — | ⚠ Removed from the BFF by suite #59 (`030ea53`): every Docs route resolves the SESSION's Track workspace (`docsWorkspaceFor`). Docs is per-identity now. **Leaving it set is silently ignored** — there is no refusal for it, unlike `TRACK_WORKSPACE_ID` — so delete the line rather than trusting it to be harmless. Not the counterpart of the Docs container's `DOCS_DEFAULT_WORKSPACE`, which now only scopes background jobs. |
