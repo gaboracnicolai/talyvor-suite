@@ -102,13 +102,44 @@ func (a *app) handleConvertQuote(w http.ResponseWriter, r *http.Request, t tenan
 			"error": "conversion rate unavailable on this deployment"})
 		return
 	}
+	// ⚠ ONLY THE KEY THIS HANDLER ACTUALLY READS IS DECLARED. Lens serves the rate twice — `rate`
+	// and `lens_per_lxc`, both filled from the single value its `/v1/economy/conversion-rate`
+	// handler gets back from `economy.RateEngine.CurrentRate` (cmd/lens/main.go at `a04310a`;
+	// cited by symbol because a line in another repository cannot be checked from here — see
+	// cited_lines_test.go) — and a decoded-but-unread `Rate` sat here reading like the
+	// load-bearing field while `lens_per_lxc` was the one served. Which key this deployment
+	// depends on is pinned by TestConvertQuote_TakesTheRateFromLENSPerLXC, whose fixture makes
+	// the two disagree; the shared fixture cannot say, because it sets both to one number.
 	var up struct {
-		Rate       float64 `json:"rate"`
 		USDPerLXC  float64 `json:"usd_per_lxc"`
 		LENSPerLXC float64 `json:"lens_per_lxc"`
 	}
 	if err := json.Unmarshal(raw, &up); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "unexpected upstream shape"})
+		return
+	}
+	// ⚠⚠ A DECODE THAT SUCCEEDS IS NOT A RATE THAT WAS READ, and this is the money screen.
+	//
+	// Unmarshal into a struct succeeds on an ABSENT field and leaves the zero value, so the
+	// branch above cannot see a 200 whose shape this handler does not understand. Without this,
+	// the quote leaves with `lens_per_lxc: 0` — and zero is not inert downstream:
+	// ConvertLens.tsx prints "Rate: 0 LENS per LXC", `lensCostForLXC` returns ceil(micros × 0)
+	// = 0, and `tooExpensive = cost > balance` is false for EVERY amount, so the panel promises
+	// a free conversion and enables the button against an empty balance, one irreversible click
+	// before Lens charges the real rate.
+	//
+	// Refusing costs nothing true, because zero is never a genuine reading. Measured read-only at
+	// talyvor-lens `a04310a`: `RateEngine.CurrentRate` answers `Phase1FloorRate` (1.0) with no
+	// pool and on `pgx.ErrNoRows`, `ApproveRate` floors every approved rate at `Phase1FloorRate`,
+	// and its one path that returns 0 returns an error alongside it — on which the route answers
+	// 500. A 200 carrying no positive rate is a deployment fault every time.
+	//
+	// This is #206 on the other side of the same wire: there, Lens spent a status code to keep
+	// "not wired" apart from "converted nothing" and the BFF collapsed them. Collapsing "no rate
+	// was readable" into "the rate is zero" is the same move, and the result is a price.
+	if !(up.LENSPerLXC > 0) {
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error": "upstream answered without a conversion rate"})
 		return
 	}
 	writeJSON(w, http.StatusOK, convertQuote{
