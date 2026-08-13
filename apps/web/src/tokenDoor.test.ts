@@ -156,6 +156,13 @@ function stripInterpolations(text: string): string {
  * for the same measured reasons: reading only `className=` is blind to the LOOKUP TABLES the
  * component layer keeps its variants in, and reading every literal reports English.
  */
+/**
+ * Every file the walk below actually READ, recorded by the walk itself. Not a second traversal:
+ * a walk written here to produce the expected set would be free to drift from the one under
+ * test, which is the whole defect. See THE SWEEP'S OTHER INPUT below.
+ */
+const swept = new Set<string>()
+
 function collectUsedTokens(emitted: Set<string>): Map<string, string[]> {
   const used = new Map<string, string[]>()
   const SHAPE = /^[a-z0-9][a-z0-9:/._-]*$/
@@ -174,6 +181,7 @@ function collectUsedTokens(emitted: Set<string>): Map<string, string[]> {
       const p = resolve(dir, entry.name)
       if (entry.isDirectory()) walk(p)
       else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+        swept.add(p)
         const src = stripComments(readFileSync(p, 'utf8'))
         const where = p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
         for (const m of src.matchAll(attr)) {
@@ -373,6 +381,97 @@ describe('the classification is total and the instrument works', () => {
     expect(door.closedPrefixes.has('rounded-'), 'borderRadius prefix not derived').toBe(true)
     expect(door.closedPrefixes.get('rounded-')?.has('border-radius')).toBe(true)
     expect(door.closedPrefixes.has('text-'), 'type/colour prefix not derived').toBe(true)
+  })
+})
+
+/**
+ * THE SWEEP'S OTHER INPUT: WHICH FILES IT READS, AND IT WAS THE UNCONTROLLED ONE.
+ *
+ * Everything `collectUsedTokens` EXTRACTS is controlled above — the lookup-table harvest, the
+ * comparison-operand rule, the interpolation stripper, the classifier on known answers. Nothing
+ * controlled the WALK, and this sweep's output for "read nothing" is byte-identical to its output
+ * for "read everything and found no bypass": `[]`.
+ *
+ * MEASURED at db85e4d on the real tree, not reasoned about
+ * (`~/talyvor-queue/w11-blindwalk-controls-9e73.py` and `w11-blindwalk-armed-9e73.py`, every
+ * mutation anchor-count-asserted before the edit, restored in a `finally` and verified back by
+ * sha256, verdicts read from vitest's own per-test lines):
+ *   A1  `rounded-lg` — a Tailwind default in the CLOSED borderRadius family, the exact class the
+ *       docstring above records this repo removing — put back into a real screen at
+ *       `areas/lens/Ledger.tsx`: REDS `nothing reaches past a closed door`, and only that case.
+ *       So the comparison is armed on real production files.
+ *   A2  THE HOLE: the same class, plus ONE line so the walk does not descend into `areas` —
+ *       rc=0, GREEN. 43 of the 70 production files under apps/web/src live there, which is
+ *       every product screen.
+ *   C3  the skip ALONE, no bypass: GREEN. Nothing anywhere notices the population shrank.
+ *
+ * That is #183's C1/C2/C3, in this file. #183 closed it in `lib/awaiting.test.ts` and named the
+ * three sweeps it had not been run against; this is one of them.
+ *
+ * THE REPAIR IS #183's AND IT IS THRESHOLD-FREE — an INDEPENDENT ENUMERATION, not a bigger floor.
+ * The floors here are already substantive (`>150` used tokens, `>40` token classes) and all three
+ * are satisfied by the 27 files that survive the skip, so raising a number would be a threshold
+ * nobody measured. `import.meta.glob` is resolved by Vite at transform time and touches `node:fs`
+ * not at all, so a skip map, a changed extension filter or a wrong `roots` cannot move both
+ * instruments the same way. The two sets are compared BOTH DIRECTIONS. The floor is there for the
+ * one failure that CAN move both: an anchor resolving to an empty tree leaves the two
+ * enumerations agreeing on nothing.
+ *
+ * ⚠ IT PASSED ON ITS FIRST RUN, so every assertion in it has its own control and every verdict is
+ * read from the FAILING TEST NAME rather than from the file's exit code
+ * (`~/talyvor-queue/w11-blindwalk-guard-controls-9e73.py`, 7/7):
+ *   P1 walk skips `areas/` → the SET comparison reds and it is the ONLY newly-failing case, so the
+ *      catch is this block's and not something else noticing.
+ *   P2 the glob pattern pointed at a directory that does not exist → the FLOOR *and* the SET red,
+ *      so the floor is armed rather than decorative.
+ *   P3 the walk widened to keep `.test.*` → the SET reds. ⚠ AND ONLY THE SET, HERE: unlike
+ *      deadClasses.test.ts, whose own negative-control fixture is a list of dead classes, nothing
+ *      in this repo's test files reads as a closed-door bypass. Recorded because it is the one
+ *      place the three files' controls disagree.
+ *   P4 the `rounded-lg` defect with the walk intact → the ORIGINAL guard reds ALONE and the SET
+ *      stays green, so the repair was ADDED to the sweep rather than swapped in for it.
+ *   P5 the A2 combination → CAUGHT. The flip is the finding.
+ *   P6 BLINDING: this block skipped and the A2 defect restored → rc=0, NOT CAUGHT. Nothing else
+ *      in the repo was watching.
+ *   G1 a new production file that both instruments can see → STAYS GREEN. It is a set comparison,
+ *      not a snapshot of a file list somebody would have to re-baseline.
+ */
+describe('the sweep reads the whole tree', () => {
+  // Keys only — the glob is lazy, so nothing here imports a module or runs a side effect. BOTH
+  // roots, because `roots` has two: a comparison that saw only `apps/web/src` would be green
+  // while the design system's own package went unread, and packages/ui/src is where the
+  // components whose radii this file polices actually live.
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => resolve(import.meta.dirname, k))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Deliberately far below the 102 counted at db85e4d: this catches an anchor that resolves to
+    // nothing, not a refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(60)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', async () => {
+    const door = await readDoor()
+    swept.clear()
+    // The REAL sweep, called exactly as the guard below calls it. Reading `swept` afterwards is
+    // what makes this an assertion about the walk under test rather than about a copy of it.
+    collectUsedTokens(new Set(door.withPreset.keys()))
+    const glob = new Set(globbed)
+    const rel = (p: string) =>
+      p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).map(rel).sort(),
+      'Vite sees production files this walk never read. The sweeps below check whatever the walk ' +
+        'returns, so anything missing here is a file no bypass check has ever looked at.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).map(rel).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a production source file is.',
+    ).toEqual([])
   })
 })
 
