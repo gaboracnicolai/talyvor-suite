@@ -135,20 +135,95 @@ describe('the casing predicate', () => {
  * µ.toUpperCase() is Μ; µ.toLowerCase() is µ. And `capitalize` only maps a WORD-INITIAL character,
  * which is exactly where µLXC's µ sits — so "µLXC list" under capitalize renders "ΜLXC List".
  */
+// ⚠ THIS FILE SWEEPS TWICE, OVER TWO DIFFERENT POPULATIONS, AND BOTH WALKS USED TO BE WRITTEN
+// INLINE INSIDE THE `it()` THAT USED THEM. Lifted here unchanged so the population assertion
+// below can compare THE WALK UNDER TEST rather than a third walk written next to it, which would
+// be free to drift from both. The two differ in exactly one way and it is deliberate: the casing
+// vocabulary is a claim about the PRODUCT, while the U+03BC rule is a claim about every source
+// byte in either package — a test file that types U+03BC is as much a way past the audit as a
+// component that does.
+const REPO_ROOT = resolve(import.meta.dirname, '../../..')
+const SWEEP_ROOTS = [resolve(REPO_ROOT, 'apps/web/src'), resolve(REPO_ROOT, 'packages/ui/src')]
+
+function sweepFiles(includeTests: boolean): string[] {
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = resolve(dir, e.name)
+      if (e.isDirectory()) return walk(p)
+      if (!/\.tsx?$/.test(e.name)) return []
+      return includeTests || !/\.test\.tsx?$/.test(e.name) ? [p] : []
+    })
+  return SWEEP_ROOTS.flatMap(walk)
+}
+
+/**
+ * ⚠ THE POPULATION IS ASSERTED, BECAUSE A COMPLETE WALK IS NOT A GUARANTEED ONE. Measured at
+ * `033d0a5` by recording every path this test opens — `node:fs` wrapped inside the vitest worker,
+ * `~/talyvor-queue/w11-population-census-4b2e.py` — this file reads 102 of the 102 production
+ * files under its two roots. Its population is WHOLE today. Nothing here said so, and the two
+ * floors it already carries (`files.length > 40`, twice) cannot say it: with the walk made to
+ * skip `areas/docs` and nothing else changed, this file stayed GREEN
+ * (`~/talyvor-queue/w11-stoppedwalk-controls-4b2e.py`, where all five sweeps in this class were
+ * green on the same mutation). The two `some(... includes('/packages/ui/src/components/'))`
+ * anchors below cannot say it either: ONE surviving file in each of two directories satisfies
+ * membership by prefix, which is the weaker shape tab-3a6d measured on `glyphAudit`.
+ *
+ * `import.meta.glob` is resolved by Vite at TRANSFORM time and touches `node:fs` not at all, so a
+ * wrong root, a changed extension filter or a walk that stops descending cannot move both
+ * enumerations the same way. BOTH populations are compared, BOTH DIRECTIONS — checking only the
+ * production one would leave the U+03BC rule, the stricter of the two, unasserted.
+ *
+ * ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+ * transform time; hoisting the patterns into a variable typechecks and then dies at runtime.
+ */
+describe('the sweep reads the whole tree', () => {
+  // ⚠ `import.meta.glob` never returns the module that CONTAINS the call, so Vite cannot see this
+  // file while the tests-included walk can. Subtracted by name from the walk side, with the rule
+  // below asserting the walk really does still hold it so the subtraction cannot become a hole.
+  const SELF = 'apps/web/src/caseAudit.test.tsx'
+  const rel = (p: string) => p.slice(REPO_ROOT.length + 1)
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  ).map((k) => rel(resolve(import.meta.dirname, k)))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Far below the count at `033d0a5`: this catches a root that resolves to nothing, not a
+    // refactor that moves files. The set comparisons below are what catch a skip.
+    expect(globbed.length).toBeGreaterThan(120)
+  })
+
+  it('the tests-included walk still reads this file, so subtracting it stays honest', () => {
+    expect(sweepFiles(true).map(rel)).toContain(SELF)
+  })
+
+  for (const [label, includeTests] of [
+    ['the production sweep — the casing vocabulary', false],
+    ['the every-source sweep — the U+03BC rule', true],
+  ] as const) {
+    it(`${label}: the fs walk and Vite’s glob agree, both directions`, () => {
+      const swept = new Set(sweepFiles(includeTests).map(rel).filter((p) => p !== SELF))
+      const glob = new Set(
+        globbed.filter((p) => (includeTests ? true : !/\.test\.tsx?$/.test(p)) && p !== SELF),
+      )
+      expect(
+        [...glob].filter((f) => !swept.has(f)).sort(),
+        'Vite sees files this walk never read. Every rule here is applied to whatever the walk ' +
+          'returns, so a file missing from it is one the audit has never been run against.',
+      ).toEqual([])
+      expect(
+        [...swept].filter((f) => !glob.has(f)).sort(),
+        'the walk read files Vite does not see. Either it left the two roots, or the two ' +
+          'disagree about what a source file is.',
+      ).toEqual([])
+    })
+  }
+})
+
 describe('the casing vocabulary, both directions', () => {
   const CLASSIFIED = Object.keys(TRANSFORM_CLASSES)
   const UNCLASSIFIED = ['capitalize', 'lowercase']
 
-  const sources = () => {
-    const repoRoot = resolve(import.meta.dirname, '../../..')
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const p = resolve(dir, e.name)
-        if (e.isDirectory()) return walk(p)
-        return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [p] : []
-      })
-    return [resolve(repoRoot, 'apps/web/src'), resolve(repoRoot, 'packages/ui/src')].flatMap(walk)
-  }
+  const sources = () => sweepFiles(false)
 
   it('the sweep reaches both packages — it must not pass by looking at nothing', () => {
     const files = sources()
@@ -340,15 +415,8 @@ describe('the hole in the predicate, closed from the other side', () => {
    * silently unequal to it in every string comparison, and it is the one way past this audit.
    */
   it('no source file in either package writes U+03BC in CODE', () => {
-    const repoRoot = resolve(import.meta.dirname, '../../..')
-    const roots = [resolve(repoRoot, 'apps/web/src'), resolve(repoRoot, 'packages/ui/src')]
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const p = resolve(dir, e.name)
-        if (e.isDirectory()) return walk(p)
-        return /\.tsx?$/.test(e.name) ? [p] : []
-      })
-    const files = roots.flatMap(walk)
+    const repoRoot = REPO_ROOT
+    const files = sweepFiles(true)
     // ⚠ The sweep must not pass by reading nothing — the `grep -a` lesson from W4.5.
     expect(files.length).toBeGreaterThan(40)
 
