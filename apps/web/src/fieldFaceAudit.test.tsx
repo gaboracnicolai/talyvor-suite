@@ -28,7 +28,7 @@ function dom(html: string): HTMLElement {
 }
 
 describe('what declares itself numeric', () => {
-  it('an inputMode of decimal does — this is ConvertLens.tsx:148', () => {
+  it('an inputMode of decimal does — this is ConvertLens.tsx:283', () => {
     const el = dom('<input inputmode="decimal">').firstElementChild!
     expect(declaresNumeric(el)).toBe(true)
   })

@@ -155,7 +155,7 @@ interface Pin {
  * rather than from the target — a fragment read off the target would be true by construction.
  */
 const PINS: Record<string, Pin> = {
-  'apps/web/src/eyebrowAudit.ts:25|apps/web/src/areas/lens/Overview.tsx:204': {
+  'apps/web/src/eyebrowAudit.ts:25|apps/web/src/areas/lens/Overview.tsx:226': {
     kind: 'LIVE',
     fragment: 'text-eyebrow uppercase',
     why: "the console's densest eyebrow, the surface `319335c` dropped `uppercase` from to prove 678 tests could not see it",
@@ -180,12 +180,12 @@ const PINS: Record<string, Pin> = {
     fragment: 'active:scale-98',
     why: 'the comment that writes the press the OTHER way — the two spellings are the point',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:320': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:342': {
     kind: 'LIVE',
     fragment: 'error={ledger.error}',
     why: 'the CORRECT copy of the seam Spend.tsx had backwards — the whole positive control for that finding is that this line reads `ledger.error` while its guard is `ledger.isError`',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:303|apps/web/src/areas/lens/Overview.tsx:320': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:303|apps/web/src/areas/lens/Overview.tsx:342': {
     kind: 'LIVE',
     fragment: '<Failed what="the mint ledger" error={ledger.error} />',
     why: 'the same line quoted VERBATIM beside the must-stay-green control that asserts its wording, so the quote and the assertion cannot drift apart',
@@ -263,12 +263,12 @@ const PINS: Record<string, Pin> = {
   // The four pointers the numeric-field audit and its tests write. Both sites they quote are the
   // MEASUREMENT that rule is built on: one is the offender it was written for, the other is the
   // exemption — a field whose value IS a figure and correctly is not on the face.
-  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:148': {
+  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:283': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the one field in the product that declares itself numeric — the defect this audit was written for',
   },
-  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:148': {
+  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:283': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the same site quoted where the rule argues the declaration is written in a DIFFERENT FILE from the class list',
@@ -283,7 +283,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'type="range"',
     why: 'the same slider quoted beside the exemption set itself, so the set cannot be widened without meeting it',
   },
-  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:148': {
+  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:283': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the unit case that pins the predicate to the real call site rather than to an invented fixture',
@@ -302,7 +302,7 @@ const PINS: Record<string, Pin> = {
     fragment: '.isError ?',
     why: 'the sibling with the same fallback shape — revoke gates on isError and picks its 404 words inside',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:201': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:336': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the closest sibling of all — ConvertError is the same pattern as CheckoutError, and it is used INSIDE the block',

@@ -150,16 +150,38 @@ function LensCard() {
             <MuNumeral micros={q.data.lifetime_spent_ulens} unit="lens" />
           </Row>
           <Row label="Updated" hint={formatWhen(q.data.updated_at)} />
-          {/* The exit. Earned LENS was unspendable from the suite until this: Lens has had the
-              conversion, nothing here offered it. Collapsed by default, so reading the balance
-              costs the same one request it always did. */}
-          <ConvertLens
-            lensBalanceMicros={q.data.balance_ulens}
-            heldMicros={q.data.held_balance_ulens ?? 0}
-          />
         </>
       )}
     </Card>
+  );
+}
+
+/**
+ * ⚠ THE CONVERSION MOVED OUT OF THE CARD ABOVE AND INTO ITS OWN REGION (W1.1.3). It was a
+ * collapsed strip under three lifetime rows — an irreversible money action with no name of its
+ * own, inside a card about something else. It is a region now, one idea, directly beneath the
+ * balances so the number it is about is still on screen.
+ *
+ * ⚠ IT READS THE SAME QUERY THE LENS CARD DOES, so this costs no request: react-query dedupes on
+ * `["lens-balance"]`, which is also how `useFirstRun` reads both balances for free.
+ *
+ * ⚠ AND IT RENDERS NOTHING UNTIL THE READ LANDS. `ConvertLens` takes a NUMBER, so it cannot tell
+ * a balance of zero from a balance nobody could read — and the difference decides which of two
+ * opposite things this region says. A failed read must not be drawn as "you have not earned any
+ * LENS", so the branch is made here, where the query object still exists. The LENS card above is
+ * already reporting the failure; a second panel repeating it is the voice SessionExpiredBar exists
+ * to remove.
+ */
+function ConvertRegionBody() {
+  const q = useQuery({ queryKey: ["lens-balance"], queryFn: api.lensBalance });
+  if (q.isLoading)
+    return <p className="text-body text-muted">Loading…</p>;
+  if (q.isError || !q.data) return null;
+  return (
+    <ConvertLens
+      lensBalanceMicros={q.data.balance_ulens}
+      heldMicros={q.data.held_balance_ulens ?? 0}
+    />
   );
 }
 
@@ -684,16 +706,19 @@ export function Overview({ now = new Date() }: { now?: Date } = {}) {
         <LxcCard />
         <LensCard />
       </Region>
-      <Region index="02" label="What it costs, and what it earns">
+      <Region index="02" label="What you can do with it">
+        <ConvertRegionBody />
+      </Region>
+      <Region index="03" label="What it costs, and what it earns">
         <SpendCard now={now} />
       </Region>
-      <Region index="03" label="What the cache answered">
+      <Region index="04" label="What the cache answered">
         <CacheCard days={30} />
       </Region>
-      <Region index="04" label="What is switched on">
+      <Region index="05" label="What is switched on">
         <ProductsCard />
       </Region>
-      <Region index="05" label="What just happened">
+      <Region index="06" label="What just happened">
         <RecentActivity />
       </Region>
     </RegionScreen>
