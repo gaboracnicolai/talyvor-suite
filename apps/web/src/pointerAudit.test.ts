@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -75,8 +75,38 @@ const REPO = resolve(import.meta.dirname, '../../..')
  */
 const SELF = 'apps/web/src/pointerAudit.test.ts'
 
-/** `Some/Path.tsx:123` or `Name.ts:12` — the shape a human writes when citing a line. */
-const POINTER = /\b([A-Za-z0-9_.\-/]+\.(?:tsx|ts|css|mjs|js)):(\d+)\b/g
+/**
+ * `Some/Path.tsx:123`, `Name.ts:12` — the shape a human writes when citing a line — AND a Go file
+ * in THIS repository, `apps/bff/billing.go:180`.
+ *
+ * ⚠ `.go` WAS MISSING AND THE OMISSION HAD ALREADY COST SOMETHING. `upstreamCitations.test.ts`
+ * bans line citations into talyvor-track because the premise lives in another repo and cannot be
+ * checked from here; it says in the same breath that `apps/bff/lens.go:348` and
+ * `apps/bff/billing.go:180` "name a file IN THIS REPOSITORY … verifiable from here — a guard
+ * could actually check them". None did. MEASURED at `eb051cd`: of the three such citations,
+ * `checkoutRefusalSurface.test.tsx`'s `apps/bff/billing.go:180` was written at `31095b7` when 180
+ * WAS the first line of handleLXCCheckout's doc — "Nothing is charged here … payment happens at
+ * Stripe" — and a later commit IN THIS REPOSITORY moved that comment to 200-203. Line 180 is now
+ * inside `probeBillingEnabled`, the function whose whole documented purpose is that it can never
+ * start a purchase. So a sentence explaining why "nothing was charged" is honest points a reader
+ * at the one path that is not the charge, and nothing went red.
+ *
+ * The same sentence cites `TopUp.tsx:22` in the SAME PARENTHESIS, and that one has been pinned
+ * here since it was written. One citation checked, one invisible, one line of prose — and the
+ * invisible one is the one that rotted.
+ */
+const POINTER = /\b([A-Za-z0-9_.\-/]+\.(?:tsx|ts|css|mjs|js|go)):(\d+)\b/g
+
+/**
+ * This repository's own Go, the only Go a pointer here can resolve. A `.go` citation naming
+ * anything else is a CROSS-REPO one and belongs to `upstreamCitations.test.ts`, which bans the
+ * form outright because it cannot be checked from here — it is skipped rather than swept in.
+ *
+ * Both directions of getting this wrong are already reds, which is why it needs no floor of its
+ * own: widen it and the cross-repo citations stop resolving; narrow it to nothing and the pins
+ * below become filed-but-not-seen.
+ */
+const IN_REPO_GO = /^apps\/[A-Za-z0-9_.\-/]+\.go$/
 
 type Kind = 'LIVE' | 'HISTORICAL'
 interface Pin {
@@ -297,6 +327,31 @@ const PINS: Record<string, Pin> = {
     fragment: 'The payment happens THERE',
     why: 'why "nothing was charged" is honest for a call that never completed — the charge happens after the redirect',
   },
+  'apps/web/src/checkoutRefusalSurface.test.tsx:65|apps/bff/billing.go:203': {
+    kind: 'LIVE',
+    fragment: 'happens at Stripe',
+    why: 'the BFF half of the same parenthesis — the sentence promises this line says the payment happens at Stripe AFTER the redirect',
+  },
+  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:348': {
+    kind: 'LIVE',
+    fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
+    why: 'the first of the TWO independent clamps the page ceiling rests on, quoted verbatim by the sentence that cites it',
+  },
+  'apps/web/src/upstreamCitations.test.ts:56|apps/bff/billing.go:203': {
+    kind: 'LIVE',
+    fragment: 'happens at Stripe',
+    why: 'the example that paragraph gives of a citation checkable from here — now checked, which is what it asked for',
+  },
+  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:348': {
+    kind: 'LIVE',
+    fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
+    why: 'its second example, pinned for the same reason',
+  },
+  'apps/web/src/upstreamCitations.test.ts:62|apps/web/src/areas/lens/TopUp.tsx:22': {
+    kind: 'LIVE',
+    fragment: 'The payment happens THERE',
+    why: 'the citation that WAS pinned, named in the account of why its neighbour was not — so that account cannot rot either',
+  },
   'apps/web/src/checkoutRefusalSurface.test.tsx:176|apps/web/src/areas/lens/TopUp.tsx:85': {
     kind: 'LIVE',
     fragment: 'must not leave a pending marker behind',
@@ -391,6 +446,12 @@ interface Found {
 
 /** Resolve a written target to a repo-relative path: a bare basename must be UNIQUE. */
 function resolveTarget(written: string, all: string[]): string | null {
+  if (written.endsWith('.go')) {
+    // Go targets are not in the scanned set (that set is `.ts`/`.tsx`, and the sweep test below
+    // holds it equal to Vite's glob), so they are resolved against the disk instead. A path that
+    // matches IN_REPO_GO and is NOT there is a red, not a shrug: it is a typo in a citation.
+    return existsSync(resolve(REPO, written)) ? written : null
+  }
   if (written.includes('/')) {
     const rel = written.replace(/^\.\//, '')
     return all.some((p) => relative(REPO, p) === rel) ? rel : null
@@ -409,6 +470,7 @@ function census(): { found: Found[]; unresolved: string[] } {
     const lines = text.split('\n')
     lines.forEach((line, i) => {
       for (const m of line.matchAll(POINTER)) {
+        if (m[1].endsWith('.go') && !IN_REPO_GO.test(m[1])) continue
         const target = resolveTarget(m[1], all)
         if (target === null) {
           unresolved.push(`${rel}:${i + 1} -> ${m[1]} (no unique file)`)

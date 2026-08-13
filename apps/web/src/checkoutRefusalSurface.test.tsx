@@ -62,7 +62,7 @@ import { PENDING_TOPUP_KEY } from './areas/lens/topupApi'
 // answer it cannot use (`'upstream'`, topupApi.ts:203): "Couldn't start the payment — nothing
 // was charged. Please try again." It is honest for a rejection by construction — this call only
 // asks Lens to create a Stripe Checkout Session, and the payment happens at Stripe AFTER the
-// redirect (TopUp.tsx:22, apps/bff/billing.go:180), so a call that never completed cannot
+// redirect (TopUp.tsx:22, apps/bff/billing.go:203), so a call that never completed cannot
 // have charged anyone.
 
 const AUTHENTICATED = {
