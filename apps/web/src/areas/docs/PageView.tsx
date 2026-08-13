@@ -35,8 +35,28 @@ export function PageView() {
 
   const save = useMutation({
     mutationFn: (text: string) => docsApi.updatePage(spaceId, pageId, { content_text: text }),
+    // ⚠ THE RE-READ HAS TO REACH THE BOX, AND FOR ITS WHOLE LIFE IT COULD NOT. The invalidate was
+    // here from the start — the intent is not in doubt — but the seeding effect above only ever
+    // fills the draft `while it is null`, so the refetched page had nowhere to land and the
+    // textarea went on showing the text that was typed at it whatever Docs did with it. A write
+    // whose re-read cannot be observed is an optimistic echo with a network call in front of it,
+    // and this app refuses that shape everywhere else it writes: Documents.tsx ("the rendered
+    // state must be what Lens RECORDED"), Sharing.tsx, and the BFF's setDistillPolicy ("Report
+    // what Lens RECORDED, never what was asked for").
+    //
+    // Dropping the draft AFTER the invalidate resolves — react-query awaits the refetch — hands
+    // the effect a fresh page.data to seed from, so the box shows the stored value rather than
+    // the submitted one. It matters here more than on the consent screens: the page PATCH sends
+    // content_text, the projection Docs DERIVES from the document, so what comes back is not
+    // always what went up. Whichever way that open question is settled, the reader is now looking
+    // at the stored answer instead of their own keystrokes.
+    //
+    // ⚠ ONLY ON SUCCESS. A refused save keeps the draft — it is the only copy of those words, and
+    // re-seeding from a server that did not take them would delete them. docsWrites.test.tsx
+    // holds both directions.
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: pageKey })
+      setDraft(null)
     },
   })
 
