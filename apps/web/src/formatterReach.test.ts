@@ -87,6 +87,69 @@ const sources = allSources()
 const byAbs = new Map(sources.map((s) => [s.abs, s]))
 
 /**
+ * ⚠ THE POPULATION IS ASSERTED, BECAUSE A COMPLETE WALK IS NOT A GUARANTEED ONE. Measured at
+ * `033d0a5` by recording every path this test opens — `node:fs` wrapped inside the vitest worker,
+ * `~/talyvor-queue/w11-population-census-4b2e.py` — this file reads 102 of the 102 production
+ * files under its two roots. Its population is WHOLE today. Nothing here said so, and nothing
+ * here would have noticed it stop being whole: with the walk made to skip `areas/docs` and
+ * nothing else changed, this file stayed GREEN (`~/talyvor-queue/w11-stoppedwalk-controls-4b2e.py`).
+ *
+ * ⚠ AND A STOPPED WALK IS THE FAILURE THIS FILE'S RULE INVERTS INTO A FALSE ACCUSATION, not
+ * merely a missed one. The rule asks "does anything CALL this formatter?" — so a walk that stops
+ * descending removes CALL SITES, and a live formatter whose only caller lives under the lost
+ * subtree is then reported DEAD. This is the one sweep in the class where a partial population
+ * fails LOUDLY and in the wrong direction, and the reader would be told to delete working code.
+ *
+ * `import.meta.glob` is resolved by Vite at TRANSFORM time and touches `node:fs` not at all, so a
+ * wrong root, a changed extension filter or a walk that stops descending cannot move both
+ * enumerations the same way. Compared BOTH DIRECTIONS.
+ *
+ * ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+ * transform time; hoisting the patterns into a variable typechecks and then dies at runtime.
+ * ⚠ AND TESTS ARE NOT FILTERED OUT HERE, unlike every other file in this class — `allSources`
+ * deliberately KEEPS them and flags them `test`, because "imported only by its own unit test" is
+ * a verdict this file reports and it cannot reach it from a corpus with the tests removed.
+ */
+describe('the sweep reads the whole tree', () => {
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  ).map((k) => relOf(resolve(import.meta.dirname, k)))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Far below the count at `033d0a5`: this catches a root that resolves to nothing, not a
+    // refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(120)
+  })
+
+  // ⚠ ONE REAL ASYMMETRY BETWEEN THE TWO INSTRUMENTS, FOUND BY THIS COMPARISON AND NOT GUESSED:
+  // `import.meta.glob` never returns the module that CONTAINS the glob call, so Vite cannot see
+  // this file while the walk can. It bit here and not in the other four because those filter
+  // tests out and this one deliberately keeps them. It is subtracted by name — and the test
+  // below asserts the walk really does still contain it, so the subtraction cannot quietly
+  // become the hole it exists to avoid.
+  const SELF = 'apps/web/src/formatterReach.test.ts'
+
+  it('the walk still reads this file, so subtracting it from the comparison stays honest', () => {
+    expect(sources.map((s) => s.path)).toContain(SELF)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    const swept = new Set(sources.map((s) => s.path).filter((p) => p !== SELF))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees files this walk never read. Every call site lives in one of them, so a file ' +
+        'missing here can turn a called formatter into a reported-dead one.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a source file is.',
+    ).toEqual([])
+  })
+})
+
+/**
  * THE MODULES WHOSE WHOLE EXPORTED SURFACE EXISTS TO BE CALLED BY A SCREEN.
  *
  * ⚠ IT IS NOT `FORMATTER_MODULES` ANY MORE, AND THE RENAME IS THE FINDING. Three of these are

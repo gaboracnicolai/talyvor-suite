@@ -77,6 +77,53 @@ function sourceFiles(root: string): string[] {
 
 const FILES = [...sourceFiles(WEB_SRC), ...sourceFiles(UI_SRC)]
 
+/**
+ * ⚠ THE POPULATION IS ASSERTED, BECAUSE A COMPLETE WALK IS NOT A GUARANTEED ONE. Measured at
+ * `033d0a5` by recording every path this test opens — `node:fs` wrapped inside the vitest worker,
+ * `~/talyvor-queue/w11-population-census-4b2e.py` — this file reads 102 of the 102 production
+ * files under its two roots. Its population is WHOLE today. Nothing here said so, and the floor
+ * further down (`FILES.length > 60`) cannot say it: with the walk made to skip `areas/docs` and
+ * nothing else changed, this file stayed GREEN — 102 files became 96 and the floor never moved
+ * (`~/talyvor-queue/w11-stoppedwalk-controls-4b2e.py`, where all five sweeps in this class were
+ * green on the same mutation). That is the shape tab-3a6d measured across this whole class: the
+ * floors are satisfied by the survivors, so RAISING one is a threshold nobody measured.
+ *
+ * `import.meta.glob` is resolved by Vite at TRANSFORM time and touches `node:fs` not at all, so a
+ * wrong root, a changed extension filter, a `startsWith('.')` skip that widens, or a walk that
+ * stops descending cannot move both enumerations the same way. Compared BOTH DIRECTIONS.
+ *
+ * ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+ * transform time; hoisting the patterns into a variable typechecks and then dies at runtime.
+ */
+describe('the sweep reads the whole tree', () => {
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => relative(REPO, resolve(import.meta.dirname, k)))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Far below the 102 at `033d0a5`: this catches a root that resolves to nothing, not a
+    // refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(60)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    const swept = new Set(FILES.map((p) => relative(REPO, p)))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees production files this walk never read. Every rule here is applied to whatever ' +
+        'FILES holds, so an eyebrow class in a file missing from it has never been checked.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a production source file is.',
+    ).toEqual([])
+  })
+})
+
 function quotedFragments(text: string): string[] {
   return [...text.matchAll(/['"`]([^'"`]*)['"`]/g)].map((m) => m[1].replace(/\s+/g, ' ').trim())
 }

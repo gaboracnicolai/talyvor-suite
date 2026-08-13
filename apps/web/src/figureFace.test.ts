@@ -87,6 +87,58 @@ function allSources(exts: RegExp): { path: string; text: string }[] {
 }
 
 /**
+ * ⚠ THE POPULATION IS ASSERTED, BECAUSE A COMPLETE WALK IS NOT A GUARANTEED ONE. Measured at
+ * `033d0a5` by recording every path this test opens — `node:fs` wrapped inside the vitest worker,
+ * `~/talyvor-queue/w11-population-census-4b2e.py` — this file reads 102 of the 102 production
+ * files under its two roots. Its population is WHOLE today. Nothing here said so, and nothing
+ * here would have noticed it stop being whole: with the walk made to skip `areas/docs` and
+ * nothing else changed, this file stayed GREEN (`~/talyvor-queue/w11-stoppedwalk-controls-4b2e.py`,
+ * where all five sweeps in this class were green on the same mutation).
+ *
+ * A FLOOR CANNOT DO THIS JOB and raising one would be a threshold nobody measured: rule B's
+ * discovery is silent when the product is correct, which is byte-identical to what a walk that
+ * stopped descending reports. `import.meta.glob` is resolved by Vite at TRANSFORM time and
+ * touches `node:fs` not at all, so a wrong root, a changed extension filter or a walk that stops
+ * descending cannot move both enumerations the same way. Compared BOTH DIRECTIONS.
+ *
+ * ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+ * transform time; hoisting the patterns into a variable typechecks and then dies at runtime.
+ */
+describe('the sweep reads the whole tree', () => {
+  // Keys only — the glob is lazy, so nothing here imports a module or runs a side effect. Both
+  // roots, because `roots` has two and a comparison seeing only `apps/web/src` would be green
+  // while the design system went unread.
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => relOf(resolve(import.meta.dirname, k)))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Far below the 102 at `033d0a5`: this catches a root that resolves to nothing, not a
+    // refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(60)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    // The REAL sweep, called with the same extensions rule rule B uses — an assertion about the
+    // walk under test rather than about a second walk written here, which would be free to drift.
+    const swept = new Set(allSources(/\.tsx?$/).map((f) => f.path))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees production files this walk never read. Rule B classifies whatever the walk ' +
+        'returns, so an exported `format*` in a file missing here is one nobody has to classify.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a production source file is.',
+    ).toEqual([])
+  })
+})
+
+/**
  * The modules that export a `format*` — DISCOVERED, never listed.
  *
  * ⚠ A LIST HERE IS THE DEFECT THIS REPLACES. Whoever adds `areas/reports/format.ts` will not

@@ -325,6 +325,63 @@ function sourceFiles(): string[] {
   return out.sort()
 }
 
+/**
+ * ⚠ THE POPULATION IS ASSERTED, BECAUSE A COMPLETE WALK IS NOT A GUARANTEED ONE. Measured at
+ * `033d0a5` by recording every path this test opens — `node:fs` wrapped inside the vitest worker,
+ * `~/talyvor-queue/w11-population-census-4b2e.py` — this file reads 102 of the 102 production
+ * files under its two roots, tests on top. Its population is WHOLE today. Nothing here said so,
+ * and nothing here would have noticed it stop being whole: with the walk made to skip
+ * `areas/docs` and nothing else changed, this file stayed GREEN
+ * (`~/talyvor-queue/w11-stoppedwalk-controls-4b2e.py`, where all five sweeps in this class were
+ * green on the same mutation).
+ *
+ * ⚠ AND FOR THIS FILE A LOST SUBTREE IS NOT A MISSED CITATION — IT IS A CITATION THAT BECOMES
+ * UNVERIFIABLE AND IS NOT SAID TO BE. The rule reads `File.tsx:123` markers and checks the line
+ * they point AT. A walk that stops descending removes the TARGETS, so every pin into the lost
+ * subtree simply stops being examined; the pins stay in the file reading as though something
+ * still checks them. That is the failure mode this repo has named repeatedly — a guard that is
+ * green because it can no longer be red.
+ *
+ * `import.meta.glob` is resolved by Vite at TRANSFORM time and touches `node:fs` not at all, so a
+ * wrong root, a changed extension filter or a walk that stops descending cannot move both
+ * enumerations the same way. Compared BOTH DIRECTIONS.
+ *
+ * ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+ * transform time; hoisting the patterns into a variable typechecks and then dies at runtime.
+ * ⚠ `SELF` IS SUBTRACTED FROM BOTH SIDES AND FOR TWO DIFFERENT REASONS THAT HAPPEN TO AGREE:
+ * the walk drops it deliberately (a file citing itself is not a cross-file pin), and Vite never
+ * returns the module that CONTAINS the glob call at all. The rule below that asserts the walk
+ * excludes SELF is the one that keeps the first reason honest.
+ */
+describe('the sweep reads the whole tree', () => {
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .map((k) => relative(REPO, resolve(import.meta.dirname, k)))
+    .filter((p) => p !== SELF)
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Far below the count at `033d0a5`: this catches a root that resolves to nothing, not a
+    // refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(120)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    const swept = new Set(sourceFiles().map((p) => relative(REPO, p)))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees files this walk never read. Every citation and every target lives in one of ' +
+        'them, so a file missing here holds pins nothing verifies and targets nothing checks.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a source file is.',
+    ).toEqual([])
+  })
+})
+
 interface Found {
   key: string
   target: string
