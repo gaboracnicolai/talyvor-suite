@@ -80,8 +80,16 @@ import (
 //   - It asks whether a route ANSWERS an anonymous reader, not whether an authenticated reader
 //     is scoped to their own tenant. That is tenant_boundary_test.go's question and this is not
 //     a substitute for it.
-//   - It drives GET only. HEAD/OPTIONS are Go's mux defaults on the same handler; the unsafe
-//     methods are the Origin sweep's population.
+//   - It drives GET only. HEAD/OPTIONS are Go's mux defaults on the same handler.
+//     ⚠ THIS LINE USED TO HAND THE UNSAFE METHODS TO THE ORIGIN SWEEP, AND THAT WAS A FALSE
+//     STATEMENT ABOUT WHAT THAT SWEEP ASKS. The Origin sweep asks whether a write route checks
+//     the ORIGIN HEADER; it never asks whether one checks the SESSION. Nothing did, and
+//     /api/pooling was measurably open to a gate deletion no test in the package could see —
+//     see TestEveryMountedRoute_RefusesAnonymousWrite at the bottom of this file, which now
+//     owns that half.
+//   - ⚠ AND ITS 405 BRANCH IS AN ESCAPE HATCH, NOT MERELY A GAP: removing a write-only route's
+//     auth wrapper turns that route's anonymous GET from a 401 into the 405 counted below as
+//     "no read surface", so the defect enters through the branch that excuses it.
 //   - The refusal is asserted as a STATUS. A route that 401s and streams a body anyway would
 //     pass here — assertNoSecretLeak is the sweep that reads bodies.
 
@@ -230,5 +238,138 @@ func TestRouteMountsLiveInLensGoAlone(t *testing.T) {
 		t.Errorf("route(s) mounted outside lens.go — mountedPatterns() reads lens.go alone, so these "+
 			"are invisible to this file, the Origin sweep AND the leak sweep at the same time. Move "+
 			"them, or widen mountedPatterns() and re-run all three:\n  %s", strings.Join(elsewhere, "\n  "))
+	}
+}
+
+// publicWriteRoutes — patterns that answer an anonymous UNSAFE method with something other than
+// a refusal, each with the reason. Same contract as publicReadRoutes: a reason is a claim about
+// the product, and the stale direction below deletes it the day it stops being true.
+var publicWriteRoutes = map[string]string{
+	"/": "the SPA fallback. There is no handler behind an unsafe method here — the router " +
+		"answers 404 and nothing is reached, so there is no session to require",
+	"/auth/logout": "session teardown, which cannot require the session it is tearing down. " +
+		"503 here only because this fixture configures no IdP (a.auth is nil); " +
+		"logout_test.go owns what it does when one exists",
+}
+
+// TestEveryMountedRoute_RefusesAnonymousWrite — the same question as its GET sibling above,
+// asked with the methods that SPEND.
+//
+// ── THE HOLE IT CLOSES, MEASURED ONE MUTATION AT A TIME ──────────────────────
+//
+// The GET sweep's own stated limit is "it drives GET only", handing the unsafe methods to the
+// Origin sweep. But the Origin sweep asks about the ORIGIN header, not about the session — so
+// the question "does this write route refuse a stranger" was asked by nobody except hand-written
+// per-route tests, and those are the shape mountedPatterns() exists to replace.
+//
+// ⚠ WORSE THAN A GAP: THE GET SWEEP'S 405 BRANCH EXCUSES EXACTLY THIS DEFECT. It counts a route
+// that answers 405 to an anonymous GET as "no read surface" and moves on — and removing a
+// write-only route's auth wrapper is PRECISELY what turns that route's anonymous GET from a 401
+// into that 405. The defect walks into the excused bucket on its way in.
+//
+// MEASURED at fc3c0e7 by removing each write-only route's gate ALONE and reading the failing
+// test NAMES out of the whole package:
+//
+//	/api/lxc/checkout   → caught by TestCheckoutRequiresSession
+//	/api/lens/convert   → caught by TestConvert_RequiresASession
+//	/api/keys/{id}      → caught by TestRevokeRequiresSession
+//	/api/pooling        → NOTHING FAILED. An anonymous POST reached the handler's own body
+//	                     validation (400 `cache_poolable (boolean) required`) — the handler RAN
+//	                     for a stranger, and the workspace's cache-pooling choice is an economics
+//	                     setting. Three companions and a hole is what a hand-maintained list is.
+//	/api/docs/ai/ask    → NOTHING FAILED either, but that route still fails closed: three layers
+//	                     answer a byte-identical 401. See TestDocsAsk_RequiresASession.
+//
+// ⚠ NO Origin HEADER, AND THAT IS THE OPPOSITE OF AN OVERSIGHT — IT IS THE TRAP THIS SWEEP CAME
+// CLOSEST TO FALLING INTO. sameOriginWriteAllowed compares `Origin` against cfg.publicBaseURL,
+// which productApp leaves EMPTY, so a browser-shaped `Origin: https://app.talyvor.com` is
+// refused 403 BY THE ORIGIN RULE before any session check runs. The first version of this sweep
+// sent one and measured 123/123 "refused" — a perfect score produced entirely by the wrong
+// guard, and it would have stayed perfect with every session check in the BFF deleted. A
+// refusal is only evidence for the rule that actually produced it.
+func TestEveryMountedRoute_RefusesAnonymousWrite(t *testing.T) {
+	track := newCaptureUpstream(t, `[{"id":"ws-t1"}]`)
+	docs := newCaptureUpstream(t, `[{"id":"sp-1"}]`)
+	a, _ := productApp(t, track, docs)
+
+	patterns := mountedPatterns(t)
+	// A floor on the POPULATION, as a literal — never len() of something this test also reads.
+	if len(patterns) < 20 {
+		t.Fatalf("mounted patterns found = %d, want at least 20 — the route-table scan read almost "+
+			"nothing, so every 'refuses anonymous' answer below is unsafe", len(patterns))
+	}
+
+	refused, noWriteSurface := 0, 0
+	var open, stale []string
+	for _, pat := range patterns {
+		path := regexp.MustCompile(`\{[^}]*\}`).ReplaceAllString(pat, "x1")
+		patRefused := 0
+		for _, m := range []string{http.MethodPost, http.MethodPatch, http.MethodDelete} {
+			rec := httptest.NewRecorder()
+			// No cookie jar, no Authorization header: a stranger with the address, spending.
+			req := httptest.NewRequest(m, path, strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			a.ServeHTTP(rec, req)
+
+			_, classified := publicWriteRoutes[pat]
+			switch {
+			case rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden:
+				refused++
+				patRefused++
+			case rec.Code == http.StatusMethodNotAllowed:
+				// ⚠ COUNTED AND SKIPPED, NOT EXCUSED — and note this is the INVERSE of the GET
+				// sweep's 405 branch. There, 405 means "no read surface to leak". Here it can
+				// only be reached by a route whose method check answered BEFORE any session
+				// check, which for a write route is the defect itself; the only patterns that
+				// reach it today are the public reads refusing an unsafe method, which have no
+				// session to require in the first place.
+				noWriteSurface++
+			case classified:
+				// Answered a stranger, and says why in the table.
+			default:
+				body := strings.TrimSpace(rec.Body.String())
+				if len(body) > 90 {
+					body = body[:90] + "…"
+				}
+				open = append(open, m+" "+pat+" answered a request with NO session: "+
+					strconv.Itoa(rec.Code)+" "+body)
+			}
+		}
+		if _, classified := publicWriteRoutes[pat]; classified && patRefused > 0 {
+			stale = append(stale, pat+" is listed in publicWriteRoutes but REFUSES an anonymous "+
+				"write. The reason stopped being true: "+publicWriteRoutes[pat])
+		}
+	}
+
+	// The probe must find refusals to check. A literal, never len(patterns)×3 minus the table.
+	if refused < 90 {
+		t.Fatalf("route/method pairs that refused an anonymous write = %d, want at least 90 — the "+
+			"sweep reached almost nothing, so its silence below means nothing", refused)
+	}
+	if noWriteSurface < 1 {
+		t.Errorf("pairs answering 405 = %d, want at least 1 (the public reads refuse unsafe "+
+			"methods) — the branch that skips a pair is the one nothing exercised", noWriteSurface)
+	}
+
+	if len(open) > 0 {
+		sort.Strings(open)
+		t.Errorf("route(s) that let a stranger WRITE — wrap the handler in requireSession/"+
+			"requireTenant/requireOperator, or add the pattern to publicWriteRoutes with the "+
+			"reason it is public:\n  %s", strings.Join(open, "\n  "))
+	}
+	if len(stale) > 0 {
+		sort.Strings(stale)
+		t.Errorf("publicWriteRoutes entr(ies) that stopped being true — delete them:\n  %s",
+			strings.Join(stale, "\n  "))
+	}
+
+	// The flip side of the status rule: no anonymous write may reach a product upstream, where
+	// the BFF attaches the gateway secret server-side.
+	if track.headers != nil {
+		t.Errorf("an anonymous write reached the TRACK upstream at %q — the gateway secret is "+
+			"attached server-side, so this is a credentialed call made for a stranger", track.path)
+	}
+	if docs.headers != nil {
+		t.Errorf("an anonymous write reached the DOCS upstream at %q — same argument", docs.path)
 	}
 }
