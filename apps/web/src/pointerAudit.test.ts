@@ -159,7 +159,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-display-3',
     why: 'the console surface that reached for display type AS AT `c71ca9c`, quoted with that SHA',
   },
-  'apps/web/src/areas/track/IssueDetail.tsx:106|apps/web/src/areas/track/IssueList.tsx:260': {
+  'apps/web/src/areas/track/IssueDetail.tsx:137|apps/web/src/areas/track/IssueList.tsx:260': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the sentence this write path is the fifth instance of — quoted so the two Track write paths cannot state the rule differently',

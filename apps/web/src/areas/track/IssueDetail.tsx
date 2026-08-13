@@ -64,6 +64,37 @@ export function IssueDetail() {
   const [draft, setDraft] = useState<string | null>(null)
   const [comment, setComment] = useState('')
 
+  // ⚠ ALL FOUR OF THOSE BELONG TO ONE ISSUE, AND NOTHING USED TO SAY SO.
+  //
+  // React Router matches /track/issues/:id to ONE <Route> element, so moving from issue A to
+  // issue B changes `id` underneath this component and does NOT remount it — every useState above
+  // survives. MEASURED, not reasoned about (the probe is now IssueDetail.test.tsx's 'the state on
+  // this screen belongs to the issue that is open'): with a draft open on A, arriving at B sent
+  //
+  //     PATCH /api/track/issues/b {"description":"<the words typed on A>"}
+  //
+  // — A's description written into B, under B's title, from a Save the reader had every reason to
+  // press. The typed comment carried across the same way, and a refusal sentence about A stayed on
+  // screen over B.
+  //
+  // ⚠ IT IS NOT REACHABLE FROM THIS UI TODAY and it is still fixed here. Nothing on this screen
+  // links to another issue — "‹ Issues" goes up to the list and DOES remount — so it takes one
+  // ordinary addition (a parent link; `parent_id` is already on the type, a related list, a search
+  // result, prev/next) to become silent data loss, and whoever adds that link has no reason to
+  // suspect this file. This is the same shape and the same decision as `f4c1e97` (#190) in
+  // areas/docs/PageView.tsx; the two screens were written months apart and grew it independently.
+  //
+  // Resetting during render rather than in an effect is React's documented way to adjust state
+  // when the thing it belongs to changes: the reset lands BEFORE the browser sees anything, so
+  // the previous issue's words are never painted under the new issue's title.
+  const [stateOf, setStateOf] = useState(id)
+  if (stateOf !== id) {
+    setStateOf(id)
+    setDraft(null)
+    setComment('')
+    setFailure(null)
+  }
+
   const issue = useQuery({
     queryKey: ['track-issue', id],
     queryFn: () => getJSON<TrackIssue>(`/api/track/issues/${encodeURIComponent(id)}`),
