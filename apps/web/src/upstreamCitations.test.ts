@@ -80,6 +80,80 @@ function sources(): { path: string; text: string }[] {
 }
 
 /**
+ * THE WALK'S OWN POPULATION, ASSERTED AGAINST AN INSTRUMENT THAT DOES NOT SHARE ITS MACHINERY.
+ *
+ * ⚠ MEASURED, NOT SUSPECTED (`~/talyvor-queue/w11-areasprune-census-3a6d.py`). Rule A is an
+ * ABSENCE sweep, and its own floor says so — but the floor names five files, none of them under
+ * `areas/lens`. Armed with a real `model.go:54-63` citation planted in a real file there:
+ *   A1  the citation with the tree whole          → this file REDS.
+ *   A2  the same citation, `areas/lens` unreachable → GREEN. 23 of the 69 production files under
+ *       apps/web/src (33%) stopped being read and neither the floor nor rule A noticed.
+ * `all.length > 80` is satisfied by the files that survive, and every named anchor is in
+ * `areas/track` or `packages/ui`, so ADDING ONE MORE NAMED FILE IS THE WRONG REPAIR: it would
+ * arm this rule for `areas/lens` and leave the next area exactly as blind.
+ *
+ * ⚠ AND NO SECOND INSTRUMENT WAS WATCHING: this file's test count is FIXED at 3, so unlike
+ * `packages/ui/src/__tests__/invariant.test.ts` — which generates one `it()` per file and whose
+ * 104 → 81 drop test-manifest.json catches — losing a whole product area moved nothing here.
+ *
+ * THE REPAIR IS #183's AND IT IS THRESHOLD-FREE. `import.meta.glob` is resolved by Vite at
+ * transform time and touches `node:fs` not at all, so a wrong root, a changed extension filter or
+ * a walk that stops descending cannot move both instruments the same way. Compared BOTH
+ * DIRECTIONS. The floor is for the one failure that CAN move both: an anchor resolving to an
+ * empty tree leaves the two enumerations agreeing on nothing.
+ */
+/** This file, as `sources()` spells it. See the self-exclusion note in the comparison below. */
+const SELF = 'apps/web/src/upstreamCitations.test.ts'
+
+describe('the sweep reads the whole tree', () => {
+  // ⚠ NOT FILTERED TO NON-TEST FILES, because `sources()` is not: this rule deliberately scans
+  // test files too — `areas/track/issueVocabulary.test.tsx` is one of its own named anchors, and a
+  // rotted citation in a test comment is exactly as unverifiable as one in a component.
+  //
+  // ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+  // transform time; hoisting it into a variable typechecks and then dies at runtime.
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  ).map((k) => {
+    const p = resolve(import.meta.dirname, k)
+    return p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
+  })
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Deliberately far below the count at b940d57: this catches an anchor that resolves to
+    // nothing, not a refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(80)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    // The REAL sweep, called exactly as rule A calls it — an assertion about the walk under test
+    // rather than about a second walk written here, which would be free to drift from it.
+    const swept = new Set(sources().map((s) => s.path))
+    const glob = new Set(globbed)
+    // ⚠ THE ONE LEGITIMATE DIFFERENCE, MEASURED RATHER THAN ASSUMED: Vite's glob never returns the
+    // module doing the globbing — a self-import would be a cycle. Probed directly: a throwaway
+    // module globbing `./**/*.{ts,tsx}` got 163 keys including 93 `.test.*` files and
+    // `upstreamCitations.test.ts` itself, but NOT its own path. The other four sweeps repaired
+    // alongside this one filter `.test.*` out, so their own file is gone either way; this rule
+    // scans test files DELIBERATELY, so its own file is genuinely in `sources()`'s population.
+    // Subtracted BY NAME and asserted present on the walk side, so if the walk ever stops reading
+    // it this becomes a red rather than a quietly vacuous exclusion.
+    expect(swept.has(SELF), `${SELF} is no longer read by the walk it excludes itself from`).toBe(true)
+    swept.delete(SELF)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees files this walk never read. Rule A checks whatever the walk returns, so anything ' +
+        'missing here is a file whose upstream citations have never been looked at.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a source file is.',
+    ).toEqual([])
+  })
+})
+
+/**
  * The one upstream file in scope: talyvor-track's model.go, however it is spelled — bare
  * `model.go:` or fully qualified `internal/model/model.go:`. Both forms were in the tree.
  */

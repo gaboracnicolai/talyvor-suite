@@ -71,6 +71,69 @@ function sourceFiles(): SourceFile[] {
 }
 
 /**
+ * THE WALK'S OWN POPULATION, ASSERTED AGAINST AN INSTRUMENT THAT DOES NOT SHARE ITS MACHINERY.
+ *
+ * ⚠ MEASURED, NOT SUSPECTED (`~/talyvor-queue/w11-areasprune-census-3a6d.py`). Every rule below is
+ * SILENT when the product is correct, which is byte-identical to what a walk that stopped
+ * descending reports. Armed with a real hand-rolled `<input />` carrying none of Input.tsx's
+ * contract, planted in a real file under `apps/web/src/areas/lens`:
+ *   A1  the defect with the tree whole            → this file REDS.
+ *   A2  the same defect, `areas/lens` unreachable → GREEN. 23 of the 69 production files under
+ *       apps/web/src (33%) stopped being read and nothing here noticed.
+ * The floor at `controls.length > 4` and the contract floor are both satisfied by the files that
+ * survive, so RAISING A NUMBER IS THE WRONG REPAIR — it would be a threshold nobody measured.
+ *
+ * ⚠ AND NO SECOND INSTRUMENT WAS WATCHING: this file's test count is FIXED at 8, so unlike
+ * `packages/ui/src/__tests__/invariant.test.ts` — which generates one `it()` per file and whose
+ * 104 → 81 drop test-manifest.json catches — losing a whole product area moved nothing here.
+ *
+ * THE REPAIR IS #183's AND IT IS THRESHOLD-FREE. `import.meta.glob` is resolved by Vite at
+ * transform time and touches `node:fs` not at all, so a wrong root, a changed extension filter or
+ * a walk that stops descending cannot move both instruments the same way. Compared BOTH
+ * DIRECTIONS. The floor is for the one failure that CAN move both: an anchor resolving to an
+ * empty tree leaves the two enumerations agreeing on nothing.
+ */
+describe('the sweep reads the whole tree', () => {
+  // Keys only — the glob is lazy, so nothing here imports a module or runs a side effect. BOTH
+  // roots, because `roots` has two: a comparison seeing only `apps/web/src` would be green while
+  // the design system's own package — where Input.tsx, the contract's source, lives — went unread.
+  //
+  // ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+  // transform time; hoisting it into a variable typechecks and then dies at runtime.
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => {
+      const p = resolve(import.meta.dirname, k)
+      return p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
+    })
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Deliberately far below the count at b940d57: this catches an anchor that resolves to
+    // nothing, not a refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(60)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    // The REAL sweep, called exactly as every rule below calls it — an assertion about the walk
+    // under test rather than about a second walk written here, which would be free to drift.
+    const swept = new Set(sourceFiles().map((f) => f.path))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees production files this walk never read. Every rule below checks whatever the walk ' +
+        'returns, so anything missing here is a file no parity check has ever looked at.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a production source file is.',
+    ).toEqual([])
+  })
+})
+
+/**
  * The opening tag starting at `<`, read to its own `>`.
  *
  * ⚠ NOT A LAZY `<[^>]*>` — #93 paid for that one. An arrow function inside an attribute contains

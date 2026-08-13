@@ -321,6 +321,69 @@ function productSource(): { path: string; text: string }[] {
   return out
 }
 
+/**
+ * THE WALK'S OWN POPULATION, ASSERTED AGAINST AN INSTRUMENT THAT DOES NOT SHARE ITS MACHINERY.
+ *
+ * ⚠ MEASURED, NOT SUSPECTED (`~/talyvor-queue/w11-areasprune-census-3a6d.py`). The floor below
+ * asserts membership BY PREFIX — `some(path includes '/apps/web/src/areas/')` — and a prefix is
+ * satisfied by any ONE surviving area, so losing a whole area passes it. Armed with a real `→`
+ * (classified in ARRIVES_AS_DATA, exempt only because LENS sends it inside `reversible_note`)
+ * written into this repo's own copy in a real file under `apps/web/src/areas/lens`:
+ *   A1  the character with the tree whole         → this file REDS.
+ *   A2  the same character, `areas/lens` unreachable → GREEN. 23 of the 69 production files under
+ *       apps/web/src (33%) stopped being read, `files.length > 40` still held, and BOTH prefix
+ *       assertions still found a match in the areas that survived.
+ * TIGHTENING THE PREFIX TO A NAMED FILE IS THE WRONG REPAIR: it arms this rule for one area and
+ * leaves the next one blind. The comparison below is threshold-free and names nothing.
+ *
+ * ⚠ AND NO SECOND INSTRUMENT WAS WATCHING: this file's test count is FIXED at 28, so unlike
+ * `packages/ui/src/__tests__/invariant.test.ts` — which generates one `it()` per file and whose
+ * 104 → 81 drop test-manifest.json catches — losing a whole product area moved nothing here.
+ *
+ * `import.meta.glob` is resolved by Vite at transform time and touches `node:fs` not at all, so a
+ * wrong root, a changed extension filter or a walk that stops descending cannot move both
+ * instruments the same way. Compared BOTH DIRECTIONS. The floor is for the one failure that CAN
+ * move both: an anchor resolving to an empty tree leaves the two enumerations agreeing on nothing.
+ */
+describe('the source sweep reads the whole tree', () => {
+  // Keys only — the glob is lazy, so nothing here imports a module or runs a side effect. BOTH
+  // roots, because `productSource` walks two: a comparison seeing only `apps/web/src` would be
+  // green while the design system's own package — the one that ships the faces — went unread.
+  //
+  // ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+  // transform time; hoisting it into a variable typechecks and then dies at runtime.
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => resolve(import.meta.dirname, k))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Deliberately far below the count at b940d57: this catches an anchor that resolves to
+    // nothing, not a refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(60)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    // The REAL sweep, called exactly as the two character rules call it — an assertion about the
+    // walk under test rather than about a second walk written here, which would be free to drift.
+    const swept = new Set(productSource().map((f) => f.path))
+    const glob = new Set(globbed)
+    const rel = (p: string) =>
+      p.slice(p.indexOf('/apps/') >= 0 ? p.indexOf('/apps/') + 1 : p.indexOf('/packages/') + 1)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).map(rel).sort(),
+      'Vite sees production files this walk never read. The character rules check whatever the ' +
+        'walk returns, so anything missing here is a file no glyph check has ever looked at.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).map(rel).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a production source file is.',
+    ).toEqual([])
+  })
+})
+
 describe('the classification is honest in both directions', () => {
   it('the sweep reaches both packages — it must not pass by looking at nothing', () => {
     const files = productSource()
