@@ -91,11 +91,25 @@ func truncate(s string, n int) string {
 }
 
 // distillState is what the screen renders: the recorded policy plus a COUNT of documents.
+//
+// ⚠ THE COUNTS ARE POINTERS BECAUSE "NOT READ" AND "READ, AND IT WAS ZERO" ARE DIFFERENT FACTS,
+// AND LENS SPENDS A STATUS CODE KEEPING THEM APART. talyvor-lens a04310a,
+// internal/api/distill_usage.go, on ErrNoDistillUsageStore: "so the route can answer 503 ('not
+// wired') rather than 200 with a zero — an absent reader and a workspace that converted nothing
+// must not render identically." That sentence is written about RENDERING, and this repository
+// holds the only renderer. These fields were plain ints, so a 503 arrived at the browser as
+// converted:0, vision_ocr:0, days:0 — the exact 200-with-a-zero Lens refused to send, with
+// days:0 as the tell that no window had been read at all.
+//
+// ⚠ AND NOT `omitempty` ON PLAIN INTS, which is the obvious cheaper fix and is the same collapse
+// wearing the other coat: omitempty drops a ZERO, so a workspace that genuinely converted nothing
+// would go absent beside the unwired one. A *int is nil when nothing was read and points at 0
+// when 0 is the reading. distill_test.go pins BOTH directions.
 type distillState struct {
 	DistillPolicy string `json:"distill_policy"`
-	Converted     int    `json:"converted"`
-	VisionOCR     int    `json:"vision_ocr"`
-	Days          int    `json:"days"`
+	Converted     *int   `json:"converted,omitempty"`
+	VisionOCR     *int   `json:"vision_ocr,omitempty"`
+	Days          *int   `json:"days,omitempty"`
 }
 
 // handleDistill serves the current state (GET) and records a change (POST).
@@ -197,7 +211,12 @@ func (a *app) readDistillState(ctx context.Context, t tenant) (distillState, err
 
 	// The counts are best-effort: a Lens too old to serve /distill/usage (404) or with no reader
 	// wired (503) must still leave the SETTING readable, because the control is the part that is
-	// owed. Counts absent ⇒ zero ⇒ the screen renders no count line at all.
+	// owed. What changes is what "best-effort" leaves behind when the effort fails: the keys stay
+	// ABSENT rather than being filled with zeroes this BFF never read. See distillState.
+	//
+	// An unreadable BODY on a 200 is treated the same way, and deliberately: a response this
+	// handler cannot parse is not a reading either, and inventing three zeroes for it is the same
+	// claim by a different route.
 	if usageRaw, err := a.lensGet(ctx, t, lensWorkspacePath(t, "/distill/usage")); err == nil {
 		var u struct {
 			Converted int `json:"converted"`
@@ -205,7 +224,7 @@ func (a *app) readDistillState(ctx context.Context, t tenant) (distillState, err
 			Days      int `json:"days"`
 		}
 		if json.Unmarshal(usageRaw, &u) == nil {
-			st.Converted, st.VisionOCR, st.Days = u.Converted, u.VisionOCR, u.Days
+			st.Converted, st.VisionOCR, st.Days = &u.Converted, &u.VisionOCR, &u.Days
 		}
 	}
 	return st, nil
