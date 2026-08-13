@@ -27,6 +27,30 @@ export function PageView() {
     enabled: spaceId !== '' && pageId !== '',
   })
   const [draft, setDraft] = useState<string | null>(null)
+  // ⚠ THE DRAFT BELONGS TO ONE PAGE, AND NOTHING USED TO SAY SO.
+  //
+  // React Router matches /docs/spaces/:spaceId/pages/:pageId to ONE <Route> element, so moving
+  // from one page to another does NOT remount this component — the params change underneath it
+  // and useState survives. The seeding effect below only fills the draft `while it is null`, and
+  // after the first page it never is again. MEASURED, not reasoned about (the probe is now
+  // docsWrites.test.tsx's 'a different page gets a different draft'): navigating page A → page B
+  // leaves the editor holding A's text under B's title, and Save then writes A's content INTO B.
+  //
+  // ⚠ IT IS NOT REACHABLE FROM THIS UI TODAY and it is still fixed here, deliberately. Nothing on
+  // this screen links to a sibling page — the only ways out are the back button and the crumbs,
+  // both of which go up through the space and DO remount. So the bug needs one ordinary addition
+  // (a page tree in the sidebar, a "next page" link, a search result) to become silent data loss
+  // in a document editor, and the person who adds that link has no reason to suspect this file.
+  //
+  // Resetting during render rather than in an effect is React's documented way to adjust state
+  // when the thing it belongs to changes: the reset lands BEFORE the browser sees anything, so
+  // the previous page's text is never painted under the new page's title.
+  const pageIdentity = `${spaceId}/${pageId}`
+  const [draftOf, setDraftOf] = useState(pageIdentity)
+  if (draftOf !== pageIdentity) {
+    setDraftOf(pageIdentity)
+    setDraft(null)
+  }
   // Seed the editor from the server ONCE the page arrives, and never clobber an in-flight edit:
   // the draft is only initialised while it is null.
   useEffect(() => {
