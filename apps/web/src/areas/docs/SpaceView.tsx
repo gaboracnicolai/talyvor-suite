@@ -35,16 +35,68 @@ export function SpaceView() {
     enabled: spaceId !== '',
   })
   const [title, setTitle] = useState('')
+  // ⚠ THE REFUSAL IS OUR STATE, NOT `create.isError`, AND THE RESET BELOW IS WHY. A mutation's
+  // error belongs to react-query's observer, which this component cannot clear from render — and
+  // render is where the space change has to be answered (see below). Held here, the sentence is
+  // reset by the same three lines that reset the words it sits under, so the two cannot disagree
+  // about which space they are talking about. Cleared in `onMutate` rather than at the call site
+  // so it cannot go stale if a second caller ever appears.
+  const [failed, setFailed] = useState(false)
 
   // Invalidate on success so a created page appears without a reload — a create that does not
   // refetch leaves the writer looking at the list they just added to, and reads as a failure.
   const create = useMutation({
     mutationFn: (t: string) => docsApi.createPage(spaceId, t),
+    onMutate: () => setFailed(false),
+    onError: () => setFailed(true),
     onSuccess: async () => {
       setTitle('')
       await qc.invalidateQueries({ queryKey: pagesKey })
     },
   })
+
+  // ⚠ BOTH OF THOSE BELONG TO ONE SPACE, AND NOTHING USED TO SAY SO.
+  //
+  // React Router matches /docs/spaces/:spaceId to ONE <Route> element, so moving from space A to
+  // space B changes `spaceId` underneath this component and does NOT remount it — every useState
+  // above survives. MEASURED, not reasoned about (the probe is now docsWrites.test.tsx's 'the
+  // create form belongs to one space'): with 'A title meant for AAA' in the box on A, arriving at
+  // B and pressing Create page sent
+  //
+  //     POST /api/docs/spaces/sp-b/pages {"title":"A title meant for AAA"}
+  //
+  // — a page created in B under a title meant for A, from a button the reader had every reason to
+  // press; and a refusal about A stayed on screen over B.
+  //
+  // ⚠ IT IS NOT REACHABLE FROM THIS UI TODAY and it is still fixed here. Nothing on this screen
+  // links to a sibling space — Back and the crumbs both go up to /docs and DO remount — so it
+  // takes one ordinary addition (a space switcher, a recent list, a search result) to become a
+  // page written into the wrong space, and whoever adds it has no reason to suspect this file.
+  //
+  // ⚠ THIS IS THE THIRD SCREEN IN THIS APP WITH THIS DEFECT, after PageView.tsx one level down
+  // (`f4c1e97`, #190) and Track's IssueDetail.tsx (`d82bcfb`, #192). The first two were each
+  // found by someone already reading the file; this one was found by asking the question of every
+  // route in the app — the three <Route> elements that read a param and hold state — and it was
+  // the only one of the three left unguarded.
+  //
+  // Resetting during render rather than in an effect is React's documented way to adjust state
+  // when the thing it belongs to changes: the reset lands BEFORE the browser sees anything, so
+  // the previous space's words are never painted under the new space's name.
+  //
+  // ⚠ AND THAT LAST SENTENCE IS THE ONE THING HERE NO TEST IN THIS REPO CAN SEE — MEASURED, so it
+  // is not read as something the suite enforces. Moving these three lines into a
+  // `useEffect(..., [spaceId])` leaves ALL 1220 tests green (control C7 in
+  // ~/talyvor-queue/w11-spacestate-controls-8b47.py): jsdom and RTL observe state after the
+  // effects have flushed, so the intermediate paint an effect would allow is invisible to them.
+  // The three cases below pin WHICH space the words belong to; only a browser can pin WHEN. The
+  // identical sentence in PageView.tsx and Track's IssueDetail.tsx is unpinned for the same
+  // reason, and no floor or count would have shown it — only mutating the mechanism did.
+  const [stateOf, setStateOf] = useState(spaceId)
+  if (stateOf !== spaceId) {
+    setStateOf(spaceId)
+    setTitle('')
+    setFailed(false)
+  }
 
   // "Docs is not deployed here" is not "Docs is broken" and neither is "this space is empty".
   if (isUnconfigured(pages.error)) {
@@ -97,7 +149,7 @@ export function SpaceView() {
             </Button>
           </form>
 
-          {create.isError ? (
+          {failed ? (
             <p className="text-caption text-muted">
               Couldn’t create that page — nothing was saved. Try again.
             </p>

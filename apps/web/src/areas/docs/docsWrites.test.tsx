@@ -308,3 +308,137 @@ describe('the create-page form', () => {
     expect(input.value).toBe('Runbook')
   })
 })
+
+// ⚠ THE THIRD INSTANCE OF THE SHAPE, AND THE ONE A CENSUS FOUND RATHER THAN A READER.
+//
+// `/docs/spaces/:spaceId` is ONE <Route> element, so moving from space A to space B changes
+// `spaceId` underneath SpaceView and does NOT remount it — `useState` survives, exactly as it
+// does one level down in PageView ('the draft belongs to one page', above) and in Track's
+// IssueDetail. The two of those were each found by someone already reading the file. This one
+// was found by asking the general question of every route in the app: which <Route> elements
+// read a param AND hold state? There are three, and this was the unguarded one.
+//
+// MEASURED before it was fixed, not reasoned about — with 'A title meant for AAA' typed into
+// space A's create form, arriving at space B and pressing Create page sent
+//
+//     POST /api/docs/spaces/sp-b/pages {"title":"A title meant for AAA"}
+//
+// — a page created in the WRONG SPACE under a title meant for another, from a button the reader
+// had every reason to press. The refusal sentence about A stayed on screen over B as well.
+//
+// ⚠ NOT REACHABLE FROM THIS UI TODAY, and fixed anyway, for the same stated reason as the other
+// two: nothing on this screen links to a sibling space (Back and the crumbs both go up to /docs
+// and DO remount). A space switcher in the sidebar, a recent-spaces list or a search result makes
+// it live, and whoever adds one has no reason to suspect this file. The failure is in the
+// COMPONENT, not in the absence of a link — which is what these cases show by supplying one.
+describe('the create form belongs to one space', () => {
+  const SPACES2 = [
+    { ...SPACES[0], id: 'sp-a', name: 'Space AAA', slug: 'a' },
+    { ...SPACES[0], id: 'sp-b', name: 'Space BBB', slug: 'b' },
+  ]
+
+  /** Two spaces, and a way to reach the second without going up through the space list. */
+  function mockTwoSpaces(postStatus = 200) {
+    const calls: Call[] = []
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const raw = init?.body
+      calls.push({ url, method, body: typeof raw === 'string' ? JSON.parse(raw) : raw })
+      if (url === '/api/docs/spaces') return json(SPACES2)
+      if (url.endsWith('/pages') && method === 'POST') {
+        return postStatus === 200 ? json({ id: 'pg-new', title: 'made' }) : json({ error: 'nope' }, postStatus)
+      }
+      if (url.endsWith('/pages')) return json([])
+      return new Response('null', { status: 404 })
+    })
+    return calls
+  }
+
+  function renderTwoSpaces() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    function Jump() {
+      const navigate = useNavigate()
+      // `focusRing` because src/focusAudit.ts sweeps the live DOM at teardown and a bare
+      // focusable control in a fixture fails the test that renders it.
+      return (
+        <button className={focusRing} onClick={() => navigate('/docs/spaces/sp-b')}>
+          go to B
+        </button>
+      )
+    }
+    return render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/docs/spaces/sp-a']}>
+          <Jump />
+          <Routes>
+            <Route path="/docs/*" element={<DocsArea />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+
+  const heading = (name: string) => screen.findByRole('heading', { name })
+
+  it('a title typed in one space is never created in another', async () => {
+    const calls = mockTwoSpaces()
+    renderTwoSpaces()
+    await heading('Space AAA')
+
+    fireEvent.change(await screen.findByLabelText('Page title'), {
+      target: { value: 'A title meant for AAA' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'go to B' }))
+    await heading('Space BBB')
+
+    // The reader is on B. Whatever the box is showing must not be A's words — and the create
+    // a reader would now reach for must not carry them either.
+    const box = screen.getByLabelText('Page title') as HTMLInputElement
+    expect(box.value).not.toContain('AAA')
+
+    fireEvent.change(box, { target: { value: 'B’s own page' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create page' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+    const post = calls.find((c) => c.method === 'POST')!
+    expect(post.url).toBe('/api/docs/spaces/sp-b/pages')
+    expect((post.body as { title: string }).title).not.toContain('AAA')
+  })
+
+  it('a refusal about one space is not still on screen over another', async () => {
+    mockTwoSpaces(500)
+    renderTwoSpaces()
+    await heading('Space AAA')
+
+    fireEvent.change(await screen.findByLabelText('Page title'), { target: { value: 'doomed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create page' }))
+    expect(await screen.findByText(/Couldn’t create that page/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'go to B' }))
+    await heading('Space BBB')
+    expect(screen.queryByText(/Couldn’t create that page/)).toBeNull()
+  })
+
+  // ⚠ THE OTHER DIRECTION, AND IT IS LOAD-BEARING. A component that threw this state away on
+  // every render would pass both cases above and be useless: typing into the create form must
+  // survive an ordinary re-render of the SAME space, or the reset is a keystroke eater rather
+  // than a boundary.
+  it('MUST STAY GREEN — typing in the space you are on is not disturbed', async () => {
+    const calls = mockTwoSpaces()
+    renderTwoSpaces()
+    await heading('Space AAA')
+
+    const box = (await screen.findByLabelText('Page title')) as HTMLInputElement
+    fireEvent.change(box, { target: { value: 'Still typing in AAA' } })
+    expect(box.value).toBe('Still typing in AAA')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create page' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+    const post = calls.find((c) => c.method === 'POST')!
+    expect(post.url).toBe('/api/docs/spaces/sp-a/pages')
+    expect((post.body as { title: string }).title).toBe('Still typing in AAA')
+  })
+})
