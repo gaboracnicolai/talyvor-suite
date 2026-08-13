@@ -19,7 +19,7 @@
   "src/areas/lens/Members.test.tsx": 6,
   "src/areas/lens/mintAttribution.test.tsx": 5,
   "src/areas/lens/ModelTier.test.tsx": 5,
-  "src/areas/lens/Overview.test.tsx": 21,
+  "src/areas/lens/Overview.test.tsx": 23,
   "src/areas/lens/Setup.test.tsx": 32,
   "src/areas/lens/setupSnippets.test.ts": 14,
   "src/areas/lens/Spend.test.tsx": 7,

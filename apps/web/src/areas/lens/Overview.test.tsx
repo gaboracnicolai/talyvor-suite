@@ -391,6 +391,43 @@ describe('a brand-new workspace with zero data', () => {
     expect(screen.getByRole('link', { name: /open billing/i })).toHaveAttribute('href', '/billing')
   })
 
+  // ⚠ W1.1.3 — THE CONVERSION REGION'S EMPTY STATE, WHICH IS THE STATE EVERY NEW WORKSPACE IS IN.
+  //
+  // MEASURED before the rebuild, on the component, with spendable 0 and held 0: the screen offered
+  // "Convert to LXC…", opened a form, fetched a rate, pre-filled 1 LXC, printed "Costs 2.000000
+  // lens — rounded up, the way the server charges it", disabled the button and ended on "That
+  // costs more LENS than this workspace can spend right now." A price and five affordances for a
+  // transaction that could not happen, and no next action anywhere in it.
+  //
+  // ⚠ AND THE NEXT ACTION IS NOT THE OBVIOUS ONE. Nothing in this product sells LENS — Billing
+  // sells LXC — so "top up" would be a false step. LENS is earned from cross-tenant reuse, which
+  // happens only while sharing is on, and that choice lives on Settings. The step names the
+  // DESTINATION and lets that page state its own capability: sharing is additionally gated
+  // deployment-wide by the operator, so a promise of earnings here would be one this screen
+  // cannot check.
+  it('the conversion region says LENS is earned, not bought, and links to the choice that earns it', async () => {
+    mockEmpty()
+    renderOverview()
+
+    expect(await screen.findByText(/has not earned any LENS/i)).toBeInTheDocument()
+    expect(screen.getByText(/earned, not bought/i)).toBeInTheDocument()
+    // A real destination, asserted as an href — C6 of W1.1.1 was a step pointing at an address
+    // that does not resolve, and it was caught by exactly this shape of assertion.
+    expect(screen.getByRole('link', { name: /open settings/i })).toHaveAttribute('href', '/settings')
+  })
+
+  // ⚠ NO PRICE, NO RATE, NO FORM FOR A CONVERSION THAT CANNOT HAPPEN — the half that would come
+  // back silently if the branch above were ever reduced to a disabled button.
+  it('offers no conversion affordance to a workspace with nothing to convert', async () => {
+    mockEmpty()
+    renderOverview()
+    await screen.findByText(/has not earned any LENS/i)
+
+    expect(screen.queryByRole('button', { name: /convert to lxc/i })).toBeNull()
+    expect(screen.queryByLabelText(/lxc to receive/i)).toBeNull()
+    expect(screen.queryByText(/rounded up, the way the server charges it/i)).toBeNull()
+  })
+
   // ⚠ THE CONTROL THAT KEEPS "EMPTY" AND "BROKEN" APART. A balance that could not be READ is not
   // a balance of zero, and this project has shipped that conflation twice (a Track fault drawn
   // identically to an empty tracker; a held balance of 0 beside a ledger of 822). If the
@@ -465,11 +502,15 @@ describe('the screen reads as regions, in the site’s language', () => {
     const regions = screen.getAllByRole('region')
     expect(
       regions.map((r) => r.getAttribute('aria-label') ?? document.getElementById(r.getAttribute('aria-labelledby') ?? '')?.textContent?.trim()),
-      'the five questions this screen answers, in the order its own source declares them — plus ' +
+      'the six questions this screen answers, in the order its own source declares them — plus ' +
         'the opening. A region with no name is a section a rotor cannot list.',
     ).toEqual([
       'Everything this workspace has, spends and earns.',
       'What you have',
+      // W1.1.3. The conversion was a collapsed strip at the bottom of the LENS balance card, so
+      // the one irreversible money action on this screen was the only thing on it a rotor could
+      // not reach by name. It is a region.
+      'What you can do with it',
       'What it costs, and what it earns',
       'What the cache answered',
       'What is switched on',
@@ -483,7 +524,7 @@ describe('the screen reads as regions, in the site’s language', () => {
     await screen.findByText('Spend & earnings — last 30 days')
 
     const labels = Array.from(document.querySelectorAll('[data-testid="region-label"]'))
-    expect(labels.length, 'no region labels rendered — the assertions below would be vacuous').toBe(6)
+    expect(labels.length, 'no region labels rendered — the assertions below would be vacuous').toBe(7)
     for (const l of labels) {
       const eyebrow = l.querySelector('.text-eyebrow')!
       expect(eyebrow.className, `"${eyebrow.textContent}" is not on the eyebrow token`).toContain('text-eyebrow')
@@ -494,7 +535,7 @@ describe('the screen reads as regions, in the site’s language', () => {
     }
     // Every index is a numeral, so every index is on the figure face.
     const indexes = Array.from(document.querySelectorAll('[data-testid="region-index"]'))
-    expect(indexes.map((i) => i.textContent)).toEqual(['00', '01', '02', '03', '04', '05'])
+    expect(indexes.map((i) => i.textContent)).toEqual(['00', '01', '02', '03', '04', '05', '06'])
     for (const i of indexes) expect(i.className).toContain('font-figure')
   })
 })

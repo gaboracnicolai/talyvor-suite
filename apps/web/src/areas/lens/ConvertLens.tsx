@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Button, Input, MuNumeral } from "@talyvor/ui";
 import { InlineFailure } from "../../components/SessionExpiredBar";
 import {
@@ -15,12 +16,19 @@ import {
 // spend it: Lens had the conversion, the BFF had no code for it and no screen offered it. A balance
 // with no exit is worse than no balance — it looks like money and behaves like a number.
 //
-// ── WHY IT LIVES ON THE BALANCE, NOT ON A PAGE OF ITS OWN ───────────────────
+// ── W1.1.3: WHAT THIS SURFACE IS, MEASURED, BECAUSE THE ITEM CALLS IT A SCREEN ──────
 //
-// The question "what can I do with this?" is asked while looking at the number. A separate
-// /convert route would be a second thing to discover, and the discovery problem is exactly what
-// made the balance dead in the first place. It stays collapsed until asked for, so the common case
-// — reading the balance — is unchanged.
+// ⚠ THERE IS NO `/convert` ROUTE AND THERE NEVER WAS. `App.tsx` declares eleven addresses and
+// none of them is this one; the conversion is a surface ON the Overview screen. So the rebuild is
+// the surface's, in place, and NOT a promotion to an address — a separate route is a product
+// decision this file already records an argument against (the question "what can I do with this?"
+// is asked while looking at the number), and reversing a recorded decision is not a session's.
+//
+// WHAT DID CHANGE: it was a collapsed strip at the BOTTOM OF THE LENS BALANCE CARD, under three
+// lifetime rows — an irreversible money action with no name of its own, in a card about something
+// else. It is now its own NAMED REGION on Overview ("02 · What you can do with it"), directly
+// under the balances, so the number it is about is still on screen. That is the same screen, one
+// idea per region, which is the language W1.1.1 put on this page.
 //
 // ── THE THREE THINGS SAID BEFORE THE BUTTON ─────────────────────────────────
 //
@@ -31,6 +39,14 @@ import {
 //     stated in the panel, before the click, not in a toast afterwards. A confirmation that
 //     appears after an irreversible action has confirmed nothing.
 
+/**
+ * ⚠ ZERO HERE MEANS THE SERVER SAID ZERO — the caller's invariant, not this component's.
+ * `Overview.tsx`'s LensCard renders this only inside its `q.data` branch, so a balance of 0 is a
+ * read that LANDED and answered nothing-spendable. A FAILED read is not an empty workspace, and
+ * this project has already paid twice for that conflation (a Track fault drawn identically to an
+ * empty tracker; a held balance of 0 rendered beside a ledger of 822). A number prop cannot carry
+ * that distinction, so it stays where it can be checked: at the call site.
+ */
 export function ConvertLens({
   lensBalanceMicros,
   heldMicros = 0,
@@ -39,6 +55,114 @@ export function ConvertLens({
   lensBalanceMicros: number;
   /** Earned but still in its holdback window. Quoted here so a refusal is never a surprise. */
   heldMicros?: number;
+}) {
+  // ⚠ THE EMPTY STATE IS A BRANCH, NOT A DISABLED FORM — and it is the state EVERY new workspace
+  // is in, because LENS is earned and a workspace that has earned nothing has none.
+  //
+  // MEASURED on this component before the change (spendable 0, held 0, quote 2 LENS per LXC): the
+  // screen offered "Convert to LXC…", opened a form, fetched a rate, pre-filled 1 LXC, printed
+  // "Costs 2.000000 lens — rounded up, the way the server charges it", disabled the button and
+  // ended on "That costs more LENS than this workspace can spend right now." Five affordances and
+  // a price for a transaction that could not happen, and NO NEXT ACTION anywhere in it. That is
+  // the exact shape W1.1.3 names — an absence stated without naming what to do about it.
+  //
+  // ⚠ AND IT COSTS A REQUEST FEWER. The quote is `enabled: open`; a workspace with nothing to
+  // convert can no longer open the panel, so the rate is never fetched for it.
+  if (lensBalanceMicros <= 0) {
+    return <NothingSpendable heldMicros={heldMicros} />;
+  }
+  return (
+    <ConvertPanel
+      lensBalanceMicros={lensBalanceMicros}
+      heldMicros={heldMicros}
+    />
+  );
+}
+
+/**
+ * The two ways to have no spendable LENS. They have DIFFERENT next actions, so they are different
+ * states rather than one apologetic sentence:
+ *
+ *  · HELD — the money exists and is waiting. Nothing to do but read the rows, so the destination
+ *    is the ledger, which renders every mint row with its own lifecycle pill (`ledgerStatus`
+ *    stamps `held` on any `*_held` type). Telling this workspace to go and switch something on
+ *    would be wrong: it already did.
+ *  · NONE — the money was never earned. LENS is EARNED, NOT BOUGHT: there is no purchase path for
+ *    it anywhere in this product (Billing sells LXC), so "top up" is the wrong answer and the
+ *    right one is the sharing choice, which is what makes reuse — and therefore earning — happen.
+ *
+ * ⚠ NEITHER CTA PROMISES ANYTHING THIS DEPLOYMENT MIGHT NOT HAVE. Sharing is additionally gated
+ * deployment-wide by the operator (Privacy.tsx states this), so the step names the DESTINATION and
+ * lets Settings state its own capability — the rule W1.1.1's first-run steps took, and the same
+ * rule the held hint took when it stopped printing a holdback window it could not read.
+ */
+function NothingSpendable({ heldMicros }: { heldMicros: number }) {
+  if (heldMicros > 0) {
+    return (
+      <div className="flex flex-col items-start gap-3">
+        <p className="text-body text-ink">
+          Nothing here can be converted yet.
+        </p>
+        {/* ⚠ IT STATES THE MECHANISM RATHER THAN POINTING AT IT, AND THE REASON IS A MEASUREMENT,
+            NOT A PREFERENCE. A first draft of this branch said "the balance above carries the
+            amount and what becomes of it" and delegated — the held Row one region up already says
+            the whole thing. IN A REAL BROWSER THAT ROW IS CLIPPED. Its hint carries `truncate`
+            (`white-space:nowrap; overflow:hidden; text-overflow:ellipsis`), and at 1280 with the
+            sidebar it measures clientWidth 337 against scrollWidth 449 — 112px, a quarter of the
+            sentence, cut. What is cut is the tail: "during which it can still be revoked". The
+            reader sees "settles on its own after a holding period — during which i…".
+            ⚠ AND NO TEST IN THIS REPO CAN SEE THAT. `ClaimsAudit.test.tsx` and `Held.test.tsx`
+            both assert the tail is PRESENT, and both assert on textContent under jsdom, which has
+            no layout: they are green on a sentence nobody can read. It is the only clipped
+            `.truncate` on this screen (measured at 1280 and at 1920 — the measure is capped at
+            max-w-5xl, so widening the window does not uncut it). The Row belongs to the shared
+            `@talyvor/ui` and fixing it there reaches every screen in the product, so it is
+            REPORTED as its own queue item and not smuggled into this one — but a delegation to a
+            sentence I have measured as unreadable would be a false sentence, so this branch does
+            not delegate.
+            ⚠ WHAT IT STILL DOES NOT REPEAT IS THE FIGURE. A first draft rendered the held amount
+            a second time and `Held.test.tsx`'s "does not fold held into the spendable balance"
+            went red on `getAllByText(/822/).length` — a guard written against a SUMMED headline,
+            catching a DUPLICATED one. It was right both times. */}
+        <p className="max-w-2xl text-caption text-muted">
+          Only spendable LENS converts, and everything this workspace has earned
+          is still held. Held LENS settles on its own after a holding period,
+          during which it can still be revoked. That period is an operator
+          setting this screen cannot read, so it is not stated here. There is
+          nothing to do but wait — the ledger carries the rows that credited it,
+          each with its own status.
+        </p>
+        <Button asChild variant="default">
+          <Link to="/ledger">Open Ledger</Link>
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <p className="text-body text-ink">
+        This workspace has not earned any LENS.
+      </p>
+      <p className="max-w-2xl text-caption text-muted">
+        LENS is earned, not bought — nothing in this product sells it. Answers
+        produced here earn LENS each time another company is served one, and
+        that happens only while sharing is on. Settings carries that choice and
+        reports what this workspace has recorded.
+      </p>
+      <Button asChild variant="default">
+        <Link to="/settings">Open Settings</Link>
+      </Button>
+    </div>
+  );
+}
+
+/** The conversion itself. Reached only when there is spendable LENS to convert. */
+function ConvertPanel({
+  lensBalanceMicros,
+  heldMicros,
+}: {
+  lensBalanceMicros: number;
+  heldMicros: number;
 }) {
   const [open, setOpen] = useState(false);
   const [lxcUnits, setLxcUnits] = useState("1");
@@ -69,7 +193,18 @@ export function ConvertLens({
 
   if (!open) {
     return (
-      <div className="px-gutter pb-3">
+      <div className="flex flex-col items-start gap-3">
+        {/* ⚠ THE ONE IDEA, SAID BEFORE THE AFFORDANCE. Collapsed, this region used to be a bare
+            button captioned nothing: a person who did not already know what LXC was for had to
+            click an irreversible-sounding control to find out. It stays collapsed — reading the
+            balance still costs the one request it always did — but it now says what the exchange
+            is and that it only runs one way, which is the sentence that decides whether to open
+            it at all. */}
+        <p className="max-w-2xl text-body text-muted">
+          Earned LENS converts to LXC, the credit inference is charged in. The
+          rate is read from this deployment at the moment you convert, and the
+          conversion runs one way only.
+        </p>
         <Button variant="default" onClick={() => setOpen(true)}>
           Convert to LXC…
         </Button>
@@ -85,7 +220,7 @@ export function ConvertLens({
   const tooExpensive = valid && cost > lensBalanceMicros;
 
   return (
-    <div className="flex flex-col gap-3 border-t border-rule px-gutter py-3">
+    <div className="flex flex-col gap-4">
       {quote.isLoading ? (
         <p className="text-caption text-muted">Reading the current rate…</p>
       ) : quote.isError ? (

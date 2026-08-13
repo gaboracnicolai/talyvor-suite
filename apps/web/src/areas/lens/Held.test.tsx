@@ -80,8 +80,18 @@ describe('a held royalty is shown, and shown as not yet spendable', () => {
     // the sentence omitted that a held payout can be REVOKED during the window — which is what
     // the window is for. The INTENT of this assertion is unchanged (nobody waits for a button
     // that does not exist); it now also pins the half that was missing.
-    expect(await screen.findByText(/settles on its own/i)).toBeInTheDocument()
-    expect(screen.getByText(/can still be revoked/i)).toBeInTheDocument()
+    //
+    // ⚠ W1.1.3 — THERE ARE TWO VOICES HERE NOW AND THAT IS DELIBERATE, WHICH IS WHY THIS ASSERTS
+    // `All`. The balance card's hint says it, and the conversion region says it. The rule in this
+    // app is normally one voice per fact, and the exception is MEASURED: the card's hint is a
+    // `truncate` — nowrap, hidden, ellipsis — and in Chrome at 1280 with the sidebar it measures
+    // clientWidth 337 against scrollWidth 449, so 112px is cut and what is cut is "during which it
+    // can still be revoked". This assertion, and ClaimsAudit's, both read textContent under jsdom
+    // and have no layout, so BOTH WERE GREEN ON A SENTENCE NO READER COULD FINISH. The second
+    // voice is the readable one; the clipped Row is reported as its own queue item because it
+    // belongs to the shared @talyvor/ui and reaches every screen.
+    expect((await screen.findAllByText(/settles on its own/i)).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/can still be revoked/i).length).toBeGreaterThan(0)
     expect(screen.queryByText(/about 72\s*h/i)).toBeNull()
   })
 
@@ -143,12 +153,20 @@ describe('the convert panel explains a refusal it would otherwise not', () => {
 
   // ⚠ THE FAILURE THIS PREVENTS: someone looking at 822 held tries to convert it and gets
   // "not enough LENS" — which reads as a broken conversion rather than the holdback working.
-  it('names the held amount when the shortfall is held LENS', async () => {
+  //
+  // ⚠ W1.1.3 MOVED WHEN THIS IS SAID, NOT WHETHER. It used to be reachable only by opening the
+  // panel, typing an amount and being refused — the explanation arrived AFTER the attempt it
+  // exists to make interpretable. With nothing spendable there is now no form to attempt: the
+  // region says up front that only spendable LENS converts and that this workspace's earnings are
+  // held. So the assertion drops the three interactions and asserts the state directly, which is
+  // strictly stronger — it fails if the sentence needs a click to appear.
+  it('says, before any attempt, that a held-only balance cannot be converted', async () => {
     renderConvert(0, 822)
-    fireEvent.click(await screen.findByRole('button', { name: /convert to lxc/i }))
-    const input = await screen.findByLabelText(/lxc to receive/i)
-    fireEvent.change(input, { target: { value: '1' } })
-    expect(await screen.findByText(/held and not yet spendable/i)).toBeInTheDocument()
+    expect(await screen.findByText(/only spendable LENS converts/i)).toBeInTheDocument()
+    expect(screen.getByText(/still held/i)).toBeInTheDocument()
+    // ⚠ AND NO DOOMED AFFORDANCE. The old screen offered a button, a rate and a price for a
+    // transaction that could not happen; this is the half that would silently come back.
+    expect(screen.queryByRole('button', { name: /convert to lxc/i })).toBeNull()
   })
 
   it('quotes against SPENDABLE, never spendable plus held', async () => {
