@@ -565,7 +565,11 @@ func TestTrack_CreateLandsInTheSessionsOwnWorkspace(t *testing.T) {
 }
 
 // A status change is the smallest useful edit. Track's Update decodes map[string]any, so a bare
-// {"status":…} is a valid patch — verified against talyvor-track internal/issue/handler.go:302.
+// {"status":…} is a valid patch — verified against talyvor-track
+// `internal/issue/handler.go#Handler.Update`, whose first act is to decode the body into a
+// `map[string]any`. Cited by SYMBOL rather than by line: the line moved (it was 302 when this was
+// written and is 333 at track 2e60259) while the fact did not, and cited_lines_test.go refuses the
+// form that decays.
 func TestTrack_StatusPatchFollowsTheSession(t *testing.T) {
 	up := newTrackWriteUpstream(t, func(string) string { return "ws-alice" })
 	a := trackWriteApp(t, up)

@@ -18,7 +18,11 @@ import (
 //	internal/page/store.go#List    binds `LIMIT $2 OFFSET $3` from filter.Limit / filter.Offset.
 //
 // A whole-repo census of `Offset` in talyvor-docs' Go tree returns THREE hits: the struct
-// field declaration (store.go:112), the SQL bind (store.go:363), and an unrelated search test.
+// field declaration (`store.go#PageFilter.Offset`), the SQL bind (`store.go#Store.List`, the
+// `LIMIT $2 OFFSET $3` it builds), and an unrelated search test. Cited by SYMBOL rather than by
+// line: both lines moved (112→129 and 363→457 by docs b3a7d52) while the census result did not —
+// re-measured there, `Offset` still returns exactly those three hits and still has no writer.
+// cited_lines_test.go refuses the form that decays.
 // `PageFilter.Offset` HAS NO WRITER — it is the zero value on every call, so the OFFSET in that
 // statement is bound to 0 forever. The upstream page list cannot page, and nothing downstream
 // can make it.
