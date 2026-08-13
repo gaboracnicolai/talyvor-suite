@@ -346,6 +346,14 @@ func TestDocsWorkspacePathOnlyForWorkspaceScopedUpstreamRoutes(t *testing.T) {
 		// a scratch copy answered `/v1/workspaces/ws-1/search` 200 — see docs_search_test.go for
 		// the full set of measured responses.
 		"docsSearch:/search": "GET /v1/workspaces/{wsID}/search — internal/search/handler.go Mount",
+		// Checked at talyvor-docs `e70ff61`, and checked by RUNNING it rather than by reading:
+		// internal/ai/handler.go Mount registers `POST /workspaces/{wsID}/ai/transform` beside the
+		// four other AI routes, and Transform's first act is AuthorizeWorkspace on that {wsID}.
+		// Driving the mounted router in a scratch copy answered `/v1/workspaces/ws-1/ai/transform`
+		// 200 with a summary, 503+AI_UNAVAILABLE with Lens unconfigured, and 400 on an unknown
+		// action — see docs_summarize_test.go's header for the full set of measured responses,
+		// including the empty-text one that this BFF refuses.
+		"docsSummarizePage:/ai/transform": "POST /v1/workspaces/{wsID}/ai/transform — internal/ai/handler.go Mount",
 	}
 
 	type site struct{ fn, suffix string }

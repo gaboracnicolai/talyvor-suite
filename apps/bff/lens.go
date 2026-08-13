@@ -105,6 +105,14 @@ func newApp(cfg config, auth *authenticator) *app {
 	// is one of two sources inside it. See docs_search.go for the two parameters this route
 	// refuses rather than forwards, and for what the response cannot say about that half.
 	a.mux.HandleFunc("/api/docs/search", a.docsSearch())
+	// SUMMARISE. The third W1.7 control that needs no editor, and the FIRST one whose cost lands
+	// on a page rather than on the workspace at large. It is deliberately NOT `/api/docs/ai/…`:
+	// upstream is one transform route with four actions, and this BFF exposes exactly one of them,
+	// on the page it is billed to — so the address names the page, and the action is a constant in
+	// docs_ai.go rather than something a caller can pick. Its OWN prefix (`/api/docs/pages/…`)
+	// carries no {spaceID}, because the upstream operation takes no space: an id here that the
+	// upstream never sees would be decoration a reader could mistake for a scope.
+	a.mux.HandleFunc("/api/docs/pages/{pageID}/summarize", a.docsSummarizePage())
 
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}", a.requireSession(a.docsSpaceDetail()))
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(func(w http.ResponseWriter, r *http.Request) {

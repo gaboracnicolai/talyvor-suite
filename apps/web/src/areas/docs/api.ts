@@ -161,6 +161,19 @@ export interface AskAnswer {
   sources: AskSource[]
 }
 
+/** POST /api/docs/pages/{pageID}/summarize → talyvor-docs' transform response, which is
+ *  `{"text": …}` and nothing else (internal/ai/handler.go#Transform).
+ *
+ *  ⚠ ITS COST IS THE OPPOSITE OF AN ASK'S, AND THAT IS WHY THIS TYPE IS NOT `AskAnswer`. Ask
+ *  passes an empty page id upstream and no page's AI cost moves. Summarise NAMES the page, so
+ *  Engine.run binds Lens's request id to it and the charge later lands on that page's
+ *  `own_ai_cost_usd` under the feature tag `docs-ai-summarize`. The response still carries no
+ *  number — this app has no per-call figure to show and will not invent one — but the sentence a
+ *  screen must print beside it is a different sentence. */
+export interface DocsSummary {
+  text: string
+}
+
 export const docsApi = {
   /** LIVE — spaces in the SESSION's workspace (the BFF no longer pins one). */
   spaces: (): Promise<DocsSpace[]> => getJSON<DocsSpace[]>('/api/docs/spaces'),
@@ -212,6 +225,23 @@ export const docsApi = {
    * offset is why this card never reaches the 50-row merged window the BFF refuses.
    */
   search: (q: string): Promise<unknown> => getJSON<unknown>(`/api/docs/search?q=${encodeURIComponent(q)}`),
+
+  /**
+   * Summarise ONE page's stored text.
+   *
+   * ⚠ NO `action`, AND NO `page_id` IN THE BODY. Upstream is one transform route with four
+   * actions and a body-named page; the BFF fixes the action and takes the page from the path
+   * (docs_ai.go#docsSummarizePage), because both are authority rather than content — the action
+   * decides what the workspace pays for, and the page id decides which document the charge lands
+   * on. A body this client wrote is a body this client chose.
+   *
+   * ⚠ THE TEXT IS THE PAGE AS STORED, NOT WHAT IS IN THE EDITOR — the caller's job, stated here
+   * because it is the whole reason the cost claim is honest. The charge lands on this page, so the
+   * bytes sent must be this page's; summarising an unsaved draft would bill a document for words
+   * it does not contain.
+   */
+  summarizePage: (pageId: string, text: string) =>
+    send<DocsSummary>(`/api/docs/pages/${encodeURIComponent(pageId)}/summarize`, 'POST', { text }),
 
   updatePage: (spaceId: string, pageId: string, patch: { title?: string; content_text?: string }) =>
     send<DocsPageRow>(

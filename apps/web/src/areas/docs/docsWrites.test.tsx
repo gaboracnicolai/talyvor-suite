@@ -83,6 +83,7 @@ function mockDocs(opts: {
       if (text.length > 0) last = text.shift() as string
       return json({ id: 'pg-1', title: 'First page', content_text: last })
     }
+    if (url === '/api/docs/pages/pg-1/summarize') return json({ text: '• a summary' })
     return new Response('null', { status: 404 })
   })
   return calls
@@ -127,6 +128,33 @@ describe('the page editor re-reads what Docs recorded', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(box.value).toBe('WHAT DOCS RECORDED'))
+  })
+
+  // ⚠ THE SUMMARY IS OF THE PAGE AS STORED, AND THAT IS WHAT MAKES ITS COST SENTENCE TRUE.
+  //
+  // Docs binds this completion's cost to page pg-1 and later rolls it onto that page's
+  // `own_ai_cost_usd`, so the bytes sent have to be that page's bytes. Feeding the control the
+  // editor's `draft` instead would bill a document for words it does not contain — and it would
+  // read as the more helpful choice ("summarise what I'm looking at"), which is exactly why the
+  // wiring is asserted here rather than trusted to the comment on it.
+  //
+  // It is also the assertion behind the claim that this control needs no editor at all: the text
+  // comes from the page query, and a reader with no draft in the box gets the same request.
+  it('summarises the page as STORED, not the unsaved keystrokes in the box', async () => {
+    const calls = mockDocs({ pageText: ['the text Docs has stored'] })
+    renderAt(PAGE_URL)
+
+    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
+    await waitFor(() => expect(box.value).toBe('the text Docs has stored'))
+    fireEvent.change(box, { target: { value: 'unsaved keystrokes nobody has stored' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /summarise this page/i }))
+
+    await waitFor(() =>
+      expect(calls.filter((c) => c.url === '/api/docs/pages/pg-1/summarize')).toHaveLength(1),
+    )
+    const post = calls.find((c) => c.url === '/api/docs/pages/pg-1/summarize')
+    expect(post?.body).toEqual({ text: 'the text Docs has stored' })
   })
 
   it('re-reads the page after a successful save', async () => {
