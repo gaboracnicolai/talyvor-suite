@@ -31,11 +31,10 @@ const CONSENT_HEADER = 'Your answers are being shared'
 
 export function PoolingConsent({ onDone }: { onDone: () => void }) {
   useDocumentTitle(CONSENT_HEADER)
-  // Whether Docs is one workspace shared by everyone here. Read from /auth/me — the same query
-  // the gate already ran, so no extra request — and derived by the BFF from its own config.
-  // Unlike the unpaid-contribution notice above, this value CAN be read live: it is the BFF's own
-  // configuration, not another service's admin-gated operator setting, so there is no trust
-  // boundary to cross. See areas/docs/sharedDocsNotice.ts for that comparison in full.
+  // This screen reads NOTHING beyond the consent it is asking for. It used to describe a
+  // /auth/me value for the shared-docs notice; that field and that notice were both removed in
+  // #59 and the description outlived them — see the block above <SharingChoice> for the account
+  // of why the notice going away is the correct outcome rather than a gap.
   return (
     <div className="flex min-h-screen items-center justify-center bg-canvas px-gutter py-8">
       <Card className="w-full max-w-2xl">

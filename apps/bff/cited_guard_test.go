@@ -64,8 +64,16 @@ import (
 // below: an entry here that IS declared fails, so a name cannot sit in this map after someone
 // re-adds the test.
 var citedButGone = map[string]string{
+	// ⚠ THIS REASON USED TO END "so the disclosure cannot outlive the pin it described", and the
+	// disclosure outlived it FOUR TIMES. Measured at 8ba994f: this file's own package still carried
+	// five comment lines about the removed key (truncated mid-sentence by the deleting commit and
+	// re-attached to signup_open), and the web package carried three more. The field cannot outlive
+	// the pin because it stops compiling; the PROSE about the field has no compiler and outlived it
+	// everywhere. Corrected rather than deleted: the entry is still true about the TEST.
 	"TestAuthMeDocsSharedIsDerivedNotHardcoded": "track_tenant_test.go records its deletion as the point: " +
-		"/auth/me no longer serves docs_shared, so the disclosure cannot outlive the pin it described.",
+		"/auth/me no longer serves docs_shared, so a test asserting how it is derived would assert " +
+		"nothing. The prose describing the field is NOT covered by that and had to be swept " +
+		"separately — see apps/web/src/danglingClaimAudit.test.ts.",
 	"TestBundleVersionPathFallsBackToHTMLOnAnOldBundle": "version_test.go and spa_fallback_test.go both " +
 		"record that it pinned a RUNBOOK instruction whose premise is gone; it was replaced deliberately.",
 	"TestMembersProxiesPinnedTrackWorkspace": "keys_test.go records it as replaced when Track went " +

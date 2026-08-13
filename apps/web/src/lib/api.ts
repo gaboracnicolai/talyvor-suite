@@ -205,11 +205,6 @@ export interface AuthMe {
    *  shown only so two people can tell their screens apart. The session's token never appears
    *  here — it stays server-side in the BFF. */
   workspace_id?: string
-  /** Whether THIS deployment's Docs is a single workspace shared by everyone signed in.
-   *  Derived by the BFF from its own config (docsBaseURL + docsWorkspaceID), never hardcoded —
-   *  so it goes false by construction the day Docs gains its own tenancy root, and the notice
-   *  that depends on it stops rendering rather than becoming a false claim.
-   *  Absent (older BFF) is treated as false: silence must not manufacture a warning. */
   /** The consent Lens RECORDED for this workspace — not what was requested. */
   cache_poolable?: boolean
   /** True only for the login that CREATED the workspace: the one moment the pooling question is

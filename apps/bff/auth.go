@@ -665,11 +665,8 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 			"workspace_id":         s.workspaceID,
 			"cache_poolable":       s.cachePoolable,
 			"needs_pooling_choice": s.needsPoolingChoice,
-			// Whether THIS deployment's Docs is one workspace shared by everyone. Derived from
-			// the BFF's OWN config, never hardcoded: docsWorkspaceID is the pin, and when Docs
-			// gains its own tenancy root that field goes the way trackWorkspaceID just did — the
-			// field stops compiling, the notice stops rendering, and the copy cannot outlive the
-			// fact it describes. docsBaseURL is required too: with no Docs upstream there is no
+			// signup_open is documented at length below, on the UNAUTHENTICATED answer — the one
+			// that matters. It is served here too so a signed-in operator reads the same bit.
 			"signup_open": signupIsOpen(a.cfg.allowedEmails),
 		})
 		return
