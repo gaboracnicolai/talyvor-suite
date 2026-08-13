@@ -82,11 +82,18 @@ import { App, CONSOLE_ROUTES } from './App'
  * asserted below, so a page moved out of them fails loudly instead of quietly leaving the census.
  *
  * ⚠ WHAT IS NOT CLAIMED. This gives the deep Track address ONE top-level heading and a correct
- * two-level outline. It does NOT give the console a heading outline generally: the same probe that
- * found the two h1s counted `h1,h2,h3,h4,h5,h6` at all twelve gated addresses and got exactly ONE
- * at each — the banner — so the cards' own titles ("Description", "Details", "Status") are
- * anonymous `<div>`s and "navigate by heading" still reaches the page and stops there. Giving the
- * console an outline means making a shared component render a heading, and that is not this file.
+ * two-level outline. It does NOT give the console a heading outline generally.
+ *
+ * ⚠ AND THAT PARAGRAPH USED TO END "so the cards' own titles ('Description', 'Details', 'Status')
+ * are anonymous `<div>`s and 'navigate by heading' still reaches the page and stops there. Giving
+ * the console an outline means making a shared component render a heading, and that is not this
+ * file." THAT DECISION WAS TAKEN AFTERWARDS AND THIS PARAGRAPH DID NOT HEAR: `CardHeader` renders
+ * a heading today, which is exactly why the outline assertion below is a six-element literal and
+ * not `[1, 2]`. The two halves of this one file disagreed — the prose said the cards are divs
+ * while the comment on the assertion said they stopped being divs. Corrected in place rather than
+ * left, because a stale claim next to the assertion that falsifies it is worse than no claim.
+ * What is still true is the narrower sentence: the outline is FLAT (h1 → h2 → h2), so heading
+ * navigation reaches the cards but not their relationship — see the ⚠ on the assertion below.
  */
 
 /** Address (what a person types) from a route path (what `<Route path>` takes). */
@@ -246,12 +253,14 @@ describe('the addresses below the console still have exactly one top-level headi
     const levels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) =>
       Number(h.tagName.slice(1)),
     )
-    // ⚠ FIVE, NOT TWO, SINCE CardHeader BECAME A HEADING. The three extra 2s are this page's
-    // card headers — Description, Details, Comments — which were `<div>`s when this line read
-    // `[1, 2]` and are now section titles like every other card header behind the gate.
+    // ⚠ SIX, NOT TWO, SINCE CardHeader BECAME A HEADING. The four extra 2s are this page's
+    // card headers — Description, Details, AI summary, Comments — which were `<div>`s when this
+    // line read `[1, 2]` and are now section titles like every other card header behind the gate.
+    // "AI summary" is the fourth and newest: Track's thread summary, the first browser control
+    // for any Track AI feature (areas/track/AISummary.tsx).
     //
-    // ⚠ AND THE FLATNESS IS RECORDED RATHER THAN BLESSED. Description/Details/Comments are
-    // sections OF the issue, so an outline that named their relationship would read
+    // ⚠ AND THE FLATNESS IS RECORDED RATHER THAN BLESSED. Description/Details/AI summary/Comments
+    // are sections OF the issue, so an outline that named their relationship would read
     // h1 → h2 → h3. It reads h1 → h2 → h2: no level is SKIPPED (which is the defect this
     // assertion exists to catch, and it still catches one), but the three cards sit beside the
     // issue title rather than under it. Giving `CardHeader` a level would be an API decision
@@ -262,7 +271,7 @@ describe('the addresses below the console still have exactly one top-level headi
       levels,
       'the heading outline at /track/issues/<id> moved — a level was skipped, dropped or ' +
         'duplicated, or a card header stopped being one',
-    ).toEqual([1, 2, 2, 2, 2])
+    ).toEqual([1, 2, 2, 2, 2, 2])
   })
 })
 

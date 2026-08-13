@@ -15,6 +15,7 @@ import {
 } from '@talyvor/ui'
 import { ApiError, getJSON, getJSONArray } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
+import { AISummary } from './AISummary'
 import { StatusPill } from './StatusPill'
 import { PRIORITY_VALUES, formatCost, priorityLabel, statusLabel } from './format'
 import { memberName, teamIdentifier } from './data'
@@ -333,6 +334,11 @@ export function IssueDetail() {
           </div>
         </div>
       </Card>
+
+      {/* ⚠ IT SITS BELOW Details AND ABOVE Comments ON PURPOSE. It summarises the thread under it,
+          and what it costs lands in the AI cost row above it — the panel is between its subject
+          and its price. */}
+      <AISummary issueId={id} />
 
       <Card>
         <CardHeader>Comments</CardHeader>

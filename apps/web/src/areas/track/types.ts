@@ -115,3 +115,22 @@ export interface TrackTeam {
   created_at: string
   updated_at: string
 }
+
+/**
+ * What `GET /api/track/issues/{id}/summary` said, as one of four named states — the vocabulary
+ * `readSummary` (./summary.ts) produces and `AISummary` renders.
+ *
+ * ⚠ THERE IS NO `TrackIssueSummary` INTERFACE MIRRORING THE WIRE, ON PURPOSE. The route answers
+ * three DIFFERENT bodies with the same 200, so a single optional-everything interface would type
+ * as valid the exact reading this area must never do — `payload.summary` off a refusal. The wire
+ * shapes are described in ./summary.ts, and this union is what the rest of the area may hold.
+ *
+ * UPSTREAM-ONLY: the whole of it. `key_points`, `next_action` and `sentiment` are talyvor-track
+ * `internal/ai/engine.go` `type ThreadSummary`; `ai_available`/`reason` and
+ * `summary_available`/`min_comments` are written by `internal/ai/handler.go`.
+ */
+export type IssueSummaryView =
+  | { kind: 'summary'; summary: string; keyPoints: string[]; nextAction: string; sentiment: string }
+  | { kind: 'ai-unavailable'; reason: string }
+  | { kind: 'too-short'; minComments: number | null }
+  | { kind: 'unrecognised' }
