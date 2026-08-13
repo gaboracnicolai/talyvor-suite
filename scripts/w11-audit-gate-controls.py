@@ -42,9 +42,18 @@ def gate() -> bool:
 
 
 def gate_message() -> str:
+    """The line that explains the RED, which is not the first line of the output.
+
+    ⚠ THIS USED TO RETURN `(stdout + stderr).split('\\n')[0]`, and stdout holds the OTHER
+    project's success line: every caught control in this harness printed
+    `audit-gate: packages/ui ok — the empty probe passes …` as its evidence. A green line
+    quoted underneath a CAUGHT verdict reads as the reason for the catch and is not one.
+    Failures go through `fail()` -> console.error, so stderr is the explanation.
+    """
     p = subprocess.run(['node', 'scripts/check-audit-gate.mjs'], cwd=WEB,
                        capture_output=True, text=True)
-    return (p.stdout + p.stderr).strip().split('\n')[0]
+    err = (p.stderr or '').strip()
+    return (err or (p.stdout or '').strip()).split('\n')[0]
 
 
 def vitest(target: str) -> bool:
@@ -99,10 +108,47 @@ CONTROLS = [
      [(SETUP, 'if (unringed.length > 0) {', 'if (unringed.length > 0 && false) {')],
      CAUGHT),
 
-    ('C3', 'an EIGHTH report block appears — the pinned set and the source count disagree',
+    # ⚠ C3 SCORED NOT CAUGHT FOR EVERY RUN BETWEEN THE `^\s*` ANCHOR AND `7f4b`, AND NOBODY RAN
+    # IT. The count it exercises reads `/^\s*problems\.push\(/gm` — LINES THAT BEGIN WITH the
+    # call — so a report written on the same line as its condition was invisible to it. That is
+    # not a synthetic shape: `if (off.length > 0) problems.push(…)` is ordinary JavaScript, and
+    # the mutation below is now written as a real ninth audit rather than the dead
+    # `if (problems.length < 0)` it used to be, so a reader cannot dismiss the red as a strawman.
+    ('C3', 'a NINTH report block appears ON ONE LINE — the pinned set and the source count disagree',
      [(SETUP, '  if (problems.length > 0) throw new Error',
-       "  if (problems.length < 0) problems.push('')\n  if (problems.length > 0) throw new Error")],
-     CAUGHT),
+       "  const orphaned = takeOffenders()\n"
+       "  if (orphaned.length > 0) problems.push(`orphan(s) nothing pins: ${orphaned.length}`)\n"
+       '  if (problems.length > 0) throw new Error')],
+     CAUGHT, 'report blocks'),
+
+    # ⚠ THE COUNT'S OTHER DIRECTION HAD NO CONTROL AT ALL. C2 silences a report block by
+    # falsifying its CONDITION, which leaves the call in the file and the count unchanged — it is
+    # caught by the named-itself set, not by the count. Deleting the CALL is the only mutation
+    # that exercises `reportBlocks < AUDITS.length`, and until C8 nothing did.
+    #
+    # ⚠ THE FIRST DRAFT OF C8 WAS AN INVALID-JS MUTATION AND THE COMPANION CAUGHT IT. It swapped
+    # `problems.push(` for `void 0 && (`, which turns the block into a parenthesised expression
+    # ending in a trailing comma — a SyntaxError. The count DID report 7 and the control would
+    # have scored CAUGHT on a broken file; it scored SUSPECT instead because the companion run
+    # went red. That is the whole reason the companion half exists, and it earned its keep on a
+    # control written by the session that added it. The mutation is a CALL now, where a trailing
+    # comma is legal.
+    ('C8', 'a report block is DELETED — the source count must fall below the pinned set',
+     [(SETUP, '    problems.push(\n      `figure(s) rendered in the body sans',
+       '    void 0 && console.log(\n      `figure(s) rendered in the body sans')],
+     CAUGHT, 'report blocks'),
+
+    # ⚠ THE MUST-STAY-GREEN HALF OF THE FIX, AND THE REASON IT IS NOT "DELETE THE ANCHOR".
+    # `^\s*` was introduced because packages/ui's setup DOCUMENTS this very rule and names the
+    # call in prose; unanchored, the count read 8 blocks in a file holding 7. Counting the call
+    # anywhere on a line would bring that back. C9 plants the same shape in apps/web — a comment
+    # line whose first non-space token IS the call — so a fix that merely drops the anchor reds
+    # here. Immunity must come from knowing what a comment is, not from where the token sits.
+    ('C9', 'prose that names the call at the start of a comment line — must NOT be counted',
+     [(SETUP, '  if (problems.length > 0) throw new Error',
+       '  // problems.push( is named here on purpose: see C9 of w11-audit-gate-controls.py\n'
+       '  if (problems.length > 0) throw new Error')],
+     MISSED),
 
     # ⚠ C4 SCORES NOT CAUGHT AND IS SHIPPED AS DOCUMENTED-INERT. The yield was written in
     # because the audits scan on a MICROTASK and caseAudit.ts records a shape where that
@@ -145,7 +191,14 @@ def main():
     print('YES')
 
     rows, bad = [], 0
-    for cid, desc, edits, expect in CONTROLS:
+    # ⚠ THE OPTIONAL FIFTH FIELD IS `says`, AND IT IS WHAT MAKES A CATCH ATTRIBUTABLE. The gate
+    # has THREE independent halves — the source count, the empty/armed probe pair, and the
+    # named-itself set — and it returns at the first one that fires. A control that only asks
+    # "did the gate go red" is satisfied by any of them, so a mutation aimed at the count can be
+    # scored a pass on the strength of a failure it did not cause. Controls that name a half are
+    # scored WRONG-HALF when a different one answers.
+    for cid, desc, edits, expect, *rest in CONTROLS:
+        says = rest[0] if rest else None
         objs = [Edit(*e) for e in edits]
         msg = ''
         try:
@@ -155,6 +208,8 @@ def main():
             verdict = MISSED if green else CAUGHT
             if not green:
                 msg = gate_message()[:78]
+                if says is not None and says not in msg:
+                    verdict = f'WRONG-HALF (wanted {says!r})'
             comp_green = vitest(COMPANION)
             # ⚠ a companion that goes red turns "the guard fired" into "everything fired"
             if not comp_green:
