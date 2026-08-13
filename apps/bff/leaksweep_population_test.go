@@ -166,13 +166,21 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 
 	// ⚠ THE UPPER BOUND IS THE OTHER HALF, and without it the floor is escapable. A route that
 	// stops answering GET leaves the swept population SILENTLY: the floor still passes while
-	// coverage shrinks. Four are POST-only today (/api/keys/{id}, /api/lens/convert,
-	// /api/lxc/checkout, /api/pooling). A fifth is a change in what this guard can see, and it
-	// has to be looked at. Their WRITE responses are searched by the write sweep below — for the
-	// year this bound existed the excuse was "the Origin sweep covers them", and it did not.
-	if len(methodOnly) > 4 {
+	// coverage shrinks. FIVE are write-only today (/api/keys/{id}, /api/lens/convert,
+	// /api/lxc/checkout, /api/pooling, /api/docs/ai/ask). A sixth is a change in what this guard
+	// can see, and it has to be looked at. Their WRITE responses are searched by the write sweep
+	// below — for the year this bound existed the excuse was "the Origin sweep covers them", and
+	// it did not.
+	//
+	// ⚠ THE FIFTH, /api/docs/ai/ask, WAS LOOKED AT RATHER THAN WAVED THROUGH. It is POST-only
+	// because an ask has a body and no idempotent reading — GET would have to carry the question
+	// in a query string, where it would land in every access log. It is NOT outside the sweep:
+	// the write half below derives its population from mountedPatterns(), so it drives POST at
+	// this route in all three fixtures and searches what comes back, including the Docs upstream
+	// bytes the productApp fixture streams.
+	if len(methodOnly) > 5 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 4 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 5 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

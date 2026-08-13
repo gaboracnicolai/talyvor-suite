@@ -49,9 +49,41 @@ import { ApiError } from './api'
 // Everything else — 500, 502, a 403 from upstream tier checks — is a GENUINE failure and must
 // surface as one. Laundering those into "off" is how a broken deployment comes to look calm,
 // which is the inverse of this file's purpose. 404 was being laundered exactly that way.
+//
+// ⚠ AND ONE 503 IS NOT THIS ONE. talyvor-docs answers 503 + `code:"AI_UNAVAILABLE"` when Docs is
+// RUNNING and only its Lens credential is missing — a different subject, a different operator
+// instruction, and the same shape of mistake this file was written about: a diagnosis read off a
+// status code that cannot carry it. It is excluded here and owned by isAIUnavailable below, so
+// the two states are disjoint rather than one shadowing the other. Nothing else in this app can
+// produce that code, so no existing caller changes meaning.
 export function isUnconfigured(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 503
+  return err instanceof ApiError && err.status === 503 && err.code !== AI_UNAVAILABLE
 }
+
+/**
+ * The code talyvor-docs sends when its AI engine has no Lens client configured
+ * (internal/ai/handler.go writeAIErr → `{"error":"AI unavailable. Check Lens configuration.",
+ * "code":"AI_UNAVAILABLE"}`, HTTP 503). Its sibling `AI_FAILED` is a 502 and is a genuine fault —
+ * Docs reached Lens and the call failed — so it is deliberately NOT in this family.
+ */
+const AI_UNAVAILABLE = 'AI_UNAVAILABLE'
+
+/**
+ * "Docs is here; its AI is not configured." — the THIRD deployment state on the AI routes, and
+ * the one a status code cannot express.
+ *
+ * The instruction it produces is different from every other state on this screen: the app is
+ * fine, the BFF is fine, Docs is fine, and the thing to fix is the AI credential ON THE DOCS
+ * SERVICE. Telling that person "Docs is not configured on this deployment" sends them to check
+ * DOCS_* variables that are already correct.
+ */
+export function isAIUnavailable(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 503 && err.code === AI_UNAVAILABLE
+}
+
+/** The one sentence, so the AI states are worded identically wherever they appear. */
+export const aiNotConfiguredCopy =
+  'Docs is reachable, but its AI is not configured — the Docs service has no Lens credential, so there is nothing to ask. This app and its Docs upstream are both fine; the setting to change is on Docs.'
 
 /** The one sentence, so every area words it identically. `product` is the display name. */
 export function notConfiguredCopy(product: string): string {

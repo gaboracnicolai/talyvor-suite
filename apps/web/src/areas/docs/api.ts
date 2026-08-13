@@ -94,11 +94,35 @@ export interface DocsPage {
   updated_at: string
 }
 
+/**
+ * Reads the upstream's own `code` off a FAILING response, so a caller can tell two errors that
+ * share a status apart. See ApiError#code — on this area's AI route 503 means "no Docs upstream
+ * here" from the BFF and "Docs has no Lens credential" from Docs, and only the code separates
+ * them.
+ *
+ * A body that is not JSON, or one with no `code`, leaves it undefined: the status is then the
+ * whole diagnosis, which is what it was before this existed. The parse failure is deliberately
+ * not surfaced — this is reading an OPTIONAL hint off an error that is already being thrown, and
+ * turning a malformed error body into a second, different error would replace the real failure
+ * with a parsing one.
+ */
+async function failure(res: Response, path: string): Promise<ApiError> {
+  let code: string | undefined
+  try {
+    const body: unknown = await res.json()
+    const c = (body as { code?: unknown } | null)?.code
+    if (typeof c === 'string' && c !== '') code = c
+  } catch {
+    // not JSON — no code to read
+  }
+  return new ApiError(res.status, path, code)
+}
+
 async function getJSON<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
   // The shared ApiError, so a 401 here trips App.tsx's QueryCache handler and
   // re-probes the auth gate exactly like every live area.
-  if (!res.ok) throw new ApiError(res.status, path)
+  if (!res.ok) throw await failure(res, path)
   return (await res.json()) as T
 }
 
@@ -114,8 +138,27 @@ async function send<T>(path: string, method: string, body: unknown): Promise<T> 
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new ApiError(res.status, path)
+  if (!res.ok) throw await failure(res, path)
   return res.json() as Promise<T>
+}
+
+/** One grounding source Docs cited for an answer. `url` is a path in DOCS' OWN frontend. */
+export interface AskSource {
+  title: string
+  url: string
+}
+
+/** POST /api/docs/ai/ask → talyvor-docs askResponse (internal/ai/handler.go).
+ *
+ *  ⚠ IT CARRIES NO COST, AND THAT IS UPSTREAM'S SHAPE RATHER THAN AN OMISSION HERE. The response
+ *  is `{answer, sources}` and nothing else. Engine.AskDocs passes an EMPTY page id — "an answer
+ *  drawn from several pages belongs to none of them" — so no page_ai_spend_events row is written
+ *  and no page's own_ai_cost_usd moves either. What an ask cost is visible only in the workspace's
+ *  Lens spend, under the feature tag `docs-ai-ask`. A per-answer number would have to be invented,
+ *  so none is shown. */
+export interface AskAnswer {
+  answer: string
+  sources: AskSource[]
 }
 
 export const docsApi = {
@@ -143,6 +186,16 @@ export const docsApi = {
   /** Docs owns the schema; the BFF forwards this body verbatim. */
   createPage: (spaceId: string, title: string) =>
     send<DocsPageRow>(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`, 'POST', { title }),
+
+  /**
+   * Ask the workspace's documentation a question.
+   *
+   * ⚠ NO workspace_id, and no page id either. The BFF builds the upstream path from the SESSION's
+   * workspace (docs_ai.go), and Docs grounds the answer in the pages this caller may VIEW — the
+   * client names neither, because a workspace the browser could name is a workspace the browser
+   * could choose.
+   */
+  ask: (question: string) => send<AskAnswer>('/api/docs/ai/ask', 'POST', { question }),
 
   updatePage: (spaceId: string, pageId: string, patch: { title?: string; content_text?: string }) =>
     send<DocsPageRow>(
