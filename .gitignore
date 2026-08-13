@@ -26,3 +26,13 @@ packages/ui/.reach-probe/
 # build output would make `git status --porcelain` dirty, and the script's dirty-tree check would
 # then stamp every subsequent build "-dirty" because of its own previous output.
 bff-*-*
+
+# THE SAME HAZARD AS THE TWO ENTRIES ABOVE, THIRD INSTANCE. The ~40 control harnesses in scripts/ are
+# censused by IMPORTING them (a static reader of them has lied three times — see W1.1.10), and an
+# import writes scripts/__pycache__/. Untracked, that made build-release.sh — which reads
+# `git status --porcelain` — stamp the next workstation build "<sha>-dirty" for a bytecode cache.
+# Measured both ways at be91a30 before this line existed: cache present -> be91a30-dirty, removed ->
+# be91a30. It fails in the SAFE direction, so the point of ignoring it is that the suffix keeps
+# meaning something; a REAL uncommitted edit and an unexpected untracked artifact must both still
+# stamp "-dirty", and ~/talyvor-queue/w11-pycachestamp-controls-5e8a.py holds that to P1 and P4.
+__pycache__/
