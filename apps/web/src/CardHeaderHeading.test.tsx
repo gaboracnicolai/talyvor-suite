@@ -180,12 +180,25 @@ describe('a card header is a section title, so it is a heading element', () => {
     const titles = cardHeaderTitles(document.body)
     expect(titles.length, '/ renders six cards; a count against zero would prove nothing').toBeGreaterThan(4)
     const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+    // ⚠ W1.1.1 PUT A SECOND KIND OF HEADING ON THIS ADDRESS, and it is NAMED here rather than
+    // absorbed into a looser count. Overview now opens with its own heading at the page scale —
+    // `text-title`, the top of the console ramp — because the screen had no heading of its own at
+    // all: the sticky banner said "Overview" and six anonymous panels followed it. That heading is
+    // a section title (it names the region the screen opens with), so it belongs in the rotor; a
+    // balance, a wordmark or a badge still does not, which is what the total below refuses.
+    const pageScale = headings.filter((h) => h.className.includes('text-title'))
+    expect(
+      pageScale.map((h) => h.tagName),
+      'the screen opens with exactly ONE page-scale heading and it is an h2 — two would be a ' +
+        'second claim about what the page is, and an h1 would be a second page name',
+    ).toEqual(['H2'])
     expect(
       headings.map((h) => `${h.tagName}:${h.textContent?.trim().slice(0, 24)}`),
-      'the console shell writes exactly one h1 and every card header is an h2, so the page holds ' +
-        'ONE MORE heading than it has cards. A different number means something that is not a ' +
-        'section title has entered the headings rotor — a balance, a wordmark, a badge.',
-    ).toHaveLength(1 + titles.length)
+      'the console shell writes exactly one h1, the screen writes one page-scale heading and every ' +
+        'card header is an h2, so the page holds exactly that many headings. A different number ' +
+        'means something that is not a section title has entered the headings rotor — a balance, ' +
+        'a wordmark, a badge.',
+    ).toHaveLength(1 + pageScale.length + titles.length)
     const wordmark = Array.from(document.querySelectorAll('.text-head')).find(
       (e) => e.textContent?.trim() === 'Talyvor',
     )

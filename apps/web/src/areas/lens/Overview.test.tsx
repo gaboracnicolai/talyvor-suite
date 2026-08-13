@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Overview } from './Overview'
 
@@ -191,7 +191,15 @@ describe('the cache card reads MEASURED numbers, or says why it cannot', () => {
     renderOverview()
 
     // 2 hits of 8 recorded requests = 25%. The fixture this replaces said 1,240 / 87%.
-    expect(await screen.findByText('2')).toBeInTheDocument()
+    //
+    // ⚠ SCOPED, AND IT HAD TO BE. Unscoped, `findByText('2')` resolved on a RACE: the LXC window
+    // total in the spend card is 2,000,000 µLXC and renders the whole number "2" in exactly the
+    // same string. Two elements answer to it, and which one existed when the poll first ran
+    // depended on the order the two queries settled in — so this case was passing on the cache
+    // figure only as long as the layout happened to mount the cache card first. The rebuilt
+    // screen names its regions, so the query can say which card it means.
+    const cacheRegion = within(await screen.findByRole('region', { name: 'What the cache answered' }))
+    expect(await cacheRegion.findByText('2')).toBeInTheDocument()
     expect(screen.getByText(/≈ 25%/)).toBeInTheDocument()
     expect(screen.getByText(/8 requests recorded/)).toBeInTheDocument()
     // and it is no longer sample data
@@ -361,5 +369,132 @@ describe('a brand-new workspace with zero data', () => {
     expect(screen.queryByText(/Couldn’t load/i)).toBeNull()
     // Held is absent entirely at zero — a permanent "Held 0" would be noise.
     expect(screen.queryByText(/Held — not yet spendable/)).toBeNull()
+  })
+
+  // ⚠ THE SCREEN-LEVEL EMPTY STATE, WHICH IS THE ONE A NEW SIGNUP ACTUALLY MEETS. Every case
+  // above tests ONE panel's emptiness; the person opening this screen for the first time meets
+  // all six at once — six zeros and no next action anywhere above the fold. The three panels
+  // that DO name an action (activity, earnings, cache) name three different ones, none of which
+  // is "you have no LXC".
+  it('names both first steps and links to them', async () => {
+    mockEmpty()
+    renderOverview()
+
+    expect(
+      await screen.findByRole('heading', { name: /nothing has arrived in this workspace yet/i }),
+    ).toBeInTheDocument()
+    // It must say WHAT IS ZERO — both tokens — rather than only that something is missing.
+    expect(screen.getByText(/no LXC has been granted, bought or converted/i)).toBeInTheDocument()
+
+    // Two steps, each a real destination in this app.
+    expect(screen.getByRole('link', { name: /open setup/i })).toHaveAttribute('href', '/setup')
+    expect(screen.getByRole('link', { name: /open billing/i })).toHaveAttribute('href', '/billing')
+  })
+
+  // ⚠ THE CONTROL THAT KEEPS "EMPTY" AND "BROKEN" APART. A balance that could not be READ is not
+  // a balance of zero, and this project has shipped that conflation twice (a Track fault drawn
+  // identically to an empty tracker; a held balance of 0 beside a ledger of 822). If the
+  // predicate treated a failed read as zero, a workspace with money in it would be told, on the
+  // first screen after sign-in, that nothing had ever arrived.
+  it('does NOT claim a first run when a balance read FAILED', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      // LENS answers all-zero; LXC — the token that would say "you have nothing" — 500s.
+      if (url.startsWith('/api/lxc/balance')) return json({ error: 'boom' }, 500)
+      if (url.startsWith('/api/tokens/balance')) return json(EMPTY['/api/tokens/balance'])
+      if (url.startsWith('/api/bonds')) return json({ capability: 'bonds', enabled: false })
+      if (url.startsWith('/api/usage')) return json(usageWith({}).body)
+      if (url.startsWith('/api/track/') || url.startsWith('/api/docs/')) return json({ error: 'x' }, 503)
+      for (const [path, body] of Object.entries(EMPTY)) {
+        if (url.startsWith(path)) return json(body)
+      }
+      return new Response('null', { status: 404 })
+    })
+    renderOverview()
+
+    // The failure is reported as a failure …
+    expect(await screen.findByText(/Couldn’t load the LXC balance/i)).toBeInTheDocument()
+    // … and the screen does not tell a paying workspace that it has never had anything.
+    expect(screen.queryByText(/nothing has arrived in this workspace yet/i)).toBeNull()
+    expect(screen.queryByRole('link', { name: /open billing/i })).toBeNull()
+  })
+
+  it('a workspace that HAS held something never sees the first steps', async () => {
+    mockBff()
+    renderOverview()
+
+    expect(await screen.findByRole('heading', { name: /everything this workspace has/i })).toBeInTheDocument()
+    expect(screen.queryByText(/nothing has arrived in this workspace yet/i)).toBeNull()
+    expect(screen.queryByRole('link', { name: /open setup/i })).toBeNull()
+  })
+})
+
+// ── THE SHAPE OF THE SCREEN (W1.1.1) ──────────────────────────────────────────────────────────
+//
+// What this replaced: six cards in a two-column grid, no heading of the screen's own, and no
+// label above any group of them. The sticky banner wrote "Overview" and everything below it was
+// one undifferentiated run of panels — so the screen's own source could describe five questions
+// it answers "in order" while the rendered page named none of them.
+//
+// The rebuild is the public site's section marking (accent tick · mono index · the one uppercase
+// eyebrow) carried into the console's type scale, ONE page-scale heading, and five NAMED
+// landmarks instead of one anonymous block.
+describe('the screen reads as regions, in the site’s language', () => {
+  it('opens with one page-scale heading, and it is an h2 under the shell’s h1', async () => {
+    mockBff()
+    renderOverview()
+
+    const opening = await screen.findByRole('heading', { name: /everything this workspace has/i })
+    // NOT an h1: the shell already writes exactly one per address (#126, #127), and a second
+    // would be a second claim about what the page is. IssueDetail settled this shape already.
+    expect(opening.tagName).toBe('H2')
+    // `text-title` IS the page scale behind the gate — the top of the console ramp, 24px. The
+    // marketing display steps stop at the gate (displayScale.test.ts), so this is the largest
+    // type a console screen may write, and it had never been written on this one.
+    expect(opening.className).toContain('text-title')
+    expect(document.querySelectorAll('.text-title')).toHaveLength(1)
+  })
+
+  it('every region is a landmark named by its own uppercase eyebrow', async () => {
+    mockBff()
+    renderOverview()
+    await screen.findByText('Spend & earnings — last 30 days')
+
+    const regions = screen.getAllByRole('region')
+    expect(
+      regions.map((r) => r.getAttribute('aria-label') ?? document.getElementById(r.getAttribute('aria-labelledby') ?? '')?.textContent?.trim()),
+      'the five questions this screen answers, in the order its own source declares them — plus ' +
+        'the opening. A region with no name is a section a rotor cannot list.',
+    ).toEqual([
+      'Everything this workspace has, spends and earns.',
+      'What you have',
+      'What it costs, and what it earns',
+      'What the cache answered',
+      'What is switched on',
+      'What just happened',
+    ])
+  })
+
+  it('each region label wears the eyebrow token AND its casing, with the accent on a tick', async () => {
+    mockBff()
+    renderOverview()
+    await screen.findByText('Spend & earnings — last 30 days')
+
+    const labels = Array.from(document.querySelectorAll('[data-testid="region-label"]'))
+    expect(labels.length, 'no region labels rendered — the assertions below would be vacuous').toBe(6)
+    for (const l of labels) {
+      const eyebrow = l.querySelector('.text-eyebrow')!
+      expect(eyebrow.className, `"${eyebrow.textContent}" is not on the eyebrow token`).toContain('text-eyebrow')
+      // The casing travels in the same class list as the token — the eyebrow sweep's rule.
+      expect(eyebrow.className).toContain('uppercase')
+      // Colour lands on a TICK, never on text: the invariant the whole palette rests on.
+      expect(l.querySelector('.bg-accent'), 'the region marking lost its accent tick').toBeTruthy()
+    }
+    // Every index is a numeral, so every index is on the figure face.
+    const indexes = Array.from(document.querySelectorAll('[data-testid="region-index"]'))
+    expect(indexes.map((i) => i.textContent)).toEqual(['00', '01', '02', '03', '04', '05'])
+    for (const i of indexes) expect(i.className).toContain('font-figure')
   })
 })
