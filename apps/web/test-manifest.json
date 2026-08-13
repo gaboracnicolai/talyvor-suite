@@ -88,10 +88,11 @@
   "src/routeParamState.test.ts": 10,
   "src/scrollReset.test.tsx": 18,
   "src/SessionExpired.test.tsx": 20,
-  "src/settleCommands.test.ts": 7,
+  "src/settleCommands.test.ts": 8,
   "src/Sharing.test.tsx": 8,
   "src/statusChangeRefusal.test.tsx": 7,
   "src/tokenDoor.test.ts": 10,
+  "src/topUpMirrorRegister.test.ts": 3,
   "src/typeScaleUnits.test.ts": 10,
   "src/upstreamCitations.test.ts": 8,
   "src/writeUnderDeadCredential.test.tsx": 15

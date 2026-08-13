@@ -239,11 +239,28 @@ func TestCheckoutAcceptsEveryAdvertisedAmount(t *testing.T) {
 	}
 }
 
-// TestAllowedTopUpsMirrorLens pins the values against the Lens source they
-// mirror (internal/billing/billing.go `allowedTopUps` = $10/$50/$100). Lens
-// exposes this list on NO endpoint, so the BFF cannot read it at runtime; this
-// test is the thing that makes a divergence deliberate instead of silent.
-func TestAllowedTopUpsMirrorLens(t *testing.T) {
+// TestAllowedTopUpsRestatedDeliberately makes an edit to allowedTopUpCents a
+// TWO-PLACE edit: the declaration and this restatement must move together, so a
+// size cannot be added or dropped by a slip.
+//
+// ⚠ THAT IS ALL IT DOES, AND ITS PREVIOUS NAME AND DOCSTRING CLAIMED MORE — that
+// it "pins the values against the Lens source". It does not: `want` below is a
+// literal in THIS package, compared to a copy in THIS package. It reads nothing
+// of talyvor-lens, and no test here can — CI checks out this repository alone,
+// and a guard that reads a sibling repo only when it happens to be present is
+// inert in CI, which is where it would have to fire. The claim was INERT rather
+// than wrong on the day it was measured (lens a04310a
+// internal/billing/billing.go:47 is byte for byte the same three sizes), but the
+// list is documented ADDITIVE-ONLY in both repos, so the expected change is an
+// APPEND — and an append in Lens is silent everywhere: this BFF refuses the new
+// size before any dial and the screen never offers it.
+//
+// The cross-repo half lives where this repo puts premises it cannot read:
+// deploy/decision-expiry.sh's UNCHECKABLE-HERE register, with a grep proved
+// fail-closed in a real talyvor-lens checkout, and
+// apps/web/src/topUpMirrorRegister.test.ts holding that grep's amounts equal to
+// the declaration.
+func TestAllowedTopUpsRestatedDeliberately(t *testing.T) {
 	want := []int64{1000, 5000, 10000}
 	if len(allowedTopUpCents) != len(want) {
 		t.Fatalf("allowedTopUpCents = %v, want %v (mirrors Lens allowedTopUps)", allowedTopUpCents, want)
