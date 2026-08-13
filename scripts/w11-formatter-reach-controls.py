@@ -14,6 +14,31 @@ scoring a guard that never saw the mutation.
 Result at the merge of this file: 7/7 as predicted, every typecheck ok, tree byte-identical
 after restore. C6 is the one to read — with the defect restored, figureFace.test.ts stays
 GREEN, which is exactly why the defect survived a guard written to classify it.
+
+⚠ AND THE SENTENCE ABOVE ABOUT NOT ROTTING WAS TRUE AND NOT ENOUGH. `ANCHOR FAILED` did its
+job perfectly — the campaign refused to run rather than score a guard that never saw the
+mutation — and then NOTHING RAN IT, so the refusal was never heard. Measured by tab-7f4b at
+`8e1d621` while running all 34 scripts/w11-*.py: this file had FOUR dead anchors and had been
+unable to start for as long as it took `formatCost` to gain a parameter. Once re-anchored,
+all 7 controls behave exactly as they always did: nothing about formatterReach had rotted,
+only the campaign's grip on the source. An anchor check is a smoke alarm, not a fire brigade.
+
+⚠ SO THE ANCHORS ARE THE SMALLEST STABLE THING, NOT THE PRETTIEST QUOTATION. All four deaths
+were ordinary drift, not renames: `formatCost(usd: number): string {` gained `tokens = 0`,
+and `import { formatCost }` gained three siblings. Quoting a whole signature, a whole import
+list or a whole JSX element re-arms that decay on every future edit to a part the control does
+not care about. They anchor on `export function formatCost(`, `formatCost,` and
+`{formatCost(it.ai_cost_usd` now — prefixes that survive an argument or a sibling appearing,
+each measured to occur EXACTLY ONCE before being chosen.
+
+⚠ AND THE CENSUS I WROTE TO FIND THEM REPORTED "0 REMAINING" WHILE ONE WAS STILL DEAD. It
+regexed for `("path", "old", ...)` triples and this file writes some anchors in SINGLE quotes,
+so every one of those was outside its population by construction — the same shape of blindness
+the controls here exist to catch, in the instrument looking for it. The AST rewrite found 14
+anchors where the regex found fewer. Neither is shipped as an instrument: a static reader of
+these scripts has now lied three times (tab-9c4d's importing census, tab-2b6c's exec screen,
+and this one). THE HARNESS'S OWN RUNNER IS THE INSTRUMENT; it costs seconds for this file and
+about twenty minutes for all 34.
 """
 import hashlib
 import pathlib
@@ -87,8 +112,8 @@ CONTROLS = [
         "C1  a formatter that IS classified but nothing calls — the case only this guard sees",
         [
             ("apps/web/src/areas/track/format.ts",
-             "export function formatCost(usd: number): string {",
-             "export function formatOrphan(n: number): string {\n  return String(n)\n}\n\nexport function formatCost(usd: number): string {"),
+             "export function formatCost(",
+             "export function formatOrphan(n: number): string {\n  return String(n)\n}\n\nexport function formatCost("),
             ("apps/web/src/figureFace.test.ts",
              "  'apps/web/src/areas/track/format.ts#formatCost': true,",
              "  'apps/web/src/areas/track/format.ts#formatCost': true,\n  'apps/web/src/areas/track/format.ts#formatOrphan': 'control',"),
@@ -103,8 +128,8 @@ CONTROLS = [
              "  focusRing,\n} from '@talyvor/ui'",
              "  focusRing,\n  formatDay,\n} from '@talyvor/ui'"),
             ("apps/web/src/areas/track/IssueDetail.tsx",
-             '<span className="font-figure text-body text-ink">{formatCost(it.ai_cost_usd)}</span>',
-             '<span className="font-figure text-body text-ink">{formatCost(it.ai_cost_usd)}{formatDay(it.created_at)}</span>'),
+             '{formatCost(it.ai_cost_usd',
+             '{formatDay(it.created_at)}{formatCost(it.ai_cost_usd'),
         ],
         predict="formatterReach A (measured dead set LOSES ui#formatDay while the pin still lists it) — and it only fires if the barrel hop resolves",
         must_green="figureFace — formatDay is classified 'not a figure' and is not money-named",
@@ -146,8 +171,8 @@ CONTROLS = [
         "C6  THE FINDING ITSELF restored — the dead money export comes back",
         [
             ("apps/web/src/areas/track/format.ts",
-             "export function formatCost(usd: number): string {",
-             "export function formatUSD(usd: number): string {\n  return usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })\n}\n\nexport function formatCost(usd: number): string {"),
+             "export function formatCost(",
+             "export function formatUSD(usd: number): string {\n  return usd.toLocaleString('en-US', { style: 'currency', currency: 'USD' })\n}\n\nexport function formatCost("),
             ("apps/web/src/figureFace.test.ts",
              "  'apps/web/src/areas/track/format.ts#formatCost': true,",
              "  'apps/web/src/areas/track/format.ts#formatCost': true,\n  'apps/web/src/areas/track/format.ts#formatUSD': true,"),
@@ -159,14 +184,14 @@ CONTROLS = [
         "C7  MUST-STAY-GREEN: a new formatter that IS classified AND IS called",
         [
             ("apps/web/src/areas/track/format.ts",
-             "export function formatCost(usd: number): string {",
-             "export function formatTokens(n: number): string {\n  return String(n)\n}\n\nexport function formatCost(usd: number): string {"),
+             "export function formatCost(",
+             "export function formatTokens(n: number): string {\n  return String(n)\n}\n\nexport function formatCost("),
             ("apps/web/src/figureFace.test.ts",
              "  'apps/web/src/areas/track/format.ts#formatCost': true,",
              "  'apps/web/src/areas/track/format.ts#formatCost': true,\n  'apps/web/src/areas/track/format.ts#formatTokens': 'control — a count rendered in the caption sans, classified as not a figure',"),
             ("apps/web/src/areas/track/IssueDetail.tsx",
-             "import { formatCost } from './format'",
-             "import { formatCost, formatTokens } from './format'"),
+             "formatCost,",
+             "formatCost, formatTokens,"),
             ("apps/web/src/areas/track/IssueDetail.tsx",
              "<span className=\"text-caption text-faint\">{it.ai_tokens} tokens</span>",
              "<span className=\"text-caption text-faint\">{formatTokens(it.ai_tokens)} tokens</span>"),
