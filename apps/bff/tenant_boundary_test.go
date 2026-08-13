@@ -111,7 +111,7 @@ func newTenantUpstream(t *testing.T) *tenantUpstream {
 	return u
 }
 
-// pathsFor returns the upstream paths seen since the marker index.
+// pathsSince returns the upstream paths seen since the marker index.
 func (u *tenantUpstream) pathsSince(n int) []string {
 	u.mu.Lock()
 	defer u.mu.Unlock()
