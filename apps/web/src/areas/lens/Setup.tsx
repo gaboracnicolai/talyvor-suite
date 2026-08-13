@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { Button, Card, CardHeader, RevealOnce } from '@talyvor/ui'
 
 import { api } from '../../lib/api'
+import { Region, RegionScreen } from '../../components/Region'
+import { PanelFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
 import { KEY_PLACEHOLDER, MECHANISM_CAVEATS, toolsFor, type Tool } from './setupSnippets'
@@ -142,7 +144,28 @@ export function Setup() {
   })
 
   // The customer-facing origin. NOT ctx.data.lens_base_url — see the header note.
+  //
+  // ⚠⚠ THIS WAS ONE EMPTY STRING STANDING FOR THREE DIFFERENT FACTS, AND THE SCREEN PRINTED THE
+  // WORST OF THEM. `ctx.data` is undefined while the request is IN FLIGHT and when it FAILED, as
+  // well as when the deployment genuinely publishes no URL — and all three rendered "This
+  // deployment has no public Lens URL configured … ask your operator to set LENS_PUBLIC_BASE_URL".
+  // So the first thing a brand-new trial user saw on the screen first run routes them to
+  // (FirstRunGaps.test.tsx) was an accusation about their operator's configuration, printed before
+  // this page had read anything — on EVERY visit, for the duration of the fetch, and permanently
+  // whenever the read failed. It is the same conflation lib/productState.ts records for the Docs
+  // probe (our routing bug rendered as the operator's misconfiguration, sending them to check env
+  // vars that were correct) and the same one W1.1.1 kept out of Overview's first-run rule.
+  //
+  // The three states are now distinct and each is rendered as what it is. `answered` is the only
+  // one that may make a claim about the DEPLOYMENT; the other two are claims about this page.
   const publicBase = ctx.data?.lens_public_base_url ?? ''
+  const baseUrlState: 'reading' | 'unreadable' | 'unset' | 'ready' = ctx.isError
+    ? 'unreadable'
+    : !ctx.data
+      ? 'reading'
+      : publicBase === ''
+        ? 'unset'
+        : 'ready'
   const existing: WorkspaceAPIKey[] = keys.data ?? []
   // The RECORDED sharing consent, read from Lens via /auth/me — never a hardcoded default.
   //
@@ -160,222 +183,269 @@ export function Setup() {
   const tools = toolsFor(publicBase, credential)
 
   return (
-    <div className="space-y-gutter">
-      <Card>
-        <CardHeader>Point your tools at Lens</CardHeader>
-        <div className="space-y-2 px-gutter py-3 text-body text-ink">
-          <p>
-            You do not change your code or your model names. You change where the request goes:
-            two environment variables, and your existing tool talks to Lens instead of the
-            provider directly. Lens forwards it, records what it cost, and serves a repeat of the
-            same request from cache.
+    // W1.1.2 — WHAT THIS REPLACED. A single-column stack of nine cards with no heading of the
+    // screen's own and no marking between them, on the screen first run ROUTES a new user to. The
+    // page is an ordered task — read this, get a credential, point a tool, know the edges, prove it
+    // — and nothing on it said so or numbered it. The regions are that order, in the language
+    // W1.1.1 brought over from the public site (see components/Region.tsx).
+    <RegionScreen>
+      <Region
+        index="00"
+        label="Setup"
+        heading="Point your tools at Lens."
+        sectionClassName="pb-10 pt-4 wide:pb-12"
+        className="max-w-2xl"
+      >
+        <p className="text-body text-muted">
+          You do not change your code or your model names. You change where the request goes: two
+          environment variables, and your existing tool talks to Lens instead of the provider
+          directly. Lens forwards it, records what it cost, and serves a repeat of the same request
+          from cache.
+        </p>
+        {/* The workspace this session signed in to. It renders only once it is KNOWN — an em dash
+            in the slot said "your workspace is —", which is not a thing anyone can act on. */}
+        {ctx.data ? (
+          <p className="mt-4 text-caption text-muted">
+            Workspace <span className="font-mono">{ctx.data.workspace_id}</span> — the one this
+            session signed in to. Keys you mint here belong to it.
           </p>
-          <p className="text-caption text-muted">
-            Workspace <span className="font-mono">{ctx.data?.workspace_id ?? '—'}</span> — the one
-            this session signed in to. Keys you mint here belong to it.
-          </p>
-        </div>
-      </Card>
+        ) : null}
+      </Region>
 
-      {/* ── Read this before pasting anything ─────────────────────────────── */}
-      <Card>
-        <CardHeader>What Talyvor does with your traffic</CardHeader>
-        <div className="space-y-2 px-gutter py-3 text-body text-ink">
-          <p>
-            You are about to route AI requests through a third party, so here is what happens to
-            them, before you paste anything.
-          </p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>
-              <strong>What is stored.</strong> To serve a repeat request from cache, Lens stores a
-              hash of the prompt, an embedding of it, and the answer that came back. That happens
-              whether or not request logging is on — it is what the cache is.
-            </li>
-            {/* ⚠ THIS SAID LOGGING WAS "who called what, when, and what it cost" AND STOPPED —
-                which describes the DEFAULT setting and reads as though prompt text is never
-                persisted. It is not the whole mechanism: under the `full` setting Lens writes
-                prompt_text to token_events AND publishes the raw prompt and response to a
-                30-day stream (proxy.go gates both on LoggingFull; `metadata`, the default,
-                blanks the prompt). The Privacy page has always said so. The screen someone
-                reads BEFORE pasting a key said the reassuring part only. */}
-            <li>
-              <strong>Logging is separate and configurable.</strong> On the default setting the
-              audit trail is metadata — who called what, when, and what it cost — and your prompt
-              text is not kept. There is a <em>full</em> setting that does keep prompt text, and
-              also sends the prompt and the answer to a 30-day stream. Nothing in this app turns
-              it on, but an operator can, and you would not be able to tell from here. Turning
-              logging off does not turn off the cache, and we would rather say so than let you
-              find out.
-            </li>
-            <li>
-              <strong>
-                {sharing === true
-                  ? 'Sharing is currently ON for this workspace.'
-                  : sharing === false
-                    ? 'Sharing is currently OFF for this workspace.'
-                    : 'Sharing: check the setting for this workspace.'}
-              </strong>{' '}
-              {sharing === true
-                ? 'Answers generated here may be served to other companies. One click turns it off.'
-                : sharing === false
-                  ? 'Nothing generated here is reachable by another company.'
-                  : 'We could not read the recorded value, so we will not guess at it.'}{' '}
-              <Link className="underline" to="/settings">
-                {sharing === undefined ? 'See the setting' : 'Change it'}
-              </Link>
-              .
-            </li>
-            <li>
-              <strong>Your prompts are never served to another company.</strong> Even with pooling
-              on, what can be shared is an <em>answer</em> to a semantically equivalent question —
-              never your prompt, never your key, never your workspace’s identity. But an answer
-              often restates the question it answered, so the fact to plan around is{' '}
-              <em>the answer leaves this workspace</em>, not <em>the prompt does not</em>.
-            </li>
-          </ul>
-        </div>
-      </Card>
-
-      {/* ── The key ───────────────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader>Your key</CardHeader>
-        <div className="space-y-3 px-gutter py-3">
-          {minted ? (
-            // ⚠ THIS SENTENCE IS PART OF WHAT WENT WRONG. It said "filled into the blocks below …
-            // Copy the block now", which was true and useless: it pointed at snippets further down
-            // instead of at the secret, and the only unmissable thing on the row was a link to
-            // another screen. It now points at the card directly beneath it, and says the one
-            // consequence that matters rather than restating the mechanism.
-            <p className="text-body text-ink">
-              Here it is, once. Copy it now — Lens keeps a hash, not the key, so nobody can show it
-              to you again, and a key you did not copy has to be replaced rather than recovered.
-            </p>
-          ) : existing.length > 0 ? (
-            <div className="space-y-2 text-body text-ink">
-              <p>
-                You already have {existing.length === 1 ? 'a key' : `${existing.length} keys`}, but
-                a key is shown <strong>only once</strong>, at the moment it is created — Lens
-                stores a hash, so it cannot be shown again. If you still have it, paste it over the
-                placeholder below. If not, create a fresh one.
-              </p>
-              <ul className="space-y-0.5 text-caption text-muted">
-                {existing.map((k) => (
-                  <li key={k.id}>
-                    <span className="font-mono">{k.key_prefix}</span> — {k.name} (identifier, not a
-                    credential)
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="text-body text-ink">
-              You do not have a key yet. Create one and it will be filled into every block below.
-            </p>
-          )}
-          <div className="flex items-center gap-gutter">
-            <Button onClick={() => mint.mutate()} disabled={mint.isPending}>
-              {mint.isPending ? 'Creating…' : 'Create a key for setup'}
-            </Button>
-            {/* ⚠ THE LINK IS WITHHELD WHILE AN UNACKNOWLEDGED SECRET IS ON SCREEN, and this is the
-                whole navigation argument in one line. It sat in THIS row — so the nearest control to
-                the button someone just pressed was the one that destroys what pressing it produced.
-                It is not blocked from anywhere: the sidebar, the back button, a typed URL and a
-                reload all still work, and a modal that pretended otherwise would be theatre, since
-                it cannot stop any of them either. What is removed is the PRODUCT'S OWN INVITATION to
-                leave. You cannot stop someone walking out; you can stop holding the door open. */}
-            {!unstoredSecret ? (
-              <Link className="text-caption text-muted underline" to="/keys">
-                Manage keys
-              </Link>
-            ) : null}
-          </div>
-          {minted && !stored ? (
-            // The SAME component the Keys screen mints into — one presentation of "here is a secret,
-            // once", not a second one invented here. Before this, Setup put the key only inside the
-            // tool snippets below: present, but dressed as configuration, so the one thing that had
-            // to be unmissable looked like the thing you skim past.
-            <RevealOnce
-              title="Your key — shown once"
-              secret={minted.key}
-              copyLabel="Copy key"
-              identifier={minted.prefix}
-              identifierNote="Safe to share; this is how the key appears in lists."
-              onDone={() => setStored(true)}
-            />
-          ) : null}
-          {mint.isError ? (
-            <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">
-              Couldn’t create a key. Nothing was changed — try again, or use the Keys screen.
-            </p>
-          ) : null}
-        </div>
-      </Card>
-
-      {/* ── The two lines, per tool ───────────────────────────────────────── */}
-      {publicBase === '' ? (
+      <Region index="01" label="Read this first">
         <Card>
-          <CardHeader>Setup instructions unavailable</CardHeader>
-          <div className="px-gutter py-3 text-body text-muted">
-            This deployment has no public Lens URL configured, so we cannot tell you which address
-            to use — and a guessed one would fail with an error that looks like a bad key. Ask your
-            operator to set <span className="font-mono">LENS_PUBLIC_BASE_URL</span> on the app, then
-            reload.
+          <CardHeader>What Talyvor does with your traffic</CardHeader>
+          <div className="space-y-2 px-gutter py-3 text-body text-ink">
+            <p>
+              You are about to route AI requests through a third party, so here is what happens to
+              them, before you paste anything.
+            </p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>
+                <strong>What is stored.</strong> To serve a repeat request from cache, Lens stores a
+                hash of the prompt, an embedding of it, and the answer that came back. That happens
+                whether or not request logging is on — it is what the cache is.
+              </li>
+              {/* ⚠ THIS SAID LOGGING WAS "who called what, when, and what it cost" AND STOPPED —
+                  which describes the DEFAULT setting and reads as though prompt text is never
+                  persisted. It is not the whole mechanism: under the `full` setting Lens writes
+                  prompt_text to token_events AND publishes the raw prompt and response to a
+                  30-day stream (proxy.go gates both on LoggingFull; `metadata`, the default,
+                  blanks the prompt). The Privacy page has always said so. The screen someone
+                  reads BEFORE pasting a key said the reassuring part only. */}
+              <li>
+                <strong>Logging is separate and configurable.</strong> On the default setting the
+                audit trail is metadata — who called what, when, and what it cost — and your prompt
+                text is not kept. There is a <em>full</em> setting that does keep prompt text, and
+                also sends the prompt and the answer to a 30-day stream. Nothing in this app turns
+                it on, but an operator can, and you would not be able to tell from here. Turning
+                logging off does not turn off the cache, and we would rather say so than let you
+                find out.
+              </li>
+              <li>
+                <strong>
+                  {sharing === true
+                    ? 'Sharing is currently ON for this workspace.'
+                    : sharing === false
+                      ? 'Sharing is currently OFF for this workspace.'
+                      : 'Sharing: check the setting for this workspace.'}
+                </strong>{' '}
+                {sharing === true
+                  ? 'Answers generated here may be served to other companies. One click turns it off.'
+                  : sharing === false
+                    ? 'Nothing generated here is reachable by another company.'
+                    : 'We could not read the recorded value, so we will not guess at it.'}{' '}
+                <Link className="underline" to="/settings">
+                  {sharing === undefined ? 'See the setting' : 'Change it'}
+                </Link>
+                .
+              </li>
+              <li>
+                <strong>Your prompts are never served to another company.</strong> Even with pooling
+                on, what can be shared is an <em>answer</em> to a semantically equivalent question —
+                never your prompt, never your key, never your workspace’s identity. But an answer
+                often restates the question it answered, so the fact to plan around is{' '}
+                <em>the answer leaves this workspace</em>, not <em>the prompt does not</em>.
+              </li>
+            </ul>
           </div>
         </Card>
-      ) : (
-        <>
-          {!minted ? (
-            <p className="text-caption text-muted">
-              The blocks below show{' '}
-              <span className="font-mono">{KEY_PLACEHOLDER}</span> where your key goes. Create a key
-              above to have it filled in.
-            </p>
-          ) : null}
-          {tools.map((t) => (
-            <ToolCard key={t.id} tool={t} />
-          ))}
-          <Card>
-            <CardHeader>Worth knowing</CardHeader>
-            <ul className="list-disc space-y-1 px-gutter py-3 pl-8 text-body text-ink">
-              {MECHANISM_CAVEATS.map((c) => (
-                <li key={c}>{c}</li>
-              ))}
-            </ul>
-          </Card>
-        </>
-      )}
+      </Region>
 
-      {/* ── The moment it proves itself ───────────────────────────────────── */}
-      <Card proof>
-        <CardHeader>Confirm it worked — two requests</CardHeader>
-        <div className="space-y-2 px-gutter py-3 text-body text-ink">
-          <ol className="list-decimal space-y-1 pl-5">
-            <li>
-              <strong>Send one request</strong> from the tool you just configured. Anything —
-              “write me a haiku about caching”.
-            </li>
-            <li>
-              <strong>Open the{' '}
-              <Link className="underline" to="/ledger">
-                ledger
-              </Link>
-              .</strong>{' '}
-              Within a few seconds a row appears for it, with what it cost. That row is the proof
-              your traffic is flowing through Lens: no row means the request never arrived, and the
-              base URL is the first thing to check.
-            </li>
-            <li>
-              <strong>Send the same request again.</strong> The second one is a cache hit: a new row
-              at no cost, answered without going to the provider at all. That is the mechanism, in
-              two requests — the first one pays, the repeat does not.
-            </li>
-          </ol>
-          <p className="text-caption text-muted">
-            How much this saves depends entirely on how much your traffic repeats, so we do not
-            print a number here. The ledger shows yours.
-          </p>
-        </div>
-      </Card>
-    </div>
+      <Region index="02" label="Get a credential">
+        <Card>
+          <CardHeader>Your key</CardHeader>
+          <div className="space-y-3 px-gutter py-3">
+            {minted ? (
+              // ⚠ THIS SENTENCE IS PART OF WHAT WENT WRONG. It said "filled into the blocks below …
+              // Copy the block now", which was true and useless: it pointed at snippets further down
+              // instead of at the secret, and the only unmissable thing on the row was a link to
+              // another screen. It now points at the card directly beneath it, and says the one
+              // consequence that matters rather than restating the mechanism.
+              <p className="text-body text-ink">
+                Here it is, once. Copy it now — Lens keeps a hash, not the key, so nobody can show it
+                to you again, and a key you did not copy has to be replaced rather than recovered.
+              </p>
+            ) : existing.length > 0 ? (
+              <div className="space-y-2 text-body text-ink">
+                <p>
+                  You already have {existing.length === 1 ? 'a key' : `${existing.length} keys`}, but
+                  a key is shown <strong>only once</strong>, at the moment it is created — Lens
+                  stores a hash, so it cannot be shown again. If you still have it, paste it over the
+                  placeholder below. If not, create a fresh one.
+                </p>
+                <ul className="space-y-0.5 text-caption text-muted">
+                  {existing.map((k) => (
+                    <li key={k.id}>
+                      <span className="font-mono">{k.key_prefix}</span> — {k.name} (identifier, not a
+                      credential)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-body text-ink">
+                You do not have a key yet. Create one and it will be filled into every block below.
+              </p>
+            )}
+            <div className="flex items-center gap-gutter">
+              <Button onClick={() => mint.mutate()} disabled={mint.isPending}>
+                {mint.isPending ? 'Creating…' : 'Create a key for setup'}
+              </Button>
+              {/* ⚠ THE LINK IS WITHHELD WHILE AN UNACKNOWLEDGED SECRET IS ON SCREEN, and this is the
+                  whole navigation argument in one line. It sat in THIS row — so the nearest control to
+                  the button someone just pressed was the one that destroys what pressing it produced.
+                  It is not blocked from anywhere: the sidebar, the back button, a typed URL and a
+                  reload all still work, and a modal that pretended otherwise would be theatre, since
+                  it cannot stop any of them either. What is removed is the PRODUCT'S OWN INVITATION to
+                  leave. You cannot stop someone walking out; you can stop holding the door open. */}
+              {!unstoredSecret ? (
+                <Link className="text-caption text-muted underline" to="/keys">
+                  Manage keys
+                </Link>
+              ) : null}
+            </div>
+            {minted && !stored ? (
+              // The SAME component the Keys screen mints into — one presentation of "here is a secret,
+              // once", not a second one invented here. Before this, Setup put the key only inside the
+              // tool snippets below: present, but dressed as configuration, so the one thing that had
+              // to be unmissable looked like the thing you skim past.
+              <RevealOnce
+                title="Your key — shown once"
+                secret={minted.key}
+                copyLabel="Copy key"
+                identifier={minted.prefix}
+                identifierNote="Safe to share; this is how the key appears in lists."
+                onDone={() => setStored(true)}
+              />
+            ) : null}
+            {mint.isError ? (
+              <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">
+                Couldn’t create a key. Nothing was changed — try again, or use the Keys screen.
+              </p>
+            ) : null}
+          </div>
+        </Card>
+      </Region>
+
+      <Region index="03" label="Point your tool" className="max-w-3xl space-y-gutter">
+        {/* ⚠ FOUR STATES, AND ONLY ONE OF THEM MAY TALK ABOUT THE DEPLOYMENT. See §publicBase
+            above: this used to be a single `publicBase === ''` test, so a read that had not
+            happened yet and a read that FAILED both rendered as a settled fact about somebody
+            else's configuration. */}
+        {baseUrlState === 'reading' ? (
+          <Card>
+            <CardHeader>Setup instructions</CardHeader>
+            <div className="px-gutter py-3 text-body text-muted">
+              Reading this deployment’s settings…
+            </div>
+          </Card>
+        ) : baseUrlState === 'unreadable' ? (
+          <Card>
+            <CardHeader>Setup instructions</CardHeader>
+            {/* The shared failure voice: a panel knows its own request failed and cannot know
+                whether every other panel failed for the same reason, so it must not name a cause. */}
+            <PanelFailure error={ctx.error} what="this deployment’s settings" />
+            <div className="px-gutter pb-3 text-caption text-muted">
+              The blocks are withheld because the address is UNKNOWN, not because it is missing —
+              reload, and if it keeps failing the setting is not the thing to check.
+            </div>
+          </Card>
+        ) : baseUrlState === 'unset' ? (
+          <Card>
+            <CardHeader>Setup instructions unavailable</CardHeader>
+            <div className="px-gutter py-3 text-body text-muted">
+              This deployment has no public Lens URL configured, so we cannot tell you which address
+              to use — and a guessed one would fail with an error that looks like a bad key. Ask your
+              operator to set <span className="font-mono">LENS_PUBLIC_BASE_URL</span> on the app, then
+              reload.
+            </div>
+          </Card>
+        ) : (
+          <>
+            {!minted ? (
+              <p className="text-caption text-muted">
+                The blocks below show{' '}
+                <span className="font-mono">{KEY_PLACEHOLDER}</span> where your key goes. Create a key
+                above to have it filled in.
+              </p>
+            ) : null}
+            {tools.map((t) => (
+              <ToolCard key={t.id} tool={t} />
+            ))}
+          </>
+        )}
+      </Region>
+
+      {/* ⚠ THE CAVEATS MOVED OUT FROM BEHIND THE BASE URL. They describe what Lens does and does
+          not proxy — chat completions only, POST only, your model names keep working — which is
+          true of the mechanism whatever this deployment publishes. Gated on the URL, the page's
+          most general content was conditional on its most deployment-specific fact, and the reader
+          who most needs to know what will break (the one who cannot set up yet) was the one who
+          could not see it. */}
+      <Region index="04" label="Know the edges">
+        <Card>
+          <CardHeader>Worth knowing</CardHeader>
+          <ul className="list-disc space-y-1 px-gutter py-3 pl-8 text-body text-ink">
+            {MECHANISM_CAVEATS.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </Card>
+      </Region>
+
+      <Region index="05" label="Prove it worked">
+        <Card proof>
+          <CardHeader>Confirm it worked — two requests</CardHeader>
+          <div className="space-y-2 px-gutter py-3 text-body text-ink">
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>
+                <strong>Send one request</strong> from the tool you just configured. Anything —
+                “write me a haiku about caching”.
+              </li>
+              <li>
+                <strong>Open the{' '}
+                <Link className="underline" to="/ledger">
+                  ledger
+                </Link>
+                .</strong>{' '}
+                Within a few seconds a row appears for it, with what it cost. That row is the proof
+                your traffic is flowing through Lens: no row means the request never arrived, and the
+                base URL is the first thing to check.
+              </li>
+              <li>
+                <strong>Send the same request again.</strong> The second one is a cache hit: a new row
+                at no cost, answered without going to the provider at all. That is the mechanism, in
+                two requests — the first one pays, the repeat does not.
+              </li>
+            </ol>
+            <p className="text-caption text-muted">
+              How much this saves depends entirely on how much your traffic repeats, so we do not
+              print a number here. The ledger shows yours.
+            </p>
+          </div>
+        </Card>
+      </Region>
+    </RegionScreen>
   )
 }

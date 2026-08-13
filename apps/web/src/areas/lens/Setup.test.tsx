@@ -410,3 +410,107 @@ describe('a minted key is presented as a credential, not as configuration', () =
     )
   })
 })
+
+// ⚠ "NOT CONFIGURED" AND "NOT ANSWERED YET" ARE THE SAME VALUE HERE, AND THE SCREEN PRINTS THE
+// FIRST. `publicBase` is `ctx.data?.lens_public_base_url ?? ''`, and `ctx.data` is undefined while
+// the request is in flight AND when it fails — so the empty string means three different things and
+// the page renders one sentence for all of them: "This deployment has no public Lens URL
+// configured … ask your operator to set LENS_PUBLIC_BASE_URL". That is an accusation about somebody
+// else's deployment, printed before this screen has read anything.
+describe('Setup — an unread base URL is not an absent one', () => {
+  it('does not call the deployment unconfigured while the read is still in flight', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      // The context read never settles; every other read on the page answers normally.
+      if (url === '/api/context') return new Promise<Response>(() => {})
+      if (url === '/api/keys' && method === 'POST') return json(MINTED, 201)
+      if (url === '/api/keys') return json([])
+      return json({})
+    })
+    renderSetup()
+
+    // The page has rendered — this is not an assertion about a blank screen.
+    expect(await screen.findByRole('button', { name: /create a key/i })).toBeInTheDocument()
+    // … and it has not reported a misconfiguration it has not measured.
+    expect(screen.queryByText(/no public Lens URL configured/i)).toBeNull()
+    expect(screen.queryByText(/LENS_PUBLIC_BASE_URL/)).toBeNull()
+  })
+
+  it('a FAILED context read says the read failed — never that the operator misconfigured it', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const json = (b: unknown, status = 200) =>
+        new Response(JSON.stringify(b), { status, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/context') return json({ error: 'boom' }, 500)
+      if (url === '/api/keys' && method === 'POST') return json(MINTED, 201)
+      if (url === '/api/keys') return json([])
+      return json({})
+    })
+    renderSetup()
+
+    // The shared failure voice (components/SessionExpiredBar.tsx), not a sentence invented here:
+    // one panel cannot know whether every other panel failed for the same reason.
+    expect(await screen.findByText(/Couldn’t load this deployment’s settings/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no public Lens URL configured/i)).toBeNull()
+  })
+})
+
+// ── THE SHAPE OF THE SCREEN (W1.1.2) ─────────────────────────────────────────────────────────────
+//
+// What this replaced: a single-column stack of nine cards, no heading of the screen's own, no
+// marking between them — on the screen first run ROUTES a new user to (FirstRunGaps.test.tsx).
+// Setup is an ORDERED TASK and nothing on it said so; the regions are that order, in the language
+// W1.1.1 brought over from the public site (components/Region.tsx).
+describe('Setup — the screen reads as an ordered task', () => {
+  it('opens with one page-scale heading, and it is an h2 under the shell’s h1', async () => {
+    mockBff()
+    renderSetup()
+
+    const opening = await screen.findByRole('heading', { name: /point your tools at lens/i })
+    expect(opening.tagName).toBe('H2')
+    expect(opening.className).toContain('text-title')
+    expect(document.querySelectorAll('.text-title')).toHaveLength(1)
+  })
+
+  it('names its regions in the order the task is actually done', async () => {
+    mockBff()
+    renderSetup()
+    await screen.findByRole('button', { name: /create a key/i })
+
+    const regions = screen.getAllByRole('region')
+    expect(
+      regions.map(
+        (r) =>
+          document.getElementById(r.getAttribute('aria-labelledby') ?? '')?.textContent?.trim(),
+      ),
+      'read this → get a credential → point your tool → know the edges → prove it worked. A ' +
+        'region with no name is a section a rotor cannot list, and an unordered stack of nine ' +
+        'cards is what this screen was.',
+    ).toEqual([
+      'Point your tools at Lens.',
+      'Read this first',
+      'Get a credential',
+      'Point your tool',
+      'Know the edges',
+      'Prove it worked',
+    ])
+  })
+
+  // ⚠ THE CAVEATS USED TO SIT BEHIND THE BASE URL. They describe what Lens does and does not proxy,
+  // which is true of the mechanism whatever this deployment publishes — so the reader who most
+  // needs them (the one who cannot set up at all yet) was the one who could not see them.
+  it('shows what will break even when this deployment publishes no URL', async () => {
+    mockBff({ publicLens: '' })
+    renderSetup()
+
+    expect(await screen.findByText(/no public Lens URL configured/i)).toBeInTheDocument()
+    expect(screen.getByText(/Chat completions only, for now/i)).toBeInTheDocument()
+    expect(screen.getByText(/POST only/i)).toBeInTheDocument()
+    // …and still nothing pasteable, which is the rule that card exists for.
+    expect(document.body.textContent).not.toContain('OPENAI_BASE_URL=')
+  })
+})

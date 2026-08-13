@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Button, Card, CardHeader, MuNumeral, Pill, Row, cn } from "@talyvor/ui";
+import { Button, Card, CardHeader, MuNumeral, Pill, Row } from "@talyvor/ui";
 import { api, ApiError, type Bond, type LedgerEntry } from "../../lib/api";
 import { CacheCard } from "./CacheCard";
 import { ConvertLens } from "./ConvertLens";
@@ -8,6 +8,7 @@ import {
   InlineFailure,
   PanelFailure,
 } from "../../components/SessionExpiredBar";
+import { Region, RegionScreen } from "../../components/Region";
 import { isUnconfigured } from "../../lib/productState";
 import { CapabilityOff } from "./Capability";
 import { ModelTier } from "./ModelTier";
@@ -568,67 +569,9 @@ function RecentActivity() {
 // The screen used to be one `main` containing six anonymous panels; a reader moving by region got
 // one stop. Six now, each named by the question it answers.
 
-/**
- * The region marking. `id` is what the section's `aria-labelledby` points at, so the visible
- * label and the accessible name are ONE string rather than two that agree today.
- *
- * ⚠ THE INDEX IS A NUMERAL, so it is on the figure face like every other numeral in the product
- * (figureAudit runs on every render in this app and would say so). The eyebrow carries its own
- * `uppercase` in the same class list — eyebrowAudit's source rule, which exists because a
- * transform inherited from an ancestor is invisible to a reader of the call site.
- */
-function RegionLabel({
-  id,
-  index,
-  children,
-}: {
-  id?: string;
-  index: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-2.5" data-testid="region-label">
-      <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />
-      <span className="font-figure text-caption text-faint" data-testid="region-index">
-        {index}
-      </span>
-      <span id={id} className="font-figure text-eyebrow uppercase text-muted">
-        {children}
-      </span>
-    </div>
-  );
-}
-
-function Region({
-  index,
-  label,
-  children,
-  className,
-}: {
-  index: string;
-  label: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const id = `ov-region-${index}`;
-  return (
-    <section
-      aria-labelledby={id}
-      className="border-b border-rule px-gutter py-10 last:border-b-0 wide:py-12"
-    >
-      <RegionLabel id={id} index={index}>
-        {label}
-      </RegionLabel>
-      {/* ⚠ THE MEASURE IS NARROWER THAN THE SECTION, which is the public page's shape (its
-          `max-w-5xl` sections hold `max-w-3xl` and `max-w-2xl` blocks) and here it is also a
-          READING decision, measured in Chrome at 1280 with the sidebar: a settings row stretched
-          across the full column puts its label and its figure ~800px apart, and the eye has to
-          travel the gap on every row. The left edges of every region still line up, so the air on
-          the right reads as air rather than as a broken grid. */}
-      <div className={cn("mt-6 max-w-3xl", className)}>{children}</div>
-    </section>
-  );
-}
+// The region marking and the screen wrapper now live in components/Region.tsx — they landed here
+// with this screen and moved out the moment W1.1.2 wanted the same shape. Two copies of a marking
+// are how a language stops being one.
 
 // The two headlines. Written out here rather than inline so the screen's one page-scale claim is
 // readable in one place, and so the first-run wording cannot drift from the predicate below it.
@@ -709,28 +652,27 @@ function FirstSteps() {
 export function Overview({ now = new Date() }: { now?: Date } = {}) {
   const firstRun = useFirstRun();
   return (
-    <div className="mx-auto w-full max-w-5xl">
-      {/* THE OPENING. Labelled by its heading rather than by its eyebrow: where a section has a
-          heading, that is its name, and a landmark named "Workspace" beside a heading saying
-          something else would be two answers to one question. */}
-      <section
-        aria-labelledby="ov-opening"
-        className="border-b border-rule px-gutter pb-10 pt-4 wide:pb-12"
+    <RegionScreen>
+      <Region
+        index="00"
+        label="Workspace"
+        heading={firstRun ? HEADLINE_FIRST_RUN : HEADLINE}
+        sectionClassName="pb-10 pt-4 wide:pb-12"
+        className="max-w-none"
       >
-        <RegionLabel index="00">Workspace</RegionLabel>
-        <h2 id="ov-opening" className="mt-6 max-w-3xl text-title text-ink">
-          {firstRun ? HEADLINE_FIRST_RUN : HEADLINE}
-        </h2>
+        {/* ⚠ THE OPENING REGION HAS NO BODY WHEN THERE IS NOTHING TO SAY, and the branch is a
+            RENDER rather than a `hidden` class: copy about a workspace that has nothing in it must
+            not sit in the DOM of a workspace that does. */}
         {firstRun ? (
           <>
-            <p className="mt-4 max-w-2xl text-body text-muted">
-              Both balances are zero: no LXC has been granted, bought or converted, and no LENS
-              has been earned. Two things put the first number here.
+            <p className="max-w-2xl text-body text-muted">
+              Both balances are zero: no LXC has been granted, bought or converted, and no LENS has
+              been earned. Two things put the first number here.
             </p>
             <FirstSteps />
           </>
         ) : null}
-      </section>
+      </Region>
       {/* `items-start`: a two-column grid stretches its children to the tallest, and the LENS card
           carries three more rows plus the conversion panel — so the LXC card was drawing 150px of
           empty surface under its last row. Measured in Chrome at 1280. */}
@@ -754,6 +696,6 @@ export function Overview({ now = new Date() }: { now?: Date } = {}) {
       <Region index="05" label="What just happened">
         <RecentActivity />
       </Region>
-    </div>
+    </RegionScreen>
   );
 }
