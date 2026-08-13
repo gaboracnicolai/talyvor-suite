@@ -66,8 +66,44 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
+import ts from 'typescript'
 
 const appRoot = resolve(new URL('..', import.meta.url).pathname)
+
+/**
+ * How many times a setup file CALLS `problems.push`, counted from the parse tree.
+ *
+ * ⚠ THE FLOOR IS NOT DECORATION. A parse that yields nothing — a renamed file, a syntax error, a
+ * future setup that collects through a helper instead — returns 0, and 0 is a number that would
+ * sail through any "did it change" comparison against a pinned list only if the pinned list were
+ * also 0. It is not: `AUDITS` is eight, so a hollow parse fails the comparison loudly. The
+ * separate message below exists so the reader is told WHICH failure it is, because "holds 0 report
+ * blocks" and "holds 7 report blocks" have completely different repairs.
+ */
+function countPushCalls(setupPath) {
+  const sf = ts.createSourceFile(
+    setupPath,
+    readFileSync(setupPath, 'utf8'),
+    ts.ScriptTarget.ESNext,
+    true,
+    ts.ScriptKind.TS,
+  )
+  let n = 0
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'problems' &&
+      node.expression.name.text === 'push'
+    ) {
+      n += 1
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return n
+}
 
 /**
  * The vitest projects that install the audits, and where each one keeps its enforcement point.
@@ -216,12 +252,35 @@ function checkProject(project) {
   // setup. It is asked of EACH project: the two setups are deliberate copies of the reporting,
   // so an audit added to one and forgotten in the other is exactly the drift this catches.
   //
-  // ⚠ THE ANCHOR IS LOAD-BEARING AND WAS PAID FOR. Unanchored, this matched the phrase inside a
-  // PROSE SENTENCE — packages/ui's setup explains this very rule and named the call in it — and
-  // reported 8 blocks for a file holding 7. A source count that reads documentation grows with
-  // documentation. That sentence is still there on purpose: it is the fixture that keeps `^\s*`
-  // honest, so deleting the anchor fails the run rather than passing quietly.
-  const reportBlocks = (readFileSync(setupPath, 'utf8').match(/^\s*problems\.push\(/gm) ?? []).length
+  // ⚠ THE `^\s*` ANCHOR EXCLUDED PROSE BY ACCIDENT OF POSITION, AND EXCLUDED REAL REPORTS WITH IT.
+  // It was introduced for a true reason: packages/ui's setup EXPLAINS this rule and names the call
+  // in prose, and unanchored the count read 8 blocks in a file holding 7. But `^\s*problems\.push\(`
+  // asks "does a line BEGIN with the call", and the answer is no for
+  //
+  //     if (orphaned.length > 0) problems.push(`…`)
+  //
+  // which is ordinary JavaScript and a perfectly ordinary way to wire a ninth audit. MEASURED at
+  // `f797d7d`: apps/web's setup held 8 line-anchored and 8 total; packages/ui's held 8 line-anchored
+  // and 9 total, the ninth being the prose sentence — so the anchor was carrying the prose exclusion
+  // and the one-line blindness on the same character. C3 of scripts/w11-audit-gate-controls.py is
+  // the control for exactly this and it had been scoring NOT CAUGHT, unnoticed, because nothing
+  // re-ran the harness after the anchor landed.
+  //
+  // ⚠ SO THE COUNT IS TAKEN FROM THE PARSE TREE, NOT FROM TEXT. `problems.push` is counted as CALL
+  // EXPRESSIONS, which excludes comments and string literals BY CONSTRUCTION rather than by where
+  // the token happens to sit. The prose sentence in packages/ui stays exactly where it is and stays
+  // uncounted, and C9 plants the same shape in apps/web as a `//` line so that a future "simplify
+  // this back to a regex" reds instead of passing quietly.
+  const reportBlocks = countPushCalls(setupPath)
+  if (reportBlocks === 0) {
+    fail(
+      `${project.label}: ${project.setup} holds 0 report blocks — the count read NOTHING.\n` +
+        '  This is the hollow-instrument case, not the drift case: the file was renamed or moved, ' +
+        'it no longer parses, or the audits stopped collecting through `problems.push`. Fix the ' +
+        'reader before reading anything into the number.',
+    )
+    return
+  }
   if (reportBlocks !== AUDITS.length) {
     fail(
       `${project.label}: ${project.setup} holds ${reportBlocks} report blocks and this script ` +
