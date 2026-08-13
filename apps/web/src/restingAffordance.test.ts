@@ -115,6 +115,67 @@ function sourceFiles(root: string): string[] {
 const FILES = [...sourceFiles(WEB_SRC), ...sourceFiles(UI_SRC)]
 
 /**
+ * THE WALK'S OWN POPULATION, ASSERTED AGAINST AN INSTRUMENT THAT DOES NOT SHARE ITS MACHINERY.
+ *
+ * ⚠ MEASURED, NOT SUSPECTED (`~/talyvor-queue/w11-areasprune-census-3a6d.py`). The floor below
+ * already says an absence sweep is green on an instrument that read nothing — and it is the RIGHT
+ * shape, but its five named files are in `areas/track`, `areas/docs` and `packages/ui`, so it
+ * cannot speak for any other area. Armed with a real `hover:underline` carrying no resting
+ * underline, planted in a real file under `apps/web/src/areas/lens`:
+ *   A1  the defect with the tree whole            → this file REDS.
+ *   A2  the same defect, `areas/lens` unreachable → GREEN. 23 of the 69 production files under
+ *       apps/web/src (33%) stopped being read; `FILES.length > 60` still held and every named
+ *       anchor still resolved, so the floor passed while a third of the product went unread.
+ * NAMING A SIXTH FILE IS THE WRONG REPAIR: it arms this rule for `areas/lens` and leaves the next
+ * area exactly as blind. The comparison below is threshold-free and needs no list.
+ *
+ * ⚠ AND NO SECOND INSTRUMENT WAS WATCHING: this file's test count is FIXED at 7, so unlike
+ * `packages/ui/src/__tests__/invariant.test.ts` — which generates one `it()` per file and whose
+ * 104 → 81 drop test-manifest.json catches — losing a whole product area moved nothing here.
+ *
+ * `import.meta.glob` is resolved by Vite at transform time and touches `node:fs` not at all, so a
+ * wrong root, a changed extension filter or a walk that stops descending cannot move both
+ * instruments the same way. Compared BOTH DIRECTIONS. The floor is for the one failure that CAN
+ * move both: an anchor resolving to an empty tree leaves the two enumerations agreeing on nothing.
+ */
+describe('the sweep reads the whole tree', () => {
+  // Keys only — the glob is lazy, so nothing here imports a module or runs a side effect. BOTH
+  // roots, because `FILES` has two: a comparison seeing only `apps/web/src` would be green while
+  // the design system's own package went unread.
+  //
+  // ⚠ THE CALL IS LITERAL ON PURPOSE. Vite rewrites `import.meta.glob` by matching the SYNTAX at
+  // transform time; hoisting it into a variable typechecks and then dies at runtime.
+  const globbed = Object.keys(
+    import.meta.glob(['./**/*.{ts,tsx}', '../../../packages/ui/src/**/*.{ts,tsx}']),
+  )
+    .filter((k) => !/\.test\.tsx?$/.test(k))
+    .map((k) => relative(REPO, resolve(import.meta.dirname, k)))
+
+  it('finds a substantial tree across both roots, so an empty anchor cannot pass', () => {
+    // Deliberately far below the count at b940d57: this catches an anchor that resolves to
+    // nothing, not a refactor that moves files. The set comparison below is what catches a skip.
+    expect(globbed.length).toBeGreaterThan(60)
+  })
+
+  it('the fs walk and Vite’s glob agree on the file set, both directions', () => {
+    // FILES is the sweep's own output — the very array every rule below reads — so this is an
+    // assertion about the walk under test, not about a second walk written here that could drift.
+    const swept = new Set(FILES.map((p) => relative(REPO, p)))
+    const glob = new Set(globbed)
+    expect(
+      [...glob].filter((f) => !swept.has(f)).sort(),
+      'Vite sees production files this walk never read. The offender rule checks whatever the ' +
+        'walk returns, so anything missing here is a file no underline check has looked at.',
+    ).toEqual([])
+    expect(
+      [...swept].filter((f) => !glob.has(f)).sort(),
+      'the walk read files Vite does not see. Either it left the two roots, or the two disagree ' +
+        'about what a production source file is.',
+    ).toEqual([])
+  })
+})
+
+/**
  * Every quoted run in a source text. The unit both comment-blankers are compared on.
  *
  * ⚠ WHITESPACE IS COLLAPSED, AND THAT IS THE ONE DIFFERENCE THE TWO ARE ALLOWED. `stripComments`
