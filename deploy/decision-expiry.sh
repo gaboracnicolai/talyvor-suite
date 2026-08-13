@@ -299,6 +299,47 @@ cannot "one secret gates BOTH Track service endpoints (why MEMBER_SYNC_SECRET is
     "talyvor-track cmd/track/main.go" \
     "[ \"\$(grep -c 'cfg.MemberSyncSecret' cmd/track/main.go)\" = 2 ]   # ONE secret read at BOTH mount points — a count of 1 is the failure, and grep -c's own exit status cannot see it"
 
+# ── THE PREMISE UNDER A CLAIM THIS PAGE DOES NOT MAKE, AND WHY IT IS HERE ────
+# DECISION: areas/marketing/Landing.tsx withholds "the cost of an issue, a document or a change
+#           lands in one ledger", and Landing.test.tsx pins the page's silence.
+# PREMISE:  what Docs can say about a page's own AI cost is a LOWER BOUND.
+#
+# ⚠ THIS ENTRY EXISTS BECAUSE THE PREVIOUS PREMISE EXPIRED WITH NOTHING WATCHING IT. The reason
+# written beside that assertion was "Docs tags its own Lens calls by FEATURE and never by page, so
+# no per-page attribution exists to report", with a restore condition naming an upstream shape.
+# MEASURED read-only at talyvor-docs 63b7ea6, three independent ways: the attribution test PASSES,
+# migration 0018 adds pages.own_ai_cost_usd plus the page_ai_spend_events ledger, and
+# cmd/docs/main.go wires the binder into the production engine. Docs attributes AI spend to a page
+# today, and 0018's header names THIS page's sentence as the thing it was built to make true.
+#
+# ⚠ WHY NO TEST HERE COULD HAVE CAUGHT IT, which is what puts it in the uncheckable half rather
+# than in form 1 or 2. The guard is an ABSENCE test over the rendered page: it asserts the sentence
+# is not there. That is green for every possible state of talyvor-docs — no upstream change can red
+# it, in either direction. The claim guard is right to be shaped that way (its job is to hold the
+# page); the consequence is that the premise underneath it had no instrument at all.
+#
+# ⚠ THE COMMAND WAS RUN IN EVERY STATE, on a pristine `git archive` export of talyvor-docs 63b7ea6
+# rather than in a working tree another session holds (~/talyvor-queue/w11-pagecost-premise-controls-3c5f.py):
+#   both tests present and passing                                              EXIT 0
+#   EachSinglePageOperationBindsItsPage renamed away — count 1, not 2           EXIT 1
+#   the production binder unwired, so the binding test FAILS                    EXIT 1
+#   the exclusion test renamed away — the LOWER-BOUND half alone going dark     EXIT 1
+#   the bare `go test … -run` form this register forbids, on the renamed tree   EXIT 0
+# The second-to-last line is the control: on a tree where the named test is gone, the forbidden
+# shape still answers yes. Both names are matched because the premise has two halves — attribution
+# EXISTS, and it is INCOMPLETE — and a command that checked only the first still reported EXIT 0 on
+# the tree where the second had gone dark (measured, S4b).
+#
+# ⚠ THE FIRST DRAFT OF THIS COMMAND WAS FAIL-OPEN AND THE CONTROLS ARE WHY THAT IS NOT SHIPPED. It
+# matched `TestAttribution_` as a PREFIX and passed the -run regex unanchored, so a test renamed to
+# `…BindsItsPageRenamed` still matched -run, still printed `--- PASS: TestAttribution_…`, and still
+# counted — the rename control it exists for reported EXIT 0. Both ends are anchored now: `^…$` on
+# the filter and the FULL names, with the trailing space `go test` prints before the duration, on
+# the count. The generic-prefix shape is a third measured hazard on top of the register's two.
+cannot "a page's own AI cost is a LOWER BOUND — Docs DOES attribute AI spend per page (own_ai_cost_usd), and docs-ai-ask / docs-search are excluded by design, so 'the cost of a document' would be a floor sold as a total" \
+    "talyvor-docs internal/ai/engine.go, internal/page/ai_spend.go, migrations/0018_page_own_ai_spend.sql" \
+    "[ \"\$(go test ./internal/ai/ -run '^TestAttribution_(EachSinglePageOperationBindsItsPage|AskSpansPagesAndBindsNothing)\$' -v 2>&1 | grep -c -E '^--- PASS: TestAttribution_(EachSinglePageOperationBindsItsPage|AskSpansPagesAndBindsNothing) ')\" = 2 ]   # in a talyvor-docs checkout; BOTH halves — attribution exists AND ask/search bind nothing — anchored at both ends because the prefix form counted a RENAMED test and reported the premise confirmed, and a count of 0, which is also what a deleted test produces, is the failure neither go test's nor grep -c's exit status can see"
+
 # ── THE MONEY ALLOW-LIST, AND WHY IT IS HERE RATHER THAN IN A TEST ───────────
 # DECISION: apps/bff/billing.go keeps its OWN copy of Lens's accepted top-up sizes
 #           (allowedTopUpCents), refuses anything else in amountAllowed BEFORE dialing Lens, and

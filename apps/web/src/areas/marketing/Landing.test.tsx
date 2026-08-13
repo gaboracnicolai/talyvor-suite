@@ -70,11 +70,22 @@ describe('Landing', () => {
     expect(container.textContent ?? '').toMatch(/cost of an issue/i)
   })
 
-  // ⚠ FALSE AS WRITTEN. pages.ai_cost_usd is rolled up from LINKED TRACK ISSUES by
-  // trackintegration/syncer.go — it is not AI work on the document. Docs tags its own Lens calls
-  // by FEATURE (docs-ai-write / docs-ai-summarize) and never by page, so no per-page attribution
-  // exists to report.
-  it('does not claim a per-document cost, which nothing computes', () => {
+  // ⚠ THE REASON THIS ASSERTION USED TO CARRY IS FALSE, AND THIS ASSERTION COULD NOT HAVE TOLD
+  // ANYONE. It read "Docs tags its own Lens calls by FEATURE (docs-ai-write / docs-ai-summarize)
+  // and never by page, so no per-page attribution exists to report" — measured against
+  // talyvor-docs `63b7ea6` that is no longer true (migration 0018's page_ai_spend_events ledger,
+  // pages.own_ai_cost_usd, and cmd/docs/main.go's WithSpendBinder wiring; Landing.tsx carries the
+  // three commands). The assertion below is an ABSENCE test on THIS page's text: it is green for
+  // every possible state of the upstream, so no amount of drift over there can red it. That is not
+  // a flaw to fix here — a claim guard's job is to hold the page — it is the reason the premise now
+  // lives in deploy/decision-expiry.sh's uncheckable half, where a deployer is told to run it in a
+  // talyvor-docs checkout. Read the register entry, not this comment, for the live premise.
+  //
+  // WHAT KEEPS THE SENTENCE OFF THE PAGE TODAY: the claim is the enumeration "an issue, a document
+  // or a change" and the change half has no surface at all (the assertion two below), and
+  // own_ai_cost_usd is a documented LOWER BOUND — docs-ai-ask and docs-search have no single page
+  // and are excluded by design. Restoring the sentence is a claim decision, not a session's.
+  it('does not claim a per-document cost, whose upstream number is a lower bound', () => {
     const { container } = render(<Landing />)
     expect(container.textContent ?? '').not.toMatch(/cost of (an issue, )?a document/i)
   })
