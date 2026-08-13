@@ -512,6 +512,41 @@ cannot "DocsPage mirrors talyvor-docs Page — the page shape the tree and reade
     "talyvor-docs internal/model/model.go" \
     "[ \"\$(sed -n '/^type Page struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"ai_cost_usd content content_text cover_url created_at created_by depth doc_status,omitempty icon id is_template last_verified_at,omitempty last_viewed_at,omitempty linked_issues,omitempty locked locked_at,omitempty locked_by,omitempty own_ai_cost_usd page_type,omitempty parent_id,omitempty position slug space_id stale_after_days title total_ai_cost_usd updated_at updated_by verified_by,omitempty view_count workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
 
+# ── THE SAME CLASS, IN THE MONEY-READ FILE, AND ONE DELIBERATE DIVERGENCE ────
+# DECISION: apps/web/src/lib/api.ts declares TypeScript shapes for four talyvor-lens structs, and
+#           every balance, ledger row and spend figure this console renders is typed off them.
+# PREMISE:  each interface, plus the fields it declares it does not mirror and the one field it
+#           declares it spells differently, is still the whole upstream struct.
+#
+# ⚠ THE MEASUREMENT THAT PUT THEM HERE IS A NEGATIVE ONE, WHICH IS WHY THE ENTRIES AND NOT A DIFF.
+# The seven entries above were added because two mirror headers claimed VERBATIM and were missing
+# fields. Sweeping the same class found this file, whose header made the same claim — and at lens
+# a04310a, LXCSnapshot, LedgerEntry and LXCLedgerEntry match their Go structs field for field.
+# Nothing to fix in the shapes; everything to fix in the fact that nothing was watching them.
+#
+# ⚠ AND THE ONE REAL DIVERGENCE IS DELIBERATE AND WAS BEING CARRIED BY A PARAGRAPH. LensBalance
+# spells held_balance_ulens `?:` against a Go field with no omitempty, because a Lens older than
+# the change that added it omits the key and `?? 0` at the read sites is a deployment-skew
+# tolerance. That is correct. It was recorded as prose in the GUARD's header — a hand exclusion
+# inside the instrument written to stop trusting prose — and it is declared in lib/api.ts now, so
+# the command below still asks Lens about the struct Lens actually has.
+cannot "LXCSnapshot mirrors talyvor-lens LXCSnapshot — the pegged-token balance the Overview and Spend screens read" \
+    "talyvor-lens internal/economy/dualtoken.go" \
+    "[ \"\$(sed -n '/^type LXCSnapshot struct/,/^}/p' internal/economy/dualtoken.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"balance_ulxc lifetime_minted_ulxc lifetime_spent_ulxc usd_value_uusd workspace_id \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "LXCLedgerEntry mirrors talyvor-lens LXCLedgerEntry — the pegged-token ledger row every spend figure on those screens is summed from" \
+    "talyvor-lens internal/economy/dualtoken.go" \
+    "[ \"\$(sed -n '/^type LXCLedgerEntry struct/,/^}/p' internal/economy/dualtoken.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"amount_ulxc balance_after_ulxc created_at description id metadata type workspace_id \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "LensBalance mirrors talyvor-lens BalanceSnapshot — the LENS balance, whose held_balance_ulens this repo spells optional ON PURPOSE (declared UPSTREAM-SPELLING; a Lens older than the change that added it omits the key)" \
+    "talyvor-lens internal/mining/cache_mining.go" \
+    "[ \"\$(sed -n '/^type BalanceSnapshot struct/,/^}/p' internal/mining/cache_mining.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"balance_ulens held_balance_ulens lifetime_earned_ulens lifetime_spent_ulens updated_at workspace_id \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "LedgerEntry mirrors talyvor-lens LedgerEntry — the LENS ledger row" \
+    "talyvor-lens internal/mining/cache_mining.go" \
+    "[ \"\$(sed -n '/^type LedgerEntry struct/,/^}/p' internal/mining/cache_mining.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"amount_ulens balance_after_ulens created_at description id metadata type workspace_id \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy
 #           checks in README.md §6 and FULL-STACK-DEPLOY.md can read a STATUS CODE for
