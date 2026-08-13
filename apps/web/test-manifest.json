@@ -72,6 +72,7 @@
   "src/LandmarkCoverage.test.tsx": 25,
   "src/Legal.test.tsx": 25,
   "src/lib/awaiting.test.ts": 9,
+  "src/lib/calledRoutes.test.ts": 11,
   "src/lib/productState.test.ts": 13,
   "src/motion.test.tsx": 34,
   "src/noFlashTheme.test.ts": 8,
