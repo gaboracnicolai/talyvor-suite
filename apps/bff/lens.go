@@ -99,6 +99,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	// Registered ABOVE the id-routes only for reading order; ServeMux prefers the more specific
 	// literal regardless, so `/api/docs/ai/ask` can never be taken for a `{spaceID}` of "ai".
 	a.mux.HandleFunc("/api/docs/ai/ask", a.docsAskAI())
+	// SEARCH. Registered next to ask-AI because it is the other half of the same W1.7 scope — the
+	// two AI features that need no editor — and above the id-routes for the same reading-order
+	// reason. It is NOT an /ai/ path: Docs mounts search in its own package and its semantic half
+	// is one of two sources inside it. See docs_search.go for the two parameters this route
+	// refuses rather than forwards, and for what the response cannot say about that half.
+	a.mux.HandleFunc("/api/docs/search", a.docsSearch())
 
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}", a.requireSession(a.docsSpaceDetail()))
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(func(w http.ResponseWriter, r *http.Request) {

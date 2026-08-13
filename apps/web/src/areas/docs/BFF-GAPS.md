@@ -46,7 +46,7 @@ segments (they are upstream-scoped to that workspace by membership + tier checks
 
 | BFF route | Upstream | Returns |
 |---|---|---|
-| `GET /api/docs/search?q=&type=&space_id=&limit=&offset=` | `GET /v1/workspaces/{ws}/search` | ranked results (`SearchWithRank`): `[]{page, space_name, rank, headline}`; limit default 10 cap 50; templates excluded server-side |
+| `GET /api/docs/search?q=&type=&space_id=&limit=&offset=` | `GET /v1/workspaces/{ws}/search` | **EXISTS** (`docsSearch`), driven by the Search card on `/docs`. ⚠ THE SHAPE IS AN ENVELOPE, NOT A LIST, and this row used to say otherwise: `{results,total,query,took_ms}`, each row `{page_id,page_title,space_name,headline,rank?,similarity?,source,url,ai_cost_usd?,own_ai_cost_usd?,total_ai_cost_usd?}` — `source` is `fulltext`\|`semantic`\|`both`, and the three costs are POINTERS upstream (absent on a semantic-only row, so 0 means measured-and-zero). `total` is `len(results)`, NEVER a corpus count. ⚠ TWO PARAMETERS ARE REFUSED RATHER THAN FORWARDED, both measured by running Docs' handler: an unrecognised `type` (upstream runs NEITHER half and answers 200 with an empty list) and, on `type=all`, `offset+limit > 50` (upstream's `maxFetchRows` bounds the MERGED window, so a deeper page comes back short — or empty — with a `total` equal to what it served). See `apps/bff/docs_search.go`. |
 | `GET /api/docs/spaces/{spaceID}/pages/{pageID}/comments?include_resolved=` | same path under `/v1` | `[]comment.Comment` `{id, page_id, block_id?, thread_id?, parent_id?, author_id, author_name, content, resolved, …}` (threaded) |
 | `GET /api/docs/spaces/{spaceID}/pages/{pageID}/comments/stats` | same | comment stats (open/resolved counts) |
 | `GET /api/docs/spaces/{spaceID}/pages/{pageID}/versions` | same | `[]model.PageVersion` `{id, page_id, workspace_id, version, title, content, created_by, created_at}` |
@@ -91,8 +91,18 @@ segments (they are upstream-scoped to that workspace by membership + tier checks
   browser. ⚠ THE ASK RESPONSE CARRIES NO COST: `Engine.AskDocs` binds an EMPTY page id by design,
   so no `page_ai_spend_events` row is written and no page's `own_ai_cost_usd` moves — an ask is
   visible only in the workspace's Lens spend under the feature tag `docs-ai-ask`.
-- **`GET /api/docs/search`** is still Tier 2 above and still absent — the item that asked for
-  ask-AI asked for semantic page search beside it, and this is the half that was not built.
+- **`GET /api/docs/search`** IS NOW BUILT (Tier 2 above), and it is the other half W1.7 asked for.
+  ⚠ IT IS NOT AN `/ai/` ROUTE, and the distinction is load-bearing rather than pedantic: Docs
+  mounts search in its own package (`internal/search`), and the semantic half is one of TWO sources
+  inside it — the full-text half serves with or without Lens. ⚠⚠ AND THE RESPONSE CANNOT SAY
+  WHETHER THE SEMANTIC HALF RAN. Measured against docs `7bfa1cf` by running the handler with Lens
+  unconfigured (this deployment): `SemanticSearch.Search` returns `[], nil` when `IsEnabled()` is
+  false, the handler merges that empty half in, and the envelope carries no flag for it — so an
+  all-`fulltext` answer is the same bytes whether the half ran and matched nothing or was never
+  configured. A row tagged `semantic`/`both` proves it ran; nothing proves it did not, and the card
+  says only that. THAT is why there is no `type` toggle on the screen even though the route takes
+  one: a "Semantic only" control on a box without Lens empties the list every time and cannot say
+  why.
 
 ## Error + auth semantics the area already assumes
 
