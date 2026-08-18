@@ -14,6 +14,7 @@ import { BackButton, Crumbs, spaceCrumbLabel } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
 import { PageSummary } from './PageSummary'
 import { PageTranslation } from './PageTranslation'
+import { PageChangelog } from './PageChangelog'
 
 export function PageView() {
   const { spaceId = '', pageId = '' } = useParams()
@@ -166,6 +167,14 @@ export function PageView() {
       {page.data ? (
         <PageTranslation pageId={pageId} text={page.data.content_text ?? ''} />
       ) : null}
+      {/* ⚠ THE ONE CONTROL HERE THAT SENDS NONE OF THE PAGE, AND THE ONE THAT LEAVES SOMETHING
+          BEHIND. Summarise and translate both read `content_text` and both buy a metered Lens
+          completion; this sends only a version and a list of issue ids, and buys nothing —
+          measured, changelog generation reaches Lens never (it groups Track issues by label). It
+          is gated on `page.data` for a DIFFERENT reason from theirs: not because an empty text
+          would be billed, but because a generate against a page that failed to load would WRITE
+          a row onto it. */}
+      {page.data ? <PageChangelog spaceId={spaceId} pageId={pageId} /> : null}
     </div>
   )
 }

@@ -185,6 +185,30 @@ export interface DocsTranslation {
   text: string
 }
 
+/** POST /api/docs/spaces/{spaceID}/pages/{pageID}/changelog/generate → the changelog entry
+ *  talyvor-docs CREATED (internal/changelog/handler.go#Handler.Generate → Store.CreateEntry,
+ *  201 with the row).
+ *
+ *  ⚠ THIS IS THE ONE DOCS RESPONSE IN THIS FILE THAT DESCRIBES A ROW RATHER THAN AN ANSWER. The
+ *  other four W1.7 controls return text a screen displays and forgets. This one persists: the
+ *  entry it describes is on the page until something deletes it, and `…/entries/{id}/publish`
+ *  puts it into the workspace's public RSS feed. So the fields worth mirroring are the ones that
+ *  say WHAT WAS WRITTEN — `summary` carries upstream's own count ("Generated from N issues"),
+ *  which is the honest oracle for whether the entry documents anything.
+ *
+ *  UPSTREAM-ONLY DocsChangelogEntry: workspace_id, content, created_by, created_at?,
+ *  published_at? — `content` is a ProseMirror JSON document this app has no renderer for (the
+ *  editor question W2.3 owns), and the other four are provenance no screen here shows. */
+export interface DocsChangelogEntry {
+  id: string
+  page_id: string
+  version: string
+  title: string
+  summary: string
+  type: string
+  issue_ids: string[]
+}
+
 export const docsApi = {
   /** LIVE — spaces in the SESSION's workspace (the BFF no longer pins one). */
   spaces: (): Promise<DocsSpace[]> => getJSON<DocsSpace[]>('/api/docs/spaces'),
@@ -283,6 +307,36 @@ export const docsApi = {
       text,
       language,
     }),
+
+  /**
+   * Generate ONE changelog entry on a page from a list of Track issue ids.
+   *
+   * ⚠⚠ THIS ONE IS NOT AN AI CALL AND SPENDS NOTHING, WHICH IS WHY IT IS SHAPED UNLIKE THE FOUR
+   * ABOVE. W1.7 lists changelog generation among eight "metered Lens calls"; measured against
+   * talyvor-docs' own route, it reaches Lens never — `GenerateFromIssues` reads Track issues and
+   * groups them by label. What a click costs is a durable, publishable ROW, not a charge.
+   *
+   * ⚠ NO `workspace_id` IN THE BODY. Upstream's `generateBody` has the field and OVERRIDES it
+   * from the page's own context (`in.WorkspaceID = ws`), so sending one changes nothing — which
+   * is exactly why it must not be sent. A field that travels the whole way and is ignored is
+   * decoration a reader can mistake for tenancy. The BFF drops it too (docs_changelog.go).
+   *
+   * ⚠ THE CALLER SENDS A FILTERED LIST, AND THE BFF RE-CHECKS IT. Measured, an empty list — and a
+   * list of blank strings — are both 201 Created upstream, the first writing "Generated from 0
+   * issues" over the words "No issues.", the second claiming three issues over three empty
+   * bullets. Neither is an error there, so the refusal lives at the button and again at the BFF,
+   * which is the half that holds when the caller is not this screen.
+   *
+   * ⚠ NO VERSION RULE HERE. Upstream has a real regexp and answers for itself (400 for "",
+   * "   " and "banana"; 201 for "v1.0.0" and "2026-08-18"), so a second rule in this client would
+   * drift from it the day Docs widens the pattern.
+   */
+  generateChangelog: (spaceId: string, pageId: string, version: string, issueIds: string[]) =>
+    send<DocsChangelogEntry>(
+      `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}/changelog/generate`,
+      'POST',
+      { version, issue_ids: issueIds },
+    ),
 
   updatePage: (spaceId: string, pageId: string, patch: { title?: string; content_text?: string }) =>
     send<DocsPageRow>(

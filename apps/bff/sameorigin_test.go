@@ -208,6 +208,22 @@ func everyMutatingRoute() []mutatingRoute {
 		// row's write ARRIVES upstream — so this row carries both fields.
 		{method: http.MethodPost, path: "/api/docs/pages/p1/translate", body: `{"text":"real page text","language":"French"}`},
 
+		// CHANGELOG GENERATION — and it is a write path here in the LITERAL sense the four AI rows
+		// above are not. Ask, summarise and translate write nothing in Docs and are swept because
+		// they SPEND; this one spends nothing (measured: it reaches Lens never, it groups Track
+		// issues by label) and instead INSERTs a durable changelog_entries row that a later
+		// `…/publish` puts into the workspace's public RSS feed. A cross-origin generate is a
+		// stranger writing a release note into someone else's product.
+		//
+		// ⚠ THE BODY CARRIES A REAL ISSUE ID FOR THE REASON THE TWO ROWS ABOVE CARRY REAL FIELDS,
+		// AND THIS TABLE HAS NOW FALLEN INTO THAT TRAP THREE TIMES. My first run of this sweep
+		// reported the route as "answered 400" — my OWN empty-issue-list refusal, produced before
+		// the Origin rule was ever consulted, exactly the shape the two money rows above recorded.
+		// A row swept for a refusal its own handler produces is swept for nothing: it would stay
+		// green with the Origin rule deleted. The same-origin half asserts this row's write
+		// ARRIVES upstream, and it cannot arrive if this handler refuses it first.
+		{method: http.MethodPost, path: "/api/docs/spaces/s1/pages/p1/changelog/generate", body: `{"version":"v1.0.0","issue_ids":["iss-a"]}`},
+
 		// EXEMPT — a machine caller has no Origin to send, so requiring one would break it.
 		// None exists in this BFF today; the row documents the rule and the test asserts the
 		// list is honest rather than assuming emptiness.
