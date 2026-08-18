@@ -247,10 +247,20 @@ func TestTrackSearch_OnlyGET(t *testing.T) {
 	}
 }
 
-// ⚠ THE OUTCOME A STRANGER GETS, and this test claims only that. Like the sibling product routes,
-// more than one layer here answers 401 with the same bytes, so a green does not prove WHICH layer
-// refused — track_ai.go and authz_population_test.go already record that property for two other
-// routes. What it does prove is that no anonymous request reaches Track.
+// ⚠⚠ THE OUTCOME A STRANGER GETS, AND THIS TEST'S GREEN IS BLIND TO THE GATE — MEASURED, not
+// inferred from the sibling routes that already have this property. Control C8 of
+// `~/talyvor-queue/w17-tracksearch-controls-4b8e.py` deleted `requireSession` from
+// trackIssueSearch, one mutation alone, full package: THIS TEST STAYED GREEN. An anonymous request
+// still answers a byte-identical 401, because `trackWorkspaceFor` refuses before any dial — the
+// same three-layers-deep shape recorded at TestDocsAsk_RequiresASession and
+// TestTrackIssueSummary_RefusesAnonymously. So this assertion proves the OUTCOME and not which
+// layer produced it, and its comment says so rather than implying a check it never made.
+//
+// ⚠ WHAT DID CATCH C8 IS `TestEveryMountedRoute_RefusesAnonymousRead`, and that is the answer to a
+// real worry: this route's whole BFF suite passed on its FIRST run, which in this repo is a reason
+// to suspect the guards rather than to relax. C8 is the measurement that the population sweep
+// actually SEES this route — the sweep takes its population from the router, so a new route joins
+// it by construction, and C8 is what turns "by construction" into an observation.
 func TestTrackSearch_RefusesAnonymously(t *testing.T) {
 	u := newTrackSearchUpstream(t, http.StatusOK, oneIssueBody)
 	a, _ := trackSearchApp(t, u)
