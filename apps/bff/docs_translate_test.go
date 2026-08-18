@@ -349,11 +349,15 @@ func TestDocsTranslate_MethodGate(t *testing.T) {
 
 // No session, no translate — and no upstream call either.
 //
-// ⚠ WHAT A GREEN HERE DOES NOT LICENCE. This route refuses anonymously in three places (the
-// wrapper, docsWorkspaceFor→trackWorkspaceFor, and forwardProduct), each with a byte-identical
-// 401, so this pins the OUTCOME a stranger gets and CANNOT say which layer produced it — the same
-// property TestDocsAsk_RequiresASession records. The mutation that removes the wrapper is in the
-// control harness, not here.
+// ⚠⚠ WHAT A GREEN HERE DOES NOT LICENCE, AND IT WAS MEASURED RATHER THAN INHERITED. This route
+// refuses anonymously in three places (the wrapper, docsWorkspaceFor→trackWorkspaceFor, and
+// forwardProduct), each with a byte-identical 401, so this pins the OUTCOME a stranger gets and
+// cannot say which layer produced it. CONTROL C4 (~/talyvor-queue/w17-translate-controls-7c3e.py)
+// deleted this route's `requireSession` wrapper: the package compiled, this test RAN, and it
+// PASSED. So a green here is NOT evidence that the wrapper is load-bearing — it is evidence only
+// that a stranger gets a 401 from somewhere. The same negative is on record for /api/docs/ai/ask.
+// It is written down rather than papered over because the next person to refactor these three
+// layers will otherwise read this test as coverage they do not have.
 func TestDocsTranslate_RequiresASession(t *testing.T) {
 	u := newTranslateUpstream(t, http.StatusOK, `{"text":"ok"}`)
 	a, _ := translateApp(t, u)
