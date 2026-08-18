@@ -201,6 +201,13 @@ func everyMutatingRoute() []mutatingRoute {
 		// upstream, and it cannot arrive if this handler refuses it first.
 		{method: http.MethodPost, path: "/api/docs/pages/p1/summarize", body: `{"text":"real page text"}`},
 
+		// Same reasoning one route over, and with one more field: translate refuses a blank
+		// LANGUAGE as well as blank text, for its own measured reason (docs_ai.go: upstream turns
+		// a blank language into English and bills for it). A body missing either would be refused
+		// here before the Origin rule was ever consulted, and the same-origin half asserts the
+		// row's write ARRIVES upstream — so this row carries both fields.
+		{method: http.MethodPost, path: "/api/docs/pages/p1/translate", body: `{"text":"real page text","language":"French"}`},
+
 		// EXEMPT — a machine caller has no Origin to send, so requiring one would break it.
 		// None exists in this BFF today; the row documents the rule and the test asserts the
 		// list is honest rather than assuming emptiness.

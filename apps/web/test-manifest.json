@@ -5,6 +5,7 @@
   "src/areas/docs/DocsArea.test.tsx": 24,
   "src/areas/docs/docsWrites.test.tsx": 14,
   "src/areas/docs/pageSummary.test.tsx": 7,
+  "src/areas/docs/pageTranslation.test.tsx": 8,
   "src/areas/docs/pm.test.tsx": 3,
   "src/areas/docs/search.test.ts": 9,
   "src/areas/docs/searchDocs.test.tsx": 11,

@@ -187,9 +187,16 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// it is also not idempotent in the way a GET promises: each call is a Lens completion the
 	// workspace pays for and Docs attributes to that page. Like ask, it is inside the write half
 	// below, which drives POST at every mounted pattern in all three fixtures.
-	if len(methodOnly) > 6 {
+	// ⚠ THE SEVENTH, /api/docs/pages/{pageID}/translate, WAS LOOKED AT ON THE SAME TERMS AS
+	// SUMMARISE'S AND FOR THE SAME REASON. It sends a whole page of text, so as a GET that body
+	// would be a query string — a customer's document in every access log and proxy buffer on the
+	// way, which is the leak this file hunts, created by the shape of the route rather than by
+	// anything in a response. It is METERED too: each call is a Lens completion the workspace pays
+	// for and Docs attributes to the named page, so it is not idempotent in the way a GET promises.
+	// Its POST response is searched by the write half below.
+	if len(methodOnly) > 7 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 6 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 7 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

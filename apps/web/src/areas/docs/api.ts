@@ -174,6 +174,17 @@ export interface DocsSummary {
   text: string
 }
 
+/** POST /api/docs/pages/{pageID}/translate → talyvor-docs' translate response, which is
+ *  `{"text": …}` and nothing else (internal/ai/handler.go#Handler.Translate).
+ *
+ *  ⚠ IT IS A DISTINCT TYPE FROM `DocsSummary` DESPITE AN IDENTICAL SHAPE, because the sentence a
+ *  screen must print beside it is different: this charge lands under the feature tag
+ *  `docs-ai-translate`, and — unlike a summary — the reader cannot tell from the text alone
+ *  whether the language they asked for is the language they got. */
+export interface DocsTranslation {
+  text: string
+}
+
 export const docsApi = {
   /** LIVE — spaces in the SESSION's workspace (the BFF no longer pins one). */
   spaces: (): Promise<DocsSpace[]> => getJSON<DocsSpace[]>('/api/docs/spaces'),
@@ -242,6 +253,36 @@ export const docsApi = {
    */
   summarizePage: (pageId: string, text: string) =>
     send<DocsSummary>(`/api/docs/pages/${encodeURIComponent(pageId)}/summarize`, 'POST', { text }),
+
+  /**
+   * Translate ONE page's stored text into a named language.
+   *
+   * ⚠⚠ THE FIELD IS `language`, AND THAT IS NOT A STYLE CHOICE. talyvor-docs binds
+   * `json:"language"` (internal/ai/handler.go#Handler.Translate). A body naming it anything else
+   * is NOT rejected: it decodes to "", Engine.Translate substitutes `defaultLang = "English"`, and
+   * the caller gets 200, a billed Lens completion, and English. MEASURED against docs' own handler
+   * over a fake Lens that captures the system prompt — `target_language:"French"` produced
+   * "…translate the following text to English…". Docs' own in-repo fixture sends that wrong name.
+   *
+   * So a wrong key here is invisible from the response, which is why the BFF's guard decodes the
+   * SENT body through docs' struct tags rather than asserting a status (docs_translate_test.go).
+   *
+   * ⚠ NO `page_id` IN THE BODY. The BFF takes the page from the path
+   * (docs_ai.go#docsTranslatePage) because it is authority, not content — it decides which
+   * document the charge lands on.
+   *
+   * ⚠ NO DEFAULT LANGUAGE, AND THIS CLIENT WILL NOT INVENT ONE. A blank language is exactly the
+   * case that silently costs money and answers in the wrong tongue; the BFF refuses it and
+   * PageTranslation.tsx never sends it.
+   *
+   * ⚠ THE TEXT IS THE PAGE AS STORED, NOT WHAT IS IN THE EDITOR — the caller's job, stated here
+   * because it is the whole reason the cost claim is honest.
+   */
+  translatePage: (pageId: string, text: string, language: string) =>
+    send<DocsTranslation>(`/api/docs/pages/${encodeURIComponent(pageId)}/translate`, 'POST', {
+      text,
+      language,
+    }),
 
   updatePage: (spaceId: string, pageId: string, patch: { title?: string; content_text?: string }) =>
     send<DocsPageRow>(

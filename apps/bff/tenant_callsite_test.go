@@ -354,6 +354,14 @@ func TestDocsWorkspacePathOnlyForWorkspaceScopedUpstreamRoutes(t *testing.T) {
 		// action — see docs_summarize_test.go's header for the full set of measured responses,
 		// including the empty-text one that this BFF refuses.
 		"docsSummarizePage:/ai/transform": "POST /v1/workspaces/{wsID}/ai/transform — internal/ai/handler.go Mount",
+		// Checked at talyvor-docs `6aca7db`, and checked by RUNNING it rather than by reading:
+		// internal/ai/handler.go#Handler.Mount registers `POST /workspaces/{wsID}/ai/translate`
+		// beside /ai/transform, and Handler.Translate's first act is AuthorizeWorkspace on that
+		// {wsID}. Driving the mounted router in a scratch export answered
+		// `/v1/workspaces/ws-1/ai/translate` 200 for every body it was given — including three
+		// that name no usable language and one with no text at all, each a billed completion.
+		// See docs_translate_test.go's header for the six measured rows.
+		"docsTranslatePage:/ai/translate": "POST /v1/workspaces/{wsID}/ai/translate — internal/ai/handler.go Mount",
 	}
 
 	type site struct{ fn, suffix string }
