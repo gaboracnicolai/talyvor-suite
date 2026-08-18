@@ -159,3 +159,114 @@ func (a *app) docsSummarizePage() http.HandlerFunc {
 			bytes.NewReader(payload), nil)
 	})
 }
+
+// docsTranslateBody is the upstream schema, built HERE for the same reason summarise's is: two of
+// the three fields are authority rather than content. `page_id` is what Docs binds the COST to,
+// and it comes from this route's path.
+//
+// ⚠⚠ THE FIELD NAME IS NOT A DETAIL — IT IS THE WHOLE FINDING. talyvor-docs' Translate handler
+// binds `Language string `json:"language"`` (internal/ai/handler.go#Handler.Translate). A body that names
+// this field anything else is not rejected: the field decodes to "", Engine.Translate substitutes
+// `defaultLang = "English"` (internal/ai/engine.go#Engine.Translate, via the defaultLang constant), and the caller gets 200, a billed Lens
+// completion, and English.
+//
+// Docs' own in-repo fixture gets this wrong: internal/ai/handler_test.go's sibling-routes loop sends
+// `{"text":"hello","target_language":"French"}` and asserts only that the status is 200 — which it
+// is, in English. That test is green and would stay green with the binding deleted.
+//
+// MEASURED, NOT READ (tab-7c3e, talyvor-docs at 6aca7db, a `git archive` scratch export in /tmp;
+// that repo was held by tab-a7f3 and was never written to). Its real Translate handler mounted
+// over a fake Lens that captures the SYSTEM PROMPT — the only place the target language actually
+// lands:
+//
+//	{"text":"hello","target_language":"French"} → 200, 1 completion, "…to English…"
+//	{"text":"hello","language":"French"}        → 200, 1 completion, "…to French…"
+//	{"text":"hello"}                            → 200, 1 completion, "…to English…"
+//	{"text":"hello","language":""}              → 200, 1 completion, "…to English…"
+//	{"text":"hello","language":"   "}           → 200, 1 completion, "…to English…"
+//	{"text":"","language":"French"}             → 200, 1 completion, 0 user bytes
+//
+// docs_translate_test.go pins the name by decoding the SENT body through these same tags, because
+// every row above is a 200 and no status assertion can separate them.
+type docsTranslateBody struct {
+	Text     string `json:"text"`
+	Language string `json:"language"`
+	PageID   string `json:"page_id"`
+}
+
+// docsTranslatePage — POST /api/docs/pages/{pageID}/translate → POST /v1/workspaces/{ws}/ai/translate.
+//
+// ⚠⚠ A BLANK LANGUAGE IS REFUSED HERE, BEFORE THE MONEY MOVES, and that refusal is this route's
+// reason to differ from a plain forward. Upstream has no precondition on the language at all —
+// blank silently becomes English and bills for it (rows 3-5 above). A button is what turns that
+// from a thing curl can do into a thing a click does, so the refusal lands with the button.
+//
+// ⚠ THE REFUSAL IS EXACTLY AS WIDE AS THE MEASUREMENT: blank after trimming, and nothing else.
+// This route does NOT check the language against a vocabulary — Docs has no vocabulary either, it
+// interpolates the string straight into a prompt — so "fr", "Français" and "Brazilian Portuguese"
+// all travel verbatim. A whitelist here would be a proxy inventing a product rule.
+//
+// ⚠ THE EMPTY-TEXT REFUSAL IS THE SAME RULE summarise records, RE-MEASURED ON THIS ROUTE rather
+// than inherited: row six is a real completion on zero user bytes.
+//
+// ⚠ THE CAP IS maxDocsBody, THE PAGE CAP, for summarise's reason — what travels is a page's stored
+// text. Upstream has no cap at all.
+//
+// ⚠ COST. Lens meters this under the feature tag `docs-ai-translate` and Docs rolls it onto the
+// named page's `own_ai_cost_usd`. Any screen offering this button must say so.
+func (a *app) docsTranslatePage() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDocsBody))
+		if err != nil {
+			// 413 rather than a failure inside the forward, which reads from the outside as
+			// "docs upstream unreachable" — a false statement about a healthy upstream.
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": "page text too large to translate"})
+			return
+		}
+		var in struct {
+			Text     string `json:"text"`
+			Language string `json:"language"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json"})
+			return
+		}
+		if strings.TrimSpace(in.Text) == "" {
+			// NOT a fault: nothing is broken, there is simply nothing to translate. Upstream
+			// would answer 200 to this and bill for it.
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "there is no text on this page to translate"})
+			return
+		}
+		if strings.TrimSpace(in.Language) == "" {
+			// The one refusal that is not shared with summarise. Upstream does not fail on a
+			// missing language — it quietly translates to English and charges for it, which is
+			// indistinguishable from success at the status code.
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "choose a language to translate this page into"})
+			return
+		}
+		payload, err := json.Marshal(docsTranslateBody{
+			Text:     in.Text,
+			Language: in.Language,
+			PageID:   r.PathValue("pageID"),
+		})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "could not build the translate request"})
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/ai/translate"), "", http.MethodPost,
+			bytes.NewReader(payload), nil)
+	})
+}

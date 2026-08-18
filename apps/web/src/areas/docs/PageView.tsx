@@ -13,6 +13,7 @@ import { docsApi } from './api'
 import { BackButton, Crumbs, spaceCrumbLabel } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
 import { PageSummary } from './PageSummary'
+import { PageTranslation } from './PageTranslation'
 
 export function PageView() {
   const { spaceId = '', pageId = '' } = useParams()
@@ -156,6 +157,14 @@ export function PageView() {
           the refusal on both sides, buy a completion of nothing. */}
       {page.data ? (
         <PageSummary pageId={pageId} text={page.data.content_text ?? ''} />
+      ) : null}
+      {/* ⚠ THE SAME TWO RULES, FOR THE SAME REASONS — the STORED page, and only once it has
+          loaded. Translate adds a third of its own: it is the one control here that can succeed
+          in the wrong language, because upstream a missing `language` is a 200 and a billed
+          completion in English rather than an error. PageTranslation.tsx therefore ships with no
+          default language; see its header for the measurement. */}
+      {page.data ? (
+        <PageTranslation pageId={pageId} text={page.data.content_text ?? ''} />
       ) : null}
     </div>
   )

@@ -114,6 +114,16 @@ func newApp(cfg config, auth *authenticator) *app {
 	// upstream never sees would be decoration a reader could mistake for a scope.
 	a.mux.HandleFunc("/api/docs/pages/{pageID}/summarize", a.docsSummarizePage())
 
+	// TRANSLATE. The fourth W1.7 control, and the second whose cost lands on a page. Same address
+	// shape and same reasons as summarise above — the page is in the path because that is what the
+	// charge binds to, and no {spaceID} because the upstream operation takes no space.
+	//
+	// ⚠ IT IS A SEPARATE UPSTREAM ROUTE, NOT A FIFTH TRANSFORM ACTION. talyvor-docs registers
+	// `/workspaces/{wsID}/ai/translate` beside `/ai/transform` (internal/ai/handler.go#Handler.Mount)
+	// and it takes a `language` the other four do not, so it cannot be folded into the fixed-action
+	// constant summarise uses.
+	a.mux.HandleFunc("/api/docs/pages/{pageID}/translate", a.docsTranslatePage())
+
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}", a.requireSession(a.docsSpaceDetail()))
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
