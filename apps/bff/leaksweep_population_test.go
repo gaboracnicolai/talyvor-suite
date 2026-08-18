@@ -194,9 +194,20 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// anything in a response. It is METERED too: each call is a Lens completion the workspace pays
 	// for and Docs attributes to the named page, so it is not idempotent in the way a GET promises.
 	// Its POST response is searched by the write half below.
-	if len(methodOnly) > 7 {
+	//
+	// ⚠ THE EIGHTH, /api/docs/spaces/{spaceID}/pages/{pageID}/changelog/generate, WAS LOOKED AT
+	// AND ITS REASON IS THE ONE THE SEVEN ABOVE DO NOT HAVE. The other seven are POST-only
+	// because of what they CARRY (a question, a document) or what they SPEND. This one is
+	// POST-only because of what it LEAVES BEHIND: measured against talyvor-docs' own route on
+	// real Postgres, every call INSERTs a changelog_entries row, and a later `…/publish` puts
+	// that row into the workspace's public RSS feed. A GET that writes a durable, publishable row
+	// is the one thing a GET may never be — it would be retried by any proxy, prefetched by any
+	// browser, and re-run by any crawler, each time leaving another release note behind. It also
+	// carries a list of issue ids, which as a query string would put a workspace's unreleased
+	// issue keys in every access log. Its POST response is searched by the write half below.
+	if len(methodOnly) > 8 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 7 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 8 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

@@ -124,6 +124,20 @@ func newApp(cfg config, auth *authenticator) *app {
 	// constant summarise uses.
 	a.mux.HandleFunc("/api/docs/pages/{pageID}/translate", a.docsTranslatePage())
 
+	// CHANGELOG GENERATION. The fifth W1.7 control, and the ONE the item's own list gets wrong:
+	// it names changelog generation among eight "metered Lens calls". MEASURED, it reaches Lens
+	// never — it groups Track issues by label. What it spends is not money but a durable,
+	// publishable ROW, which is why its refusal is about having something to generate FROM rather
+	// than about not spending. See docs_changelog.go.
+	//
+	// ⚠ ITS ADDRESS IS SPACE-SCOPED, ALONE AMONG THE FIVE. Ask/search/summarise/translate are all
+	// workspace-scoped upstream; Docs gates this one with pageEnf on {pageID} inside {spaceID}
+	// (internal/changelog/handler.go#Handler.Mount), so both ids are real scope here and not
+	// decoration. Registered above the id-routes for reading order only — ServeMux prefers the
+	// longer pattern regardless, so this can never be taken for a page-detail request.
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/changelog/generate",
+		a.docsChangelogGenerate())
+
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}", a.requireSession(a.docsSpaceDetail()))
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
