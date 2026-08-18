@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
 import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
+import { SearchIssues } from './SearchIssues'
 import { useTrackWorkspaces } from './data'
 import { isUnconfigured } from '../../lib/productState'
 import { isSessionExpired } from '../../lib/productState'
@@ -101,6 +102,12 @@ export function TrackArea() {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-gutter px-gutter py-4">
       <WorkspaceStrip />
+      {/* Search sits at the AREA level, above the routes, because it is a WORKSPACE-wide read: its
+          results are issues, so it belongs anywhere in Track, and hanging it inside IssueList
+          would make it disappear the moment a ticket is open — which is exactly when someone is
+          looking for the related one. See SearchIssues.tsx for what this card may and may not
+          claim about the half that served it. */}
+      <SearchIssues />
       <Routes>
         <Route index element={<IssueList />} />
         {/* The ticket. Restored: this route was retired while the detail screen did not exist,

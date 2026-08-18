@@ -253,11 +253,14 @@ describe('the addresses below the console still have exactly one top-level headi
     const levels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) =>
       Number(h.tagName.slice(1)),
     )
-    // ⚠ SIX, NOT TWO, SINCE CardHeader BECAME A HEADING. The four extra 2s are this page's
-    // card headers — Description, Details, AI summary, Comments — which were `<div>`s when this
-    // line read `[1, 2]` and are now section titles like every other card header behind the gate.
-    // "AI summary" is the fourth and newest: Track's thread summary, the first browser control
-    // for any Track AI feature (areas/track/AISummary.tsx).
+    // ⚠ SEVEN, NOT TWO, SINCE CardHeader BECAME A HEADING. The five extra 2s are this page's
+    // card headers — Search issues, Description, Details, AI summary, Comments — which were
+    // `<div>`s when this line read `[1, 2]` and are now section titles like every other card
+    // header behind the gate. "AI summary" is Track's thread summary, the first browser control
+    // for any Track AI feature (areas/track/AISummary.tsx); "Search issues" is the newest and is
+    // the reason this outline is SEVEN rather than six — it is mounted at the TRACK AREA level,
+    // not inside the list, so it is present on the ticket too (deliberately: the moment someone
+    // wants the related issue is while they are reading one). areas/track/SearchIssues.tsx.
     //
     // ⚠ AND THE FLATNESS IS RECORDED RATHER THAN BLESSED. Description/Details/AI summary/Comments
     // are sections OF the issue, so an outline that named their relationship would read
@@ -271,7 +274,7 @@ describe('the addresses below the console still have exactly one top-level headi
       levels,
       'the heading outline at /track/issues/<id> moved — a level was skipped, dropped or ' +
         'duplicated, or a card header stopped being one',
-    ).toEqual([1, 2, 2, 2, 2, 2])
+    ).toEqual([1, 2, 2, 2, 2, 2, 2])
   })
 })
 
