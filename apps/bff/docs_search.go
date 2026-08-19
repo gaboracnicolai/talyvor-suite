@@ -6,6 +6,22 @@ import (
 	"strconv"
 )
 
+// ⚠ FIVE OF THIS FILE'S FACTS LIVE IN talyvor-docs, AND ALL FIVE ARE NOW IN THE EXPIRY REGISTER.
+// The window below, the five keys the query is rebuilt from, the discriminator set, what upstream
+// does with a value outside it, and where upstream applies the offset are each a claim about
+// another repository that no test in this one can check — CI checks out this repo alone. They were
+// carried by the comments beside them until W1.7.1; they are settle commands in
+// deploy/decision-expiry.sh now, and apps/web/src/docsSearchRegister.test.ts holds those commands
+// to the values declared HERE, deriving the key set from the `out.Set` calls below, the type set
+// from docsSearchTypes and the window from the constant. A sixth parameter, a fourth type or a
+// third upstream-behaviour refusal added here without moving the register is a red.
+//
+// ⚠ AND A QUERY PARAMETER IS THE WORST SHAPE OF THAT CLASS, which is why it is worth the entries
+// even though all five run true today. `r.URL.Query().Get` returns "" for a renamed key and Docs
+// DEFAULTS `type` to `all`, so a rename upstream turns `type=semantic` into a full-text answer that
+// is byte-identical to a correct one — no status, no error, no field. The semantic half embeds the
+// query through Lens on every call, so the silent case is also the metered one.
+
 // docsSearchMergedWindow is talyvor-docs' own `maxFetchRows` (internal/search/handler.go), named
 // here because the two numbers cannot be allowed to disagree silently. It is the total number of
 // MERGED rows the two-source path can ever produce, and therefore the last row a `type=all` search

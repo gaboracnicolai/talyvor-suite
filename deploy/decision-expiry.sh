@@ -560,6 +560,74 @@ cannot "the ask body the browser writes is what talyvor-docs Ask binds — the B
     "talyvor-docs internal/ai/handler.go" \
     "[ \"\$(sed -n '/^func (h \\*Handler) Ask(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"question \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"
 
+# ── THE SAME CLASS AGAIN, ONE PARAMETER WIDE, AND IT IS THE WORST SHAPE OF IT ─
+# DECISION: apps/bff's Docs search route (docs_search.go) refuses a mistyped `type` with 400,
+#           refuses a two-source page past 50 rows with 400, EXEMPTS the single-source path from
+#           that ceiling, and rebuilds the query from exactly five keys rather than forwarding it.
+# PREMISE:  five separate facts about talyvor-docs' search handler — its merged-row ceiling, the
+#           five keys it reads, the three values it discriminates on, what it does with a fourth,
+#           and where it applies the offset.
+#
+# ⚠ A QUERY PARAMETER IS THE WORST CASE OF THIS WHOLE CLASS AND THAT IS WHY THESE ARE HERE. A
+# response shape that drifts renders a blank field. A request BODY key that drifts is a 200 with a
+# billed completion that read nothing (#234). A query PARAMETER that drifts is worse than both:
+# `r.URL.Query().Get` returns "" for a renamed key, and Docs then DEFAULTS `type` to `all` — so a
+# renamed `type` upstream means a `type=semantic` search silently stops asking for the semantic
+# half, and the answer is a 200 of full-text rows BYTE-IDENTICAL to a correct one. Semantic page
+# search is one of W1.7's eight AI features and its half embeds the query through Lens on every
+# call, so this sits on a metered path as well as a silent one.
+#
+# ⚠ ALL FIVE RUN TRUE TODAY, WHICH IS WHY THEY ARE ENTRIES AND NOT A FIX. MEASURED BY EXECUTING
+# docs' OWN search handler at 8189d7b5 — a `git archive` scratch export; that repo was held by
+# another tab and was NEVER written to — over a recording full-text store, a recording pgxDB and an
+# httptest stand-in for the Lens embeddings endpoint, so "which half ran" is an observation:
+#   type=banana / ALL / Fulltext / full-text → 200 {"results":[],"total":0}, ft NOT called, 0 embeds
+#   type absent / type=all                   → ft(10, 0) AND one embedding
+#   type=fulltext&limit=5&offset=7           → ft(5, 7)          — the offset reached SQL
+#   type=semantic&limit=5&offset=7           → pgvector LIMIT 5 OFFSET 7
+#   type=all&limit=5&offset=7                → ft(12, 0)         — merged, offset applied after
+#   type=all&limit=10&offset=45              → ft(50, 0)         — the 50-row window
+#   type=fulltext&limit=10&offset=90         → ft(10, 90)        — single-source pages past it
+# INSTRUMENT CONTROL, because "the sixth key was ignored" and "the recorder sees no key at all" are
+# the same line: type=semantic&space_id=sp-1 puts a non-nil space in the pgvector $4, while
+# space=sp-1 and spaceId=sp-1 leave it nil.
+#
+# ⚠ AND THE COMMANDS WERE RUN IN EVERY STATE BEFORE BEING WRITTEN DOWN — 14 caught, 2
+# predicted-green, 0 anomalies (~/talyvor-queue/w171-docssearch-register-controls-4b7e.py), each
+# mutation restored in a `finally` and sha256-verified back. The two vacuity cases are the ones that
+# matter: with the Search FUNCTION renamed, and with the handler file EMPTIED, every one of these
+# exits non-zero rather than confirming a premise it never looked at.
+#
+# ⚠ ONE MEASURED BOUNDARY, WRITTEN HERE RATHER THAN LEFT TO BE TRUSTED. The `type` dispatch entry
+# pins the SHAPE of docs' two arms, so an upstream `else` branch that runs a half for an
+# unrecognised type leaves both arms untouched and that command GREEN. Predicted green, measured
+# green (control B1). It catches an arm being inverted or re-aimed; it does not catch a third arm.
+#
+# apps/web/src/docsSearchRegister.test.ts keeps the values in these commands equal to the values
+# docs_search.go actually enforces, and derives the populations — the wire keys from the route's own
+# `out.Set` calls, the discriminator from its type map, the window from its constant, and the
+# behavioural half from every refusal constant it declares — so a sixth parameter, a fourth type or
+# a third refusal cannot be added with nothing asking talyvor-docs about it.
+cannot "the 50-row merged window is talyvor-docs' own maxFetchRows — the ceiling apps/bff's two-source refusal is written against, and the number two repos may not disagree on silently" \
+    "talyvor-docs internal/search/handler.go" \
+    "[ \"\$(grep -o 'maxFetchRows *= *[0-9]*' internal/search/handler.go | tr -s ' ' | LC_ALL=C sort -u | tr '\n' '|')\" = \"maxFetchRows = 50|\" ]   # in a talyvor-docs checkout; the WHOLE assignment, so a moved number and a renamed constant are each a mismatch — and an empty capture, which is what an absent file also produces, is the failure grep's own exit status cannot see"
+
+cannot "docs' search handler reads EXACTLY q / type / space_id / limit / offset — the premise under rebuilding the query instead of forwarding it, because a parameter upstream IGNORES comes back looking honoured" \
+    "talyvor-docs internal/search/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Search(/,/^}/p' internal/search/handler.go | grep -o 'URL.Query().Get(.[a-z_]*.)' | tr -d '\"' | LC_ALL=C sort -u | tr '\n' '|')\" = \"URL.Query().Get(limit)|URL.Query().Get(offset)|URL.Query().Get(q)|URL.Query().Get(space_id)|URL.Query().Get(type)|\" ]   # in a talyvor-docs checkout; the WHOLE key set, so a SIXTH key, a renamed one and a deleted one are each a mismatch. A renamed key is not an error upstream: Get returns \"\" and the handler DEFAULTS, which is a 200 that read something else"
+
+cannot "docs' search discriminates on exactly all / fulltext / semantic, and treats an ABSENT type as all — the closed set apps/bff answers 400 for anything outside of, with the empty default deliberately left to upstream so there is only one author of it" \
+    "talyvor-docs internal/search/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Search(/,/^}/p' internal/search/handler.go | grep -o 'kind == .[a-z]*.' | tr -d '\"' | LC_ALL=C sort -u | tr '\n' '|')\" = \"kind == |kind == all|kind == fulltext|kind == semantic|\" ]   # in a talyvor-docs checkout; the leading empty member IS the absent-type default and is part of the premise. A FOURTH value accepted upstream while this repo still refuses it is a search nobody can run; a value dropped upstream is one this repo forwards to be ignored"
+
+cannot "an unrecognised type runs NEITHER half of docs' search and answers 200 with an empty list — the fact apps/bff's own 400 exists because of, since upstream cannot tell a mistyped type from a workspace with no matching documents" \
+    "talyvor-docs internal/search/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Search(/,/^}/p' internal/search/handler.go | grep -o 'if kind == .[a-z]*. || kind == .[a-z]*. {' | tr -d '\"' | tr '\n' '|')\" = \"if kind == all || kind == fulltext {|if kind == all || kind == semantic {|\" ]   # in a talyvor-docs checkout; BOTH dispatch arms verbatim and in order, so an arm inverted to a negation or re-aimed at another value is a mismatch. MEASURED BOUNDARY: a THIRD branch added elsewhere leaves both arms untouched and this command green"
+
+cannot "docs' search puts the offset into SQL for a SINGLE source and zeroes it only when both halves run — the premise under apps/bff exempting type=fulltext and type=semantic from the 50-row refusal, so deep paging keeps working on one source" \
+    "talyvor-docs internal/search/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Search(/,/^}/p' internal/search/handler.go | grep -o 'twoSources := kind == .[a-z]*.\\|sqlOffset := offset\\|sqlOffset = 0\\|window = offset + limit' | tr -d '\"' | tr '\n' '|')\" = \"twoSources := kind == all|sqlOffset := offset|sqlOffset = 0|window = offset + limit|\" ]   # in a talyvor-docs checkout; the whole dataflow in order. If sqlOffset ever starts at 0, single-source deep paging silently returns page 1 forever and the exemption becomes wrong. It pins WHERE the offset goes, not WHETHER the key is read — that is the key-set entry's question, measured (control E2c)"
+
 # ── THE SAME CLASS, IN THE MONEY-READ FILE, AND ONE DELIBERATE DIVERGENCE ────
 # DECISION: apps/web/src/lib/api.ts declares TypeScript shapes for four talyvor-lens structs, and
 #           every balance, ledger row and spend figure this console renders is typed off them.
