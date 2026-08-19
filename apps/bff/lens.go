@@ -267,6 +267,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	// column as the authority on which routes are gated is reading a claim nothing enforces. Not
 	// changed here: that is a separate finding about six existing routes, not this one's to ride.
 	a.mux.HandleFunc("/api/track/issues/{id}/summary", a.trackIssueSummary())
+	// Track's duplicate finder — a POST, and the first Track AI feature here that is one. It
+	// writes nothing upstream and it SPENDS (one metered Lens completion per press, attributed to
+	// this issue), so it is a write path in everyMutatingRoute()'s sense and behind the Origin
+	// gate. Registered bare for the same measured reason as the two routes above: the handler
+	// wraps ITSELF, so a second wrapper here would be a no-op that reads like a guard.
+	a.mux.HandleFunc("/api/track/issues/{id}/find-duplicates", a.trackFindDuplicates())
 	a.mux.HandleFunc("/api/track/teams", a.requireSession(a.trackTeams()))
 
 	// The Track roster and Lens month-spend, both pinned at registration from

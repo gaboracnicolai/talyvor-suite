@@ -39,6 +39,8 @@
   "src/areas/marketing/Landing.test.tsx": 11,
   "src/areas/track/AISummary.test.tsx": 11,
   "src/areas/track/data.test.ts": 1,
+  "src/areas/track/duplicates.test.ts": 11,
+  "src/areas/track/findDuplicates.test.tsx": 11,
   "src/areas/track/format.test.ts": 10,
   "src/areas/track/IssueDetail.test.tsx": 19,
   "src/areas/track/IssueList.test.tsx": 20,
