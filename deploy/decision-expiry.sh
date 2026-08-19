@@ -628,6 +628,36 @@ cannot "docs' search puts the offset into SQL for a SINGLE source and zeroes it 
     "talyvor-docs internal/search/handler.go" \
     "[ \"\$(sed -n '/^func (h \\*Handler) Search(/,/^}/p' internal/search/handler.go | grep -o 'twoSources := kind == .[a-z]*.\\|sqlOffset := offset\\|sqlOffset = 0\\|window = offset + limit' | tr -d '\"' | tr '\n' '|')\" = \"twoSources := kind == all|sqlOffset := offset|sqlOffset = 0|window = offset + limit|\" ]   # in a talyvor-docs checkout; the whole dataflow in order. If sqlOffset ever starts at 0, single-source deep paging silently returns page 1 forever and the exemption becomes wrong. It pins WHERE the offset goes, not WHETHER the key is read — that is the key-set entry's question, measured (control E2c)"
 
+# ⚠ THE FIVE ENTRIES ABOVE ARE ALL ABOUT THE REQUEST. THIS ONE IS ABOUT THE ANSWER, AND IT IS THE
+# ONLY CROSS-REPO CLAIM ON THIS ROUTE THAT A MONEY SENTENCE RESTS ON. The four request-side premises
+# decide what gets ASKED; `source` decides what the screen is allowed to SAY it was billed for.
+# MEASURED, not reasoned about, by driving the shipped card at suite `567e6d6a` with the dual-match
+# literal renamed (`both` -> `hybrid`, which is exactly what an upstream rename produces on the wire):
+#   source "both"   -> semantic:"ran"     -> "Embedding the query WAS a metered Lens call billed to
+#                                            this workspace under docs-search"
+#   source "hybrid" -> semantic:"unknown" -> "WHERE LENS IS CONFIGURED, embedding the query is a
+#                                            metered call … Only a row from the semantic index
+#                                            proves it happened here"
+# So one renamed literal converts a definite charge into a conditional, on a search the workspace WAS
+# billed for — and the hedge it falls back to explains itself with "Docs merges an unconfigured
+# semantic search in as an empty list", which is FALSE on that very response. The classifier reads
+# only the two positive literals, so a rename can never FABRICATE evidence; it silently DELETES it,
+# which is the direction no screen can detect.
+# ⚠ AND NO TEST IN THIS REPO CAN SEE IT, BY CONSTRUCTION. Censused at 567e6d6a: the dual-match
+# literal appears six times in apps/web — three in search.ts (the union and the two classifier arms)
+# and three in fixtures authored HERE (search.test.ts x2, searchDocs.test.tsx x1). Both halves of
+# every comparison live in this repository, so the fixtures go on passing with the old literal while
+# production receives the new one. That is what makes it a register entry and not a test.
+# ⚠ MEASURED AND CURRENTLY TRUE, so it is recorded rather than pinned as a sixth claim: the `both`
+# tag is decided by `simScore > 0` on a map lookup that returns 0.0 for a MISS, so it would lose a
+# dual match whose similarity were exactly 0 — upstream's `similarityThreshold = 0.75`
+# (internal/search/semantic.go:38) means a returned row is always >= 0.75, so the condition is sound
+# today. This entry pins the emitted SET, not that condition; a re-aimed condition is a different
+# question and is not asked here.
+cannot "docs' search tags a row both halves matched \`both\` and a semantic-only row \`semantic\` — the two literals apps/web/src/areas/docs/search.ts turns into the semantic-evidence sentence AND the metered-cost sentence, so a rename upstream does not merely lose a label, it RETRACTS a money claim on a search that was billed" \
+    "talyvor-docs internal/search/handler.go" \
+    "[ \"\$(sed -n '/^func merge(/,/^}/p' internal/search/handler.go | grep -o 'src :*= \"[a-z]*\"\\|Source: *\"[a-z]*\"' | grep -o '\"[a-z]*\"' | tr -d '\"' | LC_ALL=C sort -u | tr '\n' '|')\" = \"both|fulltext|semantic|\" ]   # in a talyvor-docs checkout; the WHOLE set merge() can emit, so a RENAMED literal, a dropped one and a FOURTH one are each a mismatch (measured: both->hybrid, semantic->vectoronly, fulltext->keyword, and a fourth arm — all caught; a reworded comment — green). The quotes are matched EXPLICITLY rather than with the \`.\` wildcard the entries above use: \`Source: *.[a-z]*.\` also matches the UNQUOTED \`Source: src,\` line in the same function and yielded a phantom \`src,\` member on a pristine tree. An empty capture, which is what a renamed merge() and an absent file both produce, is the failure grep's own exit status cannot see"
+
 # ── THE SAME CLASS, IN THE MONEY-READ FILE, AND ONE DELIBERATE DIVERGENCE ────
 # DECISION: apps/web/src/lib/api.ts declares TypeScript shapes for four talyvor-lens structs, and
 #           every balance, ledger row and spend figure this console renders is typed off them.
