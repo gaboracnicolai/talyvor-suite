@@ -195,11 +195,13 @@ describe('the expiry register still has an uncheckable half to police', () => {
     expect(
       EXTRACT.length,
       'the `grep -o` rule has lost its subject. It is a loop, so with no extraction commands ' +
-        'left it passes reading nothing — ELEVEN cross-repo struct mirrors are settled by that ' +
+        'left it passes reading nothing — SIXTEEN cross-repo premises are settled by that ' +
         'shape and this floor is what makes their disappearance a red instead of a silence. It ' +
         'was 7 when only talyvor-track and talyvor-docs were registered; leaving it at 7 after ' +
-        "lib/api.ts's four were added would have tolerated losing exactly those four in silence.",
-    ).toBeGreaterThanOrEqual(11)
+        "lib/api.ts's four were added would have tolerated losing exactly those four in silence. " +
+        'It was 11 until the five docs-search premises arrived, and the same argument applies ' +
+        'unchanged: the number moves in the change that adds them, or it tolerates their loss.',
+    ).toBeGreaterThanOrEqual(16)
   })
 
   it('at least three of them are settled by running `go test` upstream', () => {
