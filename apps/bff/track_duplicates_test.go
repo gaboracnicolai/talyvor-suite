@@ -172,9 +172,53 @@ func TestTrackFindDuplicates_RefusesOtherMethods(t *testing.T) {
 	}
 }
 
-// ⚠ AN EMPTY ID IS REFUSED HERE, NOT UPSTREAM. `/api/track/issues//find-duplicates` would
-// otherwise assemble a path with an empty segment and ask Track about the issue named "".
-func TestTrackFindDuplicates_RefusesAnEmptyIssueID(t *testing.T) {
+// ⚠⚠ THIS TEST WAS VACUOUS FOR THE PROPERTY IT NAMED, AND A CONTROL IS WHAT SAID SO — NOT A READ.
+// It was one test named for refusing an EMPTY issue id, driving `/api/track/issues//find-duplicates`
+// and asserting "not 200, upstream not dialled". (Its name is not quoted here: `cited_guard_test.go`
+// refuses a comment that names a test which does not exist, and it caught this paragraph doing so.) MEASURED (tab-7f6b, control D1 of
+// `~/talyvor-queue/w17-emptyid-controls-7f6b.py`): with the `pathID` call deleted from
+// `trackFindDuplicates` ENTIRELY, the whole `apps/bff` package stayed GREEN — because that URL
+// never reaches this handler at all. net/http's ServeMux CLEANS the empty path segment and answers
+// a redirect, so the assertion was satisfied by the router, and the id guard it was written for had
+// no test in this repository.
+//
+// ⚠ THE SIBLING ROUTES DID NOT HAVE THE HOLE, WHICH IS WHY THIS IS A REPAIR AND NOT A NEW RULE.
+// `TestDocsTranslate_TheAddressCannotNameAnEmptyPage` and its summarise twin drive TWO rows — the
+// empty segment AND `%2F`, which survives the cleaning and reaches the handler — so their guard is
+// exercised. This one drove the redirect alone. The census is the four `//`-shaped cases in
+// `apps/bff/*_test.go`; the other three are those two docs tests' rows, plus the triage route's,
+// which was re-aimed the same way in #232 after the same control caught it there first.
+//
+// The ids below DO reach the handler: `..` is path traversal, `a/b` would forge an extra path
+// segment in the URL this BFF assembles, and a raw tab is a control character.
+func TestTrackFindDuplicates_RefusesAHostileIssueID(t *testing.T) {
+	for _, id := range []string{"%2E%2E", "a%2Fb", "%09"} {
+		track := newCaptureUpstream(t, `[]`)
+		a, sess := productApp(t, track, nil)
+
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/track/issues/"+id+"/find-duplicates", nil)
+		req.AddCookie(sess)
+		a.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("id %q → %d (%s), want 400 from pathID", id, rec.Code, rec.Body.String())
+		}
+		if track.path != "" {
+			t.Errorf("id %q reached the upstream as %q — and every press of this route SPENDS", id, track.path)
+		}
+	}
+}
+
+// The empty segment, asserted as what it actually is. Kept rather than deleted: the day the mux
+// stops cleaning it, this route starts receiving it and `pathID` is what must refuse it — and this
+// is the test that would say so.
+//
+// ⚠ THE STATUS IS NOT PINNED, and that is measured rather than cautious: the same redirect is 307
+// under go1.26.3 and 301 under the go1.25.0 that `apps/bff/go.mod` pins for CI (#232 was red on
+// exactly that). The difference is not cosmetic — a client following a 301 may rewrite this POST
+// into a GET — so the code is reported in the failure message instead of asserted.
+func TestTrackFindDuplicates_AnEmptyIDSegmentIsRedirectedBeforeThisRouteRuns(t *testing.T) {
 	track := newCaptureUpstream(t, `[]`)
 	a, sess := productApp(t, track, nil)
 
@@ -183,10 +227,14 @@ func TestTrackFindDuplicates_RefusesAnEmptyIssueID(t *testing.T) {
 	req.AddCookie(sess)
 	a.ServeHTTP(rec, req)
 
-	if rec.Code == http.StatusOK {
-		t.Fatalf("an empty issue id answered 200 (%s)", rec.Body.String())
+	if rec.Code < 300 || rec.Code > 399 {
+		t.Fatalf("got %d (%s), want a redirect — if this changed, the empty segment now REACHES "+
+			"this handler and pathID is what must refuse it", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Location") == "" {
+		t.Fatalf("a %d with no Location: this is not the router cleaning the path", rec.Code)
 	}
 	if track.path != "" {
-		t.Fatalf("upstream was dialled with an empty id: %q", track.path)
+		t.Fatalf("upstream was dialled for a path the router should have cleaned: %q", track.path)
 	}
 }
