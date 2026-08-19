@@ -181,6 +181,13 @@ describe('the page translation control', () => {
     fireEvent.click(screen.getByRole('button', { name: /translate this page/i }))
 
     expect(await screen.findByText(/Couldn’t translate this page/i)).toBeInTheDocument()
-    expect(screen.queryByText(/docs-ai-translate/)).not.toBeInTheDocument()
+    // ⚠ THE RECEIPT, NOT THE TAG. This line used to read `queryByText(/docs-ai-translate/)`, and
+    // that was a faithful proxy for "no money claim on a fault" only while the cost sentence lived
+    // inside the `translate.data` branch. It now sits beside the control in every state, because a
+    // price a reader can only reach after paying is a receipt — so what must be absent here is the
+    // PAST TENSE, which would claim this failed call was billed. Asserted both ways so a receipt
+    // cannot return by changing which clause renders.
+    expect(screen.queryByText(/This translation was a metered Lens call/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Translating this page buys a metered Lens call/i)).toBeInTheDocument()
   })
 })

@@ -33,6 +33,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
 import { docsApi, type AskSource } from './api'
+import { MeteredNote } from './components'
 import { aiNotConfiguredCopy, isAIUnavailable, isSessionExpired } from '../../lib/productState'
 
 /**
@@ -87,6 +88,13 @@ export function AskAI() {
             Answered from the pages you can open, by Docs through Lens.
           </span>
         </div>
+        {/* THE COST SENTENCE. It names where the charge lands and shows no number, because there
+            is no per-answer number to show — see the header. ⚠ IT IS HERE, INSIDE THE FORM BESIDE
+            Ask, AND NOT INSIDE THE ANSWER BRANCH IT USED TO LIVE IN: a price a reader can only
+            reach after paying is a receipt. Only the opening clause moves. */}
+        <MeteredNote tag="docs-ai-ask" payer="workspace">
+          {answer ? <>This answer was</> : <>Asking a question buys</>}
+        </MeteredNote>
       </form>
 
       {/* ⚠ ONE CHAIN, FAILURE FIRST — not two sibling containers. "No pages were cited" must never
@@ -115,13 +123,6 @@ export function AskAI() {
           ) : (
             <Sources sources={answer.sources} />
           )}
-          {/* THE COST SENTENCE. It names where the charge lands and shows no number, because
-              there is no per-answer number to show — see the header. */}
-          <p className="text-caption text-faint">
-            This answer was a metered Lens call billed to this workspace under{' '}
-            <code>docs-ai-ask</code>. Docs attributes it to no single page, so it does not appear
-            in any page’s AI cost.
-          </p>
         </div>
       ) : null}
     </Card>
