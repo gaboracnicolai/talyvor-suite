@@ -31,7 +31,7 @@
  * ── WHY IT READS THE DOM ─────────────────────────────────────────────────────────────────────
  *
  * A source rule would have to decide, at each `placeholder=` site, whether the element is a raw
- * `<input>` or an `<Input>` that spreads the prop through to one — `Keys.tsx:97` passes
+ * `<input>` or an `<Input>` that spreads the prop through to one — `Keys.tsx:114` passes
  * `placeholder={k.key_prefix}` to the component, so the attribute and the class list are written
  * in two different files. Measured: 5 `placeholder=` sites in the source, 2 of them on the
  * component. The DOM is where the attribute and the class meet, which is the same argument

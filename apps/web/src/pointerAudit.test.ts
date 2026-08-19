@@ -165,7 +165,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-eyebrow uppercase',
     why: 'the element that OPENS the eyebrow, quoted to show CaseSafe sits inside it rather than on it',
   },
-  'apps/web/src/placeholderAudit.ts:34|apps/web/src/areas/lens/Keys.tsx:97': {
+  'apps/web/src/placeholderAudit.ts:34|apps/web/src/areas/lens/Keys.tsx:114': {
     kind: 'LIVE',
     fragment: 'placeholder={k.key_prefix}',
     why: 'the site that passes a placeholder THROUGH a component, the whole argument for reading the DOM',
@@ -327,7 +327,7 @@ const PINS: Record<string, Pin> = {
   // the error's CLASS, and the argument is only as good as the three siblings it contrasts with.
   // Each of these three is quoted as gating on `isError`; if one of them is ever narrowed to an
   // `instanceof` the way TopUp was, that sentence stops being true and this pin says so.
-  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/Keys.tsx:114': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/Keys.tsx:131': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the sibling with the same fallback shape — revoke gates on isError and picks its 404 words inside',

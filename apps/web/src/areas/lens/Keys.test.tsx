@@ -265,3 +265,93 @@ describe('revoking a key', () => {
     expect(screen.getByText(/5 minutes/i)).toBeInTheDocument()
   })
 })
+
+// ─── W1.1.5 — THE REBUILD ────────────────────────────────────────────────────────────────────
+//
+// What this screen was: ONE card in a `px-gutter py-4` stack holding four different ideas — where
+// to learn what a key is for, how to mint one, what went wrong, and the keys that exist — with no
+// heading of the screen's own and no marking between them. The sticky banner wrote "Keys" and
+// everything under it was one anonymous panel, so a reader moving by region got one stop on the
+// screen that hands out credentials.
+//
+// ⚠ AND ITS EMPTY STATE WAS A ROW IN A LIST. "No keys yet. Create one above." is a sentence about
+// the LIST; the state a new signup is actually in is a WORKSPACE with no credential at all, and
+// nothing on the page said what a key is for or what to do after minting one — which is the
+// question `/setup` exists to answer and which this screen only ever offered as a caption.
+
+/** A workspace that has never minted anything. An ANSWERED empty list, never a failed read. */
+function mockNoKeys() {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const method = (init?.method ?? 'GET').toUpperCase()
+    if (url === '/api/keys' && method === 'GET')
+      return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } })
+    return new Response('null', { status: 404 })
+  })
+}
+
+describe('W1.1.5 — the screen has a shape a reader can navigate', () => {
+  it('opens with exactly one page-scale heading, and it is an h2', async () => {
+    mockKeys()
+    renderKeys()
+    await screen.findByText('CI pipeline')
+    const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
+      h.className.includes('text-title'),
+    )
+    expect(
+      pageScale.map((h) => h.tagName),
+      'the screen writes ONE page-scale claim about what this page is; the shell already writes ' +
+        'the only h1',
+    ).toEqual(['H2'])
+  })
+
+  it('every section of the screen is a NAMED landmark — none is anonymous', async () => {
+    mockKeys()
+    renderKeys()
+    await screen.findByText('CI pipeline')
+    const sections = Array.from(document.querySelectorAll('section'))
+    expect(
+      sections.length,
+      'the screen draws no sections at all — it is the single anonymous panel the rebuild replaces',
+    ).toBeGreaterThan(2)
+    // A <section> is a `region` landmark ONLY when it has an accessible name, so the two counts
+    // must agree. A floor on getAllByRole('region') alone passes an unnamed sibling.
+    expect(screen.getAllByRole('region')).toHaveLength(sections.length)
+  })
+})
+
+describe('W1.1.5 — a workspace with no key is told what a key is FOR', () => {
+  it('says the workspace has no keys and links to where a key gets used', async () => {
+    mockNoKeys()
+    renderKeys()
+    expect(await screen.findByText(/has no keys/i)).toBeInTheDocument()
+    // The next action after minting is not on this screen, and it never was: Setup holds the two
+    // environment variables. The empty state names that destination instead of implying the key
+    // does something by existing.
+    expect(screen.getByRole('link', { name: /setup/i })).toHaveAttribute('href', '/setup')
+  })
+
+  it('a list that could NOT be read is never drawn as a workspace with no keys', async () => {
+    // ⚠ THE DIRECTION THAT MATTERS. A failed read is not an empty workspace. Told wrongly here it
+    // tells an operator whose keys are live that they have none — on the screen whose other
+    // control is REVOKE.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('boom', { status: 502 }))
+    renderKeys()
+    await screen.findByText(/couldn’t load|couldn’t read|try again/i)
+    expect(screen.queryByText(/has no keys/i)).toBeNull()
+  })
+
+  it('the reveal state says at page scale that the credential will not be shown again', async () => {
+    mockKeys()
+    renderKeys()
+    fireEvent.change(await screen.findByLabelText('New key name'), { target: { value: 'Laptop' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create key' }))
+    await screen.findByText(MINTED.key)
+    const pageScale = document.querySelector('h2.text-title')
+    expect(
+      pageScale?.textContent ?? '',
+      'the one moment this screen has a credential on it is the one moment its page-scale claim ' +
+        'should be about the credential',
+    ).toMatch(/again/i)
+  })
+})
