@@ -160,6 +160,123 @@ func (a *app) docsSummarizePage() http.HandlerFunc {
 	})
 }
 
+// docsSuggestTitleBody is the upstream schema, built HERE for the same reason summarise's and
+// translate's are: `page_id` is authority rather than content — it decides which document the
+// charge lands on — and it comes from this route's path.
+//
+// ⚠⚠ THE CONTENT FIELD IS NAMED `content`, AND ON THIS ROUTE THE WRONG NAME IS THE ONE ITS OWN
+// SIBLINGS USE. talyvor-docs binds ``Content string `json:"content"``
+// (internal/ai/handler.go#Handler.SuggestTitle). Summarise and translate both call it `text`, in
+// this app AND on the wire, so `text` is what a caller copying either of them would send — and
+// upstream that is not an error.
+//
+// MEASURED, NOT READ (tab-2f4d, talyvor-docs at f515db8, a `git archive` scratch export in /tmp;
+// that repo was held by tab-4d19 and was never written to). Its real SuggestTitle handler mounted
+// over a fake Lens that COUNTS completions and captures the user content:
+//
+//	{"content":"Some real page text…","page_id":"pg-1"} → 200, 1 completion, 34 user bytes
+//	{"page_id":"pg-1"}                                  → 200, 1 completion,  0 user bytes
+//	{"content":"","page_id":"pg-1"}                     → 200, 1 completion,  0 user bytes
+//	{"content":"   \n\t  ","page_id":"pg-1"}            → 200, 1 completion,  7 user bytes
+//	{"text":"Some real page text.","page_id":"pg-1"}    → 200, 1 completion,  0 user bytes
+//	{"content":"Some real page text."}                  → 200, 1 completion, 20 user bytes
+//
+// Every row is a 200 and a real billed completion tagged `docs-ai-title`. Rows two to five buy a
+// title for a page the model never read; row six buys one no page accounts for. Nothing in the
+// status can separate them, which is why docs_suggesttitle_test.go decodes the SENT body through
+// these same struct tags rather than asserting a response.
+type docsSuggestTitleBody struct {
+	Content string `json:"content"`
+	PageID  string `json:"page_id"`
+}
+
+// docsSuggestTitlePage — POST /api/docs/pages/{pageID}/suggest-title →
+// POST /v1/workspaces/{ws}/ai/suggest-title.
+//
+// ⚠ THE SIXTH OF W1.7'S EIGHT AI CONTROLS, AND THE FIRST WHOSE OUTPUT IS MEANT TO BE WRITTEN BACK.
+// That is why it could be built while `shorter`, `longer` and `grammar` still cannot: those three
+// replace the DOCUMENT, and the only editable box in this app writes `content_text`, the search
+// projection Docs derives — an open product decision (W2.3, areas/docs/EDITOR-SIZING.md) that a
+// model's output must not settle sideways. A title is a column of its own, already in Docs'
+// `updatableFields`, and this app already PATCHes it (docsUpdatePage). So the suggestion has
+// somewhere honest to land without touching the question the editor owns.
+//
+// ⚠ THIS ROUTE DOES NOT WRITE IT. Suggesting costs money; applying changes a document. Doing both
+// in one call would make a single click an unreviewable spend-and-mutate, and would put the write
+// behind a gate (this route's) that is not the write's own. The screen shows the suggestion and
+// the existing PATCH applies it.
+//
+// ⚠ BLANK TEXT IS REFUSED BEFORE THE MONEY MOVES — rows two to four above, re-measured on THIS
+// route rather than inherited from its siblings. The refusal is EXACTLY as wide as the
+// measurement: empty after trimming, and nothing else. "Too short to deserve a title" would be a
+// product threshold invented in a proxy.
+//
+// ⚠ AN EMPTY SUGGESTION IS PASSED THROUGH AS ITSELF. Engine.SuggestTitle trims ` \t\n"'` off the
+// completion and returns what is left, so a model answering `""`, `"''"` or `"\n\n"` yields
+// `{"title":""}` with a 200 — measured, five completion shapes, all `{"title":""}`. By then the
+// completion is bought. Turning it into a 502 here would report a healthy upstream as broken and
+// hide a charge the workspace has taken; the refusal belongs at the button that would otherwise
+// write that empty title over a real one (PageTitleSuggestion.tsx).
+//
+// ⚠ THE PAGE ID GOES THROUGH pathID, WHICH IS STRICTER THAN THE TWO SIBLING AI ROUTES. They pass
+// r.PathValue straight into the body; this one refuses "", ".", "..", separators and control
+// characters the way every other id-bearing route here does (docsSpaceDetail, docsUpdatePage).
+// Upstream an empty page_id does not fail — attributable() returns early on it — so it produces a
+// completion the workspace pays for and no page accounts for.
+//
+// ⚠ THE CAP IS maxDocsBody, THE PAGE CAP, for summarise's reason: what travels is a page's stored
+// text. Upstream has no cap at all.
+//
+// ⚠ COST. Lens meters this under the feature tag `docs-ai-title` and Docs rolls it onto the named
+// page's `own_ai_cost_usd`. Any screen offering this button must say so.
+func (a *app) docsSuggestTitlePage() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		pageID, ok := pathID(w, "pageID", r.PathValue("pageID"))
+		if !ok {
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDocsBody))
+		if err != nil {
+			// 413 rather than a failure inside the forward, which reads from the outside as
+			// "docs upstream unreachable" — a false statement about a healthy upstream.
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": "page text too large to title"})
+			return
+		}
+		var in struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json"})
+			return
+		}
+		if strings.TrimSpace(in.Text) == "" {
+			// NOT a fault: nothing is broken and nothing is missing — there is simply nothing to
+			// title. Upstream would answer 200 to this and bill for it, having read no page.
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "there is no text on this page to suggest a title from"})
+			return
+		}
+		payload, err := json.Marshal(docsSuggestTitleBody{Content: in.Text, PageID: pageID})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "could not build the suggest-title request"})
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/ai/suggest-title"), "", http.MethodPost,
+			bytes.NewReader(payload), nil)
+	})
+}
+
 // docsTranslateBody is the upstream schema, built HERE for the same reason summarise's is: two of
 // the three fields are authority rather than content. `page_id` is what Docs binds the COST to,
 // and it comes from this route's path.

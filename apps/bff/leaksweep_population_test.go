@@ -166,11 +166,17 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 
 	// ⚠ THE UPPER BOUND IS THE OTHER HALF, and without it the floor is escapable. A route that
 	// stops answering GET leaves the swept population SILENTLY: the floor still passes while
-	// coverage shrinks. SIX are write-only today (/api/keys/{id}, /api/lens/convert,
-	// /api/lxc/checkout, /api/pooling, /api/docs/ai/ask, /api/docs/pages/{pageID}/summarize). A
-	// seventh is a change in what this guard can see, and it has to be looked at. Their WRITE responses are searched by the write sweep
-	// below — for the year this bound existed the excuse was "the Origin sweep covers them", and
-	// it did not.
+	// coverage shrinks. ELEVEN are write-only today, and each of them is NAMED AND JUSTIFIED in the
+	// numbered notes below — the fifth through the eleventh, the first four being the ones this
+	// bound was born with (/api/keys/{id}, /api/lens/convert, /api/lxc/checkout, /api/pooling). A
+	// twelfth is a change in what this guard can see, and it has to be looked at. Their WRITE
+	// responses are searched by the write sweep below — for the year this bound existed the excuse
+	// was "the Origin sweep covers them", and it did not.
+	//
+	// ⚠ THIS PARAGRAPH USED TO RESTATE THE LIST AND THE COUNT, AND BOTH HAD GONE FALSE: it said
+	// "SIX are write-only today" and named six while the bound below was 10 and the population was
+	// 10. A count and a list written twice are two things that can disagree, and these did — so
+	// the second copy is gone rather than corrected. The notes below are the list.
 	//
 	// ⚠ THE FIFTH, /api/docs/ai/ask, WAS LOOKED AT RATHER THAN WAVED THROUGH. It is POST-only
 	// because an ask has a body and no idempotent reading — GET would have to carry the question
@@ -228,9 +234,22 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// prefetch. It carries NOTHING (no body, no query, measured: the upstream handler decodes
 	// neither), so there is no payload a query string would leak. Its POST response is searched by
 	// the write half below.
-	if len(methodOnly) > 10 {
+	// ⚠ THE ELEVENTH, /api/docs/pages/{pageID}/suggest-title, WAS LOOKED AT ON SUMMARISE'S AND
+	// TRANSLATE'S TERMS, WHICH IT SHARES EXACTLY. It sends a whole page of stored text, so as a GET
+	// that body would have to be a query string — a customer's document in every access log and
+	// proxy buffer along the way, which is the leak this file hunts, created by the shape of the
+	// route rather than by anything in a response. It is METERED: each call is a Lens completion
+	// the workspace pays for and Docs attributes to the named page under the feature tag
+	// `docs-ai-title` (measured against docs' real handler over a counting fake Lens — every body
+	// it was given, including three that carry no readable content, produced one completion). And
+	// upstream mounts it POST-only (`POST /workspaces/{wsID}/ai/suggest-title`), so a GET here
+	// would have nowhere honest to go. ⚠ WHAT IT DOES NOT DO IS LEAVE A ROW BEHIND: unlike the
+	// changelog route above, the suggestion is returned and nothing is written — applying it is a
+	// separate PATCH on the page route, which answers GET and is inside the sweep. Its POST
+	// response is searched by the write half below, in all three fixtures.
+	if len(methodOnly) > 11 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 10 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 11 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

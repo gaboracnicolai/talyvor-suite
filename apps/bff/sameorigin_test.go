@@ -208,6 +208,15 @@ func everyMutatingRoute() []mutatingRoute {
 		// row's write ARRIVES upstream — so this row carries both fields.
 		{method: http.MethodPost, path: "/api/docs/pages/p1/translate", body: `{"text":"real page text","language":"French"}`},
 
+		// SUGGEST-TITLE — swept for the same reason as the three AI rows above: it writes nothing
+		// in Docs and it SPENDS, on a named document.
+		//
+		// ⚠ ITS BODY FIELD IS `text` HERE AND `content` ON THE WIRE, and this row must carry the
+		// name THIS route reads or it would be refused before the Origin rule was consulted —
+		// the same trap the summarise row above records. docs_suggesttitle_test.go is what pins
+		// the rename; this row only has to survive it.
+		{method: http.MethodPost, path: "/api/docs/pages/p1/suggest-title", body: `{"text":"real page text"}`},
+
 		// CHANGELOG GENERATION — and it is a write path here in the LITERAL sense the four AI rows
 		// above are not. Ask, summarise and translate write nothing in Docs and are swept because
 		// they SPEND; this one spends nothing (measured: it reaches Lens never, it groups Track

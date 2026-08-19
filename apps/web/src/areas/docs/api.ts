@@ -185,6 +185,23 @@ export interface DocsTranslation {
   text: string
 }
 
+/** POST /api/docs/pages/{pageID}/suggest-title → talyvor-docs' suggest-title response, which is
+ *  `{"title": …}` and nothing else (internal/ai/handler.go#Handler.SuggestTitle).
+ *
+ *  ⚠ IT IS A DISTINCT TYPE FROM `DocsSummary` AND `DocsTranslation` DESPITE THE SAME ONE-FIELD
+ *  SHAPE, and the field is `title`, not `text` — those two answer with prose a screen prints and
+ *  forgets; this one answers with a value a screen may WRITE BACK into the document.
+ *
+ *  ⚠⚠ THE TITLE CAN BE EMPTY, AND THAT IS A 200. Engine.SuggestTitle trims ` \t\n"'` off the
+ *  completion and returns what is left, so a model answering `""`, `"''"` or `"\n\n"` yields
+ *  `{"title":""}` — MEASURED against docs' own handler over a fake Lens, five completion shapes,
+ *  all `{"title":""}`. The completion is bought by then, so neither the BFF nor this client turns
+ *  it into an error; the refusal lives at the button that would otherwise write an empty title over
+ *  a real one (PageTitleSuggestion.tsx). A caller that assumes this string is non-empty is wrong. */
+export interface DocsTitleSuggestion {
+  title: string
+}
+
 /** POST /api/docs/spaces/{spaceID}/pages/{pageID}/changelog/generate → the changelog entry
  *  talyvor-docs CREATED (internal/changelog/handler.go#Handler.Generate → Store.CreateEntry,
  *  201 with the row).
@@ -306,6 +323,34 @@ export const docsApi = {
     send<DocsTranslation>(`/api/docs/pages/${encodeURIComponent(pageId)}/translate`, 'POST', {
       text,
       language,
+    }),
+
+  /**
+   * Suggest a title for ONE page from its stored text.
+   *
+   * ⚠⚠ THE FIELD IS `text` HERE AND `content` ON THE WIRE, AND THE RENAME IS DELIBERATE. Upstream
+   * binds `json:"content"` (internal/ai/handler.go#Handler.SuggestTitle) while both sibling AI
+   * routes bind `text` — so `text` is exactly what a caller copying either of them would send, and
+   * upstream a wrong key is NOT an error: it decodes to "", the model is asked to title a page it
+   * never read, and the caller gets 200 and a billed completion. MEASURED against docs' own handler
+   * over a fake Lens that counts completions. The BFF owns the rename so this app has ONE name for
+   * "the page's stored text", and docs_suggesttitle_test.go pins it by decoding the SENT body
+   * through docs' own struct tags — a status assertion could not tell the two apart.
+   *
+   * ⚠ NO `page_id` IN THE BODY. The BFF takes the page from the path
+   * (docs_ai.go#docsSuggestTitlePage) because it is authority, not content — it decides which
+   * document the charge lands on, and upstream an absent page_id is a 200 whose charge no page
+   * accounts for.
+   *
+   * ⚠ THE TEXT IS THE PAGE AS STORED, NOT WHAT IS IN THE EDITOR — the caller's job, stated here
+   * because it is the whole reason the cost claim is honest.
+   *
+   * ⚠ THIS DOES NOT WRITE THE TITLE. Applying it is `updatePage(spaceId, pageId, { title })`, a
+   * separate call with a separate gate. Suggesting spends money; applying changes a document.
+   */
+  suggestTitle: (pageId: string, text: string) =>
+    send<DocsTitleSuggestion>(`/api/docs/pages/${encodeURIComponent(pageId)}/suggest-title`, 'POST', {
+      text,
     }),
 
   /**
