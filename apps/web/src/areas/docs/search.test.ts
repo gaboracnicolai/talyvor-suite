@@ -96,6 +96,61 @@ describe('readSearch', () => {
     expect(v.dropped).toBe(1)
   })
 
+  // ── WHERE THE EVIDENCE CAME FROM IS PART OF THE EVIDENCE ────────────────────
+  //
+  // The rule three lines above the drop in search.ts is that evidence is taken BEFORE the
+  // drawability check, "dropping the row must not also drop the one fact this response is able to
+  // establish". Both branches below used to break that rule in opposite directions, and the rows
+  // that trigger them are not hypothetical: the note on `dropped` records that talyvor-docs has
+  // shipped an undrawable row twice, BOTH TIMES on its semantic half — a hit whose url was a route
+  // its SPA does not register, and a hit with no title. That is exactly the row whose evidence the
+  // empty branch threw away and whose evidence the results branch credited to other rows.
+
+  it('keeps the semantic evidence when the only row proving it could not be drawn', () => {
+    // Every row undrawable ⇒ `empty`. The half still ran, and the response still proves it.
+    const v = readSearch(envelope([row({ source: 'semantic', page_title: '' })]))
+    expect(v.kind).toBe('empty')
+    if (v.kind !== 'empty') return
+    expect(v.dropped).toBe(1)
+    expect(v.semantic).toBe('ran')
+  })
+
+  it('does not credit a DRAWN row with evidence that arrived on a dropped one', () => {
+    // One full-text row is shown; the semantic row was undrawable. "The half ran" is true;
+    // "one of the rows on screen came from the semantic index" is false, and a screen given only
+    // the first fact will write the second.
+    const v = readSearch(envelope([row(), row({ page_id: 'pg-2', page_title: '', source: 'semantic' })]))
+    expect(v.kind).toBe('results')
+    if (v.kind !== 'results') return
+    expect(v.rows).toHaveLength(1)
+    expect(v.dropped).toBe(1)
+    expect(v.semantic).toBe('ran')
+    expect(v.semanticShown).toBe(false)
+  })
+
+  it('marks the evidence as SHOWN when a drawn row carries it', () => {
+    // The positive control for the two above: with a drawable semantic row both facts are true,
+    // so a fix that simply hardcoded `semanticShown: false` would fail here.
+    for (const src of ['semantic', 'both']) {
+      const v = readSearch(envelope([row(), row({ page_id: 'pg-2', source: src })]))
+      expect(v.kind === 'results' && v.semantic).toBe('ran')
+      expect(v.kind === 'results' && v.semanticShown).toBe(true)
+    }
+  })
+
+  it('never turns an empty or all-full-text answer into evidence', () => {
+    // The vacuity control on the other side. An empty branch that returned 'ran' unconditionally
+    // would pass the first test above and be a fabrication; these two are what stop it.
+    const e = readSearch(envelope([]))
+    expect(e.kind === 'empty' && e.semantic).toBe('unknown')
+    const u = readSearch(envelope([row({ page_title: '' }), row({ page_id: 'pg-2', url: '' })]))
+    expect(u.kind).toBe('empty')
+    expect(u.kind === 'empty' && u.dropped).toBe(2)
+    expect(u.kind === 'empty' && u.semantic).toBe('unknown')
+    const s = readSearch(envelope([row()]))
+    expect(s.kind === 'results' && s.semanticShown).toBe(false)
+  })
+
   it('carries the query Docs echoed, not the one the caller typed', () => {
     // Docs trims and echoes `query`; a screen that captions results with its own input can show
     // a caption that does not match the answer below it.

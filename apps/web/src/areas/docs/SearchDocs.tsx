@@ -18,6 +18,23 @@
 // half ran and matched nothing. What IS available is one-directional, and it is all this card
 // claims: a row tagged `semantic` or `both` proves the half ran; nothing proves it did not.
 //
+// ⚠⚠ AND THE CARD SAID BOTH HALVES OF THAT WRONG, MEASURED, ON THE ROW SHAPE UPSTREAM ACTUALLY
+// SHIPS. The `dropped` note in search.ts records that talyvor-docs has twice served a hit this app
+// cannot draw, and BOTH TIMES it was a semantic hit — so the undrawable row is the proof-carrying
+// row, not an unrelated edge. Driven through this component:
+//
+//   one `source:"semantic"` row with no title      → "Nothing in this workspace matched", "1 result
+//                                                     arrived and could not be drawn", and "this
+//                                                     answer CANNOT SAY whether the semantic half
+//                                                     ran" — while holding the proof that it had.
+//   one full-text row drawn + one semantic dropped → "At least one of THESE came from the semantic
+//                                                     index", pointing at a list where none did.
+//
+// The first hedged over evidence it was holding; the second is the worse one — a false sentence
+// about a visible list. One root: the card read "the half ran" and wrote "one of these", so where
+// the evidence arrived was discarded. `semantic` and `semanticShown` are now two facts and the
+// sentence is chosen from both, in evidenceNote, once.
+//
 // ⚠ THAT IS ALSO WHY THERE IS NO type TOGGLE. A "Semantic only" control would, on a deployment
 // without Lens, empty the list every time and be unable to say why — a button whose only visible
 // effect is an empty panel it must then hedge about. The BFF route accepts all three types and is
@@ -42,6 +59,32 @@ import { isSessionExpired } from '../../lib/productState'
 const cannotSayCopy =
   'This answer cannot say whether the semantic half ran — Docs merges an unconfigured semantic ' +
   'search in as an empty list and the response has no field for it.'
+
+/** Proof, and it is ON SCREEN. Requires a DRAWN row: "these" names the list under it. */
+const shownCopy =
+  'At least one of these came from the semantic index, so that half ran here and this workspace’s ' +
+  'pages are embedded.'
+
+/** Proof, and the row carrying it is one the card could not draw. A separate sentence rather than
+ *  a softened `shownCopy`, because the two differ in what they point AT: this one may not say
+ *  "these", and the previous version's only options were to say it falsely or to hedge over proof
+ *  it was holding. It ends on the drop deliberately — the reader's next question is which row. */
+const ranButDroppedCopy =
+  'The semantic half ran here and this workspace’s pages are embedded — the row that proves it is ' +
+  'one of the rows that could not be drawn.'
+
+/**
+ * The evidence sentence, chosen in ONE place.
+ *
+ * ⚠ IT IS A FUNCTION AND NOT TWO TERNARIES IN THE JSX BECAUSE THE TWO BRANCHES DRIFTED. The
+ * results branch read the weaker fact and wrote the stronger sentence; the empty branch could not
+ * read the fact at all. One rule, evaluated from the same two inputs in both places, is what stops
+ * a third state from being invented in one of them.
+ */
+function evidenceNote(semantic: 'ran' | 'unknown', shown: boolean): string {
+  if (semantic !== 'ran') return cannotSayCopy
+  return shown ? shownCopy : ranButDroppedCopy
+}
 
 export function SearchDocs() {
   const [term, setTerm] = useState('')
@@ -106,7 +149,9 @@ export function SearchDocs() {
             Nothing in this workspace matched that. Widen the query — fewer words, or different ones.
           </p>
           {view.dropped > 0 ? <DroppedNote n={view.dropped} /> : null}
-          <p className="text-caption text-faint">{cannotSayCopy}</p>
+          {/* `false` is not a hedge here: nothing was drawn, so no shown row can carry proof —
+              but a DROPPED one still can, and on this route it is the likely carrier. */}
+          <p className="text-caption text-faint">{evidenceNote(view.semantic, false)}</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2 px-gutter pb-3">
@@ -116,11 +161,10 @@ export function SearchDocs() {
             ))}
           </ul>
           {view.dropped > 0 ? <DroppedNote n={view.dropped} /> : null}
-          <p className="text-caption text-faint">
-            {view.semantic === 'ran'
-              ? 'At least one of these came from the semantic index, so that half ran here and this workspace’s pages are embedded.'
-              : cannotSayCopy}
-          </p>
+          {/* ⚠ `semanticShown`, NOT `semantic`. This used to read the weaker fact and print the
+              stronger sentence: with one full-text row drawn and a semantic row dropped it said
+              "at least one of THESE came from the semantic index" over a list where none did. */}
+          <p className="text-caption text-faint">{evidenceNote(view.semantic, view.semanticShown)}</p>
         </div>
       )}
     </Card>
