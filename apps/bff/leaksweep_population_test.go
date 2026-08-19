@@ -216,9 +216,21 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// reaching Lens carries `X-Talyvor-Feature: <the issue's identifier>`), and a GET that spends
 	// is retried by proxies, prefetched by browsers and re-run by crawlers, each time billing
 	// someone. Its POST response is searched by the write half below, in all three fixtures.
-	if len(methodOnly) > 9 {
+	// ⚠ THE TENTH, /api/track/issues/{id}/triage, IS POST-ONLY FOR THE NINTH'S REASON PLUS ONE THE
+	// OTHER NINE DO NOT HAVE. talyvor-track mounts `POST /v1/workspaces/{wsID}/issues/{id}/triage`
+	// and each press is a `claude-haiku-4-6` completion the workspace pays for and Track attributes
+	// to this issue (measured: `X-Talyvor-Feature: <the issue's identifier>`), so a GET that spends
+	// would be retried by proxies, prefetched by browsers and re-run by crawlers, each time billing
+	// someone. THE EXTRA REASON IS WHAT UPSTREAM DOES WITH A QUERY STRING: `?apply=true` makes
+	// Triage OVERWRITE the issue's priority and labels with the model's suggestion, discarding the
+	// write error. This BFF forwards NO query, so that is unreachable here — but a GET is the verb a
+	// browser follows from a link, and the one thing this route must never look like is safe to
+	// prefetch. It carries NOTHING (no body, no query, measured: the upstream handler decodes
+	// neither), so there is no payload a query string would leak. Its POST response is searched by
+	// the write half below.
+	if len(methodOnly) > 10 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 9 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 10 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

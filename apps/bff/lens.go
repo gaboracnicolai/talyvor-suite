@@ -273,6 +273,13 @@ func newApp(cfg config, auth *authenticator) *app {
 	// gate. Registered bare for the same measured reason as the two routes above: the handler
 	// wraps ITSELF, so a second wrapper here would be a no-op that reads like a guard.
 	a.mux.HandleFunc("/api/track/issues/{id}/find-duplicates", a.trackFindDuplicates())
+	// Track's triage suggestion — a POST, and the fourth Track AI feature to reach a browser. It
+	// forwards NO QUERY, which is not a detail: upstream's `?apply=true` overwrites the issue's
+	// priority and labels with the model's suggestion and discards the write error, so the read is
+	// built and the write is left unreachable rather than made a button. See track_triage.go.
+	// Registered bare for the same measured reason as the three routes above: the handler wraps
+	// ITSELF, so a second wrapper here would be a no-op that reads like a guard.
+	a.mux.HandleFunc("/api/track/issues/{id}/triage", a.trackTriage())
 	a.mux.HandleFunc("/api/track/teams", a.requireSession(a.trackTeams()))
 
 	// The Track roster and Lens month-spend, both pinned at registration from

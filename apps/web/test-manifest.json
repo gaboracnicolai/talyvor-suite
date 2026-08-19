@@ -48,6 +48,8 @@
   "src/areas/track/searchIssues.test.tsx": 21,
   "src/areas/track/summary.test.ts": 15,
   "src/areas/track/TrackArea.test.tsx": 4,
+  "src/areas/track/triage.test.ts": 13,
+  "src/areas/track/triageIssue.test.tsx": 14,
   "src/AuthGate.test.tsx": 3,
   "src/authProbeLoop.test.tsx": 10,
   "src/BillingRoutes.test.tsx": 4,

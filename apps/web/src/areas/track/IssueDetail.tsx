@@ -17,6 +17,7 @@ import { ApiError, getJSON, getJSONArray } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { AISummary } from './AISummary'
 import { FindDuplicates } from './FindDuplicates'
+import { TriageIssue } from './TriageIssue'
 import { StatusPill } from './StatusPill'
 import { PRIORITY_VALUES, formatCost, priorityLabel, statusLabel } from './format'
 import { memberName, teamIdentifier } from './data'
@@ -347,6 +348,14 @@ export function IssueDetail() {
           id it was asked with, inside the component, so a route change to another issue cannot
           leave one issue's duplicates drawn under another's title. */}
       <FindDuplicates issueId={id} />
+
+      {/* ⚠ THE THIRD AI CARD, AND THE ONE THAT DELIBERATELY DOES LESS THAN ITS UPSTREAM. Track's
+          triage route can APPLY its suggestion — `?apply=true` overwrites this issue's priority and
+          labels and discards the write error — so this app asks for the suggestion and the BFF
+          forwards no query at all, which is what makes the write unreachable rather than merely
+          unused (apps/bff/track_triage.go). Same placement argument as the two above: it reads the
+          issue's own title and description, and what it costs lands in the AI cost row above. */}
+      <TriageIssue issueId={id} />
 
       <Card>
         <CardHeader>Comments</CardHeader>
