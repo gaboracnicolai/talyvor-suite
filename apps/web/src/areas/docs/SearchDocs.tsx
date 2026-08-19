@@ -46,6 +46,12 @@
 // and attributed to no page — the embedding is of the QUERY, and there is no page to charge. That
 // is why this is a submitted form and not a keystroke-driven one: Docs' own SPA debounces at 300ms
 // and its search package sizes a rate limiter for ~200 embeddings a minute from one typist.
+//
+// ⚠⚠ EVERY WORD OF THAT PARAGRAPH WAS TRUE AND LIVED ONLY HERE. Four sibling Docs cards printed a
+// cost sentence to the reader; this one — the highest-frequency metered surface in the product —
+// printed nothing, and the knowledge sat in this comment where no reader could reach it. It is now
+// on screen: see CostNote below, and meteredCostCensus.test.tsx for the census over all five
+// surfaces that makes "a card that spends says so" a rule rather than four coincidences.
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
@@ -152,6 +158,7 @@ export function SearchDocs() {
           {/* `false` is not a hedge here: nothing was drawn, so no shown row can carry proof —
               but a DROPPED one still can, and on this route it is the likely carrier. */}
           <p className="text-caption text-faint">{evidenceNote(view.semantic, false)}</p>
+          <CostNote semantic={view.semantic} />
         </div>
       ) : (
         <div className="flex flex-col gap-2 px-gutter pb-3">
@@ -165,9 +172,64 @@ export function SearchDocs() {
               stronger sentence: with one full-text row drawn and a semantic row dropped it said
               "at least one of THESE came from the semantic index" over a list where none did. */}
           <p className="text-caption text-faint">{evidenceNote(view.semantic, view.semanticShown)}</p>
+          {/* ⚠ `semantic`, NOT `semanticShown` — and the asymmetry with the line above is the
+              point. The evidence sentence needs a DRAWN row because it says "these"; the charge
+              needs only that the half RAN, and a dropped row proves that just as well. Reading
+              `semanticShown` here would hedge about money the workspace has certainly been
+              billed for. */}
+          <CostNote semantic={view.semantic} />
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * What the search cost, keyed on the SAME evidence `evidenceNote` is keyed on.
+ *
+ * ⚠ THIS CARD IS THE ONE METERED DOCS SURFACE THAT SAID NOTHING, and the fact was already in this
+ * file — the "⚠ WHAT IT COSTS" paragraph in the header above states it in full. It was written by
+ * whoever measured it and no reader ever saw it. meteredCostCensus.test.tsx is the guard on the
+ * whole population so the next surface cannot be missed the same way.
+ *
+ * ⚠⚠ THE SENTENCE HAS TWO BRANCHES AND THAT IS NOT HEDGING — IT IS THE SAME CONSTRAINT THE REST OF
+ * THIS CARD OBEYS. The four sibling cards spend on a click, so each may say "This summary WAS a
+ * metered call" flatly. Here the charge is the SEMANTIC half, and the envelope has no field saying
+ * whether that half ran (see the header). On a deployment with no Lens the half returns an empty
+ * list that merges in silently and NOTHING was billed. So an unconditional "this search was a
+ * metered Lens call" would be a false claim on exactly the deployment this one is — the same
+ * defect class #239 deleted from Track's three cards, re-introduced on a fifth surface.
+ *
+ * A row tagged `semantic` or `both` proves the half ran, which proves the embedding was bought.
+ * That is the only state in which this card may use the past tense.
+ *
+ * ⚠ IT IS RENDERED ONLY WHERE A SEARCH ACTUALLY RAN — the results and empty branches. A fault arm
+ * makes NO claim about money, because a failed read may be the BFF failing to dial (nothing spent)
+ * or Docs failing after the embedding was bought (something spent), and the response cannot tell
+ * them apart. FindDuplicates records the same rule for the same reason.
+ *
+ * ⚠ THE UNPROVEN BRANCH DOES NOT RE-HEDGE, AND THE FIRST DRAFT DID. It ended "…this answer cannot
+ * say whether this search was billed", which is a FOURTH sentence saying what `cannotSayCopy`
+ * exists to say once — and two existing tests caught it immediately by matching two elements where
+ * they expect one. `evidenceNote` already prints the hedge in every state this branch renders in;
+ * this note states the COST and points at the evidence rule, and the hedging stays in one place.
+ *
+ * ⚠ PROSE AS JSX TEXT, NOT A STRING CONSTANT — see DroppedNote below for the scanner that reads a
+ * quoted string of lowercase words as a Tailwind class list.
+ */
+function CostNote({ semantic }: { semantic: 'ran' | 'unknown' }) {
+  return semantic === 'ran' ? (
+    <p className="text-caption text-faint">
+      Embedding the query was a metered Lens call billed to this workspace under{' '}
+      <code>docs-search</code>. Docs attributes it to no single page, so it does not appear in any
+      page’s AI cost.
+    </p>
+  ) : (
+    <p className="text-caption text-faint">
+      Where Lens is configured, embedding the query is a metered Lens call billed to this workspace
+      under <code>docs-search</code>, attributed to no single page. Only a row from the semantic
+      index proves it happened here.
+    </p>
   )
 }
 
