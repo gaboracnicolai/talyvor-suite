@@ -322,16 +322,21 @@ const PINS: Record<string, Pin> = {
   // about it, so they move the honest number. This is the FIRST time the class-list census has
   // moved at all (it read 21 at three consecutive SHAs above), which is exactly the property the
   // file argues for: the count tracks the product and not the prose about it.
+  // ⚠ 23 → 24: W1.1.4 rebuilt Billing the same way. Exactly ONE new class list — the step label
+  // on the empty state's "how a balance arrives" list (areas/lens/TopUp.tsx §WaysToGetCredit).
+  // The region eyebrows on all three /billing* addresses go through components/Region.tsx, which
+  // was already counted, so a screen rebuild moves this by the number of NEW labels it writes and
+  // not by the number of regions it draws — which is the second time that has now been true.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 23,
+    states: 24,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 23,
+    states: 24,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

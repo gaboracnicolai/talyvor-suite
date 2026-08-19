@@ -25,9 +25,19 @@ const SESSION_URL = 'https://checkout.stripe.com/c/pay/cs_test_a1b2c3'
 
 type CheckoutReply = { status: number; body: unknown }
 
-/** Mocks the two BFF routes this screen uses. `checkout` decides what the write
- *  path answers, so each honest-failure state can be driven for real. */
-function mockBff(checkout: CheckoutReply = { status: 200, body: { url: SESSION_URL } }) {
+/**
+ * Mocks the two BFF routes this screen uses. `checkout` decides what the write
+ * path answers, so each honest-failure state can be driven for real.
+ *
+ * `balance` is the second axis, and it is a SPEC rather than a body: the screen's
+ * empty state turns on an ANSWERED read of zero, so the cases below have to be
+ * able to drive an answered zero, a healthy balance and a read that FAILED — and
+ * the third is not expressible as a body.
+ */
+function mockBff(
+  checkout: CheckoutReply = { status: 200, body: { url: SESSION_URL } },
+  balance: { status: number; body: unknown } = { status: 200, body: BALANCE },
+) {
   const post = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -46,14 +56,23 @@ function mockBff(checkout: CheckoutReply = { status: 200, body: { url: SESSION_U
       })
     }
     if (url === '/api/lxc/balance') {
-      return new Response(JSON.stringify(BALANCE), {
-        status: 200,
+      return new Response(JSON.stringify(balance.body), {
+        status: balance.status,
         headers: { 'Content-Type': 'application/json' },
       })
     }
     return new Response('null', { status: 404 })
   })
   return { post }
+}
+
+/** An answered read of a workspace that holds nothing. NOT a failed read — see the cases. */
+const EMPTY_BALANCE = {
+  ...BALANCE,
+  balance_ulxc: 0,
+  lifetime_minted_ulxc: 0,
+  lifetime_spent_ulxc: 0,
+  usd_value_uusd: 0,
 }
 
 function renderTopUp(redirect = vi.fn()) {
@@ -261,5 +280,98 @@ describe('TopUp — every failure says what actually happened', () => {
     renderTopUp()
     expect(await screen.findByText(/couldn’t load the top-up amounts/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '$10' })).not.toBeInTheDocument()
+  })
+})
+
+// ─── W1.1.4 — THE REBUILD ────────────────────────────────────────────────────────────────────
+//
+// What this screen was: ONE card in a `max-w-3xl` stack, holding a balance row, a row of buy
+// buttons and two paragraphs. No heading of its own — the sticky banner wrote "Billing" and
+// everything under it was one anonymous panel — and no marking between the four different ideas
+// in it. A reader moving by region got exactly one stop on the page where this product takes
+// money.
+//
+// ⚠ AND ITS EMPTY STATE DID NOT EXIST. A workspace whose LXC balance is zero — which is every
+// new signup, and is the state Overview's first run sends people here FROM — got a `0` in the
+// balance row and nothing else. On a deployment with billing switched off (the default) it got
+// `0` plus a panel saying buying is unavailable: an absence named twice, with no next action
+// either time. That is the exact shape W1.1.4 names.
+
+describe('W1.1.4 — the screen has a shape a reader can navigate', () => {
+  it('opens with exactly one page-scale heading, and it is an h2', async () => {
+    mockBff()
+    renderTopUp()
+    await screen.findByRole('button', { name: '$10' })
+    const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
+      h.className.includes('text-title'),
+    )
+    expect(
+      pageScale.map((h) => h.tagName),
+      'the screen writes ONE page-scale claim about what this page is. Two would be a second ' +
+        'claim; an h1 would be a second page name, and the shell already writes exactly one.',
+    ).toEqual(['H2'])
+  })
+
+  it('every section of the screen is a NAMED landmark — none is anonymous', async () => {
+    mockBff()
+    renderTopUp()
+    await screen.findByRole('button', { name: '$10' })
+    const sections = Array.from(document.querySelectorAll('section'))
+    expect(
+      sections.length,
+      'the screen draws no sections at all, so this assertion has no subject — it is the ' +
+        'single anonymous panel the rebuild replaces',
+    ).toBeGreaterThan(2)
+    // A <section> is only exposed as a `region` landmark when it HAS an accessible name, so
+    // comparing the two counts is what catches a section that was drawn and never named. A
+    // getAllByRole('region') floor on its own would pass while unnamed siblings sat beside it.
+    expect(
+      screen.getAllByRole('region'),
+      'a <section> with no accessible name is not a landmark at all — it is an anonymous box ' +
+        'that a reader moving by region cannot see',
+    ).toHaveLength(sections.length)
+  })
+})
+
+describe('W1.1.4 — a workspace with nothing in it is told what to do', () => {
+  it('says the workspace has no LXC and links to somewhere that changes that', async () => {
+    mockBff(undefined, { status: 200, body: EMPTY_BALANCE })
+    renderTopUp()
+    expect(await screen.findByText(/has no LXC/i)).toBeInTheDocument()
+    // A next action is somewhere to GO, not a better sentence about the absence.
+    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute('href', '/')
+  })
+
+  it('a balance that could NOT be read is never drawn as a workspace with no LXC', async () => {
+    // ⚠ THE DIRECTION THAT MATTERS. A failed read is not an empty workspace, and this project
+    // has already paid twice for that conflation (a Track fault drawn identically to an empty
+    // tracker; a held balance of 0 rendered beside a ledger of 822). Told wrongly here, it
+    // announces to a paying customer, on the money screen, that their credit is gone.
+    mockBff(undefined, { status: 502, body: { error: 'upstream' } })
+    renderTopUp()
+    await screen.findByRole('button', { name: '$10' })
+    expect(screen.queryByText(/has no LXC/i)).toBeNull()
+  })
+
+  it('still names a next action on a deployment where nothing can be bought', async () => {
+    // Billing off AND nothing in the workspace: the state a self-hosted trial actually starts
+    // in, and the one where "pick an amount" is not an answer. The other way a balance arrives
+    // is a real destination, so it is named as one.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/lxc/topup-options')
+        return new Response(
+          JSON.stringify({ allowed_usd_cents: [1000, 5000, 10000], billing_enabled: false }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      if (url === '/api/lxc/balance')
+        return new Response(JSON.stringify(EMPTY_BALANCE), { status: 200 })
+      return new Response('null', { status: 404 })
+    })
+    renderTopUp()
+    expect(await screen.findByText(/has no LXC/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute('href', '/')
+    // And it still says what would turn buying on, rather than only that it is off.
+    expect(screen.getByText(/LENS_BILLING_ENABLED/)).toBeInTheDocument()
   })
 })

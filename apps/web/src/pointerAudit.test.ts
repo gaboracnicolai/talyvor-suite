@@ -123,7 +123,7 @@ const SELF = 'apps/web/src/pointerAudit.test.ts'
  * start a purchase. So a sentence explaining why "nothing was charged" is honest points a reader
  * at the one path that is not the charge, and nothing went red.
  *
- * The same sentence cites `TopUp.tsx:22` in the SAME PARENTHESIS, and that one has been pinned
+ * The same sentence cites `TopUp.tsx:24` in the SAME PARENTHESIS, and that one has been pinned
  * here since it was written. One citation checked, one invisible, one line of prose — and the
  * invisible one is the one that rotted.
  */
@@ -384,7 +384,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'ApiError, NOT a bare Error',
     why: 'the census quoting the one place the repo recorded the class, so its list of four is checkable',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:65|apps/web/src/areas/lens/TopUp.tsx:22': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:65|apps/web/src/areas/lens/TopUp.tsx:24': {
     kind: 'LIVE',
     fragment: 'The payment happens THERE',
     why: 'why "nothing was charged" is honest for a call that never completed — the charge happens after the redirect',
@@ -409,12 +409,12 @@ const PINS: Record<string, Pin> = {
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'its second example, pinned for the same reason',
   },
-  'apps/web/src/upstreamCitations.test.ts:62|apps/web/src/areas/lens/TopUp.tsx:22': {
+  'apps/web/src/upstreamCitations.test.ts:62|apps/web/src/areas/lens/TopUp.tsx:24': {
     kind: 'LIVE',
     fragment: 'The payment happens THERE',
     why: 'the citation that WAS pinned, named in the account of why its neighbour was not — so that account cannot rot either',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:176|apps/web/src/areas/lens/TopUp.tsx:85': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:176|apps/web/src/areas/lens/TopUp.tsx:218': {
     kind: 'LIVE',
     fragment: 'must not leave a pending marker behind',
     why: 'the rule the marker test asserts, quoted from the code that states it rather than restated',

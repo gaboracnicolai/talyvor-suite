@@ -196,3 +196,56 @@ describe('BillingCancel', () => {
     expect(window.sessionStorage.getItem(PENDING_TOPUP_KEY)).toBeNull()
   })
 })
+
+// ─── W1.1.4 — THE REBUILD, ON THE TWO RETURN ADDRESSES ───────────────────────────────────────
+//
+// These are the same SCREEN as /billing — three routes, one purchase — and they were the same
+// single anonymous card. The state a customer is in when they land here is the whole content of
+// the page (waiting, confirmed, timed out, unconfirmable, unreadable), and the page named it only
+// in a card header. It is the page-scale claim now, which is what it always was.
+
+describe('W1.1.4 — the return pages carry the same marking as the screen they belong to', () => {
+  it('the success page opens with exactly one page-scale heading, and it is an h2', async () => {
+    stashPending()
+    mockBalance(0)
+    renderSuccess()
+    await screen.findByText(/added to your balance/i)
+    const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
+      h.className.includes('text-title'),
+    )
+    expect(pageScale.map((h) => h.tagName)).toEqual(['H2'])
+  })
+
+  it('the success page names the state at page scale, not only inside a card', async () => {
+    // The reader arriving here has one question. Four of the five states answered it in a
+    // 17px card header while the page had no heading of its own at all.
+    stashPending()
+    mockBalance(Infinity)
+    renderSuccess()
+    await screen.findByText(/hasn’t appeared yet/i, undefined, { timeout: 3000 })
+    const pageScale = document.querySelector('h2.text-title')
+    expect(pageScale?.textContent ?? '').toMatch(/Stripe/i)
+  })
+
+  it('every section of the success page is a NAMED landmark', async () => {
+    stashPending()
+    mockBalance(0)
+    renderSuccess()
+    await screen.findByText(/added to your balance/i)
+    const sections = Array.from(document.querySelectorAll('section'))
+    expect(sections.length).toBeGreaterThan(1)
+    expect(screen.getAllByRole('region')).toHaveLength(sections.length)
+  })
+
+  it('the cancel page opens with exactly one page-scale heading, and it is an h2', () => {
+    render(
+      <MemoryRouter initialEntries={['/billing/cancel']}>
+        <BillingCancel />
+      </MemoryRouter>,
+    )
+    const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
+      h.className.includes('text-title'),
+    )
+    expect(pageScale.map((h) => h.tagName)).toEqual(['H2'])
+  })
+})
