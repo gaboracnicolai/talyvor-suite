@@ -512,6 +512,38 @@ cannot "DocsPage mirrors talyvor-docs Page — the page shape the tree and reade
     "talyvor-docs internal/model/model.go" \
     "[ \"\$(sed -n '/^type Page struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"ai_cost_usd content content_text cover_url created_at created_by depth doc_status,omitempty icon id is_template last_verified_at,omitempty last_viewed_at,omitempty linked_issues,omitempty locked locked_at,omitempty locked_by,omitempty own_ai_cost_usd page_type,omitempty parent_id,omitempty position slug space_id stale_after_days title total_ai_cost_usd updated_at updated_by verified_by,omitempty view_count workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
 
+# ── THE REQUEST HALF OF THE SAME CLASS, AND IT IS THE HALF THAT SPENDS MONEY ─
+# DECISION: this app builds the request body for three talyvor-docs AI routes (apps/bff/docs_ai.go)
+#           and writes the fourth in the browser (areas/docs/api.ts#ask, forwarded verbatim).
+# PREMISE:  the json keys it sends are still the keys those handlers BIND.
+#
+# ⚠ WHY THIS IS NOT COVERED BY THE RESPONSE MIRRORS ABOVE, AND WHY IT IS WORSE. A response shape
+# that drifts renders a blank field. A REQUEST key that drifts is a 200 with a real billed
+# completion that read NOTHING — measured on suggest-title, which binds `content` while its two
+# siblings bind `text`: {"text":"Some real page text.","page_id":"pg-1"} → 200, 1 completion, 0
+# user bytes. No status, error or response field separates that from a correct call.
+#
+# ⚠ AND THE THREE BFF TESTS THAT DECODE THE SENT BODY CANNOT SEE IT. They decode it through struct
+# tags TRANSCRIBED INTO THIS REPO, so both halves of their comparison live here and an upstream
+# rename leaves them green. Held to the bodies this repo actually sends by
+# apps/web/src/aiRequestBodyRegister.test.ts, so a key changed here without changing the command
+# below is a red rather than a question asked about a body nobody sends.
+cannot "the summarise route sends what talyvor-docs Transform binds — action chooses what the workspace pays for, page_id is what the charge lands on" \
+    "talyvor-docs internal/ai/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Transform(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"action page_id text \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"
+
+cannot "the translate route sends what talyvor-docs Translate binds — an omitted language is not a MISSING language, it is Engine.Translate's defaultLang and a billed completion in English" \
+    "talyvor-docs internal/ai/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Translate(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"language page_id text \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"
+
+cannot "the suggest-title route sends what talyvor-docs SuggestTitle binds — this is the route whose key WAS wrong (#234): content here, text on both siblings, and upstream refuses neither" \
+    "talyvor-docs internal/ai/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) SuggestTitle(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"content page_id \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"
+
+cannot "the ask body the browser writes is what talyvor-docs Ask binds — the BFF forwards it verbatim, so api.ts#ask IS the wire; upstream refuses every other spelling with 400 today, and that refusal can be withdrawn upstream" \
+    "talyvor-docs internal/ai/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Ask(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"question \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"
+
 # ── THE SAME CLASS, IN THE MONEY-READ FILE, AND ONE DELIBERATE DIVERGENCE ────
 # DECISION: apps/web/src/lib/api.ts declares TypeScript shapes for four talyvor-lens structs, and
 #           every balance, ledger row and spend figure this console renders is typed off them.

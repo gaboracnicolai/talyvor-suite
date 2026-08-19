@@ -255,6 +255,16 @@ export const docsApi = {
   /**
    * Ask the workspace's documentation a question.
    *
+   * ⚠ THE KEY IS THE CLAIM HERE, AND THIS IS THE ONLY PLACE THAT MAKES IT. The BFF forwards this
+   * body VERBATIM (apps/bff/docs_ai.go#docsAskAI), so unlike summarise / translate / suggest-title
+   * there is no Go struct between this object and talyvor-docs — one renamed key here IS the wire.
+   * Docs binds `question` and, measured against its own handler over a Lens that counts
+   * completions, REFUSES every other spelling before the money moves (`{"q":…}`, `{"text":…}`,
+   * `{"query":…}`, `{}`, `{"question":""}` → 400, 0 completions), which is what separates this
+   * route from suggest-title, where the wrong key was a 200 and a billed completion. That refusal
+   * is upstream's and can be withdrawn upstream, so the key is registered rather than trusted.
+   * UPSTREAM-BINDS-ONLY ask: none
+   *
    * ⚠ NO workspace_id, and no page id either. The BFF builds the upstream path from the SESSION's
    * workspace (docs_ai.go), and Docs grounds the answer in the pages this caller may VIEW — the
    * client names neither, because a workspace the browser could name is a workspace the browser
