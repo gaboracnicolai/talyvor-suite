@@ -168,8 +168,11 @@ async function getJSON<T>(path: string): Promise<T> {
  *
  * Lens builds list responses with the Go idiom `var out []T; for rows.Next()…;
  * return out`, so a genuinely-empty result is a nil slice → `null` on the wire,
- * NOT `[]`. THREE suite endpoints do this (verified in Lens source): tokens/history,
- * lxc/history and api-keys. A caller that maps or reads .length on `null` throws,
+ * NOT `[]`. FOUR suite endpoints do this (verified in Lens source): tokens/history,
+ * lxc/history, api-keys and — added when the by-feature read was wired, and the count
+ * corrected with it rather than left at "three" — spend/by-feature, whose upstream
+ * (internal/api/server.go#Server.handleSpendBy) accumulates into `var out []map[string]any`.
+ * A caller that maps or reads .length on `null` throws,
  * and a TRUE empty state (a new workspace with no rows) renders as a FAILURE — the
  * bug this fixes, and the third instance of that shape in the suite.
  *
@@ -292,6 +295,12 @@ export const api = {
   bonds: () => getCapability<Bond[]>('/api/bonds'),
   /** Per-model usage + the measured cache rollup for a window. Replaces the cache fixture. */
   usage: (days: number) => getJSON<Usage>(`/api/usage?days=${days}`),
+
+  /** Spend grouped by the feature tag, for a window — the join key six cost sentences in this
+   *  app print. A LIST read on purpose: Lens answers zero rows with `null` (see getJSONArray),
+   *  and the shape is left raw for areas/lens/featureSpend.ts to classify rather than typed
+   *  optimistically here, because the untagged bucket and an unreadable row are both real. */
+  spendByFeature: (days: number) => getJSONArray<unknown>(`/api/spend/by-feature?days=${days}`),
 
   /** The LENS mint ledger, normalized. */
   lensLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>

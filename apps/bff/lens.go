@@ -238,6 +238,31 @@ func newApp(cfg config, auth *authenticator) *app {
 	// deployment's key were ever upgraded to an admin one.
 	a.mux.HandleFunc("/api/usage", a.requireSession(a.proxyWindowed("/v1/api/usage")))
 
+	// Lens's spend broken down by the FEATURE TAG — the join key six cost sentences in this app
+	// print and, until this route, no screen in the product could resolve.
+	//
+	// ⚠ THE SAME LEDGER /api/spend/month ALREADY SHOWS, GROUPED — not a third source. MEASURED at
+	// talyvor-lens `469a255751c8a124fb132d875ecd0ca32664f88e`: `handleSpendBy("feature")` sums
+	// `token_events.cost_usd` (internal/api/server.go#Server.handleSpendBy) and the month card's upstream,
+	// `SpendTracker.currentSpend`, sums the SAME column of the SAME table
+	// (internal/tenant/store.go#monthSpendSQL). The two differ in WINDOW only — rolling
+	// `days` here, calendar month there — which is why the screen must not present one as a
+	// decomposition of the other.
+	//
+	// ⚠ SAME TENANCY ARGUMENT AS /api/usage ABOVE, AND IT IS THE WHOLE ARGUMENT: the upstream path
+	// carries no workspace segment because `/v1/api/spend/by-feature` scopes itself from the
+	// AUTHENTICATED KEY (`effectiveWorkspaceID`), and that key is the SESSION's workspace-scoped
+	// one, attached server-side. `?workspace_id=` — the parameter an ADMIN key would use upstream
+	// to target another tenant — is DROPPED by proxyWindowed, which forwards `days` and nothing
+	// else, so this route cannot be aimed elsewhere even if the deployment's key were upgraded.
+	//
+	// ⚠ ZERO ROWS IS `null`, NOT `[]`, AND IT IS FORWARDED VERBATIM. Upstream accumulates into a
+	// nil `[]map[string]any` and encodes it, so a workspace that has spent nothing in the window
+	// receives the literal `null`. Re-encoding it here as `[]` would erase the only difference
+	// between Lens's documented no-rows answer and a shape this app does not recognise — the
+	// reader on the other side classifies on exactly that.
+	a.mux.HandleFunc("/api/spend/by-feature", a.requireSession(a.proxyWindowed("/v1/api/spend/by-feature")))
+
 	// Track Tier-1 (this PR): issues list + issue detail + comments + teams,
 	// completing the track area's gap list (its item 4, the roster, is
 	// /api/members below). All pinned to the CONFIGURED track workspace; the

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { CacheCard } from './CacheCard'
+import { FeatureSpendCard } from './FeatureSpendCard'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { ModelTier } from './ModelTier'
 import { SplitShortfall } from './SplitShortfall'
@@ -148,6 +149,13 @@ export function Spend({ now = new Date() }: { now?: Date }) {
       </Card>
 
       <CacheCard days={days} />
+
+      {/* ⚠ THE SAME `days` THE WINDOW TOGGLE ABOVE OWNS, and that is the whole reason it sits
+          here rather than on a screen of its own: the tag breakdown answers "what did the last
+          7 (or 30) days go on", and a card with its own private window beside a visible toggle
+          would be two windows on one screen with one control. See FeatureSpendCard.tsx for why
+          its figures are NOT expected to sum to the month-to-date figure below it. */}
+      <FeatureSpendCard days={days} />
 
       <Card>
         <CardHeader>Spent — LXC</CardHeader>

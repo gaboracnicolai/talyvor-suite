@@ -82,6 +82,14 @@ function bodyFor(url: string): unknown {
   if (url.includes('/api/lxc/history'))
     return [{ id: 'x1', workspace_id: 'w', amount_ulxc: -640000, balance_after_ulxc: 49360000, type: 'spend', description: 'settle', metadata: { served_model: 'claude-haiku-4-5' }, created_at: '2026-07-21T10:00:05Z' }]
   if (url.includes('/api/spend/month')) return { current_month_usd: 4.31 }
+  // The by-feature aggregate. A LIST, and it carries the untagged bucket on purpose: the
+  // must-stay-green baseline below would not notice a card that quietly dropped the row
+  // that is usually the biggest one.
+  if (url.includes('/api/spend/by-feature'))
+    return [
+      { feature: '', cost_usd: 4.2, requests: 900, input_tokens: 12000, output_tokens: 900 },
+      { feature: 'docs-ai-summarize', cost_usd: 0.0031, requests: 2, input_tokens: 900, output_tokens: 40 },
+    ]
   if (url.includes('/api/usage'))
     return { period_days: 7, models: [], cache: { total_requests: 8, cache_hits: 2, misses: 6, hit_rate: 0.25, by_source: {} } }
   if (url.includes('/api/lxc/balance')) return { balance_ulxc: 49360000, held_ulxc: 0 }
@@ -140,7 +148,7 @@ const ADDRESS_ROUTES: Record<string, string[]> = {
   '/billing': ['/api/lxc/balance', '/api/lxc/topup-options'],
   '/keys': ['/api/keys'],
   '/setup': ['/api/context', '/api/keys'],
-  '/spend': ['/api/lxc/history', '/api/spend/month', '/api/tokens/history', '/api/usage'],
+  '/spend': ['/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
   '/members': ['/api/members'],
   '/settings': ['/api/distill'],
   '/track': ['/api/members', '/api/track/issues', '/api/track/workspaces'],
@@ -217,7 +225,7 @@ describe('the swept set', () => {
     // fixture that stops reaching the app — shows up as a smaller sweep rather than as a
     // quieter one.
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(25)
+    expect(pairs).toBe(26)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {
