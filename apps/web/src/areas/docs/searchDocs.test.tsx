@@ -267,3 +267,109 @@ describe('SearchDocs', () => {
     expect(calls.some((c) => c.url.startsWith('/api/docs/search?'))).toBe(false)
   })
 })
+
+// ── WHAT THE SEARCH COST ─────────────────────────────────────────────────────
+//
+// This card is the fifth metered Docs surface and the only one that printed no cost sentence at
+// all — see meteredCostCensus.test.tsx for the population and how the omission was found. The
+// census proves the sentence EXISTS. These four prove it is TRUE, which is a different claim and
+// the one that can go wrong: the charge here is the semantic half, and the response has no field
+// saying whether that half ran. A flat "this search was a metered Lens call" is therefore false on
+// a deployment with no Lens — which, per this file's header, is this deployment.
+//
+// ⚠ THE PAST TENSE IS THE ASSERTION. `WAS_BILLED` is the claim that requires proof; every state
+// without proof must not match it, and that is what these tests measure.
+const WAS_BILLED = /embedding the query was a metered lens call/i
+const ONLY_A_ROW_PROVES = /only a row from the semantic index proves it happened here/i
+
+describe('what the search cost', () => {
+  it('says nothing was PROVED billed when no row carries semantic evidence', async () => {
+    // The deployment this app actually runs on: Docs merges an unconfigured semantic search in as
+    // an empty list, so every row comes back `fulltext`. Nothing was spent, and a card claiming a
+    // charge here would be inventing one.
+    mockBff({ status: 200, body: { results: [hit()], total: 1, query: 'auth', took_ms: 3 } })
+    renderIn(<SearchDocs />)
+    await searchFor('auth')
+
+    await waitFor(() => expect(screen.getByText('Auth flow')).toBeInTheDocument())
+    expect(screen.queryByText(WAS_BILLED)).not.toBeInTheDocument()
+    expect(screen.getByText(ONLY_A_ROW_PROVES)).toBeInTheDocument()
+    // It still names the tag, so a reader who wants to find the line in the workspace's Lens
+    // ledger knows what to look for — "cannot say" is about THIS answer, not about the feature.
+    expect(screen.getByText('docs-search')).toBeInTheDocument()
+  })
+
+  it('says the charge happened when a drawn row proves the semantic half ran', async () => {
+    mockBff({
+      status: 200,
+      body: { results: [hit({ source: 'semantic' })], total: 1, query: 'auth', took_ms: 3 },
+    })
+    renderIn(<SearchDocs />)
+    await searchFor('auth')
+
+    await waitFor(() => expect(screen.getByText('Auth flow')).toBeInTheDocument())
+    expect(screen.getByText(WAS_BILLED)).toBeInTheDocument()
+    expect(screen.queryByText(ONLY_A_ROW_PROVES)).not.toBeInTheDocument()
+  })
+
+  it('⚠ says the charge happened even when the proving row could NOT be drawn', async () => {
+    // THE ASYMMETRY THIS TEST EXISTS FOR. The evidence sentence needs a DRAWN row because it says
+    // "these"; the CHARGE needs only that the half ran, and an undrawable row proves that just as
+    // well — search.ts records that both of talyvor-docs' real undrawable rows were semantic hits.
+    // Keying the cost note on `semanticShown` would hedge about money already spent, on precisely
+    // the rows most likely to carry the proof.
+    mockBff({
+      status: 200,
+      body: {
+        results: [hit(), hit({ page_id: 'pg-2', page_title: '', source: 'semantic' })],
+        total: 2,
+        query: 'auth',
+        took_ms: 3,
+      },
+    })
+    renderIn(<SearchDocs />)
+    await searchFor('auth')
+
+    await waitFor(() => expect(screen.getByText('Auth flow')).toBeInTheDocument())
+    // The row was dropped — so the evidence sentence must NOT say "these"…
+    expect(screen.getByText(/arrived and could not be drawn/i)).toBeInTheDocument()
+    expect(screen.queryByText(/at least one of these/i)).not.toBeInTheDocument()
+    // …and the cost sentence must still be in the past tense.
+    expect(screen.getByText(WAS_BILLED)).toBeInTheDocument()
+  })
+
+  it('⚠ an answer that matched NOTHING still ran the search, and still says what it cost', async () => {
+    // FOUND BY A POSITIVE CONTROL, NOT BY READING. Deleting the cost note from the empty branch
+    // alone left the whole `src/areas/docs` suite green: the census drives the results branch, and
+    // all three tests above hold at least one row. An empty answer is the state a reader is MOST
+    // likely to reach with a bad query and MOST likely to read as "nothing happened" — and the
+    // embedding was bought before Docs knew the result set was empty. It is the branch where the
+    // sentence matters most and it was the branch nothing covered.
+    mockBff({ status: 200, body: { results: [], total: 0, query: 'zzz', took_ms: 1 } })
+    renderIn(<SearchDocs />)
+    await searchFor('zzz')
+
+    await waitFor(() =>
+      expect(screen.getByText(/nothing in this workspace matched/i)).toBeInTheDocument(),
+    )
+    expect(screen.getByText('docs-search')).toBeInTheDocument()
+    // No row came back, so nothing proves the semantic half ran — the conditional branch, and it
+    // must not claim a charge it cannot evidence.
+    expect(screen.getByText(ONLY_A_ROW_PROVES)).toBeInTheDocument()
+    expect(screen.queryByText(WAS_BILLED)).not.toBeInTheDocument()
+  })
+
+  it('makes NO claim about money on a fault — the response cannot say whether it spent', async () => {
+    // A failed read may be the BFF failing to dial (nothing spent) or Docs failing after the
+    // embedding was bought (something spent). FindDuplicates records the same rule for the same
+    // reason: a sentence that cannot be supported is not printed, in either direction.
+    mockBff({ status: 502, body: { error: 'upstream said no' } })
+    renderIn(<SearchDocs />)
+    await searchFor('auth')
+
+    await waitFor(() => expect(screen.getByText(/couldn’t search/i)).toBeInTheDocument())
+    expect(screen.queryByText(WAS_BILLED)).not.toBeInTheDocument()
+    expect(screen.queryByText(ONLY_A_ROW_PROVES)).not.toBeInTheDocument()
+    expect(screen.queryByText('docs-search')).not.toBeInTheDocument()
+  })
+})
