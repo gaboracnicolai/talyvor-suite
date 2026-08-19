@@ -362,6 +362,15 @@ func TestDocsWorkspacePathOnlyForWorkspaceScopedUpstreamRoutes(t *testing.T) {
 		// that name no usable language and one with no text at all, each a billed completion.
 		// See docs_translate_test.go's header for the six measured rows.
 		"docsTranslatePage:/ai/translate": "POST /v1/workspaces/{wsID}/ai/translate — internal/ai/handler.go Mount",
+		// Checked at talyvor-docs `f515db8`, and checked by RUNNING it rather than by reading:
+		// internal/ai/handler.go#Handler.Mount registers `POST /workspaces/{wsID}/ai/suggest-title`
+		// beside /ai/transform and /ai/translate, and Handler.SuggestTitle's first act is
+		// AuthorizeWorkspace on that {wsID}. Driving the mounted router in a `git archive` scratch
+		// export answered `/v1/workspaces/ws-1/ai/suggest-title` 200 for every body it was given —
+		// including one naming no content field at all, one naming `text` (the name this app's two
+		// sibling AI routes use, which binds to nothing here) and one naming no page, each a real
+		// billed completion. See docs_suggesttitle_test.go's header for the six measured rows.
+		"docsSuggestTitlePage:/ai/suggest-title": "POST /v1/workspaces/{wsID}/ai/suggest-title — internal/ai/handler.go Mount",
 	}
 
 	type site struct{ fn, suffix string }

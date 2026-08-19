@@ -124,6 +124,18 @@ func newApp(cfg config, auth *authenticator) *app {
 	// constant summarise uses.
 	a.mux.HandleFunc("/api/docs/pages/{pageID}/translate", a.docsTranslatePage())
 
+	// SUGGEST-TITLE. The sixth W1.7 control, the third whose cost lands on a page, and the FIRST
+	// whose output is meant to be written back — into `title`, a column of its own, so it does not
+	// touch the `content_text` question that still blocks shorter/longer/grammar. Same address
+	// shape and same reasons as its two neighbours above.
+	//
+	// ⚠ IT IS A SEPARATE UPSTREAM ROUTE, LIKE TRANSLATE: talyvor-docs registers
+	// `/workspaces/{wsID}/ai/suggest-title` beside `/ai/transform`, and it binds `content` where
+	// every neighbour binds `text`. See docs_ai.go#docsSuggestTitleBody for the measurement.
+	//
+	// ⚠ IT SUGGESTS AND DOES NOT APPLY. The write is the existing PATCH on the page route below.
+	a.mux.HandleFunc("/api/docs/pages/{pageID}/suggest-title", a.docsSuggestTitlePage())
+
 	// CHANGELOG GENERATION. The fifth W1.7 control, and the ONE the item's own list gets wrong:
 	// it names changelog generation among eight "metered Lens calls". MEASURED, it reaches Lens
 	// never — it groups Track issues by label. What it spends is not money but a durable,

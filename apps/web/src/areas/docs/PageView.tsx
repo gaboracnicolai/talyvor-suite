@@ -15,6 +15,7 @@ import { DocsUpstreamCard } from './DocsUpstreamCard'
 import { PageSummary } from './PageSummary'
 import { PageTranslation } from './PageTranslation'
 import { PageChangelog } from './PageChangelog'
+import { PageTitleSuggestion } from './PageTitleSuggestion'
 
 export function PageView() {
   const { spaceId = '', pageId = '' } = useParams()
@@ -166,6 +167,20 @@ export function PageView() {
           default language; see its header for the measurement. */}
       {page.data ? (
         <PageTranslation pageId={pageId} text={page.data.content_text ?? ''} />
+      ) : null}
+      {/* ⚠ THE SAME TWO RULES AGAIN — the STORED page, and only once it has loaded — and a third
+          that is this control's alone: it is the one card here whose output can be WRITTEN BACK.
+          It writes `title`, a column of its own, so it does not touch the `content_text` question
+          the editor above still owns; and it writes on its OWN second click, never on the
+          suggestion arriving. A generate against a page that failed to load would ask for a title
+          from an empty text — refused on both sides, and gated here as well so it costs not even a
+          round trip. See PageTitleSuggestion.tsx for the two measured upstream cases. */}
+      {page.data ? (
+        <PageTitleSuggestion
+          spaceId={spaceId}
+          pageId={pageId}
+          text={page.data.content_text ?? ''}
+        />
       ) : null}
       {/* ⚠ THE ONE CONTROL HERE THAT SENDS NONE OF THE PAGE, AND THE ONE THAT LEAVES SOMETHING
           BEHIND. Summarise and translate both read `content_text` and both buy a metered Lens

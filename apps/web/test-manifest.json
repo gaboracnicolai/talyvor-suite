@@ -6,6 +6,7 @@
   "src/areas/docs/docsWrites.test.tsx": 14,
   "src/areas/docs/pageChangelog.test.tsx": 7,
   "src/areas/docs/pageSummary.test.tsx": 7,
+  "src/areas/docs/pageTitleSuggestion.test.tsx": 11,
   "src/areas/docs/pageTranslation.test.tsx": 8,
   "src/areas/docs/pm.test.tsx": 3,
   "src/areas/docs/search.test.ts": 9,
