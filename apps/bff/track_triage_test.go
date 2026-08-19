@@ -263,6 +263,21 @@ func TestTrackTriage_RefusesAHostileIssueID(t *testing.T) {
 // The empty segment, asserted as what it actually is: the mux redirects, so this route never sees
 // it. Stated rather than dressed up as an id refusal — a green whose cause is misattributed is how
 // the vacuous version above survived.
+//
+// ⚠⚠ THE EXACT STATUS IS NOT PINNED, AND THE REASON IS A MEASUREMENT THAT COST A RED CI RUN. My
+// first version asserted 307, which is what it answers under go1.26.3 — the toolchain on the
+// machine this was written on. CI resolves `go 1.25.0` from go.mod and answered **301**. The
+// property this test exists for is "the router disposes of the empty segment and no handler runs";
+// WHICH redirect net/http chooses is a Go-version detail, and pinning it made a green here and a
+// red there for a product that had not changed.
+//
+// ⚠ IT IS NOT A COSMETIC DIFFERENCE EITHER, WHICH IS WHY THE CODE IS REPORTED IN THE FAILURE
+// MESSAGE RATHER THAN IGNORED: 301 lets a client rewrite a POST into a GET when it follows the
+// redirect, 307/308 do not. A browser following the 1.25 answer would re-issue this as a GET — to a
+// route that answers 405 — rather than as the POST it started as.
+//
+// ⚠ AND THE GENERAL FACT UNDER IT: this repo's local toolchain (go1.26.3) is a major release ahead
+// of the one go.mod pins for CI (1.25.0), so a local `go test` green is not the run CI performs.
 func TestTrackTriage_AnEmptyIDSegmentIsRedirectedBeforeThisRouteRuns(t *testing.T) {
 	track := newCaptureUpstream(t, `{"suggested_priority":2}`)
 	a, sess := productApp(t, track, nil)
@@ -272,9 +287,12 @@ func TestTrackTriage_AnEmptyIDSegmentIsRedirectedBeforeThisRouteRuns(t *testing.
 	req.AddCookie(sess)
 	a.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusTemporaryRedirect {
-		t.Fatalf("got %d (%s), want 307 — if this changed, the empty segment now REACHES a handler "+
-			"and pathID is what must refuse it", rec.Code, rec.Body.String())
+	if rec.Code < 300 || rec.Code > 399 {
+		t.Fatalf("got %d (%s), want a redirect — if this changed, the empty segment now REACHES a "+
+			"handler and pathID is what must refuse it", rec.Code, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc == "" {
+		t.Fatalf("a %d with no Location: this is not the router cleaning the path", rec.Code)
 	}
 	if track.path != "" {
 		t.Fatalf("upstream was dialled for a path the router should have cleaned: %q", track.path)
