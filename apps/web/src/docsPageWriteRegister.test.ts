@@ -57,7 +57,16 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT = resolve(__dirname, '../../..')
 const API_TS = resolve(__dirname, 'areas/docs/api.ts')
+const LENS_GO = resolve(ROOT, 'apps/bff/lens.go')
 const REGISTER = resolve(ROOT, 'deploy/decision-expiry.sh')
+
+/** Every settle command the register PRINTS, trimmed. See registeredAppliedKeys for why printed. */
+function printedCommands(): string[] {
+  return execFileSync('bash', [REGISTER], { encoding: 'utf8', cwd: ROOT })
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('settle it with:'))
+}
 
 /** The keys `docsApi.updatePage` can put on the wire, read off its `patch` parameter type. */
 function sentPatchKeys(): string[] {
@@ -160,5 +169,138 @@ describe('the docs page-write seam is asked about, in both directions', () => {
     // deletion of the other cannot both be mismatches.
     expect(entry).toContain('!allowed && k !=')
     expect(entry).toContain('updatableFields')
+  })
+})
+
+/**
+ * THE THIRD lens.go PAGE ROUTE, AND THE ONE WHOSE CROSS-REPO CLAIM IS A DELETE RATHER THAN A SEND.
+ *
+ * `apps/bff/lens.go#docsSpacePages` relays talyvor-docs' page LIST through
+ * `stripPageContentList`, which does `delete(row, "content")` and `delete(row, "content_text")`
+ * on every row. Those two literals are a claim about another repository's response shape — the
+ * same KIND of claim as the two above, made in the opposite direction — and it is the only thing
+ * keeping every page's full ProseMirror document off the space tree.
+ *
+ * ⚠ THE EXISTING BFF TEST CANNOT SEE AN UPSTREAM CHANGE, AND IT LOOKS LIKE IT CAN.
+ * `apps/bff/products_test.go` asserts the stripped body contains neither key — the right
+ * assertion — but its fake Docs HARDCODES a row carrying both. Both halves of that comparison
+ * live in this repository, so it is green whatever talyvor-docs serves: it pins that the delete
+ * works on the row this repo invented, never that the row upstream sends is that row.
+ *
+ * ⚠ WHY THE `DocsPage` MIRROR IS NOT THIS GUARD EITHER, and the reason is the same one this file
+ * already exists for one route over. The mirror pins `model.Page`'s tag set, so a RENAME of
+ * `content` there is caught. What it cannot see is the list route ceasing to serve `model.Page`:
+ * `page.Handler.List` returns whatever `Store.List` returns, and a projection type introduced for
+ * the tree view — the ordinary reason to add one — leaves `model.Page` untouched and the mirror
+ * green while both deletes stop matching.
+ *
+ * ⚠ MEASURED RATHER THAN REASONED, against docs `fd96dec790454b133847a399be28704c0ce369ec` in a
+ * disposable `git archive` export (that repo was held by another tab and was NEVER written to),
+ * driving docs' OWN mounted route over a real pgvector Postgres:
+ *
+ *     GET /v1/spaces/{id}/pages → 200, 10 rows, 6406 bytes
+ *     row key set (24 keys): … content content_text … — both present
+ *     the unstripped body contains the seeded document text VERBATIM
+ *     after the BFF's two deletes: 5885 bytes — the strip is what removes it
+ *
+ * So the premise holds TODAY. That is exactly when it is worth registering: nothing here can see
+ * the day it stops, and the failure is silent in the worst direction — not a blank field, but a
+ * document body shipped to every caller of the tree.
+ */
+describe('the docs page-LIST premise the BFF strips by name is asked about too', () => {
+  /** The keys `stripPageContentList` removes from every row, read off the BFF's own source. */
+  function strippedKeys(): string[] {
+    const src = readFileSync(LENS_GO, 'utf8')
+    const fn = src.match(/func stripPageContentList\(body \[\]byte\)[^]*?\n}/)
+    if (!fn) {
+      throw new Error(
+        'could not find stripPageContentList in apps/bff/lens.go. Every assertion below compares ' +
+          'the keys it deletes against the register; with nothing parsed the comparison is over ' +
+          'an empty set and passes having read nothing, so this throws instead.',
+      )
+    }
+    const keys = [...fn[0].matchAll(/delete\(row, "([a-z_]+)"\)/g)].map((m) => m[1]).sort()
+    if (keys.length === 0) {
+      throw new Error('stripPageContentList parsed, but no `delete(row, "…")` in it — see above')
+    }
+    return keys
+  }
+
+  /** The register entry that asks talyvor-docs whether the page list still serves model.Page. */
+  function listEntry(): string | undefined {
+    return printedCommands().find(
+      (l) => l.includes('internal/page/store.go') && l.includes('func (s \\*Store) List('),
+    )
+  }
+
+  it('finds the keys the BFF deletes from every listed page at all', () => {
+    expect(strippedKeys()).toEqual(['content', 'content_text'])
+  })
+
+  it('the register asks talyvor-docs whether the page list still serves model.Page rows', () => {
+    expect(
+      listEntry(),
+      'deploy/decision-expiry.sh prints no settle command for talyvor-docs\' `Store.List` return ' +
+        'type. apps/bff/lens.go#stripPageContentList deletes "content" and "content_text" BY NAME ' +
+        'from every row of that list, and those deletes are the only thing keeping each page\'s ' +
+        'full ProseMirror document off the space tree. The BFF test that covers the strip feeds a ' +
+        'fake Docs whose row this repository wrote, so it stays green whatever upstream serves; ' +
+        'the DocsPage mirror pins model.Page\'s tags but NOT that the list route still returns ' +
+        'them. A projection type introduced for the tree view leaves both green and both deletes ' +
+        'matching nothing. This repository\'s CI cannot read talyvor-docs, so that entry is the ' +
+        'only place a deployer is asked.',
+    ).toBeDefined()
+  })
+
+  it('the entry pins the RETURN TYPE, not merely that a List function exists', () => {
+    const entry = listEntry()
+    expect(entry, 'the page-LIST settle command is not printed by the register').toBeDefined()
+    // `grep -c` on a function name answers 1 whether it returns []model.Page or []pageRow, so
+    // the comparison has to carry the type. An empty capture must MISMATCH, never satisfy.
+    //
+    // ⚠ THIS READS THE `= "…" ]` EXPECTATION, NOT THE LINE, AND CONTROL S5 IS WHY. The first
+    // version asserted the LINE contained "[]model.Page" and was predicted RED for an entry
+    // whose comparison had been changed to `= "ok"`. It came back GREEN: the entry's own
+    // trailing comment explains the rule and NAMES the type, so the assertion was satisfied by
+    // prose while the command compared against something else entirely. That is the same
+    // failure the sibling rules above already pay for twice — a selector matching the
+    // explanation instead of the thing explained — one layer further in.
+    const compared = entry?.match(/=\s*"([^"]*)"\s*\]/)?.[1]
+    expect(
+      compared,
+      'the page-LIST entry no longer compares an extracted value to an expected one, so it is ' +
+        'not asking talyvor-docs anything — it is a pipeline whose exit status is read.',
+    ).toBeDefined()
+    expect(
+      compared,
+      'the page-LIST entry\'s comparison is not `[]model.Page`, so a deployer running it gets a ' +
+        'confident yes about a list route that may serve a projection type — the exact change ' +
+        'this entry exists to catch, and the one that turns both of the BFF\'s by-name deletes ' +
+        'into no-ops while every other guard stays green.',
+    ).toBe('[]model.Page')
+  })
+
+  it('every key the BFF deletes is a key the DocsPage mirror pins upstream', () => {
+    // The two halves of the claim: the list serves model.Page (the entry above), and the keys
+    // deleted by name are model.Page tags (this). Neither alone is the guard — the first without
+    // the second passes over a delete of a key that was never in the struct.
+    const mirror = printedCommands().find(
+      (l) => l.includes('internal/model/model.go') && l.includes('type Page struct'),
+    )
+    expect(
+      mirror,
+      'the register prints no DocsPage mirror command, so there is nothing to check the deleted ' +
+        'keys against',
+    ).toBeDefined()
+    const pinned = mirror?.match(/=\s*"([^"]*)"\s*\]/)?.[1].trim().split(/\s+/) ?? []
+    expect(pinned.length, 'the DocsPage mirror pins no tags — an empty set matches anything').toBeGreaterThan(10)
+    for (const key of strippedKeys()) {
+      expect(
+        pinned,
+        `apps/bff/lens.go#stripPageContentList deletes "${key}" from every listed page row, and ` +
+          '"' + key + '" is not a tag the DocsPage mirror pins on talyvor-docs\' model.Page. A ' +
+          'delete of a key the rows do not carry is a no-op that reads as a redaction.',
+      ).toContain(key)
+    }
   })
 })
