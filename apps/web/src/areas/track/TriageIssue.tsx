@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { isSessionExpired, isUnconfigured, notConfiguredCopy } from '../../lib/productState'
-import { priorityLabel } from './format'
+import { meteredCallCopy, priorityLabel } from './format'
 import { readTriage, type TriageSuggestion } from './triage'
 
 // TriageIssue — Track's triage suggestion, the fourth of its five AI features to reach a browser,
@@ -20,6 +20,7 @@ import { readTriage, type TriageSuggestion } from './triage'
 // ⚠ IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS. MEASURED, not read: the request leaving
 // Track for Lens carries `X-Talyvor-Feature: <this issue's identifier>` and `claude-haiku-4-6`, so
 // the charge lands on this issue's `ai_cost_usd` — the number the Details card above renders.
+// WHEN it lands there is a separate fact and the card used to get it wrong: see meteredCallCopy.
 // Asking on mount would spend on every ticket anyone opened, and there is no cache upstream for
 // this one, so a second press is a second call and a second charge.
 //
@@ -56,9 +57,10 @@ export function TriageIssue({ issueId }: { issueId: string }) {
       <div className="flex flex-col gap-3 px-gutter py-4">
         <p className="text-body text-muted">
           Track can ask its AI to read this issue and suggest a priority, some labels and a
-          one-line summary. It is a metered AI call, and what it costs is added to the AI cost
-          above — for this issue.
+          one-line summary.
         </p>
+        {/* ⚠ ONE STRING, FROM ./format — see meteredCallCopy for the measurement. */}
+        <p className="text-body text-muted">{meteredCallCopy}</p>
         {/* ⚠ SAID BEFORE THE ASK AND AFTER IT, because it is a property of the button and not of the
             answer. Track can apply a triage suggestion; this app does not offer that, and the
             request it sends carries no parameter that could ask for it. */}

@@ -4,6 +4,7 @@ import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { isSessionExpired, isUnconfigured, notConfiguredCopy } from '../../lib/productState'
 import { readDuplicates, type DuplicateRow } from './duplicates'
+import { meteredCallCopy } from './format'
 
 // FindDuplicates — Track's duplicate finder, the third of its five AI features to reach a browser.
 //
@@ -16,6 +17,7 @@ import { readDuplicates, type DuplicateRow } from './duplicates'
 // ⚠ IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS. MEASURED, not read: the request that leaves
 // Track for Lens carries `X-Talyvor-Feature: <this issue's identifier>` and `claude-haiku-4-6`, so
 // the charge lands on this issue's `ai_cost_usd` — the number the Details card above renders.
+// WHEN it lands there is a separate fact and the card used to get it wrong: see meteredCallCopy.
 // Asking on mount would spend on every ticket anyone opened. There is no cache upstream for this
 // one (unlike the summary's hour), so a second press is a second call and a second charge.
 //
@@ -62,8 +64,10 @@ export function FindDuplicates({ issueId }: { issueId: string }) {
       <div className="flex flex-col gap-3 px-gutter py-4">
         <p className="text-body text-muted">
           Track can ask its AI whether one of this team’s recent issues describes the same problem.
-          It is a metered AI call, and what it costs is added to the AI cost above — for this issue.
         </p>
+        {/* ⚠ ONE STRING, FROM ./format — see meteredCallCopy for why the old sentence's tense was
+            the false part of it. */}
+        <p className="text-body text-muted">{meteredCallCopy}</p>
         <div>
           <Button onClick={() => run.mutate(issueId)} disabled={busy || issueId === ''}>
             {busy ? 'Asking Track…' : 'Look for duplicates'}

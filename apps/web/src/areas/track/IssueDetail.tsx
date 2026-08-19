@@ -338,13 +338,16 @@ export function IssueDetail() {
       </Card>
 
       {/* ⚠ IT SITS BELOW Details AND ABOVE Comments ON PURPOSE. It summarises the thread under it,
-          and what it costs lands in the AI cost row above it — the panel is between its subject
-          and its price. */}
+          and what it costs is attributed to the AI cost row above it — the panel is between its
+          subject and its price. WHEN that price appears there is a different question, and this
+          comment used to answer it wrongly: see meteredCallCopy in ./format, which the card now
+          prints. Nothing on the AI request path writes that number. */}
       <AISummary issueId={id} />
 
       {/* ⚠ BESIDE THE SUMMARY FOR THE SAME REASON, AND ABOVE THE COMMENTS DELIBERATELY: what it
           asks about is the ISSUE — its title and description — not the thread, and what it costs
-          lands in the AI cost row above it. It carries no `key`: the answer is bound to the issue
+          is attributed to the AI cost row above it (arriving there out-of-band — meteredCallCopy).
+          It carries no `key`: the answer is bound to the issue
           id it was asked with, inside the component, so a route change to another issue cannot
           leave one issue's duplicates drawn under another's title. */}
       <FindDuplicates issueId={id} />
@@ -354,7 +357,8 @@ export function IssueDetail() {
           labels and discards the write error — so this app asks for the suggestion and the BFF
           forwards no query at all, which is what makes the write unreachable rather than merely
           unused (apps/bff/track_triage.go). Same placement argument as the two above: it reads the
-          issue's own title and description, and what it costs lands in the AI cost row above. */}
+          issue's own title and description, and what it costs is attributed to the AI cost row
+          above (arriving there out-of-band — meteredCallCopy). */}
       <TriageIssue issueId={id} />
 
       <Card>
