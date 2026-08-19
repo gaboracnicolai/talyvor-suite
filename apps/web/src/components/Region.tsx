@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 import { cn } from '@talyvor/ui'
 
 // THE REGION MARKING — the public site's section shape, in the console's type scale.
@@ -24,7 +26,15 @@ import { cn } from '@talyvor/ui'
 // section has a heading, that is its name, and a landmark named "Workspace" beside a heading saying
 // something else would be two answers to one question — and at the eyebrow where it does not.
 export interface RegionProps {
-  /** Two digits, in document order. It is a label, not a count — nothing derives it. */
+  /**
+   * Two digits, in document order. It is a label, not a count — nothing derives it, and since
+   * W1.1.13 nothing CONSUMES it either: it is rendered and that is all.
+   *
+   * ⚠ THAT SECOND HALF USED TO BE FALSE IN A WAY THIS DOCSTRING WAS SILENT ABOUT, and the silence
+   * was the defect. The sentence above said "nothing derives it", which was true and was about the
+   * wrong direction — the index DID feed `aria-labelledby`, so it was load-bearing for
+   * accessibility while reading as decoration. See `landmarkIds.test.tsx`.
+   */
   index: string
   /** The uppercase eyebrow: the question this region answers. */
   label: string
@@ -44,8 +54,25 @@ export interface RegionProps {
 }
 
 export function Region({ index, label, heading, className, sectionClassName, children }: RegionProps) {
-  const labelId = `region-${index}-label`
-  const headingId = `region-${index}-heading`
+  // ⚠ THE ID IS GENERATED, NOT DERIVED FROM `index` — W1.1.13. It was `region-${index}-label`, so
+  // two regions given the same index took the same DOM id; `getElementById` returns the FIRST and
+  // the second section's accessible name silently became the first section's label. A screen
+  // reader listed two sections called "What you have" and the visible page was identical. It was
+  // found by a positive control (W1.1.3's C4), not by reading, and it was LATENT — every index in
+  // the product is unique today. Six screen rebuilds are still OPEN and all of them are told to
+  // use this component, which is why the repair is "unique by construction" rather than "check the
+  // indices are unique": the second is a rule someone has to keep, and the first is not.
+  //
+  // ⚠ THE COLONS ARE STRIPPED, AND THAT IS NOT COSMETIC. React 18.3.1's `useId()` emits `:r0:`,
+  // and `querySelector('#:r0:-label')` throws `SyntaxError: is not a valid selector` — measured.
+  // Tests and guards reach for elements that way, so a raw id turns a clean assertion into a crash
+  // somewhere unrelated. Stripping the delimiters keeps React's uniqueness (they are leading and
+  // trailing, and the varying part is between them) — and `landmarkIds.test.tsx` asserts document
+  // -wide id uniqueness across every address, so that is CHECKED rather than assumed: if React's
+  // format ever changed such that stripping could collide, the sweep reds.
+  const uid = useId().replace(/:/g, '')
+  const labelId = `region-${uid}-label`
+  const headingId = `region-${uid}-heading`
   return (
     <section
       aria-labelledby={heading ? headingId : labelId}

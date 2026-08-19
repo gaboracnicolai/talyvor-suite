@@ -93,6 +93,7 @@
   "src/glyphAudit.test.tsx": 30,
   "src/headerReflow.test.tsx": 4,
   "src/LandmarkCoverage.test.tsx": 25,
+  "src/landmarkIds.test.tsx": 11,
   "src/Legal.test.tsx": 25,
   "src/lensRequestBodyRegister.test.ts": 44,
   "src/lib/awaiting.test.ts": 9,

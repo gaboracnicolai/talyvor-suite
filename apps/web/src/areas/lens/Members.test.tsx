@@ -137,10 +137,20 @@ describe('the screen has a shape a reader can move through', () => {
       expect(eyebrow?.className).toContain('uppercase')
     }
 
-    // ⚠ THE INDICES MUST BE DISTINCT, and this is a landmark assertion rather than a tidiness
-    // one. Region derives `aria-labelledby` from the index (apps/web/src/components/Region.tsx:47), so two
-    // regions sharing one would point BOTH landmarks at the same name and the screen would report
-    // two identically-named sections while looking correct. This screen writes them by hand.
+    // ⚠ THE INDICES MUST BE DISTINCT — and as of W1.1.13 this is a READER assertion, not a
+    // landmark one, which is a correction to what stood here one merge ago.
+    //
+    // It read: "this is a landmark assertion rather than a tidiness one. Region derives
+    // `aria-labelledby` from the index, so two regions sharing one would point BOTH landmarks at
+    // the same name." That was true when it was written and is now FALSE — Region generates its
+    // ids with `useId`, so a duplicate index no longer touches the landmark at all. The sentence
+    // was caught by `pointerAudit.test.ts` on the very next merge, which is the whole reason that
+    // register is line-keyed: the citation had not moved, the CLAIM had stopped being true.
+    //
+    // What survives is the visible half: the index is what a reader sees beside each eyebrow, and
+    // two regions both numbered 01 is a numbering that says nothing. The landmark half is now
+    // covered for every address at once by `landmarkIds.test.tsx`, which is where it belongs —
+    // this screen cannot check a shared component's contract for the other eleven.
     const indices = Array.from(container.querySelectorAll('[data-testid="region-index"]')).map(
       (e) => e.textContent,
     )
