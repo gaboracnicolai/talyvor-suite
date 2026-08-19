@@ -3,14 +3,59 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * `apps/bff/docs_search.go` MAKES FIVE CLAIMS ABOUT talyvor-docs AND NOTHING ASKS talyvor-docs.
+ * THE DOCS SEARCH ROUTE MAKES SIX CLAIMS ABOUT talyvor-docs AND NOTHING ASKED talyvor-docs.
+ *
+ * ⚠ THIS HEADER SAID "`apps/bff/docs_search.go` MAKES FIVE CLAIMS" AND IS CORRECTED IN PLACE. The
+ * count moved, and so did the SCOPE: the five request-side premises are all enforced in
+ * `docs_search.go`, but the sixth is consumed in `apps/web/src/areas/docs/search.ts` — the
+ * RESPONSE discriminator. A table that named only the BFF file could not hold it, and the count
+ * rule at the bottom is keyed on this table, so leaving the sentence at five would have been a
+ * stale number guarding a stale scope.
  *
  * ── WHY THIS FILE, AND WHY IT IS NOT A DIFF ──────────────────────────────────
  *
  * The measurement that put these entries here is a NEGATIVE one, the same shape that put
- * `lib/api.ts`'s four Lens mirrors in the register: ALL FIVE CLAIMS RUN TRUE against talyvor-docs
- * `8189d7b53892f7f37e9756c5fe68e3cdd2c547da` today. Nothing to fix in the claims; everything to fix
+ * `lib/api.ts`'s four Lens mirrors in the register: ALL FIVE REQUEST-SIDE CLAIMS RUN TRUE against
+ * talyvor-docs `8189d7b53892f7f37e9756c5fe68e3cdd2c547da`, and the sixth runs true at docs main
+ * `f5f9257a6521db686471865cddeed17e57b57082` (tab-3f8e, W1.7 — verified by executing the settle
+ * command as the register PRINTS it, in a read-only `git archive` scratch export; talyvor-docs was
+ * held by another tab and was NEVER written to). Nothing to fix in the claims; everything to fix
  * in the fact that nothing was watching them.
+ *
+ * ⚠ WHY THE SIXTH IS NOT JUST A SIXTH — IT IS THE ONLY ONE A MONEY SENTENCE RESTS ON. The five
+ * request-side premises decide what gets ASKED of Docs. `source` decides what the screen is allowed
+ * to SAY the workspace was billed for. MEASURED by driving the shipped `SearchDocs` card at suite
+ * `567e6d6a` with the dual-match literal renamed the way an upstream rename would deliver it:
+ *
+ *   source "both"    → semantic:"ran"     → "Embedding the query WAS a metered Lens call billed to
+ *                                           this workspace under docs-search"
+ *   source "hybrid"  → semantic:"unknown" → "WHERE LENS IS CONFIGURED, embedding the query is a
+ *                                           metered call … Only a row from the semantic index
+ *                                           proves it happened here"
+ *
+ * One renamed literal converts a definite charge into a conditional on a search that WAS billed —
+ * and the hedge it falls back to explains itself with "Docs merges an unconfigured semantic search
+ * in as an empty list", which is FALSE on that very response. The classifier reads only the two
+ * positive literals, so a rename can never FABRICATE evidence; it silently DELETES it.
+ *
+ * ⚠ AND NO TEST IN THIS REPO CAN SEE THAT, BY CONSTRUCTION — which is why it is a register entry
+ * and not a test. Censused at `567e6d6a`: the dual-match literal appears six times in apps/web —
+ * three in `search.ts` (the union and the two classifier arms) and three in fixtures authored HERE
+ * (`search.test.ts` ×2, `searchDocs.test.tsx` ×1). Both halves of every comparison live in this
+ * repository, so the fixtures go on passing with the old literal while production receives the new.
+ *
+ * ⚠ CONTROLS ON THE SIXTH RULE, WHICH PASSED ON ITS FIRST RUN AND WAS THEREFORE DISTRUSTED: 6/6 as
+ * predicted, 0 anomalies (`~/talyvor-queue/w17-sourceset-register-controls-3f8e.py`), catcher named
+ * BEFORE each run, every mutation restored in a `finally` and sha256-verified back. N1 the
+ * register's expectation renamed · N2 a FOURTH literal added to search.ts's union · N3 the entry's
+ * marker re-aimed so `entryFor` finds nothing · N4 `declaredSources()` BLINDED to return [] · N5
+ * the union replaced by a bare `string` — all RED, the last two the vacuity cases a rule comparing
+ * two derived sets must not pass. N6 a reworded comment — GREEN.
+ *
+ * ⚠ AND THE SETTLE COMMAND'S OWN QUOTES ARE EXPLICIT WHERE THE FIVE ABOVE USE A `.` WILDCARD, FOR A
+ * MEASURED REASON. Written `Source: *.[a-z]*.` the pattern also matches the UNQUOTED `Source: src,`
+ * line in the same function and yielded a phantom `src,` member — caught because the PRISTINE tree
+ * was run as a control and failed, so the instrument was wrong rather than the product.
  *
  * ⚠ MEASURED BY EXECUTING docs' OWN `search.Handler.Search`, not read off the comments beside the
  * constants (a `git archive` scratch export in /tmp — talyvor-docs was held by another tab and was
@@ -111,9 +156,17 @@ import { describe, expect, it } from 'vitest'
 const ROOT = resolve(import.meta.dirname, '../../..')
 const REGISTER = resolve(ROOT, 'deploy/decision-expiry.sh')
 const ROUTE_REL = 'apps/bff/docs_search.go'
+/**
+ * The sixth claim's declaring file, and the reason this table is no longer only about the BFF. The
+ * five request-side premises are enforced in `docs_search.go`; the RESPONSE discriminator is
+ * consumed here, and it is the one this route's money sentence depends on — see the entry in
+ * deploy/decision-expiry.sh for the measurement.
+ */
+const CLASSIFIER_REL = 'apps/web/src/areas/docs/search.ts'
 
 const register = readFileSync(REGISTER, 'utf8')
 const route = readFileSync(resolve(ROOT, ROUTE_REL), 'utf8')
+const classifier = readFileSync(resolve(ROOT, CLASSIFIER_REL), 'utf8')
 
 /** The talyvor-docs file every one of these commands greps, as the register spells it. */
 const UPSTREAM = 'internal/search/handler.go'
@@ -150,6 +203,11 @@ const CLAIMS: Claim[] = [
   {
     decision: 'docsSearchWindowRefusal exempts the single-source path, because upstream pages it in SQL',
     marker: "grep -o 'twoSources := kind == .[a-z]*.\\|sqlOffset := offset\\|sqlOffset = 0\\|window = offset + limit'",
+  },
+  {
+    decision:
+      "search.ts's `source` set — the response discriminator the evidence sentence AND the metered-cost sentence are both derived from",
+    marker: "grep -o 'src :*= \"[a-z]*\"\\|Source: *\"[a-z]*\"'",
   },
 ]
 
@@ -227,6 +285,25 @@ function declaredTypes(): string[] {
 function declaredWindow(): string | null {
   const m = /const docsSearchMergedWindow = (\d+)/.exec(route)
   return m ? m[1] : null
+}
+
+/**
+ * The upstream `source` literals apps/web's classifier recognises, derived from the `source` union
+ * in search.ts so a fourth cannot be added there with nothing asking talyvor-docs about it.
+ *
+ * ⚠ `unknown` IS EXCLUDED, AND THAT IS NOT TIDYING. It is this app's OWN sentinel for a value
+ * upstream did not send — the classifier assigns it in the fallback arm of `src === 'fulltext' ||
+ * … ? src : 'unknown'`. Asking a deployer whether talyvor-docs still emits `unknown` would be
+ * asking about a value whose author is this repository, which is the shape of question that gets
+ * answered yes forever.
+ */
+function declaredSources(): string[] {
+  const m = /source: ('[a-z]+'(?: \| '[a-z]+')+)/.exec(classifier)
+  if (!m) return []
+  return [...m[1].matchAll(/'([a-z]+)'/g)]
+    .map((x) => x[1])
+    .filter((s) => s !== 'unknown')
+    .sort()
 }
 
 /**
@@ -375,6 +452,33 @@ describe('every cross-repo claim apps/bff/docs_search.go makes is a question the
           'refusal this route does not serve.',
       ).toBeGreaterThan(0)
     }
+  })
+
+  it('the deployer is asked about the source set this app actually classifies on', () => {
+    expect(
+      classifier.length,
+      `${CLASSIFIER_REL} read as empty. The population below is derived from it, so an empty parse ` +
+        'turns this rule into a comparison of two empty sets that passes having read nothing.',
+    ).toBeGreaterThan(0)
+    const sources = declaredSources()
+    expect(
+      sources.length,
+      `no \`source: 'a' | 'b' | …\` union parsed out of ${CLASSIFIER_REL}. That union IS the ` +
+        'population — with nothing parsed this rule confirms a premise it never looked at.',
+    ).toBeGreaterThan(0)
+    const entry = entryFor(CLAIMS[5])
+    expect(entry, 'the source entry must parse before it can be compared').not.toBeNull()
+    expect(
+      expectedInCommand(entry?.[2] ?? ''),
+      'deploy/decision-expiry.sh asks talyvor-docs about a different response discriminator than ' +
+        `${CLASSIFIER_REL} classifies on (${sources.join(' ')}). This is the only cross-repo ` +
+        'claim on this route a MONEY sentence rests on: the classifier reads `semantic` and ' +
+        '`both` to decide whether the card may say the embedding WAS billed, so a literal ' +
+        'renamed upstream does not lose a label — it retracts the charge, and the hedge it falls ' +
+        'back to blames an unconfigured semantic half that in fact ran. Every occurrence of these ' +
+        'literals in this repo is either the classifier or a fixture authored here, so no test can ' +
+        'see the rename; this entry is the only thing that can.',
+    ).toBe(`${sources.join('|')}|`)
   })
 
   it('the register holds no docs-search entry this table does not account for', () => {
