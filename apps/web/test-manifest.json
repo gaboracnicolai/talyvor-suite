@@ -91,6 +91,7 @@
   "src/headerReflow.test.tsx": 4,
   "src/LandmarkCoverage.test.tsx": 25,
   "src/Legal.test.tsx": 25,
+  "src/lensRequestBodyRegister.test.ts": 33,
   "src/lib/awaiting.test.ts": 9,
   "src/lib/calledRoutes.test.ts": 11,
   "src/lib/productState.test.ts": 13,

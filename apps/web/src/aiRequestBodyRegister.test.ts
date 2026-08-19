@@ -2,6 +2,8 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
+import { LENS_BODIES, NON_LENS_ANON_SITES, cannotCalls } from './lensRequestBodies'
+
 /**
  * THE REQUEST BODIES THIS REPO BUILDS ARE CROSS-REPO SHAPE CLAIMS, AND NOTHING ASKED
  * talyvor-docs ABOUT THEM.
@@ -94,8 +96,10 @@ import { describe, expect, it } from 'vitest'
  * Six of this BFF's `forwardProduct` calls pass the caller's own `r.Body` straight through
  * (`lens.go` ×3, `track.go` ×3): those shapes are authored by the browser, not here, so no Go
  * struct in `apps/bff` names them and the census below cannot see them. That is a boundary, not a
- * clean bill of health — nothing in this repository asks talyvor-docs or talyvor-track about them
- * either.
+ * clean bill of health — nothing in this repository asks talyvor-docs about the `lens.go` three.
+ * (`track.go`'s three ARE in the register now; so is the anonymous-marshal family this census
+ * bucketed and could not name — see `lensRequestBodyRegister.test.ts`, which owns the six that go
+ * to talyvor-lens and shares this file's population rather than counting its own.)
  *
  * ⚠ THE FLOORS ARE NOT DECORATION. Every half is parsed out of source, so a rename, a reformat or
  * a deleted entry yields no match — at which point a set equality over two empty sets passes
@@ -242,47 +246,6 @@ function bindsOnly(b: AIBody): string[] | null {
   return names
 }
 
-/**
- * The double-quoted arguments of every `cannot` call in the register: DECISION, PREMISE, COMMAND.
- * Unescaped by bash's own rule for a double-quoted string — a backslash escapes only `$`, a
- * backtick, `"` and `\`, and before anything else it stays a literal backslash, which is what
- * keeps a grep pattern's `\*` a `\*`.
- */
-function cannotCalls(shell: string): string[][] {
-  const joined = shell.replace(/\\\n\s*/g, ' ')
-  const out: string[][] = []
-  for (const line of joined.split('\n')) {
-    if (!line.startsWith('cannot ')) continue
-    const args: string[] = []
-    let i = 0
-    while (i < line.length) {
-      if (line[i] !== '"') {
-        i += 1
-        continue
-      }
-      i += 1
-      let buf = ''
-      while (i < line.length && line[i] !== '"') {
-        if (line[i] === '\\') {
-          if (!'$`"\\'.includes(line[i + 1] ?? '')) buf += line[i]
-          i += 1
-          if (i < line.length) {
-            buf += line[i]
-            i += 1
-          }
-          continue
-        }
-        buf += line[i]
-        i += 1
-      }
-      i += 1
-      args.push(buf)
-    }
-    if (args.length >= 3) out.push(args)
-  }
-  return out
-}
-
 const BFF_DIR = resolve(ROOT, 'apps/bff')
 
 /**
@@ -314,13 +277,21 @@ function marshalCensus(): { named: string[]; anonymous: string[] } {
 }
 
 /**
- * The nine marshalled bodies this guard does NOT cover, pinned so the sentence above cannot rot
- * into a claim of coverage. Eight are anonymous maps or structs and one (`keys.go`) marshals a
- * decoded request straight back out; each is still a key set another repository binds, and NONE of
- * them is in deploy/decision-expiry.sh today. That is a stated gap with a floor under it, not a
- * finding fixed here — the queue carries it as its own item.
+ * The marshalled bodies this guard does NOT cover, DERIVED rather than typed.
+ *
+ * ⚠ THIS WAS THE LITERAL `9` AND ITS SENTENCE WENT FALSE THE DAY IT WAS ACTED ON. It read "NONE of
+ * them is in deploy/decision-expiry.sh today", which was true when written and stopped being true
+ * when `lensRequestBodyRegister.test.ts` put six of the nine — the talyvor-lens family — into the
+ * register with a settle command each. A hand-typed count cannot notice that; it stays green while
+ * the sentence beside it describes a world that has moved.
+ *
+ * So the number is now a partition of ONE population: the anonymous sites this guard's own census
+ * finds, minus the six that sibling owns, minus the three `lens.go` sites named in
+ * NON_LENS_ANON_SITES as not a lens key set at all. The count below must equal what is left, which
+ * is zero — every anonymous site is now accounted for by exactly one of the three groups, and a
+ * tenth site reds here AND next door rather than widening a gap in silence.
  */
-const UNCOVERED_MARSHAL_SITES = 9
+const UNCOVERED_MARSHAL_SITES = LENS_BODIES.length + NON_LENS_ANON_SITES.length
 
 const ENTRIES = cannotCalls(readFileSync(REGISTER, 'utf8'))
 /** The upstream files this table's rows name, deduplicated — the register side's population. */

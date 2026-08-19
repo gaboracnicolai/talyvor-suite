@@ -732,6 +732,56 @@ cannot "[GET /api/track/issues/search] SearchIssues.tsx prints \`track-search\` 
     "[ \"\$(grep -cE '^[[:space:]]+vec, err := e\\.callEmbeddingsViaLens\\(ctx, workspaceID, \"track-search\", query\\)\$' internal/ai/engine.go)\" = 1 ]   # in a talyvor-track checkout; anchored to the LIVE call line — measured against a scratch export, the unanchored form still answered 1 with the call renamed and the old line left as a comment above it"
 
 
+# ── THE SIX REQUEST BODIES THIS BFF SENDS talyvor-lens ───────────────────────
+#
+# The sibling block above asks talyvor-docs and talyvor-track about the bodies this repo builds
+# from a NAMED Go struct. These six are anonymous maps and struct literals — json.Marshal(
+# map[string]int64{"usd_cents": …}) and friends — which is why aiRequestBodyRegister.test.ts's
+# census could only put them in a bucket and count them. An anonymous literal is not a lesser
+# claim about another repository; it is the same claim with nowhere to hang a test.
+#
+# ⚠ NOT ONE OF THE SIX LENS HANDLERS CALLS DisallowUnknownFields. That is the fact the whole
+# block rests on and it was MEASURED, not assumed: a renamed key upstream is indistinguishable
+# from an absent one, the field takes its ZERO VALUE, and the decode reports success. So the
+# question is never "is it an error" — it is "what does the zero value DO", and that was answered
+# by executing Lens's own code at f09348d1 in a read-only git archive export (the repo was held
+# by another tab and was NEVER written to): the real newProvisionHandler over fakes for its two
+# interfaces, and the real downstream validators for the five mounted as closures in main.go.
+#
+# ⚠⚠ THE MONEY ROUTES FAIL LOUD AND THE CONSENT ROUTES FAIL SILENT. Both amounts are refused by
+# an upstream allow-list or minimum, so a renamed usd_cents or lxc_amount_ulxc is a 400 someone
+# sees. Every route that records a CHOICE — pooling consent, distill policy, session lifetime —
+# answers 200 and stores something else. That is the opposite of where the attention has gone,
+# and it is why these six are one block rather than six scattered lines.
+#
+# The full nine-case verdict table is in apps/web/src/lensRequestBodyRegister.test.ts, which also
+# holds each entry below to the key set this repo actually sends. CI here checks out this
+# repository alone, so these commands are the only thing that asks Lens.
+
+cannot "[POST /v1/workspaces/{wsID}/billing/checkout] apps/bff/billing.go sends {usd_cents} and Lens binds it on a plain decoder with NO DisallowUnknownFields, so a renamed key is an ACCEPTED zero — LOUD only because 0 is off billing.AllowedTopUpCents() ([1000 5000 10000]) and yields ErrAmountNotAllowed. The refusal is upstream's allow-list, not a decode error, and shortening that list to include 0 would make this route silent" \
+    "talyvor-lens cmd/lens/main.go" \
+    "[ \"\$(grep -A12 -F 'bill.post(authed, \"/v1/workspaces/{wsID}/billing/checkout\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"usd_cents\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
+
+cannot "[POST /v1/workspaces/{wsID}/lxc/convert] apps/bff/convert.go sends {lxc_amount_ulxc} and a renamed key reaches ConvertLENStoLXC as 0, refused by the 100000 uLXC minimum before the rate engine or the database is touched — LOUD, and again by a downstream minimum rather than by the decoder" \
+    "talyvor-lens cmd/lens/main.go" \
+    "[ \"\$(grep -A12 -F 'econ.post(authed, \"/v1/workspaces/{wsID}/lxc/convert\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"lxc_amount_ulxc\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
+
+cannot "[POST /v1/workspaces/{wsID}/api-keys] apps/bff/keys.go sends {name,scopes,expires_at} and the two that matter fail in OPPOSITE directions — a renamed scopes is LOUD because tenant.ValidateScopes refuses an empty list AT ISSUANCE, which is load-bearing: auth.RequireScope grandfathers len(Scopes)==0 into passing every scope check, so that refusal is the only thing between this rename and a console-minted key that satisfies the proxy gate spending the workspace credit. A renamed name is SILENT — CreateAPIKey stores an empty name and the blank-name refusal is the BFF's own, so an upstream rename is the ONLY way to reach that arm" \
+    "talyvor-lens cmd/lens/main.go" \
+    "[ \"\$(grep -A12 -F 'authed.Post(\"/v1/workspaces/{wsID}/api-keys\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"expires_at name scopes\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
+
+cannot "[POST /v1/provision] apps/bff/tenant.go sends {identity,display_name,cache_poolable,ttl_hours} and a renamed ttl_hours is SILENT ON A CREDENTIAL LIFETIME — auth.ClampTTL(0) returns DefaultTokenTTL 24h, so the session JWT this repo asks to keep short at 8h lives three times as long, and the BFF cannot see it because expires_at is computed from the TTL Lens actually applied. A renamed cache_poolable reaches Lens as SILENCE so the new-workspace default replaces the person's choice; identity is the LOUD one, 400. display_name is declared with omitempty and never assigned, so it is never on the wire — the tag is still this repo asserting Lens binds that name" \
+    "talyvor-lens cmd/lens/provision_handler.go" \
+    "[ \"\$(awk '/^type provisionRequest struct/,/^}/' cmd/lens/provision_handler.go | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"cache_poolable display_name identity ttl_hours\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
+
+cannot "[PUT /v1/workspaces/{wsID}/distill] apps/bff/distill.go sends {distill_policy} and a rename is SILENT WITH THE FAIL-SAFE AIMED AT THE WRONG SHAPE — normalizeDistillPolicy resolves garbage to DistillDisabled under a comment saying a misconfiguration never silently distills, but a renamed key produces the EMPTY value, which has its own arm: DefaultDistillPolicy, and that is DistillAlways. Measured end to end, a workspace whose owner chose disabled was recorded always, 200" \
+    "talyvor-lens cmd/lens/main.go" \
+    "[ \"\$(grep -A12 -F 'authed.Put(\"/v1/workspaces/{wsID}/distill\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"distill_policy\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
+
+cannot "[PUT /v1/workspaces/{wsID}/cache-poolable] apps/bff/tenant.go sends {cache_poolable} and Lens binds a plain bool, so a renamed key is false and a workspace that opted IN is recorded opted OUT with a 200 — the privacy-preserving direction, which is exactly why it is written down: a consent that can be withdrawn by an upstream rename with no error anywhere is not being recorded" \
+    "talyvor-lens cmd/lens/main.go" \
+    "[ \"\$(grep -A12 -F 'authed.Put(\"/v1/workspaces/{wsID}/cache-poolable\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"cache_poolable\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
+
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy
 #           checks in README.md §6 and FULL-STACK-DEPLOY.md can read a STATUS CODE for
