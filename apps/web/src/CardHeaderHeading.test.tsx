@@ -93,6 +93,39 @@ function cardHeaderTitles(root: ParentNode): Element[] {
   return Array.from(root.querySelectorAll('div.border-b.border-rule > .text-head'))
 }
 
+/**
+ * THE CENSUS, PER ADDRESS — the record of the margin above the floor below, and the thing four
+ * screen-rebuild items are told to reason from.
+ *
+ * It is a CONSTANT that a test compares to a measurement, not a sentence in a comment, because
+ * the comment that used to hold this number said "20 card headers" and was wrong the day it was
+ * written: the same instrument, run at `b17a6ac` (the commit that wrote it), reads 24. It then
+ * drifted a second time — `1b58635` (#251, W1.7) added `FeatureSpendCard`, giving /spend a fourth
+ * header — and nothing said so, because nothing could.
+ *
+ * ⚠ A ROW CHANGING IS NOT A DEFECT. A screen rebuild that adds or removes a card is expected to
+ * update its row; the failing test prints the whole measured table to paste. What is a defect is
+ * the number being wrong while every reader believes it. And the red arrives in the FIRST such
+ * merge's own CI rather than in main after the second, which is the failure W0.3 named.
+ */
+const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
+  '/': 6,
+  '/ledger': 1,
+  '/billing': 2,
+  '/billing/success': 0,
+  '/billing/cancel': 0,
+  '/keys': 2,
+  '/setup': 5,
+  // 4, not 3: `1b58635` (#251) added `FeatureSpendCard` — "Spend by feature". The card arrived as
+  // a NEW FILE that Spend.tsx renders, so `grep -c '<CardHeader' Spend.tsx` reads 2 before and
+  // after and would have argued the opposite.
+  '/spend': 4,
+  '/members': 1,
+  '/settings': 2,
+  '/track': 2,
+  '/docs': 1,
+}
+
 beforeEach(mockBff)
 afterEach(() => {
   vi.restoreAllMocks()
@@ -149,10 +182,45 @@ describe('a card header is a section title, so it is a heading element', () => {
     },
   )
 
+  it('the census is the number, not a remembered one — per address, and complete', async () => {
+    const measured: Record<string, number> = {}
+    for (const route of CONSOLE_ROUTES) {
+      const address = addressOf(route.path)
+      await at(address)
+      measured[address] = cardHeaderTitles(document.body).length
+      document.body.replaceChildren()
+    }
+    const table = (t: Record<string, number>) =>
+      Object.entries(t)
+        .map(([a, n]) => `      ['${a}', ${n}],`)
+        .join('\n')
+
+    // Every address must have a row and every row an address: a route added without a census row
+    // is the case where a number "still reads right" because it silently stopped covering a page.
+    const routes = CONSOLE_ROUTES.map((r) => addressOf(r.path)).sort()
+    const declared = Object.keys(CARD_HEADER_CENSUS).sort()
+    expect(
+      declared,
+      'CARD_HEADER_CENSUS and CONSOLE_ROUTES describe different address sets. Paste the measured ' +
+        `census:\n${table(measured)}`,
+    ).toEqual(routes)
+
+    for (const address of routes) {
+      expect(
+        measured[address],
+        `${address} renders ${measured[address]} card headers; CARD_HEADER_CENSUS says ` +
+          `${CARD_HEADER_CENSUS[address]}. One of the two is stale — re-derive, do not guess. ` +
+          `Measured census:\n${table(measured)}`,
+      ).toBe(CARD_HEADER_CENSUS[address])
+    }
+  })
+
   it('the sweep actually reaches card headers — a floor over the whole gated set', async () => {
-    // MEASURED: 20 card headers across the ten top-level addresses, plus the three /billing*
-    // spellings of one page. A selector that stopped matching would make every case above pass
-    // by finding nothing, which is the failure mode a per-address assertion cannot see.
+    // The floor is the SECOND instrument, and deliberately independent of the census above: it
+    // survives a census row being wrong, and it is what catches a selector that stopped matching
+    // — the failure mode a per-address assertion cannot see, because it makes every case pass by
+    // finding nothing. The margin above it is CARD_HEADER_CENSUS's total, which is checked rather
+    // than remembered; the number that used to live in this comment said 20 and was never true.
     let found = 0
     for (const route of CONSOLE_ROUTES) {
       await at(addressOf(route.path))
