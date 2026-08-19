@@ -452,6 +452,75 @@ const PINS: Record<string, Pin> = {
     fragment: '"/api/docs/spaces"',
     why: 'the Docs proxy mechanics are "same as the existing route"; it cited lens.go:74, which is /api/bonds — three more Docs routes were mounted above it',
   },
+
+  // ── W1.1.6, the Members rebuild ────────────────────────────────────────────────────────────
+  // Twelve pointers, and every fragment below is copied from the SENTENCE that cites it rather
+  // than read off the target — a fragment taken from the target is true by construction and pins
+  // nothing. The screen argues three things from the BFF (which email is the join key, which
+  // variables wire Track, and that the workspace is not pinned), so each is a line a later commit
+  // in THIS repository can move without touching the screen. That is exactly the rot this file
+  // was written for: `billing.go:180` moved and the sentence explaining "nothing was charged"
+  // ended up pointing at the one function that cannot charge.
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:653': {
+    kind: 'LIVE',
+    fragment: 'X-User-Email',
+    why: 'the screen marks YOUR row by comparing /auth/me\'s email to the roster; the claim that this header is the membership join key is the whole basis for that being a join rather than a guess',
+  },
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/auth.go:664': {
+    kind: 'LIVE',
+    fragment: 's.email',
+    why: 'the other half of the same argument — the browser may only mark a row if /auth/me serves the SAME value the BFF forwards upstream',
+  },
+  'apps/web/src/areas/lens/Members.tsx:46|apps/bff/main.go:116': {
+    kind: 'LIVE',
+    fragment: 'TRACK_WORKSPACE_ID',
+    why: 'the provenance line used to say the workspace is "pinned server-side"; this is the line that refuses to boot into that design, and it is why the sentence changed',
+  },
+  'apps/web/src/areas/lens/Members.tsx:49|apps/bff/keys_test.go:318': {
+    kind: 'LIVE',
+    fragment: 'workspace_id=SOMEBODY-ELSE',
+    why: 'the positive half — the screen says a browser-named workspace is ignored, and this is the test that drives one',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:43|apps/bff/main.go:236': {
+    kind: 'LIVE',
+    fragment: 'TRACK_BASE_URL',
+    why: 'the 503 state names the two variables as the next action; they are read from here, not remembered',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:249|apps/bff/main.go:236': {
+    kind: 'LIVE',
+    fragment: 'TRACK_BASE_URL',
+    why: 'the same claim at the case that asserts it, so the case and the header cannot drift apart',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:50|apps/bff/auth.go:664': {
+    kind: 'LIVE',
+    fragment: 's.email',
+    why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:175|apps/bff/lens.go:653': {
+    kind: 'LIVE',
+    fragment: 'X-User-Email',
+    why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:175|apps/bff/auth.go:664': {
+    kind: 'LIVE',
+    fragment: 's.email',
+    why: 'same sentence, the /auth/me half',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:333|apps/bff/track_tenant.go:178': {
+    kind: 'LIVE',
+    fragment: 'http.MethodGet',
+    why: 'the screen renders no control at all because this BFF proxies a GET and nothing else; this is the method test that makes that true',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:359|apps/bff/main.go:116': {
+    kind: 'LIVE',
+    fragment: 'TRACK_WORKSPACE_ID',
+    why: 'the case that forbids the word "pinned" in the provenance line cites the refusal that makes pinning impossible',
+  },
+  'apps/web/src/areas/lens/Members.test.tsx:141|apps/web/src/components/Region.tsx:47': {
+    kind: 'LIVE',
+    fragment: 'region-${index}-label',
+    why: 'the distinct-index assertion is a LANDMARK assertion, and it is one only because the id is derived from the index here (W1.1.13 names this shared-component trap)',
+  },
 }
 
 /** Every .ts/.tsx in both packages, TESTS INCLUDED — a failure message is developer-facing text. */
