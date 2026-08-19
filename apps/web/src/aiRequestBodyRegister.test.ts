@@ -93,13 +93,30 @@ import { LENS_BODIES, NON_LENS_ANON_SITES, cannotCalls } from './lensRequestBodi
  * register's whole job and is why these entries exist at all.
  *
  * ⚠ AND A SECOND POPULATION IT DOES NOT TOUCH, NAMED SO THE SCOPE IS NOT MISTAKEN FOR COVERAGE.
- * Six of this BFF's `forwardProduct` calls pass the caller's own `r.Body` straight through
- * (`lens.go` ×3, `track.go` ×3): those shapes are authored by the browser, not here, so no Go
- * struct in `apps/bff` names them and the census below cannot see them. That is a boundary, not a
- * clean bill of health — nothing in this repository asks talyvor-docs about the `lens.go` three.
- * (`track.go`'s three ARE in the register now; so is the anonymous-marshal family this census
- * bucketed and could not name — see `lensRequestBodyRegister.test.ts`, which owns the six that go
- * to talyvor-lens and shares this file's population rather than counting its own.)
+ * Some of this BFF's `forwardProduct` calls pass the caller's own `r.Body` straight through:
+ * those shapes are authored by the browser, not here, so no Go struct in `apps/bff` names them
+ * and the census below cannot see them. That is a boundary, not a clean bill of health.
+ *
+ * ⚠⚠ THIS PARAGRAPH SAID "SIX (`lens.go` ×3, `track.go` ×3)" AND ENDED "nothing in this
+ * repository asks talyvor-docs about the `lens.go` three". BOTH HALVES ARE CORRECTED IN PLACE
+ * (tab-6d9a) RATHER THAN LEFT, because a guard now contradicts them and a reader believes
+ * whichever they read first.
+ *
+ *   · THE COUNT IS FIVE, NOT SIX. `git grep -n 'http.MaxBytesReader(w, r.Body' apps/bff` returns
+ *     six lines, and the FIRST is `lens.go:1004` — inside `docsSpaceCreateBody`, which reads the
+ *     body precisely so it can REWRITE `workspace_id` and is the one place this BFF explicitly
+ *     does NOT forward a Docs body verbatim (its own docstring says so). Counting a read of the
+ *     body as a verbatim forward is what made the trio look like a trio. It is `lens.go` ×2 —
+ *     `docsCreatePage` (POST) and `docsUpdatePage` (PATCH) — and `track.go` ×3.
+ *
+ *   · AND ALL OF THEM ARE ASKED NOW. `track.go`'s three are in the register; `lens.go`'s two are
+ *     covered by `docsPageWriteRegister.test.ts` and the three `internal/page` entries in
+ *     `deploy/decision-expiry.sh` — the UPDATE allowlist, the CREATE binding, and (tab-6d9a) the
+ *     LIST return type behind `stripPageContentList`'s by-name deletes.
+ *
+ * (The anonymous-marshal family this census bucketed and could not name is owned by
+ * `lensRequestBodyRegister.test.ts`, which holds the six that go to talyvor-lens and shares this
+ * file's population rather than counting its own.)
  *
  * ⚠ THE FLOORS ARE NOT DECORATION. Every half is parsed out of source, so a rename, a reformat or
  * a deleted entry yields no match — at which point a set equality over two empty sets passes

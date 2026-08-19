@@ -587,6 +587,38 @@ cannot "talyvor-docs' page CREATE binds model.Page, which is the ONLY reason the
     "talyvor-docs internal/page/handler.go" \
     "[ \"\$(sed -n '/^func (h \\*Handler) Create(/,/^}/p' internal/page/handler.go | grep -o 'var in model\\.[A-Za-z]*\\|Decode(&in)' | tr '\n' '|')\" = \"var in model.Page|Decode(&in)|\" ]   # in a talyvor-docs checkout; the decoded TYPE and the decode itself, together — the same shape as the space-create entry above, for the sibling route nobody added when that one was added"
 
+# ⚠ THE THIRD PAGE ROUTE, AND ITS CLAIM IS A DELETE RATHER THAN A SEND — WHICH IS WHY IT WAS THE
+# ONE LEFT. apps/bff/lens.go#docsSpacePages relays the page LIST through `stripPageContentList`,
+# which does `delete(row, "content")` and `delete(row, "content_text")` on every row. Those two
+# literals are a claim about talyvor-docs' RESPONSE shape, and they are the only thing keeping
+# every page's full ProseMirror document off the space tree.
+#
+# ⚠ NEITHER EXISTING GUARD COVERS IT, AND BOTH LOOK AS THOUGH THEY DO. apps/bff/products_test.go
+# asserts the stripped body carries neither key — the right assertion over a FAKE Docs whose row
+# this repository hardcodes, so both halves of the comparison live here and it is green whatever
+# upstream serves. The DocsPage mirror above pins model.Page's tags, so a RENAME of `content` is
+# caught — but NOT the list route ceasing to serve model.Page at all. `page.Handler.List` returns
+# whatever `Store.List` returns, and a projection type added for the tree view (the ordinary
+# reason to add one) leaves model.Page untouched, the mirror green, and both deletes matching
+# nothing.
+#
+# ⚠ MEASURED, NOT REASONED, at docs fd96dec790454b133847a399be28704c0ce369ec — docs' own mounted
+# route over a real pgvector Postgres, in a disposable `git archive` export (that repo was held by
+# another tab and was never written to): GET /v1/spaces/{id}/pages -> 200, 10 rows, 6406 bytes, a
+# 24-key row set carrying BOTH `content` and `content_text`, the seeded document text present
+# VERBATIM in the unstripped body, and 5885 bytes after the BFF's two deletes. The premise holds
+# today; nothing in this repo can see the day it stops, and the failure ships a document body
+# rather than blanking a field.
+#
+# ⚠ THE COMMAND CAPTURES THE RETURN TYPE, NOT THE FUNCTION'S EXISTENCE. `grep -c 'Store) List('`
+# answers 1 whether it returns []model.Page or []pageRow. Controlled against the export in all
+# four directions: unchanged -> []model.Page (match) · return type -> []pageRow (EMPTY capture,
+# mismatch) · List renamed (EMPTY capture, mismatch) · model.Page -> model.PageSummary
+# ([]model.PageSummary, mismatch). An empty capture FAILS this comparison rather than passing it.
+cannot "talyvor-docs' page LIST still serves model.Page rows — apps/bff/lens.go#stripPageContentList deletes content and content_text from every row BY NAME, and that redaction is the only thing keeping each page's whole ProseMirror document off the space tree; the DocsPage mirror pins the tags but not that this route still returns them" \
+    "talyvor-docs internal/page/store.go" \
+    "[ \"\$(sed -n 's/^func (s \\*Store) List(.*) (\\(\\[\\]model\\.[A-Za-z]*\\), error) {\$/\\1/p' internal/page/store.go)\" = \"[]model.Page\" ]   # in a talyvor-docs checkout; the RETURN TYPE of the function the list handler serves. A projection type, a rename of List, or model.PageSummary each yield a capture that does not equal []model.Page — including the empty capture, which is the vacuity case a command reading an exit status cannot see"
+
 # ── THE REQUEST HALF OF THE SAME CLASS, AND IT IS THE HALF THAT SPENDS MONEY ─
 # DECISION: this app builds the request body for three talyvor-docs AI routes (apps/bff/docs_ai.go)
 #           and writes the fourth in the browser (areas/docs/api.ts#ask, forwarded verbatim).
