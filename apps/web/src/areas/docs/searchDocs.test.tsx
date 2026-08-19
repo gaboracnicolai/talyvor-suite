@@ -162,6 +162,52 @@ describe('SearchDocs', () => {
     expect(screen.queryByText(/nothing in this workspace matched/i)).not.toBeInTheDocument()
   })
 
+  // ── THE TWO SENTENCES THAT WERE ABOUT THE WRONG ROWS ────────────────────────
+  //
+  // `dropped`'s own note records that talyvor-docs has shipped an undrawable hit twice and BOTH
+  // were on the semantic half — a hit whose url was a route its SPA does not register, and a hit
+  // with no title. So "the row proving the semantic half ran is the row this app could not draw"
+  // is the shape upstream has actually produced, twice, and it is the shape both sentences below
+  // got wrong: one hedged over proof it was holding, the other credited proof to rows that did
+  // not carry it.
+
+  it('⚠ says the half RAN when the only row proving it could not be drawn', async () => {
+    mockBff({
+      status: 200,
+      body: { results: [hit({ page_title: '', source: 'semantic' })], total: 1, query: 'auth', took_ms: 3 },
+    })
+    renderIn(<SearchDocs />)
+    await searchFor('auth')
+
+    await waitFor(() => expect(screen.getByText(/nothing in this workspace matched/i)).toBeInTheDocument())
+    expect(screen.getByText(/result arrived and could not be drawn/i)).toBeInTheDocument()
+    // The response DID establish it. Hedging here tells an operator checking whether embeddings
+    // are wired that nothing can be known, while holding the proof that they are.
+    expect(screen.getByText(/could not be drawn\.$/i)).toBeInTheDocument()
+    expect(screen.queryByText(/cannot say whether/i)).not.toBeInTheDocument()
+  })
+
+  it('⚠ does not tell the reader one of the rows ON SCREEN came from the semantic index', async () => {
+    // A full-text row is drawn; the semantic row was not. "The half ran" is true and is said.
+    // "At least one of these came from the semantic index" points at a list where none did.
+    mockBff({
+      status: 200,
+      body: {
+        results: [hit(), hit({ page_id: 'pg-2', page_title: '', source: 'semantic' })],
+        total: 2,
+        query: 'auth',
+        took_ms: 3,
+      },
+    })
+    renderIn(<SearchDocs />)
+    await searchFor('auth')
+
+    await waitFor(() => expect(screen.getByText('Auth flow')).toBeInTheDocument())
+    expect(screen.queryByText(/one of these came from the semantic index/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/could not be drawn\.$/i)).toBeInTheDocument()
+    expect(screen.queryByText(/cannot say whether/i)).not.toBeInTheDocument()
+  })
+
   it('says when a row arrived and could not be drawn', async () => {
     mockBff({
       status: 200,

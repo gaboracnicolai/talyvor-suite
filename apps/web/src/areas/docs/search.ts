@@ -31,6 +31,24 @@
  * does not register (every semantic-only result a dead link), and a hit with no title, rendered as
  * "a line with nothing written on it". `dropped` exists so the screen can say a row arrived and
  * could not be shown, rather than quietly serving a shorter list.
+ *
+ * ⚠⚠ AND BECAUSE BOTH OF THOSE UPSTREAM DEFECTS WERE ON THE SEMANTIC HALF, THE UNDRAWABLE ROW IS
+ * THE PROOF-CARRYING ROW — which is why WHERE the evidence arrived is carried and not just THAT it
+ * did. Two facts, not one, and this file used to collapse them in opposite directions:
+ *
+ *   `semantic`      — the half RAN. Any row proves it, drawable or not. It was computed before the
+ *                     drawability check for exactly that reason and then THROWN AWAY on the
+ *                     rows-empty branch, which returned a hardcoded 'unknown'. MEASURED: one
+ *                     `source:"semantic"` row with no title returned `{kind:'empty',dropped:1,
+ *                     semantic:'unknown'}` and the card printed "this answer cannot say whether the
+ *                     semantic half ran" while holding the proof that it had.
+ *   `semanticShown` — a row ON SCREEN carries it. Only a DRAWN row proves this. Without it the
+ *                     card read `semantic` and wrote "at least one of THESE came from the semantic
+ *                     index" over a list of full-text rows — MEASURED, a false sentence about a
+ *                     visible list, which is the worse of the two.
+ *
+ * `semanticShown` is not carried on `empty` because there it could only ever be false, and a field
+ * that cannot vary is a field the next reader will test anyway.
  */
 
 /** One search hit, in the fields this app draws. */
@@ -48,8 +66,18 @@ export interface SearchRow {
 }
 
 export type SearchView =
-  | { kind: 'results'; rows: SearchRow[]; dropped: number; semantic: 'ran' | 'unknown'; query: string | null }
-  | { kind: 'empty'; dropped: number; semantic: 'unknown' }
+  | {
+      kind: 'results'
+      rows: SearchRow[]
+      dropped: number
+      /** The half RAN — established by ANY row, drawn or dropped. */
+      semantic: 'ran' | 'unknown'
+      /** A row the reader can SEE carries that proof. Only a drawn row establishes it, and it is a
+       *  strictly stronger claim than `semantic` — never derive one from the other. */
+      semanticShown: boolean
+      query: string | null
+    }
+  | { kind: 'empty'; dropped: number; semantic: 'ran' | 'unknown' }
   | { kind: 'unrecognised' }
 
 function str(v: unknown): string {
@@ -66,6 +94,7 @@ export function readSearch(payload: unknown): SearchView {
   const rows: SearchRow[] = []
   let dropped = 0
   let semantic: 'ran' | 'unknown' = 'unknown'
+  let semanticShown = false
 
   for (const raw of p.results) {
     if (typeof raw !== 'object' || raw === null) {
@@ -80,11 +109,15 @@ export function readSearch(payload: unknown): SearchView {
     // without a title is still proof the half ran — dropping the row must not also drop the one
     // fact this response is able to establish.
     const src = r.source
-    if (src === 'semantic' || src === 'both') semantic = 'ran'
+    const proves = src === 'semantic' || src === 'both'
+    if (proves) semantic = 'ran'
     if (pageID === '' || title === '' || url === '') {
       dropped++
       continue
     }
+    // ⚠ SET HERE AND NOWHERE ELSE — after the drop, at the push. This is the whole difference
+    // between the two facts: `semantic` survives a dropped row and this must not.
+    if (proves) semanticShown = true
     rows.push({
       pageID,
       title,
@@ -95,12 +128,16 @@ export function readSearch(payload: unknown): SearchView {
     })
   }
 
-  if (rows.length === 0) return { kind: 'empty', dropped, semantic: 'unknown' }
+  // ⚠ `semantic`, NOT 'unknown'. Nothing was drawn, but a dropped row can still have proved the
+  // half ran — and on this route the dropped row is the LIKELY carrier of that proof, because both
+  // undrawable shapes talyvor-docs has shipped were semantic hits.
+  if (rows.length === 0) return { kind: 'empty', dropped, semantic }
   return {
     kind: 'results',
     rows,
     dropped,
     semantic,
+    semanticShown,
     // Docs trims the query and echoes what it actually searched for. Absent ⇒ null ⇒ the screen
     // captions nothing rather than echoing the caller's own input back as if it were the answer's.
     query: typeof p.query === 'string' ? p.query : null,
