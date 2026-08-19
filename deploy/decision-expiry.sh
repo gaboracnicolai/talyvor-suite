@@ -540,6 +540,22 @@ cannot "the suggest-title route sends what talyvor-docs SuggestTitle binds — t
     "talyvor-docs internal/ai/handler.go" \
     "[ \"\$(sed -n '/^func (h \\*Handler) SuggestTitle(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"content page_id \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"
 
+# ⚠ THE FIFTH ENTRY IS NOT AN AI ROUTE AND IS NOT IN THE AI FILE, WHICH IS WHY IT WAS MISSING.
+# The four above were added by sweeping talyvor-docs' `internal/ai/handler.go`; the changelog body
+# is built the same way, sent by the same BFF, and binds its keys in `internal/changelog/handler.go`
+# — outside the population that sweep could see. `apps/web/src/aiRequestBodyRegister.test.ts` now
+# derives the population from `json.Marshal(<Name>{` in apps/bff instead of from that file list.
+#
+# ⚠ WHAT A DRIFT COSTS HERE IS NOT A COMPLETION, IT IS A ROW. Measured by executing docs' own
+# `changelog.Handler.Generate` at `8189d7b5`: `{"version":"v1.2.3","issue_ids":[]}` answers 201,
+# performs ZERO Track lookups and writes a durable entry summarised "Generated from 0 issues" —
+# and `…/changelog/entries/{id}/publish` pushes it to the workspace's public RSS feed. So a rename
+# of `issue_ids` upstream does not error: the BFF's own empty-list refusal reads the BROWSER's key,
+# not the wire's, and every generated entry silently becomes an empty release note.
+cannot "the changelog generate route sends what talyvor-docs generateBody binds — a renamed issue_ids is a 201 that writes an empty, publishable release note rather than an error" \
+    "talyvor-docs internal/changelog/handler.go" \
+    "[ \"\$(sed -n '/^type generateBody struct/,/^}/p' internal/changelog/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"issue_ids version workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set. workspace_id is bound upstream and DELIBERATELY not sent (Generate overwrites it from the page's context — measured), so it is declared UPSTREAM-BINDS-ONLY beside docsGenerateBody in docs_changelog.go (spelled without its directory ON PURPOSE: expirySubjects.test.ts reads every repo-relative path on a grep line as a path this command GREPS and demands a subject gate for it, and this command greps only the upstream file) and is part of the union this compares"
+
 cannot "the ask body the browser writes is what talyvor-docs Ask binds — the BFF forwards it verbatim, so api.ts#ask IS the wire; upstream refuses every other spelling with 400 today, and that refusal can be withdrawn upstream" \
     "talyvor-docs internal/ai/handler.go" \
     "[ \"\$(sed -n '/^func (h \\*Handler) Ask(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"question \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"

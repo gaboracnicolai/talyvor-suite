@@ -21,6 +21,18 @@ import (
 // `workspace_id:"ws_ATTACKER"` answered 201 and wrote into the caller's real workspace. A field
 // that travels the whole way and changes nothing is decoration a reader can mistake for tenancy;
 // this route does not send one.
+//
+// ⚠ RE-MEASURED BY EXECUTION at talyvor-docs `8189d7b5` (a `git archive` scratch export; that repo
+// was held by another tab and was NEVER written to), driving `changelog.Handler.Generate` over a
+// recording issueLookup and a recording pgxDB, catcher predicted before each run:
+//
+//	body workspace_id ws_ATTACKER, context ws_REAL → 201; all four issue lookups and the INSERT's
+//	                                                 workspace_id column read ws_REAL
+//	the same body with NO workspace in context     → 403, the store never reached
+//	the body with workspace_id omitted entirely    → identical to the first, so it is not required
+//	instrument control: "ws_ATTACKER" appears in NOTHING the two recorders captured
+//
+// UPSTREAM-BINDS-ONLY docsGenerateBody: workspace_id
 type docsGenerateBody struct {
 	Version  string   `json:"version"`
 	IssueIDs []string `json:"issue_ids"`
