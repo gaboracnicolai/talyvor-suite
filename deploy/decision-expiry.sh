@@ -508,6 +508,34 @@ cannot "DocsSpace mirrors talyvor-docs Space — the space row SpaceList renders
     "talyvor-docs internal/model/model.go" \
     "[ \"\$(sed -n '/^type Space struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"color created_at created_by description icon id name private slug updated_at workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
 
+# ⚠ THE ENTRY ABOVE COVERS AN AUTHZ KEY IT WAS NOT WRITTEN FOR, AND ONLY BECAUSE OF THE PREMISE
+# THIS ONE PINS. `apps/bff/lens.go#docsSpaceCreateBody` overwrites `workspace_id` in the create-space
+# body with the SESSION's workspace, because Docs authorizes THAT FIELD against membership and "the
+# field an attacker edits should not exist in the request at all". The key it pins is a talyvor-docs
+# key — and the only thing asking talyvor-docs about it is the Space mirror above, which pins
+# `model.Space`'s tag set. That covers the create request ONLY because Docs' Create decodes into
+# model.Space. Nothing recorded that, so the coverage was an accident nobody could see.
+# ⚠ WHY IT MATTERS, MEASURED at suite `491eb21c` by calling docsSpaceCreateBody directly rather than
+# reasoning about it — the pin is exact and the pass-through is total:
+#   {"name":"Eng","workspace_id":"ws-ATTACKER"}  ->  {"name":"Eng","workspace_id":"ws-SESSION"}
+#   {"name":"Eng","ws_id":"ws-ATTACKER"}         ->  {"name":"Eng","workspace_id":"ws-SESSION",
+#                                                     "ws_id":"ws-ATTACKER"}
+# Every key that is not `workspace_id` is forwarded VERBATIM, by design (decoding into a fixed struct
+# would silently drop fields Docs supports). So on the day Docs authorizes on a DIFFERENTLY NAMED
+# field, the BFF's pin lands on a key Docs ignores and the browser's own value under the new name is
+# ALREADY being forwarded — the server-pinned authz field becomes client-controlled with no error
+# anywhere. Docs' membership check still bounds it to workspaces the caller belongs to, which is
+# precisely the residual the BFF comment names: "a user in two workspaces could still create in the
+# wrong one". A rename of `model.Space` is caught by the mirror; a create handler that stops binding
+# model.Space is caught HERE and by nothing else.
+# ⚠ 5/5 controls against a real docs export: Create binding its OWN request struct -> RED (the exact
+# fragility case) · Create renamed -> RED (empty capture) · handler.go emptied -> RED · a reworded
+# SEC-4 comment -> GREEN. It pins the TYPE and the decode together, so a struct renamed in the
+# declaration while the decode still reads it is a mismatch either way.
+cannot "talyvor-docs' space CREATE binds model.Space, which is the ONLY reason the DocsSpace mirror above also covers the \`workspace_id\` apps/bff pins from the session — a create handler that binds its own request struct moves that authz key with the mirror still green, and apps/bff forwards every other key verbatim" \
+    "talyvor-docs internal/space/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Create(/,/^}/p' internal/space/handler.go | grep -o 'var in model\\.[A-Za-z]*\\|Decode(&in)' | tr '\n' '|')\" = \"var in model.Space|Decode(&in)|\" ]   # in a talyvor-docs checkout; the decoded TYPE and the decode itself, together. An empty capture — which is what a renamed Create and an absent file both produce — fails this comparison rather than passing it, and that is the vacuity case a command reading an exit status cannot see"
+
 cannot "DocsPage mirrors talyvor-docs Page — the page shape the tree and reader read, and the one that grew own_ai_cost_usd / total_ai_cost_usd while this repo said it mirrored the struct whole" \
     "talyvor-docs internal/model/model.go" \
     "[ \"\$(sed -n '/^type Page struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"ai_cost_usd content content_text cover_url created_at created_by depth doc_status,omitempty icon id is_template last_verified_at,omitempty last_viewed_at,omitempty linked_issues,omitempty locked locked_at,omitempty locked_by,omitempty own_ai_cost_usd page_type,omitempty parent_id,omitempty position slug space_id stale_after_days title total_ai_cost_usd updated_at updated_by verified_by,omitempty view_count workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
