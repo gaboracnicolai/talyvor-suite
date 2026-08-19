@@ -233,10 +233,10 @@ func TestTrackTriage_RefusesOtherMethods(t *testing.T) {
 // cleans the empty path segment and redirects before any handler runs — so the assertion was
 // satisfied by the router and would pass with every id check in the file removed.
 //
-// ⚠ THE SAME SHAPE IS LIVE IN THE SIBLING: `TestTrackFindDuplicates_RefusesAnEmptyIssueID` drives
-// `/api/track/issues//find-duplicates`, which also answers 307 (measured in the same probe). It is
-// recorded in the queue rather than repaired on this diff — one merge per finding — but it is the
-// reason this file asserts the redirect as a REDIRECT and puts the guard's real subject beside it.
+// ⚠ THE SAME SHAPE WAS LIVE IN THE SIBLING — `/api/track/issues//find-duplicates` also redirects,
+// measured in the same probe — and it is repaired in its own merge as
+// `TestTrackFindDuplicates_RefusesAHostileIssueID`, controlled the same way. That is the reason this
+// file asserts the redirect as a REDIRECT and puts the guard's real subject beside it.
 //
 // The ids below DO reach the handler (percent-encoding survives the mux's cleaning), so each one
 // exercises `pathID` itself: `..` is path traversal, `a/b` would forge an extra path segment
