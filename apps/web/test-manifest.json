@@ -61,7 +61,7 @@
   "src/authProbeLoop.test.tsx": 10,
   "src/BillingRoutes.test.tsx": 4,
   "src/buildIdentity.test.ts": 9,
-  "src/CardHeaderHeading.test.tsx": 17,
+  "src/CardHeaderHeading.test.tsx": 18,
   "src/caseAudit.test.tsx": 28,
   "src/caseCallSites.test.ts": 9,
   "src/checkoutRefusalSurface.test.tsx": 5,
