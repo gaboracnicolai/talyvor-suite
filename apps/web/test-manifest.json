@@ -1,6 +1,6 @@
 {
   "src/AdminRemoved.test.tsx": 4,
-  "src/aiRequestBodyRegister.test.ts": 21,
+  "src/aiRequestBodyRegister.test.ts": 28,
   "src/areas/auth/Entry.test.tsx": 14,
   "src/areas/docs/askAI.test.tsx": 11,
   "src/areas/docs/DocsArea.test.tsx": 24,
@@ -105,7 +105,7 @@
   "src/routeParamState.test.ts": 10,
   "src/scrollReset.test.tsx": 18,
   "src/SessionExpired.test.tsx": 20,
-  "src/settleCommands.test.ts": 26,
+  "src/settleCommands.test.ts": 27,
   "src/Sharing.test.tsx": 8,
   "src/statusChangeRefusal.test.tsx": 7,
   "src/tokenDoor.test.ts": 10,

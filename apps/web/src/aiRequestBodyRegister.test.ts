@@ -1,10 +1,40 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 /**
- * THE FOUR AI REQUEST BODIES ARE CROSS-REPO SHAPE CLAIMS ON A MONEY PATH, AND NOTHING ASKED
+ * THE REQUEST BODIES THIS REPO BUILDS ARE CROSS-REPO SHAPE CLAIMS, AND NOTHING ASKED
  * talyvor-docs ABOUT THEM.
+ *
+ * ── THE SECOND FINDING, AND IT IS ABOUT THIS FILE (tab-5d2a) ─────────────────
+ *
+ * ⚠⚠ THE TABLE BELOW WAS HAND-MAINTAINED AND ITS COMPLETENESS RULE RAN IN ONE DIRECTION ONLY.
+ * It asked "does every register entry have a row" and never "does every body have a row", so a
+ * body this repository builds, marshals and sends could sit outside the register with nothing
+ * failing. One did. `apps/bff/docs_changelog.go#docsGenerateBody` is the FOURTH Go struct this BFF
+ * marshals into a Docs request body; three of the four were in here and it was not — not by
+ * judgement, but because the sweep that produced this table read `internal/ai/handler.go`, and
+ * changelog binds its keys in `internal/changelog/handler.go`. The population boundary WAS the
+ * hole.
+ *
+ * ⚠ AND THE HARM IS NOT THE AI HARM, WHICH IS WHY IT WAS WORTH FINDING RATHER THAN ASSUMING.
+ * Changelog generation is not a metered call at all (docs_changelog.go records that measurement).
+ * MEASURED BY EXECUTING docs' own `changelog.Handler.Generate` at `8189d7b5`, in a `git archive`
+ * scratch export — that repo was held by another tab and was NEVER written to:
+ *
+ *     {"version":"v1.2.3","issue_ids":[]}  → 201 Created, ZERO Track lookups,
+ *                                            a durable row summarised "Generated from 0 issues"
+ *
+ * and `…/changelog/entries/{id}/publish` pushes that row into the workspace's PUBLIC RSS feed. So
+ * an upstream rename of `issue_ids` is not an error anywhere: this BFF's own empty-list refusal
+ * reads the BROWSER's key, not the wire's, and every generated entry quietly becomes an empty
+ * release note that can be published. That is the 201-shaped sibling of the 200-shaped defect the
+ * four AI rows exist for.
+ *
+ * ⚠ THE FIX IS THE POPULATION, NOT THE ROW. `marshalCensus()` derives the go-struct half from
+ * `json.Marshal(<Name>{` across `apps/bff`, so the table is now held to the source rather than to
+ * a memory of which files were swept. Adding the changelog row alone would have left the next
+ * body to be found by the next sweep.
  *
  * ── THE FINDING THIS EXISTS FOR ──────────────────────────────────────────────
  *
@@ -38,9 +68,13 @@ import { describe, expect, it } from 'vitest'
  * command asks talyvor-docs about is the key set this repository actually sends. An entry naming
  * a stale set settles the wrong question and reports a pass for it.
  *
- * The command in the register greps the handler's OWN bind tags out of
- * `internal/ai/handler.go` and compares them to that set, so both halves are `git grep`-able
- * truth rather than prose.
+ * The command in the register greps the upstream's OWN bind tags out of talyvor-docs and compares
+ * them to that set, so both halves are `git grep`-able truth rather than prose. ⚠ THIS SENTENCE
+ * NAMED ONE FILE AND IS CORRECTED IN PLACE RATHER THAN LEFT (tab-5d2a): it read "out of
+ * `internal/ai/handler.go`", which was true of all four rows when it was written and is exactly
+ * the assumption that hid the fifth. The file is a COLUMN on each row now, and the subject may be
+ * a handler FUNCTION (the AI four decode into an anonymous struct inside it) or a named TYPE
+ * (changelog declares one beside the handler).
  *
  * ⚠ WHY EQUALITY AND NOT "WE SEND A SUBSET". A key docs binds and this app does not send is not
  * harmless: on these routes an absent key is a DEFAULT, not a refusal — `Engine.Translate`
@@ -56,30 +90,58 @@ import { describe, expect, it } from 'vitest'
  * the register's command in a talyvor-docs checkout tells those apart. That direction is the
  * register's whole job and is why these entries exist at all.
  *
- * ⚠ THE FLOORS ARE NOT DECORATION. Both halves are parsed out of source, so a rename, a reformat
- * or a deleted entry yields no match — at which point a set equality over two empty sets passes
- * having read nothing. Every parse asserts it found EXACTLY ONE subject, and the register is
- * asserted to hold EXACTLY as many AI-handler entries as this table has rows, so an entry for a
- * handler nobody sends to (or a table row whose entry was deleted) is a red rather than a silence.
+ * ⚠ AND A SECOND POPULATION IT DOES NOT TOUCH, NAMED SO THE SCOPE IS NOT MISTAKEN FOR COVERAGE.
+ * Six of this BFF's `forwardProduct` calls pass the caller's own `r.Body` straight through
+ * (`lens.go` ×3, `track.go` ×3): those shapes are authored by the browser, not here, so no Go
+ * struct in `apps/bff` names them and the census below cannot see them. That is a boundary, not a
+ * clean bill of health — nothing in this repository asks talyvor-docs or talyvor-track about them
+ * either.
  *
- * ⚠ MEASURED AGAINST talyvor-docs `d35f6406f0c9ca890929efbb3d8ff029dd4c4567`, read-only in a
- * `git archive` scratch export (that repo was held by another tab and was NEVER written to). The
- * four commands PASS there today, and all six positive controls fired as predicted —
- * `~/talyvor-queue/w17-aibody-register-controls-a91c.py`, each mutation restored in a `finally`
- * and sha256-verified back: a renamed bind key, an added key, a deleted key, the handler renamed,
- * and the handler file emptied all go red; the unmutated tree passes.
+ * ⚠ THE FLOORS ARE NOT DECORATION. Every half is parsed out of source, so a rename, a reformat or
+ * a deleted entry yields no match — at which point a set equality over two empty sets passes
+ * having read nothing. Every body parse asserts it found EXACTLY ONE subject; the marshal census
+ * asserts it found at least one site before comparing anything (control G6 blanks the pattern and
+ * the guard goes RED rather than green); the register is asserted to hold EXACTLY as many
+ * request-body entries as this table has rows; and the marshalled bodies this guard does NOT
+ * cover are pinned at a literal so the uncovered set cannot widen in silence.
+ *
+ * ⚠ MEASURED AGAINST talyvor-docs `d35f6406f0c9ca890929efbb3d8ff029dd4c4567` (the AI four, tab-a91c)
+ * and re-measured against `8189d7b53892f7f37e9756c5fe68e3cdd2c547da` (tab-5d2a), read-only in a
+ * `git archive` scratch export (that repo was held by another tab and was NEVER written to). ALL
+ * FIVE commands pass there today — the four AI ones re-run rather than inherited from the older
+ * SHA, and the changelog one new.
+ *
+ * ⚠ CONTROLS. tab-a91c's six on the AI entries; and 17/17 for this change,
+ * `~/talyvor-queue/w17-marshalcensus-controls-5d2a.py`, verdict predicted BEFORE each run and every
+ * mutation restored in a `finally` and sha256-verified back. Guard side: a new marshalled body
+ * with no row, the changelog row deleted while the marshal stays, the register command re-aimed,
+ * a sixth entry with no row, the declaration deleted, the register expectation narrowed, the
+ * census pattern blanked (vacuity), a tenth uncovered site, and a SIBLING struct renamed in the Go
+ * only — all RED; a reworded comment — GREEN. Register side, mutating the docs export: `issue_ids`
+ * renamed, a key added, `workspace_id` dropped, the TYPE renamed and the handler file EMPTIED —
+ * all RED, the last two being the vacuity cases a command that finds nothing must not pass.
  */
 
 const ROOT = resolve(import.meta.dirname, '../../..')
 const REGISTER = resolve(ROOT, 'deploy/decision-expiry.sh')
-/** The upstream file every command below greps, as the register spells it. */
-const UPSTREAM_PATH = 'internal/ai/handler.go'
 
 interface AIBody {
   /** the product route, for failure messages */
   route: string
-  /** the talyvor-docs handler whose bind tags the register's command reads */
-  handler: string
+  /**
+   * The talyvor-docs file the register's command greps, as the register spells it. It is a COLUMN
+   * and no longer a single constant: the fifth row's bind tags are not in the AI package, and a
+   * one-file constant is exactly what made this table's population look complete while it was not.
+   */
+  upstream: string
+  /**
+   * The `sed` address the command must select on, which is where the bind tags actually live. The
+   * four AI handlers decode into an ANONYMOUS struct inside the handler function, so their tags are
+   * only findable through the func; changelog decodes into a NAMED type declared beside it. Two
+   * shapes, and the row says which — a matcher that assumed one silently matched no entry for the
+   * other, which reads as "no register entry" and not as "the matcher is wrong".
+   */
+  selector: string
   /** repo-relative path of the file that BUILDS the body sent to that handler */
   file: string
   /** the Go struct, or — for the one body this BFF forwards verbatim — the TS call site */
@@ -88,19 +150,23 @@ interface AIBody {
 }
 
 /**
- * Every request body this repository sends to a talyvor-docs AI route.
+ * Every request body this repository BUILDS for a talyvor-docs route.
  *
- * Three are built in the BFF from a Go struct, because two of their fields are AUTHORITY rather
- * than content (`action` chooses what the workspace pays for; `page_id` is what the charge lands
- * on). The fourth — ask — is forwarded VERBATIM, so its only writer is the browser, and the key
- * lives in `api.ts`. That asymmetry is exactly why it is in this table: the verbatim route is the
- * one with no Go struct for a Go test to decode, and it was the least-covered of the four.
+ * Four are built in the BFF from a Go struct, because a field of each is AUTHORITY rather than
+ * content (`action` chooses what the workspace pays for; `page_id` is what the charge lands on;
+ * `workspace_id` is whose changelog gets the row). The fifth — ask — is forwarded VERBATIM, so its
+ * only writer is the browser, and the key lives in `api.ts`. That asymmetry is exactly why it is in
+ * this table: the verbatim route is the one with no Go struct for a Go test to decode.
+ *
+ * ⚠ THE TABLE IS NO LONGER THE POPULATION — `marshalledSubjects()` below is, for the go-struct
+ * half. A row here that nothing marshals, and a marshalled body with no row, are both reds.
  */
 const BODIES: AIBody[] = [
-  { route: 'POST /api/docs/pages/{pageID}/summarize', handler: 'Transform', file: 'apps/bff/docs_ai.go', subject: 'docsSummarizeBody', kind: 'go-struct' },
-  { route: 'POST /api/docs/pages/{pageID}/translate', handler: 'Translate', file: 'apps/bff/docs_ai.go', subject: 'docsTranslateBody', kind: 'go-struct' },
-  { route: 'POST /api/docs/pages/{pageID}/suggest-title', handler: 'SuggestTitle', file: 'apps/bff/docs_ai.go', subject: 'docsSuggestTitleBody', kind: 'go-struct' },
-  { route: 'POST /api/docs/ai/ask', handler: 'Ask', file: 'apps/web/src/areas/docs/api.ts', subject: 'ask', kind: 'ts-ask-call' },
+  { route: 'POST /api/docs/pages/{pageID}/summarize', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) Transform(', file: 'apps/bff/docs_ai.go', subject: 'docsSummarizeBody', kind: 'go-struct' },
+  { route: 'POST /api/docs/pages/{pageID}/translate', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) Translate(', file: 'apps/bff/docs_ai.go', subject: 'docsTranslateBody', kind: 'go-struct' },
+  { route: 'POST /api/docs/pages/{pageID}/suggest-title', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) SuggestTitle(', file: 'apps/bff/docs_ai.go', subject: 'docsSuggestTitleBody', kind: 'go-struct' },
+  { route: 'POST /api/docs/spaces/{spaceID}/pages/{pageID}/changelog/generate', upstream: 'internal/changelog/handler.go', selector: 'type generateBody struct', file: 'apps/bff/docs_changelog.go', subject: 'docsGenerateBody', kind: 'go-struct' },
+  { route: 'POST /api/docs/ai/ask', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) Ask(', file: 'apps/web/src/areas/docs/api.ts', subject: 'ask', kind: 'ts-ask-call' },
 ]
 
 const sourceOf = new Map<string, string>()
@@ -217,14 +283,64 @@ function cannotCalls(shell: string): string[][] {
   return out
 }
 
+const BFF_DIR = resolve(ROOT, 'apps/bff')
+
+/**
+ * THE POPULATION, DERIVED FROM SOURCE RATHER THAN TYPED INTO THE TABLE ABOVE.
+ *
+ * Every `json.Marshal(…)` in the BFF's non-test Go, split in two: the ones whose argument is a
+ * NAMED struct literal declared in this package, and everything else. The first half is a shape
+ * this repository AUTHORS for another repository and is what the table has to account for; the
+ * second half is counted and named rather than dropped, because a census that quietly skips a
+ * category reports the coverage of the category it kept.
+ */
+function marshalCensus(): { named: string[]; anonymous: string[] } {
+  const named: string[] = []
+  const anonymous: string[] = []
+  for (const f of readdirSync(BFF_DIR).sort()) {
+    if (!f.endsWith('.go') || f.endsWith('_test.go')) continue
+    const text = readFileSync(resolve(BFF_DIR, f), 'utf8')
+    for (const m of text.matchAll(/json\.Marshal\(/g)) {
+      const rest = text.slice(m.index + m[0].length).split('\n')[0]
+      const hit = /^([A-Za-z_][A-Za-z0-9_]*)\{/.exec(rest)
+      const where = `${f}:${text.slice(0, m.index).split('\n').length}`
+      // `struct {` is the anonymous literal spelled long-hand; it declares no reusable subject
+      // for the table to name, so it belongs with the maps.
+      if (hit && hit[1] !== 'struct') named.push(hit[1])
+      else anonymous.push(where)
+    }
+  }
+  return { named: [...new Set(named)].sort(), anonymous }
+}
+
+/**
+ * The nine marshalled bodies this guard does NOT cover, pinned so the sentence above cannot rot
+ * into a claim of coverage. Eight are anonymous maps or structs and one (`keys.go`) marshals a
+ * decoded request straight back out; each is still a key set another repository binds, and NONE of
+ * them is in deploy/decision-expiry.sh today. That is a stated gap with a floor under it, not a
+ * finding fixed here — the queue carries it as its own item.
+ */
+const UNCOVERED_MARSHAL_SITES = 9
+
 const ENTRIES = cannotCalls(readFileSync(REGISTER, 'utf8'))
-/** Every register entry whose command greps a handler out of talyvor-docs' AI handler file. */
-const AI_ENTRIES = ENTRIES.filter(
-  (a) => a[2].includes(UPSTREAM_PATH) && /func \(h \\?\*Handler\) \w+\(/.test(a[2]),
+/** The upstream files this table's rows name, deduplicated — the register side's population. */
+const UPSTREAM_PATHS = [...new Set(BODIES.map((b) => b.upstream))]
+/**
+ * Every register entry whose command greps a REQUEST-BODY subject out of one of those files: a
+ * handler function (the four AI routes decode into an anonymous struct inside it) or a named body
+ * type (changelog declares one). Anything else grepping the same file — a route mount, a constant —
+ * is not this table's business and is not counted against it.
+ */
+const REQUEST_BODY_ENTRIES = ENTRIES.filter(
+  (a) =>
+    UPSTREAM_PATHS.some((p) => a[2].includes(p)) &&
+    /(func \(h \\?\*Handler\) \w+\(|type \w+ struct)/.test(a[2]),
 )
 
 function entryFor(b: AIBody): string[] | null {
-  const hits = AI_ENTRIES.filter((a) => a[2].includes(`Handler) ${b.handler}(`))
+  const hits = REQUEST_BODY_ENTRIES.filter(
+    (a) => a[2].includes(b.upstream) && a[2].includes(b.selector),
+  )
   return hits.length === 1 ? hits[0] : null
 }
 
@@ -238,7 +354,7 @@ function expectedInCommand(command: string): string[] | null {
 
 describe('every AI request body this repo builds is a question the register asks talyvor-docs', () => {
   for (const b of BODIES) {
-    describe(`${b.route} → docs ${b.handler}`, () => {
+    describe(`${b.route} → docs ${b.upstream} ${b.selector}`, () => {
       it('the sent body parses, with at least one key', () => {
         expect(
           sentKeys(b),
@@ -275,11 +391,12 @@ describe('every AI request body this repo builds is a question the register asks
         expect(
           entryFor(b),
           `no single \`cannot\` entry in deploy/decision-expiry.sh greps ` +
-            `\`func (h *Handler) ${b.handler}(\` out of \`${UPSTREAM_PATH}\`. This repository's ` +
+            `\`${b.selector}\` out of \`${b.upstream}\`. This repository's ` +
             'CI cannot read talyvor-docs, so that entry is the ONLY thing that asks a deployer ' +
-            'whether the keys this app sends are still the keys that handler binds. Without it ' +
-            'the claim is a sentence in a Go comment — and a wrong key on this route is a 200 ' +
-            'with a billed completion that read nothing, which is the defect #234 measured.',
+            'whether the keys this app sends are still the keys that subject binds. Without it ' +
+            'the claim is a sentence in a Go comment — and a wrong key on these routes is a 2xx ' +
+            'that read nothing: a billed completion (#234) on the AI four, and on changelog a ' +
+            'durable, publishable row claiming a release with no issues in it.',
         ).not.toBeNull()
       })
 
@@ -309,13 +426,49 @@ describe('every AI request body this repo builds is a question the register asks
     })
   }
 
-  it('the register holds no AI-handler entry this table does not account for', () => {
+  it('every named body this BFF marshals for an upstream has a row', () => {
+    const census = marshalCensus()
     expect(
-      AI_ENTRIES.length,
-      `deploy/decision-expiry.sh holds ${AI_ENTRIES.length} settle commands grepping a handler ` +
-        `out of \`${UPSTREAM_PATH}\`, and this table has ${BODIES.length} rows. An entry with no ` +
-        'row is a question asked on behalf of a body nobody sends — it goes stale with nothing ' +
-        'watching, and its pass reads as coverage. Add the row or delete the entry.',
+      census.named.length,
+      'no `json.Marshal(<Name>{` parsed out of apps/bff at all. This is the population — with ' +
+        'nothing parsed the set equality below is between two empty sets and passes having read ' +
+        'nothing, which is precisely the silence it exists to break.',
+    ).toBeGreaterThan(0)
+    expect(
+      census.named,
+      'the set of Go structs this BFF marshals into an upstream request body is not the set of ' +
+        '`go-struct` rows in BODIES. THIS IS THE DIRECTION THE OLD COMPLETENESS RULE DID NOT ' +
+        'RUN: it asked only whether every register entry had a row, so a body this repo builds ' +
+        'and sends could have no row, no register entry and no failing test — which is exactly ' +
+        'how `docsGenerateBody` sat outside the register while three siblings sat inside it. ' +
+        'Add the row (and its register entry), or stop marshalling the struct.',
+    ).toEqual(
+      BODIES.filter((b) => b.kind === 'go-struct')
+        .map((b) => b.subject)
+        .sort(),
+    )
+  })
+
+  it('the marshalled bodies this guard does NOT cover are counted, not dropped', () => {
+    const anonymous = marshalCensus().anonymous
+    expect(
+      anonymous.length,
+      `apps/bff now marshals ${anonymous.length} bodies from an anonymous map or struct ` +
+        `(${anonymous.join(', ')}), and this guard is pinned at ${UNCOVERED_MARSHAL_SITES}. Each ` +
+        'is still a key set another repository binds and none is in the register. The number is ' +
+        'here so that "the go-struct bodies are covered" cannot be read as "the bodies are ' +
+        'covered": a tenth site must be a decision, not a silent widening of the gap.',
+    ).toBe(UNCOVERED_MARSHAL_SITES)
+  })
+
+  it('the register holds no request-body entry this table does not account for', () => {
+    expect(
+      REQUEST_BODY_ENTRIES.length,
+      `deploy/decision-expiry.sh holds ${REQUEST_BODY_ENTRIES.length} settle commands grepping a ` +
+        `request-body subject out of ${UPSTREAM_PATHS.join(' / ')}, and this table has ` +
+        `${BODIES.length} rows. An entry with no row is a question asked on behalf of a body ` +
+        'nobody sends — it goes stale with nothing watching, and its pass reads as coverage. ' +
+        'Add the row or delete the entry.',
     ).toBe(BODIES.length)
   })
 })
