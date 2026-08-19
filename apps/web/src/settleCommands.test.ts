@@ -147,7 +147,16 @@ function parseUncheckable(text: string): Uncheckable[] {
 
 const ENTRIES = parseUncheckable(readFileSync(REGISTER, 'utf8'))
 const GO_TEST = ENTRIES.filter((e) => /\bgo test\b/.test(e.command))
-const GREP_C = ENTRIES.filter((e) => /\bgrep -c\b/.test(e.command))
+/**
+ * ⚠ THE BUNDLED FLAGS ARE IN THE PATTERN, AND THEY WERE NOT — MEASURED, NOT ANTICIPATED. This read
+ * `/\bgrep -c\b/`, and `\b` between `c` and `E` is not a boundary: both are word characters. So
+ * `grep -cE` — a counting command in every sense the rule cares about — was classified as NEITHER
+ * shape and generated NO test. The entry added beside this change used exactly that form and
+ * escaped the rule silently; the count of files and tests did not move, which is what made it
+ * invisible. Any `-cq`, `-ci`, `-cw` would have gone the same way. The rule was never about the
+ * spelling of the flag: it is about a command that reads `grep`'s EXIT STATUS instead of its count.
+ */
+const GREP_C = ENTRIES.filter((e) => /\bgrep -c[A-Za-z]*\b/.test(e.command))
 /**
  * H3 — AN EXTRACTION PIPELINE ANSWERS YES ABOUT WHATEVER IT FOUND, INCLUDING NOTHING. The seven
  * struct-mirror entries added with mirrorSubsetRegister.test.ts read a Go struct's json tags with

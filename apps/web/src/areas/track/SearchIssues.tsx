@@ -36,6 +36,12 @@
 // issue to charge. Keystroke-driven search would meter every keystroke. On this deployment the
 // engine is unavailable, so the full-text path runs and costs nothing; the form is submitted
 // either way, because which of those is true is exactly what this app cannot see.
+//
+// ⚠⚠ THAT PARAGRAPH IS ON SCREEN NOW — SEE CostNote BELOW — AND UNTIL `16d2218` IT WAS NOT. This
+// was the FOURTH metered Track surface and the only one that printed nothing: the knowledge was
+// in this header, written by whoever measured it, and no reader could reach it. The identical
+// shape shipped on the Docs search card (#240). meteredCostCensus.test.tsx is the census over
+// Track's whole metered population, so a fifth surface cannot be missed the same way.
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -92,6 +98,7 @@ export function SearchIssues() {
             Across the issues in this workspace.
           </span>
         </div>
+        <CostNote />
       </form>
 
       {/* ⚠ ONE CHAIN, FAILURE FIRST — not two sibling containers. "Nothing matched" must never be
@@ -133,6 +140,50 @@ export function SearchIssues() {
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * What a search costs, said where the button is.
+ *
+ * ⚠ IT IS A PROPERTY OF THE BUTTON, NOT OF THE ANSWER, so it renders with the form and in every
+ * outcome — TriageIssue's comment records the same rule for the same reason. The charge, where
+ * there is one, is bought on submit and BEFORE Track knows whether anything matched: the Docs
+ * census's C2 control measured that deleting the note from the EMPTY branch alone left a whole
+ * directory green, and the empty answer is the state that reads most like "nothing happened".
+ * Rendering it once, outside the outcome chain, is what makes that branch uncoverable rather than
+ * merely covered.
+ *
+ * ⚠⚠ IT IS CONDITIONAL IN BOTH DIRECTIONS, AND THAT IS MEASURED RATHER THAN CAUTIOUS. The three
+ * sibling cards spend on a click and may say so flatly. Here the charge is the half this card is
+ * forbidden to name, and `SemanticSearch` falls back silently whenever Lens is unavailable, the
+ * pool is nil, or any step fails — so "this search WAS billed" is FALSE on a deployment with no
+ * Lens, which is this one, and "was NOT billed" is equally unsupported. Track's answer is a bare
+ * array with no field for it (issueSearch.ts). The Docs sibling can end on proof because Docs tags
+ * its rows; there is no evidence to read here, in either direction.
+ *
+ * ⚠ AND IT DOES NOT REUSE `meteredCallCopy`. That sentence's payer is the ISSUE, which is true of
+ * the three cards — measured, they pass `issue.Identifier` as the Lens feature tag. Search passes
+ * the static tag `track-search` and there is no issue to charge, so borrowing the shared sentence
+ * would have told the reader that workspace search spend lands on a ticket. The census asserts
+ * the payer for exactly that reason.
+ *
+ * ⚠ THE VOCABULARY IS NARROW ON PURPOSE. searchIssues.test.tsx bans "semantic", "AI", "vector",
+ * "embedding" and "full-text" from this card, because no response it receives can say which half
+ * served the answer. This sentence is admitted by that guard UNCHANGED — it is about the CHARGE,
+ * which is a fact about the route, and says nothing about the machinery that produced any given
+ * result. A cost note that needed the ban loosened would have been the wrong sentence.
+ *
+ * ⚠ PROSE AS JSX TEXT, NOT A STRING CONSTANT — see DroppedNote below for the scanner that reads a
+ * quoted string of lowercase words as a Tailwind class list.
+ */
+function CostNote() {
+  return (
+    <p className="text-caption text-faint">
+      Where Lens is configured, running this search buys a metered Lens call, billed to this
+      workspace under <code>track-search</code> and to no issue. Track’s answer carries no record
+      either way, so this app cannot say whether this one was billed.
+    </p>
   )
 }
 
