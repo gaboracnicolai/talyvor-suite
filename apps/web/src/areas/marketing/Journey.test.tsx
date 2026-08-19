@@ -19,8 +19,17 @@ function mockBff() {
     const url = String(input)
     const json = (b: unknown) =>
       new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } })
-    if (url.startsWith('/auth/me')) return json({ mode: 'oidc', authenticated: false, user: null })
-    if (url.startsWith('/api/signup-open')) return json({ signup_open: true })
+    // ⚠ `signup_open` RIDES ON /auth/me AND THERE IS NO /api/signup-open ROUTE. This fixture used
+    // to carry an arm for one, returning {signup_open:true} — an arm nothing ever requested,
+    // because lib/signupOpen.ts#useSignupProbe fetches /auth/me and nothing else. The arm being
+    // dead was not the harm: the /auth/me answer beside it carried no signup_open at all, and
+    // signupStateOf maps an absent field to `unknown`, so every test in this file drove the
+    // journey through the UNKNOWN state while the fixture declared it OPEN. Measured — with
+    // AccessLine's `open` branch replaced by `return null`, Entry.test.tsx went red and all four
+    // tests here stayed green. fixtureRouteReality.test.ts is the census that now refuses a
+    // fixture arm for a URL the BFF does not mount.
+    if (url.startsWith('/auth/me'))
+      return json({ mode: 'oidc', authenticated: false, user: null, signup_open: true })
     return new Response('null', { status: 404 })
   })
 }
