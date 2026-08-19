@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { getJSON } from '../../lib/api'
 import { isSessionExpired, isUnconfigured, notConfiguredCopy } from '../../lib/productState'
+import { meteredCallCopy } from './format'
 import { readSummary } from './summary'
 
 // AISummary — Track's AI thread summary, and the FIRST browser control for any Track AI feature.
@@ -18,7 +19,9 @@ import { readSummary } from './summary'
 // Lens call attributed to THIS issue — `SummarizeThread` passes `issue.Identifier` as the feature
 // id and Track's syncer resolves a row with no issue header by `identifier = lens_feature`
 // (internal/issue/store.go RecordRequestSpendAttributed), so the money lands on
-// `issues.ai_cost_usd`, the number the Details card above renders. Fetching on mount would spend
+// `issues.ai_cost_usd`, the number the Details card above renders. ⚠ THIS HEADER ALREADY NAMED
+// THE SYNCER while the card below it printed "what it costs is added to the AI cost above" — the
+// timing was wrong on screen and right here. See meteredCallCopy. Fetching on mount would spend
 // on every ticket anyone opened. Track caches for an hour, so a second press inside the hour is
 // free — and this screen cannot tell a cached answer from a fresh one, so it does not claim to.
 //
@@ -74,10 +77,11 @@ export function AISummary({ issueId }: { issueId: string }) {
       <div className="flex flex-col gap-3 px-gutter py-4">
         {!asked ? (
           <>
-            <p className="text-body text-muted">
-              Track can summarise a long comment thread. It is a metered AI call, and what it costs
-              is added to the AI cost above — for this issue.
-            </p>
+            <p className="text-body text-muted">Track can summarise a long comment thread.</p>
+            {/* ⚠ ONE STRING, FROM ./format, AND IT IS A DIFFERENT CLAIM FROM THE ONE THAT WAS
+                HERE. See meteredCallCopy for the two writers of issues.ai_cost_usd, measured in
+                talyvor-track — neither is on this request path. */}
+            <p className="text-body text-muted">{meteredCallCopy}</p>
             <div>
               <Button onClick={() => setAsked(true)}>Summarise the thread</Button>
             </div>

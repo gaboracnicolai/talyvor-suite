@@ -90,6 +90,51 @@ export const PRIORITY_VALUES = Object.keys(PRIORITY_LABELS).map(Number) as Issue
  * `tokens` disambiguates the ZERO alone — every nonzero cost renders identically with or without
  * it — so the default keeps any caller that has no token count truthful for the case it can see.
  */
+/**
+ * The sentence every metered Track AI card prints beside its button — ONE string, because three
+ * cards said it and all three said it wrongly in the same words.
+ *
+ * ── WHAT THEY USED TO SAY, AND WHY IT WAS FALSE ──────────────────────────────
+ *
+ * "It is a metered AI call, and what it costs is added to the AI cost above — for this issue."
+ * Present tense, offered as a consequence of the click, on the three cards that sit directly
+ * under the AI cost row: AISummary, FindDuplicates, TriageIssue.
+ *
+ * MEASURED READ-ONLY IN talyvor-track AT `882c94d2a9a71dadc59753e3bde37aac86fb1b21`: nothing on
+ * the AI request path writes that number. `issues.ai_cost_usd` has exactly TWO writers in the
+ * whole repository —
+ *
+ *   · `issue.Store.RecordSpendEvent`  — called from ONE place, the Lens `spend_alert` webhook
+ *                                        (`lensintegration/webhook.go#handleSpendAlert`), which is
+ *                                        asynchronous and explicitly best-effort ("a failure in one
+ *                                        doesn't roll back the others").
+ *   · `issue.Store.RecordRequestSpend` — called from ONE place, `Syncer.SyncFeatureSpend`, a poller
+ *                                        (`cmd/track/main.go:253` → `StartSync(ctx, 15*time.Minute)`).
+ *
+ * and `internal/ai/` writes no spend at all. So at the moment the answer arrives the figure above
+ * has NOT moved, and no refetch this app could make would find it moved either.
+ *
+ * ⚠ WHICH IS WHY THE FIX IS NOT `invalidateQueries`. The obvious repair — refetch the issue when
+ * the mutation succeeds — reads as diligence and is worse than nothing: it spends a request to
+ * re-read a number that cannot have changed yet, and leaves the reader watching a refreshed panel
+ * report the old figure. A refresh that cannot observe the change is not a refresh, for the same
+ * reason a guard that cannot fail is not a guard. The claim is what was wrong, so the claim is
+ * what changed.
+ *
+ * ⚠ AND IT NAMES NO INTERVAL, DELIBERATELY. "About fifteen minutes" is a true sentence in the
+ * bundle that goes false the day someone passes StartSync a different duration — the exact failure
+ * lib/productState.ts exists about. "When Lens reports the spend" is true on both paths and on any
+ * interval, and the measured numbers live in this comment, where a reader can go and check them.
+ *
+ * The attribution half of the old sentence was never in doubt and is kept: the engine passes the
+ * issue's own identifier as the Lens feature tag on all three of these features
+ * (`internal/ai/engine.go`, the triage / duplicates / summarize call sites), so the charge really
+ * does belong to this issue. What was false was WHEN the reader would see it.
+ */
+export const meteredCallCopy =
+  'It is a metered AI call. The charge is attributed to this issue, but it reaches the AI cost ' +
+  'above out-of-band — when Lens reports the spend — so that figure does not move with this answer.'
+
 export function formatCost(usd: number, tokens = 0): string {
   if (usd <= 0) return tokens > 0 ? '$0.00 recorded' : 'No AI spend recorded'
   if (usd < 0.01) return `$${usd.toFixed(4)}`
