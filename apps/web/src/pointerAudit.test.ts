@@ -180,6 +180,31 @@ const PINS: Record<string, Pin> = {
     fragment: 'active:scale-98',
     why: 'the comment that writes the press the OTHER way — the two spellings are the point',
   },
+  // The four per-card payer assertions the Docs census names as the coverage that existed —
+  // "four of the five had a hand-written per-card test for it, and the fifth had NONE". The
+  // sentence's whole force is that these four are REAL, so each is pinned to the assertion it
+  // claims is there. If one is deleted or renamed the census's account of what it adds goes
+  // stale, and a reader would be told about a gap that had quietly become five gaps.
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:286|apps/web/src/areas/docs/pageSummary.test.tsx:135': {
+    kind: 'LIVE',
+    fragment: 'moves this page’s own AI cost',
+    why: 'one of the four per-card payer assertions the census says already existed',
+  },
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:286|apps/web/src/areas/docs/pageTranslation.test.tsx:159': {
+    kind: 'LIVE',
+    fragment: 'moves this page’s own AI cost',
+    why: 'one of the four per-card payer assertions the census says already existed',
+  },
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:287|apps/web/src/areas/docs/pageTitleSuggestion.test.tsx:257': {
+    kind: 'LIVE',
+    fragment: 'moves this page’s own AI cost',
+    why: 'one of the four per-card payer assertions the census says already existed',
+  },
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:287|apps/web/src/areas/docs/askAI.test.tsx:114': {
+    kind: 'LIVE',
+    fragment: 'no single page',
+    why: 'the OTHER payer, on the other surface that binds none — the pair is what shows the clause is two-valued and not boilerplate',
+  },
   'apps/web/src/areas/track/meteredCostCensus.test.tsx:27|apps/web/src/areas/track/TrackArea.tsx:110': {
     kind: 'LIVE',
     fragment: '<SearchIssues />',

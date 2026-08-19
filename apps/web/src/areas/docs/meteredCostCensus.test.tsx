@@ -84,6 +84,27 @@ import { SearchDocs } from './SearchDocs'
 //
 // ⚠ C8 IS WHY THIS IS A CENSUS. It mutates a card that was ALREADY correct before this file
 // existed. A guard written only for the surface that was broken would have passed it.
+//
+// ── THE PAYER COLUMN (tab-4d8a), AND ITS OWN SIX CONTROLS ────────────────────
+//
+// The nine above check the SPINE. They say nothing about who the charge lands on, and the five
+// surfaces do not agree about that — see the payer field and the note above the loop that reads
+// it. `~/talyvor-queue/w17-docs-payer-census-controls-4d8a.py`, each applied alone:
+//
+//   D1  SearchDocs' payer flipped to the page      → 1 red  ← the exact edit that was GREEN
+//   D2  PageSummary's payer flipped to no-page     → 2 red  (census + that card's own test)
+//   D3  PageSummary prints BOTH payer clauses      → 1 red  (census only — see below)
+//   D4  the census's own payer column flipped      → 1 red  (the column is read, not decorative)
+//   D5  the census rendering nothing               → 10 red (vacuity: 5 spine + 5 payer)
+//   D6  a reworded comment                         → 0 red
+//
+// ⚠ D3 IS WHY THE ASSERTION HAS A `not.toMatch` HALF. A card printing BOTH clauses still says the
+// right thing, so its per-card test stays green and a presence-only census would too. The payer is
+// exclusive: saying both is saying nothing.
+//
+// ⚠ D2 IS WHY THIS IS A COLUMN AND NOT A FIFTH PER-CARD TEST. It reds in two places, which is the
+// point — the four hand-written per-card assertions are real and are kept; what they could not do
+// is notice the fifth card that never got one.
 
 type Call = { url: string; method: string }
 
@@ -151,6 +172,8 @@ afterEach(() => {
 const METERED: {
   name: string
   tag: string
+  /** WHO THE CHARGE LANDS ON, and it is not the same for all five — see the header's second table. */
+  payer: 'page' | 'workspace'
   upstream: string
   node: React.ReactNode
   drive: () => void
@@ -159,6 +182,7 @@ const METERED: {
   {
     name: 'PageSummary',
     tag: 'docs-ai-summarize',
+    payer: 'page',
     upstream: 'internal/ai/engine.go#Engine.Summarize',
     node: <PageSummary pageId="pg-1" text="The rollback runbook, in full." />,
     drive: () => fireEvent.click(screen.getByRole('button', { name: /summarise this page/i })),
@@ -167,6 +191,7 @@ const METERED: {
   {
     name: 'PageTranslation',
     tag: 'docs-ai-translate',
+    payer: 'page',
     upstream: 'internal/ai/engine.go#Engine.Translate',
     node: <PageTranslation pageId="pg-1" text="The rollback runbook, in full." />,
     drive: () => {
@@ -178,6 +203,7 @@ const METERED: {
   {
     name: 'PageTitleSuggestion',
     tag: 'docs-ai-title',
+    payer: 'page',
     upstream: 'internal/ai/engine.go#Engine.SuggestTitle',
     node: <PageTitleSuggestion spaceId="sp-1" pageId="pg-1" text="The rollback runbook, in full." />,
     drive: () => fireEvent.click(screen.getByRole('button', { name: /suggest a title/i })),
@@ -186,6 +212,7 @@ const METERED: {
   {
     name: 'AskAI',
     tag: 'docs-ai-ask',
+    payer: 'workspace',
     upstream: 'internal/ai/engine.go#Engine.Ask',
     node: <AskAI />,
     drive: () => {
@@ -197,6 +224,7 @@ const METERED: {
   {
     name: 'SearchDocs',
     tag: 'docs-search',
+    payer: 'workspace',
     upstream: 'internal/search/semantic.go#SemanticSearch.embed',
     node: <SearchDocs />,
     drive: () => {
@@ -246,6 +274,60 @@ describe('every metered Docs surface tells the reader it spent', () => {
         document.body.textContent,
         `${s.name} must say the call was metered and billed to this workspace`,
       ).toMatch(/metered Lens call billed to this workspace/i)
+    })
+  }
+
+  /**
+   * ⚠⚠ THE PAYER CLAUSE, AND THE HOLE IT WAS ADDED TO CLOSE — MEASURED, NOT REVIEWED.
+   *
+   * The assertion above checks the SPINE ("a metered Lens call billed to this workspace") on all
+   * five. It says nothing about the clause that follows it, and that clause is NOT the same for
+   * all five: three surfaces bind the charge to the page, two cannot. Four of the five had a
+   * hand-written per-card test for it — pageSummary.test.tsx:135, pageTranslation.test.tsx:159,
+   * pageTitleSuggestion.test.tsx:257, askAI.test.tsx:114 — and the fifth, SearchDocs, added by
+   * #240, had NONE.
+   *
+   * MEASURED at main `eea492db`: flipping SearchDocs' proven-branch clause from "attributes it to
+   * no single page, so it does not appear in any page's AI cost" to "attributes it to this page,
+   * so it moves this page's own AI cost" left ALL 1617 TESTS GREEN. That is a false claim about
+   * money on the highest-frequency metered surface in the product — the defect class #239 deleted
+   * from Track's three cards, arriving on a fifth surface through the one clause nothing read.
+   *
+   * ⚠ IT IS A CENSUS COLUMN AND NOT A FIFTH PER-CARD TEST, DELIBERATELY. Four per-card tests and
+   * one gap is exactly the shape that hid this; a sixth surface would arrive with the same gap.
+   *
+   * ⚠ RE-MEASURED UPSTREAM RATHER THAN INHERITED FROM THIS FILE'S OWN HEADER, at talyvor-docs
+   * `11a9e0cce679481c35ef567319f9a7e7e1df0641` (a NEWER sha than the `4a35734` recorded above;
+   * held by tab-9d47, never written to). `Engine.run` binds the charge to a page through
+   * `BindAISpend` ONLY when `pageID != ""` (engine.go:110) — summarize/translate/title pass one,
+   * `Ask` passes `""` (engine.go:198), and `docs-search` never goes through `run` at all: it is an
+   * `X-Talyvor-Feature` header on an embeddings request (search/semantic.go:400). So "no single
+   * page" is a property of the CALL SITE for two surfaces, not an editorial choice.
+   *
+   * ⚠ BOTH DIRECTIONS, ON PURPOSE. Asserting only the presence of the right clause would pass a
+   * card that printed BOTH; the payer is exclusive, so the wrong one has to be absent as well.
+   */
+  for (const s of METERED) {
+    it(`${s.name} names the payer its call site establishes: the ${s.payer}`, async () => {
+      mockBff()
+      renderIn(s.node)
+      s.drive()
+      await waitFor(() => expect(screen.getByText(s.landed)).toBeInTheDocument())
+      const text = document.body.textContent ?? ''
+
+      const bound = /moves this page’s own AI cost/i
+      const unbound = /no single page/i
+      if (s.payer === 'page') {
+        expect(text, `${s.upstream} passes a pageID, so the charge moves this page's own AI cost`)
+          .toMatch(bound)
+        expect(text, `${s.name} must not also disclaim the page it IS attributed to`)
+          .not.toMatch(unbound)
+      } else {
+        expect(text, `${s.upstream} binds no page, so the charge reaches no page's AI cost`)
+          .toMatch(unbound)
+        expect(text, `${s.name} bills the workspace and must NOT claim it moves a page's AI cost`)
+          .not.toMatch(bound)
+      }
     })
   }
 })
