@@ -242,6 +242,11 @@ func newApp(cfg config, auth *authenticator) *app {
 		}
 		a.trackIssues()(w, r)
 	}))
+	// Track's issue search — a literal segment, and it has to BEAT the `{id}` wildcard below or a
+	// search is served as a request for the issue whose id is the string "search". net/http's
+	// specificity rule gives literals precedence; that is ASSERTED in track_search_test.go rather
+	// than trusted, because when it loses the symptom is a 404 that reads as "no such issue".
+	a.mux.HandleFunc("/api/track/issues/search", a.trackIssueSearch())
 	a.mux.HandleFunc("/api/track/issues/{id}", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			a.trackUpdateIssue()(w, r)
