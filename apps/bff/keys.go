@@ -114,6 +114,18 @@ func (a *app) handleMintKey(w http.ResponseWriter, r *http.Request, t tenant) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name is required"})
 		return
 	}
+	// UPSTREAM-BINDS-ONLY lensMintKeyBody: none
+	// ⚠ THE TWO KEYS ON THIS ROUTE FAIL IN OPPOSITE DIRECTIONS, MEASURED against lens f09348d1 by
+	// executing tenant.Store.CreateAPIKey directly.
+	//
+	//   scopes  → LOUD. An empty list is refused AT ISSUANCE, and that refusal is load-bearing:
+	//             auth.RequireScope deliberately grandfathers len(Scopes)==0 into passing EVERY
+	//             scope check so keys predating scopes keep working. The issuance refusal is the
+	//             only thing between a renamed `scopes` and a console-minted key that satisfies
+	//             the proxy gate which spends the workspace's credit.
+	//   name    → SILENT. CreateAPIKey accepts "" and stores it; the blank-name refusal is ours,
+	//             above, so an upstream rename is the one way to reach that arm — a key appears
+	//             on the Keys screen with no name and no error anywhere.
 	body, err := json.Marshal(in)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "encode"})

@@ -232,6 +232,12 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant
 		return
 	}
 
+	// UPSTREAM-BINDS-ONLY lensCheckoutBody: none
+	// The key set lens binds on this route, asked as a question in deploy/decision-expiry.sh —
+	// CI here cannot read talyvor-lens. MEASURED at f09348d1: a rename upstream is LOUD. The
+	// handler decodes without DisallowUnknownFields, so the key would arrive as 0, and 0 is not on
+	// billing.AllowedTopUpCents() ([1000 5000 10000]) — ErrAmountNotAllowed, which the route maps
+	// to 400. This is the safe direction and it is upstream's allow-list doing the work, not ours.
 	body, err := json.Marshal(map[string]int64{"usd_cents": in.USDCents})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "encode"})

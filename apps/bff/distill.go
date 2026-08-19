@@ -155,6 +155,15 @@ func (a *app) handleDistill(w http.ResponseWriter, r *http.Request, t tenant) {
 
 // setDistillPolicy writes the policy upstream and returns WHAT LENS RECORDED.
 func (a *app) setDistillPolicy(ctx context.Context, t tenant, policy string) (string, error) {
+	// UPSTREAM-BINDS-ONLY lensDistillBody: none
+	// ⚠⚠ SILENT, AND THE FAIL-SAFE IS AIMED AT THE WRONG SHAPE. MEASURED against lens f09348d1:
+	// normalizeDistillPolicy has a `default:` arm resolving garbage to DistillDisabled, commented
+	// "a misconfiguration never silently distills". A renamed key does not produce garbage — it
+	// produces "", which has its own arm: DefaultDistillPolicy, and that is DistillAlways. So the
+	// single input shape a cross-repo rename can generate is the single shape that walks past the
+	// fail-safe. Driven end to end, a workspace whose owner chose "disabled" was recorded
+	// "always", 200. The read-back below is honest about what Lens stored, which is the only
+	// reason the screen would not also lie.
 	body, _ := json.Marshal(map[string]string{"distill_policy": policy})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
 		a.cfg.lensBaseURL+lensWorkspacePath(t, "/distill"), bytes.NewReader(body))

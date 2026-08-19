@@ -182,6 +182,10 @@ func (a *app) handleConvert(w http.ResponseWriter, r *http.Request, t tenant) {
 		return
 	}
 
+	// UPSTREAM-BINDS-ONLY lensConvertBody: none
+	// MEASURED at lens f09348d1: a rename upstream is LOUD. The zero value reaches
+	// ConvertLENStoLXC, whose first line refuses anything below the 100000 µLXC minimum before it
+	// touches the rate engine or the database — "economy: conversion below minimum", a 400.
 	body, err := json.Marshal(map[string]int64{"lxc_amount_ulxc": in.LXCAmountULXC})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "encode"})

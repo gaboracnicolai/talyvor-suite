@@ -82,6 +82,19 @@ func (a *app) provision(ctx context.Context, identity string, cachePoolable *boo
 	if a.cfg.provisionSecret == "" {
 		return out, errors.New("LENS_PROVISION_SECRET is not configured")
 	}
+	// UPSTREAM-BINDS-ONLY lensProvisionBody: none
+	// ⚠ display_name IS DECLARED AND NEVER ASSIGNED, so `omitempty` keeps it off the wire — but the
+	// tag is still this file ASSERTING that lens binds a key by that name, and the guard counts it.
+	// A rename upstream falsifies the assertion whether or not a value was ever sent.
+	//
+	// ⚠⚠ ttl_hours IS SILENT AND IT IS A CREDENTIAL LIFETIME. MEASURED against lens f09348d1 by
+	// driving the real newProvisionHandler: a renamed key yields 0, auth.ClampTTL(0) returns
+	// DefaultTokenTTL = 24h, and the session JWT this file asks to keep short (8h, above) lives
+	// three times as long. Nothing here can see it — the response's expires_at is computed from the
+	// TTL lens actually applied, so parseExpiry below records the 24h faithfully and every layer
+	// agrees. identity is the LOUD one: "" is refused 400 by the handler's own branch.
+	// cache_poolable is silent in the other direction — a renamed key reaches lens as SILENCE, so
+	// no RegisterOption is passed and the new-workspace default replaces the choice the person made.
 	body, err := json.Marshal(struct {
 		Identity      string `json:"identity"`
 		DisplayName   string `json:"display_name,omitempty"`
@@ -304,6 +317,12 @@ func (a *app) wsProxyPaged(suffix string) http.HandlerFunc {
 // tenant's OWN token — so the write is authorised by the tenant's credential and Lens's
 // workspace-isolation middleware bounds it to their own workspace.
 func (a *app) setCachePoolable(ctx context.Context, t tenant, poolable bool) (bool, error) {
+	// UPSTREAM-BINDS-ONLY lensCachePoolableBody: none
+	// ⚠ SILENT. MEASURED against lens f09348d1 on a real workspace.Manager: the handler binds a
+	// plain bool, so a renamed key is `false` and a workspace that opted IN is recorded opted OUT,
+	// 200. The direction is the privacy-preserving one, which is why it is worth writing down
+	// rather than trusting: it means this consent can be revoked by an upstream rename without a
+	// single error anywhere, and consent that can be silently withdrawn is not being recorded.
 	body, _ := json.Marshal(map[string]bool{"cache_poolable": poolable})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
 		a.cfg.lensBaseURL+lensWorkspacePath(t, "/cache-poolable"), bytes.NewReader(body))
