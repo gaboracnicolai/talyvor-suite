@@ -663,6 +663,56 @@ cannot "LedgerEntry mirrors talyvor-lens LedgerEntry — the LENS ledger row" \
     "[ \"\$(sed -n '/^type LedgerEntry struct/,/^}/p' internal/mining/cache_mining.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"amount_ulens balance_after_ulens created_at description id metadata type workspace_id \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
 
 
+# ── THE THREE TRACK WRITE BODIES, AND WHY THEY ARE NOT ONE ENTRY ─────────────
+# DECISION: apps/bff/track.go forwards three request bodies to talyvor-track VERBATIM — the
+#           browser authors the keys and no Go struct in this repository names them, so
+#           aiRequestBodyRegister.test.ts's `json.Marshal` census CANNOT see them by construction
+#           and names them as a boundary. apps/web/src/trackWriteBodyRegister.test.ts derives the
+#           population and each route's key set from source and requires the three entries below.
+# PREMISE:  talyvor-track binds those six keys, AND the consequence of an upstream rename differs
+#           by route.
+#
+# ⚠ ALL THREE DECODE THROUGH THE SAME HELPER AND THAT IS THE TRAP. `httpx.DecodeJSON` calls
+# `dec.DisallowUnknownFields()`, which reads like "a renamed key is a 400 everywhere". It is not:
+# encoding/json enforces that flag for STRUCT fields only. MEASURED with the flag toggled as its
+# own control (struct+renamed, flag OFF → nil, so the struct result is the flag's doing and not
+# the type's):
+#
+#     struct + {"headline":…}  flag ON  → json: unknown field "headline"   → 400 BAD_JSON
+#     map    + {"state":…}     flag ON  → nil, map[state:x]                → the key sails through
+#
+# and `issue.Store.Update` then drops the unknown key WITHOUT A WORD (`continue`), runs no
+# statement at all when nothing survives (`len(setClauses) == 0`), and returns the row unchanged:
+# a 200 no caller can tell from a stored edit. Upstream has already paid for this once — the
+# comment inside `updatableFields` records `PATCH {"milestone_id": …}` answering 200 with the
+# field untouched. FOUR of this app's six keys are on that route.
+#
+# ⚠ THE TWO model.go COUNTS ARE FILE-WIDE ON PURPOSE, AND AN EXISTING GUARD IS WHY. The first
+# draft scoped them with `sed -n '/^type Issue struct/,/^}/p'`, which is precise and which
+# mirrorSubsetRegister.test.ts reads as a SECOND mirror entry for the same struct — its rule is
+# exactly one `cannot` naming both `internal/model/model.go` and `type Issue struct`, and it went
+# red on four assertions. The address is not needed: at 3672af1a `json:"title"` and `json:"body"`
+# each occur EXACTLY ONCE in that file, so the count of 1 IS the block-scoped answer. If upstream
+# grows a second `title` tag anywhere in model.go this reds — a false red that makes someone look,
+# which is the direction to fail in.
+#
+# ⚠ THE ALLOWLIST COUNT IS BLOCK-SCOPED, AND ITS NEGATIVE CONTROL IS WHY: at 3672af1a
+# `"assignee_id":` matches FOUR times in internal/issue/store.go (updatableFields AND
+# issueRefQueries among them) and exactly ONCE inside the allowlist. A file-wide count would pass
+# on a key that is only ever validated and never writable.
+cannot "[POST /api/track/issues] sends {title} and Track binds it on a struct (createBody embeds model.Issue), so an upstream rename is a LOUD 400 BAD_JSON — the browser's createRefusal already surfaces it" \
+    "talyvor-track internal/issue/handler.go + internal/model/model.go + internal/httpx/httpx.go" \
+    "[ \"\$(grep -c 'var body createBody' internal/issue/handler.go)\" = 1 ] && [ \"\$(grep -c 'json:.title.' internal/model/model.go)\" = 1 ] && [ \"\$(grep -c 'DisallowUnknownFields' internal/httpx/httpx.go)\" = 1 ]   # in a talyvor-track checkout; the STRUCT destination is what makes the flag bite, so all three counts are the claim and any of them at 0 is the failure"
+
+cannot "[PATCH /api/track/issues/{id}] sends {assignee_id,description,priority,status} and Track decodes into a map[string]any, so DisallowUnknownFields does NOT bite and a renamed or de-allowlisted key is a SILENT 200 with the row unchanged — the one route of the three whose failure this app cannot see" \
+    "talyvor-track internal/issue/handler.go + internal/issue/store.go" \
+    "[ \"\$(grep -c 'var updates map\[string\]any' internal/issue/handler.go)\" = 1 ] && [ \"\$(awk '/^var updatableFields = map\[string\]struct\{\}\{/,/^\}/' internal/issue/store.go | grep -c -E '^[[:space:]]+\"(status|description|priority|assignee_id)\":')\" = 4 ]   # in a talyvor-track checkout; the awk slice is the ALLOWLIST BLOCK alone — assignee_id matches 4x file-wide and a file-wide count would pass on a key that is validated but not writable"
+
+cannot "[POST /api/track/issues/{id}/comments] sends {body} and Track binds it on a struct (model.Comment), so an upstream rename is a LOUD 400 BAD_JSON — author_id is UPSTREAM-BINDS-ONLY, resolved from the verified session member and ignored from the body (SEC-5)" \
+    "talyvor-track internal/issue/handler.go + internal/model/model.go" \
+    "[ \"\$(grep -c 'var in model.Comment' internal/issue/handler.go)\" = 1 ] && [ \"\$(grep -c 'json:.body.' internal/model/model.go)\" = 1 ] && [ \"\$(grep -c 'in.AuthorID = actorID' internal/issue/handler.go)\" = 1 ]   # in a talyvor-track checkout; the third count is the SEC-5 identity rule this app relies on by NOT sending author_id — if it stopped holding, an omitted key would become a forgeable one"
+
+
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy
 #           checks in README.md §6 and FULL-STACK-DEPLOY.md can read a STATUS CODE for
