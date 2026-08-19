@@ -486,7 +486,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'TRACK_BASE_URL',
     why: 'the 503 state names the two variables as the next action; they are read from here, not remembered',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:249|apps/bff/main.go:236': {
+  'apps/web/src/areas/lens/Members.test.tsx:259|apps/bff/main.go:236': {
     kind: 'LIVE',
     fragment: 'TRACK_BASE_URL',
     why: 'the same claim at the case that asserts it, so the case and the header cannot drift apart',
@@ -496,30 +496,25 @@ const PINS: Record<string, Pin> = {
     fragment: 's.email',
     why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:175|apps/bff/lens.go:653': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:653': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:175|apps/bff/auth.go:664': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/auth.go:664': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'same sentence, the /auth/me half',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:333|apps/bff/track_tenant.go:178': {
+  'apps/web/src/areas/lens/Members.test.tsx:343|apps/bff/track_tenant.go:178': {
     kind: 'LIVE',
     fragment: 'http.MethodGet',
     why: 'the screen renders no control at all because this BFF proxies a GET and nothing else; this is the method test that makes that true',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:359|apps/bff/main.go:116': {
+  'apps/web/src/areas/lens/Members.test.tsx:369|apps/bff/main.go:116': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID',
     why: 'the case that forbids the word "pinned" in the provenance line cites the refusal that makes pinning impossible',
-  },
-  'apps/web/src/areas/lens/Members.test.tsx:141|apps/web/src/components/Region.tsx:47': {
-    kind: 'LIVE',
-    fragment: 'region-${index}-label',
-    why: 'the distinct-index assertion is a LANDMARK assertion, and it is one only because the id is derived from the index here (W1.1.13 names this shared-component trap)',
   },
 }
 
