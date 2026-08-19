@@ -161,6 +161,9 @@ type captureUpstream struct {
 	path     string
 	rawQuery string
 	headers  http.Header
+	// method is the verb that ARRIVED upstream. A route that forwards a POST as a GET reaches a
+	// different handler on the product, and every other field here would still look right.
+	method string
 	// reqBody is what the BFF actually SENT upstream. Every other field describes the envelope;
 	// on a write route the body IS the contract, and asserting a 200 came back says nothing about
 	// what was written.
@@ -182,6 +185,7 @@ func newStatusUpstream(t *testing.T, status int, body string) *captureUpstream {
 			return
 		}
 		c.path = r.URL.Path
+		c.method = r.Method
 		c.rawQuery = r.URL.RawQuery
 		c.headers = r.Header.Clone()
 		c.reqBody, _ = io.ReadAll(r.Body)

@@ -224,6 +224,21 @@ func everyMutatingRoute() []mutatingRoute {
 		// ARRIVES upstream, and it cannot arrive if this handler refuses it first.
 		{method: http.MethodPost, path: "/api/docs/spaces/s1/pages/p1/changelog/generate", body: `{"version":"v1.0.0","issue_ids":["iss-a"]}`},
 
+		// FIND DUPLICATES — swept for the reason ask/summarise/translate are: it writes nothing in
+		// Track and it SPENDS. Measured (tab-9f27, talyvor-track's own handler over real Postgres
+		// and a recording fake Lens): each press is one `claude-haiku-4-6` completion carrying
+		// `X-Talyvor-Feature: <the issue's identifier>`, so the charge lands on that issue's
+		// `ai_cost_usd`. A cross-origin press is a stranger spending someone else's balance.
+		//
+		// ⚠ THE EMPTY BODY IS CORRECT HERE AND IS THE ONE CASE WHERE THE TRAP RECORDED ABOVE DOES
+		// NOT APPLY — checked rather than assumed. The three rows above carry real fields because
+		// their handlers refuse an empty body BEFORE the Origin rule is consulted, which would
+		// sweep them for a refusal they produce themselves. This handler decodes no body at all
+		// (upstream's FindDuplicates decodes none either — measured), so there is no self-produced
+		// refusal to hide behind: with the Origin rule deleted this row's POST ARRIVES upstream,
+		// which is what the same-origin half asserts.
+		{method: http.MethodPost, path: "/api/track/issues/i1/find-duplicates", body: ``},
+
 		// EXEMPT — a machine caller has no Origin to send, so requiring one would break it.
 		// None exists in this BFF today; the row documents the rule and the test asserts the
 		// list is honest rather than assuming emptiness.

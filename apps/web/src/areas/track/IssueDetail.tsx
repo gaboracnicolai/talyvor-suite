@@ -16,6 +16,7 @@ import {
 import { ApiError, getJSON, getJSONArray } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { AISummary } from './AISummary'
+import { FindDuplicates } from './FindDuplicates'
 import { StatusPill } from './StatusPill'
 import { PRIORITY_VALUES, formatCost, priorityLabel, statusLabel } from './format'
 import { memberName, teamIdentifier } from './data'
@@ -339,6 +340,13 @@ export function IssueDetail() {
           and what it costs lands in the AI cost row above it — the panel is between its subject
           and its price. */}
       <AISummary issueId={id} />
+
+      {/* ⚠ BESIDE THE SUMMARY FOR THE SAME REASON, AND ABOVE THE COMMENTS DELIBERATELY: what it
+          asks about is the ISSUE — its title and description — not the thread, and what it costs
+          lands in the AI cost row above it. It carries no `key`: the answer is bound to the issue
+          id it was asked with, inside the component, so a route change to another issue cannot
+          leave one issue's duplicates drawn under another's title. */}
+      <FindDuplicates issueId={id} />
 
       <Card>
         <CardHeader>Comments</CardHeader>

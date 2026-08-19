@@ -205,9 +205,20 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// browser, and re-run by any crawler, each time leaving another release note behind. It also
 	// carries a list of issue ids, which as a query string would put a workspace's unreleased
 	// issue keys in every access log. Its POST response is searched by the write half below.
-	if len(methodOnly) > 8 {
+	//
+	// ⚠ THE NINTH, /api/track/issues/{id}/find-duplicates, IS POST-ONLY BECAUSE UPSTREAM MOUNTS
+	// IT THAT WAY AND BECAUSE IT SPENDS. talyvor-track mounts `POST
+	// /v1/workspaces/{wsID}/issues/{id}/find-duplicates` (internal/ai/handler.go Mount), so a GET
+	// here would have nowhere honest to go. It carries NOTHING — no body, no query, measured: the
+	// upstream handler decodes neither — so unlike ask/summarise/translate there is no payload
+	// that a query string would leak. What makes a GET wrong is the METER: each press is a Lens
+	// completion the workspace pays for and Track attributes to this issue (measured: the request
+	// reaching Lens carries `X-Talyvor-Feature: <the issue's identifier>`), and a GET that spends
+	// is retried by proxies, prefetched by browsers and re-run by crawlers, each time billing
+	// someone. Its POST response is searched by the write half below, in all three fixtures.
+	if len(methodOnly) > 9 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 8 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 9 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
