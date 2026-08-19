@@ -225,3 +225,113 @@ describe('every request body this BFF sends talyvor-lens is a question the regis
     ).toBe(LENS_BODIES.length)
   })
 })
+
+/**
+ * THE THREE NON-LENS ANON SITES SAY WHETHER THEY ARE ASKED. THIS HOLDS THOSE SENTENCES TO THE
+ * REGISTER.
+ *
+ * ⚠ THE QUEUE ENTRY THAT SCOPED THIS TABLE SAID ALL THREE "REMAIN" — MEASURED AT docs
+ * `f5f9257a6521db686471865cddeed17e57b57082`, THAT IS WRONG FOR TWO OF THEM, AND IN THE DIRECTION
+ * THAT MATTERS: they are ASKED ALREADY, by the `DocsPage` and `DocsSpace` MIRROR entries, which pin
+ * those structs' whole json-tag sets. `content`, `content_text` and `workspace_id` are all members.
+ * Nobody wrote that down, so the same entries were about to be added twice — and, worse, the
+ * coverage is INCIDENTAL: it holds only because Docs binds the RESPONSE struct on those paths.
+ *
+ * ⚠ WHICH IS WHY THE PREMISE IS NOW PINNED FOR THE AUTHZ ONE. `apps/bff/lens.go#docsSpaceCreateBody`
+ * overwrites `workspace_id` with the SESSION's workspace and forwards every other key VERBATIM —
+ * measured, not read: `{"name":"Eng","ws_id":"ws-ATTACKER"}` comes out as
+ * `{"name":"Eng","workspace_id":"ws-SESSION","ws_id":"ws-ATTACKER"}`. So a Docs create handler that
+ * authorized on a differently named field would find the browser's value already on the wire while
+ * the mirror stayed green. That premise — Create decodes into model.Space — is its own entry now.
+ *
+ * ⚠⚠ THIS RULE PARTITIONS THE WHOLE TABLE AND DOES NOT FILTER IT, BECAUSE ITS FIRST VERSION FILTERED
+ * AND CONTROL Z4 CAUGHT IT. That version took its population from rows matching the word `ASKED` in
+ * the very prose it was policing, with a `> 0` floor. Rewording ONE row's `ASKED` to `COVERED` left
+ * the floor satisfied by the other row and dropped the reworded one OUT of the population entirely —
+ * its coverage claim then went unchecked with NOTHING RED (measured: 0 failures). That is the
+ * silently-emptied scope this repository has already found twice (formatterReach's rule B, the
+ * docsSearchTypes map). Every row is classified now, the two buckets must ACCOUNT FOR ALL THREE, and
+ * a row that drifts out of both is a failure rather than an absence.
+ */
+describe('every non-lens anon site is either asked by a named register entry or declared exempt', () => {
+  it('parses the register at all', () => {
+    expect(
+      ENTRIES.length,
+      'no `cannot` entries parsed out of deploy/decision-expiry.sh. Every rule below is a ' +
+        'containment question against that list, so an empty parse passes having read nothing.',
+    ).toBeGreaterThan(0)
+  })
+
+  /** The mirror entry a row leans on, or null. Keyed on the BACKTICKED NAME, not on a verb. */
+  const mirrorOf = (what: string) => /`(\w+)` MIRROR ENTRY/.exec(what)?.[1] ?? null
+  /** A row that declares it has no key set for the register to ask about. */
+  const isExempt = (what: string) => /\bexempt\b/i.test(what)
+
+  for (const [i, site] of NON_LENS_ANON_SITES.entries()) {
+    describe(`${site.file} site ${i + 1}`, () => {
+      it('is classified — it names a mirror entry, or it declares itself exempt, never neither', () => {
+        const mirror = mirrorOf(site.what)
+        expect(
+          mirror !== null || isExempt(site.what),
+          `this row neither names a register entry in the "\`X\` MIRROR ENTRY" form nor declares ` +
+            'itself exempt. Those are the only two honest states for a cross-repo claim: something ' +
+            'asks talyvor-docs about it, or there is nothing to ask. A row in neither bucket reads ' +
+            `as covered while nobody is watching it. Row: ${site.what.slice(0, 140)}…`,
+        ).toBe(true)
+      })
+
+      it('is not BOTH asked and exempt, which would be two contradictory claims', () => {
+        expect(
+          mirrorOf(site.what) !== null && isExempt(site.what),
+          'this row names a mirror entry AND declares itself exempt. One of the two sentences is ' +
+            'false and a reader cannot tell which, so the row states nothing checkable.',
+        ).toBe(false)
+      })
+
+      const mirror = mirrorOf(site.what)
+      if (mirror !== null) {
+        it(`the \`${mirror}\` mirror entry it leans on is actually in the register`, () => {
+          const hits = ENTRIES.filter((a) => a[0].includes(`${mirror} mirrors`))
+          expect(
+            hits.length,
+            `this row says the \`${mirror}\` mirror entry asks talyvor-docs about its key, and ` +
+              `deploy/decision-expiry.sh holds ${hits.length} entries whose decision names ` +
+              `"${mirror} mirrors". A row pointing at a deleted or renamed entry is worse than one ` +
+              'that claims nothing: it tells the next reader the premise is watched.',
+          ).toBe(1)
+        })
+      }
+    })
+  }
+
+  it('the two buckets account for every row, so none can drift out of both silently', () => {
+    const asked = NON_LENS_ANON_SITES.filter((s) => mirrorOf(s.what) !== null).length
+    const exempt = NON_LENS_ANON_SITES.filter((s) => isExempt(s.what)).length
+    expect(
+      asked + exempt,
+      `${asked} rows name a mirror entry and ${exempt} declare themselves exempt, out of ` +
+        `${NON_LENS_ANON_SITES.length} rows. This is the rule control Z4 exists for: a population ` +
+        'filtered out of the prose it polices can be emptied one row at a time by rewording, and ' +
+        'each departure looks exactly like a row that was never there.',
+    ).toBe(NON_LENS_ANON_SITES.length)
+  })
+
+  it('the space-create binding premise is pinned in its own right, not left to the mirror', () => {
+    const hits = ENTRIES.filter((a) => a[2].includes('internal/space/handler.go'))
+    expect(
+      hits.length,
+      'deploy/decision-expiry.sh holds no settle command reading talyvor-docs ' +
+        '`internal/space/handler.go`. The DocsSpace mirror covers the `workspace_id` apps/bff pins ' +
+        'ONLY because Docs’ Create decodes into model.Space. A create handler that bound its own ' +
+        'request struct would move that authz key with the mirror still green, and apps/bff ' +
+        'forwards every other key verbatim — so the browser’s value under the new name is ' +
+        'already on the wire. Without this entry that is nobody’s question.',
+    ).toBe(1)
+    expect(
+      /=\s*"[^"]+"\s*\]/.test(hits[0]?.[2] ?? ''),
+      'the space-create binding command holds no `[ "$(…)" = "…" ]` expectation, so it is not ' +
+        'comparing what it extracted. Every stage of a `sed | grep -o` pipeline exits 0 while ' +
+        'writing an empty line, and a renamed Create produces exactly that empty line.',
+    ).toBe(true)
+  })
+})

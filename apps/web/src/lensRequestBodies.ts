@@ -131,15 +131,21 @@ export const LENS_BODIES: LensBody[] = [
 export const NON_LENS_ANON_SITES = [
   {
     file: 'lens.go',
-    what: 'stripPageContentList re-marshals a talyvor-docs page LIST after deleting content/content_text — a RESPONSE projection, so its cross-repo claim is the two deleted key names, not a key set it sends',
+    what:
+      'stripPageContentList re-marshals a talyvor-docs page LIST after deleting content/content_text — a RESPONSE projection, so its cross-repo claim is the two deleted key names, not a key set it sends. ' +
+      'ASKED, INCIDENTALLY, BY THE `DocsPage` MIRROR ENTRY: it pins model.Page’s whole json-tag set, which contains BOTH `content` and `content_text` (measured at docs f5f9257a), so a rename upstream reds it. ' +
+      'THE PREMISE THAT COVERAGE RESTS ON IS THAT THE PAGE LIST SERVES model.Page ROWS — if that route ever served a slimmer projection struct, the mirror would stay green while `delete` became a silent no-op and the full ProseMirror document shipped to every tree view. That premise is NOT pinned; it is the weaker sibling of the space-create one below and is the next entry someone should add.',
   },
   {
     file: 'lens.go',
-    what: 'docsSpaceCreateBody marshals the workspace id as a BARE STRING (json.Marshal(ws)) — no key set is asserted on this line at all',
+    what: 'docsSpaceCreateBody marshals the workspace id as a BARE STRING (json.Marshal(ws)) — no key set is asserted on this line at all, so there is nothing for the register to ask and this one is exempt rather than uncovered',
   },
   {
     file: 'lens.go',
-    what: 'docsSpaceCreateBody re-marshals the browser’s own object with workspace_id pinned — the claim is the talyvor-docs key `workspace_id`, and the rest of the object is authored by the browser',
+    what:
+      'docsSpaceCreateBody re-marshals the browser’s own object with workspace_id pinned — the claim is the talyvor-docs key `workspace_id`, and the rest of the object is authored by the browser. ' +
+      'ASKED BY THE `DocsSpace` MIRROR ENTRY, WHICH WAS NOT WRITTEN FOR IT: that entry pins model.Space’s tag set, and Docs’ space Create DECODES INTO model.Space — so the response mirror happens to cover a request key on an AUTHZ path. ' +
+      'THAT PREMISE IS NOW PINNED IN ITS OWN RIGHT (deploy/decision-expiry.sh, "space CREATE binds model.Space"), because a create handler that bound its own request struct would move the authz key with the mirror still green — and every key that is not `workspace_id` is forwarded VERBATIM, so the browser’s value under a new name is already on the wire.',
   },
 ] as const
 
