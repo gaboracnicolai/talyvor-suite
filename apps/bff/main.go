@@ -251,7 +251,14 @@ func loadProductConfig(cfg config) (config, error) {
 		}
 
 		if len(missing) > 0 {
-			return cfg, fmt.Errorf("Track upstream partially configured: missing %s — set all three "+
+			// "all three" here named TWO variables until W1.1.14. The trio it counted included
+			// TRACK_WORKSPACE_ID — the variable `loadConfig`'s "must not be set" guard REFUSES TO
+			// BOOT WITH — so the message on the way to a working Track deployment sent its reader
+			// hunting for the one variable that guarantees the next boot fails, with a different
+			// error. env_cardinal_test.go now compares the cardinal to the list it sits above, in
+			// this message and in every other one in this package. (No line number on purpose: a
+			// cited line is a pointer that rots, and this repo's pointerAudit exists because one did.)
+			return cfg, fmt.Errorf("Track upstream partially configured: missing %s — set both "+
 				"(TRACK_BASE_URL, TRACK_GATEWAY_SECRET), or none", strings.Join(missing, ", "))
 		}
 		// The gateway secret rides every request to this URL as X-Gateway-Auth —
