@@ -108,9 +108,29 @@ func TestTrackIssueSummary_RefusesAnonymously(t *testing.T) {
 
 // ⚠ A SUMMARY IS A METERED AI CALL, SO THE VERB MATTERS. GET is what Track mounts, and anything
 // else answers 405 here rather than falling through to /api/track/issues/{id}'s PATCH.
+// ⚠⚠ THE MOUNT IS ASSERTED IN THIS SAME TEST, AND WITHOUT IT THIS TEST COULD NOT FAIL.
+// `handleAPINotFound` (lens.go) is mounted at `/api/` and answers **405 to any non-GET on any
+// unmounted `/api/*` path**, so "only GET is served here" and "nothing is served here" are the
+// same response to a loop that reads the status code. MEASURED: with the
+// `/api/track/issues/{id}/summary` mount removed from lens.go, four tests in this package went red
+// and this one stayed GREEN — and the `track.path != ""` arm went with it, because an unmounted
+// route reaches no upstream either. The GET first is what anchors both.
 func TestTrackIssueSummary_OnlyGET(t *testing.T) {
 	track := newCaptureUpstream(t, `{"summary":"s"}`)
 	a, sess := productApp(t, track, nil)
+
+	// The route EXISTS: a GET reaches Track at its workspace-scoped path.
+	rec := httptest.NewRecorder()
+	get := httptest.NewRequest(http.MethodGet, "/api/track/issues/iss-9/summary", nil)
+	get.AddCookie(sess)
+	a.ServeHTTP(rec, get)
+	if want := "/v1/workspaces/track-ws-7/issues/iss-9/summary"; rec.Code != http.StatusOK || track.path != want {
+		t.Fatalf("GET = %d upstream=%q, want 200 forwarded to %q — the 405s below prove nothing "+
+			"about an unmounted route", rec.Code, track.path, want)
+	}
+	// The baseline is the path that GET forwarded, not the empty string: a refused verb must
+	// leave it untouched, and comparing against "" would be satisfied by an unmounted route.
+	forwarded := track.path
 
 	for _, m := range []string{http.MethodPost, http.MethodPatch, http.MethodDelete} {
 		rec := httptest.NewRecorder()
@@ -120,7 +140,7 @@ func TestTrackIssueSummary_OnlyGET(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("%s got %d (%s), want 405", m, rec.Code, rec.Body.String())
 		}
-		if track.path != "" {
+		if track.path != forwarded {
 			t.Fatalf("%s reached the upstream at %q", m, track.path)
 		}
 	}

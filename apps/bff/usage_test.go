@@ -77,8 +77,27 @@ func TestUsageDropsUnknownParams(t *testing.T) {
 // ?workspace_id= is how an ADMIN key targets another workspace upstream. This BFF holds a
 // WORKSPACE key, but dropping the parameter (above) is the load-bearing half: it means the
 // route cannot be aimed at another tenant even if the deployment's key were ever upgraded.
+//
+// ⚠⚠ THE MOUNT IS ASSERTED IN THIS SAME TEST, AND WITHOUT IT THIS TEST COULD NOT FAIL.
+// `handleAPINotFound` (lens.go) is mounted at `/api/` and answers **405 to any non-GET on any
+// unmounted `/api/*` path**, so "this route refuses writes" and "this route does not exist" are
+// the SAME response and a loop reading only the status code cannot tell them apart. MEASURED
+// rather than argued: with the `/api/usage` mount statement removed from lens.go entirely, this
+// test passed verbatim — four tests in this package went red and this one, the one whose NAME
+// makes the claim, stayed green. Asserting the GET first makes the 405s below evidence about a
+// route instead of evidence about the fallback.
 func TestUsageIsReadOnly(t *testing.T) {
 	a := newTestApp(t, nil)
+
+	// The route EXISTS: a GET reaches Lens. Without this the loop below is a test of
+	// handleAPINotFound.
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/usage", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"path":"/v1/api/usage"`) {
+		t.Fatalf("GET = %d %s, want 200 forwarded to /v1/api/usage — the 405s below "+
+			"prove nothing about an unmounted route", rec.Code, rec.Body.String())
+	}
+
 	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		rec := httptest.NewRecorder()
 		a.ServeHTTP(rec, httptest.NewRequest(m, "/api/usage", nil))

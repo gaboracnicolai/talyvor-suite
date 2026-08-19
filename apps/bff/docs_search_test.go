@@ -189,9 +189,28 @@ func TestDocsSearch_RequiresASession(t *testing.T) {
 }
 
 // It is a read. A write to it is refused by the method, not by the upstream.
+// ⚠⚠ THE MOUNT IS ASSERTED IN THIS SAME TEST, AND WITHOUT IT THIS TEST COULD NOT FAIL.
+// `handleAPINotFound` (lens.go) is mounted at `/api/` and answers **405 to any non-GET on any
+// unmounted `/api/*` path**, so a non-GET loop cannot tell "this route refuses writes" from
+// "this route does not exist". MEASURED: with the `/api/docs/search` mount removed from lens.go,
+// ten tests in this package went red and this one stayed GREEN — and note the upstream-saw-nothing
+// assertion below did not save it, because an unmounted route reaches no upstream either, so that
+// arm is satisfied MORE easily by the defect than by the contract. The GET below is what makes the
+// rest of this test about a route.
 func TestDocsSearch_RefusesNonGET(t *testing.T) {
 	u := newSearchUpstream(t, http.StatusOK, oneHitBody)
 	a, sess := searchApp(t, u)
+
+	// The route EXISTS: a GET reaches Docs.
+	if rec := getSearch(t, a, sess, "q=auth"); rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/docs/search → %d (%s), want 200 — the 405s below prove nothing "+
+			"about an unmounted route", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	// The baseline is that ONE forwarded GET, not zero: the loop must add nothing to it.
+	mounted := len(u.requests())
+	if mounted != 1 {
+		t.Fatalf("upstream saw %v for the GET, want exactly one forwarded request", u.requests())
+	}
 
 	for _, m := range []string{http.MethodPost, http.MethodPatch, http.MethodDelete, http.MethodPut} {
 		req := httptest.NewRequest(m, "/api/docs/search?q=auth", strings.NewReader(`{}`))
@@ -202,8 +221,8 @@ func TestDocsSearch_RefusesNonGET(t *testing.T) {
 			t.Errorf("%s → %d, want 405", m, rec.Code)
 		}
 	}
-	if got := u.requests(); len(got) != 0 {
-		t.Fatalf("upstream saw %v for non-GET methods; it must see nothing", got)
+	if got := u.requests(); len(got) != mounted {
+		t.Fatalf("upstream saw %v; the non-GET methods must add nothing to the GET above", got)
 	}
 }
 
