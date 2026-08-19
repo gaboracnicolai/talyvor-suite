@@ -76,6 +76,11 @@ const docsSummarizeAction = "summarize"
 // of the three fields are authority, not content: `action` chooses which operation the workspace
 // pays for, and `page_id` is what Docs binds the COST to (Engine.run → BindAISpend → later
 // `UPDATE pages SET own_ai_cost_usd …`). A body the browser writes is a body the browser chooses.
+//
+// The keys Docs' Transform BINDS that this route deliberately does not send. Asked of a deployer
+// by deploy/decision-expiry.sh and held to this declaration by aiRequestBodyRegister.test.ts — an
+// absent key on these routes is a DEFAULT, not a refusal, so an omission is a decision.
+// UPSTREAM-BINDS-ONLY docsSummarizeBody: none
 type docsSummarizeBody struct {
 	Action string `json:"action"`
 	Text   string `json:"text"`
@@ -185,6 +190,11 @@ func (a *app) docsSummarizePage() http.HandlerFunc {
 // title for a page the model never read; row six buys one no page accounts for. Nothing in the
 // status can separate them, which is why docs_suggesttitle_test.go decodes the SENT body through
 // these same struct tags rather than asserting a response.
+//
+// The keys Docs' SuggestTitle BINDS that this route deliberately does not send. This is the route
+// whose key was the finding, so the declaration is not a formality: `content` here and `text` on
+// its two siblings, and upstream neither refuses the other.
+// UPSTREAM-BINDS-ONLY docsSuggestTitleBody: none
 type docsSuggestTitleBody struct {
 	Content string `json:"content"`
 	PageID  string `json:"page_id"`
@@ -305,6 +315,11 @@ func (a *app) docsSuggestTitlePage() http.HandlerFunc {
 //
 // docs_translate_test.go pins the name by decoding the SENT body through these same tags, because
 // every row above is a 200 and no status assertion can separate them.
+//
+// The keys Docs' Translate BINDS that this route deliberately does not send. `language` is the
+// reason this declaration is required rather than inferred: omitting it is not "no language", it
+// is Engine.Translate's `defaultLang = "English"` and a billed completion nobody asked for.
+// UPSTREAM-BINDS-ONLY docsTranslateBody: none
 type docsTranslateBody struct {
 	Text     string `json:"text"`
 	Language string `json:"language"`
