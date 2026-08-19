@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Button, Card, CardHeader, RevealOnce } from '@talyvor/ui'
@@ -43,6 +43,13 @@ import { KEY_PLACEHOLDER, MECHANISM_CAVEATS, toolsFor, type Tool } from './setup
 function CopyBlock({ text, label }: { text: string; label: string }) {
   // Three states, the same as RevealOnce's — not yet, done, and did not happen.
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  // ⚠ THE RESET MUST NOT OUTLIVE THE COMPONENT. Uncancelled, this 1500ms timer fires
+  // `setCopyState` on an unmounted tree; under vitest it fires into a torn-down jsdom and reds the
+  // whole RUN with `ReferenceError: window is not defined` while every test passes. Measured as a
+  // race: the same commit ran red and then green on CI with no change. `BillingReturn.tsx` already
+  // had the correct shape — see src/timerCleanup.test.tsx, which pins both.
+  const resetTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
   const copyFailedNote = 'Couldn’t copy — select the block above and copy it yourself.'
   return (
     <div className="space-y-1">
@@ -59,7 +66,8 @@ function CopyBlock({ text, label }: { text: string; label: string }) {
             void navigator.clipboard.writeText(text).then(
               () => {
                 setCopyState('copied')
-                window.setTimeout(() => setCopyState('idle'), 1500)
+                window.clearTimeout(resetTimer.current)
+                resetTimer.current = window.setTimeout(() => setCopyState('idle'), 1500)
               },
               () => setCopyState('failed'),
             )

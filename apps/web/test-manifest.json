@@ -118,6 +118,7 @@
   "src/settleCommands.test.ts": 40,
   "src/Sharing.test.tsx": 8,
   "src/statusChangeRefusal.test.tsx": 7,
+  "src/timerCleanup.test.tsx": 5,
   "src/tokenDoor.test.ts": 10,
   "src/topUpMirrorRegister.test.ts": 9,
   "src/trackWriteBodyRegister.test.ts": 18,

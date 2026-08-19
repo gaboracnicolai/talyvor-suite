@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from './Button'
 import { Card, CardHeader } from './Card'
 
@@ -63,12 +63,21 @@ export function RevealOnce({
   // handler. It also moves the call out of the click's own turn, and a clipboard write outside
   // the user gesture that provoked it is exactly what Safari refuses. `promotions.test.tsx`
   // caught that: it asserts the write happens on the click, and it went red.
+  // ⚠ THE RESET MUST NOT OUTLIVE THE COMPONENT — the same defect Setup.tsx carried, in the file
+  // Setup.tsx's own comment cites as its model. Uncancelled, this fires `setCopyState` on an
+  // unmounted tree, and under vitest into a torn-down jsdom, which reds the RUN rather than a
+  // test. Found by measurement, not by reading: the first census walked apps/web/src only, and
+  // this package sat outside the boundary. src/timerCleanup.test.tsx now walks both trees.
+  const resetTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(resetTimer.current), [])
+
   const copy = () => {
     try {
       void navigator.clipboard.writeText(secret).then(
         () => {
           setCopyState('copied')
-          window.setTimeout(() => setCopyState('idle'), 2000)
+          window.clearTimeout(resetTimer.current)
+          resetTimer.current = window.setTimeout(() => setCopyState('idle'), 2000)
         },
         // No auto-clear: a failure the reader has not acted on must not time out into the
         // state that looks like "not yet".
