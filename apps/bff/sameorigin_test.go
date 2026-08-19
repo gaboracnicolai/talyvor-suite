@@ -239,6 +239,19 @@ func everyMutatingRoute() []mutatingRoute {
 		// which is what the same-origin half asserts.
 		{method: http.MethodPost, path: "/api/track/issues/i1/find-duplicates", body: ``},
 
+		// TRIAGE — swept for find-duplicates' reason and for one of its own. It spends: each press
+		// is one `claude-haiku-4-6` completion carrying `X-Talyvor-Feature: <the issue's
+		// identifier>` (measured, tab-7f6b, against talyvor-track's own engine at `655a0a0`), so
+		// the charge lands on that issue's `ai_cost_usd`. AND upstream's `?apply=true` turns the
+		// same POST into a write of the issue's priority and labels — this BFF forwards no query so
+		// that is unreachable, but the Origin rule is what keeps a cross-origin page from spending
+		// someone else's balance on the read.
+		//
+		// ⚠ EMPTY BODY, for find-duplicates' reason: this handler decodes no body at all (nor does
+		// upstream's Triage — measured), so there is no self-produced refusal for the sweep to hide
+		// behind. With the Origin rule deleted this row's POST ARRIVES upstream.
+		{method: http.MethodPost, path: "/api/track/issues/i1/triage", body: ``},
+
 		// EXEMPT — a machine caller has no Origin to send, so requiring one would break it.
 		// None exists in this BFF today; the row documents the rule and the test asserts the
 		// list is honest rather than assuming emptiness.

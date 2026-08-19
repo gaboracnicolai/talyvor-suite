@@ -52,7 +52,7 @@ import { describe, expect, it } from 'vitest'
  * wide diff resting on no measurement. A future session widening `CITED_FILE` should re-measure
  * rather than trust this paragraph's numbers.
  *
- * ⚠ NOT EVERY Go CITATION IS THE SAME CLASS, AND THE OTHER CLASS IS NOW CHECKED. `apps/bff/lens.go:415`
+ * ⚠ NOT EVERY Go CITATION IS THE SAME CLASS, AND THE OTHER CLASS IS NOW CHECKED. `apps/bff/lens.go:422`
  * and `apps/bff/billing.go:203` name a file IN THIS REPOSITORY, so they are verifiable from here
  * and stay out of this rule's scope. This paragraph used to end "a guard could actually check
  * them", and none did — `pointerAudit.test.ts`'s POINTER regex covered `.tsx|.ts|.css|.mjs|.js`

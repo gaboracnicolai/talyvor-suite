@@ -253,9 +253,9 @@ describe('the addresses below the console still have exactly one top-level headi
     const levels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) =>
       Number(h.tagName.slice(1)),
     )
-    // ⚠ EIGHT, NOT TWO, SINCE CardHeader BECAME A HEADING. The six extra 2s are this page's
+    // ⚠ NINE, NOT TWO, SINCE CardHeader BECAME A HEADING. The seven extra 2s are this page's
     // card headers — Search issues, Description, Details, AI summary, Possible duplicates,
-    // Comments — which were
+    // Triage suggestion, Comments — which were
     // `<div>`s when this line read `[1, 2]` and are now section titles like every other card
     // header behind the gate. "AI summary" is Track's thread summary, the first browser control
     // for any Track AI feature (areas/track/AISummary.tsx); "Search issues" is the newest and is
@@ -264,6 +264,9 @@ describe('the addresses below the console still have exactly one top-level headi
     // wants the related issue is while they are reading one). areas/track/SearchIssues.tsx.
     // "Possible duplicates" is Track's find-duplicates AI, the third of its five features to
     // reach a browser and the one that costs per press (areas/track/FindDuplicates.tsx).
+    // "Triage suggestion" is the fourth, and it is the reason this outline is NINE rather than
+    // eight — the read half of a route whose write half this app deliberately cannot reach
+    // (areas/track/TriageIssue.tsx, apps/bff/track_triage.go).
     //
     // ⚠ AND THE FLATNESS IS RECORDED RATHER THAN BLESSED. Description/Details/AI summary/Comments
     // are sections OF the issue, so an outline that named their relationship would read
@@ -277,7 +280,7 @@ describe('the addresses below the console still have exactly one top-level headi
       levels,
       'the heading outline at /track/issues/<id> moved — a level was skipped, dropped or ' +
         'duplicated, or a card header stopped being one',
-    ).toEqual([1, 2, 2, 2, 2, 2, 2, 2])
+    ).toEqual([1, 2, 2, 2, 2, 2, 2, 2, 2])
   })
 })
 
