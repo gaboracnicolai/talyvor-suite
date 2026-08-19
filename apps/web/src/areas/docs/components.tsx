@@ -17,6 +17,83 @@ export function Chip({ title, children }: { title?: string; children: React.Reac
   )
 }
 
+/**
+ * PriceNote — what a metered control costs, said WHERE THE READER MEETS IT, before the click.
+ *
+ * ── WHY IT EXISTS, MEASURED RATHER THAN REVIEWED ────────────────────────────
+ *
+ * All five metered Docs surfaces carried a cost sentence and every one of them rendered it in the
+ * ANSWERED branch only. MEASURED at main `252efbfa`, each card mounted and its whole body text
+ * read before any click — none of the five contained the word "metered":
+ *
+ *   PageSummary          "Summarises the page as saved, by Docs through Lens."
+ *   PageTranslation      "Name a language first — …would translate this page into English and
+ *                         still charge for it."          ← the only one that names a charge at all
+ *   PageTitleSuggestion  "Reads the page as saved, by Docs through Lens. It does not rename …"
+ *   AskAI                "Answered from the pages you can open, by Docs through Lens."
+ *   SearchDocs           "Across the pages you can open, in this workspace."
+ *
+ * "by Docs through Lens" is a routing statement, not a price. So the reader learned the call was
+ * metered strictly AFTER buying it.
+ *
+ * ⚠ THE RULE WAS ALREADY WRITTEN DOWN, ONE DIRECTORY OVER, AND THIS AREA DID NOT HAVE IT.
+ * areas/track/meteredCostCensus.test.tsx asserts its four surfaces at MOUNT and says why:
+ * "THE STATE ASSERTED IS THE ONE WHERE THE READER MEETS THE CONTROL — mount, before the spend …
+ * A cost sentence a reader can only reach AFTER paying is a receipt, not a price." Track obeys it
+ * on all four. Docs obeyed it on none, and its own census could not see that: every assertion in
+ * areas/docs/meteredCostCensus.test.tsx calls `drive()` and awaits the answer before it looks.
+ *
+ * ── WHY ONE COMPONENT AND NOT FIVE SENTENCES ────────────────────────────────
+ *
+ * The receipt sentences were hand-written per card and the payer clause drifted — #240 measured a
+ * flipped payer on SearchDocs going green across 1617 tests. Five more hand-written sentences is
+ * five more chances at the same defect, so the PRICE is one rule with a payer switch and the
+ * call sites choose only the verb.
+ *
+ * ⚠ THE LEAD IS CHILDREN, NOT A STRING PROP, DELIBERATELY. Passed as `verb="Summarising this
+ * page"` it is a quoted string of space-separated lowercase words, which deadClasses.test.ts's
+ * literal scanner reads as a Tailwind class list — the trap SearchDocs' DroppedNote records.
+ * Prose belongs in the document.
+ *
+ * ⚠ ONE NOTE PER CARD, NOT TWO. The first attempt added a second paragraph beside the button and
+ * left the receipt where it was — and thirteen existing tests went red, which is what they are
+ * for. `<code>{tag}</code>` appeared TWICE in one small card, so every `getByText(tag)` in the
+ * per-card tests and in the census threw on multiple matches. The tag is a join key and a card
+ * has one; the honest shape is one note whose TENSE moves, which is exactly what SearchDocs'
+ * CostNote in this directory already does with its `semantic` prop. The opening clause is the
+ * card's, the rest is this rule's, so the payer clause cannot drift across five files.
+ *
+ * ⚠ THE RECEIPT WORDING IS UNCHANGED, BYTE FOR BYTE. `This summary was` + this sentence is the
+ * text that shipped; the four per-card tests that pin it were not touched to make this pass.
+ */
+export function MeteredNote({
+  tag,
+  payer,
+  children,
+}: {
+  tag: string
+  /** WHO THE CHARGE LANDS ON. Not an editorial choice — it is a property of the upstream call
+   *  site: `Engine.run` binds a page only when it is passed a non-empty pageID, and `docs-search`
+   *  never goes through `run` at all. See meteredCostCensus.test.tsx's payer column. */
+  payer: 'page' | 'workspace'
+  /** The opening clause, and the ONLY thing that moves between the price and the receipt: the
+   *  card passes the future form before its call has landed and the past form after. Prose as JSX
+   *  rather than a string prop — a quoted run of lowercase words is what deadClasses.test.ts's
+   *  literal scanner reads as a Tailwind class list (see SearchDocs' DroppedNote). */
+  children: React.ReactNode
+}) {
+  return (
+    <p className="text-caption text-faint">
+      {children} a metered Lens call billed to this workspace under <code>{tag}</code>.{' '}
+      {payer === 'page' ? (
+        <>Docs attributes it to this page, so it moves this page’s own AI cost.</>
+      ) : (
+        <>Docs attributes it to no single page, so it does not appear in any page’s AI cost.</>
+      )}
+    </p>
+  )
+}
+
 // FixtureChip and FixtureNote are GONE. Their own doctrine required it: the shared
 // FixtureNotice carries a "REMOVAL CONDITION — the day no screen renders one, delete it; an
 // unproducible marker is dead surface". No Docs screen renders fixture data any more, and the

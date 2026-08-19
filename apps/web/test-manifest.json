@@ -5,7 +5,7 @@
   "src/areas/docs/askAI.test.tsx": 11,
   "src/areas/docs/DocsArea.test.tsx": 24,
   "src/areas/docs/docsWrites.test.tsx": 14,
-  "src/areas/docs/meteredCostCensus.test.tsx": 11,
+  "src/areas/docs/meteredCostCensus.test.tsx": 16,
   "src/areas/docs/pageChangelog.test.tsx": 7,
   "src/areas/docs/pageSummary.test.tsx": 7,
   "src/areas/docs/pageTitleSuggestion.test.tsx": 11,

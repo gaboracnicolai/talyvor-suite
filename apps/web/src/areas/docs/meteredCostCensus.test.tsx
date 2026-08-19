@@ -105,6 +105,42 @@ import { SearchDocs } from './SearchDocs'
 // ⚠ D2 IS WHY THIS IS A COLUMN AND NOT A FIFTH PER-CARD TEST. It reds in two places, which is the
 // point — the four hand-written per-card assertions are real and are kept; what they could not do
 // is notice the fifth card that never got one.
+//
+// ── THE MOUNT COLUMN (tab-5k7p), AND THE HOLE ITS OWN CONTROL FOUND IN IT ────
+//
+// Every column above drives the card to its answer before it looks, so all three could only ever
+// ask whether a surface issues a RECEIPT. `~/talyvor-queue/w17-docs-price-controls-5k7p.py`,
+// each applied alone against this directory's 136 tests, failing titles read:
+//
+//   M1  PageSummary's note back inside the answer branch (THE DEFECT) → 1 red (mount)
+//   M2  PageSummary prints the PRICE clause in every state           → 1 red (receipt)
+//   M3  PageSummary's payer flipped                                  → 3 red (mount + payer + card)
+//   M4  SearchDocs claims the past tense on a FAULT                  → 2 red (mount + fault)
+//   M5  SearchDocs' price branch deleted                             → 2 red (mount + fault)
+//   M6  the mount column DISABLED, with M1 on top                    → 0 red ← the pre-merge world
+//   M7  a SIBLING card's price removed (AskAI)                       → 1 red (mount)
+//   M8  a reworded comment                                           → 0 red
+//
+// ⚠⚠ M7 SCORED 0 RED ON ITS FIRST RUN AND THE PRODUCT WAS THE INNOCENT PARTY — THE HOLE WAS IN
+// THIS COLUMN. Removing AskAI's price left the card printing "This answer was a metered Lens call
+// billed to this workspace under docs-ai-ask" AT MOUNT, which satisfied every assertion the column
+// then had: the word "metered", the tag, and the payer clause. A card claiming a charge had
+// already been taken before the reader had asked anything passed a column written to check that
+// the reader is told the price. The fix is the `not.toMatch(s.receipt)` line below — the tense is
+// exclusive in both directions — and M7 is 1 red with it.
+//
+// ⚠ M6 WAS ALSO WRONG TWICE BEFORE IT WAS RIGHT, and the two failures are worth more than the
+// pass. First cut: blind the column by calling `s.drive()` before asserting — 1 red, because
+// `drive()` is synchronous and the mutation had not resolved, so nothing had been driven. Second
+// cut: `drive()` plus `await waitFor(landed)` — 5 red, because the receipt is on screen by then
+// and the tense assertion fires on all five. Neither measured blindness; both measured the
+// column working. The column cannot be re-pointed into blindness at all — every assertion in it
+// catches M1 — so the only honest blinding is to stop it running, which is M6 as it now stands
+// and is exactly the world this merge left behind.
+//
+// ⚠ M2 IS WHY THE `receipt` COLUMN EXISTS. The price and the receipt are nearly the same sentence,
+// so without a per-card past-tense pin the price alone would satisfy the two spine assertions and
+// deleting the receipt would go green.
 
 type Call = { url: string; method: string }
 
@@ -178,6 +214,11 @@ const METERED: {
   node: React.ReactNode
   drive: () => void
   landed: RegExp
+  /** ⚠ THE RECEIPT, PINNED PER CARD — see the MOUNT section of the header. The spine assertion
+   *  below matches a sentence that BOTH notes now nearly carry, so without this the price note
+   *  could satisfy it and deleting the receipt would go green. This regex is the past tense, which
+   *  only the answered branch may use. */
+  receipt: RegExp
 }[] = [
   {
     name: 'PageSummary',
@@ -187,6 +228,7 @@ const METERED: {
     node: <PageSummary pageId="pg-1" text="The rollback runbook, in full." />,
     drive: () => fireEvent.click(screen.getByRole('button', { name: /summarise this page/i })),
     landed: /a summary/,
+    receipt: /This summary was a metered Lens call/i,
   },
   {
     name: 'PageTranslation',
@@ -199,6 +241,7 @@ const METERED: {
       fireEvent.click(screen.getByRole('button', { name: /translate this page/i }))
     },
     landed: /une traduction/,
+    receipt: /This translation was a metered Lens call/i,
   },
   {
     name: 'PageTitleSuggestion',
@@ -208,6 +251,7 @@ const METERED: {
     node: <PageTitleSuggestion spaceId="sp-1" pageId="pg-1" text="The rollback runbook, in full." />,
     drive: () => fireEvent.click(screen.getByRole('button', { name: /suggest a title/i })),
     landed: /A Better Title/,
+    receipt: /Suggesting a title was a metered Lens call/i,
   },
   {
     name: 'AskAI',
@@ -220,6 +264,7 @@ const METERED: {
       fireEvent.click(screen.getByRole('button', { name: /^ask$/i }))
     },
     landed: /an answer/,
+    receipt: /This answer was a metered Lens call/i,
   },
   {
     name: 'SearchDocs',
@@ -232,6 +277,7 @@ const METERED: {
       fireEvent.click(screen.getByRole('button', { name: /^search$/i }))
     },
     landed: /Auth flow/,
+    receipt: /Embedding the query was a metered Lens call/i,
   },
 ]
 
@@ -274,6 +320,97 @@ describe('every metered Docs surface tells the reader it spent', () => {
         document.body.textContent,
         `${s.name} must say the call was metered and billed to this workspace`,
       ).toMatch(/metered Lens call billed to this workspace/i)
+
+      // ⚠ AND THE RECEIPT SPECIFICALLY, IN THE PAST TENSE. Since #2xx every card also carries a
+      // PRICE at mount, and a price says almost the same words; without this line the price alone
+      // would satisfy the two assertions above and deleting the receipt would go green. That is
+      // not hypothetical — it is control M2 in the header, run rather than reasoned about.
+      expect(
+        document.body.textContent,
+        `${s.name} must keep the past-tense receipt beside the answer — the price at mount is a ` +
+          `claim about what a click WILL cost and cannot stand as evidence that it did`,
+      ).toMatch(s.receipt)
+    })
+  }
+
+  /**
+   * ⚠⚠ THE PRICE, AND THE DEFECT THIS COLUMN WAS ADDED FOR — MEASURED, NOT REVIEWED.
+   *
+   * Every assertion above calls `drive()` and awaits `landed` BEFORE it reads the document. So
+   * this census could only ever ask whether a card issues a RECEIPT. MEASURED at main `252efbfa`,
+   * each of the five mounted and its whole body text read before any click: **not one contained
+   * the word "metered"**. What a reader met instead was routing —
+   *
+   *   PageSummary          "Summarises the page as saved, by Docs through Lens."
+   *   PageTranslation      "…would translate this page into English and still charge for it."
+   *   PageTitleSuggestion  "Reads the page as saved, by Docs through Lens…"
+   *   AskAI                "Answered from the pages you can open, by Docs through Lens."
+   *   SearchDocs           "Across the pages you can open, in this workspace."
+   *
+   * — so the price of every metered Docs surface was disclosed strictly AFTER it had been paid.
+   *
+   * ⚠ THE RULE WAS ALREADY WRITTEN DOWN ONE DIRECTORY OVER AND THIS FILE DID NOT HAVE IT.
+   * areas/track/meteredCostCensus.test.tsx asserts its four surfaces at MOUNT and states why:
+   * "THE STATE ASSERTED IS THE ONE WHERE THE READER MEETS THE CONTROL — mount, before the spend …
+   * A cost sentence a reader can only reach AFTER paying is a receipt, not a price." Track passed
+   * that on all four. Docs failed it on all five, and the two censuses are near-identical files.
+   *
+   * ⚠ IT IS THE SAME POPULATION, DELIBERATELY. The lesson of SearchDocs was that the surface
+   * nobody wrote a test for is the one that goes missing, so the price is asked of the census
+   * rather than card by card.
+   *
+   * ⚠ AND THE PAYER IS ASSERTED HERE TOO, BOTH DIRECTIONS. A price that names the wrong payer is
+   * the #240 defect arriving one branch earlier, where there is no receipt to contradict it.
+   */
+  for (const s of METERED) {
+    it(`${s.name} states the price where the reader meets the control, before spending`, () => {
+      mockBff()
+      renderIn(s.node)
+      // NOTHING IS DRIVEN. This is the state a reader is in while deciding whether to click.
+      const text = document.body.textContent ?? ''
+
+      expect(
+        text,
+        `${s.name} spends on Lens under ${s.tag} (${s.upstream}). A reader deciding whether to ` +
+          `press the button must be able to see that it costs — a sentence reachable only after ` +
+          `the call is a receipt, not a price`,
+      ).toMatch(/metered/i)
+
+      // The tag at mount as well as after: it is the ledger join key, and a reader who wants to
+      // know what a control will cost them needs the line it will appear on, not just the fact.
+      expect(
+        screen.getByText(s.tag),
+        `${s.name} must name ${s.tag} where the button is, not only beside the answer`,
+      ).toBeInTheDocument()
+
+      // ⚠⚠ AND IT MUST BE A PRICE, NOT A RECEIPT — THE HOLE CONTROL M7 FOUND IN THIS COLUMN'S
+      // FIRST VERSION. With only the three assertions above, a card whose note prints the PAST
+      // TENSE unconditionally passes at mount: "This answer was a metered Lens call billed to this
+      // workspace under docs-ai-ask" satisfies "metered", the tag and the payer alike. M7 removed
+      // AskAI's price exactly that way and scored 0 RED. That is not a cosmetic miss — it is a
+      // card telling a reader a charge has been taken before anything has been asked of the model,
+      // which is the same class of false money claim as the payer flip one column down, pointed
+      // the other way. The tense is therefore exclusive in both directions: past after the answer
+      // (the receipt column), never before it.
+      expect(
+        text,
+        `${s.name} must not claim a call ALREADY happened before the reader has made one — ` +
+          `at mount there is nothing for a receipt to be evidence of`,
+      ).not.toMatch(s.receipt)
+
+      const bound = /moves this page’s own AI cost/i
+      const unbound = /no single page/i
+      if (s.payer === 'page') {
+        expect(text, `${s.upstream} passes a pageID, so the price must say the page pays`)
+          .toMatch(bound)
+        expect(text, `${s.name} must not also disclaim the page it IS attributed to`)
+          .not.toMatch(unbound)
+      } else {
+        expect(text, `${s.upstream} binds no page, so the price must say no page pays`)
+          .toMatch(unbound)
+        expect(text, `${s.name} bills the workspace and must NOT claim it moves a page's AI cost`)
+          .not.toMatch(bound)
+      }
     })
   }
 

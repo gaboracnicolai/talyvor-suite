@@ -281,6 +281,11 @@ describe('SearchDocs', () => {
 // without proof must not match it, and that is what these tests measure.
 const WAS_BILLED = /embedding the query was a metered lens call/i
 const ONLY_A_ROW_PROVES = /only a row from the semantic index proves it happened here/i
+/** The PRICE — the branch that renders before any search and after a fault. It is the present
+ *  tense and it is conditional, for the same measured reason the other two branches are: on a
+ *  deployment with no Lens the semantic half returns an empty list silently and nothing is
+ *  billed, so the only honest claim before the fact is what a configured deployment charges. */
+const PRICE_BEFORE_CLICK = /where lens is configured, running this search buys a metered lens call/i
 
 describe('what the search cost', () => {
   it('says nothing was PROVED billed when no row carries semantic evidence', async () => {
@@ -370,6 +375,23 @@ describe('what the search cost', () => {
     await waitFor(() => expect(screen.getByText(/couldn’t search/i)).toBeInTheDocument())
     expect(screen.queryByText(WAS_BILLED)).not.toBeInTheDocument()
     expect(screen.queryByText(ONLY_A_ROW_PROVES)).not.toBeInTheDocument()
-    expect(screen.queryByText('docs-search')).not.toBeInTheDocument()
+
+    // ⚠⚠ THIS LINE USED TO BE `queryByText('docs-search')).not.toBeInTheDocument()` AND IT IS
+    // NARROWED RATHER THAN DELETED, because the rule it enforces and the assertion it made had
+    // drifted apart. The rule is that this card says nothing about whether THIS SEARCH was
+    // billed — both past-tense sentences above, in either direction, and they are still banned.
+    // The tag's absence was a proxy for that, and it was only a faithful proxy while the cost
+    // sentence lived under the results.
+    //
+    // It now lives beside the button, where the price was owed to a reader BEFORE the click, so
+    // it is on screen in every state including this one — and what it says here is the PRICE:
+    // what pressing Search costs, a fact about the route that is true whether or not this attempt
+    // spent. The button is still there and still clickable; a reader deciding whether to retry
+    // needs that sentence more than in any other state, not less.
+    //
+    // ⚠ AND THE BAN IS ASSERTED POSITIVELY AS WELL AS NEGATIVELY: the price must be the branch on
+    // screen, so a receipt cannot slip in here by simply changing which one renders.
+    expect(screen.getByText(PRICE_BEFORE_CLICK)).toBeInTheDocument()
+    expect(screen.getByText('docs-search')).toBeInTheDocument()
   })
 })

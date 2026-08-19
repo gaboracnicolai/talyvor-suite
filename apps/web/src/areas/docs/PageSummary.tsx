@@ -33,6 +33,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { docsApi } from './api'
+import { MeteredNote } from './components'
 import { aiNotConfiguredCopy, isAIUnavailable, isSessionExpired } from '../../lib/productState'
 
 /**
@@ -57,16 +58,31 @@ export function PageSummary({ pageId, text }: { pageId: string; text: string }) 
             This page has no text yet, so there is nothing to summarise.
           </p>
         ) : (
-          <div className="flex items-center gap-2">
-            {/* The default variant, deliberately: `primary` is this app's ink-on-colour and Save
-                below already owns it. A metered call is not the main action on a reader. */}
-            <Button disabled={summarize.isPending} onClick={() => summarize.mutate()}>
-              {summarize.isPending ? 'Summarising…' : 'Summarise this page'}
-            </Button>
-            <span className="text-caption text-faint">
-              Summarises the page as saved, by Docs through Lens.
-            </span>
-          </div>
+          <>
+            <div className="flex items-center gap-2">
+              {/* The default variant, deliberately: `primary` is this app's ink-on-colour and Save
+                  below already owns it. A metered call is not the main action on a reader. */}
+              <Button disabled={summarize.isPending} onClick={() => summarize.mutate()}>
+                {summarize.isPending ? 'Summarising…' : 'Summarise this page'}
+              </Button>
+              <span className="text-caption text-faint">
+                Summarises the page as saved, by Docs through Lens.
+              </span>
+            </div>
+            {/* THE COST SENTENCE — it names where the charge lands and shows no number, because
+                there is no per-call number to show (see the header). It differs from AskAI's on
+                purpose: this one DOES move a page's AI cost.
+
+                ⚠ IT IS HERE, INSIDE THE BRANCH THAT OFFERS THE BUTTON, AND NOT INSIDE
+                `summarize.data`. It used to be the latter, which meant the fact a reader needs in
+                order to DECIDE was unreachable until they had already paid for it — a receipt, not
+                a price. Only the opening clause moves between the two states. And it stays out of
+                the `nothingToSummarize` arm on purpose: that arm offers no click, and a price for
+                a control that is not on offer is noise. */}
+            <MeteredNote tag="docs-ai-summarize" payer="page">
+              {summarize.data ? <>This summary was</> : <>Summarising this page buys</>}
+            </MeteredNote>
+          </>
         )}
 
         {/* ⚠ ONE CHAIN, FAILURE FIRST — not two sibling containers. A refused summarise must never
@@ -84,14 +100,6 @@ export function PageSummary({ pageId, text }: { pageId: string; text: string }) 
         ) : summarize.data ? (
           <>
             <p className="whitespace-pre-wrap text-body text-ink">{summarize.data.text}</p>
-            {/* THE COST SENTENCE. It names where the charge lands and shows no number, because
-                there is no per-call number to show — see the header. It differs from AskAI's on
-                purpose: this one DOES move a page's AI cost. */}
-            <p className="text-caption text-faint">
-              This summary was a metered Lens call billed to this workspace under{' '}
-              <code>docs-ai-summarize</code>. Docs attributes it to this page, so it moves this
-              page’s own AI cost.
-            </p>
             {/* The summary is not the document, and nothing here writes it back — said out loud
                 because a box of model-written text under a page editor is exactly the shape a
                 reader would expect to be editable. */}

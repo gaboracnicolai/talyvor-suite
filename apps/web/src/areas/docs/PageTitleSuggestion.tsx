@@ -46,6 +46,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader } from '@talyvor/ui'
 import { docsApi } from './api'
+import { MeteredNote } from './components'
 import { aiNotConfiguredCopy, isAIUnavailable, isSessionExpired } from '../../lib/productState'
 
 /**
@@ -92,16 +93,25 @@ export function PageTitleSuggestion({
             This page has no text yet, so there is nothing to suggest a title from.
           </p>
         ) : (
-          <div className="flex items-center gap-2">
-            {/* The default variant, deliberately: `primary` is this app's ink-on-colour and the
-                page's Save owns it. A metered call is not the main action on a reader. */}
-            <Button disabled={suggest.isPending} onClick={() => suggest.mutate()}>
-              {suggest.isPending ? 'Suggesting…' : 'Suggest a title'}
-            </Button>
-            <span className="text-caption text-faint">
-              Reads the page as saved, by Docs through Lens. It does not rename anything.
-            </span>
-          </div>
+          <>
+            <div className="flex items-center gap-2">
+              {/* The default variant, deliberately: `primary` is this app's ink-on-colour and the
+                  page's Save owns it. A metered call is not the main action on a reader. */}
+              <Button disabled={suggest.isPending} onClick={() => suggest.mutate()}>
+                {suggest.isPending ? 'Suggesting…' : 'Suggest a title'}
+              </Button>
+              <span className="text-caption text-faint">
+                Reads the page as saved, by Docs through Lens. It does not rename anything.
+              </span>
+            </div>
+            {/* THE COST SENTENCE. ⚠ IT IS HERE, BESIDE THE BUTTON, AND NOT INSIDE THE SUCCESS
+                BRANCH IT USED TO LIVE IN — this card's empty-title arm tells a reader who paid for
+                nothing that "the call was still billed", and that must never be the first time the
+                charge is mentioned. Only the opening clause moves between price and receipt. */}
+            <MeteredNote tag="docs-ai-title" payer="page">
+              {suggest.isSuccess ? <>Suggesting a title was</> : <>Suggesting a title buys</>}
+            </MeteredNote>
+          </>
         )}
 
         {/* ⚠ ONE CHAIN, FAILURE FIRST — not two sibling containers. A refused suggestion must never
@@ -153,14 +163,12 @@ export function PageTitleSuggestion({
                 </div>
               </>
             )}
-            {/* THE COST SENTENCE. It names where the charge lands and shows no number, because there
-                is no per-call number to show — see the header. It is rendered for the empty
-                suggestion too: that call cost exactly as much as a useful one. */}
-            <p className="text-caption text-faint">
-              Suggesting a title was a metered Lens call billed to this workspace under{' '}
-              <code>docs-ai-title</code>. Docs attributes it to this page, so it moves this page’s
-              own AI cost. Applying it costs nothing.
-            </p>
+            {/* ⚠ THE COST SENTENCE MOVED UP, BESIDE THE BUTTON — see MeteredNote there; it now
+                reads in the past tense in exactly this state, and it is rendered for the empty
+                suggestion too, because that call cost exactly as much as a useful one. What stays
+                HERE is the half that is only true where the second button is: applying is a PATCH
+                this app makes, not a completion, so it buys nothing. */}
+            <p className="text-caption text-faint">Applying it costs nothing.</p>
           </>
         ) : null}
       </div>

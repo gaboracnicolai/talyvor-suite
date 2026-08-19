@@ -57,7 +57,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
 import { readerHref } from './AskAI'
 import { docsApi } from './api'
-import { readSearch, type SearchRow } from './search'
+import { readSearch, type SearchRow, type SearchView } from './search'
 import { isSessionExpired } from '../../lib/productState'
 
 /** The hedge. One string, used by every state that has no proof either way, so the three cannot
@@ -90,6 +90,23 @@ const ranButDroppedCopy =
 function evidenceNote(semantic: 'ran' | 'unknown', shown: boolean): string {
   if (semantic !== 'ran') return cannotSayCopy
   return shown ? shownCopy : ranButDroppedCopy
+}
+
+/**
+ * Which of CostNote's three sentences this card is entitled to right now.
+ *
+ * ⚠ `not-run` COVERS THE FAULT ARM ON PURPOSE, and it is the same rule the note has always
+ * obeyed: a failed read may be the BFF failing to dial (nothing spent) or Docs failing after the
+ * embedding was bought (something spent), and the response cannot tell them apart. So a fault
+ * makes no claim about whether THIS search was billed — it falls back to the price, which is a
+ * fact about the route and true in every state. `unrecognised` is a fault of the same kind.
+ */
+function costState(view: SearchView | null, failed: boolean): 'ran' | 'unknown' | 'not-run' {
+  if (failed || view === null || view.kind === 'unrecognised') return 'not-run'
+  // ⚠ `semantic`, NOT `semanticShown`. The evidence SENTENCE needs a drawn row because it says
+  // "these"; the CHARGE needs only that the half ran, and a dropped row proves that just as well.
+  // Reading `semanticShown` here would hedge about money the workspace has certainly been billed.
+  return view.semantic
 }
 
 export function SearchDocs() {
@@ -128,6 +145,14 @@ export function SearchDocs() {
             Across the pages you can open, in this workspace.
           </span>
         </div>
+        {/* ⚠ THE COST SENTENCE LIVES HERE, BESIDE THE BUTTON, AND IT USED TO LIVE ONLY UNDER THE
+            RESULTS. Measured at main `252efbfa`: mounted, this card's entire text was "Across the
+            pages you can open, in this workspace" — the reader learned the search was metered
+            strictly after buying one. Rendering it once, here, is also what keeps `docs-search` on
+            screen EXACTLY ONCE; a second copy under the results makes the ledger join key
+            ambiguous and breaks every getByText that reads it. Its tense is keyed on evidence, as
+            before — see CostNote. */}
+        <CostNote semantic={costState(view, run.isError)} />
       </form>
 
       {/* ⚠ ONE CHAIN, FAILURE FIRST — not two sibling containers. "Nothing matched" must never be
@@ -158,7 +183,6 @@ export function SearchDocs() {
           {/* `false` is not a hedge here: nothing was drawn, so no shown row can carry proof —
               but a DROPPED one still can, and on this route it is the likely carrier. */}
           <p className="text-caption text-faint">{evidenceNote(view.semantic, false)}</p>
-          <CostNote semantic={view.semantic} />
         </div>
       ) : (
         <div className="flex flex-col gap-2 px-gutter pb-3">
@@ -172,12 +196,6 @@ export function SearchDocs() {
               stronger sentence: with one full-text row drawn and a semantic row dropped it said
               "at least one of THESE came from the semantic index" over a list where none did. */}
           <p className="text-caption text-faint">{evidenceNote(view.semantic, view.semanticShown)}</p>
-          {/* ⚠ `semantic`, NOT `semanticShown` — and the asymmetry with the line above is the
-              point. The evidence sentence needs a DRAWN row because it says "these"; the charge
-              needs only that the half RAN, and a dropped row proves that just as well. Reading
-              `semanticShown` here would hedge about money the workspace has certainly been
-              billed for. */}
-          <CostNote semantic={view.semantic} />
         </div>
       )}
     </Card>
@@ -217,7 +235,20 @@ export function SearchDocs() {
  * ⚠ PROSE AS JSX TEXT, NOT A STRING CONSTANT — see DroppedNote below for the scanner that reads a
  * quoted string of lowercase words as a Tailwind class list.
  */
-function CostNote({ semantic }: { semantic: 'ran' | 'unknown' }) {
+function CostNote({ semantic }: { semantic: 'ran' | 'unknown' | 'not-run' }) {
+  if (semantic === 'not-run') {
+    // ⚠ THE PRICE. No search has run (or one faulted), so there is nothing to be evidence ABOUT —
+    // this states what pressing the button costs, which is a fact about the route and true in
+    // every state. It is the sentence this card owed a reader BEFORE the click and did not have:
+    // measured at main `252efbfa`, mounted, the whole card read "Across the pages you can open, in
+    // this workspace" and the word "metered" appeared nowhere.
+    return (
+      <p className="text-caption text-faint">
+        Where Lens is configured, running this search buys a metered Lens call billed to this
+        workspace under <code>docs-search</code>, attributed to no single page.
+      </p>
+    )
+  }
   return semantic === 'ran' ? (
     <p className="text-caption text-faint">
       Embedding the query was a metered Lens call billed to this workspace under{' '}

@@ -46,6 +46,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input } from '@talyvor/ui'
 import { docsApi } from './api'
+import { MeteredNote } from './components'
 import { aiNotConfiguredCopy, isAIUnavailable, isSessionExpired } from '../../lib/productState'
 
 /**
@@ -110,6 +111,14 @@ export function PageTranslation({ pageId, text }: { pageId: string; text: string
                 Translates the page as saved, by Docs through Lens.
               </span>
             )}
+            {/* THE COST SENTENCE. ⚠ IT IS HERE, BESIDE THE CONTROL, AND NOT INSIDE THE ANSWER
+                BRANCH IT USED TO LIVE IN. It renders in BOTH language states on purpose: the
+                no-language sentence above is about a charge this screen REFUSES to make, which is
+                not the same fact as what a translate that DOES fire costs. Only the opening clause
+                moves between the price and the receipt. */}
+            <MeteredNote tag="docs-ai-translate" payer="page">
+              {translate.data ? <>This translation was</> : <>Translating this page buys</>}
+            </MeteredNote>
           </>
         )}
 
@@ -128,13 +137,6 @@ export function PageTranslation({ pageId, text }: { pageId: string; text: string
         ) : translate.data ? (
           <>
             <p className="whitespace-pre-wrap text-body text-ink">{translate.data.text}</p>
-            {/* THE COST SENTENCE. It names where the charge lands and shows no number, because
-                there is no per-call number to show — see the header. */}
-            <p className="text-caption text-faint">
-              This translation was a metered Lens call billed to this workspace under{' '}
-              <code>docs-ai-translate</code>. Docs attributes it to this page, so it moves this
-              page’s own AI cost.
-            </p>
             {/* Said out loud because a box of model-written prose under a page editor is exactly
                 the shape a reader would expect to be editable. */}
             <p className="text-caption text-muted">
