@@ -540,6 +540,53 @@ cannot "DocsPage mirrors talyvor-docs Page — the page shape the tree and reade
     "talyvor-docs internal/model/model.go" \
     "[ \"\$(sed -n '/^type Page struct/,/^}/p' internal/model/model.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"ai_cost_usd content content_text cover_url created_at created_by depth doc_status,omitempty icon id is_template last_verified_at,omitempty last_viewed_at,omitempty linked_issues,omitempty locked locked_at,omitempty locked_by,omitempty own_ai_cost_usd page_type,omitempty parent_id,omitempty position slug space_id stale_after_days title total_ai_cost_usd updated_at updated_by verified_by,omitempty view_count workspace_id \" ]   # in a talyvor-docs checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
 
+# ── THE PAGE-WRITE SEAM, WHERE THE MIRROR ABOVE READS AS COVERAGE AND IS NOT ──
+# DECISION: apps/bff forwards the two Docs PAGE writes VERBATIM — docsCreatePage (POST
+#           /v1/spaces/{s}/pages) and docsUpdatePage (PATCH /v1/spaces/{s}/pages/{p}), the last
+#           two of the six `forwardProduct` calls that hand upstream the caller's own r.Body.
+#           "Docs owns its schema, and re-encoding here would invent a second schema to drift
+#           from." The browser therefore authors the wire: areas/docs/api.ts#updatePage sends
+#           `title` and `content_text`, #createPage sends `title`.
+# PREMISE:  those keys are still keys talyvor-docs will APPLY.
+#
+# ⚠ THE DocsPage MIRROR ABOVE DOES NOT COVER THE PATCH, AND IT LOOKS LIKE IT DOES. It pins
+# `model.Page`'s json tags — but page Update does NOT decode into model.Page. It decodes into
+# `map[string]any` and the gate is `updatableFields` in internal/page/store.go, a set the mirror
+# never reads. The two disagree in BOTH directions and upstream says so in its own comment:
+# `content_text` IS applied and is NOT in the allowlist (it is admitted by an explicit
+# `k != "content_text"` exception), while `ai_cost_usd` is a model.Page tag that is deliberately
+# NOT applicable. So the mirror can stay green over a page-write seam that has stopped writing.
+#
+# ⚠ WHAT A DRIFT COSTS HERE IS THE EDIT, AND THE CALLER IS TOLD NOTHING. Measured by reading the
+# upstream store at docs `fd96dec7`: an un-allowlisted key is `continue`d — "DROPPED IN SILENCE
+# rather than refused — the rest of the request still lands" — and when nothing survives the gate
+# the method returns `s.GetByID(ctx, id)`, so Update answers **200 with the page body**. The
+# handler's own `updates["updated_by"]` keeps `set` non-empty, which means the row's updated_at
+# still moves: a save that stored nothing is indistinguishable from a save that worked, and the
+# page even looks freshly touched.
+#
+# ⚠ THE EXCEPTION IS THE FRAGILE ONE ON PURPOSE. `content_text` is the ONLY key the suite's page
+# editor writes (PageView.tsx), and it reaches the column through a hardcoded string exception in
+# an allowlist loop — which is exactly what a tidy-up deletes. The queue's standing finding about
+# this editor is that it writes the SEARCH PROJECTION rather than the document; that is a product
+# DECISION (W2.3) and is not touched here. This entry is the narrower, undecided thing: whichever
+# way that decision goes, nobody in either repo is asking whether the write still lands at all.
+#
+# ⚠ 12/12 controls, each predicted before it ran, against a disposable `git archive` export of
+# talyvor-docs (the object store, never the working tree — that repo is held by another tab):
+# exception removed -> RED (the defect) · an allowlist key renamed -> RED · a key ADDED -> RED ·
+# updatableFields renamed -> RED · store.go emptied -> RED · **the comment that QUOTES the
+# exception reworded -> GREEN**, the must-stay-green that forced the `!allowed &&` anchor: the
+# obvious `grep -o 'k != "content_text"'` matches that comment line TOO and would have reddened
+# on prose. Same matrix for the create binding. Harness: scripts/w171-docs-pagewrite-controls.py.
+cannot "talyvor-docs page UPDATE applies updatableFields PLUS an explicit content_text exception — NOT model.Page's tag set, so the DocsPage mirror above is not the guard it reads as, and both keys areas/docs/api.ts#updatePage sends are in here (title by the allowlist, content_text by the exception alone)" \
+    "talyvor-docs internal/page/store.go" \
+    "[ \"\$( { sed -n '/^var updatableFields = map\\[string\\]struct{}{/,/^}/p' internal/page/store.go | grep -o '\"[a-z_]*\"'; grep -o '!allowed && k != \"content_text\"' internal/page/store.go; } | tr -d '\"' | LC_ALL=C sort | tr '\n' ' ')\" = \"!allowed && k != content_text content cover_url icon is_template linked_issues page_type parent_id position stale_after_days title updated_by \" ]   # in a talyvor-docs checkout; the allowlist AND the exception in ONE capture, so removing the exception is a mismatch exactly like renaming a key. An empty capture — a renamed updatableFields, an absent file — fails this comparison rather than passing it, which is the vacuity case a command reading an exit status cannot see"
+
+cannot "talyvor-docs' page CREATE binds model.Page, which is the ONLY reason the DocsPage mirror above also covers the create REQUEST — a create handler that binds its own request struct moves that shape with the mirror still green, and apps/bff#docsCreatePage forwards every key verbatim" \
+    "talyvor-docs internal/page/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Create(/,/^}/p' internal/page/handler.go | grep -o 'var in model\\.[A-Za-z]*\\|Decode(&in)' | tr '\n' '|')\" = \"var in model.Page|Decode(&in)|\" ]   # in a talyvor-docs checkout; the decoded TYPE and the decode itself, together — the same shape as the space-create entry above, for the sibling route nobody added when that one was added"
+
 # ── THE REQUEST HALF OF THE SAME CLASS, AND IT IS THE HALF THAT SPENDS MONEY ─
 # DECISION: this app builds the request body for three talyvor-docs AI routes (apps/bff/docs_ai.go)
 #           and writes the fourth in the browser (areas/docs/api.ts#ask, forwarded verbatim).
