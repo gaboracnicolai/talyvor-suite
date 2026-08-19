@@ -125,9 +125,14 @@ func TestSpendByFeatureDropsUnknownParams(t *testing.T) {
 // only the status code cannot tell them apart. Asserting the GET first makes the 405s evidence
 // about a route rather than about the fallback.
 //
-// ⚠ apps/bff/usage_test.go#TestUsageIsReadOnly HAS THIS SHAPE UNFIXED — it would pass verbatim
-// with /api/usage unmounted. Measured, not fixed here: one merge per finding, and it is a claim
-// about an existing guard rather than about this one.
+// ⚠ THE SHAPE WAS NOT UNIQUE TO THIS ROUTE, AND THE HAND-OFF THIS COMMENT USED TO CARRY NAMED
+// ONLY ONE OF THREE. Every mounted `/api/*` route was unmounted one at a time and the full package
+// run against each: THREE method-gate tests passed with their own route deleted — usage_test.go's
+// TestUsageIsReadOnly (the one named here), docs_search_test.go's TestDocsSearch_RefusesNonGET and
+// track_ai_test.go's TestTrackIssueSummary_OnlyGET. All three now assert their mount first, and
+// each was re-measured as CAUGHT afterwards with this test carried as the positive control. The
+// POST-only routes were never blind and the census says why: an unmounted GET is a 404, not a 405,
+// so their `GET → 405` arm catches the deletion on its own.
 func TestSpendByFeatureIsReadOnlyAndMounted(t *testing.T) {
 	a := newTestApp(t, nil)
 
