@@ -59,7 +59,7 @@ import { describe, expect, it } from 'vitest'
  * and not `.go`. MEASURED at `eb051cd`: the `billing.go` citation was right when written at
  * `31095b7` and a LOCAL commit moved the comment it named twenty lines, so it pointed inside
  * `probeBillingEnabled` — the one function on that path that cannot charge anyone — while the
- * `TopUp.tsx:22` citation in the SAME PARENTHESIS was pinned and green. `pointerAudit` now
+ * `TopUp.tsx:24` citation in the SAME PARENTHESIS was pinned and green. `pointerAudit` now
  * resolves in-repo `.go` pointers and pins both of these, which is what this paragraph asked for.
  * The cross-repo half is unchanged: it is still unreachable from here, and still banned rather
  * than checked.
