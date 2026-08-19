@@ -712,6 +712,25 @@ cannot "[POST /api/track/issues/{id}/comments] sends {body} and Track binds it o
     "talyvor-track internal/issue/handler.go + internal/model/model.go" \
     "[ \"\$(grep -c 'var in model.Comment' internal/issue/handler.go)\" = 1 ] && [ \"\$(grep -c 'json:.body.' internal/model/model.go)\" = 1 ] && [ \"\$(grep -c 'in.AuthorID = actorID' internal/issue/handler.go)\" = 1 ]   # in a talyvor-track checkout; the third count is the SEC-5 identity rule this app relies on by NOT sending author_id — if it stopped holding, an omitted key would become a forgeable one"
 
+# ⚠ A PREMISE ABOUT MONEY THAT THIS REPO PRINTS ON SCREEN, WHICH IS WHY IT IS HERE RATHER THAN IN
+# A COMMENT. SearchIssues.tsx tells the reader the charge appears in the Lens ledger under
+# `track-search`; areas/track/meteredCostCensus.test.tsx asserts the card prints that literal.
+# BOTH ends are in THIS repo, so both agree with each other for ever and NEITHER can see the tag
+# Track actually sends. A rename upstream leaves this app confidently naming a ledger line that
+# no longer exists — the failure is silent, and it is silent on the one Track surface whose spend
+# is billed to the workspace rather than to an issue.
+#
+# ⚠ THE COUNT IS OF THE LIVE CALL LINE, NOT OF THE STRING — AND THE ANCHOR IS THERE BECAUSE THE
+# FIRST DRAFT FAILED ITS OWN CONTROL. `"track-search"` appears exactly once in engine.go at
+# bfc5574, so an unanchored count looked sufficient; run against a scratch export in which the
+# call was renamed and the OLD line left above it as a comment, the unanchored form still
+# answered 1. It would have reported a premise it never looked at — the exact failure this
+# helper's own header describes. Anchoring to the start of the line drops a commented copy,
+# MEASURED: live 1, renamed 0, renamed-with-the-old-line-commented-out 0.
+cannot "[GET /api/track/issues/search] SearchIssues.tsx prints \`track-search\` as the ledger tag the workspace's search spend appears under, and the census pins that literal — the tag is set upstream from callEmbeddingsViaLens's featureID argument (X-Talyvor-Feature, engine.go:263) and a rename there makes this app's only workspace-billed cost note name a ledger line that does not exist" \
+    "talyvor-track internal/ai/engine.go" \
+    "[ \"\$(grep -cE '^[[:space:]]+vec, err := e\\.callEmbeddingsViaLens\\(ctx, workspaceID, \"track-search\", query\\)\$' internal/ai/engine.go)\" = 1 ]   # in a talyvor-track checkout; anchored to the LIVE call line — measured against a scratch export, the unanchored form still answered 1 with the call renamed and the old line left as a comment above it"
+
 
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy

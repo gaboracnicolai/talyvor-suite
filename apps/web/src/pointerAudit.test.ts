@@ -180,6 +180,11 @@ const PINS: Record<string, Pin> = {
     fragment: 'active:scale-98',
     why: 'the comment that writes the press the OTHER way — the two spellings are the point',
   },
+  'apps/web/src/areas/track/meteredCostCensus.test.tsx:27|apps/web/src/areas/track/TrackArea.tsx:110': {
+    kind: 'LIVE',
+    fragment: '<SearchIssues />',
+    why: 'the census says the surface it was written for is MOUNTED, not merely exported — "reachable only by curl" is what W1.7 opened on, so a metered card that shipped nowhere would be a different finding entirely',
+  },
   'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:342': {
     kind: 'LIVE',
     fragment: 'error={ledger.error}',
