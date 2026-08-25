@@ -133,7 +133,7 @@ describe('the LXC per-model split and the total it sits under', () => {
       row('m5', -200, { served_model: 'model-e' }),
       row('m6', -100, { served_model: 'model-f' }),
     ])
-    renderScreen(<Overview />)
+    renderScreen(<Overview now={NOW} />)
 
     await waitFor(() => {
       expect(screen.getByTestId('lxc-debit-total').textContent ?? '').toMatch(/2[,.]?100/)

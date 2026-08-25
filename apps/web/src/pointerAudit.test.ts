@@ -236,6 +236,11 @@ const PINS: Record<string, Pin> = {
     why: 'a DEVELOPER-FACING FAILURE MESSAGE naming the shape to copy — read exactly when somebody is already confused',
   },
 
+  'apps/web/src/pinnedClock.test.ts:13|apps/web/src/areas/lens/lxcSplitCoverage.test.tsx:136': {
+    kind: 'HISTORICAL',
+    fragment: 'renderScreen(<Overview />)',
+    why: 'the unpinned render AS AT `e3b65ef`, quoted with that SHA — it summed a 30-day window against the WALL CLOCK, so it passed until 2026-08-20 and failed from 2026-08-21 with no commit. The same change that added this pointer pinned the clock, so the line now reads `<Overview now={NOW} />` and this entry is what says so.',
+  },
   'apps/web/src/restingAffordance.test.ts:26|apps/web/src/areas/track/IssueList.tsx:357': {
     kind: 'HISTORICAL',
     fragment: 'hover:underline',

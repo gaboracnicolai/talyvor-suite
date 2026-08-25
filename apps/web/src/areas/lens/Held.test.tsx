@@ -18,6 +18,10 @@ import { ConvertLens } from './ConvertLens'
 // These assert the RENDERED TEXT, because the claim is about what a person can see. A test on the
 // query response would pass on a screen that dropped the number on the floor.
 
+// A fixed clock, so what this file asserts does not depend on the day it runs. The date is inside
+// the 30-day window of the fixtures below, which is the only property any assertion here needs.
+const NOW = new Date('2026-07-22T12:00:00Z')
+
 const balance = {
   workspace_id: 'ws1',
   balance_ulens: 0,
@@ -57,7 +61,13 @@ function renderOverview() {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={qc}>
-      <Overview />
+        {/* ⚠ THE CLOCK IS PINNED, and it was not. `Overview`'s `now` defaults to `new Date()`, so
+            an unpinned render asserts against whatever day the suite happens to run — the defect
+            that flipped the LXC split-coverage test red on 2026-08-21 with no commit. This
+            fixture stubs an EMPTY ledger, so nothing here could fall out of the 30-day window and
+            it passed on every day so far; that is the same bug holding a blank round, and it arms
+            itself the moment this fixture gains a dated row. src/pinnedClock.test.ts is the sweep. */}
+        <Overview now={NOW} />
       </QueryClientProvider>
     </MemoryRouter>,
   )

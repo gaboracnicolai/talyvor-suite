@@ -104,6 +104,7 @@
   "src/motion.test.tsx": 34,
   "src/noFlashTheme.test.ts": 8,
   "src/PanelReportsItsOwnQuery.test.tsx": 54,
+  "src/pinnedClock.test.ts": 5,
   "src/placeholderAudit.test.tsx": 15,
   "src/planeAudit.test.tsx": 17,
   "src/pointerAudit.test.ts": 10,
