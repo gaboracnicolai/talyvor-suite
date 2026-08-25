@@ -151,7 +151,7 @@ function pressScaleProblems(css: string): string[] {
   //     unimportant 0.98 decls      6 ->      6   (4 with the negations intact; the floor is 2)
   //
   // Nothing moved, because Tailwind's extractor reads RAW TEXT and cannot tell a class from a
-  // sentence about a class: `preset.ts:149` writes `active:scale-[0.98]` in a COMMENT and
+  // sentence about a class: `preset.ts:208` writes `active:scale-[0.98]` in a COMMENT and
   // `Button.tsx:37` writes `active:scale-98` in a COMMENT, so the sentences EXPLAINING the press
   // compile the press into the stylesheet. The feature can leave the product entirely and this
   // check keeps counting the prose. It is W1.8's mechanism turning a guard into a no-op.

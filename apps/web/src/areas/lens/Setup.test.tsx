@@ -472,8 +472,10 @@ describe('Setup — the screen reads as an ordered task', () => {
 
     const opening = await screen.findByRole('heading', { name: /point your tools at lens/i })
     expect(opening.tagName).toBe('H2')
-    expect(opening.className).toContain('text-title')
-    expect(document.querySelectorAll('.text-title')).toHaveLength(1)
+    // `text-page` is the console's ONE display step — clamp(24px, 3vw, 38px), floored on `title`'s 24px so nothing regresses at narrow widths (W1.1.0). It replaced `text-title` here, which was the top of the console ramp and the largest type a console screen could write.
+    expect(opening.className).toContain('text-page')
+    expect(document.querySelectorAll('.text-page')).toHaveLength(1)
+    expect(document.querySelectorAll('.text-title')).toHaveLength(0)
   })
 
   it('names its regions in the order the task is actually done', async () => {

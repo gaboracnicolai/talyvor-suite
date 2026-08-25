@@ -211,7 +211,7 @@ describe('W1.1.4 — the return pages carry the same marking as the screen they 
     renderSuccess()
     await screen.findByText(/added to your balance/i)
     const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
-      h.className.includes('text-title'),
+      h.className.includes('text-page'),
     )
     expect(pageScale.map((h) => h.tagName)).toEqual(['H2'])
   })
@@ -223,7 +223,7 @@ describe('W1.1.4 — the return pages carry the same marking as the screen they 
     mockBalance(Infinity)
     renderSuccess()
     await screen.findByText(/hasn’t appeared yet/i, undefined, { timeout: 3000 })
-    const pageScale = document.querySelector('h2.text-title')
+    const pageScale = document.querySelector('h2.text-page')
     expect(pageScale?.textContent ?? '').toMatch(/Stripe/i)
   })
 
@@ -244,7 +244,7 @@ describe('W1.1.4 — the return pages carry the same marking as the screen they 
       </MemoryRouter>,
     )
     const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
-      h.className.includes('text-title'),
+      h.className.includes('text-page'),
     )
     expect(pageScale.map((h) => h.tagName)).toEqual(['H2'])
   })

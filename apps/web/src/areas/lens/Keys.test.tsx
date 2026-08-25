@@ -296,7 +296,7 @@ describe('W1.1.5 — the screen has a shape a reader can navigate', () => {
     renderKeys()
     await screen.findByText('CI pipeline')
     const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
-      h.className.includes('text-title'),
+      h.className.includes('text-page'),
     )
     expect(
       pageScale.map((h) => h.tagName),
@@ -347,7 +347,7 @@ describe('W1.1.5 — a workspace with no key is told what a key is FOR', () => {
     fireEvent.change(await screen.findByLabelText('New key name'), { target: { value: 'Laptop' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create key' }))
     await screen.findByText(MINTED.key)
-    const pageScale = document.querySelector('h2.text-title')
+    const pageScale = document.querySelector('h2.text-page')
     expect(
       pageScale?.textContent ?? '',
       'the one moment this screen has a credential on it is the one moment its page-scale claim ' +

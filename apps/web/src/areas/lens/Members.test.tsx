@@ -122,9 +122,9 @@ describe('the screen has a shape a reader can move through', () => {
       'the screen was ONE undifferentiated card — a reader moving by region got one stop on it',
     ).toBeGreaterThan(1)
 
-    // Exactly one page-scale claim. `text-title` is the top of the console ramp and Region only
+    // Exactly one page-scale claim. `text-page` is the console's one display step and Region only
     // writes it for the region that OPENS a screen; two would be two answers to what the page is.
-    const titles = container.querySelectorAll('.text-title')
+    const titles = container.querySelectorAll('.text-page')
     expect(titles.length).toBe(1)
 
     // Every region names itself, and the eyebrow carries `uppercase` in its OWN class list —
@@ -296,7 +296,7 @@ describe('an unconfigured Track upstream is DETECTED, never asserted', () => {
     const { container } = renderMembers()
 
     await screen.findByText(/Couldn’t load the members/)
-    const title = container.querySelector('.text-title')
+    const title = container.querySelector('.text-page')
     expect(title?.textContent).toMatch(/could not be read/i)
     expect(title?.textContent).not.toMatch(/Everyone who can reach/)
   })

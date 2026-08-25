@@ -170,7 +170,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'placeholder={k.key_prefix}',
     why: 'the site that passes a placeholder THROUGH a component, the whole argument for reading the DOM',
   },
-  'apps/web/src/motion.test.tsx:154|packages/ui/src/preset.ts:149': {
+  'apps/web/src/motion.test.tsx:154|packages/ui/src/preset.ts:208': {
     kind: 'LIVE',
     fragment: 'active:scale-[0.98]',
     why: 'the comment that writes the press one way, half of the pair the motion lock exists to keep apart',
@@ -236,6 +236,21 @@ const PINS: Record<string, Pin> = {
     why: 'a DEVELOPER-FACING FAILURE MESSAGE naming the shape to copy — read exactly when somebody is already confused',
   },
 
+  'apps/web/src/areas/lens/Overview.tsx:356|apps/web/src/areas/marketing/Landing.tsx:267': {
+    kind: 'LIVE',
+    fragment: 'transition-colors duration-200',
+    why: "the SITE's motion shape, quoted where the console copies it — W1.1.0's rule is that a console link moves the way the public page moves, so the call site names the line it is imitating rather than inventing a fifth hover shape",
+  },
+  'apps/web/src/areas/lens/CacheCard.tsx:58|apps/web/src/areas/marketing/Landing.tsx:267': {
+    kind: 'LIVE',
+    fragment: 'transition-colors duration-200',
+    why: 'the same shape on the card Overview renders in region 04 — this card is on BOTH /overview and /spend, so the pointer is what says the affordance is one component having one answer',
+  },
+  'apps/web/src/areas/lens/Overview.test.tsx:392|apps/web/src/areas/marketing/Landing.tsx:267': {
+    kind: 'LIVE',
+    fragment: 'transition-colors duration-200',
+    why: "the failure message of Overview's motion sweep, naming the line a developer should copy — read exactly when somebody is already confused, the same argument motion.test.tsx:154 makes",
+  },
   'apps/web/src/pinnedClock.test.ts:13|apps/web/src/areas/lens/lxcSplitCoverage.test.tsx:136': {
     kind: 'HISTORICAL',
     fragment: 'renderScreen(<Overview />)',

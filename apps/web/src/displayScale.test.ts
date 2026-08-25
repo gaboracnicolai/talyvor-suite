@@ -75,6 +75,17 @@ const show = (f: string): string => relative(REPO, f)
  * the boundary this file polices is one-directional, so a public page may use console type.
  */
 const CONSOLE_STEPS: Record<string, string> = {
+  /**
+   * ⚠ THE ONE FLUID STEP ON THIS SIDE OF THE GATE, and it is deliberately NOT a marketing step.
+   *
+   * The paragraph above ends "if a console screen ever wants display type, that is a design
+   * conversation, not an import." W1.1.0 had that conversation and its answer was a console-owned
+   * step — clamp(24px, 3vw, 38px), floored on `title` and ceilinged on `display-2` — rather than
+   * letting `text-display-2` past this boundary. So the rule below is UNCHANGED in what it
+   * refuses: the six marketing steps still stop here. `page` is on the free side because the
+   * console owns it, and apps/web/src/pageScale.test.tsx is where its bounds are pinned.
+   */
+  page: 'the console’s one display step — the heading that opens a screen, clamp(24px, 3vw, 38px)',
   title: 'the top of the console ramp, 24px — what a document title renders at behind the gate',
   head: 'a card header and the shell title bar',
   body: 'the paragraph step, and by count the product',

@@ -303,7 +303,7 @@ describe('W1.1.4 — the screen has a shape a reader can navigate', () => {
     renderTopUp()
     await screen.findByRole('button', { name: '$10' })
     const pageScale = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter((h) =>
-      h.className.includes('text-title'),
+      h.className.includes('text-page'),
     )
     expect(
       pageScale.map((h) => h.tagName),
