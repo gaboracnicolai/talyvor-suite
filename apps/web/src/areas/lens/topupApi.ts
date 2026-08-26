@@ -64,7 +64,7 @@ const CHECKOUT_PATH = '/api/lxc/checkout'
  * `isUnconfigured`, App.tsx's "a 401 is a verdict, not a flake" retry rule and the
  * QueryCache.onError gate re-probe. A hand-rolled Error subclass turns all four off without one
  * line of any of them changing — this repo has repaired that four times at the instance (#136 a
- * read, #140 a create, IssueList.tsx:260 the third site, `ConvertError` the fourth) and this was
+ * read, #140 a create, IssueList.tsx:282 the third site, `ConvertError` the fourth) and this was
  * the fifth, still standing on the path that takes money.
  *
  * ⚠ LATENT, NOT LIVE, AND THE DIFFERENCE IS STATED RATHER THAN GLOSSED. The only producer is

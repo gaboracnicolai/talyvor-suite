@@ -10,7 +10,8 @@ import {
   SelectValue,
   focusRing,
 } from '@talyvor/ui'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { Region, RegionScreen } from '../../components/Region'
 import { ApiError } from '../../lib/api'
 import { isUnconfigured } from '../../lib/productState'
 import { isSessionExpired } from '../../lib/productState'
@@ -208,6 +209,23 @@ async function createRefusal(res: Response): Promise<CreateRefusal> {
   return new CreateRefusal(res.status, reason)
 }
 
+/**
+ * THE THREE HEADLINES, AND THE REASON THERE ARE THREE RATHER THAN TWO.
+ *
+ * This screen's own oldest comment says it: "Track is not deployed here" (503), "Track is broken"
+ * (5xx) and "you have no issues yet" ([]) mean completely different things to a tester, and
+ * laundering any of them into another tells them their work vanished or that a fault is normal.
+ * A page-scale heading is the LOUDEST claim on the screen, so it is exactly the wrong place to
+ * collapse them — "Nothing is being tracked yet" printed over a 500 is the screen telling a
+ * paying customer their tracker is empty when it is unreachable.
+ *
+ * ⚠ AND LOADING IS NOT EMPTY EITHER. The neutral headline is used until the read has actually
+ * answered, so the heading never flickers "nothing here" on its way to a full list.
+ */
+const HEADLINE = 'Everything this workspace is tracking.'
+const HEADLINE_EMPTY = 'Nothing is being tracked in this workspace yet.'
+const HEADLINE_FAULT = 'Track can’t be reached, so nothing can be listed.'
+
 export function IssueList() {
   const qc = useQueryClient()
   const [view, setView] = useState<IssueView>(DEFAULT_VIEW)
@@ -228,6 +246,10 @@ export function IssueList() {
     retry: false,
   })
   const [title, setTitle] = useState('')
+  // ⚠ THE EMPTY STATE'S NEXT ACTION IS ON THIS SCREEN, so it is performed rather than
+  // described. The old copy said "Create the first one above" — a SPATIAL instruction,
+  // which is no instruction at all to a screen reader and a hunt for everyone else.
+  const titleRef = useRef<HTMLInputElement>(null)
 
   // INVALIDATION IS THE POINT. A create that does not refetch leaves the tester looking at the list
   // they just added to, and the natural conclusion is that it failed. Both mutations invalidate the
@@ -280,11 +302,54 @@ export function IssueList() {
   }
 
   const rows = issues.data ?? []
+  // ⚠ THE HEADLINE IS CHOSEN FROM THE READ'S ACTUAL STATE, not from `rows.length`. See §THE THREE
+  // HEADLINES: a bare row-count-is-zero test is true while loading AND true on a fault, and
+  // would print "nothing is being tracked" over both.
+  //
+  // ⚠ THE PREDICATE IS NOT SPELLED IN THIS COMMENT ON PURPOSE. emptyVsFault.test.ts counts
+  // the empty-branch expression in the RAW file against the COMMENT-STRIPPED one and reds
+  // when they differ, because that difference is how a broken stripper swallowing live code
+  // announces itself. A comment that quotes the expression makes raw exceed stripped and
+  // reports a stripper bug that is not there — prose about code read as code, the same
+  // family as tailwind.config.ts's class-in-a-sentence. Describe it, do not quote it.
+  const answered = !issues.isLoading && !issues.isError
+  const empty = answered && rows.length === 0
+  const heading = issues.isError ? HEADLINE_FAULT : empty ? HEADLINE_EMPTY : HEADLINE
 
   return (
-    <Card>
-      <CardHeader>Issues</CardHeader>
-      <div className="flex flex-col gap-4 px-gutter py-4">
+    <RegionScreen>
+      <Region
+        index="00"
+        label="Issues"
+        heading={heading}
+        sectionClassName="pb-10 pt-4 wide:pb-12"
+        className="max-w-none"
+      >
+        {/* ⚠ THE OPENING REGION CARRIES A BODY ONLY WHEN THERE IS SOMETHING TO SAY, and the branch
+            is a RENDER rather than a `hidden` class — Overview's rule. Copy about an empty tracker
+            must not sit in the DOM of a full one. */}
+        {empty ? (
+          <>
+            <p className="max-w-2xl text-body text-muted">
+              An issue is anything this workspace needs to remember — a bug, a task, a decision to
+              come back to. It stays in your own workspace.
+            </p>
+            {/* ⚠ THE NEXT ACTION IS PERFORMED, NOT DESCRIBED. The copy this replaces read "Create
+                the first one above", which is a direction rather than a destination: it names no
+                control, and "above" is meaningless to anyone navigating by rotor. The button puts
+                the caret in the field it is talking about. */}
+            <Button
+              variant="primary"
+              className="mt-8"
+              onClick={() => titleRef.current?.focus()}
+            >
+              Write the first issue
+            </Button>
+          </>
+        ) : null}
+      </Region>
+
+      <Region index="01" label="Add to the tracker">
         <form
           className="flex items-end gap-2"
           onSubmit={(e) => {
@@ -299,6 +364,7 @@ export function IssueList() {
           <label className="flex min-w-0 flex-1 flex-col gap-1">
             <span className="text-caption text-muted">Title</span>
             <input
+              ref={titleRef}
               className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -311,7 +377,7 @@ export function IssueList() {
         </form>
 
         {create.isError ? (
-          <p className="text-caption text-muted">
+          <p className="mt-4 text-caption text-muted">
             {isSessionExpired(create.error)
               ? // ⚠ MEASURED PRINTING THE SERVER'S SENTENCE AS ADVICE ABOUT THE REQUEST. A 401
                 // satisfies `!retryable`, so it fell into the branch below and the screen showed
@@ -329,16 +395,22 @@ export function IssueList() {
                 : 'Couldn’t create that issue — nothing was saved. Try again.'}
           </p>
         ) : null}
+      </Region>
 
-        {/* ⚠ THE RAIL IS THE SCREEN'S USABILITY, and every control is a parameter the BFF already
-            validates — nothing is filtered client-side. A control that narrowed only the rows
-            already fetched would claim to have searched a set it never saw.
+      {/* ⚠ THE RAIL IS THE SCREEN'S USABILITY, and every control is a parameter the BFF already
+          validates — nothing is filtered client-side. A control that narrowed only the rows
+          already fetched would claim to have searched a set it never saw.
 
-            NOTE WHAT IS ABSENT: there is no "open issues" option. Upstream takes ONE status
-            value, not a list, so "everything except done and cancelled" is not expressible — and
-            faking it by filtering the page would be exactly the lie above. Sorting by most
-            recently updated is what actually keeps this usable as the tracker grows, so that is
-            the default instead. */}
+          NOTE WHAT IS ABSENT: there is no "open issues" option. Upstream takes ONE status
+          value, not a list, so "everything except done and cancelled" is not expressible — and
+          faking it by filtering the page would be exactly the lie above. Sorting by most
+          recently updated is what actually keeps this usable as the tracker grows, so that is
+          the default instead.
+
+          ⚠ IT IS ITS OWN REGION BECAUSE IT IS ITS OWN IDEA. Narrowing a list is not adding to
+          it, and the two sat in one undifferentiated column of controls where the only way to
+          tell the create field from the filter fields was to read all four labels. */}
+      <Region index="02" label="What you are looking at">
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-caption text-muted">Status</span>
@@ -405,119 +477,142 @@ export function IssueList() {
             <Button onClick={() => setView(DEFAULT_VIEW)}>Reset</Button>
           ) : null}
         </div>
+      </Region>
 
-        {issues.isLoading ? (
-          <p className="text-caption text-muted">Loading issues…</p>
-        ) : isSessionExpired(issues.error) ? (
-          <p className="text-caption text-muted">Unavailable.</p>
-        ) : issues.isError ? (
-          // A fault must not read as an empty tracker: those are different states and conflating
-          // them tells a tester their work vanished.
-          <p className="text-caption text-muted">
-            Couldn’t reach Track, so no issues can be shown. This is a fault, not an empty tracker.
-          </p>
-        ) : rows.length === 0 ? (
-          <p className="text-caption text-muted">
-            No issues yet. Create the first one above — it lands in your own workspace.
-          </p>
-        ) : (
-          <table className="w-full border-collapse text-body">
-            <thead>
-              <tr className="text-left text-caption text-muted">
-                <th className="py-1 font-normal">Ref</th>
-                <th className="py-1 font-normal">Title</th>
-                <th className="py-1 font-normal">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((it) => (
-                <tr key={it.id} className="border-t border-rule align-middle">
-                  {/* ⚠ THE LINK IS THE WHOLE POINT. Until now a row was terminal: you could see an
-                      issue existed and had no way to open it. The title is the target because that
-                      is what a reader aims at; the ref stays plain so the row has one link, not two.
-                      ⚠ UNDERLINED AT REST, not on hover — the same correction Crumbs already made in
-                      areas/docs/components.tsx and recorded there as "the only Link in the app
-                      without a resting affordance". It was not the only one: this cell is the link,
-                      the whole cell, and at rest it was text-ink text between a muted mono ref and a
-                      Pill, so the one cell that navigates was the one cell with no mark on it — and
-                      a hover affordance is the one affordance a touch device can never produce.
-                      src/restingAffordance.test.ts fails on a hover-only underline in either
-                      package now, so this cannot come back as a third instance. */}
-                  <td className="py-2 pr-3 font-mono text-caption text-muted">{it.identifier}</td>
-                  <td className="py-2 pr-3 text-ink">
-                    <Link className="underline underline-offset-2" to={`/track/issues/${it.id}`}>
-                      {it.title}
-                    </Link>
-                  </td>
-                  <td className="py-2">
-                    <div className="flex items-center gap-2">
-                      <StatusPill status={it.status} />
-                      <select
-                        aria-label={`Status for ${it.identifier}`}
-                        className={`rounded-control border border-rule bg-canvas px-1 py-0.5 text-caption text-ink ${focusRing}`}
-                        value={it.status}
-                        disabled={setStatus.isPending}
-                        onChange={(e) =>
-                          setStatus.mutate({ id: it.id, status: e.target.value as IssueStatus })
-                        }
-                      >
-                        {ISSUE_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {statusLabel(s)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <Region index="03" label="What is being tracked">
+        <Card>
+          <CardHeader>Issues</CardHeader>
+          <div className="flex flex-col gap-4 px-gutter py-4">
+            {issues.isLoading ? (
+              <p className="text-caption text-muted">Loading issues…</p>
+            ) : isSessionExpired(issues.error) ? (
+              <p className="text-caption text-muted">Unavailable.</p>
+            ) : issues.isError ? (
+              // A fault must not read as an empty tracker: those are different states and conflating
+              // them tells a tester their work vanished.
+              <p className="text-caption text-muted">
+                Couldn’t reach Track, so no issues can be shown. This is a fault, not an empty tracker.
+              </p>
+            ) : rows.length === 0 ? (
+              // ⚠ THE PANEL SAYS WHAT IS *AND* WHAT TO DO, and the second half is not redundant
+              // with the opening region's button — EmptyStates.test.tsx caught me dropping it.
+              // The panel is the bottom of four regions, so on a narrow viewport the invitation at
+              // the top is off-screen by the time a reader reaches the empty box. The destination
+              // is named by its REGION LABEL rather than by "above": the label is that section's
+              // accessible name (Region sets `aria-labelledby` to it), so it is a place a rotor can
+              // actually go, which "above" never is.
+              <p className="text-caption text-muted">
+                No issues yet. Create the first one under “Add to the tracker”.
+              </p>
+            ) : (
+              <table className="w-full border-collapse text-body">
+                <thead>
+                  <tr className="text-left text-caption text-muted">
+                    <th className="py-1 font-normal">Ref</th>
+                    <th className="py-1 font-normal">Title</th>
+                    <th className="py-1 font-normal">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((it) => (
+                    // ⚠ MOTION ON A STATE CHANGE, which a row had none of: the site moves on every
+                    // one (Landing.tsx's tabs — `transition-colors duration-200`). A row is the
+                    // largest pointer target on this screen and it gave no sign it was one.
+                    <tr
+                      key={it.id}
+                      className="border-t border-rule align-middle transition-colors duration-200 hover:bg-surface"
+                    >
+                      {/* ⚠ THE LINK IS THE WHOLE POINT. Until now a row was terminal: you could see an
+                          issue existed and had no way to open it. The title is the target because that
+                          is what a reader aims at; the ref stays plain so the row has one link, not two.
+                          ⚠ UNDERLINED AT REST, not on hover — the same correction Crumbs already made in
+                          areas/docs/components.tsx and recorded there as "the only Link in the app
+                          without a resting affordance". It was not the only one: this cell is the link,
+                          the whole cell, and at rest it was text-ink text between a muted mono ref and a
+                          Pill, so the one cell that navigates was the one cell with no mark on it — and
+                          a hover affordance is the one affordance a touch device can never produce.
+                          src/restingAffordance.test.ts fails on a hover-only underline in either
+                          package now, so this cannot come back as a third instance. */}
+                      <td className="py-2 pr-3 font-mono text-caption text-muted">{it.identifier}</td>
+                      <td className="py-2 pr-3 text-ink">
+                        <Link
+                          className="underline underline-offset-2 transition-colors duration-200 hover:text-accent"
+                          to={`/track/issues/${it.id}`}
+                        >
+                          {it.title}
+                        </Link>
+                      </td>
+                      <td className="py-2">
+                        <div className="flex items-center gap-2">
+                          <StatusPill status={it.status} />
+                          <select
+                            aria-label={`Status for ${it.identifier}`}
+                            className={`rounded-control border border-rule bg-canvas px-1 py-0.5 text-caption text-ink transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+                            value={it.status}
+                            disabled={setStatus.isPending}
+                            onChange={(e) =>
+                              setStatus.mutate({ id: it.id, status: e.target.value as IssueStatus })
+                            }
+                          >
+                            {ISSUE_STATUSES.map((s) => (
+                              <option key={s} value={s}>
+                                {statusLabel(s)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
 
-        {/* ⚠ THE ROW CONTROL'S REFUSAL, WHICH USED TO GO NOWHERE. `setStatus.isError` was read
-            in no place at all: the mutation appeared exactly three times in this file (here, its
-            `isPending` on the select, and the `.mutate()` in `onChange`), so a refused status
-            change produced ZERO characters of change on the page — MEASURED at 401, 500 and 403
-            alike, against a stateful fake where an accepted write moves the row to "Done".
+            {/* ⚠ THE ROW CONTROL'S REFUSAL, WHICH USED TO GO NOWHERE. `setStatus.isError` was read
+                in no place at all: the mutation appeared exactly three times in this file (here, its
+                `isPending` on the select, and the `.mutate()` in `onChange`), so a refused status
+                change produced ZERO characters of change on the page — MEASURED at 401, 500 and 403
+                alike, against a stateful fake where an accepted write moves the row to "Done".
 
-            The reader's only signal was the select bouncing back to the value Track still holds,
-            which reads as a glitch rather than a refusal. And no bar covers for it: the bar
-            derives from the QUERY cache, the reads here are cached and good, and the shipped
-            client sets `refetchOnWindowFocus: false` — so nothing refetches, no query error
-            exists, and the bar is absent. Measured false on all three.
+                The reader's only signal was the select bouncing back to the value Track still holds,
+                which reads as a glitch rather than a refusal. And no bar covers for it: the bar
+                derives from the QUERY cache, the reads here are cached and good, and the shipped
+                client sets `refetchOnWindowFocus: false` — so nothing refetches, no query error
+                exists, and the bar is absent. Measured false on all three.
 
-            ⚠ ONE SENTENCE FOR THE LIST, not one per row: the mutation is shared, only one change
-            is in flight (the selects disable while pending), and a per-row sentence would move
-            the table's layout under the reader's cursor.
+                ⚠ ONE SENTENCE FOR THE LIST, not one per row: the mutation is shared, only one change
+                is in flight (the selects disable while pending), and a per-row sentence would move
+                the table's layout under the reader's cursor.
 
-            ⚠ NO UPSTREAM-SENTENCE BRANCH, unlike `create` above, and that is deliberate rather
-            than an omission: the reader picked from a closed list this screen rendered, so a
-            server sentence about the request is not about anything they could have got wrong.
-            The create's reason branch exists because a TITLE is typed. */}
-        {setStatus.isError ? (
-          <p className="text-caption text-muted">
-            {isSessionExpired(setStatus.error)
-              ? // A 401 refuses the credential, not the change — the same request will be refused
-                // identically until the session is renewed, so "try again" would be false. The
-                // outcome is still owed: the reader pressed something and it did not take.
-                'Couldn’t change the status — nothing was changed.'
-              : 'Couldn’t change the status — nothing was changed. Try again.'}
-          </p>
-        ) : null}
+                ⚠ NO UPSTREAM-SENTENCE BRANCH, unlike `create` above, and that is deliberate rather
+                than an omission: the reader picked from a closed list this screen rendered, so a
+                server sentence about the request is not about anything they could have got wrong.
+                The create's reason branch exists because a TITLE is typed. */}
+            {setStatus.isError ? (
+              <p className="text-caption text-muted">
+                {isSessionExpired(setStatus.error)
+                  ? // A 401 refuses the credential, not the change — the same request will be refused
+                    // identically until the session is renewed, so "try again" would be false. The
+                    // outcome is still owed: the reader pressed something and it did not take.
+                    'Couldn’t change the status — nothing was changed.'
+                  : 'Couldn’t change the status — nothing was changed. Try again.'}
+              </p>
+            ) : null}
 
-        {/* ⚠ NOT "N of M". Track's issue store has no COUNT query, so neither this screen nor the
-            BFF can say how many exist — the BFF's own comment says deriving a total would mean
-            paging the entire result set per render. A full page is the only honest signal that
-            there may be more, so that is what is said, and it names the controls that narrow it
-            rather than offering a Next button that could not report where it was. */}
-        {rows.length === PAGE ? (
-          <p className="text-caption text-muted">
-            Showing the first {PAGE}. There may be more — narrow by status or assignee to see
-            them. This tracker has no total to count against, so no page number is shown.
-          </p>
-        ) : null}
-      </div>
-    </Card>
+            {/* ⚠ NOT "N of M". Track's issue store has no COUNT query, so neither this screen nor the
+                BFF can say how many exist — the BFF's own comment says deriving a total would mean
+                paging the entire result set per render. A full page is the only honest signal that
+                there may be more, so that is what is said, and it names the controls that narrow it
+                rather than offering a Next button that could not report where it was. */}
+            {rows.length === PAGE ? (
+              <p className="text-caption text-muted">
+                Showing the first {PAGE}. There may be more — narrow by status or assignee to see
+                them. This tracker has no total to count against, so no page number is shown.
+              </p>
+            ) : null}
+          </div>
+        </Card>
+      </Region>
+    </RegionScreen>
   )
 }
