@@ -248,7 +248,9 @@ describe('SearchDocs', () => {
     )
     vi.stubGlobal('fetch', fetchMock)
     renderIn(<SpaceList />)
-    await waitFor(() => expect(screen.getByText(/not configured on this BFF/i)).toBeInTheDocument())
+    // The witness that the OFF state rendered — see the same note in askAI.test.tsx. Without it
+    // the absence assertion below would also pass on a screen that rendered nothing.
+    await waitFor(() => expect(screen.getByText(/The BFF has no Docs upstream wired/)).toBeInTheDocument())
     expect(screen.queryByLabelText(/search/i)).not.toBeInTheDocument()
   })
 
