@@ -111,6 +111,10 @@ function cardHeaderTitles(root: ParentNode): Element[] {
 const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/': 6,
   '/ledger': 1,
+  // ⚠ 0 IS STRUCTURAL HERE, NOT THE 404-FIXTURE FLOOR W1.1.17b WARNS ABOUT. /chat renders no
+  // Card at all — it is built from Region, and its two regions carry their own headings. A
+  // reader comparing this row with /docs's 0 should know they mean different things.
+  '/chat': 0,
   '/billing': 2,
   '/billing/success': 0,
   '/billing/cancel': 0,

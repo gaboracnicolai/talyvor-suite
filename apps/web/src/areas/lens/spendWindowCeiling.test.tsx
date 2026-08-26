@@ -13,7 +13,7 @@ import type { SignedRow } from './spendMath'
 // ledger page. The page is 200 rows and 200 is a CEILING, not a request — clamped in TWO
 // independent places:
 //
-//   apps/bff/lens.go:478          clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
+//   apps/bff/lens.go:495          clampInt(r.URL.Query().Get("limit"), 20, 1, 200)
 //   lens internal/economy/dualtoken.go#DualTokenStore.GetLXCHistory   if limit > 200 { limit = 200 }
 //
 // MEASURED on the real BFF binary against an upstream holding 260 rows: asking for

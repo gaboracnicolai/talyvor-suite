@@ -99,6 +99,7 @@ afterEach(() => {
 const PINNED: Readonly<Record<string, string>> = {
   '/': 'Overview',
   '/ledger': 'Ledger',
+  '/chat': 'Chat',
   '/billing': 'Billing',
   '/billing/success': 'Billing',
   '/billing/cancel': 'Billing',

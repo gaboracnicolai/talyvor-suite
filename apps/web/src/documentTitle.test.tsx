@@ -127,6 +127,7 @@ const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '')
 const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/': 'Overview',
   '/ledger': 'Ledger',
+  '/chat': 'Chat',
   '/billing': 'Billing',
   '/billing/success': 'Billing',
   '/billing/cancel': 'Billing',

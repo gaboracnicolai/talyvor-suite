@@ -331,6 +331,10 @@ const PINS: Record<string, Pin> = {
   // two step labels are written out as literal JSX rather than mapped from an array, so each is
   // its own class list. That is the honest reading of the same rule: the census counts class
   // LISTS, and one `.map` over two steps is one list while two hand-written steps are two.
+  // ⚠ 27 → 30: W4.6.1 step 6 added /chat, and it adds THREE — the two field labels ("Model",
+  // "Your message") and the per-turn speaker label. Its two region eyebrows go through
+  // components/Region.tsx, which was already counted, so the fifth consecutive rebuild again moves
+  // this by the number of NEW labels the screen writes rather than by the number of regions it draws.
   // ⚠ 26 → 27: W1.1.6 rebuilt Members, and it adds exactly ONE — the "You" marker on the row whose
   // email is the session's (areas/lens/Members.tsx). The row's ROLE span was already counted and
   // the three region eyebrows go through components/Region.tsx, which was too, so once again a
@@ -339,13 +343,13 @@ const PINS: Record<string, Pin> = {
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 27,
+    states: 30,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 27,
+    states: 30,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {
