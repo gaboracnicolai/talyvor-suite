@@ -290,7 +290,45 @@ interface Site {
   wrapper: string
 }
 
-const MONEY_NAME = /usd|cents|cost|price/i
+/**
+ * The money terms, matched against a SEGMENT of an identifier rather than against the whole thing.
+ *
+ * ⚠ THIS USED TO BE `/usd|cents|cost|price/i` TESTED ON THE BARE IDENTIFIER, WITH NO BOUNDARY OF ANY
+ * KIND, so it matched a SUBSTRING — and `setFoc·usD·raft` contains `usd`. W1.1.8 hit it on a new
+ * `useState(false)` and the sweep reported "money rendered in the body sans: setFocusDraft() inside
+ * <HTMLTextAreaElement | null>", which is wrong twice over in one line.
+ *
+ * ⚠ AND `\b` ALONE IS THE WRONG REPAIR, which is why this is a function and not a tightened regex:
+ * `formatUSD` has NO word boundary before `USD`, so word-bounding the pattern stops matching the
+ * exact call the rule exists for. The boundary that matters here is a camelCase segment, not a word.
+ *
+ * The trailing `s?` widens rather than narrows — `costs`, `prices` — because this rule's failures are
+ * LOUD and in the false-positive direction, so missing a real money name is the costlier mistake.
+ */
+const MONEY_SEGMENT = /^(usd|cents|cost|price)s?$/i
+
+/**
+ * Split an identifier into camelCase / snake_case segments, keeping acronym runs whole.
+ *
+ *   formatUSD      → format · USD
+ *   lensCostForLXC → lens · Cost · For · LXC
+ *   USDPrice       → USD · Price          (the run stops before the capital that starts a word)
+ *   setFocusDraft  → set · Focus · Draft
+ *   format_usd     → format · usd
+ */
+function segments(ident: string): string[] {
+  return ident
+    .split('_')
+    .flatMap((part) => part.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+|[0-9]+/g) ?? [])
+}
+
+/**
+ * Does this identifier NAME money? True when any segment IS a money term — never when one merely
+ * contains the letters.
+ */
+function isMoneyName(ident: string): boolean {
+  return segments(ident).some((seg) => MONEY_SEGMENT.test(seg))
+}
 
 /** The files that can hold a RENDER site. Only `.tsx` has JSX to be wrong about. */
 function sourceFiles(): { path: string; text: string }[] {
@@ -343,30 +381,30 @@ describe('the tag scan survives the things that break a lazy regex', () => {
   })
 
   it('finds a money call in the sans', () => {
-    const found = figureSites([{ path: 'f.tsx', text: '<span className="text-body">{formatUSD(x)}</span>' }], MONEY_NAME.test.bind(MONEY_NAME))
+    const found = figureSites([{ path: 'f.tsx', text: '<span className="text-body">{formatUSD(x)}</span>' }], isMoneyName)
     expect(found.offFace).toHaveLength(1)
   })
 
   it('accepts the same call on the face', () => {
-    const found = figureSites([{ path: 'f.tsx', text: '<span className="font-figure text-body">{formatUSD(x)}</span>' }], MONEY_NAME.test.bind(MONEY_NAME))
+    const found = figureSites([{ path: 'f.tsx', text: '<span className="font-figure text-body">{formatUSD(x)}</span>' }], isMoneyName)
     expect(found.offFace).toEqual([])
     expect(found.onFace).toHaveLength(1)
   })
 
   it('does not police an attribute — a title has no typeface', () => {
-    const found = figureSites([{ path: 'f.tsx', text: '<span title={formatUSD(x)}>hi</span>' }], MONEY_NAME.test.bind(MONEY_NAME))
+    const found = figureSites([{ path: 'f.tsx', text: '<span title={formatUSD(x)}>hi</span>' }], isMoneyName)
     expect(found.offFace).toEqual([])
     expect(found.onFace).toEqual([])
   })
 
   it('does not read a commented-out example as code', () => {
-    const found = figureSites([{ path: 'f.tsx', text: '<b className="x">{/* {formatUSD(x)} */}ok</b>' }], MONEY_NAME.test.bind(MONEY_NAME))
+    const found = figureSites([{ path: 'f.tsx', text: '<b className="x">{/* {formatUSD(x)} */}ok</b>' }], isMoneyName)
     expect(found.offFace).toEqual([])
   })
 
   it('the declaration of a money helper is not a render site', () => {
     // `function costLabel(usd: number)` sits outside JSX; only its USES are figures.
-    const found = figureSites([{ path: 'f.tsx', text: 'function costLabel(usd: number) { return "$" + usd }' }], MONEY_NAME.test.bind(MONEY_NAME))
+    const found = figureSites([{ path: 'f.tsx', text: 'function costLabel(usd: number) { return "$" + usd }' }], isMoneyName)
     expect(found.offFace).toEqual([])
     expect(found.onFace).toEqual([])
   })
@@ -429,9 +467,158 @@ describe('the formatter classification is total', () => {
   })
 })
 
+describe('a money NAME is a segment, not a substring (W1.1.18)', () => {
+  // ⚠ BOTH DIRECTIONS, AND THE FIRST LIST IS THE ONE THAT MATTERS. Narrowing this rule until the
+  // false positives disappear is how a detector stops finding the real ones — this file says so
+  // twenty lines up about a different pattern — so every name the rule EXISTS for is pinned here
+  // and a repair that drops one of them reds.
+  const MONEY = [
+    'formatUSD', // ⚠ the exact shape `\b` would have broken: no word boundary before USD
+    'formatCents',
+    'formatCost',
+    'lensCostForLXC', // an acronym at the end, a money segment in the middle
+    'costState',
+    'CostNote',
+    'IssueCostProbe',
+    'USD',
+    'costOf',
+    'costLabel',
+    'format_usd', // snake_case, because the call-site scan accepts underscores in an identifier
+    'formatCosts', // the plural the `s?` is for
+  ]
+
+  // ⚠ WHICH OF THESE ARE OCCURRENCES AND WHICH ARE SHAPES, BECAUSE THE DIFFERENCE MATTERS AND
+  // W1.1.18's OWN TEXT BLURS IT. Measured across both packages, 2026-08-26:
+  //
+  //   · `setFocusDraft` is REAL — it is the one that actually fired, in IssueDetail.tsx (W1.1.8).
+  //   · `statusDot`, `plusData`, `bonusDay` are called "the next ones waiting" by W1.1.18. They
+  //     do NOT occur in this repository — the only file containing any of them is THIS one. They
+  //     are the right SHAPE (each holds `usD` across a segment boundary) and that is all, so they
+  //     are kept as shapes and labelled as shapes rather than promoted to findings.
+  //   · `costumeBadge` / `accostUser` exercise a different property: a segment that CONTAINS a
+  //     money term without BEING one, which is what the `^…$` anchoring is for. ⚠ MEASURED: ZERO
+  //     identifiers in either package have such a segment today, so the anchoring is correct and
+  //     currently UNEXERCISED by real code. It is pinned anyway — it costs nothing and it is the
+  //     difference between "cost" and "costume" — but nobody should read these two as sightings.
+  const NOT_MONEY = [
+    'setFocusDraft', // REAL: the one that fired
+    'statusDot',
+    'plusData',
+    'bonusDay',
+    'focusRing',
+    'campusMap',
+    'costumeBadge', // shape: `costume` contains `cost`
+    'accostUser', // shape: `accost` contains `cost`
+  ]
+
+  it('catches every name the rule exists for', () => {
+    const missed = MONEY.filter((n) => !isMoneyName(n))
+    expect(missed, `money names the rule no longer catches: ${missed.join(', ')}`).toEqual([])
+  })
+
+  it('does not catch a name that merely CONTAINS the letters', () => {
+    const wrong = NOT_MONEY.filter((n) => isMoneyName(n))
+    expect(wrong, `not money, but matched: ${wrong.join(', ')}`).toEqual([])
+  })
+
+  // ⚠ THE CONTROL ON THE CONTROL. If the two lists above ever stop discriminating — because the
+  // predicate went to `() => true` or `() => false` — both assertions above still pass in one of
+  // the two directions and the pair reads as healthy. This asserts they disagree.
+  it('the two lists are actually discriminated, not both answered the same way', () => {
+    expect(MONEY.every(isMoneyName)).toBe(true)
+    expect(NOT_MONEY.some(isMoneyName)).toBe(false)
+    expect(MONEY.length).toBeGreaterThan(5)
+    expect(NOT_MONEY.length).toBeGreaterThan(3)
+  })
+
+  it('segments identifiers the way the money rule needs', () => {
+    expect(segments('formatUSD')).toEqual(['format', 'USD'])
+    expect(segments('lensCostForLXC')).toEqual(['lens', 'Cost', 'For', 'LXC'])
+    expect(segments('USDPrice')).toEqual(['USD', 'Price'])
+    expect(segments('setFocusDraft')).toEqual(['set', 'Focus', 'Draft'])
+    expect(segments('format_usd')).toEqual(['format', 'usd'])
+    expect(segments('costOf2')).toEqual(['cost', 'Of2'])
+  })
+
+  // ⚠ THE POPULATION, MEASURED AGAINST THE REAL SOURCE — because the lists above are hand-written
+  // and a hand-written list cannot tell you what the rule does to the code that actually exists.
+  it('over the real source, catches the money names and none of the known false shapes', () => {
+    const idents = new Set<string>()
+    for (const f of allSources(/\.tsx?$/)) {
+      for (const m of stripComments(f.text).matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\(/g)) {
+        idents.add(m[1])
+      }
+    }
+    // FLOOR: a census that read nothing would pass every assertion below.
+    expect(idents.size, 'the identifier census found nothing to classify').toBeGreaterThan(200)
+
+    const caught = [...idents].filter(isMoneyName).sort()
+    // ANCHORS — these exist in this repository today and are money.
+    for (const anchor of ['formatUSD', 'formatCents', 'formatCost']) {
+      expect(caught, `${anchor} exists in the source and the rule must still catch it`).toContain(anchor)
+    }
+    // and none of the shapes the substring rule got wrong
+    for (const bad of NOT_MONEY) {
+      expect(caught, `${bad} is not money`).not.toContain(bad)
+    }
+    expect(caught.length, 'the money census went empty — the rule is inert').toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('the fake-JSX-wrapper reader is a KNOWN limit, pinned rather than fixed (W1.1.18)', () => {
+  // ⚠ THIS IS BLINDNESS (2) FROM W1.1.18, AND IT IS PINNED HERE ON PURPOSE RATHER THAN REPAIRED.
+  //
+  // `tags()` looks for `<` followed by [A-Za-z/], so a TypeScript type-argument list —
+  // `useRef<HTMLTextAreaElement | null>(null)` — opens a "tag" that never closes, and every
+  // statement after it in the function body is scored as RENDERED, wrapped by that fake element.
+  //
+  // WHY IT IS NOT FIXED HERE. The direction is what decides it: a fake wrapper carries no
+  // `font-figure`, so a site under it lands in offFace and the sweep FAILS LOUDLY. It can only ever
+  // ADD sites, never hide one. The obvious repair — "a `<` preceded by an identifier character is a
+  // generic, not JSX" — would skip a real opening tag written straight after text (`items<br />`),
+  // and REMOVING sites from a guard is the wrong direction to trade into. So the limit is recorded,
+  // with the shape that triggers it, and a future repair has this test to disagree with.
+  it('reads a TS generic as an unclosed tag, so a call OUTSIDE JSX is scored as rendered', () => {
+    // ⚠ THIS IS W1.1.8's FAILURE LINE REPRODUCED: "setFocusDraft() inside <HTMLTextAreaElement |
+    // null>". The call was not inside any JSX at all — the generic opened a tag that never closed,
+    // so `wrappingTag` handed back the fake element instead of the `null` that means "not rendered".
+    //
+    // ⚠ MY FIRST VERSION OF THIS CONTROL ASSERTED THE WRONG MECHANISM and this file caught it: I
+    // put the money call inside a real <span className="font-figure"> and expected the fake tag to
+    // win. It does not — the span opens later and is nested, so it is the top of the stack and the
+    // site scores correctly ON the face. The fake wrapper only matters where there is no real one.
+    const withGeneric =
+      'function F() { const r = useRef<HTMLTextAreaElement | null>(null); const c = formatUSD(x); return null }'
+    const withoutGeneric =
+      'function F() { const r = useRef(null); const c = formatUSD(x); return null }'
+
+    const fake = tags(withGeneric).find((t) => t.text.startsWith('<HTMLTextAreaElement'))
+    expect(
+      fake,
+      'the generic no longer opens a fake tag — if that is a deliberate repair, replace this test with one that pins the repair',
+    ).toBeTruthy()
+
+    const bad = figureSites([{ path: 'f.tsx', text: withGeneric }], isMoneyName)
+    const good = figureSites([{ path: 'f.tsx', text: withoutGeneric }], isMoneyName)
+
+    // ⚠ BOTH DIRECTIONS. The second half is what makes the first mean anything: the identical call,
+    // with only the generic removed, is correctly skipped as "not inside JSX".
+    expect(
+      bad.onFace.length + bad.offFace.length,
+      'the generic should have put a non-rendered call in scope — this limit is what the test pins',
+    ).toBe(1)
+    expect(
+      good.onFace.length + good.offFace.length,
+      'without the generic the same call must be skipped entirely, or the comparison above says nothing',
+    ).toBe(0)
+    // and the direction: it ADDS a (false) off-face site, it never hides a real one.
+    expect(bad.offFace.length).toBe(1)
+  })
+})
+
 describe('every money figure in the product is on the figure face', () => {
   it('finds money to check — it must not pass by finding none', () => {
-    const { onFace, offFace } = figureSites(sourceFiles(), (n) => MONEY_NAME.test(n))
+    const { onFace, offFace } = figureSites(sourceFiles(), isMoneyName)
     expect(onFace.length + offFace.length, 'no money-shaped render sites found at all').toBeGreaterThanOrEqual(5)
     // and Track's per-issue AI cost is one of them. ⚠ THIS NAMED `costLabel` UNTIL `2bee9fc`, and
     // it is the assertion that SPOKE when that helper was consolidated into an export — a
@@ -441,7 +628,7 @@ describe('every money figure in the product is on the figure face', () => {
   })
 
   it('none of it renders in the sans', () => {
-    const { offFace } = figureSites(sourceFiles(), (n) => MONEY_NAME.test(n))
+    const { offFace } = figureSites(sourceFiles(), isMoneyName)
     expect(offFace, `money rendered in the body sans:\n  ${report(offFace).join('\n  ')}`).toEqual([])
   })
 })
