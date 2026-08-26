@@ -147,9 +147,12 @@ CONTROLS = [
     Control(
         "C4  the LIVE formatUSD loses one of its three call sites",
         [
+            # ⚠ RE-ANCHORED AT W1.1.19: the span was reformatted onto three lines, so the
+            # single-line anchor matched nothing and this control could not arm. Same defect —
+            # formatUSD loses this call site — expressed against the wrapped form.
             ("apps/web/src/areas/lens/TopUp.tsx",
-             '<span className="font-figure text-body text-muted">≈ {formatUSD(balance.data.usd_value_uusd)}</span>',
-             '<span className="font-figure text-body text-muted">≈ paused</span>'),
+             '<span className="font-figure text-body text-muted">\n                  \u2248 {formatUSD(balance.data.usd_value_uusd)}\n                </span>',
+             '<span className="font-figure text-body text-muted">\n                  \u2248 paused\n                </span>'),
             ("apps/web/src/areas/lens/TopUp.tsx",
              "import { formatUSD } from './format'",
              "import './format'"),

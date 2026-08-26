@@ -68,11 +68,27 @@ CONTROLS: list[Control] = [
              "negations and pulls every test file back into the guard's content set",
         says="this file is reading itself",
         companion="no class list carries a transition without one",
+        # ⚠⚠ THIS CONTROL NOW ARMS AND DOES NOT CATCH — A REAL RED, AND IT IS AN HONEST DOWNGRADE
+        # FROM WHERE IT WAS. Before W1.1.19 it reported ANCHOR MISS: it could not run at all, so
+        # "does the guard still catch a reverted resolver" was unanswered and unanswerable. It now
+        # runs, and the answer is NO. ⚠ I DID NOT DETERMINE WHY, and the lead is stated rather than
+        # guessed: `buildContent` does two things `absoluteContent` did not — it resolves the globs
+        # AND strips comments before extraction — so a replacement that only resolves may still
+        # satisfy whatever the guard asserts about `shippedContent`. Whether the guard is blind to
+        # the resolver, or this replacement no longer expresses the defect, is the next measurement.
+        # DO NOT "fix" it by weakening the assertion or by reverting to an anchor that cannot run.
+        #
+        # ⚠ RE-ANCHORED AT W1.1.19: the guard moved from `absoluteContent` to `buildContent`, which
+        # returns `{ files }` rather than an array, so both the anchor and the shape below it moved
+        # and this control could not arm. The DEFECT is unchanged — the resolver reverted to the
+        # naive `content.map((g) => resolve(root, g))` that destroys the `!` negations — and the
+        # replacement keeps the `{ files }` shape so the mutation changes the RESOLVER and nothing
+        # else about how the value is consumed.
         edits=[(GUARD, [(
-            "  const content = absoluteContent(appRoot)\n  shippedContent = content",
+            "  const content = buildContent(appRoot)\n  shippedContent = content.files",
             1,
-            "  const content = (tailwindConfig.content as string[]).map((g) => resolve(appRoot, g))\n"
-            "  shippedContent = content",
+            "  const content = { files: (tailwindConfig.content as string[]).map((g) => resolve(appRoot, g)) }\n"
+            "  shippedContent = content.files",
         )])],
     ),
     Control(
@@ -122,7 +138,17 @@ CONTROLS: list[Control] = [
              "nothing, which is how a source-derived guard usually goes quiet",
         says="no class list in either package carries the press",
         companion="Button presses",
-        edits=[(GUARD, [("  return [...out].sort()", 1, "  return []")])],
+        # ⚠ RE-ANCHORED AT W1.1.19: `  return [...out].sort()` now occurs TWICE in the guard —
+        # a second scanner grew the same tail — so the anchor was AMBIGUOUS rather than absent
+        # and the harness refused it (count 2, expected 1). That refusal is the driver working:
+        # applying it to whichever came first would have blinded a different function and the
+        # control would have "passed" while proving nothing about pressSitesInCode. The anchor
+        # now carries the two lines above it, which are unique to the press scanner.
+        edits=[(GUARD, [(
+            "      if (tokensOf(list).includes(PRESS)) out.add(f.path)\n    }\n  }\n  return [...out].sort()",
+            1,
+            "      if (tokensOf(list).includes(PRESS)) out.add(f.path)\n    }\n  }\n  return []",
+        )])],
     ),
     Control(
         name="C7 read-prose-as-code",

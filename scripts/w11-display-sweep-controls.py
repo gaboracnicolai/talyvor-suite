@@ -23,10 +23,16 @@ dead too — `<div className="mx-auto …">` became `<main …>` for the landmar
 because `apply_edits` refuses at the FIRST miss, so the second death was invisible behind the first.
 Both deaths are the ELEMENT NAME moving while the className stayed put, which is why the anchors
 below no longer quote a tag: `text-title text-ink`, `mx-auto w-full max-w-3xl px-gutter py-10` and
-`{it.title}`, each MEASURED to occur exactly once before being chosen. Quoting the whole element
-re-arms the decay on every future edit to a part the control does not care about. C4 now hangs its
-comment INSIDE the heading (`{/* … */}{it.title}`) rather than beside it, same construct and the
-same demand on `stripComments`, one less tag to depend on.
+`{it.identifier}`, each MEASURED to occur exactly once before being chosen. Quoting the whole element
+re-arms the decay on every future edit to a part the control does not care about. C4 hangs its
+comment INSIDE a JSX expression (`{/* … */}{it.identifier}`) rather than beside it, same construct
+and the same demand on `stripComments`, one less tag to depend on.
+
+⚠ AND THE ANCHOR MOVED ONCE MORE, WHICH IS THE POINT OF THIS PARAGRAPH RATHER THAN A FOOTNOTE TO IT.
+C4 sat on `{it.title}` until W1.1.8 moved the title into a `heading` variable passed as a Region
+PROP — no JSX text position, no place to hang a comment, control unable to arm and reporting ANCHOR
+MISS from at least 11:31Z until W1.1.19. Choosing an anchor that "occurs exactly once" bounds the
+AMBIGUITY, not the DECAY: a rebuild can still delete the construct outright.
 
 ⚠ C1c IS THE ONE THAT EARNS THE MERGE. C1a shows the FIXED sweep catches a planted offender — that
 would also be true of a sweep that had never been broken, so it is necessary and not sufficient.
@@ -184,7 +190,13 @@ CONTROLS: list[Control] = [
     Control(
         name="C4   offender in a COMMENT in a gated file",
         why="stripComments is load-bearing; prose about a class is not a use of it (the W1.8 trap)",
-        edits=[Edit(ISSUE_DETAIL, "{it.title}", "{/* never text-display-3 here */}{it.title}")],
+        # ⚠ RE-ANCHORED AT W1.1.19. The site was `{it.title}`, and W1.1.8's rebuild moved the
+        # title into a `heading` variable passed as a Region PROP — so there is no longer a JSX text
+        # position there to hang a comment in, and this control could not arm. What it arms is
+        # unchanged and never depended on WHICH element: an offender class named in a COMMENT, in a
+        # GATED FILE, must not be counted as a use. `{it.identifier}` is the same construct in the
+        # same file and occurs exactly once.
+        edits=[Edit(ISSUE_DETAIL, "{it.identifier}", "{/* never text-display-3 here */}{it.identifier}")],
         must_red=SWEEP_TEST,
         must_green="the detector tells a class from a sentence about one",
         expect_red=False,

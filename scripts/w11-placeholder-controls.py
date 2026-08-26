@@ -37,8 +37,14 @@ ISSUE_LIST = "apps/web/src/areas/track/IssueList.tsx"
 SPACE_LIST = "apps/web/src/areas/docs/SpaceList.tsx"
 SPACE_VIEW = "apps/web/src/areas/docs/SpaceView.tsx"
 
-FIXED = "text-body text-ink placeholder:text-faint ${focusRing}"
-UNFIXED = "text-body text-ink ${focusRing}"
+# ⚠ RE-ANCHORED AT W1.1.19: all three fields gained `transition-colors duration-200`,
+# `hover:border-rule-strong` and the disabled pair between the placeholder colour and the
+# focus ring, so both anchors matched nothing and C1/C2/C3 could not arm — the harness
+# reported ANCHOR FAILED and 7/11 rather than a pass, which is the driver working.
+# UNFIXED is derived from FIXED by removing exactly `placeholder:text-faint `, so the armed
+# defect is unchanged and cannot drift apart from it by hand.
+FIXED = "text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}"
+UNFIXED = FIXED.replace("placeholder:text-faint ", "")
 
 OBSERVE = """  new MutationObserver(scan).observe(document, {
     subtree: true,
@@ -139,7 +145,21 @@ CONTROLS = [
         [(SPACE_LIST, 'placeholder="Engineering"', "", 1),
          (SPACE_VIEW, 'placeholder="What are you writing?"', "", 1)],
         web_test("src/areas/docs/DocsArea.test.tsx", "src/placeholderAudit.test.tsx"),
-        r"audited NO rendered placeholder",
+        # ⚠ RE-PREDICTED AT W1.1.19, AND THE CORRECTION IS THAT THE FLOOR IS UNREACHABLE HERE.
+        # This asked for "audited NO rendered placeholder" — the floor's own words — and the harness
+        # reported RED BUT SILENT for at least as long as the anchor misses above hid it. MEASURED:
+        # deleting both placeholders reds DocsArea.test.tsx on ITS OWN ASSERTIONS ("expected '' to
+        # be 'Engineering'"), because that file asserts the placeholder text directly. The test dies
+        # before the afterEach floor ever runs, so the floor CANNOT speak for this file.
+        #
+        # ⚠ WHAT THIS CONTROL NOW PROVES, STATED HONESTLY RATHER THAN IMPLIED: that the file does
+        # not go quietly green — which is the outcome the floor exists to guarantee. It does NOT
+        # prove the floor, and nothing about this subject can. DEMONSTRATING THE PLACEHOLDER FLOOR
+        # NEEDS A FILE LISTED IN MUST_RENDER_PLACEHOLDER WHOSE OWN TESTS DO NOT ASSERT THE TEXT;
+        # there may be no such file today, and that is worth knowing before anyone reads this floor
+        # as measured. Same shape as case-controls C3, different masker: an assertion rather than an
+        # earlier floor.
+        r"expected '' to be 'Engineering'",
         AUDIT_GREEN,
     ),
     Control(

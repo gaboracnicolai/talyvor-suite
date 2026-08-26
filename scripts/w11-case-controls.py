@@ -110,8 +110,23 @@ CONTROLS = [
           1)],
         must_red=[LEDGER_TEST],
         must_green=["src/EmptyStates.test.tsx"],
-        why="offenders drop to zero; ONLY the floor can notice, and it must",
-        must_mention="audited NO µ under a live casing transform",
+        why="offenders drop to zero; ONLY a floor can notice, and one must",
+        # ⚠ RE-PREDICTED AT W1.1.19 (2026-08-26), AND THIS IS A STALE PREDICTION RATHER THAN A
+        # BLIND GUARD — measured, not assumed. Blinding transformInEffect DOES red Ledger.test.tsx.
+        # It reds with the EYEBROW floor's words, and this control demanded the µ floor's, so the
+        # harness correctly refused it: "went red but never said … — that red belongs to another
+        # rule". Requiring the predicted rule is the harness working, not a bug in it.
+        #
+        # ⚠ THE µ FLOOR IS NOT BLIND EITHER; IT IS MASKED. test-setup.ts checks the floors as a
+        # sequence of THROWS — eyebrow at :399, µ at :421 — so for a file listed in both tables only
+        # the FIRST is ever observable. Blinding the transform makes isProtectedCharacter return
+        # false, so satisfiesMicroFloor would fail too; it simply never gets to speak.
+        #
+        # ⚠ THE GENERAL SHAPE, worth more than this one line: A FILE LISTED IN SEVERAL FLOOR TABLES
+        # CAN ONLY EVER DEMONSTRATE THE FIRST ONE. Every later floor is unfalsifiable by any control
+        # that matches on the message, and there is no way to tell "this floor works" from "this
+        # floor is unreachable" without reordering the throws.
+        must_mention="audited NO eyebrow with an uppercase transform in effect",
     ),
     Control(
         "C4 narrow the predicate to length-changes only — µ stops being hazardous",
@@ -188,10 +203,14 @@ CONTROLS = [
     ),
     Control(
         "C11 break the sweep's roots — a reader that opens nothing must throw, not pass",
+        # ⚠ RE-ANCHORED AT W1.1.19: the two inline root expressions were consolidated into ONE
+        # `SWEEP_ROOTS` constant and `repoRoot` was renamed `REPO_ROOT`, so this anchor was stale in
+        # BOTH its spelling and its count (2 → 1) and the control has been unable to run. Same
+        # defect armed: point one root at a directory that does not exist.
         [(  # the walk is over apps/web/src and packages/ui/src; point one at nothing
             ROOT / "apps/web/src/caseAudit.test.tsx",
-            "resolve(repoRoot, 'packages/ui/src')",
-            "resolve(repoRoot, 'packages/ui/src-gone')", 2)],
+            "resolve(REPO_ROOT, 'packages/ui/src')",
+            "resolve(REPO_ROOT, 'packages/ui/src-gone')", 1)],
         must_red=[AUDIT_TEST],
         must_green=["src/EmptyStates.test.tsx"],
         why="a zero from a sweep that read nothing looks exactly like a clean sweep (W4.5)",
