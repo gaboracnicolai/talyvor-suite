@@ -108,18 +108,24 @@ function NothingSpendable({ heldMicros }: { heldMicros: number }) {
             amount and what becomes of it" and delegated — the held Row one region up already says
             the whole thing. IN A REAL BROWSER THAT ROW IS CLIPPED. Its hint carries `truncate`
             (`white-space:nowrap; overflow:hidden; text-overflow:ellipsis`), and at 1280 with the
-            sidebar it measures clientWidth 337 against scrollWidth 449 — 112px, a quarter of the
-            sentence, cut. What is cut is the tail: "during which it can still be revoked". The
-            reader sees "settles on its own after a holding period — during which i…".
-            ⚠ AND NO TEST IN THIS REPO CAN SEE THAT. `ClaimsAudit.test.tsx` and `Held.test.tsx`
+            sidebar it measured clientWidth 337 against scrollWidth 449 — 112px, a quarter of the
+            sentence, cut. What was cut is the tail: "during which it can still be revoked". The
+            reader saw "settles on its own after a holding period — during which i…".
+            ⚠ AND NO TEST IN THIS REPO COULD SEE THAT. `ClaimsAudit.test.tsx` and `Held.test.tsx`
             both assert the tail is PRESENT, and both assert on textContent under jsdom, which has
-            no layout: they are green on a sentence nobody can read. It is the only clipped
-            `.truncate` on this screen (measured at 1280 and at 1920 — the measure is capped at
-            max-w-5xl, so widening the window does not uncut it). The Row belongs to the shared
-            `@talyvor/ui` and fixing it there reaches every screen in the product, so it is
-            REPORTED as its own queue item and not smuggled into this one — but a delegation to a
-            sentence I have measured as unreadable would be a false sentence, so this branch does
-            not delegate.
+            no layout: they were green on a sentence nobody could read.
+            ⚠ FIXED IN W1.1.12 — `Row`'s hint wraps, and the sentence is fully visible at
+            1440/1280/1024/390. THIS PARAGRAPH IS CORRECTED RATHER THAN DELETED because the
+            argument it makes is still the reason this branch states the mechanism instead of
+            delegating: a second voice earned by a measurement does not stop being earned when
+            the first voice becomes readable, and deleting it here would quietly re-open the
+            question of which region owns the fact. It WAS the only clipped `.truncate` on this
+            screen (measured at 1280 and at 1920 — the measure is capped at max-w-5xl, so widening
+            the window did not uncut it). The Row belongs to the shared `@talyvor/ui` and fixing
+            it there reaches every screen in the product, so it was REPORTED as its own queue item
+            and not smuggled into this one — W1.1.12, now merged. At the time, a delegation to a
+            sentence measured as unreadable would have been a false sentence, so this branch did
+            not delegate; it still does not, for the reason above.
             ⚠ WHAT IT STILL DOES NOT REPEAT IS THE FIGURE. A first draft rendered the held amount
             a second time and `Held.test.tsx`'s "does not fold held into the spendable balance"
             went red on `getAllByText(/822/).length` — a guard written against a SUMMED headline,

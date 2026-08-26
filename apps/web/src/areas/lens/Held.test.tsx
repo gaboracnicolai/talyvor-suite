@@ -93,13 +93,24 @@ describe('a held royalty is shown, and shown as not yet spendable', () => {
     //
     // ⚠ W1.1.3 — THERE ARE TWO VOICES HERE NOW AND THAT IS DELIBERATE, WHICH IS WHY THIS ASSERTS
     // `All`. The balance card's hint says it, and the conversion region says it. The rule in this
-    // app is normally one voice per fact, and the exception is MEASURED: the card's hint is a
-    // `truncate` — nowrap, hidden, ellipsis — and in Chrome at 1280 with the sidebar it measures
-    // clientWidth 337 against scrollWidth 449, so 112px is cut and what is cut is "during which it
-    // can still be revoked". This assertion, and ClaimsAudit's, both read textContent under jsdom
-    // and have no layout, so BOTH WERE GREEN ON A SENTENCE NO READER COULD FINISH. The second
-    // voice is the readable one; the clipped Row is reported as its own queue item because it
-    // belongs to the shared @talyvor/ui and reaches every screen.
+    // app is normally one voice per fact, and the exception WAS MEASURED: the card's hint carried
+    // `truncate` — nowrap, hidden, ellipsis — and in Chrome at 1280 with the sidebar it measured
+    // clientWidth 337 against scrollWidth 449, so 112px was cut and what was cut is "during which
+    // it can still be revoked". This assertion, and ClaimsAudit's, both read textContent under
+    // jsdom and have no layout, so BOTH WERE GREEN ON A SENTENCE NO READER COULD FINISH.
+    //
+    // ⚠ THE CLIP IS FIXED (W1.1.12) AND THIS NOTE IS CORRECTED RATHER THAN DELETED. `Row`'s hint
+    // wraps now; re-measured in Chrome on the built artifact at 1440/1280/1024/390, the sentence
+    // is fully visible at every one and the product's desktop clip count went 2 → 0. What is NOT
+    // fixed is the reason these two assertions could not see it: they still read textContent
+    // under jsdom, and jsdom still has no layout. The guard for that is
+    // `packages/ui/src/rowHintWraps.test.tsx`, which pins the RULE, and
+    // `~/talyvor-queue/w1112-truncate-census-m3r8.mjs`, which is the layout MEASUREMENT and does
+    // not run in CI.
+    //
+    // ⚠ THE SECOND VOICE STAYS. It was added because this one was unreadable, and it is now
+    // simply the fuller statement of the same mechanism; removing it would be a copy decision
+    // taken on the way past a layout fix. `All` is still the right assertion.
     expect((await screen.findAllByText(/settles on its own/i)).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/can still be revoked/i).length).toBeGreaterThan(0)
     expect(screen.queryByText(/about 72\s*h/i)).toBeNull()

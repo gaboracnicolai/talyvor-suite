@@ -19,8 +19,8 @@ import { PENDING_TOPUP_KEY } from './areas/lens/topupApi'
 //
 // so an error that is not a `CheckoutError` set `failure` to null and rendered NOTHING. Every
 // OTHER error surface in this product gates on `isError` and uses `instanceof` only INSIDE the
-// block to choose better words — Keys.tsx:131/133, ConvertLens.tsx:336/343,
-// IssueList.tsx:379/324 all have that shape, each with a fallback. TopUp was the only surface
+// block to choose better words — Keys.tsx:131/133, ConvertLens.tsx:342/349,
+// IssueList.tsx:379/390 all have that shape, each with a fallback. TopUp was the only surface
 // in the app where the class check WAS the gate (measured: the one `instanceof` outside a
 // `.isError ?` in any .tsx).
 //

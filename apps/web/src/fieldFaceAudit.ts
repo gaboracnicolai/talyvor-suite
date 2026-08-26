@@ -15,7 +15,7 @@
  * that `figureKind()` calls a figure and nothing else, and they are TWO sites:
  *
  *     <input type="text" inputmode="decimal" aria-label="LXC to receive">   "1" "1.5" "0.01" "2"
- *         ConvertLens.tsx:283 — audited by Convert.test.tsx and Held.test.tsx.  onFace=FALSE
+ *         ConvertLens.tsx:289 — audited by Convert.test.tsx and Held.test.tsx.  onFace=FALSE
  *     <input type="range" aria-label="Contributors in the pool">             "1"
  *         Landing.tsx:320 — a slider. It paints NO TEXT, so its value is not on screen at all.
  *
@@ -65,7 +65,7 @@
  * source makes about what the box is FOR, and it is the promise ConvertLens already makes.
  *
  * ⚠ AND IT IS READ FROM THE DOM, not from the source, for the reason focusAudit and
- * placeholderAudit both give: `ConvertLens.tsx:283` writes `inputMode` on `<Input>`, a component
+ * placeholderAudit both give: `ConvertLens.tsx:289` writes `inputMode` on `<Input>`, a component
  * in ANOTHER PACKAGE that spreads it onto the real `<input>` — so the declaration and the class
  * list are written in two files, and the DOM is where they meet.
  *

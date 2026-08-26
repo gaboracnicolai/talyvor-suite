@@ -313,12 +313,12 @@ const PINS: Record<string, Pin> = {
   // The four pointers the numeric-field audit and its tests write. Both sites they quote are the
   // MEASUREMENT that rule is built on: one is the offender it was written for, the other is the
   // exemption — a field whose value IS a figure and correctly is not on the face.
-  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:283': {
+  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:289': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the one field in the product that declares itself numeric — the defect this audit was written for',
   },
-  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:283': {
+  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:289': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the same site quoted where the rule argues the declaration is written in a DIFFERENT FILE from the class list',
@@ -333,7 +333,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'type="range"',
     why: 'the same slider quoted beside the exemption set itself, so the set cannot be widened without meeting it',
   },
-  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:283': {
+  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:289': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the unit case that pins the predicate to the real call site rather than to an invented fixture',
@@ -352,7 +352,7 @@ const PINS: Record<string, Pin> = {
     fragment: '.isError ?',
     why: 'the sibling with the same fallback shape — revoke gates on isError and picks its 404 words inside',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:336': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:342': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the closest sibling of all — ConvertError is the same pattern as CheckoutError, and it is used INSIDE the block',
