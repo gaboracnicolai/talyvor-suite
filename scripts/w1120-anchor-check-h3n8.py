@@ -74,9 +74,16 @@ class Extractor(ast.NodeVisitor):
         # a clean bill. Only the right-hand string is taken: the left is a directory the caller
         # already resolves, and `resolve()` below tries each root anyway.
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            # ⚠ JOIN, DO NOT DISCARD THE LEFT. Returning only the right side reads `UI /
+            # "vitest.config.ts"` as bare "vitest.config.ts" — and that file exists in BOTH
+            # packages, so it silently resolved onto apps/web's and reported a miss against a file
+            # the harness never touches. The anchor was present the whole time. `ROOT` is a
+            # `Path(__file__).parents[n]` expression that resolves to nothing, which is correct:
+            # nothing means repo-relative.
             b = self._str(node.right)
             if b is not None:
-                return b
+                a = self._str(node.left)
+                return f"{a.rstrip('/')}/{b}" if a else b
         # Path("…") / pathlib.Path("…")
         if isinstance(node, ast.Call) and len(node.args) == 1:
             fn = node.func

@@ -119,7 +119,11 @@ def c2():
     ],
 )
 def c3():
-    sub_once(GUARD, "  '/docs': 1,", "  '/docs': 1,\n  '/no-such-address': 3,")
+    # ⚠ RE-ANCHORED 1 -> 2 AT W1.1.21: this is a SPLICE POINT, not a value this control asserts —
+    # it inserts a row for an address the app does not serve. The row moved because W1.1.17b fixed
+    # the census (the fixture was unpopulated AND the sweep counted the LOADING state, so /docs read
+    # one card of two). The number here has to follow the guard or the insert cannot be made at all.
+    sub_once(GUARD, "  '/docs': 2,", "  '/docs': 2,\n  '/no-such-address': 3,")
 
 
 @control(

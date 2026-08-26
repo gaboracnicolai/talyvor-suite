@@ -82,19 +82,30 @@ class Edit:
 CA = 'apps/web/src/caseAudit.ts'
 GUARD_SRC = 'apps/web/src/caseCallSites.test.ts'
 
+# ⚠ RE-ANCHORED 21 -> 32 AT W1.1.21, AND THE NUMBER WAS CHECKED BEFORE IT WAS CHANGED. The
+# product genuinely grew: caseCallSites.test.ts carries a per-step change log for it (21 -> 23 at
+# W1.1.1 when Overview was rebuilt into regions, 30 -> 32 at W4.6.1 step 7 when /earnings added the
+# per-row `kind` label and its breakdown) and runs 9/9 GREEN at 32. So this is tracked growth, not
+# a census that drifted. THE REPLACEMENTS ARE DELIBERATELY UNCHANGED: TWENTY and 25 are #99's own
+# two wrong answers, and they are still wrong against 32. Re-deriving them from the new number
+# would throw away the provenance that makes these two controls mean anything.
+# ⚠ A COUNT WRITTEN INTO AN ANCHOR IS A CLAIM ABOUT THE TREE WITH AN EXPIRY DATE. When the product
+# moved past it this control did not fail — it became unable to RUN, which reads as silence.
+# `scripts/w1120-anchor-check-h3n8.py` is what noticed; nothing else did, for eleven counts.
+
 # (id, description, [edits], must-stay-green companion, expected verdict)
 CONTROLS = [
     ('C1', 'put #99’s TWENTY back at the top of caseAudit.ts — off by one, the `other` dropped',
-     [(CA, 'problem: 21 uppercase class lists in', 'problem: TWENTY uppercase class lists in')],
+     [(CA, 'problem: 32 uppercase class lists in', 'problem: TWENTY uppercase class lists in')],
      CASE, CAUGHT),
 
     ('C2', 'put #99’s 25 back beside TRANSFORM_CLASSES — the word count, not the use count',
-     [(CA, '`uppercase` (21 class lists apply it)', '`uppercase` (25 class lists apply it)')],
+     [(CA, '`uppercase` (32 class lists apply it)', '`uppercase` (25 class lists apply it)')],
      CASE, CAUGHT),
 
     # ⚠ THE PRODUCT-SIDE CONTROL.  Nothing else in either package counts these, so a real
     # surface change silently invalidating a sentence is exactly the drift this guard is for.
-    ('C3', 'a 22nd call site lands — `uppercase` added to a real class list in TrackArea',
+    ('C3', 'a 33rd call site lands — `uppercase` added to a real class list in TrackArea',
      [('apps/web/src/areas/track/TrackArea.tsx',
        '<span className="text-caption text-faint">live · membership-scoped</span>',
        '<span className="text-caption uppercase text-faint">live · membership-scoped</span>')],
