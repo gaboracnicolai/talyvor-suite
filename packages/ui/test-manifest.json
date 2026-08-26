@@ -5,6 +5,7 @@
   "src/__tests__/invariant.test.ts": 123,
   "src/__tests__/no-arbitrary-value.test.ts": 1,
   "src/__tests__/promotions.test.tsx": 10,
+  "src/__tests__/rowHintWraps.test.tsx": 3,
   "src/__tests__/selection.test.ts": 15,
   "src/__tests__/site-parity.test.ts": 17,
   "src/__tests__/theme-storage.test.tsx": 8,
