@@ -7,7 +7,7 @@
  *     µ (U+00B5) to Greek capital Mu, and µLENS/µLXC sit inside these labels. It is applied
  *     at the call site, where MuNumeral can keep its µ in a `normal-case` span.
  *
- * "It is applied at the call site" is true and is the whole problem: 30 uppercase class lists in
+ * "It is applied at the call site" is true and is the whole problem: 32 uppercase class lists in
  * the two packages apply it, against exactly ONE `normal-case` in the product (CaseSafe.tsx:85).
  * The rule was stated in the token that deliberately does NOT carry the transform, so the one
  * file that could not enforce it is the only file that documents it.
@@ -87,9 +87,16 @@
  * also REFUSES them: either appearing in a class list in either package fails until somebody
  * classifies it here, so narrowing this map cannot silently under-report.
  *
- * `uppercase` (30 class lists apply it) and `normal-case` (1) are spelled out because the product
+ * `uppercase` (32 class lists apply it) and `normal-case` (1) are spelled out because the product
  * renders both — CLASS LISTS, not occurrences of the word; the census is in caseCallSites.test.ts,
  * which also records why this sentence and the one at the top of this file used to disagree.
+ *
+ * ⚠ 30 → 32 AT W4.6.1 STEP 7, AND THE DELTA IS FULLY ACCOUNTED FOR RATHER THAN ACCEPTED: the
+ * /earnings screen adds exactly TWO — the per-row `kind` label and the breakdown table's head row.
+ * Its three region eyebrows go through `Region.tsx`, which was already one of the counted call
+ * sites, so a screen made of regions moves this number by its NEW LABELS and not by its regions.
+ * That is the fifth consecutive rebuild for which that has been true, which is the useful part: if
+ * a future screen moves it by more than its labels, something is applying the transform by hand.
  */
 export const TRANSFORM_CLASSES = {
   uppercase: 'uppercase',

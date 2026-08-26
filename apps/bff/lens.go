@@ -75,6 +75,14 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/lxc/balance", a.wsProxyFixed("/lxc/balance"))
 	a.mux.HandleFunc("/api/tokens/balance", a.wsProxyFixed("/tokens/balance"))
 	a.mux.HandleFunc("/api/tokens/history", a.wsProxyPaged("/tokens/history"))
+	// W4.6.1 step 7 — what this workspace has EARNED. Deliberately a SEPARATE route from
+	// /api/tokens/balance rather than a field added to it: talyvor-lens #472 measured that
+	// balance's `lifetime_earned` is lifetime CREDITED (every credit raises it, 27x on a
+	// five-row fixture, unbounded across stake/unstake round trips), and putting an honest
+	// earnings figure into the same payload as a misleading one invites a reader to average them.
+	// wsProxyFixed builds the workspace segment from the SESSION, so a caller cannot ask for
+	// somebody else's earnings — same rule as every Lens read here.
+	a.mux.HandleFunc("/api/earnings", a.wsProxyFixed("/earnings"))
 	a.mux.HandleFunc("/api/lxc/history", a.wsProxyPaged("/lxc/history"))
 	a.mux.HandleFunc("/api/workspaces", a.requireSession(a.proxyFixed("/v1/workspaces")))
 

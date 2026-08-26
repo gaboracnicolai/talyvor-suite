@@ -340,16 +340,22 @@ const PINS: Record<string, Pin> = {
   // the three region eyebrows go through components/Region.tsx, which was too, so once again a
   // screen rebuild moves this by the number of NEW labels it writes rather than by the number of
   // regions it draws. That is now the fourth consecutive rebuild for which that has held.
+  //
+  // 30 → 32 at W4.6.1 step 7: /earnings adds TWO — the per-row `kind` label and its breakdown
+  // table's head row — and its three region eyebrows again go through components/Region.tsx. Fifth
+  // consecutive rebuild, same rule. The prediction is now worth stating as one: a screen built from
+  // Region moves this census by the number of labels it writes ITSELF, so a rebuild that moves it
+  // by more than that is applying the transform by hand somewhere and should be looked at.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 30,
+    states: 32,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 30,
+    states: 32,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

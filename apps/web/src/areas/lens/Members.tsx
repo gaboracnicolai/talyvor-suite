@@ -73,7 +73,7 @@ const HEADLINE_FAILED = 'The roster could not be read.'
  * The membership join key, compared the way the upstream compared it.
  *
  * The BFF sends `X-User-Email: sess.email` and calls it "the workspace-membership join key"
- * (apps/bff/lens.go:689); /auth/me serves that SAME `s.email` (apps/bff/auth.go:664); Track
+ * (apps/bff/lens.go:697); /auth/me serves that SAME `s.email` (apps/bff/auth.go:664); Track
  * authorizes and lists from `members.email` with SQL `=`.
  *
  * ⚠ SO THE COMPARISON IS EXACT, DELIBERATELY. Case-folding here would be a DIFFERENT rule from

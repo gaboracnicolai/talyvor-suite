@@ -799,6 +799,18 @@ cannot "LedgerEntry mirrors talyvor-lens LedgerEntry — the LENS ledger row" \
     "talyvor-lens internal/mining/cache_mining.go" \
     "[ \"\$(sed -n '/^type LedgerEntry struct/,/^}/p' internal/mining/cache_mining.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"amount_ulens balance_after_ulens created_at description id metadata type workspace_id \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
 
+# W4.6.1 step 7 — the earnings read. ⚠ THE FIELD THIS TYPE EXISTS TO REPLACE IS STILL SERVED:
+# LensBalance.lifetime_earned_ulens is lifetime CREDITED (talyvor-lens #472 measured 27x on a
+# five-row fixture, and unbounded across value-neutral stake/unstake round trips). So a mirror that
+# silently loses contribution_settled_ulens would send the next screen back to the wrong field.
+cannot "EarningsSummary mirrors talyvor-lens earnings.Summary — what a workspace has EARNED, as opposed to what it has been credited" \
+    "talyvor-lens internal/earnings/reader.go" \
+    "[ \"\$(sed -n '/^type Summary struct/,/^}/p' internal/earnings/reader.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"by_type capital_settled_ulens contribution_settled_ulens contribution_settled_usd_at_peg disabled_gates earning_enabled held_ulens held_usd_at_peg lens_per_usd revoked_ulens settled_ulens settled_usd_at_peg unclassified_types workspace_id \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
+cannot "EarningsTypeLine mirrors talyvor-lens earnings.TypeLine — one ledger type's line in the earnings breakdown, including the REASON it was counted that way" \
+    "talyvor-lens internal/earnings/reader.go" \
+    "[ \"\$(sed -n '/^type TypeLine struct/,/^}/p' internal/earnings/reader.go | grep -o 'json:.[a-z_,]*' | sed 's/json:.//' | LC_ALL=C sort | tr '\n' ' ')\" = \"amount_ulens class kind reason rows type \" ]   # in a talyvor-lens checkout; the WHOLE json-tag set, so an ADDED field, a REMOVED one and an omitempty that came or went are each a mismatch"
+
 
 # ── THE THREE TRACK WRITE BODIES, AND WHY THEY ARE NOT ONE ENTRY ─────────────
 # DECISION: apps/bff/track.go forwards three request bodies to talyvor-track VERBATIM — the

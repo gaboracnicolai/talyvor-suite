@@ -2,7 +2,7 @@
   "src/__tests__/components.test.tsx": 8,
   "src/__tests__/contrast.test.ts": 115,
   "src/__tests__/design-fixes.test.tsx": 10,
-  "src/__tests__/invariant.test.ts": 126,
+  "src/__tests__/invariant.test.ts": 127,
   "src/__tests__/no-arbitrary-value.test.ts": 1,
   "src/__tests__/promotions.test.tsx": 10,
   "src/__tests__/rowHintWraps.test.tsx": 3,

@@ -11,7 +11,7 @@ Enumerated from **talyvor-docs @ `e0cf605`** (origin/main), read-only.
 > therefore probe and report what the deployment says — see `lib/productState.ts`. When a Docs
 > upstream appears they light up without an edit here.
 
-**Proxy mechanics (same as the existing route, `apps/bff/lens.go:100`):** upstream base
+**Proxy mechanics (same as the existing route, `apps/bff/lens.go:108`):** upstream base
 `cfg.docsBaseURL`, transit proof `X-Gateway-Auth: cfg.docsGatewaySecret`, identity headers from the
 session (gatewayauth reads user email/id/teams/issuer AFTER the constant-time proof), workspace
 resolved **per request from the SESSION** (`docsWorkspaceFor`), upstream body streamed **verbatim**.

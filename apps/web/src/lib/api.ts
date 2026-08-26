@@ -55,6 +55,61 @@ export interface LensBalance {
   updated_at: string
 }
 
+/** GET /v1/workspaces/{ws}/earnings → earnings.Summary (W4.6.1 step 7).
+ *
+ *  ⚠ THIS IS NOT `LensBalance.lifetime_earned_ulens`, AND THE DIFFERENCE IS THE WHOLE REASON THE
+ *  ROUTE EXISTS. talyvor-lens #472 measured that `lifetime_earned` is lifetime CREDITED: every
+ *  credit raises it with no filter on ledger type, so LENS a workspace was given, bought, or simply
+ *  got back all count — 27x over what was earned on a five-row fixture, and unbounded across
+ *  stake/unstake round trips, which return the wallet to exactly where it started.
+ *
+ *  UPSTREAM-SPELLING EarningsSummary: none
+ *  UPSTREAM-ONLY EarningsSummary: none */
+export interface EarningsSummary {
+  workspace_id: string
+  /** Settled income from something this workspace CONTRIBUTED and somebody else reused — the
+   *  number behind "your answers earned this". */
+  contribution_settled_ulens: number
+  /** Settled income from locked capital (stake_yield). Real money, and nobody wrote an answer for
+   *  it, so folding it into the figure above would leave the TOTAL right and make the SENTENCE
+   *  false. */
+  capital_settled_ulens: number
+  settled_ulens: number
+  /** Minted but not settled, still revocable inside the holdback window. Lens reads this from
+   *  `lens_token_balances.held_balance` — the COLUMN. Summing `*_held` ledger rows would report
+   *  every mint ever held, including every one already paid out. */
+  held_ulens: number
+  /** Income clawed back after adjudication, as a magnitude, so a fall in earnings has a name. */
+  revoked_ulens: number
+  /** ⚠ AT THE PUBLISHED PEG, NOT A PRICE. LENS has one peg and no market, so every dollar figure
+   *  here is a unit conversion — which is why the field says so in its own name. */
+  contribution_settled_usd_at_peg: number
+  settled_usd_at_peg: number
+  held_usd_at_peg: number
+  lens_per_usd: number
+  /** False when any switch a royalty needs is off. The switches ship OFF, so a zero above says
+   *  nothing about the workspace unless this is true. */
+  earning_enabled: boolean
+  disabled_gates: string[] | null
+  by_type: EarningsTypeLine[] | null
+  /** Ledger types present for this workspace that Lens's vocabulary does not classify. Reported
+   *  rather than dropped: a type nobody classified is otherwise silently worth zero. */
+  unclassified_types: string[] | null
+}
+
+/** One ledger type's line in EarningsSummary.
+ *  UPSTREAM-SPELLING EarningsTypeLine: none
+ *  UPSTREAM-ONLY EarningsTypeLine: none */
+export interface EarningsTypeLine {
+  type: string
+  class: 'settled' | 'held' | 'revoked' | 'not_earnings' | 'unclassified'
+  kind: 'contribution' | 'capital' | 'not_income'
+  amount_ulens: number
+  rows: number
+  /** Why Lens counted this type the way it did, carried into the UI rather than restated there. */
+  reason: string
+}
+
 /** GET /v1/workspaces/{ws}/tokens/history → []mining.LedgerEntry.
  *  Note the columns present: there is NO hold-window field (no finalize_after / start /
  *  end), so HoldBar cannot be driven from this — see the report.
@@ -289,6 +344,7 @@ export const api = {
   context: () => getJSON<BffContext>('/api/context'),
   lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance'),
   lensBalance: () => getJSON<LensBalance>('/api/tokens/balance'),
+  earnings: () => getJSON<EarningsSummary>('/api/earnings'),
   tokensHistory: (limit: number, offset: number) =>
     getJSONArray<LedgerEntry>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
   /** Capability-gated (H5 bonds). Off in the trial config today → { enabled: false }. */
