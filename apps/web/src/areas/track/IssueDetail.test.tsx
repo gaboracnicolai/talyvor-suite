@@ -299,8 +299,8 @@ describe('the comment thread distinguishes a fault from an empty thread', () => 
 // written months apart and arrived at the same defect independently.
 //
 // ⚠ NOT REACHABLE FROM THIS UI TODAY, and fixed anyway for the reason #190 gives. Nothing on this
-// screen links to another issue: the only way out is "‹ Issues", which goes up to the list and DOES
-// remount. One ordinary addition — a parent link (`parent_id` is already on the type), a related
+// screen links to another issue: the only way out is "All issues" (it read "‹ Issues" until
+// W1.1.8 — a direction rather than a destination), which goes up to the list and DOES remount. One ordinary addition — a parent link (`parent_id` is already on the type), a related
 // list, a search result, prev/next — makes it live, and the person adding that link has no reason
 // to suspect this file.
 //
@@ -458,5 +458,139 @@ describe('the state on this screen belongs to the issue that is open', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save description' }))
     await waitFor(() => expect(lastWrite('PATCH')).toBeTruthy())
     expect((lastWrite('PATCH')?.body as { description?: string })?.description).toBe('Still editing aaa.')
+  })
+})
+
+/**
+ * W1.1.8 — THE TICKET, REBUILT IN THE PRODUCT'S OWN LANGUAGE.
+ *
+ * Everything above this line is about what Track RECORDS and is unchanged by the rebuild. These
+ * are about the screen: one idea per region, a page-scale heading that opens it, and — the half
+ * that is not decoration — a heading that cannot say the wrong thing in the largest type on the
+ * page.
+ *
+ * ⚠ THE STATES A TICKET HAS ARE NOT THE STATES A LIST HAS, WHICH IS WHY THIS IS NOT A COPY OF
+ * W1.1.7's BLOCK. A list is empty or full; a ticket is THERE or it is NOT, and "not" arrives as a
+ * 404 that the screen used to render with the same sentence it gave a 500, a 503 and a dead
+ * session: "That issue could not be read." Four causes, one sentence, and the only one of the four
+ * that is not a fault — the link is stale, or the issue belongs to another workspace — read as a
+ * broken product.
+ *
+ * ⚠ AND THE 404 IS DELIBERATELY AMBIGUOUS UPSTREAM, so this screen must not resolve it. Track's
+ * `Handler.Get` answers 404 for a foreign id as well as an absent one, in as many words —
+ * "SEC-5: scoped read — foreign id → ErrNotFound → 404 (no disclosure, no oracle)" — so a
+ * sentence that said "this issue was deleted" would be the browser inventing the disclosure the
+ * server refused to make. MEASURED read-only in talyvor-track at `main`, and the status reaches
+ * the browser intact: apps/bff/lens.go#forwardProduct ends `w.WriteHeader(resp.StatusCode)`.
+ */
+describe('W1.1.8 — the ticket reads as one screen, in regions', () => {
+  function regions() {
+    return Array.from(document.querySelectorAll('[data-testid="region-label"]')).map((el) => ({
+      index: el.querySelector('[data-testid="region-index"]')?.textContent ?? '',
+      label: el.lastElementChild?.textContent ?? '',
+    }))
+  }
+
+  /** Fails ONLY the issue read; every other route on the screen still answers. */
+  function refuseIssue(status: number, body: unknown = { error: 'no' }) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = String(input)
+      const json = (b: unknown, s = 200) =>
+        new Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } })
+      if (path === '/api/track/issues/iss-1') return json(body, status)
+      if (path.endsWith('/comments')) return json([])
+      if (path === '/api/members') return json([])
+      if (path === '/api/track/teams') return json([])
+      return json(null, 404)
+    })
+  }
+
+  it('is six named regions, one idea each, indexed in document order', async () => {
+    open()
+    await screen.findByText('Original description.')
+    expect(regions()).toEqual([
+      { index: '00', label: 'Issue' },
+      { index: '01', label: 'What this issue says' },
+      { index: '02', label: 'How it is filed' },
+      { index: '03', label: 'What it has cost so far' },
+      { index: '04', label: 'What Track’s AI makes of it' },
+      { index: '05', label: 'What has been said' },
+    ])
+  })
+
+  it('makes exactly one page-scale claim, and it is the issue’s own title', async () => {
+    open()
+    await screen.findByText('Original description.')
+    expect(document.querySelectorAll('.text-page')).toHaveLength(1)
+    expect(document.querySelector('.text-page')?.textContent).toBe(ISSUE.title)
+  })
+
+  it('a 404 says the issue is not here, and does not blame the network', async () => {
+    refuseIssue(404, { error: 'not found', code: 'NOT_FOUND' })
+    open()
+    await screen.findByText(/no issue at this address/i)
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'There is no issue at this address.',
+    )
+    // The one thing it must NOT do is call a correct 404 a fault.
+    expect(screen.queryByText(/can’t be reached/i)).toBeNull()
+    // The way back is a destination, named — not "go back".
+    expect(screen.getByRole('link', { name: 'All issues' })).toHaveAttribute('href', '/track')
+  })
+
+  it('a FAULT is not a missing issue — the loudest claim on the screen must not lie', async () => {
+    refuseIssue(500)
+    open()
+    await screen.findByText(/this is a fault, not a missing issue/i)
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'Track can’t be reached, so this issue can’t be shown.',
+    )
+    expect(screen.queryByText(/no issue at this address/i)).toBeNull()
+  })
+
+  it('an unconfigured Track reads as off, not as a missing issue', async () => {
+    refuseIssue(503, { error: 'track upstream not configured on this BFF' })
+    open()
+    await screen.findByText(/not configured on this deployment/i)
+    expect(screen.queryByText(/no issue at this address/i)).toBeNull()
+    expect(screen.queryByText(/can’t be reached/i)).toBeNull()
+  })
+
+  it('a dead credential says only that it is unavailable — the bar says the rest', async () => {
+    refuseIssue(401, { error: 'authentication required — sign in at /auth/login' })
+    open()
+    await screen.findByText('Unavailable.')
+    // No second, differently-worded diagnosis of the one cause the bar already names.
+    expect(screen.queryByText(/sign in/i)).toBeNull()
+    expect(screen.queryByText(/no issue at this address/i)).toBeNull()
+  })
+
+  it('an issue with no description offers the action that writes one, and performs it', async () => {
+    mockBff({ description: '' })
+    open()
+    await screen.findByText(/^Nothing has been written down/)
+    fireEvent.click(screen.getByRole('button', { name: 'Write the description' }))
+    await waitFor(() => {
+      expect((document.activeElement as HTMLElement | null)?.id).toBe('issue-description')
+    })
+  })
+
+  it('the empty thread invites the first comment, and performs that too', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const path = String(input)
+      const json = (b: unknown, s = 200) =>
+        new Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } })
+      if (path === '/api/track/issues/iss-1') return json(ISSUE)
+      if (path.endsWith('/comments')) return json([])
+      if (path === '/api/members') return json([])
+      if (path === '/api/track/teams') return json([])
+      return json(null, 404)
+    })
+    open()
+    await screen.findByText(/^No comments yet\./)
+    fireEvent.click(screen.getByRole('button', { name: 'Write the first comment' }))
+    await waitFor(() => {
+      expect((document.activeElement as HTMLElement | null)?.id).toBe('new-comment')
+    })
   })
 })

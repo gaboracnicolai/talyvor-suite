@@ -118,10 +118,20 @@ const NOT_AN_EMPTY_STATE: Record<string, string> = {
 }
 
 // (b) It IS an empty state and it genuinely has no next action to name.
-const NO_NEXT_ACTION: Record<string, string> = {
-  'No description.':
-    'A field placeholder on an issue, not an empty collection. The action that would fill it (edit the description) needs the editor W2.3 has not built; offering it here would be a control that does nothing.',
-}
+//
+// ⚠ THIS TABLE IS EMPTY, AND EMPTYING IT IS THE POINT RATHER THAN A TIDY-UP. Its one entry was
+// 'No description.' on the Track ticket, exempted because "the action that would fill it (edit the
+// description) needs the editor W2.3 has not built". W1.1.8 rebuilt that screen and the sentence is
+// gone: the empty description now says what a description is FOR and offers a button that opens the
+// editor and puts the caret in it. The reason had in fact been stale for longer than the sentence —
+// the editor landed on IssueDetail with the ticket itself — and nothing could say so, because an
+// exemption's REASON is prose while its KEY is checked. What retired it was the key going away.
+//
+// ⚠ AN EMPTY EXEMPTION TABLE IS NOT AN INERT ONE. The sweep below reads `EXEMPT`, which is still
+// non-empty via (a), and the staleness check iterates whatever is in it; a future entry is caught
+// by the same two rules. Left declared rather than deleted so the DISTINCTION between the two kinds
+// of exemption survives — the comment above says why collapsing them hides which is which.
+const NO_NEXT_ACTION: Record<string, string> = {}
 
 const EXEMPT: Record<string, string> = { ...NOT_AN_EMPTY_STATE, ...NO_NEXT_ACTION }
 

@@ -187,10 +187,15 @@ describe('a write refused by a dead credential states the outcome and leaves the
 // 1. ⚠ THE SURFACES TABLE CANNOT REACH A WRITE THAT ONLY EXISTS AFTER A SUCCESSFUL READ.
 //    `/keys` and `/track` render their forms whether or not the list read succeeded, which is why
 //    those two are drivable under an all-401 fixture. IssueDetail's "Save description" and
-//    "Comment" buttons are inside `if (!it) return …`, so under all-401 the screen renders "That
-//    issue could not be read." and there is no button to press. The two write surfaces on that
-//    screen were therefore not merely absent from the table — they were UNREACHABLE BY ITS
-//    FIXTURE SHAPE, which is why adding a row would not have found them.
+//    "Comment" buttons are inside `if (!it) return …`, so under all-401 there is no button to
+//    press. The two write surfaces on that screen were therefore not merely absent from the table
+//    — they were UNREACHABLE BY ITS FIXTURE SHAPE, which is why adding a row would not have found
+//    them.
+//    ⚠ THE SENTENCE THAT STOOD HERE NAMED THE COPY — "the screen renders 'That issue could not be
+//    read.'" — and W1.1.8 retired it: a 401 now says only "Unavailable.", because that screen's
+//    four failure states used to share one sentence. The STRUCTURAL claim this paragraph rests on
+//    is the `if (!it) return` and is unchanged, so the reasoning stands; the quoted string was the
+//    perishable half and is removed rather than re-quoted.
 //
 // 2. ⚠ AND THE PREMISE THE RULE RESTS ON IS FALSE HERE. The rule is "only the advice moves,
 //    because the bar already carries the remedy" — and the block above ASSERTS the bar is on

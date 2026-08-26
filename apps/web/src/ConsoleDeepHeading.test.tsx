@@ -22,10 +22,23 @@ import { App, CONSOLE_ROUTES } from './App'
  *     /docs/spaces/sp-1/pages/pg-1     h1 = 1   "Docs"
  *
  * ⚠ THE ISSUE HAD TO BE SERVED FOR THE DEFECT TO EXIST AT ALL. The same address with a 404-ing
- * fake counts h1 = 1: IssueDetail renders "That issue could not be read." and its heading never
- * mounts. A census taken against a failing BFF would have reported this page clean, which is why
- * the premise case below asserts the issue's title is on the screen before anything counts
- * headings — an instrument that read an error card cannot see this.
+ * fake counts h1 = 1, so a census taken against a failing BFF would have reported this page clean.
+ * That is why the premise case below asserts the issue's title is on the screen before anything
+ * counts headings — an instrument that read an error state cannot see this.
+ *
+ * ⚠ THE REASON h1 = 1 ON A 404 CHANGED WITH W1.1.8, AND THE CONCLUSION DID NOT — WHICH IS WHY THE
+ * SENTENCE IS REWRITTEN RATHER THAN LEFT. It read "IssueDetail renders 'That issue could not be
+ * read.' and its heading never mounts", and the second clause is now false: the rebuilt screen
+ * draws its page-scale heading in EVERY state, so a 404 has one. MEASURED at the address, with a
+ * fake that 404s only the issue read:
+ *
+ *     H1 Track · H2 Search issues · H2 "There is no issue at this address."
+ *
+ * h1 is still 1 because IssueDetail has written no `<h1>` since `a19c18f` in any state, not
+ * because the error path draws nothing — and a premise that holds for a reason that has gone is
+ * the shape this repo keeps finding. The blindness the paragraph warns about is unchanged and is
+ * arguably worse now: an error state that renders a full landmarked screen looks even more like a
+ * clean page to a counter that only counts.
  *
  * ── WHY TWO IS THE DEFECT, AND WHY THIS IS NOT A NEW DESIGN DECISION ─────────────────
  *
@@ -57,8 +70,18 @@ import { App, CONSOLE_ROUTES } from './App'
  *     blockquote,dl,dd,h1,…,h6,hr,figure,p,pre { margin:0 }
  *
  * Both name h1 and h2 in the same selector list, and there is no h1-only or h2-only rule anywhere
- * in the sheet. `.text-title` supplies 24px/1.2/640 either way, so the two elements paint the same
+ * in the sheet. `.text-title` supplied 24px/1.2/640 either way, so the two elements paint the same
  * pixels and the stylesheet cannot change.
+ *
+ * ⚠ TWO OF THOSE THREE NOUNS HAVE MOVED SINCE, AND THE ARGUMENT HAS NOT. "Keeps its text, its
+ * classes and its position" was true of `<h2 className="text-title text-ink">{it.title}</h2>`;
+ * W1.1.8 rebuilt the screen and the title is now emitted by `components/Region.tsx`, wearing
+ * `text-page` — the console's one display step, clamp(1.5rem, 3vw, 38px) — with `mt-6` above it.
+ * So the CLASSES and the POSITION changed, for W1.1.0's reason rather than this file's, and the
+ * heading is still an `h2`. What this section actually establishes is narrower and is untouched by
+ * that: the shipped sheet has no h1-only or h2-only rule, so CHOOSING A LEVEL costs no pixels
+ * whatever class the element wears. The sentence is left standing with this note rather than
+ * rewritten, because the measurement it reports is anchored to a named artifact and was true of it.
  *
  * ── WHAT THIS FILE ASSERTS, AND THE HOLE IT CLOSES BEHIND ITSELF ─────────────────────
  *
@@ -134,9 +157,11 @@ const ISSUE = {
 }
 
 /**
- * A BFF fake that ANSWERS the deep pages' own reads. A 404-ing fake renders the "could not be
- * read" card at `/track/issues/iss-1`, whose h1 count is 1 — the clean reading, from a page that
- * never drew the heading. The fixture is the instrument here.
+ * A BFF fake that ANSWERS the deep pages' own reads. A 404-ing fake still counts h1 = 1 at
+ * `/track/issues/iss-1` — the clean reading, from a page that is not the page under test. Since
+ * W1.1.8 that page DOES draw a heading ("There is no issue at this address."), an h2; what it has
+ * never drawn is an `<h1>`, so the fixture is still the instrument here and the reason it is has
+ * been re-measured rather than inherited (see the ⚠ in the header).
  */
 function mockBff() {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -253,34 +278,46 @@ describe('the addresses below the console still have exactly one top-level headi
     const levels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) =>
       Number(h.tagName.slice(1)),
     )
-    // ⚠ NINE, NOT TWO, SINCE CardHeader BECAME A HEADING. The seven extra 2s are this page's
-    // card headers — Search issues, Description, Details, AI summary, Possible duplicates,
-    // Triage suggestion, Comments — which were
-    // `<div>`s when this line read `[1, 2]` and are now section titles like every other card
-    // header behind the gate. "AI summary" is Track's thread summary, the first browser control
-    // for any Track AI feature (areas/track/AISummary.tsx); "Search issues" is the newest and is
-    // the reason this outline is SEVEN rather than six — it is mounted at the TRACK AREA level,
-    // not inside the list, so it is present on the ticket too (deliberately: the moment someone
-    // wants the related issue is while they are reading one). areas/track/SearchIssues.tsx.
-    // "Possible duplicates" is Track's find-duplicates AI, the third of its five features to
-    // reach a browser and the one that costs per press (areas/track/FindDuplicates.tsx).
-    // "Triage suggestion" is the fourth, and it is the reason this outline is NINE rather than
-    // eight — the read half of a route whose write half this app deliberately cannot reach
-    // (areas/track/TriageIssue.tsx, apps/bff/track_triage.go).
+    // ⚠ SIX, AND IT WAS NINE UNTIL W1.1.8 REBUILT THIS SCREEN. MEASURED, not derived:
     //
-    // ⚠ AND THE FLATNESS IS RECORDED RATHER THAN BLESSED. Description/Details/AI summary/Comments
-    // are sections OF the issue, so an outline that named their relationship would read
-    // h1 → h2 → h3. It reads h1 → h2 → h2: no level is SKIPPED (which is the defect this
-    // assertion exists to catch, and it still catches one), but the three cards sit beside the
-    // issue title rather than under it. Giving `CardHeader` a level would be an API decision
-    // across 39 call sites and it was not made on the way past — see the ⚠ at the end of
-    // CardHeaderHeading.test.tsx. The literal below is the outline as measured, so the day
-    // somebody does make that decision this line is what tells them it moved.
+    //     H1 Track · H2 Search issues · H2 <issue title> · H2 AI summary ·
+    //     H2 Possible duplicates · H2 Triage suggestion
+    //
+    // The three that went are Description, Details and Comments. They were `CardHeader`s — section
+    // titles with no level relationship to the issue above them — and they are now `Region`s:
+    // named landmarks whose accessible name is the eyebrow ("What this issue says", "How it is
+    // filed", "What has been said"). ⚠ THAT IS A MOVE BETWEEN TWO STRUCTURES, NOT A DELETION, and
+    // the direction is the one this file's own note below asks for: the flatness it records as
+    // "recorded rather than blessed" is three of those cards sitting BESIDE the issue title
+    // instead of under it. A landmark region does not make that claim at all — it is a place, not
+    // a level — so the outline is now h1 → h2 with nothing pretending to a rank it does not have.
+    // The screen gained structure at the same time: `document.querySelectorAll('section[aria-
+    // labelledby]')` reads SIX at this address, where the pre-rebuild screen had none of its own.
+    //
+    // What is left is the shell's banner, the issue title, and the three AI cards. "Search issues"
+    // is mounted at the TRACK AREA level rather than inside the list, so it is present on the
+    // ticket too (deliberately: the moment someone wants the related issue is while they are
+    // reading one — areas/track/SearchIssues.tsx). "AI summary" is Track's thread summary and the
+    // first browser control for any Track AI feature (areas/track/AISummary.tsx); "Possible
+    // duplicates" is the third of Track's five features to reach a browser and the one that costs
+    // per press (areas/track/FindDuplicates.tsx); "Triage suggestion" is the fourth, the read half
+    // of a route whose write half this app deliberately cannot reach (areas/track/TriageIssue.tsx,
+    // apps/bff/track_triage.go). All three keep their cards on purpose — see the ⚠ at the top of
+    // IssueDetail.tsx.
+    //
+    // ⚠ THE REMAINING FLATNESS IS STILL RECORDED RATHER THAN BLESSED. The three AI cards are
+    // sections OF the issue, so an outline that named their relationship would read h1 → h2 → h3.
+    // No level is SKIPPED (which is the defect this assertion exists to catch, and it still
+    // catches one), but those three sit beside the issue title rather than under it. Giving
+    // `CardHeader` a level would be an API decision across 39 call sites and it was not made on
+    // the way past — see the ⚠ at the end of CardHeaderHeading.test.tsx. The literal below is the
+    // outline as measured, so the day somebody does make that decision this line is what tells
+    // them it moved.
     expect(
       levels,
       'the heading outline at /track/issues/<id> moved — a level was skipped, dropped or ' +
         'duplicated, or a card header stopped being one',
-    ).toEqual([1, 2, 2, 2, 2, 2, 2, 2, 2])
+    ).toEqual([1, 2, 2, 2, 2, 2])
   })
 })
 
