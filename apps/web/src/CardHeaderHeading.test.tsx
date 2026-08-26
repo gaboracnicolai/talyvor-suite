@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Card, CardHeader, MuNumeral } from '@talyvor/ui'
 
-import { App, CONSOLE_ROUTES } from './App'
+import { App, CONSOLE_ROUTES, queryClient } from './App'
+import { populatedBff, settleQueries } from './populatedBff'
 
 /**
  * EVERY SECTION TITLE BEHIND THE GATE WAS A `<div>`, ON PAGES WITH UP TO NINE OF THEM.
@@ -63,17 +64,16 @@ import { App, CONSOLE_ROUTES } from './App'
 /** Address (what a person types) from a route path (what `<Route path>` takes). */
 const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '')
 
+/**
+ * ⚠ THIS USED TO 404 EVERYTHING, AND THE CENSUS BELOW WAS THEREFORE A CENSUS OF EMPTY SCREENS.
+ * W1.1.17b: `/docs`'s row read 0 because AskAI and SearchDocs are gated on the spaces read
+ * SUCCEEDING, so it had ALWAYS measured the off state of that address and structurally could not
+ * see two of its three cards. It now uses the shared populated fixture, and
+ * populatedBffCoverage.test.tsx is what stops that fixture rotting back into a floor.
+ */
 function mockBff() {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const url = String(input)
-    if (url === '/auth/me') {
-      // disabled mode: the gate passes straight through, which is the signed-in shell.
-      return new Response(JSON.stringify({ mode: 'disabled', authenticated: false, user: null }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-    return new Response('null', { status: 404 })
+  populatedBff((impl) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(impl as never)
   })
 }
 
@@ -81,6 +81,11 @@ async function at(address: string) {
   window.history.pushState({}, '', address)
   render(<App />)
   await screen.findByRole('navigation', { name: /sections/i })
+  // ⚠ AND THEN WAIT FOR THE SCREEN. The line above waits for the SIDEBAR, which is shell and
+  // renders immediately — every per-address sweep in this repo stopped there, so every one of them
+  // has been counting each screen's LOADING state. Populating the fixture without this changes
+  // nothing: measured, it moved exactly one row.
+  await settleQueries(queryClient, waitFor)
 }
 
 /**
@@ -119,10 +124,14 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   // built from Region and renders no Card at all; its three regions carry their own headings.
   '/earnings': 0,
   '/billing': 2,
-  '/billing/success': 0,
+  // 0 → 1 at W1.1.17b: the return screen draws a card, and the old census was reading its
+  // pre-query state.
+  '/billing/success': 1,
   '/billing/cancel': 0,
   '/keys': 2,
-  '/setup': 5,
+  // 5 → 8 at W1.1.17b. THREE OF SETUP'S CARDS ARE GATED ON DATA and the census had never seen
+  // them: it awaited the sidebar and counted, so every screen was measured mid-load.
+  '/setup': 8,
   // 4, not 3: `1b58635` (#251) added `FeatureSpendCard` — "Spend by feature". The card arrived as
   // a NEW FILE that Spend.tsx renders, so `grep -c '<CardHeader' Spend.tsx` reads 2 before and
   // after and would have argued the opposite.
@@ -130,22 +139,25 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/members': 1,
   '/settings': 2,
   '/track': 2,
-  // 0, not 1: W1.1.9 rebuilt the `/docs` front door as REGIONS, so the one card header this
-  // address had — the "Spaces" card the whole screen sat inside — became a named landmark whose
-  // accessible name is the region's eyebrow. ⚠ THE OTHER TWO CARDS AT THIS ADDRESS (AskAI,
-  // SearchDocs) ARE NOT COUNTED HERE AND NEVER WERE, and the reason is worth writing down because
-  // it makes this row look wrong: both are gated on the spaces read SUCCEEDING, and this file's
-  // fixture answers 404 to everything, so the census has always measured the OFF state of /docs.
-  // A row of 0 therefore means "the off state of this screen has no cards", not "this screen has
-  // no cards". The total across all twelve is 25 (it was 26 before this merge); the floor below
-  // is 15.
-  '/docs': 0,
+  // ⚠ 0 → 2 AT W1.1.17b, AND THIS ROW IS WHY THAT ITEM EXISTS. It read 0 because AskAI and
+  // SearchDocs are gated on the spaces read SUCCEEDING (`q.isSuccess`), and this file's fixture
+  // 404'd everything — so the row had ALWAYS measured the off state of the address and
+  // structurally could not see two of its three cards.
+  //
+  // ⚠ THE ITEM'S DIAGNOSIS WAS RIGHT AND INCOMPLETE, MEASURED WHILE FIXING IT: populating the
+  // fixture alone left this row at 0. The sweep also awaited only the SIDEBAR before counting, so
+  // it was reading the LOADING state as well. Both had to go for the row to mean anything.
+  '/docs': 2,
 }
 
 beforeEach(mockBff)
 afterEach(() => {
   vi.restoreAllMocks()
   document.body.replaceChildren()
+  // ⚠ THE SHARED CACHE, WHICH THIS FILE DID NOT CLEAR. App.tsx exports ONE queryClient, so without
+  // this the second address in the loop is served the FIRST one's data. It did not matter while
+  // every response was an identical 404; with the populated fixture it decides the census.
+  queryClient.clear()
 })
 
 describe('a card header is a section title, so it is a heading element', () => {
