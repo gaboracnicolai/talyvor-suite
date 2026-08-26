@@ -13,12 +13,13 @@
 //
 // buildTree/countNodes stay in ./tree.ts, unit-tested, for when this list becomes a tree.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
-import { useState } from 'react'
+import { Button, focusRing } from '@talyvor/ui'
+import { useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { Region, RegionScreen } from '../../components/Region'
 import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
-import { BackButton, Crumbs, spaceCrumbLabel } from './components'
+import { BackButton, Crumbs, spaceCrumbLabel, spaceTitle } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
 
 export function SpaceView() {
@@ -35,6 +36,12 @@ export function SpaceView() {
     enabled: spaceId !== '',
   })
   const [title, setTitle] = useState('')
+  // ⚠ THE EMPTY STATE PERFORMS ITS NEXT ACTION RATHER THAN POINTING AT IT. The copy this replaces
+  // said "Create the first one above" — a spatial word, which names no control, means nothing to a
+  // reader navigating by rotor, and had to be kept true by hand against the space list two clicks
+  // up, whose form is BELOW its list and whose copy therefore said "below". Both screens now hand
+  // the caret to the field instead, which is true from anywhere.
+  const titleRef = useRef<HTMLInputElement | null>(null)
   // ⚠ THE REFUSAL IS OUR STATE, NOT `create.isError`, AND THE RESET BELOW IS WHY. A mutation's
   // error belongs to react-query's observer, which this component cannot clear from render — and
   // render is where the space change has to be answered (see below). Held here, the sentence is
@@ -98,88 +105,153 @@ export function SpaceView() {
     setFailed(false)
   }
 
+  const rows = pages.data ?? []
+  const answered = !pages.isLoading && !pages.isError
+  const empty = answered && rows.length === 0
+
+  /* The way out, and the identifier, in one row — the same shape the Track ticket opens with. */
+  const wayBack = (
+    <div className="flex flex-wrap items-center gap-3">
+      <BackButton to="/docs" />
+      <Crumbs trail={[{ label: 'Spaces', to: '/docs' }, { label: spaceCrumbLabel(space?.name) }]} />
+      <span className="font-mono text-caption text-muted">{spaceId}</span>
+    </div>
+  )
+
   // "Docs is not deployed here" is not "Docs is broken" and neither is "this space is empty".
+  //
+  // ⚠ THE TITLE IS THE SPACE'S NAME IN THIS BRANCH TOO, AND THE STATE CLAIM IS LEFT TO THE CARD.
+  // `DocsUpstreamCard` RE-PROBES the same route and can answer four different ways — including
+  // "Docs is configured on this deployment, but this view does not read it yet". A page-scale
+  // heading saying "Docs is not configured here" would be a second claim about the same probe,
+  // free to contradict it, and this file has already been the place where two sentences about one
+  // fact drifted. The heading says what is certain: which space you are in.
   if (isUnconfigured(pages.error)) {
     return (
-      <div className="mx-auto flex max-w-3xl flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <BackButton to="/docs" />
-          <Crumbs trail={[{ label: 'Spaces', to: '/docs' }, { label: spaceCrumbLabel(space?.name) }]} />
-        </div>
-        <DocsUpstreamCard
-          title={space?.name ?? spaceId}
-          path={`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`}
-          reads="GET /api/docs/spaces/{spaceID}/pages"
-        />
-      </div>
+      <RegionScreen>
+        <Region
+          index="00"
+          label="Space"
+          heading={spaceTitle(space?.name)}
+          sectionClassName="pb-10 pt-4 wide:pb-12"
+          className="max-w-none"
+        >
+          {wayBack}
+        </Region>
+        <Region index="01" label="What is in it">
+          <DocsUpstreamCard
+            title={spaceTitle(space?.name)}
+            path={`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`}
+            reads="GET /api/docs/spaces/{spaceID}/pages"
+          />
+        </Region>
+      </RegionScreen>
     )
   }
 
-  const rows = pages.data ?? []
-
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-3">
-          <BackButton to="/docs" />
-          <Crumbs trail={[{ label: 'Spaces', to: '/docs' }, { label: spaceCrumbLabel(space?.name) }]} />
-        </div>
-      <Card>
-        <CardHeader>{space?.name ?? spaceId}</CardHeader>
-        <div className="flex flex-col gap-4 px-gutter py-4">
-          <form
-            className="flex items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              const t = title.trim()
-              if (!t || create.isPending) return
-              create.mutate(t)
-            }}
-          >
-            <label className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="text-caption text-muted">Page title</span>
-              <input
-                className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="What are you writing?"
-              />
-            </label>
-            <Button type="submit" variant="primary" disabled={create.isPending}>
-              {create.isPending ? 'Creating…' : 'Create page'}
+    <RegionScreen>
+      <Region
+        index="00"
+        label="Space"
+        heading={spaceTitle(space?.name)}
+        sectionClassName="pb-10 pt-4 wide:pb-12"
+        className="max-w-none"
+      >
+        {wayBack}
+        {/* ⚠ THE OPENING REGION CARRIES A BODY ONLY WHEN THERE IS SOMETHING TO SAY, and the branch
+            is a RENDER rather than a `hidden` class — Overview's rule. Copy about an empty space
+            must not sit in the DOM of a full one.
+            ⚠ AND THE TITLE IS NOT A STATE CLAIM ON THIS SCREEN, unlike its sibling two clicks up.
+            There the read IS the subject, so the headline carries loading/empty/off/fault. Here you
+            arrived from a list that ANSWERED, so the space exists and a failed page read says
+            nothing about it; the page count is a fact about the space and belongs beside the pages.
+            One screen's rule copied onto another without asking what its subject is would be the
+            same mistake as one sentence for four causes, in the other direction. */}
+        {empty ? (
+          <>
+            <p className="mt-8 max-w-2xl text-body text-muted">
+              A page is anything worth writing down once and finding again — a runbook, a decision,
+              the thing you explain to every new person.
+            </p>
+            <Button variant="primary" className="mt-8" onClick={() => titleRef.current?.focus()}>
+              Write the first page
             </Button>
-          </form>
+          </>
+        ) : null}
+      </Region>
 
-          {failed ? (
-            <p className="text-caption text-muted">
-              Couldn’t create that page — nothing was saved. Try again.
-            </p>
-          ) : null}
+      <Region index="01" label="What is in it">
+        {pages.isLoading ? (
+          <p className="text-body text-muted">Loading pages…</p>
+        ) : isSessionExpired(pages.error) ? (
+          // Said ONCE at the top of the app — a panel that cannot read for want of a credential
+          // says only that it is unavailable, and the bar explains why.
+          <p className="text-body text-muted">Unavailable.</p>
+        ) : pages.isError ? (
+          <p className="max-w-2xl text-body text-muted">
+            Couldn’t reach Docs, so no pages can be shown. This is a fault, not an empty space.
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="max-w-2xl text-body text-muted">
+            No pages yet. The first title goes in “Add a page” — that is a region label, which is the
+            section&rsquo;s accessible name, so it is a place a rotor can actually go. It lands in
+            your own workspace.
+          </p>
+        ) : (
+          <ul className="flex flex-col">
+            {rows.map((pg) => (
+              <li key={pg.id} className="border-t border-rule py-2 first:border-t-0">
+                <Link
+                  className="text-body text-ink underline underline-offset-2"
+                  to={`/docs/spaces/${spaceId}/pages/${pg.id}`}
+                >
+                  {pg.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Region>
 
-          {pages.isLoading ? (
-            <p className="text-caption text-muted">Loading pages…</p>
-          ) : isSessionExpired(pages.error) ? (
-            <p className="text-caption text-muted">Unavailable.</p>
-          ) : pages.isError ? (
-            <p className="text-caption text-muted">
-              Couldn’t reach Docs, so no pages can be shown. This is a fault, not an empty space.
-            </p>
-          ) : rows.length === 0 ? (
-            <p className="text-caption text-muted">
-              No pages yet. Create the first one above — it lands in your own workspace.
-            </p>
-          ) : (
-            <ul className="flex flex-col">
-              {rows.map((pg) => (
-                <li key={pg.id} className="border-t border-rule py-2 first:border-t-0">
-                  <Link className="text-body text-ink underline" to={`/docs/spaces/${spaceId}/pages/${pg.id}`}>
-                    {pg.title}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </Card>
-    </div>
+      <Region index="02" label="Add a page">
+        <form
+          className="flex items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const t = title.trim()
+            if (!t || create.isPending) return
+            create.mutate(t)
+          }}
+        >
+          <label className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="text-caption text-muted">Page title</span>
+            <input
+              ref={titleRef}
+              className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="What are you writing?"
+            />
+          </label>
+          <Button type="submit" variant="primary" disabled={create.isPending}>
+            {create.isPending ? 'Creating…' : 'Create page'}
+          </Button>
+        </form>
+
+        {/* ⚠ THE FORM IS NOT GATED ON THE PAGE READ, AND THAT IS UNCHANGED RATHER THAN DECIDED HERE.
+            The space LIST gates its create form on its read having succeeded, because a create
+            against an upstream that answered 503 is a button that 502s. This screen already returns
+            early on `isUnconfigured`, so the off case never reaches this form — but a 500 on the
+            PAGE read still leaves it offered. Whether a failed READ should withdraw a WRITE control
+            is a product question, it was the shipped behaviour before this rebuild, and a rebuild
+            is the wrong place to answer it quietly. Recorded, not changed. */}
+        {failed ? (
+          <p className="mt-4 text-body text-muted">
+            Couldn’t create that page — nothing was saved. Try again.
+          </p>
+        ) : null}
+      </Region>
+    </RegionScreen>
   )
 }

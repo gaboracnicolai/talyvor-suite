@@ -118,6 +118,32 @@ export function spaceCrumbLabel(name: string | undefined): string {
 }
 
 /**
+ * spaceTitle — the same rule as `spaceCrumbLabel`, for the TITLE rather than the crumb.
+ *
+ * ⚠ IT EXISTS BECAUSE THE CRUMB'S RULE WAS APPLIED TO THE CRUMB AND NOWHERE ELSE. Two lines below
+ * the crumb, `SpaceView` wrote `space?.name ?? spaceId` as the card header — the exact fallback the
+ * docstring above calls "a control that is pointing somewhere useful and saying nothing about where"
+ * — reached on the same ordinary arrivals: a reload, a shared link, a new tab, a failing spaces read.
+ * W1.1.9a put that string in `text-page`, the largest type the console has, which is what made a
+ * quiet inconsistency worth a function.
+ *
+ * ⚠ IT DEGRADES DIFFERENTLY FROM THE CRUMB, AND THE DIFFERENCE IS THE POINT. A crumb names a
+ * DESTINATION, so an unknown space becomes "Pages" — what you will find there. A title names the
+ * thing you are looking at, and "Pages" would be a lie about that; "This space" says exactly what is
+ * known (you are inside one) and claims nothing that is not. ⚠ THE ID IS NOT DISCARDED: the caller
+ * still renders it as an identifier, in mono at caption size, where a machine string belongs.
+ *
+ * ⚠ NOT YET USED BY `PageView.tsx`, WHICH IS THE OTHER SCREEN WITH A TITLE. Measured at
+ * `6d97481`: PageView titles the PAGE (`page.title`), not the space, and its only `space?.name` is
+ * already routed through `spaceCrumbLabel` — so it has no raw-id title today. W1.1.9b rebuilds it,
+ * and a page whose own title is missing is the same question one level down.
+ */
+export function spaceTitle(name: string | undefined): string {
+  const trimmed = name?.trim()
+  return trimmed ? trimmed : 'This space'
+}
+
+/**
  * BackButton — the explicit way out, beside the breadcrumb rather than instead of it.
  *
  * ⚠ WHY A BUTTON WHEN THE CRUMB LINKS ALREADY WORK. They do work — #73 proved they navigate and
