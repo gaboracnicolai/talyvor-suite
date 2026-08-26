@@ -48,7 +48,7 @@ export type ConvertFailureKind =
  * Every session-expiry mechanism in this app keys on `instanceof ApiError`: `isSessionExpired`,
  * `useSessionExpired`'s scan of the query cache, App.tsx's "a 401 is a verdict, not a flake"
  * retry rule, and the QueryCache.onError gate re-probe. A hand-rolled Error subclass turns all
- * four off without one line of any of them changing — IssueList.tsx:260 recorded that hazard in
+ * four off without one line of any of them changing — IssueList.tsx:282 recorded that hazard in
  * this repo at its third site (#136 a read, #140 a create). The convert QUOTE was the fourth,
  * and the only one that is a `useQuery`: it lands in the very cache the bar subscribes to, so it
  * was the one that could have raised the bar and did not. MEASURED at `3ba7a63`: the app issued

@@ -428,3 +428,74 @@ describe('the sort control offers only orderings the upstream can actually deliv
     expect(desc, `desc reads ${desc.join(' > ')}`).not.toEqual(IMPORTANCE)
   })
 })
+
+/**
+ * W1.1.7 — THE PAGE-SCALE HEADING IS A THIRD PLACE THE THREE STATES CAN COLLAPSE.
+ *
+ * This file's oldest comment already states the rule, about the PANEL: "Track is not deployed
+ * here" (503), "Track is broken" (5xx) and "you have no issues yet" ([]) mean completely different
+ * things to a tester, and laundering any of them into another tells them their work vanished or
+ * that a fault is normal.
+ *
+ * The rebuild added a heading that makes one of those claims in the largest type on the screen, so
+ * it added a new way to get it wrong — and a louder one. `rows.length === 0` is the obvious
+ * predicate and it is WRONG TWICE: it is true while the read is still in flight, and true when the
+ * read FAILED. Hence `answered = !isLoading && !isError`.
+ *
+ * ⚠ THE LOADING CASE IS WHY THIS TEST EXISTS AT ALL. My first probe of the empty state asserted
+ * against the heading as soon as it appeared in the DOM and read the NEUTRAL headline — the
+ * heading renders from the first paint, while `answered` is still false. The screen was right and
+ * the instrument was sampling the wrong moment; a test that waits for the read to ANSWER (here,
+ * for the panel's own sentence) is the one that can tell the two apart.
+ *
+ * Not a sweep, and not a new guard family — three assertions about copy this item introduced.
+ */
+describe('W1.1.7 — the page-scale heading does not collapse the three states', () => {
+  it('a populated tracker says what it is', async () => {
+    fakeBff([issue({ id: 'i1', identifier: 'TAL-1', title: 'A real issue' })])
+    renderList()
+    await screen.findByText('A real issue')
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'Everything this workspace is tracking.',
+    )
+    // exactly one page-scale claim, as on every rebuilt screen
+    expect(document.querySelectorAll('.text-page')).toHaveLength(1)
+  })
+
+  it('an EMPTY tracker says so, and offers the action that fills it', async () => {
+    fakeBff([])
+    renderList()
+    // ⚠ wait for the READ TO ANSWER, not for the heading to exist — see the block comment.
+    // The panel's own sentence is the signal that the query resolved; it carries its next action
+    // too (EmptyStates.test.tsx's rule), so it is matched by prefix rather than exactly.
+    await screen.findByText(/^No issues yet\./)
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'Nothing is being tracked in this workspace yet.',
+    )
+    // The next action is PERFORMED, not described: the button puts the caret in the title field.
+    const cta = screen.getByRole('button', { name: /write the first issue/i })
+    fireEvent.click(cta)
+    await waitFor(() => {
+      expect((document.activeElement as HTMLInputElement | null)?.placeholder).toBe(
+        'What needs doing?',
+      )
+    })
+  })
+
+  it('a FAULT is not an empty tracker — the loudest claim on the screen must not lie', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const json = (v: unknown, status = 200) =>
+        new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } })
+      if (url.startsWith('/api/track/issues')) return json({ error: 'boom' }, 500)
+      return json([])
+    })
+    renderList()
+    await screen.findByText(/This is a fault, not an empty tracker/i)
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'Track can’t be reached, so nothing can be listed.',
+    )
+    // and it must not offer the empty state's invitation over a broken read
+    expect(screen.queryByRole('button', { name: /write the first issue/i })).toBeNull()
+  })
+})

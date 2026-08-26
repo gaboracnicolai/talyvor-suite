@@ -49,7 +49,7 @@
   "src/areas/track/findDuplicates.test.tsx": 11,
   "src/areas/track/format.test.ts": 10,
   "src/areas/track/IssueDetail.test.tsx": 19,
-  "src/areas/track/IssueList.test.tsx": 20,
+  "src/areas/track/IssueList.test.tsx": 23,
   "src/areas/track/issueVocabulary.test.tsx": 32,
   "src/areas/track/meteredCostCensus.test.tsx": 10,
   "src/areas/track/searchIssues.test.tsx": 21,
