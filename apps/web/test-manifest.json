@@ -95,6 +95,7 @@
   "src/formatterReach.test.ts": 8,
   "src/glyphAudit.test.tsx": 30,
   "src/headerReflow.test.tsx": 4,
+  "src/inlineLinkTreatment.test.ts": 6,
   "src/LandmarkCoverage.test.tsx": 26,
   "src/landmarkIds.test.tsx": 11,
   "src/Legal.test.tsx": 25,
