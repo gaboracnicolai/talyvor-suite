@@ -106,7 +106,7 @@ describe('space list (LIVE /api/docs/spaces)', () => {
       new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
     )
     renderAt('/docs')
-    expect(await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
+    expect(await screen.findByText(/^No spaces in this workspace yet\./)).toBeInTheDocument()
   })
 })
 
@@ -167,7 +167,7 @@ describe('a workspace with NO spaces can create its first one', () => {
     mockDocsWithCreate()
     renderAt('/docs')
 
-    expect(await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
+    expect(await screen.findByText(/^No spaces in this workspace yet\./)).toBeInTheDocument()
     // The dead end was: this text, and nothing to click.
     expect(screen.getByRole('button', { name: /create space/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/space name/i)).toBeInTheDocument()
@@ -177,7 +177,7 @@ describe('a workspace with NO spaces can create its first one', () => {
     const { posted } = mockDocsWithCreate()
     renderAt('/docs')
 
-    expect(await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
+    expect(await screen.findByText(/^No spaces in this workspace yet\./)).toBeInTheDocument()
     expect(screen.queryByText('Engineering')).toBeNull()
 
     fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
@@ -185,7 +185,7 @@ describe('a workspace with NO spaces can create its first one', () => {
 
     // ⚠ No re-render, no remount, no second renderAt — the SAME mounted list must show it.
     expect(await screen.findByText('Engineering')).toBeInTheDocument()
-    expect(screen.queryByText(/No spaces in this workspace yet\. Create the first one below/)).toBeNull()
+    expect(screen.queryByText(/^No spaces in this workspace yet\./)).toBeNull()
 
     // ⚠ THE FIELD NAME IS THE SILENT FAILURE. Docs decodes into model.Space; a wrong key is
     // ignored as a zero value, so `name` missing is a 400 the UI can show, but a misspelling
@@ -198,7 +198,7 @@ describe('a workspace with NO spaces can create its first one', () => {
     const { posted } = mockDocsWithCreate()
     renderAt('/docs')
 
-    await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)
+    await screen.findByText(/^No spaces in this workspace yet\./)
     fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
     fireEvent.click(screen.getByRole('button', { name: /create space/i }))
     await screen.findByText('Engineering')
@@ -220,13 +220,13 @@ describe('a workspace with NO spaces can create its first one', () => {
     })
     renderAt('/docs')
 
-    await screen.findByText(/No spaces in this workspace yet\. Create the first one below/)
+    await screen.findByText(/^No spaces in this workspace yet\./)
     fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'Engineering' } })
     fireEvent.click(screen.getByRole('button', { name: /create space/i }))
 
     expect(await screen.findByText(/Couldn’t create that space/)).toBeInTheDocument()
     expect(screen.queryByText('Engineering')).toBeNull()
-    expect(screen.getByText(/No spaces in this workspace yet\. Create the first one below/)).toBeInTheDocument()
+    expect(screen.getByText(/^No spaces in this workspace yet\./)).toBeInTheDocument()
   })
 })
 
@@ -306,7 +306,15 @@ describe('SpaceList captions tell the truth', () => {
   it('renders an unconfigured upstream (503) as off — never as broken, never as live', async () => {
     mockSpaces(503)
     renderAt('/docs')
-    expect(await screen.findByText('Docs is not configured on this BFF deployment.')).toBeInTheDocument()
+    // ⚠ THE OFF SENTENCE IS ONE SENTENCE NOW, AND THIS ASSERTION GOT STRONGER RATHER THAN LOOSER.
+    // The screen used to say it TWICE — "Docs is not configured on this BFF deployment." in the
+    // card body and "The BFF has no Docs upstream wired (its DOCS_* trio is unset) — off, not
+    // broken" in the caption under it — two wordings of one fact, free to drift apart. W1.1.9 kept
+    // the one that names the variables an operator has to set and dropped the paraphrase, and the
+    // claim is now ALSO made in the page-scale heading, which is checked here because it is the
+    // loudest place the off/broken distinction can be got wrong.
+    expect(await screen.findByText(/The BFF has no Docs upstream wired/)).toBeInTheDocument()
+    expect(document.querySelector('.text-page')?.textContent).toBe('Docs is not configured here.')
     expect(screen.queryByText(/Live from the BFF/)).not.toBeInTheDocument()
     expect(screen.queryByText('Couldn’t load spaces.')).not.toBeInTheDocument()
   })
@@ -467,5 +475,97 @@ describe('an explicit Back button, and it lands', () => {
 
     expect(screen.getByRole('button', { name: '‹ Back' })).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: 'Spaces' })).toBeInTheDocument()
+  })
+})
+
+/**
+ * W1.1.9 — THE /docs FRONT DOOR, REBUILT IN THE PRODUCT'S OWN LANGUAGE.
+ *
+ * Everything above this line is about what Docs RECORDS and what this screen may CLAIM, and none
+ * of it changes. These are about the screen: one idea per region, a page-scale heading that opens
+ * it, and — the half that is not decoration — a heading that cannot say the wrong thing in the
+ * largest type on the page.
+ *
+ * ⚠ THIS SCREEN HAS FOUR STATES AND ITS OLD HEADER HAD ONE WORD. The card said "Spaces" in every
+ * one of them: loading, off (the 503/404 the BFF answers when DOCS_* is unset), a real failure,
+ * and a workspace with spaces in it. That was safe because "Spaces" claims nothing — and it is
+ * also why the screen said nothing. A page-scale heading is a CLAIM, so adding one adds four ways
+ * to be wrong, and `spaces.length === 0` is the obvious predicate for the emptiest of them and is
+ * wrong twice: true while the read is in flight, and true when the read failed.
+ *
+ * ⚠ THE OFF STATE IS NOT A FAULT AND MUST NOT BE ONE. This area's oldest comment already says it —
+ * a 503 is "off, not broken" — and the screen carries the distinction in a caption. The heading
+ * now carries it too, which is the loudest place it has ever been said.
+ */
+describe('W1.1.9 — the space list reads as one screen, in regions', () => {
+  function regions() {
+    return Array.from(document.querySelectorAll('[data-testid="region-label"]')).map((el) => ({
+      index: el.querySelector('[data-testid="region-index"]')?.textContent ?? '',
+      label: el.lastElementChild?.textContent ?? '',
+    }))
+  }
+
+  it('a workspace with spaces is four named regions, one idea each', async () => {
+    mockSpaces()
+    renderAt('/docs')
+    await screen.findByText('Engineering')
+    expect(regions()).toEqual([
+      { index: '00', label: 'Spaces' },
+      { index: '01', label: 'What this workspace has' },
+      { index: '02', label: 'Start a space' },
+      { index: '03', label: 'Ask across the workspace' },
+    ])
+  })
+
+  it('makes exactly one page-scale claim, and it says what the screen is', async () => {
+    mockSpaces()
+    renderAt('/docs')
+    await screen.findByText('Engineering')
+    expect(document.querySelectorAll('.text-page')).toHaveLength(1)
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'Everything this workspace has written down.',
+    )
+  })
+
+  it('an EMPTY workspace says so, and the way in is PERFORMED rather than pointed at', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    )
+    renderAt('/docs')
+    // ⚠ wait for the READ TO ANSWER, not for the heading to exist: the heading renders from the
+    // first paint while `answered` is still false, so an instrument that samples too early reads
+    // the neutral headline and calls the screen broken. W1.1.7 paid for that lesson.
+    await screen.findByText(/^No spaces in this workspace yet\./)
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'Nothing is written down in this workspace yet.',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Name the first space' }))
+    expect((document.activeElement as HTMLInputElement | null)?.placeholder).toBe('Engineering')
+  })
+
+  it('an unconfigured Docs reads as OFF in the heading, never as a failure', async () => {
+    mockSpaces(503)
+    renderAt('/docs')
+    await screen.findByText(/no Docs upstream wired/)
+    expect(document.querySelector('.text-page')?.textContent).toBe('Docs is not configured here.')
+    expect(screen.queryByText(/can’t be reached/i)).toBeNull()
+    // Off is not empty either: a screen that offered "create the first space" against an upstream
+    // that cannot take one would be a button that answers 503.
+    expect(screen.queryByRole('button', { name: 'Name the first space' })).toBeNull()
+    expect(regions()).toEqual([
+      { index: '00', label: 'Spaces' },
+      { index: '01', label: 'What this workspace has' },
+    ])
+  })
+
+  it('a FAULT is not an empty workspace — the loudest claim on the screen must not lie', async () => {
+    mockSpaces(500)
+    renderAt('/docs')
+    await screen.findByText('Couldn’t load spaces.')
+    expect(document.querySelector('.text-page')?.textContent).toBe(
+      'Docs can’t be reached, so nothing can be listed.',
+    )
+    expect(screen.queryByText(/Nothing is written down/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Name the first space' })).toBeNull()
   })
 })

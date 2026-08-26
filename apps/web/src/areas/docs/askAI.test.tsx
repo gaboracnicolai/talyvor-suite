@@ -217,7 +217,12 @@ describe('the control is only offered where it can work', () => {
       ),
     )
     renderAsk(<SpaceList />)
-    await waitFor(() => expect(screen.getByText(/Docs is not configured on this BFF/)).toBeTruthy())
+    // ⚠ THE OFF SENTENCE MOVED IN W1.1.9 AND THIS IS THE SAME SIGNAL, NOT A WEAKER ONE. The
+    // screen said the off state twice — a card body and a caption, two wordings of one fact —
+    // and now says it once, in the sentence that names the variables an operator has to set.
+    // What this test needs is a witness that the OFF state rendered before it asserts the ask
+    // control is absent; without one it would pass on a screen that rendered nothing at all.
+    await waitFor(() => expect(screen.getByText(/The BFF has no Docs upstream wired/)).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull()
   })
 })

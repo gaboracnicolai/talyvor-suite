@@ -123,7 +123,16 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/members': 1,
   '/settings': 2,
   '/track': 2,
-  '/docs': 1,
+  // 0, not 1: W1.1.9 rebuilt the `/docs` front door as REGIONS, so the one card header this
+  // address had — the "Spaces" card the whole screen sat inside — became a named landmark whose
+  // accessible name is the region's eyebrow. ⚠ THE OTHER TWO CARDS AT THIS ADDRESS (AskAI,
+  // SearchDocs) ARE NOT COUNTED HERE AND NEVER WERE, and the reason is worth writing down because
+  // it makes this row look wrong: both are gated on the spaces read SUCCEEDING, and this file's
+  // fixture answers 404 to everything, so the census has always measured the OFF state of /docs.
+  // A row of 0 therefore means "the off state of this screen has no cards", not "this screen has
+  // no cards". The total across all twelve is 25 (it was 26 before this merge); the floor below
+  // is 15.
+  '/docs': 0,
 }
 
 beforeEach(mockBff)
