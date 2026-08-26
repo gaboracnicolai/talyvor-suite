@@ -78,8 +78,14 @@ def gotest():
 # (label, [(path, anchor, replacement), ...], predicted_nonempty)
 MUTATIONS = [
     ("K1  WRITE route via a const", [(LENS, KEYS_MOUNT, CONST_MOUNT)], True),
+    # ⚠ K2's FIRST CUT SCORED VOID AND IS RECORDED RATHER THAN QUIETLY REPAIRED. The injected
+    # function was anchored on "package main\n", which puts it ABOVE the import block:
+    # "syntax error: imports must appear before other declarations". The harness scored it VOID
+    # (build failed) instead of NOT CAUGHT — which is the whole reason a build failure must never
+    # be read as a verdict. Re-anchored on the last function in the file.
     ("K2  route mounted in ANOTHER FILE", [
-        (TRACK, "package main\n", 'package main\n\nfunc (a *app) w17ControlMount() {\n\ta.mux.HandleFunc("/api/shadow3", a.requireTenant(a.handleKeys))\n}\n')], True),
+        (TRACK, "func (a *app) trackUpdateIssue() http.HandlerFunc {",
+         'func (a *app) w17ControlMount() {\n\ta.mux.HandleFunc("/api/shadow3", a.requireTenant(a.handleKeys))\n}\n\nfunc (a *app) trackUpdateIssue() http.HandlerFunc {')], True),
     ("K3  route on a DIFFERENT RECEIVER", [(LENS, KEYS_MOUNT, RECEIVER_MOUNT)], True),
     ("K4  COMPOUND: refusal -> silent skip, WITH K1", [
         (SAME, REFUSAL, SILENT_SKIP), (LENS, KEYS_MOUNT, CONST_MOUNT)], False),
