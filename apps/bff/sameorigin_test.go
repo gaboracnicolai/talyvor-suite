@@ -289,6 +289,29 @@ var notSweptWrite = map[string]string{
 	"/api/admin/keel/findings":       "operator read surface, adminNotWired — see the note above",
 	"/api/admin/held-mints":          "operator read surface, adminNotWired — see the note above",
 	"/api/admin/distill/attribution": "operator read surface, adminNotWired — see the note above",
+
+	// ⚠ THE STREAM LANE IS SWEPT, JUST NOT BY THIS TABLE, AND THE REASON IS MECHANICAL RATHER THAN
+	// A JUDGEMENT ABOUT RISK — it is the most expensive write on this BFF (a caller-chosen model on
+	// a caller-chosen prompt, billed to the workspace).
+	//
+	// TWO THINGS STOP IT GOING THROUGH everyMutatingRoute(). First, routeShape normalises only the
+	// fixed id tokens (x1|s1|p1|i1|abc), so it cannot express a MULTI-SEGMENT wildcard: the
+	// completeness probe turns the pattern into /api/ai/stream/x1/x1 while any usable row must name
+	// a real provider and a real upstream path, and the two shapes can never match. Second — and
+	// this is the trap this table has already fallen into once — the handler refuses an unknown
+	// provider with 400 BEFORE the Origin rule is consulted, so a row built from the probe path
+	// would be swept for a refusal it produces entirely by itself.
+	//
+	// It is swept directly instead, in BOTH directions, by stream_test.go:
+	//   · TestStream_ForeignOriginIsRefused — a foreign Origin gets 403 AND the upstream records
+	//     zero calls, so the refusal is before the spend and not after it.
+	//   · TestStream_UsesANarrowSessionKeyNotTheWorkspaceSessionToken — the same request with the
+	//     app's own Origin ARRIVES upstream, which is what stops the line above passing against a
+	//     route that refuses everything.
+	"/api/ai/stream/{provider}/{rest...}": "streaming inference; swept directly by TestStream_ForeignOriginIsRefused " +
+		"(refusal, upstream untouched) and TestStream_UsesANarrowSessionKeyNotTheWorkspaceSessionToken (same-origin " +
+		"arrival). It cannot go through this table: routeShape cannot express {rest...}, and the handler's own " +
+		"unknown-provider 400 precedes the Origin rule, so a probe-shaped row would sweep nothing.",
 }
 
 // mountedPatterns reads every pattern the router actually mounts out of lens.go, so the population

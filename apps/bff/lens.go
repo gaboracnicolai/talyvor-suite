@@ -28,14 +28,27 @@ type app struct {
 	// tenant comes from a session and these are never touched.
 	devMu     sync.Mutex
 	devCached tenant
+
+	// streamClient serves the SSE relay ONLY, and it deliberately has no http.Client.Timeout —
+	// that field bounds reading the body, so it truncates every completion longer than it. See
+	// stream.go. `client` keeps its 10s whole-exchange bound, which is right for the JSON reads it
+	// serves and wrong for a stream.
+	streamClient *http.Client
+
+	// sessionKeys caches the narrow {proxy} Lens credential per session (talyvor-lens #460), so a
+	// chat message does not cost a mint round-trip and a database write upstream.
+	skMu        sync.Mutex
+	sessionKeys map[string]sessionKeyLease
 }
 
 func newApp(cfg config, auth *authenticator) *app {
 	a := &app{
-		cfg:    cfg,
-		auth:   auth,
-		mux:    http.NewServeMux(),
-		client: &http.Client{Timeout: 10 * time.Second},
+		cfg:          cfg,
+		auth:         auth,
+		mux:          http.NewServeMux(),
+		client:       &http.Client{Timeout: 10 * time.Second},
+		streamClient: newStreamClient(),
+		sessionKeys:  map[string]sessionKeyLease{},
 	}
 
 	// The auth surface. Registered in every mode: in disabled mode the login
@@ -186,6 +199,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/admin/keel/findings", a.requireOperator(a.adminNotWired))
 	a.mux.HandleFunc("/api/admin/held-mints", a.requireOperator(a.adminNotWired))
 	a.mux.HandleFunc("/api/admin/distill/attribution", a.requireOperator(a.adminNotWired))
+
+	// W4.6.1 step 3 — STREAMING inference to the browser. Its own handler rather than `forward`
+	// because forward is GET-only, sets Accept: application/json, io.Copy's without a Flush, and
+	// runs on a client whose 10s whole-exchange Timeout truncates body reads. {provider} is a
+	// closed allowlist checked before any upstream call.
+	a.mux.HandleFunc("/api/ai/stream/{provider}/{rest...}", a.handleAIStream())
 
 	a.mux.HandleFunc("/api/keys", a.requireTenant(a.handleKeys))
 	// Revoke. A separate id-route rather than a DELETE on the collection: the collection has no
