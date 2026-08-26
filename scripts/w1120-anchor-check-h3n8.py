@@ -46,6 +46,8 @@ class Extractor(ast.NodeVisitor):
         self.consts: dict[str, str] = {}
         self.triples: list[tuple[str, str, int | None]] = []
         self.rejected: list[tuple[str, str, str]] = []
+        self.ambiguous = 0
+        self._seen: set[tuple[str, str, int | None]] = set()
         self.src = src
         self.home = home
 
@@ -122,7 +124,40 @@ class Extractor(ast.NodeVisitor):
         if self.SENTINEL.match(anchor):
             self.rejected.append((path, anchor, "harness directive, not spliced text"))
             return
+        # ⚠ DEDUPE. The specific shapes and the after-the-path rule both find most pairs, and
+        # without this the same stale anchor is REPORTED TWICE — 10 real misses read as 21, which
+        # overstates the finding and would have been read as the widening discovering more.
+        if (path, anchor, count) in self._seen:
+            return
+        self._seen.add((path, anchor, count))
         self.triples.append((path, anchor, count))
+
+    def _after_the_path(self, elts: list[ast.AST]) -> None:
+        """THE ONE RULE THAT COVERS EVERY DSL HERE: the anchor is the element right after the one
+        that names a file.
+
+        Measured across the harnesses, not assumed: `Edit(FILE, old, new)`, `(FILE, old, new, n)`,
+        `file=…, old=…`, and `Control("C1", "desc", APP, HEADING_LINE, replacement, message)` all
+        put the anchor immediately after the path. ⚠ AND THE LOOSER RULE IS WRONG: pairing the path
+        with EVERY string in the node would take the description, the REPLACEMENT and the expected
+        message too — and a replacement is by definition text that is NOT in the file, so each one
+        would be reported as a miss forever.
+
+        ⚠ EXACTLY ONE path per node, or nothing. Two paths in one node is a (target, companion)
+        pair, and reading those as (file, anchor) is what made 29 of the first 31 reported misses
+        false — asking whether Overview.test.tsx contains the string "src/glyphAudit.test.tsx".
+        """
+        hits = [i for i, e in enumerate(elts)
+                if (v := self._str(e)) and resolve(v, self.home) is not None]
+        if len(hits) != 1:
+            if len(hits) > 1:
+                self.ambiguous += 1
+            return
+        i = hits[0]
+        if i + 1 >= len(elts):
+            return
+        self._record(self._str(elts[i]), self._str(elts[i + 1]),
+                     self._num(elts[i + 2]) if i + 2 < len(elts) else None)
 
     def visit_Call(self, node: ast.Call) -> None:
         kw = {k.arg: k.value for k in node.keywords if k.arg}
@@ -134,6 +169,7 @@ class Extractor(ast.NodeVisitor):
         if len(node.args) >= 2:
             self._record(self._str(node.args[0]), self._str(node.args[1]),
                          self._num(node.args[2]) if len(node.args) > 2 else None)
+        self._after_the_path(list(node.args))
         self.generic_visit(node)
 
     def visit_Tuple(self, node: ast.Tuple) -> None:
@@ -148,6 +184,7 @@ class Extractor(ast.NodeVisitor):
                                  self._num(inner.elts[1]) if len(inner.elts) > 1 else None)
             self.generic_visit(node)
             return
+        self._after_the_path(list(node.elts))
         if len(node.elts) >= 2:
             p, a = self._str(node.elts[0]), self._str(node.elts[1])
             n = self._num(node.elts[2]) if len(node.elts) > 2 else None
@@ -209,6 +246,7 @@ def main() -> int:
     misses: list[str] = []
     checked = 0
     rejected: dict[str, int] = {}
+    ambiguous = 0
 
     for h in harnesses():
         rel = str(h.relative_to(ROOT))
@@ -220,6 +258,7 @@ def main() -> int:
             unreadable.append(f"{rel}: does not parse ({e})")
             continue
 
+        ambiguous += ex.ambiguous
         for _p, _a, why in ex.rejected:
             rejected[why] = rejected.get(why, 0) + 1
         # only triples whose PATH resolves to a real file are anchors this check can decide
@@ -244,6 +283,11 @@ def main() -> int:
     # rule is how a checker goes quietly blind, so the count is on the face of every run.
     for why, n in sorted(rejected.items()):
         print(f"  candidates rejected — {why}: {n}")
+    if ambiguous:
+        # ⚠ COUNTED OUT LOUD. These are nodes naming TWO OR MORE files, where "the element after
+        # the path" has no single answer. Skipping them is right; skipping them SILENTLY is how a
+        # checker's reach quietly shrinks while its output keeps looking the same.
+        print(f"  nodes skipped — more than one file named, no unambiguous anchor: {ambiguous}")
     print()
     if unreadable:
         print(f"⚠ THE CHECKER COULD NOT READ {len(unreadable)} HARNESS(ES). Each is a harness this")
