@@ -326,7 +326,7 @@ describe('the addresses below the console still have exactly one top-level headi
  * directories, and that is asserted rather than assumed.
  */
 const WEB_SRC = resolve(__dirname)
-const CONSOLE_AREAS = ['areas/lens', 'areas/track', 'areas/docs'] as const
+const CONSOLE_AREAS = ['areas/lens', 'areas/track', 'areas/docs', 'areas/chat'] as const
 /** Renders OUTSIDE the shell, so its `<h1>`s are correct — the census's positive control. */
 const OUTSIDE_THE_SHELL = 'areas/auth'
 

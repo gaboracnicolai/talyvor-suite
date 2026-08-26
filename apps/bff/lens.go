@@ -206,6 +206,23 @@ func newApp(cfg config, auth *authenticator) *app {
 	// closed allowlist checked before any upstream call.
 	a.mux.HandleFunc("/api/ai/stream/{provider}/{rest...}", a.handleAIStream())
 
+	// W4.6.1 step 6 — THE MODEL CATALOG, so the chat screen can offer what this DEPLOYMENT serves
+	// rather than a list someone typed into the front end.
+	//
+	// ⚠ THE ALTERNATIVE WAS A HARDCODED LIST AND IT IS THE FAILURE MODE THIS PROJECT KEEPS FINDING:
+	// a front end that documents a set the server does not have. Lens's `/v1/catalog/models` is the
+	// declared single source of truth for provider, pricing, capabilities and context, and it is
+	// read-only introspection — its own comment says pricing should be "transparent, not hidden".
+	//
+	// ⚠ AND THE SCREEN DOES NOT SHOW ALL OF IT. Lens's STREAMING dispatch is
+	// `if provider == "openai" { ServeOpenAI } else { ServeAnthropic }`, so a model whose provider
+	// is neither would be streamed through a parser written for a different wire format. The
+	// narrowing is done in the browser, next to the parser whose limits cause it, and it is stated
+	// on screen. This route passes the catalog through UNFILTERED — a proxy that quietly returned a
+	// subset would make the deployment's real catalog unreadable from here, and the next surface
+	// that wants it (pricing, tiers) would inherit a filter it never asked for.
+	a.mux.HandleFunc("/api/models", a.proxyFixed("/v1/catalog/models"))
+
 	a.mux.HandleFunc("/api/keys", a.requireTenant(a.handleKeys))
 	// Revoke. A separate id-route rather than a DELETE on the collection: the collection has no
 	// meaning to delete, and ServeMux prefers the more specific pattern, so /api/keys keeps its

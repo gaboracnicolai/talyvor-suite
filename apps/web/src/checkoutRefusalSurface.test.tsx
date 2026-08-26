@@ -56,7 +56,7 @@ import { PENDING_TOPUP_KEY } from './areas/lens/topupApi'
 // ⚠ AND NO BAR COVERS FOR IT. Measured false above: a fetch rejection carries no status, so
 // `isSessionExpired` (ApiError + 401) is false, and the mutation error never reaches the query
 // cache that SessionExpiredBar derives from. The App's only global handler is
-// `QueryCache.onError` (App.tsx:44) — queries, not mutations.
+// `QueryCache.onError` (App.tsx:45) — queries, not mutations.
 //
 // THE FIX SAYS NOTHING NEW. The fallback is the sentence topupApi.ts already raises for an
 // answer it cannot use (`'upstream'`, topupApi.ts:203): "Couldn't start the payment — nothing
