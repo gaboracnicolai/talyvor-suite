@@ -400,7 +400,11 @@ func boolPtr(b bool) *bool { return &b }
 // startOIDCBFF builds an oidc-mode BFF whose public base URL IS its TLS URL,
 // backed by fake Lens + fake IdP. Returns the app (for store seeding), the TLS
 // server, and a jar-carrying client that does NOT follow redirects.
-func startOIDCBFF(t *testing.T, idp *fakeIDP, gotAuth *string, mutate func(*config)) (*app, *httptest.Server, *http.Client) {
+// ⚠ THE `log` PARAMETER IS VARIADIC SO THE SEVENTEEN EXISTING CALLERS ARE UNTOUCHED. Only the
+// sweep needs per-request detail; widening the signature for everyone would edit seventeen call
+// sites to add a recorder sixteen of them ignore, and every one of those edits is a chance to
+// pass the wrong thing to a fixture that then looks instrumented.
+func startOIDCBFF(t *testing.T, idp *fakeIDP, gotAuth *string, mutate func(*config), log ...*upstreamLog) (*app, *httptest.Server, *http.Client) {
 	t.Helper()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == provisionPath {
@@ -409,6 +413,11 @@ func startOIDCBFF(t *testing.T, idp *fakeIDP, gotAuth *string, mutate func(*conf
 		}
 		if gotAuth != nil {
 			*gotAuth = r.Header.Get("Authorization")
+		}
+		for _, l := range log {
+			if l != nil {
+				l.hits = append(l.hits, upstreamHit{path: r.URL.Path, auth: r.Header.Get("Authorization")})
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"path":"`+r.URL.Path+`","query":"`+r.URL.RawQuery+`"}`)
@@ -1016,10 +1025,22 @@ func TestAuthEndpointsInDisabledMode(t *testing.T) {
 // TestKeyNeverReachesResponseOIDC extends THE inc2 assertion across the auth
 // surface: with a live session, no /api or /auth response — body or header —
 // ever contains the workspace key.
+//
+// ⚠⚠ AND ITS FLIP SIDE HAD THE SAME POSITIONAL DEFECT AS ITS SIBLING IN bff_test.go — ONE CHECK
+// AFTER THE LOOP, AGAINST A SINGLE STRING EVERY ENDPOINT OVERWROTE. MEASURED at `49fd5f2`, with
+// `doGet` changed to attach the credential ONLY on `/v1/bonds` (the last of the SIX that reach
+// Lens here): **this test PASSED**. Five proxying routes sent no key and the assertion was
+// satisfied by the sixth. Its own message said "upstream NEVER received a bearer credential",
+// which is the giveaway once seen: it only ever asserted that AT LEAST ONE request carried one.
+//
+// ⚠ FIXED IN THE SAME MERGE AS THE SIBLING, DELIBERATELY. This repository's recurring shape is
+// "the fix applied where the defect was reported and the identical shape one element over never
+// swept for" — W1.1.9a's record names it in those words. Two instances, one finding, one merge.
 func TestKeyNeverReachesResponseOIDC(t *testing.T) {
 	idp := newFakeIDP(t)
 	var gotAuth string
-	a, ts, client := startOIDCBFF(t, idp, &gotAuth, nil)
+	log := &upstreamLog{}
+	a, ts, client := startOIDCBFF(t, idp, &gotAuth, nil, log)
 
 	h := loginHops(t, ts, client, "/")
 	sweep := func(name string, resp *http.Response, body string) {
@@ -1031,15 +1052,56 @@ func TestKeyNeverReachesResponseOIDC(t *testing.T) {
 	sweep("login", h.login, h.loginBody)
 	sweep("callback", h.callback, h.cbBody)
 
+	// Which of these reach Lens, MEASURED and pinned — the same reason bff_test.go's
+	// KEY_SWEEP_PROXIES is pinned: /api/context is answered locally and /auth/me is the BFF's own
+	// session read, so "a credential everywhere" is false, and "assert only where one arrived"
+	// would let a route that stopped proxying drop silently out of the assertion.
+	oidcProxies := map[string]bool{
+		"/api/context":                         false,
+		"/api/lxc/balance":                     true,
+		"/api/tokens/balance":                  true,
+		"/api/tokens/history?limit=5&offset=0": true,
+		"/api/lxc/history?limit=5&offset=0":    true,
+		"/api/workspaces":                      true,
+		"/api/bonds":                           true,
+		"/auth/me":                             false,
+	}
+	measured := map[string]bool{}
 	for _, ep := range []string{
 		"/api/context", "/api/lxc/balance", "/api/tokens/balance",
 		"/api/tokens/history?limit=5&offset=0", "/api/lxc/history?limit=5&offset=0",
 		"/api/workspaces", "/api/bonds", "/auth/me",
 	} {
+		before := len(log.hits)
 		resp, body := doReq(t, client, http.MethodGet, ts.URL+ep)
 		sweep(ep, resp, body)
+
+		hits := log.hits[before:]
+		measured[ep] = len(hits) > 0
+		for _, hit := range hits {
+			if !strings.HasPrefix(hit.auth, "Bearer ") || hit.auth == "Bearer " {
+				t.Errorf("%s → upstream %s received Authorization %q: with a live OIDC session "+
+					"the proxy did not attach the workspace token server-side for this route",
+					ep, hit.path, hit.auth)
+			}
+		}
 	}
-	if !strings.HasPrefix(gotAuth, "Bearer ") || gotAuth == "Bearer " {
-		t.Fatalf("upstream never received a bearer credential: %q", gotAuth)
+
+	for ep, want := range oidcProxies {
+		if measured[ep] != want {
+			t.Errorf("%s: proxied to Lens = %v, the pinned table says %v — one of the two is "+
+				"stale. A route that stops proxying loses its credential assertion silently.",
+				ep, measured[ep], want)
+		}
+	}
+	proxying := 0
+	for _, ok := range measured {
+		if ok {
+			proxying++
+		}
+	}
+	if proxying < 3 {
+		t.Fatalf("only %d swept endpoints reached the upstream — the credential assertions above "+
+			"are close to vacuous", proxying)
 	}
 }

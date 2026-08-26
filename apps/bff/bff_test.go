@@ -47,6 +47,73 @@ func newTestApp(t *testing.T, gotAuth *string) *app {
 	}, nil)
 }
 
+// upstreamHit is one request the fake Lens received, excluding the provisioning call.
+//
+// ⚠ IT RECORDS THE HIT SEPARATELY FROM THE CREDENTIAL, and that separation is the whole point.
+// The single `gotAuth string` this replaces could not distinguish "this endpoint never reached
+// the upstream" from "it reached the upstream carrying nothing" — both leave the variable empty —
+// which is precisely the confusion the sweep below exists to refuse.
+type upstreamHit struct {
+	path string
+	auth string
+}
+
+// upstreamLog is the ordered record of what the fake Lens was sent.
+type upstreamLog struct{ hits []upstreamHit }
+
+// newTestAppLogging is newTestApp with a per-request record instead of a single overwritten
+// string. Added ALONGSIDE newTestApp rather than replacing it: that helper has nineteen callers
+// and only the sweeps need per-request detail.
+func newTestAppLogging(t *testing.T, log *upstreamLog) *app {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		log.hits = append(log.hits, upstreamHit{path: r.URL.Path, auth: r.Header.Get("Authorization")})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"path":"`+r.URL.Path+`","query":"`+r.URL.RawQuery+`"}`)
+	}))
+	t.Cleanup(upstream.Close)
+	return newApp(config{
+		addr:            "127.0.0.1:0",
+		lensBaseURL:     upstream.URL,
+		provisionSecret: testProvisionSecret,
+		webDist:         t.TempDir(),
+		authMode:        authModeDisabled,
+	}, nil)
+}
+
+// KEY_SWEEP_PROXIES is which of the swept endpoints actually reach Lens, MEASURED and pinned.
+//
+// ⚠ IT IS PINNED BECAUSE "every endpoint sent a key" IS FALSE OF THIS LIST AND ALWAYS WAS. Four
+// of the fourteen never reach the upstream at all: /api/context is answered locally, /api/members
+// is not a Lens read, and /api/track/workspaces and /api/docs/spaces 503 in disabled mode because
+// their upstreams are unconfigured. A flip-side assertion that simply required a credential
+// everywhere would fail on those four, and the obvious repair — "assert only where one arrived" —
+// is the original defect in a new place: an endpoint that silently stopped proxying would drop
+// out of the assertion instead of failing it.
+//
+// So the SET is the assertion. It is compared, and the failure prints what was measured, the same
+// idiom apps/web's CARD_HEADER_CENSUS uses: a route that stops proxying, or starts, is loud.
+var KEY_SWEEP_PROXIES = map[string]bool{
+	"/api/context":                         false,
+	"/api/lxc/balance":                     true,
+	"/api/tokens/balance":                  true,
+	"/api/tokens/history?limit=5&offset=0": true,
+	"/api/lxc/history?limit=5&offset=0":    true,
+	"/api/workspaces":                      true,
+	"/api/bonds":                           true,
+	"/api/track/workspaces":                false,
+	"/api/docs/spaces":                     false,
+	"/api/keys":                            true,
+	"/api/lxc/topup-options":               true,
+	"/api/spend/month":                     true,
+	"/api/members":                         false,
+	"/api/usage?days=7":                    true,
+}
+
 // TestKeyNeverReachesResponse is THE assertion of this increment: the Lens key is attached
 // to the upstream request server-side, and never appears in the response the browser would
 // receive (body or headers), for the routes listed below — plus the flip side, that the
@@ -60,9 +127,26 @@ func newTestApp(t *testing.T, gotAuth *string) *app {
 // held by TestLeakSweep_CoversEveryMountedGETRoute in leaksweep_population_test.go, which takes
 // its population FROM mountedPatterns() and therefore cannot go stale as this list did. This
 // list stays as the named-route sweep it always was.
+//
+// ⚠⚠ AND THE FLIP SIDE USED TO BE ONE CHECK AFTER THE LOOP, AGAINST A SINGLE STRING EVERY
+// ENDPOINT OVERWROTE — so it was a claim about whichever endpoint happened to proxy LAST, and
+// silent about the other thirteen. MEASURED at `49fd5f2`, with `doGet` changed to attach the
+// credential ONLY on `/v1/api/usage` (the last of the ten that reach Lens): **this test PASSED**.
+// Nine proxying routes sent no key at all and the assertion whose whole purpose is to prove the
+// proxy attaches it server-side was satisfied by the tenth.
+//
+// ⚠ THE WIDER SUITE DID CATCH THAT ONE, AND ONLY BY LUCK OF COVERAGE: `workspaces_test.go:55`
+// asserts the flip side for `/api/workspaces` SPECIFICALLY, and says so in its own comment. So
+// the repository was not blind — but the sweep that names FOURTEEN routes was holding ONE, and
+// which one depended on evaluation order rather than on anything anybody chose.
+//
+// The flip side is now asserted PER ENDPOINT, against a per-request log rather than a single
+// overwritten string, and the set of endpoints that proxy at all is itself pinned — see
+// KEY_SWEEP_PROXIES for why "assert only where a credential arrived" would have been the same
+// defect wearing a different shape.
 func TestKeyNeverReachesResponse(t *testing.T) {
-	var gotAuth string
-	a := newTestApp(t, &gotAuth)
+	log := &upstreamLog{}
+	a := newTestAppLogging(t, log)
 
 	endpoints := []string{
 		"/api/context",
@@ -80,7 +164,9 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		"/api/members",
 		"/api/usage?days=7", // the cache panel's read — swept like every other key-bearing route
 	}
+	measured := map[string]bool{}
 	for _, ep := range endpoints {
+		before := len(log.hits)
 		rec := httptest.NewRecorder()
 		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, ep, nil))
 
@@ -88,12 +174,52 @@ func TestKeyNeverReachesResponse(t *testing.T) {
 		// This used to search for `testKey`/"tlv_ws_", neither of which any fixture in this
 		// package installs — see secretleak_test.go for the measurement.
 		assertNoSecretLeak(t, ep, a.cfg, rec.Body.String(), rec.Header())
+
+		// The flip side, FOR THIS ENDPOINT: every upstream request this route made must carry
+		// the session's bearer token. `t.Errorf` rather than `Fatalf` so one broken route does
+		// not hide the state of the rest — the old single check stopped at the first failure it
+		// could see, which was never more than one.
+		hits := log.hits[before:]
+		measured[ep] = len(hits) > 0
+		for _, h := range hits {
+			if !strings.HasPrefix(h.auth, "Bearer ") || h.auth == "Bearer " {
+				t.Errorf("%s → upstream %s received Authorization %q: the proxy did not attach "+
+					"the session's workspace token server-side for this route", ep, h.path, h.auth)
+			}
+		}
 	}
 
-	// And the flip side: the upstream MUST have received the key — proving the proxy is
-	// actually attaching it server-side, not simply dropping it.
-	if !strings.HasPrefix(gotAuth, "Bearer ") || gotAuth == "Bearer " {
-		t.Fatalf("upstream did not receive the key server-side: got %q", gotAuth)
+	// ⚠ AND WHICH ENDPOINTS PROXY AT ALL IS ASSERTED, NOT INFERRED. Without this, a route that
+	// stopped reaching Lens would simply contribute no hits and drop silently out of the loop
+	// above — the sweep would go on passing while covering one route fewer, which is the exact
+	// shape of the defect this test was rewritten to remove.
+	for _, ep := range endpoints {
+		want, declared := KEY_SWEEP_PROXIES[ep]
+		if !declared {
+			t.Errorf("%s is swept but absent from KEY_SWEEP_PROXIES — measured proxying=%v; add "+
+				"it with the measured value", ep, measured[ep])
+			continue
+		}
+		if measured[ep] != want {
+			t.Errorf("%s: proxied to Lens = %v, KEY_SWEEP_PROXIES says %v. One of the two is "+
+				"stale — re-derive, do not guess. A route that stopped proxying loses its "+
+				"credential assertion silently; one that started has never had it.",
+				ep, measured[ep], want)
+		}
+	}
+
+	// The floor: the sweep must actually have exercised the proxy. If routing changed such that
+	// NOTHING reached Lens, every per-endpoint check above would be vacuously satisfied and the
+	// census would only be comparing two tables of `false`.
+	proxying := 0
+	for _, ok := range measured {
+		if ok {
+			proxying++
+		}
+	}
+	if proxying < 5 {
+		t.Fatalf("only %d of %d swept endpoints reached the upstream at all — the credential "+
+			"assertions above are close to vacuous", proxying, len(endpoints))
 	}
 }
 
