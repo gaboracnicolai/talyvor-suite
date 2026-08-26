@@ -352,6 +352,55 @@ describe('a brand-new workspace with zero data', () => {
     expect(link).toHaveAttribute('href', '/setup')
   })
 
+  /**
+   * ⚠ MOTION, ON THE SCREEN W1.1.0 NAMES AS THE PROOF — and measured on the DOM, because the
+   * interesting failure is an element that has no state to change rather than one whose change is
+   * untweened.
+   *
+   * MEASURED on this screen before the change: `transition-*`, `duration-*` and `active:scale-98`
+   * occur ZERO times in Overview.tsx. Its `<Button>`s move (Button.tsx carries the press and the
+   * 200ms colour tween), so what was still, exactly, were the two `<Link>`s the screen writes
+   * itself — both in EMPTY STATES, which is the first screen a new workspace ever sees.
+   *
+   * ⚠ motion.test.tsx COULD NOT SEE THIS AND IS NOT WRONG. Its rule is "every state-driven change
+   * of a tweenable property is tweened": a link with no `hover:` at all has no state change, so it
+   * passes that rule by having nothing to check. This asserts the other direction — that the
+   * interactive thing HAS an affordance — and it is scoped to this screen because W1.1.0 says
+   * "APPLY BOTH TO ONE SCREEN — Overview — AS THE PROOF". The repo-wide version of this rule would
+   * red on 32 other links today; that is a measured sweep and it is queued as its own item, not
+   * smuggled in here.
+   */
+  // ⚠ IT LIVES IN THIS BLOCK, not beside the other language assertions, because the two links
+  // it is about render ONLY on an empty workspace — `mockEmpty` is the fixture that shows them.
+  it('every link this screen writes moves under a pointer — including the empty states', async () => {
+    mockEmpty()
+    renderOverview()
+    // The empty states are where this screen's own links live, so wait for one before asserting —
+    // otherwise the sweep below runs over a loading skeleton and finds nothing to complain about.
+    await screen.findByText(/No activity yet/i)
+
+    const links = Array.from(document.querySelectorAll('a'))
+    // ⚠ THE FLOOR. A sweep over zero links reports "all links move" and means nothing. Both of the
+    // screen's own prose links plus the two first-step CTAs render on an empty workspace.
+    expect(links.length, 'no links rendered — the assertion below would be vacuous').toBeGreaterThanOrEqual(4)
+    const still = links
+      .filter((a) => !/\btransition-/.test(a.className))
+      .map((a) => `${a.getAttribute('href')} — "${a.textContent?.trim()}" [${a.className}]`)
+    expect(
+      still,
+      'these links change nothing under a pointer. The site moves on every state change ' +
+        '(Landing.tsx:267 — transition-colors duration-200, hover on text-ink); a console link ' +
+        'that does not is the "it does not read as the same product" report, one element at a time.',
+    ).toEqual([])
+    // and every transition names its duration, which is motion.test.tsx's repo-wide rule restated
+    // on the rendered element rather than on the source it was scanned from.
+    for (const a of links) {
+      if (/\btransition-/.test(a.className)) {
+        expect(a.className, `"${a.textContent?.trim()}" transitions for an unnamed duration`).toMatch(/\bduration-\d+\b/)
+      }
+    }
+  })
+
   it('the earnings empty state explains what earning requires', async () => {
     mockEmpty()
     renderOverview()
@@ -487,11 +536,20 @@ describe('the screen reads as regions, in the site’s language', () => {
     // NOT an h1: the shell already writes exactly one per address (#126, #127), and a second
     // would be a second claim about what the page is. IssueDetail settled this shape already.
     expect(opening.tagName).toBe('H2')
-    // `text-title` IS the page scale behind the gate — the top of the console ramp, 24px. The
-    // marketing display steps stop at the gate (displayScale.test.ts), so this is the largest
-    // type a console screen may write, and it had never been written on this one.
-    expect(opening.className).toContain('text-title')
-    expect(document.querySelectorAll('.text-title')).toHaveLength(1)
+    // ⚠ `text-page`, AND THE SENTENCE THAT STOOD HERE IS WHY IT EXISTS. It read: "`text-title` IS
+    // the page scale behind the gate — the top of the console ramp, 24px … so this is the largest
+    // type a console screen may write." True, and W1.1.0 names it as the defect: the console's
+    // largest type was 24px while the front door opens at up to 58px, which is most of why a
+    // rebuilt screen and the site never read as one product. `page` is the console's OWN fluid
+    // step — clamp(24px, 3vw, 38px), floored on `title` so nothing regresses at narrow widths —
+    // so the marketing steps still stop at the gate and displayScale.test.ts is unchanged in what
+    // it refuses. Its bounds are pinned against the EMITTED sheet in src/pageScale.test.tsx.
+    expect(opening.className).toContain('text-page')
+    // ⚠ EXACTLY ONE, and the old assertion's shape is kept because that is the claim that matters:
+    // a screen makes one page-scale claim. Both directions — one `page`, and no leftover `title`
+    // heading beside it, which is what a half-applied change would leave.
+    expect(document.querySelectorAll('.text-page')).toHaveLength(1)
+    expect(document.querySelectorAll('.text-title')).toHaveLength(0)
   })
 
   it('every region is a landmark named by its own uppercase eyebrow', async () => {

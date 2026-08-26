@@ -93,17 +93,51 @@ const CONSOLE_STEPS_PX: Record<string, number> = {
 }
 
 /**
- * The public page's display scale. Still px-anchored, each with the reason it was not converted
- * with the rest. `figure` and `lede` are sizes, not the `font-figure` FAMILY every money surface
- * wears — see displayScale.test.ts on why the `text-` prefix is load-bearing.
+ * The px-anchored steps, each with the reason it was not converted with the rest.
+ *
+ * ⚠ THIS TABLE WAS CALLED `PX_ANCHORED_STEPS` AND THE NAME IS NOW WRONG, which is why it changed
+ * rather than gaining an exception. The split here is by UNIT, not by side of the AuthGate:
+ * root-relative above, px-anchored here. Those two questions gave the same answer for as long as
+ * every fluid step was a marketing step, and W1.1.0 ended that by giving the CONSOLE a fluid step
+ * (`page`). A table that kept the old name would have to file a console step under "marketing" to
+ * stay green, and the next reader would believe it.
+ *
+ * `figure` and `lede` are sizes, not the `font-figure` FAMILY every money surface wears — see
+ * displayScale.test.ts on why the `text-` prefix is load-bearing.
  */
-const MARKETING_STEPS_PX: Record<string, string> = {
+const PX_ANCHORED_STEPS: Record<string, string> = {
   'display-1': 'the hero — a clamp whose floor would scale with the root while the viewport does not',
   'display-2': 'the closing line, same clamp shape',
   'display-3': 'a section heading on the public page, same clamp shape',
   'display-4': 'a sub-section heading on the public page, same clamp shape',
   lede: 'the paragraph directly under a display heading, same clamp shape',
   figure: 'a measured figure quoted at reading size — the ledger numbers on the public page',
+}
+
+/**
+ * ⚠ THE THIRD KIND, AND IT EXISTS BECAUSE FILING IT UNDER EITHER OF THE OTHER TWO WOULD LIE.
+ *
+ * `page` (W1.1.0) is `clamp(1.5rem, 3vw, 38px)`: a root-relative FLOOR with a hard px CEILING.
+ * It is not root-relative — the table above would demand the whole declaration parse as rem — and
+ * it is not px-anchored either, which is the half that matters. It was WRITTEN px-anchored, on
+ * §DISPLAY's reasoning, and that shipped a regression invisible at the default root:
+ *
+ *     at 320px CSS width          root 16px    root 20px    root 24px
+ *     title (1.5rem)              24px         30px         36px
+ *     page as clamp(24px,…)       24px         24px  ✗      24px  ✗
+ *     page as clamp(1.5rem,…)     24px         30px  ✓       36px  ✓
+ *
+ * A reader on Chrome's "Very Large" saw the page heading SHRINK when it was promoted from
+ * `title`. The floor is now `title`'s own declaration, so the two cannot drift apart at any root.
+ *
+ * ⚠ AND THE CEILING MUST STAY px. In rem, a large-root reader would push the console's biggest
+ * type past `display-2`'s 38px — the site's own cap — which is the one thing the ceiling is for.
+ */
+const REM_FLOORED_FLUID_STEPS: Record<string, { floor: string; why: string }> = {
+  page: {
+    floor: '1.5rem',
+    why: "the console's one display step — its floor IS `title`, so promoting the shared heading regresses nothing at any root",
+  },
 }
 
 /** The scale as the BUILD reads it: the preset object Tailwind is handed, not a regex over it. */
@@ -160,8 +194,8 @@ describe('the console type scale is root-relative, so the reader s font size rea
     )
   })
 
-  it('the marketing steps are still px-anchored, and this is the measurement to redo', () => {
-    for (const [step, why] of Object.entries(MARKETING_STEPS_PX)) {
+  it('the px-anchored steps are still px-anchored, and this is the measurement to redo', () => {
+    for (const [step, why] of Object.entries(PX_ANCHORED_STEPS)) {
       const declared = fontSize[step]?.[0]
       expect(declared, `preset.ts no longer declares a \`${step}\` step`).toBeTypeOf('string')
       expect(
@@ -175,15 +209,43 @@ describe('the console type scale is root-relative, so the reader s font size rea
     }
   })
 
-  it('every step in the scale is on exactly one of the two tables', () => {
+  it('a rem-floored fluid step keeps its floor on the reader and its ceiling off them', () => {
+    for (const [step, { floor, why }] of Object.entries(REM_FLOORED_FLUID_STEPS)) {
+      const declared = fontSize[step]?.[0]
+      expect(declared, `preset.ts no longer declares a \`${step}\` step`).toBeTypeOf('string')
+      const m = /^clamp\(\s*([^,]+?)\s*,[^,]+,\s*([^)]+?)\s*\)$/.exec(declared)
+      expect(m, `\`${step}\` (${why}) is declared \`${declared}\`, which is not a clamp()`).not.toBeNull()
+      if (m === null) continue
+      expect(
+        m[1],
+        `\`${step}\`'s clamp FLOOR is \`${m[1]}\`. It must be \`${floor}\` — the same declaration ` +
+          `\`title\` carries — so the two cannot drift at a non-default root. Measured in Chrome at ` +
+          `320px: a px floor renders 24px where title renders 36px at a 24px root, i.e. the heading ` +
+          `SHRINKS when promoted, for exactly the reader the rem rule exists to serve.`,
+      ).toBe(floor)
+      expect(
+        /\dpx$/.test(m[2]),
+        `\`${step}\`'s clamp CEILING is \`${m[2]}\` and must be a hard px cap: in rem a large-root ` +
+          `reader would push the console past display-2's 38px, the site's own ceiling.`,
+      ).toBe(true)
+      // the floor really is title's declaration, read from the preset rather than restated here
+      expect(fontSize.title?.[0], 'title moved — the floor above is now pinned to a stale value').toBe(floor)
+    }
+  })
+
+  it('every step in the scale is on exactly one of the three tables', () => {
     // The floor. A source-derived expectation cannot see a step that was deleted, and a curated
     // list cannot see one that was added — comparing the two SETS sees both.
     const declared = Object.keys(fontSize).sort()
-    const classified = [...Object.keys(CONSOLE_STEPS_PX), ...Object.keys(MARKETING_STEPS_PX)].sort()
+    const classified = [
+      ...Object.keys(CONSOLE_STEPS_PX),
+      ...Object.keys(PX_ANCHORED_STEPS),
+      ...Object.keys(REM_FLOORED_FLUID_STEPS),
+    ].sort()
     expect(
       declared,
       'a type step was added or removed in preset.ts without being classified here — every step ' +
-        'is either root-relative (the console) or px-anchored with a measurement (the public page)',
+        'is root-relative, px-anchored with a measurement recorded beside it, or a fluid step whose FLOOR is root-relative',
     ).toEqual(classified)
   })
 

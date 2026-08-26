@@ -30,7 +30,7 @@
   "src/areas/lens/Members.test.tsx": 21,
   "src/areas/lens/mintAttribution.test.tsx": 5,
   "src/areas/lens/ModelTier.test.tsx": 5,
-  "src/areas/lens/Overview.test.tsx": 23,
+  "src/areas/lens/Overview.test.tsx": 24,
   "src/areas/lens/Setup.test.tsx": 32,
   "src/areas/lens/setupSnippets.test.ts": 14,
   "src/areas/lens/Spend.test.tsx": 7,
@@ -103,6 +103,7 @@
   "src/mirrorSubsetRegister.test.ts": 58,
   "src/motion.test.tsx": 34,
   "src/noFlashTheme.test.ts": 8,
+  "src/pageScale.test.tsx": 5,
   "src/PanelReportsItsOwnQuery.test.tsx": 54,
   "src/pinnedClock.test.ts": 5,
   "src/placeholderAudit.test.tsx": 15,
@@ -123,7 +124,7 @@
   "src/tokenDoor.test.ts": 10,
   "src/topUpMirrorRegister.test.ts": 9,
   "src/trackWriteBodyRegister.test.ts": 18,
-  "src/typeScaleUnits.test.ts": 10,
+  "src/typeScaleUnits.test.ts": 11,
   "src/upstreamCitations.test.ts": 8,
   "src/writeUnderDeadCredential.test.tsx": 15
 }

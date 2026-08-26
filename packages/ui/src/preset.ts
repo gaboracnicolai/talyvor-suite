@@ -72,6 +72,65 @@ const preset = {
         // ⚠ NOT `em`. em resolves against the PARENT, so a token used inside another token's
         // element compounds. rem is the only one that means "the reader's size" wherever it is
         // written.
+        /**
+         * THE CONSOLE'S ONE DISPLAY STEP — `page`, the heading that opens a screen.
+         *
+         * The five steps below are a control-panel scale that stops at 24px, and §DISPLAY at the
+         * bottom of this file says of the marketing ramp "⚠ NOT FOR THE APP … if a console screen
+         * ever wants display type, that is a design conversation, not an import."
+         * displayScale.test.ts enforces that at the AuthGate. THIS IS THAT CONVERSATION, resolved
+         * the way the sentence asks for: the console gets ONE fluid step of its own rather than an
+         * import of a marketing one, so the boundary stays exactly where it is.
+         *
+         * ⚠ ONE STEP, NOT A RAMP — the same argument `scale-98` makes below. There is no `page-2`
+         * because a console has one page title per address and nothing else needs display type.
+         *
+         * ⚠ THE TWO NUMBERS ARE BORROWED, NOT INVENTED, and that is what makes them checkable:
+         *   · FLOOR 1.5rem IS `title` — literally the same declaration, so at a narrow viewport
+         *     `page` renders at exactly what this heading renders at today, AT ANY ROOT. That is
+         *     the non-regression claim, and it is asserted rather than asserted-about.
+         *   · CEILING 38px IS `display-2`'s ceiling, the site's second display step, so the
+         *     console's largest type never out-shouts the public page's.
+         * apps/web/src/pageScale.test.tsx asserts BOTH bounds against the EMITTED stylesheet, and
+         * asserts the ceiling is strictly above the floor — a value that collapsed back to 24px
+         * would be a rename wearing a new name, and it would red.
+         *
+         * ⚠ THE LEADING AND TRACKING ARE THE CONSOLE'S, NOT THE SITE'S, and the difference is the
+         * point. `display-2` sets 1.06/-0.03em: a closing line with air around it. This heading
+         * sits directly above dense rows, so it takes 1.15/-0.02em — looser leading so a
+         * two-line headline does not clot, gentler tracking so it reads as the product's voice
+         * rather than as a hero borrowed from the front door.
+         *
+         * ⚠⚠ THE FLOOR IS rem AND THE CEILING IS px, AND THE FIRST HALF IS A CORRECTION MEASURED
+         * IN REAL CHROME. This step was written `clamp(24px, 3vw, 38px)` — the value W1.1.0
+         * specifies — on §DISPLAY's reasoning that a clamp floor in rem "grows with the reader
+         * while the viewport does not". That reasoning is right about /marketing and WRONG here,
+         * and the difference is worth stating because it inverts the accessibility direction.
+         *
+         * MEASURED at 320px CSS width, probing `title` against both candidate floors:
+         *
+         *     root    title    clamp(24px,…)    clamp(1.5rem,…)
+         *     16px    24px     24px  ✓          24px  ✓
+         *     20px    30px     24px  ✗          30px  ✓
+         *     24px    36px     24px  ✗          36px  ✓
+         *
+         * With a px floor, a reader who has ENLARGED their browser font sees the page heading get
+         * SMALLER when it is promoted from `title` — 36px down to 24px at Chrome's "Very Large".
+         * That is a regression for exactly the reader the rem rule above exists to serve, and it
+         * is invisible at the default root, where the two are identical.
+         *
+         * ⚠ AND THE OVERFLOW THAT MOTIVATED px DOES NOT REPRODUCE HERE. Measured at 320×24 with a
+         * rem floor: document scrollWidth 320 against clientWidth 320 on every root tested. That
+         * overflow was /marketing's `flex-1 whitespace-nowrap` section tabs, which cannot give
+         * width back; a heading in a `max-w-3xl` block WRAPS. The rule is not "display steps are
+         * px", it is "a step that cannot wrap must not grow with the root".
+         *
+         * The CEILING stays px on purpose: 38px is a hard cap borrowed from `display-2`, and in
+         * rem it would let a large-root reader push the console's biggest type past the site's.
+         * ⚠ AT THE DEFAULT 16px ROOT THIS IS BYTE-FOR-BYTE THE VALUE W1.1.0 SPECIFIED — 1.5rem IS
+         * 24px — so the design is unchanged and only its behaviour under a changed preference is.
+         */
+        page: ['clamp(1.5rem, 3vw, 38px)', { lineHeight: '1.15', letterSpacing: '-0.02em', fontWeight: '500' }],
         title: ['1.5rem', { lineHeight: '1.2', fontWeight: '640' }], // 24px at a 16px root
         head: ['1.0625rem', { lineHeight: '1.3', fontWeight: '600' }], // 17px
         body: ['0.875rem', { lineHeight: '1.45', fontWeight: '400' }], // 14px

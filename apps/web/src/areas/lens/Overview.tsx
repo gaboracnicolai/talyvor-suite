@@ -353,7 +353,12 @@ function SpendCard({ now }: { now: Date }) {
           {windowRows.length} ledger row{windowRows.length === 1 ? "" : "s"} landed in the
           last 30 days, and none of them records which model it came from — so there is
           nothing to split by model. The rows themselves are on the{" "}
-          <Link className="underline" to="/ledger">
+          {/* ⚠ THE SITE'S MOTION SHAPE, NOT A NEW ONE. Landing.tsx:267 moves its section tabs with
+              `transition-colors duration-200` and lands the hover on `text-ink`; this is that,
+              on the two links this screen writes itself. Both classes are NAMED steps — 200ms is
+              Tailwind's own `duration-200`, so `local/no-arbitrary-value` has nothing to refuse
+              and nothing here escapes the scale. */}
+          <Link className="underline transition-colors duration-200 hover:text-ink" to="/ledger">
             ledger
           </Link>
           .
@@ -556,7 +561,7 @@ function RecentActivity() {
           {/* ⚠ Same class as the earnings empty state above. It now names the one action that
               creates the first entry, and points at it. */}
           No activity yet. The first entry appears the moment a request goes through Lens —{' '}
-          <Link className="underline" to="/setup">
+          <Link className="underline transition-colors duration-200 hover:text-ink" to="/setup">
             point a tool at it
           </Link>{' '}
           and refresh.

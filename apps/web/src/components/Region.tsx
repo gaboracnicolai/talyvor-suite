@@ -39,10 +39,20 @@ export interface RegionProps {
   /** The uppercase eyebrow: the question this region answers. */
   label: string
   /**
-   * The screen's page-scale heading, on the ONE region that opens it. `text-title` is the top of
-   * the console ramp (24px) — the marketing display steps stop at the gate (displayScale.test.ts),
-   * so this is the largest type a console screen may write. It is an `h2`: the shell writes exactly
-   * one `h1` per address (#126, #127), and a second would be a second claim about what the page is.
+   * The screen's page-scale heading, on the ONE region that opens it.
+   *
+   * ⚠ THIS RENDERS `text-page`, AND THE SENTENCE THAT STOOD HERE IS THE REASON IT NOW EXISTS. It
+   * read: "`text-title` is the top of the console ramp (24px) … so this is the largest type a
+   * console screen may write." That was TRUE and it was the defect W1.1.0 names — the console's
+   * largest type was 24px while the public page opens at up to 58px, which is most of why a
+   * rebuilt screen and the front door never read as one product. `page` is the console's own
+   * fluid step (preset.ts §THE CONSOLE'S ONE DISPLAY STEP), floored at exactly `title`'s 24px so
+   * nothing regresses at narrow widths and ceilinged at `display-2`'s 38px so it never out-shouts
+   * the site. The marketing steps still stop at the gate; displayScale.test.ts is unchanged in
+   * what it refuses.
+   *
+   * It is an `h2`: the shell writes exactly one `h1` per address (#126, #127), and a second would
+   * be a second claim about what the page is.
    */
   heading?: string
   /** Extra classes for the CONTENT block, not the section. Absent children render no block at
@@ -88,7 +98,7 @@ export function Region({ index, label, heading, className, sectionClassName, chi
         </span>
       </div>
       {heading ? (
-        <h2 id={headingId} className="mt-6 max-w-3xl text-title text-ink">
+        <h2 id={headingId} className="mt-6 max-w-3xl text-page text-ink">
           {heading}
         </h2>
       ) : null}

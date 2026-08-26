@@ -250,11 +250,12 @@ describe('a card header is a section title, so it is a heading element', () => {
     const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
     // ⚠ W1.1.1 PUT A SECOND KIND OF HEADING ON THIS ADDRESS, and it is NAMED here rather than
     // absorbed into a looser count. Overview now opens with its own heading at the page scale —
-    // `text-title`, the top of the console ramp — because the screen had no heading of its own at
+    // `text-page`, the console's one display step (W1.1.0; it was `text-title`) — because the
+    // screen had no heading of its own at
     // all: the sticky banner said "Overview" and six anonymous panels followed it. That heading is
     // a section title (it names the region the screen opens with), so it belongs in the rotor; a
     // balance, a wordmark or a badge still does not, which is what the total below refuses.
-    const pageScale = headings.filter((h) => h.className.includes('text-title'))
+    const pageScale = headings.filter((h) => h.className.includes('text-page'))
     expect(
       pageScale.map((h) => h.tagName),
       'the screen opens with exactly ONE page-scale heading and it is an h2 — two would be a ' +
