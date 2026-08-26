@@ -32,8 +32,11 @@ CONTROLS = [
         id='C1',
         why="MAIN'S SHAPE for the title: it goes back to a flex item that cannot shrink. RED-FIRST",
         file='apps/web/src/App.tsx',
-        old='          <div className="min-w-0 truncate text-head text-ink">{page}</div>',
-        new='          <div className="text-head text-ink">{page}</div>',
+        # ⚠ RE-ANCHORED AT W1.1.10: the title became an <h1> when the console gained its heading,
+        # so this control has been unable to arm. The tag is PRESERVED in the mutation — reverting
+        # it to a <div> would red the heading guards too, and then the red would not be about reflow.
+        old='          <h1 className="min-w-0 truncate text-head text-ink">{page}</h1>',
+        new='          <h1 className="text-head text-ink">{page}</h1>',
         predict=['lets the page title shrink'],
     ),
     dict(

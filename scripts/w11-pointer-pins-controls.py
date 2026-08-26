@@ -78,13 +78,20 @@ CONTROLS = [
      [('apps/web/src/test-setup.ts', 'normal-case span (CaseSafe.tsx:85 is the shape)',
        'normal-case span (MuNumeral.tsx:19 is the shape)')], CASE, CAUGHT),
 
-    ('C3', 'revert caseAudit.ts:42 to the stale Landing.tsx:72',
-     [('apps/web/src/caseAudit.ts', 'Landing.tsx:78 is `<span', 'Landing.tsx:72 is `<span')], CASE, CAUGHT),
+    # ⚠ RE-ANCHORED AT W1.1.10 (2026-08-26), AND THE REASON IS THIS CONTROL'S OWN SUBJECT.
+    # It armed 'Landing.tsx:78' and caseAudit.ts says :79 — a line was inserted above the span the
+    # citation names, pointerAudit caught the drift, somebody re-pointed 78 → 79, and NOBODY MOVED
+    # THE CONTROL. So the guard was maintained and the control that proves it can catch drift has
+    # been unable to arm ever since: the harness reported ANCHOR MISS rather than a pass, which is
+    # the driver working, and it went unread from at least 11:31Z. The DEFECT armed is unchanged —
+    # a citation one line stale.
+    ('C3', 'revert caseAudit.ts:42 to a stale Landing.tsx:73',
+     [('apps/web/src/caseAudit.ts', 'Landing.tsx:79 is `<span', 'Landing.tsx:73 is `<span')], CASE, CAUGHT),
 
     # ⚠ THE CONTROL THAT EARNS THE GUARD.  Pointers do not rot by being edited; they
     # rot when somebody inserts a line ABOVE the thing they name.  This is that, and
     # nothing else in either package can see it.
-    ('C4', 'insert ONE blank line above Landing.tsx:78 — the real drift mechanism',
+    ('C4', 'insert ONE blank line above Landing.tsx:79 — the real drift mechanism',
      [('apps/web/src/areas/marketing/Landing.tsx',
        '      </span>\n      <span className="font-figure text-eyebrow uppercase text-faint">',
        '      </span>\n\n      <span className="font-figure text-eyebrow uppercase text-faint">')], CASE, CAUGHT),
@@ -94,7 +101,9 @@ CONTROLS = [
        ' * (compare Button.tsx:37.)\n *\n * ── WHY IT READS THE DOM ')], CASE, CAUGHT),
 
     ('C6', 'DELETE a classified pointer — the set floor, deletion direction',
-     [('apps/web/src/placeholderAudit.ts', '`Keys.tsx:96` passes', 'that component passes')], CASE, CAUGHT),
+     # ⚠ RE-ANCHORED AT W1.1.10: the citation drifted 96 → 114 and this control was left on 96,
+     # so the DELETION direction of the set floor has been unarmable. Same defect, current line.
+     [('apps/web/src/placeholderAudit.ts', '`Keys.tsx:114` passes', 'that component passes')], CASE, CAUGHT),
 
     # ⚠ INVERTED, AND PAIRED WITH THE MUTATION ITS OWN PREDICATE GOVERNS.
     # ⚠ THIS CONTROL FIRST RAN AGAINST C1 AND SCORED "CAUGHT" WITH THE PREDICATE BLINDED,
