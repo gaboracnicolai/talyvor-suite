@@ -662,3 +662,139 @@ describe('W1.1.9a — the space view reads as one screen, in regions', () => {
     expect(screen.queryByRole('button', { name: 'Write the first page' })).toBeNull()
   })
 })
+
+describe('W1.1.9b — the page reader reads as one screen, in regions', () => {
+  function regions() {
+    return Array.from(document.querySelectorAll('[data-testid="region-label"]')).map((el) => ({
+      index: el.querySelector('[data-testid="region-index"]')?.textContent ?? '',
+      label: el.lastElementChild?.textContent ?? '',
+    }))
+  }
+
+  /** Spaces answers `spacesStatus`; the PAGE route answers `page`. */
+  function mockPage(page: { status?: number; body: unknown }, spacesStatus = 200) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const json = (v: unknown, s = 200) =>
+        new Response(JSON.stringify(v), { status: s, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/docs/spaces') return json(spacesStatus === 200 ? SPACES : { error: 'boom' }, spacesStatus)
+      if (url.startsWith('/api/docs/')) return json(page.body, page.status ?? 200)
+      return new Response('null', { status: 404 })
+    })
+  }
+
+  const PAGE = '/docs/spaces/sp-eng/pages/pg-1'
+  const READ = { id: 'pg-1', title: 'Runbook', content_text: 'roll it back with one command' }
+
+  it('is three named regions, one idea each', async () => {
+    mockPage({ body: READ })
+    renderAt(PAGE)
+    await screen.findByLabelText('Content')
+    expect(regions()).toEqual([
+      { index: '00', label: 'Page' },
+      { index: '01', label: 'What it says' },
+      { index: '02', label: 'What Docs’s AI makes of it' },
+    ])
+  })
+
+  it('makes exactly one page-scale claim, and it is the page’s own title', async () => {
+    mockPage({ body: READ })
+    renderAt(PAGE)
+    await screen.findByLabelText('Content')
+    expect(document.querySelectorAll('.text-page')).toHaveLength(1)
+    expect(document.querySelector('.text-page')?.textContent).toBe('Runbook')
+  })
+
+  // ⚠ THE MEASUREMENT THIS CASE EXISTS FOR. Before the rebuild the header was
+  // `page.data?.title ?? 'Page'`: `??` catches null and undefined and NOT the empty string, so a
+  // page whose title column is blank rendered an `<h2>` with no text at all — measured, in the
+  // DOM, at this address. Promoting that element to the console's one page-scale heading also
+  // makes it the region's `aria-labelledby` target, so the blank would have become the section's
+  // accessible name as well: a landmark called nothing, inside the largest type the console has.
+  //
+  // ⚠ BOTH INPUTS ARE REACHABLE, MEASURED AGAINST talyvor-docs `0139a38` RATHER THAN ASSUMED.
+  // `page/store.go#Create` defaults ONLY the exactly-empty title ("if p.Title == \"\" { p.Title =
+  // \"Untitled\" }"), so a created title of spaces survives it verbatim; and `updatableFields`
+  // allowlists the KEY `title` with no check on its VALUE, so a PATCH — the one this app's own
+  // `docsApi.updatePage` makes — stores the empty string.
+  it('⚠ a blank title is never the largest word on the screen, and never an unnamed landmark', async () => {
+    mockPage({ body: { ...READ, title: '   ' } })
+    renderAt(PAGE)
+    await screen.findByLabelText('Content')
+    const heading = document.querySelector('.text-page')
+    expect(heading?.textContent?.trim(), 'the page-scale heading rendered blank').not.toBe('')
+    expect(heading?.textContent).toBe('Untitled')
+  })
+
+  it('⚠ an exactly-empty title degrades the same way — `??` never caught it', async () => {
+    mockPage({ body: { ...READ, title: '' } })
+    renderAt(PAGE)
+    await screen.findByLabelText('Content')
+    expect(document.querySelector('.text-page')?.textContent).toBe('Untitled')
+  })
+
+  // ⚠ 404 AND 500 RENDERED BYTE-IDENTICAL TEXT BEFORE THIS REBUILD — measured at this address:
+  // "Couldn’t reach Docs, so this page can’t be shown. This is a fault, not an empty page." Both
+  // of that sentence's clauses are FALSE of a 404: Docs WAS reached, and answered. It is the same
+  // one-predicate-over-four-causes shape W1.1.8 removed from the Track ticket one directory over,
+  // and the same screen-level reading of a by-id 404 that IssueDetail.tsx already documents.
+  it('⚠ a 404 is a MISSING page, not a fault — Docs answered', async () => {
+    mockPage({ status: 404, body: { error: 'not found' } })
+    renderAt(PAGE)
+    await screen.findByText(/There is no page at this address\./)
+    // ⚠ THIS ASSERTION NAMES THE SENTENCE THE PRODUCT SAYS TODAY, AND THE FIRST DRAFT DID NOT.
+    // It was written against the string this rebuild REMOVED ("…not an empty page"), which no
+    // product file contains any more — so it could never have found anything and would have
+    // passed over any regression at all. A negative assertion whose subject has been deleted is
+    // not a weak guard, it is an absent one, and it looks identical to a strong one in a green
+    // run. Control C11 mutates the BODY ternary alone — leaving every headline correct — and is
+    // caught only by this line.
+    expect(
+      screen.queryByText(/This is a fault, not a missing page/),
+      'a 404 is reported with the sentence written for a fault — Docs answered, and was reached',
+    ).toBeNull()
+    expect(document.querySelector('.text-page')?.textContent).toBe('There is no page at this address.')
+  })
+
+  it('a 500 IS a fault, and still says so', async () => {
+    mockPage({ status: 500, body: { error: 'boom' } })
+    renderAt(PAGE)
+    await screen.findByText(/This is a fault, not a missing page/)
+    expect(screen.queryByText(/There is no page at this address\./)).toBeNull()
+  })
+
+  it('an unconfigured Docs reads as OFF in the heading, never as a failure', async () => {
+    mockPage({ status: 503, body: { error: 'docs upstream not configured on this BFF' } })
+    renderAt(PAGE)
+    await screen.findByText(/Docs is not configured on this deployment/)
+    expect(document.querySelector('.text-page')?.textContent).toBe('Docs is not configured here.')
+    expect(screen.queryByText(/This is a fault, not a missing page/)).toBeNull()
+  })
+
+  // The empty state is part of the item: a page that exists and holds no words. It is NOT the
+  // fault state and it is NOT the missing state, and the way in is performed rather than pointed at.
+  it('a page with no words says so, and the way in is PERFORMED rather than pointed at', async () => {
+    mockPage({ body: { ...READ, content_text: '' } })
+    renderAt(PAGE)
+    await screen.findByText(/^Nothing has been written on this page yet\./)
+    fireEvent.click(screen.getByRole('button', { name: 'Write the first words' }))
+    // The caret is HANDED OVER, not pointed at: the editor is what the invitation invites you into.
+    expect(document.activeElement?.tagName).toBe('TEXTAREA')
+    expect(document.activeElement).toBe(screen.getByLabelText('Content'))
+  })
+
+  // ⚠ THE FOUR `Page*` PANELS KEEP THEIR CARDS, and this is the re-measurement the item asked for
+  // rather than the sibling's recommendation taken on trust. `meteredCostCensus.test.tsx` renders
+  // each panel STANDALONE and counts a shared sentence across them; dissolving their cards would
+  // change what that instrument sees without changing what it asserts. A REGION names the
+  // question ("What Docs’s AI makes of it") and the four cards name the answers.
+  it('the four AI panels keep their cards, inside ONE region', async () => {
+    mockPage({ body: READ })
+    renderAt(PAGE)
+    await screen.findByLabelText('Content')
+    const cardTitles = Array.from(document.querySelectorAll('h2'))
+      .map((h) => h.textContent ?? '')
+      .filter((t) => ['Summary', 'Translation', 'Title', 'Changelog entry'].includes(t))
+    expect(cardTitles).toEqual(['Summary', 'Translation', 'Title', 'Changelog entry'])
+  })
+})

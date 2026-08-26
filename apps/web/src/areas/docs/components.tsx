@@ -133,14 +133,45 @@ export function spaceCrumbLabel(name: string | undefined): string {
  * known (you are inside one) and claims nothing that is not. ⚠ THE ID IS NOT DISCARDED: the caller
  * still renders it as an identifier, in mono at caption size, where a machine string belongs.
  *
- * ⚠ NOT YET USED BY `PageView.tsx`, WHICH IS THE OTHER SCREEN WITH A TITLE. Measured at
- * `6d97481`: PageView titles the PAGE (`page.title`), not the space, and its only `space?.name` is
- * already routed through `spaceCrumbLabel` — so it has no raw-id title today. W1.1.9b rebuilds it,
- * and a page whose own title is missing is the same question one level down.
+ * ⚠ THE OTHER SCREEN WITH A TITLE ANSWERED THE SAME QUESTION DIFFERENTLY, AND `pageTitle` BELOW IS
+ * THAT ANSWER. This paragraph used to say PageView "has no raw-id title today", which was true and
+ * was about the wrong failure: it had a raw-BLANK one. See `pageTitle`.
  */
 export function spaceTitle(name: string | undefined): string {
   const trimmed = name?.trim()
   return trimmed ? trimmed : 'This space'
+}
+
+/**
+ * pageTitle — the same rule again, one level down, for the thing a page reader is looking at.
+ *
+ * ⚠ THE FALLBACK WAS `??`, AND `??` IS BLIND TO THE CASE THAT ACTUALLY HAPPENS. `PageView` wrote
+ * `page.data?.title ?? 'Page'`, which catches null and undefined — the two values this read cannot
+ * produce once it has answered — and NOT the empty string, which it can. MEASURED in the DOM at
+ * `/docs/spaces/:spaceId/pages/:pageId` before W1.1.9b: a page whose title column held `""`
+ * rendered a heading element with no text in it, and one holding `"   "` rendered three spaces.
+ *
+ * ⚠ WHY THAT WAS WORTH A FUNCTION RATHER THAN AN `||`. W1.1.9b promotes that element to the
+ * console's one page-scale heading, which `Region` also points `aria-labelledby` at — so the blank
+ * would have become the SECTION'S ACCESSIBLE NAME as well: a landmark called nothing, wearing the
+ * largest type the console has. The same widening is what made `spaceTitle` worth writing.
+ *
+ * ⚠ BOTH INPUTS ARE REACHABLE, MEASURED AGAINST talyvor-docs `0139a38` RATHER THAN ASSUMED.
+ * `internal/page/store.go#Create` defaults only the EXACTLY-empty title, so a title of spaces is
+ * stored verbatim; and `updatableFields` allowlists the KEY `title` while checking no value, so the
+ * PATCH this app itself makes (`docsApi.updatePage`) can store the empty string. Neither is a
+ * hypothetical about a schema — they are two different holes in one upstream, and the screen only
+ * has to survive them.
+ *
+ * ⚠ IT DEGRADES TO THE UPSTREAM'S OWN WORD, NOT TO AN INVENTED ONE. `spaceTitle` had to choose a
+ * phrase ("This space") because Docs has no name for a nameless space. Here it does: `Create`
+ * writes the literal `Untitled` into exactly this column for exactly this state, so a page that
+ * arrives blank is called what Docs would have called it. Choosing a different word would be this
+ * screen inventing a second vocabulary for a state the store already names.
+ */
+export function pageTitle(name: string | undefined): string {
+  const trimmed = name?.trim()
+  return trimmed ? trimmed : 'Untitled'
 }
 
 /**

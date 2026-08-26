@@ -3,7 +3,7 @@
   "src/aiRequestBodyRegister.test.ts": 28,
   "src/areas/auth/Entry.test.tsx": 14,
   "src/areas/docs/askAI.test.tsx": 11,
-  "src/areas/docs/DocsArea.test.tsx": 34,
+  "src/areas/docs/DocsArea.test.tsx": 43,
   "src/areas/docs/docsWrites.test.tsx": 14,
   "src/areas/docs/meteredCostCensus.test.tsx": 16,
   "src/areas/docs/pageChangelog.test.tsx": 7,
