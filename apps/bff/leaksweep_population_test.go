@@ -247,9 +247,20 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// changelog route above, the suggestion is returned and nothing is written — applying it is a
 	// separate PATCH on the page route, which answers GET and is inside the sweep. Its POST
 	// response is searched by the write half below, in all three fixtures.
-	if len(methodOnly) > 11 {
+	// ⚠ THE TWELFTH, /api/ai/stream/{provider}/{rest...}, IS POST-ONLY AND ITS REASON IS THE
+	// STRONGEST IN THIS LIST. It is a model completion the workspace pays for, with a
+	// CALLER-CHOSEN prompt and a caller-chosen model, so a GET would be prefetched by browsers,
+	// retried by proxies and re-run by crawlers — each time spending someone's balance on an
+	// arbitrary request. And the prompt is the BODY: as a GET it would have to travel as a query
+	// string, putting whatever the user typed into every access log and proxy buffer on the path,
+	// which is precisely the leak this file hunts, created by the shape of the route.
+	// ⚠ WHAT IT RETURNS CARRIES NO BFF-ORIGINATED SECRET, checked rather than assumed: the handler
+	// copies the upstream Content-Type and relays the upstream body verbatim, and the only
+	// credential it holds — the narrow session key — travels in a REQUEST header (stream.go). It
+	// adds no field of its own to the response at all.
+	if len(methodOnly) > 12 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 11 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 12 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

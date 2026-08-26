@@ -182,7 +182,7 @@ describe('the screen has a shape a reader can move through', () => {
 
 describe('which row is YOU — the same key the roster was joined on', () => {
   // The BFF forwards `X-User-Email: sess.email` as "the workspace-membership join key"
-  // (apps/bff/lens.go:653) and /auth/me serves that SAME `s.email` (apps/bff/auth.go:664). Track
+  // (apps/bff/lens.go:672) and /auth/me serves that SAME `s.email` (apps/bff/auth.go:664). Track
   // authorizes with `WHERE email = $1` — an exact SQL comparison — so the marking uses an exact
   // comparison too. Lower-casing here would be a DIFFERENT rule from the one that produced the
   // row, and would claim a match the upstream did not make.
