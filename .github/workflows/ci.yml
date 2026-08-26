@@ -68,6 +68,36 @@ jobs:
         with:
           go-version-file: apps/bff/go.mod
           cache-dependency-path: apps/bff/go.sum
+      # FORMAT GATE. There was none — this job ran `go vet` and `go test` only, and TWO files
+      # had already drifted on main with CI green (apps/bff/docs_ai.go,
+      # apps/bff/docs_suggesttitle_test.go). talyvor-track shipped the identical defect and its
+      # ci.yaml records the same cost there; a per-repo test cannot catch the next repo, so this
+      # step is deliberately the SAME SHAPE as Track's: a plain `gofmt -l`, and NOT a golangci
+      # formatter, so there is exactly one definition of "formatted" and no settings-shape trap.
+      #
+      # ⚠ THIS GATE'S FIRST RUN ON THIS BRANCH WAS RED, ON PURPOSE AND ON THE REAL DRIFT, so it
+      # is a gate somebody has watched fail rather than one assumed to work. See the PR's check
+      # history: the commit that added this step named both files before the commit that fixed
+      # them landed.
+      #
+      # ⚠⚠ AND THE FIX WAS NOT `gofmt -w`. gofmt REFORMATS DOC COMMENTS, and on those two files it
+      # rewrote CONTENT, not whitespace: `''` -> U+201D and ``…`` -> U+201C (the old godoc quote
+      # convention). One of those sequences was MEASURED DATA — a comment enumerating the
+      # completion shapes that yield {"title":""} listed `"''"`, and gofmt turned the two
+      # apostrophes into a right double quotation mark. Running `gofmt -w` would have silently
+      # falsified the measurement and this gate would then have enforced the falsification
+      # forever. The literals now live in indented preformatted blocks, which gofmt leaves alone
+      # (measured, not assumed), so they survive byte-identical.
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"
+            echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+          echo "gofmt: clean"
       - run: go vet ./...
       - run: go test -race ./...
       # GUARD 2 FOR THE BFF HALF. version_test.go asserts bffVersion's default is an honest

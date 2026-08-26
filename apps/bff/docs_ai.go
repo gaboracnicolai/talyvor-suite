@@ -170,8 +170,11 @@ func (a *app) docsSummarizePage() http.HandlerFunc {
 // charge lands on — and it comes from this route's path.
 //
 // ⚠⚠ THE CONTENT FIELD IS NAMED `content`, AND ON THIS ROUTE THE WRONG NAME IS THE ONE ITS OWN
-// SIBLINGS USE. talyvor-docs binds ``Content string `json:"content"``
-// (internal/ai/handler.go#Handler.SuggestTitle). Summarise and translate both call it `text`, in
+// SIBLINGS USE. talyvor-docs (internal/ai/handler.go#Handler.SuggestTitle) binds
+//
+//	Content string `json:"content"`
+//
+// Summarise and translate both call it `text`, in
 // this app AND on the wire, so `text` is what a caller copying either of them would send — and
 // upstream that is not an error.
 //
@@ -222,8 +225,12 @@ type docsSuggestTitleBody struct {
 // product threshold invented in a proxy.
 //
 // ⚠ AN EMPTY SUGGESTION IS PASSED THROUGH AS ITSELF. Engine.SuggestTitle trims ` \t\n"'` off the
-// completion and returns what is left, so a model answering `""`, `"''"` or `"\n\n"` yields
-// `{"title":""}` with a 200 — measured, five completion shapes, all `{"title":""}`. By then the
+// completion and returns what is left, so each of these completions yields `{"title":""}` with a 200
+// — measured, five completion shapes, all `{"title":""}`:
+//
+//	""      "''"      "\n\n"
+//
+// By then the
 // completion is bought. Turning it into a 502 here would report a healthy upstream as broken and
 // hide a charge the workspace has taken; the refusal belongs at the button that would otherwise
 // write that empty title over a real one (PageTitleSuggestion.tsx).
@@ -292,7 +299,11 @@ func (a *app) docsSuggestTitlePage() http.HandlerFunc {
 // and it comes from this route's path.
 //
 // ⚠⚠ THE FIELD NAME IS NOT A DETAIL — IT IS THE WHOLE FINDING. talyvor-docs' Translate handler
-// binds `Language string `json:"language"`` (internal/ai/handler.go#Handler.Translate). A body that names
+// (internal/ai/handler.go#Handler.Translate) binds
+//
+//	Language string `json:"language"`
+//
+// A body that names
 // this field anything else is not rejected: the field decodes to "", Engine.Translate substitutes
 // `defaultLang = "English"` (internal/ai/engine.go#Engine.Translate, via the defaultLang constant), and the caller gets 200, a billed Lens
 // completion, and English.

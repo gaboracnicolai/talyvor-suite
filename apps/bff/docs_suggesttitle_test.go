@@ -221,8 +221,10 @@ func TestDocsSuggestTitle_AnyNonBlankTextGoes(t *testing.T) {
 
 // ⚠⚠ THE EMPTY SUGGESTION IS A REAL 200, MEASURED UPSTREAM, AND IT IS PASSED THROUGH RATHER THAN
 // TURNED INTO AN ERROR. Engine.SuggestTitle trims ` \t\n"'` off the completion and returns what is
-// left, so a model answering `""`, `"''"` or `"\n\n"` yields `{"title":""}` with a 200 — measured
-// on docs' real handler over a fake Lens (five completion shapes, all `{"title":""}`).
+// left, so each of these completions yields `{"title":""}` with a 200 — measured on docs' real
+// handler over a fake Lens (five completion shapes, all `{"title":""}`):
+//
+//	""      "''"      "\n\n"
 //
 // The money is already spent by the time this arrives. Rewriting it into a 502 here would report a
 // healthy upstream as broken AND hide a charge the workspace has taken; the honest place for the
