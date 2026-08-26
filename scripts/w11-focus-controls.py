@@ -85,8 +85,12 @@ CONTROLS: list[Control] = [
     Control(
         "C3 restore the hand-rolled PARTIAL ring on the space row",
         "half a ring reads as a ring in review; Chrome renders it 1px at offset 0",
-        [(SPACELIST, "`cursor-pointer hover:bg-canvas ${focusRing}`",
-          "'cursor-pointer outline-accent hover:bg-canvas focus-visible:outline'", 1)],
+        # ⚠ RE-ANCHORED AT W1.1.19: the space row gained `transition-colors duration-200` when
+        # SpaceList was rebuilt (W1.1.9a), so this anchor matched nothing and the control could not
+        # arm. The DEFECT is unchanged — a hand-rolled PARTIAL ring in place of the token — and the
+        # transition classes are carried through it so the mutation changes only the ring.
+        [(SPACELIST, "`cursor-pointer transition-colors duration-200 hover:bg-canvas ${focusRing}`",
+          "'cursor-pointer transition-colors duration-200 outline-accent hover:bg-canvas focus-visible:outline'", 1)],
         [T_DOCS],
         "carries only focus-visible:outline",
         "renders one row per space",
