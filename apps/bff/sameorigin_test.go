@@ -1,6 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -314,23 +319,93 @@ var notSweptWrite = map[string]string{
 		"unknown-provider 400 precedes the Origin rule, so a probe-shaped row would sweep nothing.",
 }
 
-// mountedPatterns reads every pattern the router actually mounts out of lens.go, so the population
-// this is checked against is the ROUTER'S and not a second hand-kept list. A list here would be
-// the defect this test exists to catch, one level up.
+// mountedPatterns is the POPULATION every sweep in this package is built on — the same-origin
+// sweep, the two leak sweeps, the key sweep, and TestEveryMutatingRoute_IsGuardedOrExplicitlyExempt
+// all take their route list from here. Everything those tests can prove is bounded by what this
+// function can see, so its blind spots are their blind spots.
+//
+// ⚠ IT USED TO BE A REGEX OVER ONE FILE'S SOURCE TEXT, AND ITS DOCSTRING CALLED THAT "the pattern
+// the router actually mounts". Those are not the same population, and the gap was measured, not
+// argued: `regexp.MustCompile(`+"`"+`a\.mux\.Handle(?:Func)?\("([^"]+)"`+"`"+`)` over lens.go only can see a
+// mount that is (a) in lens.go, (b) on a receiver spelled exactly `+"`"+`a.mux`+"`"+`, and (c) written with the
+// pattern as an inline string literal. A route failing ANY of those three is live and invisible.
+//
+// MEASURED at b79320e3 by mounting one real WRITE route through a const —
+//
+//	const shadowRoute = "/api/shadow"
+//	a.mux.HandleFunc(shadowRoute, a.requireTenant(a.handleKeys))
+//
+// — which POST reaches (400 from the handler, not 404 from the router), which mountedPatterns did
+// NOT return, and which left `+"`"+`go test ./...`+"`"+` across the whole of apps/bff GREEN. The gate that exists
+// to make that impossible — "a new write route cannot be added without either being swept or being
+// explicitly, reasonedly, excused" — takes its population from here, so it excused it by never
+// seeing it. The existing `+"`"+`len(patterns) < 20`+"`"+` floor is a floor on TOTAL blindness and says nothing
+// about partial blindness: 54 patterns were found while a 55th was live.
+//
+// SO IT NOW PARSES THE PACKAGE, and the two changes are deliberate:
+//
+//   - EVERY non-test .go file in the package, not lens.go alone, and any receiver, not `+"`"+`a.mux`+"`"+`
+//     alone. Where the mount lives and what the mux variable is called stop being load-bearing.
+//   - A pattern argument that is NOT a string literal is a REFUSAL, naming the file:line — never a
+//     silent skip. That is the whole point: a route this function cannot resolve is a route the
+//     sweeps cannot sweep, and the only safe way to report one is loudly. If a future non-route
+//     `+"`"+`.Handle(...)`+"`"+` call trips this, that is a false positive by design — make its argument a
+//     literal or exclude the site deliberately, but do not make this function skip quietly.
+//
+// It is still a source census and not the router's own table: net/http.ServeMux exposes no way to
+// enumerate its patterns (only Handler(*Request), which needs a concrete path to ask about). The
+// claim in this docstring is now the claim the code actually supports.
 func mountedPatterns(t *testing.T) []string {
 	t.Helper()
-	src, err := os.ReadFile("lens.go")
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
+		return strings.HasSuffix(fi.Name(), ".go") && !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("mountedPatterns: parsing the package: %v", err)
 	}
-	re := regexp.MustCompile(`a\.mux\.Handle(?:Func)?\("([^"]+)"`)
-	var out []string
+
+	var out, unresolved []string
 	seen := map[string]bool{}
-	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			out = append(out, m[1])
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) == 0 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc") {
+					return true
+				}
+				lit, ok := call.Args[0].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					unresolved = append(unresolved,
+						fmt.Sprintf("%s: %s(...) with a non-literal pattern", fset.Position(call.Pos()), sel.Sel.Name))
+					return true
+				}
+				p, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					unresolved = append(unresolved, fmt.Sprintf("%s: unquote %s: %v", fset.Position(lit.Pos()), lit.Value, err))
+					return true
+				}
+				if !seen[p] {
+					seen[p] = true
+					out = append(out, p)
+				}
+				return true
+			})
 		}
+	}
+
+	// ⚠ REFUSE, DO NOT SKIP. A route whose pattern this census cannot resolve is a route every
+	// sweep in this package would silently omit, which is the exact defect this rewrite exists to
+	// close. Failing here is the only report that cannot be missed.
+	if len(unresolved) > 0 {
+		t.Fatalf("mountedPatterns: %d route mount(s) whose pattern is not a string literal, so no "+
+			"sweep in this package can cover them:\n  %s\n"+
+			"Make the pattern an inline literal, or exclude the site deliberately — do not let this "+
+			"function skip it quietly.", len(unresolved), strings.Join(unresolved, "\n  "))
 	}
 	sort.Strings(out)
 	return out
