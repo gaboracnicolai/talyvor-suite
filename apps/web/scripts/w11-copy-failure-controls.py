@@ -60,7 +60,8 @@ REVEAL_GUARDED = """    try {
       void navigator.clipboard.writeText(secret).then(
         () => {
           setCopyState('copied')
-          window.setTimeout(() => setCopyState('idle'), 2000)
+          window.clearTimeout(resetTimer.current)
+          resetTimer.current = window.setTimeout(() => setCopyState('idle'), 2000)
         },
         // No auto-clear: a failure the reader has not acted on must not time out into the
         // state that looks like "not yet".
@@ -71,25 +72,39 @@ REVEAL_GUARDED = """    try {
       // raises a TypeError before any promise exists.
       setCopyState('failed')
     }"""
+# ⚠ RE-ANCHORED AT W1.1.10 (2026-08-26). RevealOnce's reset timer was later made CANCELLABLE
+# (a ref + clearTimeout, the timer-leak work), so REVEAL_GUARDED no longer matched the file and this
+# control could not arm — the harness reported ANCHOR MISS rather than a pass, which is the driver
+# working, and it went unread from at least 11:31Z.
+#
+# ⚠ THE DEFECT KEEPS THE CANCELLABLE TIMER ON PURPOSE. It removes exactly the try/catch and the
+# rejection handler — the copy-failure property this control exists to arm — and nothing else. A
+# defect that ALSO reverted the timer would red timerCleanup as well, and a control that reddens two
+# guards cannot say which one it proved.
 REVEAL_SHIPPED_DEFECT = """    void navigator.clipboard.writeText(secret).then(() => {
       setCopyState('copied')
-      window.setTimeout(() => setCopyState('idle'), 2000)
+      window.clearTimeout(resetTimer.current)
+      resetTimer.current = window.setTimeout(() => setCopyState('idle'), 2000)
     })"""
 
 SETUP_GUARDED = """          try {
             void navigator.clipboard.writeText(text).then(
               () => {
                 setCopyState('copied')
-                window.setTimeout(() => setCopyState('idle'), 1500)
+                window.clearTimeout(resetTimer.current)
+                resetTimer.current = window.setTimeout(() => setCopyState('idle'), 1500)
               },
               () => setCopyState('failed'),
             )
           } catch {
             setCopyState('failed')
           }"""
+# ⚠ RE-ANCHORED AT W1.1.10, same cause as REVEAL above: Setup's reset timer became cancellable, and
+# the defect keeps that cancellable timer so this control arms the `?.` copy-failure property alone.
 SETUP_SHIPPED_DEFECT = """          void navigator.clipboard?.writeText(text).then(() => {
             setCopyState('copied')
-            window.setTimeout(() => setCopyState('idle'), 1500)
+            window.clearTimeout(resetTimer.current)
+            resetTimer.current = window.setTimeout(() => setCopyState('idle'), 1500)
           })"""
 
 SETUP_LIVE = """      <span aria-live="polite" className="sr-only">
@@ -131,7 +146,9 @@ CONTROLS = [
     ),
     dict(
         name="C4 RevealOnce reports FAILURE on a copy that worked",
-        file=REVEAL, old="          setCopyState('copied')\n          window.setTimeout(() => setCopyState('idle'), 2000)",
+        # ⚠ RE-ANCHORED AT W1.1.10, third site of the same drift: the cancellable timer added a line
+        # between the two this anchor spans.
+        file=REVEAL, old="          setCopyState('copied')\n          window.clearTimeout(resetTimer.current)\n          resetTimer.current = window.setTimeout(() => setCopyState('idle'), 2000)",
         new="          setCopyState('failed')",
         reds=KEYS_WORKING + SETUP_WORKING,
         greens=KEYS_VISIBLE + KEYS_ANNOUNCE + SETUP_VISIBLE + SETUP_ANNOUNCE,
