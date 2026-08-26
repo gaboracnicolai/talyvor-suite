@@ -129,19 +129,25 @@ export function IssueDetail() {
   // destination. The comment box is always mounted so a ref reaches it directly; the description
   // EDITOR does not exist until the draft opens, so that one focus is deferred by one commit.
   //
-  // ⚠ IT IS `focusEditor` AND NOT `focusDraft` FOR A REASON THAT IS NOT STYLE, AND THE REASON IS
-  // A DEFECT IN AN INSTRUMENT RATHER THAN IN THIS FILE. `figureFace.test.ts` classifies a call as
-  // money by `/usd|cents|cost|price/i` against the bare identifier, so `setFoc-usD-raft` matched
-  // `usd`; TypeScript generics are read as JSX open tags by the same file's `tags()` scanner, so
-  // an ordinary statement in a function body was reported as RENDERED, and the guard failed with
-  // "money rendered in the body sans" over a boolean. MEASURED both directions: removing the
-  // `useRef<…>` generic and keeping the name still fails (the file has other generics); keeping
-  // the generic and renaming away the three letters passes. A census of both packages finds this
-  // was the FIRST false positive — the other eight matches (formatUSD, formatCents, formatCost,
-  // lensCostForLXC, costState, CostNote, IssueCostProbe, USD) are all genuinely money. The rename
-  // is the local unblock; the instrument is filed as W1.1.18 rather than repaired here, because a
-  // tightened pattern needs its own positive controls (`\b` alone would stop matching `formatUSD`,
-  // which is the call the rule exists for).
+  // ⚠ THIS NAME WAS ONCE FORCED BY A DEFECT IN AN INSTRUMENT, AND THAT DEFECT IS NOW REPAIRED
+  // (W1.1.18). The history is kept because the constraint is gone and a reader should not have to
+  // wonder whether it is still there: `figureFace.test.ts` used to classify a call as money by
+  // `/usd|cents|cost|price/i` against the BARE IDENTIFIER, so `setFoc-usD-raft` matched `usd`, and
+  // the guard failed with "money rendered in the body sans" over a boolean. It now matches a
+  // camelCase SEGMENT (`isMoneyName`), so `setFocusDraft` does not match and `formatUSD` still
+  // does — the repair `\b` alone could not make, because `formatUSD` has no word boundary before
+  // `USD`. `setFocusDraft` is pinned in that file's NOT_MONEY list, so this exact name is now a
+  // standing control rather than a hazard.
+  //
+  // ⚠ THE NAME IS LEFT AS IT IS ON PURPOSE. `focusEditor` describes what it does — the description
+  // EDITOR is the thing focused — so renaming it back would be churn on a screen to celebrate a
+  // fix in a test. It is now a choice about naming and no longer a constraint.
+  //
+  // ⚠ ONE HALF IS STILL A KNOWN LIMIT, DELIBERATELY: the same file's `tags()` reads a TypeScript
+  // generic as a JSX open tag, so `useRef<…>` below still opens a "tag" that never closes and can
+  // put an ordinary statement in scope. It is pinned rather than fixed because it can only ever ADD
+  // sites — a fake wrapper carries no `font-figure`, so the sweep fails LOUDLY — and the obvious
+  // repair would skip real tags written straight after text.
   const commentRef = useRef<HTMLInputElement | null>(null)
   const descriptionRef = useRef<HTMLTextAreaElement | null>(null)
   const [focusEditor, setFocusEditor] = useState(false)
