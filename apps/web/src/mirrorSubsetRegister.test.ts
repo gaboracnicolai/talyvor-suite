@@ -128,6 +128,12 @@ const MIRRORS: Mirror[] = [
   { file: 'apps/web/src/lib/api.ts', iface: 'LXCLedgerEntry', repo: 'talyvor-lens', path: 'internal/economy/dualtoken.go', struct: 'LXCLedgerEntry' },
   { file: 'apps/web/src/lib/api.ts', iface: 'LensBalance', repo: 'talyvor-lens', path: 'internal/mining/cache_mining.go', struct: 'BalanceSnapshot' },
   { file: 'apps/web/src/lib/api.ts', iface: 'LedgerEntry', repo: 'talyvor-lens', path: 'internal/mining/cache_mining.go', struct: 'LedgerEntry' },
+  // W4.6.1 step 7. REGISTERED RATHER THAN AVOIDED: the tempting alternative was to declare a
+  // deliberate SUBSET and make no cross-repo claim at all, but this interface declares every field
+  // the upstream struct has — so 'subset' would have been the false half of exactly the sentence
+  // this file exists to stop trusting.
+  { file: 'apps/web/src/lib/api.ts', iface: 'EarningsSummary', repo: 'talyvor-lens', path: 'internal/earnings/reader.go', struct: 'Summary' },
+  { file: 'apps/web/src/lib/api.ts', iface: 'EarningsTypeLine', repo: 'talyvor-lens', path: 'internal/earnings/reader.go', struct: 'TypeLine' },
 ]
 
 /**

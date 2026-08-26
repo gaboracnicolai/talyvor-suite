@@ -115,6 +115,9 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   // Card at all — it is built from Region, and its two regions carry their own headings. A
   // reader comparing this row with /docs's 0 should know they mean different things.
   '/chat': 0,
+  // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. /earnings is
+  // built from Region and renders no Card at all; its three regions carry their own headings.
+  '/earnings': 0,
   '/billing': 2,
   '/billing/success': 0,
   '/billing/cancel': 0,

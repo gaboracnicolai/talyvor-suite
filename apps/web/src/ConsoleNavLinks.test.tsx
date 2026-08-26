@@ -65,15 +65,23 @@ import { App, CONSOLE_ROUTES, queryClient } from './App'
  * second case for the reason the reader cares about — it steals the modified click.
  *
  * ⚠ AND EVERY COUNT CARRIES A FLOOR. "every destination is a link" is also what a sidebar that
- * rendered nothing reports. The destination count is pinned at twelve, and the pinned list is
- * cross-checked against `App.tsx`'s own call sites, so neither adding a thirteenth destination nor
- * deleting one leaves this sweep quietly reporting on a set it no longer covers.
+ * rendered nothing reports. The destination count is pinned by the LIST below rather than by a
+ * number in this sentence, and the pinned list is cross-checked against `App.tsx`'s own call
+ * sites, so neither adding a destination nor deleting one leaves this sweep quietly reporting on a
+ * set it no longer covers. (It read "pinned at twelve" until W4.6.1 step 7 added /earnings and made
+ * that thirteen — a cardinal in prose beside a list that already states it is one more thing to
+ * keep true, so it is gone rather than incremented.)
  */
 
 /** Every destination the sidebar offers, pinned. A literal, so a deletion moves it too. */
 const SIDEBAR_DESTINATIONS = [
   '/',
   '/ledger',
+  // W4.6.1 step 7. ⚠ THE THIRTEENTH, AND IT IS IN THE SIDEBAR ON PURPOSE: /chat (step 6) is a
+  // route with no sidebar entry, so it is reachable only by typing the address. An earnings screen
+  // nobody can find answers a question nobody gets to ask — the same defect Members.tsx was
+  // rebuilt for, one level up.
+  '/earnings',
   '/billing',
   '/setup',
   '/keys',

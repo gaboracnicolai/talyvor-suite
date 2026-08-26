@@ -189,6 +189,25 @@ func TestAllWorkspaceRoutesFollowTheSession(t *testing.T) {
 		"/api/lxc/history?limit=5&offset=0",
 		"/api/spend/month",
 		"/api/keys",
+		// W4.6.1 step 7. Two things measured 2026-08-26 while adding this line, both about the
+		// harness rather than about the route, and neither of them a reason to widen anything here:
+		//
+		//  (1) THIS LIST IS HAND-MAINTAINED, so it cannot see a new route on its own — but the CLASS
+		//      is covered by a derived guard, which is the half worth knowing. Mounting
+		//      /api/earnings as proxyFixed with a baked workspace id (the exact defect this file
+		//      exists for) is caught by TestLensWorkspacePathBuiltInExactlyOnePlace, which reads
+		//      lens.go's SOURCE rather than a list. Source census covers the class; this line covers
+		//      this route behaviourally. Only one of the two scales.
+		//
+		//  (2) ⚠ THE SUBTEST DEGRADES TO t.Skipf WHEN A ROUTE PRODUCES NO WORKSPACE-SCOPED CALL, SO
+		//      IT CANNOT FAIL ON A ROUTE THAT IS GONE. Measured both ways: with /api/earnings
+		//      mounted the subtest PASSES and genuinely discriminates (alice and bob reach different
+		//      workspaces); with the mount statement DELETED it reports SKIP and the package stays
+		//      green. That is true of all seven entries, not just this one. It is left as it is —
+		//      the skip is deliberate and widening someone else's tenancy guard is its own merge —
+		//      and absence is covered for THIS route by earnings_test.go's [B1], which asserts a 200
+		//      and the upstream path rather than a refusal.
+		"/api/earnings",
 	}
 	for _, route := range routes {
 		t.Run(route, func(t *testing.T) {

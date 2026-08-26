@@ -17,6 +17,7 @@ import { useDocumentTitle } from './documentTitle'
 import { ApiError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
 import { Ledger } from './areas/lens/Ledger'
+import { Earnings } from './areas/lens/Earnings'
 import { Keys } from './areas/lens/Keys'
 import { Setup } from './areas/lens/Setup'
 import { Spend } from './areas/lens/Spend'
@@ -103,6 +104,12 @@ export interface ConsoleRoute {
 export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/', title: 'Overview', element: <Overview /> },
   { path: '/ledger', title: 'Ledger', element: <Ledger /> },
+  // W4.6.1 step 7 — the earnings screen. It sits beside the Ledger because they answer adjacent
+  // questions off the SAME ledger table, and deliberately is NOT a panel on Overview: the field
+  // Overview would have reached for, lifetime_earned, is lifetime CREDITED (talyvor-lens #472),
+  // and putting an honest earnings figure next to a misleading one invites a reader to average
+  // them.
+  { path: '/earnings', title: 'Earnings', element: <Earnings /> },
   // W4.6.1 step 6 — the chat screen. It sits directly under Overview because it is the first
   // surface a subscriber uses, not an administrative one.
   { path: '/chat', title: 'Chat', element: <Chat /> },
@@ -192,6 +199,7 @@ function Sidebar() {
       <Group label="Workspace">
         {item('/', 'Overview')}
         {item('/ledger', 'Ledger')}
+        {item('/earnings', 'Earnings')}
         {/* Buying LXC has to be findable, not a URL you have to be told. The
             wildcard keeps it highlighted on the Stripe return pages too. */}
         {item('/billing', 'Billing', true)}
