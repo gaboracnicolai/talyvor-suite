@@ -156,7 +156,15 @@ const GO_TEST = ENTRIES.filter((e) => /\bgo test\b/.test(e.command))
  * invisible. Any `-cq`, `-ci`, `-cw` would have gone the same way. The rule was never about the
  * spelling of the flag: it is about a command that reads `grep`'s EXIT STATUS instead of its count.
  */
-const GREP_C = ENTRIES.filter((e) => /\bgrep -c[A-Za-z]*\b/.test(e.command))
+const COUNT_SHAPE = /\bgrep -c[A-Za-z]*\b/
+const GREP_C = ENTRIES.filter((e) => COUNT_SHAPE.test(e.command))
+/**
+ * ⚠ THE BUNDLED FLAG IS IN THIS PATTERN TOO, AND IT WAS NOT — the identical defect recorded
+ * against `grep -c` directly above, fixed there and not here. `/\bgrep -o\b/` does not match
+ * `grep -oE`, so the six talyvor-lens request-body entries were in NO rule in this file. See H4
+ * below, which is the control that keeps both patterns flag-bundling-proof.
+ */
+const EXTRACT_SHAPE = /\bgrep -o[A-Za-z]*\b/
 /**
  * H3 — AN EXTRACTION PIPELINE ANSWERS YES ABOUT WHATEVER IT FOUND, INCLUDING NOTHING. The seven
  * struct-mirror entries added with mirrorSubsetRegister.test.ts read a Go struct's json tags with
@@ -184,11 +192,90 @@ const GREP_C = ENTRIES.filter((e) => /\bgrep -c[A-Za-z]*\b/.test(e.command))
  * origin does not.
  */
 const EXTRACT = ENTRIES.filter(
-  (e) => /\bgrep -o\b/.test(e.command) && !/\bcurl\b/.test(e.command),
+  (e) => EXTRACT_SHAPE.test(e.command) && !/\bcurl\b/.test(e.command),
 )
 
 /** A short, stable handle for a test name — the premise lines are paragraphs. */
 const handle = (e: Uncheckable) => e.premise.slice(0, 56)
+
+/**
+ * Every `grep -<flags>` cluster in a command, as its flag letters. Derived by TOKENISING the
+ * command rather than by re-running either shape pattern, which is the whole point: a rule that
+ * decided its own population would agree with itself in every state, including the broken one.
+ */
+const grepFlagClusters = (command: string): string[] =>
+  [...command.matchAll(/\bgrep -([A-Za-z]+)/g)].map((m) => m[1])
+
+/**
+ * H4 — A BUNDLED GREP FLAG FALLS OUT OF THE RULE THAT NAMES THE FLAG, AND THIS FILE HAD ALREADY
+ * MEASURED THAT ONCE AND FIXED IT IN ONE RULE OF TWO.
+ *
+ * The `grep -c` comment above records it exactly: `\b` between `c` and `E` is not a boundary, so
+ * `/\bgrep -c\b/` classified `grep -cE` as NEITHER shape and generated NO test. COUNT_SHAPE was
+ * widened to `-c[A-Za-z]*`. EXTRACT_SHAPE was left as `/\bgrep -o\b/` in the same file.
+ *
+ * MEASURED at dd3ba56, by executing all 46 settle commands against read-only `git archive` exports
+ * of talyvor-docs / talyvor-lens / talyvor-track at their mains: SIX entries write `grep -oE` and
+ * are therefore in NO rule here — the whole talyvor-lens request-body register. They are the money
+ * and credential shapes: billing/checkout `usd_cents`, lxc/convert `lxc_amount_ulxc`, api-keys
+ * `scopes`, provision `ttl_hours`, distill `distill_policy`, cache-poolable `cache_poolable`.
+ * All six happen to be in the compare form TODAY, so nothing upstream is wrong; the rule that
+ * exists to keep them in it simply cannot see them, and a rewrite into `| grep -q .` would be
+ * green here.
+ *
+ * ⚠ WHY THE POPULATION IS TOKENISED AND NOT RE-MATCHED. Asserting `oFamily.length === EXTRACT.length`
+ * with both sides built from EXTRACT_SHAPE is a tautology in every state — it passes before the
+ * widening and after it, and it would pass again if the pattern were reverted. Tokenising the flag
+ * cluster is a second, independent mechanism, so this rule can still say no.
+ */
+describe('a bundled grep flag does not fall out of the rule that names the flag', () => {
+  it('every command whose grep flags include `o` is classified as an extraction', () => {
+    const byFlag = ENTRIES.filter(
+      (e) =>
+        grepFlagClusters(e.command).some((f) => f.includes('o')) && !/\bcurl\b/.test(e.command),
+    )
+    const missed = byFlag.filter((e) => !EXTRACT.includes(e))
+    expect(
+      missed.map((e) => e.premise.slice(0, 70)),
+      'these settle commands extract with a `grep -o` family flag and EXTRACT did not classify ' +
+        'them, so the rule that requires the extracted list be COMPARED never ran for them. The ' +
+        'same bundled-flag blindness is recorded against `grep -c` higher up this file and was ' +
+        'fixed there only. Widen EXTRACT_SHAPE the way COUNT_SHAPE already is.',
+    ).toEqual([])
+  })
+
+  it('every command whose grep flags include `c` is classified as a count', () => {
+    const byFlag = ENTRIES.filter((e) => grepFlagClusters(e.command).some((f) => f.includes('c')))
+    const missed = byFlag.filter((e) => !GREP_C.includes(e))
+    expect(
+      missed.map((e) => e.premise.slice(0, 70)),
+      'these settle commands read `grep -c` and the count rule did not classify them.',
+    ).toEqual([])
+  })
+
+  /**
+   * The positive control, both directions, on the patterns themselves. Without it the two rules
+   * above pass the day every entry happens to be spelled `grep -o` — reading nothing, and saying
+   * so to nobody.
+   */
+  it('each shape pattern matches the bare flag AND the bundled flag', () => {
+    const cases = [
+      { name: 'EXTRACT_SHAPE', shape: EXTRACT_SHAPE, bare: 'grep -o x', bundled: 'grep -oE x' },
+      { name: 'COUNT_SHAPE', shape: COUNT_SHAPE, bare: 'grep -c x', bundled: 'grep -cE x' },
+    ]
+    for (const c of cases) {
+      expect(c.shape.test(c.bare), `${c.name} lost the bare form`).toBe(true)
+      expect(
+        c.shape.test(c.bundled),
+        `${c.name} does not match the bundled form. \b between the flag letter and the next ` +
+          'letter is not a word boundary, so the rule silently generates no test for it.',
+      ).toBe(true)
+    }
+    // The negative half: neither shape may swallow an unrelated flag cluster.
+    expect(EXTRACT_SHAPE.test('grep -A12 foo'), 'EXTRACT_SHAPE matched grep -A').toBe(false)
+    expect(COUNT_SHAPE.test('grep -q foo'), 'COUNT_SHAPE matched grep -q').toBe(false)
+  })
+})
 
 describe('the expiry register still has an uncheckable half to police', () => {
   it('parses at least six UNCHECKABLE premises out of deploy/decision-expiry.sh', () => {
@@ -209,8 +296,12 @@ describe('the expiry register still has an uncheckable half to police', () => {
         'was 7 when only talyvor-track and talyvor-docs were registered; leaving it at 7 after ' +
         "lib/api.ts's four were added would have tolerated losing exactly those four in silence. " +
         'It was 11 until the five docs-search premises arrived, and the same argument applies ' +
-        'unchanged: the number moves in the change that adds them, or it tolerates their loss.',
-    ).toBeGreaterThanOrEqual(16)
+        'unchanged: the number moves in the change that adds them, or it tolerates their loss. ' +
+        'It was 16 while EXTRACT_SHAPE could not see a bundled `grep -oE`: the six talyvor-lens ' +
+        'request-body premises were extraction commands the whole time and were counted by ' +
+        'nothing, so widening the pattern moved the real population 27 -> 33 without a single ' +
+        'entry being added to the register.',
+    ).toBeGreaterThanOrEqual(33)
   })
 
   it('at least three of them are settled by running `go test` upstream', () => {
