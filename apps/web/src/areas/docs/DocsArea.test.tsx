@@ -569,3 +569,96 @@ describe('W1.1.9 — the space list reads as one screen, in regions', () => {
     expect(screen.queryByRole('button', { name: 'Name the first space' })).toBeNull()
   })
 })
+
+/**
+ * W1.1.9a — THE SPACE VIEW, REBUILT IN THE PRODUCT'S OWN LANGUAGE.
+ *
+ * One idea per region, a page-scale heading that opens the screen, and — the half that is not
+ * decoration — a title that cannot be a raw id.
+ *
+ * ⚠ THE STATE THIS SCREEN GETS WRONG IS NOT THE ONE ITS SIBLING GETS WRONG. The space LIST can
+ * confuse an empty workspace with a broken one; this screen cannot — you arrived here from a list
+ * that answered, so the space exists and its page count is a fact about the SPACE, not about Docs.
+ * What this screen gets wrong is WHOSE space it says you are in: the title is the space's `name`
+ * with the raw `spaceId` as its fallback, and that fallback is reached on every arrival where the
+ * spaces read has not answered — a reload, a shared link, a new tab, or a failing spaces read.
+ *
+ * ⚠ AND THE RULE ALREADY EXISTS ONE LINE ABOVE IT. `spaceCrumbLabel` exists for exactly this and is
+ * pinned by 'names the space it goes back to, never a raw id' — for the BREADCRUMB. The card header
+ * two lines below printed the id, and the rebuild puts that id in the largest type the console has.
+ * This is the shape this repo keeps re-finding: the fix applied where the defect was reported, and
+ * the identical shape one element over never swept for.
+ */
+describe('W1.1.9a — the space view reads as one screen, in regions', () => {
+  function regions() {
+    return Array.from(document.querySelectorAll('[data-testid="region-label"]')).map((el) => ({
+      index: el.querySelector('[data-testid="region-index"]')?.textContent ?? '',
+      label: el.lastElementChild?.textContent ?? '',
+    }))
+  }
+
+  /** Spaces answers `spacesBody` at `spacesStatus`; the pages route answers `pages`. */
+  function mockSpace(pages: { status?: number; body: unknown }, spacesStatus = 200) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const json = (v: unknown, s = 200) =>
+        new Response(JSON.stringify(v), { status: s, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/docs/spaces') return json(spacesStatus === 200 ? SPACES : { error: 'boom' }, spacesStatus)
+      if (url.startsWith('/api/docs/')) return json(pages.body, pages.status ?? 200)
+      return new Response('null', { status: 404 })
+    })
+  }
+
+  it('is three named regions, one idea each', async () => {
+    mockSpace({ body: [{ id: 'pg-1', space_id: 'sp-eng', title: 'Runbook' }] })
+    renderAt('/docs/spaces/sp-eng')
+    await screen.findByText('Runbook')
+    expect(regions()).toEqual([
+      { index: '00', label: 'Space' },
+      { index: '01', label: 'What is in it' },
+      { index: '02', label: 'Add a page' },
+    ])
+  })
+
+  it('makes exactly one page-scale claim, and it is the space’s own name', async () => {
+    mockSpace({ body: [{ id: 'pg-1', space_id: 'sp-eng', title: 'Runbook' }] })
+    renderAt('/docs/spaces/sp-eng')
+    await screen.findByText('Runbook')
+    expect(document.querySelectorAll('.text-page')).toHaveLength(1)
+    expect(document.querySelector('.text-page')?.textContent).toBe('Engineering')
+  })
+
+  it('⚠ never writes a raw id as the title — the crumb’s rule, applied to the heading', async () => {
+    // The spaces read fails, so the name is not and never will be in cache. This is an ordinary
+    // arrival: a reload, a shared link, a new tab.
+    mockSpace({ body: [] }, 500)
+    renderAt('/docs/spaces/sp-eng')
+    await screen.findByText(/^No pages yet\./)
+    const page = document.querySelector('.text-page')?.textContent ?? ''
+    expect(page, 'the page-scale heading is the raw route id').not.toBe('sp-eng')
+    expect(page).toBe('This space')
+    // and the id is still on the screen, where an identifier belongs — small, mono, copyable.
+    expect(screen.getByText('sp-eng').className).toMatch(/font-mono/)
+  })
+
+  it('an EMPTY space says so, and the way in is PERFORMED rather than pointed at', async () => {
+    mockSpace({ body: [] })
+    renderAt('/docs/spaces/sp-eng')
+    await screen.findByText(/^No pages yet\./)
+    fireEvent.click(screen.getByRole('button', { name: 'Write the first page' }))
+    expect((document.activeElement as HTMLInputElement | null)?.placeholder).toBe(
+      'What are you writing?',
+    )
+  })
+
+  it('a FAULT on the page read is not an empty space, and the title still names the space', async () => {
+    mockSpace({ status: 500, body: { error: 'boom' } })
+    renderAt('/docs/spaces/sp-eng')
+    await screen.findByText(/This is a fault, not an empty space/)
+    // ⚠ THE TITLE IS NOT A STATE CLAIM ON THIS SCREEN, and that is deliberate: the space exists —
+    // you reached it from a list that answered — so a broken PAGE read says nothing about it. The
+    // sibling screen's headline does carry state, because there the read IS the subject.
+    expect(document.querySelector('.text-page')?.textContent).toBe('Engineering')
+    expect(screen.queryByRole('button', { name: 'Write the first page' })).toBeNull()
+  })
+})
