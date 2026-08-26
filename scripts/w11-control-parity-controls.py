@@ -47,6 +47,17 @@ COMPANION = "reads a tag past an arrow function in an attribute"
 
 CONTRACT = "transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 "
 
+# ⚠ RE-ANCHORED AT W1.1.21, AND THE CAUSE IS WORTH KEEPING. IssueList.tsx now holds TWO raw
+# controls — the full-width filter input and a smaller per-row one — and BOTH carry the contract,
+# so the guard is satisfied and nothing regressed. But these controls splice with an expected count
+# of exactly ONE, so the second occurrence made them unable to arm. Nothing failed; they went
+# silent. ⚠ THE FIX IS NOT `count=2`: the point of both is that ONE control diverges while its twin
+# stays correct, which is the case a guard that compares whole class lists or merely counts will
+# pass. Mutating both at once would test the easy direction.
+ISSUELIST_PRE = "text-body text-ink placeholder:text-faint "
+ISSUELIST_CONTRACT = ISSUELIST_PRE + CONTRACT
+ISSUELIST_HOVER = ISSUELIST_PRE + "transition-colors duration-200 hover:border-rule-strong "
+
 
 @dataclass
 class Control:
@@ -65,7 +76,7 @@ CONTROLS: list[Control] = [
         what="take the contract back off the create-issue title field",
         says=DIVERGES,
         companion=COMPANION,
-        edits=[(ISSUELIST, [(CONTRACT, 1, "")])],
+        edits=[(ISSUELIST, [(ISSUELIST_CONTRACT, 1, ISSUELIST_PRE)])],
     ),
     Control(
         name="C2 regress-a-textarea",
@@ -81,7 +92,7 @@ CONTROLS: list[Control] = [
              "lists, or merely counting, passes this",
         says=DIVERGES,
         companion=COMPANION,
-        edits=[(ISSUELIST, [("hover:border-rule-strong ", 1, "")])],
+        edits=[(ISSUELIST, [(ISSUELIST_HOVER, 1, ISSUELIST_PRE + "transition-colors duration-200 ")])],
     ),
     Control(
         name="C4 component-gains-a-property",
