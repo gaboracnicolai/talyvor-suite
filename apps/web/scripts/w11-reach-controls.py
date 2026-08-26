@@ -61,6 +61,16 @@ class Control:
     files: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
+# ⚠ FIVE PHRASES HERE NAMED A MESSAGE THE GUARD STOPPED PRINTING (W1.1.21c, tab-r5m2), AND THE
+# SCOREBOARD READ "NOT CAUGHT" FOR A GUARD THAT WAS FIRING ON EVERY ONE OF THEM. check-audit-reach
+# made both of its messages PROJECT-SPECIFIC — `is not in ${source.label}'s registry` and `is
+# exported and NO apps/web test renders it` — and these predictions still spelled the older, shorter
+# wording. So C4, C5, C6, C9 and C10 each mutated the product, each drove the checker RED, and each
+# was scored a miss because the sentence had gained two words.
+# ⚠ THIS IS THE INVERSE OF THE FAILURE THE ANCHOR CHECK LOOKS FOR, AND IT IS WHY THAT CHECK IS NOT
+# ENOUGH: every anchor in this file was present, so the harness armed. Arming is not catching, and
+# reporting a catch is not the same as catching either — the verdict was wrong in the direction that
+# makes a working guard look broken, which is the direction that gets a guard deleted.
 CONTROLS = [
     Control(
         name="C1  blind the hook — commits stop being recorded",
@@ -117,7 +127,7 @@ CONTROLS = [
             )
         ],
         red_cmd="reach",
-        phrase="apps/web/src/areas/lens/Overview.tsx#Overview is not in the registry",
+        phrase="apps/web/src/areas/lens/Overview.tsx#Overview is not in apps/web's registry",
     ),
     Control(
         name="C5  drop the package import — packages/ui leaves the registry",
@@ -129,7 +139,7 @@ CONTROLS = [
             )
         ],
         red_cmd="reach",
-        phrase="packages/ui#Button is not in the registry",
+        phrase="packages/ui#Button is not in apps/web's registry",
     ),
     Control(
         name="C6  a new exported component nobody renders",
@@ -141,21 +151,24 @@ CONTROLS = [
             )
         ],
         red_cmd="reach",
-        phrase="Capability.tsx#CapabilityNobodyRenders is exported and NO test renders it",
+        phrase="Capability.tsx#CapabilityNobodyRenders is exported and NO apps/web test renders it",
         notes="the claim in this guard's own docstring, checked rather than asserted",
     ),
+    # ⚠ RE-AIMED AT THE SAME RULE FROM THE OTHER SIDE (W1.1.21c, tab-r5m2), BECAUSE THE TABLE IT
+    # USED TO EDIT IS NOW `const UNREACHED = {}`. This control needed a component that was BOTH
+    # classified AND newly rendered; with the table empty there is no classified component left, so
+    # it armed (its two Capability.tsx anchors are still there) and could never have caught — its
+    # phrase was unreachable. The table did not empty by accident: its own header records that both
+    # entries were deleted BY the stale direction once packages/ui's shards were read, which is this
+    # rule working. So the reachable form is the inverse edit — classify a component a test DOES
+    # render — and the phrase is unchanged, because it is the same sentence the guard must say.
     Control(
-        name="C7  a classified component starts being rendered — the entry goes stale",
+        name="C7  a classified component is already rendered — the entry is stale on arrival",
         edits=[
             Edit(
-                "src/areas/lens/Capability.tsx",
-                "import { Row } from '@talyvor/ui'",
-                "import { HoldBar, Row } from '@talyvor/ui'",
-            ),
-            Edit(
-                "src/areas/lens/Capability.tsx",
-                "        Off\n      </span>",
-                "        Off\n      </span>\n      <HoldBar elapsed={1} total={2} />",
+                "scripts/check-audit-reach.mjs",
+                "const UNREACHED = {}",
+                "const UNREACHED = {\n  'packages/ui#HoldBar':\n    'unwired — it needs a hold window and the Lens ledger to have one',\n}",
             ),
         ],
         red_cmd="reach",
@@ -165,18 +178,17 @@ CONTROLS = [
         "reported a class that emits no CSS. The control was measuring its own string, not the "
         "guard. It is also W1.8's argument arriving inside a positive control for something else.",
     ),
-    Control(
-        name="C8  delete a classification — the component is unexplained again",
-        edits=[
-            Edit(
-                "scripts/check-audit-reach.mjs",
-                "  'packages/ui#HoldBar':",
-                "  'packages/ui#HoldBarRenamedAway':",
-            )
-        ],
-        red_cmd="reach",
-        phrase="packages/ui#HoldBar is exported and NO test renders it",
-    ),
+    # ⚠ C8 REMOVED, AND THIS IS THE MEASUREMENT RATHER THAN A TIDY-UP (W1.1.21c, tab-r5m2).
+    # It read: "delete a classification — the component is unexplained again", and it renamed
+    # `'packages/ui#HoldBar':` inside UNREACHED. That key is gone — `const UNREACHED = {}` — so the
+    # anchor was absent and the control could not arm. It cannot be restored: with the table empty
+    # there is no legitimate classification to delete, and ADDING one so the control can delete it
+    # would be the harness measuring its own string, which is the trap C7's note above already
+    # records paying for once.
+    # ⚠ ITS RULE IS NOT LOST, WHICH IS WHY REMOVING IT IS NOT TUNING SOMETHING GREEN. "Exported and
+    # rendered by no test must be NAMED" is exactly C6 (`CapabilityNobodyRenders`), which reaches
+    # that state by adding an unrendered export and therefore does NOT depend on the table having
+    # contents. C6 and the re-aimed C7 cover both directions between them.
     Control(
         name="C9  regress the fix — PrivacyCard comes back",
         edits=[
@@ -187,7 +199,7 @@ CONTROLS = [
             )
         ],
         red_cmd="reach",
-        phrase="Privacy.tsx#PrivacyCard is exported and NO test renders it",
+        phrase="Privacy.tsx#PrivacyCard is exported and NO apps/web test renders it",
     ),
     Control(
         name="C10 regress the fix — SelectGroup comes back",
@@ -204,7 +216,7 @@ CONTROLS = [
             ),
         ],
         red_cmd="reach",
-        phrase="packages/ui#SelectGroup is exported and NO test renders it",
+        phrase="packages/ui#SelectGroup is exported and NO apps/web test renders it",
     ),
     Control(
         name="C11 the workers write nothing — no shards at all",

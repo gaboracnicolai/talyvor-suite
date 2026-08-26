@@ -97,18 +97,30 @@ CONTROLS = [
         "packages/ui: the gate threw, but 1 audit(s) never named themselves in it: plane",
         WEB_SUITE,
     ),
+    # ⚠ THE GUARD WAS IMPROVED PAST THIS CONTROL, AND THAT IS WHY THE ANCHOR WENT ABSENT
+    # (W1.1.21c, tab-r5m2). check-audit-gate.mjs no longer counts `problems.push` with a regex at
+    # all: `countPushCalls` walks the TypeScript parse tree and counts CALL EXPRESSIONS, so comments
+    # and string literals are excluded BY CONSTRUCTION rather than by an anchor. Nothing failed —
+    # the control simply stopped having a regex to un-anchor, and it has been unable to arm since.
+    # ⚠ THE RULE IS STILL REACHABLE, FROM THE OTHER END. The regression this control exists for is
+    # now "somebody simplifies the parse walk back to a regex", which the guard's own comment beside
+    # `reportBlocks` anticipates in those words. packages/ui's setup.ts:48 carries `problems.push(`
+    # INSIDE A PROSE COMMENT — 8 real calls plus that one — so a regex counts 9 against 8 audits and
+    # the gate says so. That decoy is what makes this control possible; it is not planted by the
+    # control, it is already in the tree.
     Control(
-        "C4 the report-block count un-anchored",
-        "/^\\s*problems.push(/gm -> /problems.push(/g — the count then reads its own documentation",
+        "C4 the report-block count simplified back to a regex",
+        "countPushCalls(parse tree) -> match(/problems.push(/g) — the count then reads a comment",
         [
             (
                 WEB / "scripts/check-audit-gate.mjs",
-                "match(/^\\s*problems\\.push\\(/gm)",
-                "match(/problems\\.push\\(/g)",
+                "  const reportBlocks = countPushCalls(setupPath)",
+                "  const reportBlocks = (readFileSync(setupPath, 'utf8')\n"
+                "    .match(/problems\\.push\\(/g) ?? []).length",
             )
         ],
         GATE,
-        "packages/ui: src/__tests__/setup.ts holds 8 report blocks and this script pins 7 audits",
+        "packages/ui: src/__tests__/setup.ts holds 9 report blocks and this script pins 8 audits",
         UI_SUITE,
     ),
     Control(
