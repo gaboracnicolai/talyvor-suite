@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { blankComments } from '../../../packages/ui/src/lib/sourceText'
 import { App, CONSOLE_ROUTES, queryClient } from './App'
+import { populatedBff, settleQueries } from './populatedBff'
 
 /**
  * LandmarkCoverage.test.tsx — EVERY SCREEN A PERSON SEES BEFORE THEY HAVE A SESSION PUT ITS WHOLE
@@ -162,19 +163,17 @@ const NOT_A_PUBLIC_PAGE = ['/*', '*']
 const FLOOR = 100
 
 function mockBff(authenticated: boolean) {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const url = String(input)
-    if (url === '/auth/me') {
-      const body = authenticated
-        ? { mode: 'disabled', authenticated: false, user: null }
-        : { mode: 'oidc', authenticated: false, user: null, signup_open: true }
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-    return new Response('null', { status: 404 })
-  })
+  // ⚠ THIS 404'd EVERYTHING, so this sweep counted landmarks on each screen's EMPTY state
+  // (W1.1.17b). The shared populated fixture answers what the screens ask for; the signed-out shell
+  // is a different SCREEN rather than a different fixture, so it rides in as an override.
+  populatedBff(
+    (impl) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(impl as never)
+    },
+    authenticated
+      ? {}
+      : { '/auth/me': { mode: 'oidc', authenticated: false, user: null, signup_open: true } },
+  )
 }
 
 afterEach(() => {
@@ -306,6 +305,9 @@ describe('the gated console, which is the reference the five surfaces failed to 
       window.history.pushState({}, '', address)
       render(<App />)
       await screen.findByRole('navigation', { name: /sections/i })
+      // ⚠ THE NAV IS THE SHELL, NOT THE SCREEN. Waiting only for it counts landmarks on a page
+      // whose queries have not resolved — see settleQueries' comment. W1.1.17b.
+      await settleQueries(queryClient, waitFor)
 
       const { total, outside, samples } = outsideLandmark(document.body)
       expect(total, `${address} rendered ${total} characters`).toBeGreaterThan(FLOOR)

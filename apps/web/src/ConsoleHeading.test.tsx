@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { App, CONSOLE_ROUTES } from './App'
+import { App, CONSOLE_ROUTES, queryClient } from './App'
+import { populatedBff, settleQueries } from './populatedBff'
 
 /**
  * ConsoleHeading.test.tsx — THE SIGNED-IN CONSOLE RENDERED NO HEADING ELEMENT AT ALL, SO NOTHING
@@ -87,17 +88,13 @@ const PINNED: Readonly<Record<string, string>> = {
   '/docs': 'Docs',
 }
 
+/**
+ * ⚠ THIS 404'd EVERYTHING, so this sweep measured each screen's EMPTY state (W1.1.17b). It now uses
+ * the shared populated fixture; populatedBffCoverage.test.tsx stops that fixture rotting to a floor.
+ */
 function mockBff() {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const url = String(input)
-    if (url === '/auth/me') {
-      // disabled mode: the gate passes straight through, which is the signed-in shell.
-      return new Response(JSON.stringify({ mode: 'disabled', authenticated: false, user: null }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-    return new Response('null', { status: 404 })
+  populatedBff((impl) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(impl as never)
   })
 }
 
@@ -106,6 +103,8 @@ async function at(address: string) {
   render(<App />)
   // The gate probes /auth/me before the shell exists; the nav is the settled state.
   await screen.findByRole('navigation', { name: /sections/i })
+  // ⚠ THE NAV IS THE SHELL. Counting here measures the screen mid-load — W1.1.17b.
+  await settleQueries(queryClient, waitFor)
 }
 
 beforeEach(mockBff)
