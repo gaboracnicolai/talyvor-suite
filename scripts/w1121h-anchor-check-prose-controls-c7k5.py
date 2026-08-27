@@ -68,6 +68,37 @@ CONTROLS = [{ANCHOR}]
 '''
 
 
+def prose_only_harnesses() -> list[str]:
+    """Censused harnesses that name the checker ONLY in prose — the population this rule protects.
+
+    ⚠ DERIVED, NOT PINNED, AND THE FIRST CUT OF THIS FILE PINNED IT. R2 and R5 asserted the census
+    returned to a hardcoded `base` when the fix was reverted. That held while exactly ONE harness
+    depended on the rule; the very next merge added a second (`w11-press-c1-controls-c7k5.py`,
+    whose docstring names the checker) and both controls FAILED reporting 79 where they wanted 80
+    — against a fix that was working. **This file's own PR said "two changes at once cancel in a
+    count" and then pinned a count.** The set is measured here instead, so it reports how many
+    harnesses ride on this rule rather than going stale the moment another one does.
+    """
+    import ast as _ast
+    out = []
+    for q in sorted((ROOT / "scripts").glob("w1*controls*.py")) + \
+            sorted((ROOT / "apps/web/scripts").glob("w1*controls*.py")):
+        if "anchor-check" in q.name:
+            continue
+        try:
+            tree = _ast.parse(q.read_text(encoding="utf8"))
+        except SyntaxError:
+            continue
+        prose = {id(n.value) for n in _ast.walk(tree)
+                 if isinstance(n, _ast.Expr) and isinstance(n.value, _ast.Constant)
+                 and isinstance(n.value.value, str)}
+        hits = [n for n in _ast.walk(tree) if isinstance(n, _ast.Constant)
+                and isinstance(n.value, str) and STEM in n.value]
+        if hits and all(id(n) in prose for n in hits):
+            out.append(q.name)
+    return out
+
+
 def sha(p: pathlib.Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
@@ -134,22 +165,26 @@ def main() -> int:
                in1 and n1 == base + 1,
                f"census={n1} (expected {base + 1}), in census={in1} — prose is not a call")
 
+        riders = prose_only_harnesses()          # the plant is one of them, by construction
+        want_reverted = base + 1 - len(riders)
         swap(CHECKER, FIX_ARM, FIX_OFF, "R2")
         n2, out = census()
         in2 = censused(out, p.name)
         record("R2  the SAME harness with the fix reverted -> EXCLUDED",
-               (not in2) and n2 == base,
-               f"census={n2} (expected {base}), in census={in2} — the old behaviour reproduced: "
-               "a genuine harness silently dropped, and the count simply does not move")
+               (not in2) and n2 == want_reverted,
+               f"census={n2} (expected {want_reverted} = {base}+1−{len(riders)}), in census={in2}"
+               f" — the old behaviour reproduced: every harness that names the checker only in "
+               f"prose is silently dropped, and the count moves by exactly that population. "
+               f"Riders today: {riders}")
         CHECKER.write_bytes(saved[CHECKER][0])
 
         # ── R5 vacuity, while the plant is still there ────────────────────────────────────────
         swap(CHECKER, PROSE_ARM, PROSE_OFF, "R5")
         n5, out = census()
         record("R5  vacuity: the prose set forced empty -> excluded again",
-               not censused(out, p.name) and n5 == base,
-               f"census={n5} (expected {base}) — the new set is what does the work, not the "
-               "rewrite around it")
+               not censused(out, p.name) and n5 == want_reverted,
+               f"census={n5} (expected {want_reverted}) — the new set is what does the work, not "
+               "the rewrite around it")
         restore()
 
         # ── R3 the door stays shut ────────────────────────────────────────────────────────────
