@@ -92,21 +92,72 @@ MOTION = re.compile(
 )
 IMPORT = re.compile(r"""from\s+['"](\.[^'"]+)['"]""")
 
-# The component `CONSOLE_ROUTES` mounts at each address. ⚠ `/settings` renders `Sharing.tsx`, not a
-# `Settings.tsx` — there is no such file, the same correction W0.3 had to make about `/billing`
-# rendering `TopUp.tsx`. Read from App.tsx, not guessed.
-SCREENS = [
-    ("/", "areas/lens/Overview.tsx"),
-    ("/ledger", "areas/lens/Ledger.tsx"),
-    ("/billing", "areas/lens/TopUp.tsx"),
-    ("/keys", "areas/lens/Keys.tsx"),
-    ("/setup", "areas/lens/Setup.tsx"),
-    ("/spend", "areas/lens/Spend.tsx"),
-    ("/members", "areas/lens/Members.tsx"),
-    ("/settings", "areas/lens/Sharing.tsx"),
-    ("/track", "areas/track/TrackArea.tsx"),
-    ("/docs", "areas/docs/DocsArea.tsx"),
-]
+# ⚠⚠ THIS WAS A HAND-WRITTEN LIST OF TEN UNDER A COMMENT SAYING "Read from App.tsx, not guessed",
+# AND IT WAS GUESSED. It was also WRONG ON THE DAY IT WAS WRITTEN, and this file's own prose is the
+# witness: the header says the rejected rendered sweep ran "over all twelve `CONSOLE_ROUTES`
+# addresses" while this table listed TEN. `/billing/success` and `/billing/cancel` have been in
+# CONSOLE_ROUTES since `7513c91` (#108, 2026-08-10) — SIXTEEN DAYS before this file was written at
+# `7214b70` (#267, 2026-08-26). They were not excluded by an argument; they were missed, and the
+# number in the prose is the proof.
+#
+# ⚠⚠⚠ THEN IT DRIFTED ON TOP OF THAT: `/earnings` (`b79320e`, #273) and `/chat` (`24979ab`, #271)
+# landed after. So a census whose whole subject is "does the SCREEN move" has been answering over
+# TEN of FOURTEEN addresses — and the two it misses most are the two NEWEST screens, which is the
+# direction that looks fine: nobody re-reads a census for the screens that did not exist yet.
+#
+# ⚠ AND THE CORRECTION THE OLD COMMENT WAS PROUD OF IS THE ARGUMENT FOR DERIVING. It recorded, by
+# hand, that `/settings` renders `Sharing.tsx` and not a `Settings.tsx`. That is real and it is
+# also exactly what reading the import gives you for free: `import { Settings } from
+# './areas/lens/Sharing'`. A fact a human had to notice once is a fact the next fourteen entries
+# will not get for free.
+CONSOLE_ROUTES_FLOOR = 12  # what this file's own prose claims the table held; it has only grown
+
+
+def screens():
+    """(address, path-under-src) for every screen CONSOLE_ROUTES mounts, read out of App.tsx.
+
+    The element name is mapped through App.tsx's own import statements, so `/settings` resolves to
+    `Sharing.tsx` because that is what the import says — not because someone remembered.
+
+    ⚠ IT REFUSES RATHER THAN RETURNING A SHORT LIST, because a short list here is precisely the
+    defect being fixed: a census silently narrower than the thing it claims to census. Three
+    separate refusals — the table cannot be found, an element cannot be mapped to an import, or
+    the count falls under the floor — and none of them is a smaller table quietly reported.
+    """
+    app = WEB_SRC / "App.tsx"
+    src = app.read_text(encoding="utf-8")
+    m = re.search(r"export const CONSOLE_ROUTES[^=]*=\s*\[(.*?)\n\]", src, re.S)
+    if not m:
+        raise AssertionError(
+            "CONSOLE_ROUTES could not be located in App.tsx. This census's population comes from "
+            "that table; guessing it is what put this file ten-of-fourteen deep.")
+    imports = dict()
+    for names, rel in re.findall(r"import\s*\{([^}]*)\}\s*from\s*['\"](\.[^'\"]+)['\"]", src):
+        for n in names.split(","):
+            n = n.strip().split(" as ")[-1].strip()
+            if n:
+                imports[n] = rel
+    out = []
+    for path, element in re.findall(r"path:\s*'([^']+)'.*?element:\s*<([A-Za-z0-9_]+)\s*/>",
+                                    m.group(1), re.S):
+        rel = imports.get(element)
+        if rel is None:
+            raise AssertionError(
+                f"CONSOLE_ROUTES mounts <{element} /> at {path} and App.tsx has no local import "
+                f"for it. Either it is imported some way this reader does not know, or the route "
+                f"is lazy — decide which, but do not drop the address.")
+        f = resolve(app, rel)
+        if f is None:
+            raise AssertionError(f"<{element} /> imports '{rel}', which resolves to no file.")
+        out.append((path.replace("/*", ""), str(f.relative_to(WEB_SRC))))
+    if len(out) < CONSOLE_ROUTES_FLOOR:
+        raise AssertionError(
+            f"CONSOLE_ROUTES parsed to {len(out)} address(es), floor is {CONSOLE_ROUTES_FLOOR}. "
+            f"A shrinking console is either a real deletion — say so and move the floor — or this "
+            f"reader has gone blind, and this file has already been the second kind once.")
+    return out
+
+
 
 
 def strip_comments(text: str) -> str:
@@ -122,6 +173,12 @@ def resolve(importer: Path, rel: str):
         if cand.exists():
             return cand
     return p if p.is_file() else None
+
+
+# ⚠ BOUND HERE, NOT BESIDE `screens()`: the reader calls `resolve()`, which is defined above this
+# line and below that one. The first cut placed it beside the function and died with `NameError:
+# resolve` — loudly, at import, which is the right way for this to be wrong.
+SCREENS = screens()
 
 
 def closure(entry: Path):
@@ -151,11 +208,16 @@ def closure(entry: Path):
 
 
 def census() -> str:
-    out = [f"{'address':10s} {'files':>5s} {'motion':>6s} {'press':>5s}  where"]
+    # ⚠ THE COLUMN IS AS WIDE AS THE WIDEST ADDRESS, not 10 — `/billing/success` is sixteen
+    # characters and overran the hardcoded width the moment the derived population reached it.
+    # Same lesson as the population one screen up, one order of magnitude smaller: a number
+    # written down beside the data it describes goes stale against it.
+    w = max(10, max(len(a) for a, _ in SCREENS))
+    out = [f"{'address':{w}s} {'files':>5s} {'motion':>6s} {'press':>5s}  where"]
     for address, rel in SCREENS:
         entry = WEB_SRC / rel
         if not entry.exists():
-            out.append(f"{address:10s} ✗ MISSING {rel}")
+            out.append(f"{address:{w}s} ✗ MISSING {rel}")
             continue
         counts, per = Counter(), {}
         for f in closure(entry):
@@ -169,7 +231,7 @@ def census() -> str:
         # would have failed at random and been read as a restore bug.
         where = ", ".join(f"{k}:{v}" for k, v in sorted(per.items(), key=lambda x: (-x[1], x[0]))[:4]) or "—"
         out.append(
-            f"{address:10s} {len(closure(entry)):5d} {sum(counts.values()):6d} "
+            f"{address:{w}s} {len(closure(entry)):5d} {sum(counts.values()):6d} "
             f"{counts.get('active:scale-98', 0):5d}  {where}"
         )
     return "\n".join(out)
