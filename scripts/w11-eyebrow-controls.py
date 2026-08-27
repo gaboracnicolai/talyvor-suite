@@ -72,9 +72,9 @@ CONTROLS = [
     Control(
         'C2 a new eyebrow in a branch no fixture renders',
         'apps/web/src/areas/lens/Members.tsx',
-        "                  'font-figure text-eyebrow uppercase',",
-        "                  'font-figure text-eyebrow uppercase',\n"
-        "                  m.role === 'nobody-has-this-role' ? 'font-figure text-eyebrow' : '',",
+        "                      'font-figure text-eyebrow uppercase',",
+        "                      'font-figure text-eyebrow uppercase',\n"
+        "                      m.role === 'nobody-has-this-role' ? 'font-figure text-eyebrow' : '',",
         red='eyebrow-test', green='members',
         predict='SOURCE-ONLY: eyebrow-test reds, the Members surface stays green — the DOM '
                 'cannot see an arm no fixture takes. This is why the source rule exists.',
@@ -83,8 +83,11 @@ CONTROLS = [
     Control(
         'C3 an eyebrow genuinely inherits its uppercase from a parent',
         'apps/web/src/areas/lens/Members.tsx',
-        "              <span\n                className={cn(\n                  'font-figure text-eyebrow uppercase',\n                  m.role === 'owner' ? 'font-semibold text-ink' : 'text-muted',\n                )}\n              >\n                {m.role}\n              </span>",
-        '              <span className="uppercase">\n                <span\n                  className={cn(\n                    \'font-figure text-eyebrow\',\n                    m.role === \'owner\' ? \'font-semibold text-ink\' : \'text-muted\',\n                  )}\n                >\n                  {m.role}\n                </span>\n              </span>',
+        # ⚠ RE-INDENTED 14 -> 18 IN Members.tsx (W1.1.21c, tab-r5m2). A span-shaped anchor carries
+        # its own leading whitespace, so a re-indent that changed no behaviour unanchored this
+        # control silently. Verified by hand against Members.tsx.
+        "                  <span\n                    className={cn(\n                      'font-figure text-eyebrow uppercase',\n                      m.role === 'owner' ? 'font-semibold text-ink' : 'text-muted',\n                    )}\n                  >\n                    {m.role}\n                  </span>",
+        '                  <span className="uppercase">\n                    <span\n                      className={cn(\n                        \'font-figure text-eyebrow\',\n                        m.role === \'owner\' ? \'font-semibold text-ink\' : \'text-muted\',\n                      )}\n                    >\n                      {m.role}\n                    </span>\n                  </span>',
         red='eyebrow-test', green='members',
         predict='THE DOCUMENTED ASYMMETRY, NOT A DEFECT. The eyebrow really is uppercase — it '
                 'inherits from the wrapper — so the DOM rule must stay GREEN on the surface '
@@ -95,8 +98,8 @@ CONTROLS = [
     Control(
         'C14 an eyebrow assembled so no literal carries the token',
         'apps/web/src/areas/lens/Members.tsx',
-        "                  'font-figure text-eyebrow uppercase',",
-        "                  'font-figure ' + 'text-' + 'eyebrow',",
+        "                      'font-figure text-eyebrow uppercase',",
+        "                      'font-figure ' + 'text-' + 'eyebrow',",
         red='members', green='eyebrow-test',
         predict='DOM-ONLY: no quoted fragment contains the token, so the source rule is blind '
                 'by construction (its stated limit). The running audit reds on the surface. '
@@ -262,8 +265,21 @@ def main():
     # ⚠ SCOPED TO THE TREE UNDER TEST. An unscoped `git diff` includes THIS FILE, so editing
     # the harness made it report a failed restore — a fact about the instrument wearing the
     # shape of a fact about the controls.
-    p = subprocess.run(['git', 'diff', '--quiet', '--', 'apps', 'packages'], cwd=ROOT)
-    print(f'  tree under test restored byte-identically: {p.returncode == 0}')
+    #
+    # ⚠⚠ AND `apps packages` WAS STILL THE WRONG SCOPE (W1.1.21c, tab-r5m2). It excludes THIS
+    # harness, which lives at scripts/, and includes the SIX sibling harnesses under
+    # apps/web/scripts/ — so a session repairing a stale anchor in any of them, which is exactly
+    # the work this campaign keeps doing, gets `restored: False` from a tree that restored
+    # perfectly. That is the same shape the comment above was written about, one directory over.
+    #
+    # The scope is DERIVED from the controls now: the only files this run may have written are the
+    # ones the controls name. The floor is not decoration — with no controls the diff would cover
+    # nothing, exit 0, and report a clean restore having compared nothing at all.
+    touched = sorted({c.path for c in CONTROLS})
+    assert touched, 'no control names a file — this check would pass having compared nothing'
+    p = subprocess.run(['git', 'diff', '--quiet', '--', *touched], cwd=ROOT)
+    print(f'  tree under test ({len(touched)} file(s)) restored byte-identically: '
+          f'{p.returncode == 0}')
 
 
 if __name__ == '__main__':

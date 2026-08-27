@@ -48,7 +48,11 @@ ADDRESS_ROUTES = {
     "/billing": ["/api/lxc/balance", "/api/lxc/topup-options"],
     "/keys": ["/api/keys"],
     "/setup": ["/api/context", "/api/keys"],
-    "/spend": ["/api/lxc/history", "/api/spend/month", "/api/tokens/history", "/api/usage"],
+    # ⚠ `/api/spend/by-feature` (W1.1.21c, tab-r5m2). This table is a SECOND COPY of the one in
+    # PanelReportsItsOwnQuery.test.tsx, so the guard grew a sweep case and this file did not —
+    # which is why ALL_SWEEP was 25 against the guard's 26 and C5 scored MISPREDICTED while
+    # catching everything it used to plus one more.
+    "/spend": ["/api/lxc/history", "/api/spend/by-feature", "/api/spend/month", "/api/tokens/history", "/api/usage"],
     "/members": ["/api/members"],
     "/settings": ["/api/distill"],
     "/track": ["/api/members", "/api/track/issues", "/api/track/workspaces"],
@@ -78,7 +82,14 @@ B_OVERVIEW = "/ (Overview) does this correctly — the control that says the pro
 # Where a PanelFailure (as opposed to an InlineFailure, or a screen's own wording) is what a
 # refused route draws. Read off the call-site census, not guessed: Overview's Failed() wrapper
 # (LXC balance, LENS balance, mint ledger, bonds, recent activity) plus CacheCard, Ledger, Keys,
-# Members and Docs' SpaceList. /billing, /setup, /track and /settings render none.
+# Members and Docs' SpaceList. /billing, /track and /settings render none.
+#
+# ⚠ /setup RENDERS ONE AND THIS CENSUS SAID IT DID NOT (W1.1.21c, tab-r5m2). `Setup.tsx:376`
+# draws `<PanelFailure error={ctx.error} what="this deployment’s settings" />`, so `/api/context`
+# belongs here. Measured by running C4, which reddened it: the guard was catching a case this list
+# did not predict, and the verdict read MISPREDICTED for a product that was behaving correctly.
+# The list is hand-maintained against a call-site census — that is what makes it a claim rather
+# than a restatement, and it is also what lets it go stale in the safe-looking direction.
 PANEL_FAILURE_CASES = [
     sweep("/", "/api/lxc/balance"),
     sweep("/", "/api/tokens/balance"),
@@ -87,8 +98,10 @@ PANEL_FAILURE_CASES = [
     sweep("/", "/api/usage"),
     sweep("/ledger", "/api/lxc/history"),
     sweep("/keys", "/api/keys"),
+    sweep("/spend", "/api/spend/by-feature"),
     sweep("/spend", "/api/tokens/history"),
     sweep("/spend", "/api/usage"),
+    sweep("/setup", "/api/context"),
     sweep("/members", "/api/members"),
     sweep("/docs", "/api/docs/spaces"),
 ]
@@ -198,13 +211,17 @@ CONTROLS = [
     },
     {
         "id": "C9",
-        "what": "the swept table quietly loses one of /spend's four routes",
-        "edits": [(GUARD, "'/spend': ['/api/lxc/history', '/api/spend/month', '/api/tokens/history', '/api/usage'],",
-                          "'/spend': ['/api/lxc/history', '/api/spend/month', '/api/usage'],")],
+        # ⚠ /spend HAS FIVE ROUTES NOW, NOT FOUR (W1.1.21c, tab-r5m2). `'/api/spend/by-feature'`
+        # arrived INSIDE the list this anchor spells out in full, so the product growing unanchored
+        # this control — the one that proves a dropped route is caught by both the floor and the
+        # table. Verified by hand against PanelReportsItsOwnQuery.test.tsx.
+        "what": "the swept table quietly loses one of /spend's five routes",
+        "edits": [(GUARD, "'/spend': ['/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],",
+                          "'/spend': ['/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/usage'],")],
         "reds": [FLOOR, route_table("/spend")],
         # Deleting a row from the table deletes the sweep case it generates, so this run
         # collects 48 rather than 49 — see run_guard's docstring.
-        "collects": 52,
+        "collects": 53,
         "expect": "THE FLOOR AND THE TABLE, together. The pinned pair count says the sweep got "
                   "smaller; the per-address derivation says the product still asks for the route "
                   "that was dropped. Either alone could be argued away — the count could be "
@@ -243,11 +260,17 @@ CONTROLS = [
 ]
 
 
-def run_guard(collects: int = 53) -> dict:
+def run_guard(collects: int = 54) -> dict:
     """{failing test title: [failure messages]} — or a single synthetic key for a dead run.
 
-    `collects` is how many assertions this run is expected to COLLECT, which is not always 49:
-    C9 edits the swept table itself, so it legitimately generates one case fewer.
+    `collects` is how many assertions this run is expected to COLLECT, which is not always the
+    default: C9 edits the swept table itself, so it legitimately generates one case fewer.
+
+    ⚠ IT WAS 53 AND THE SWEEP COLLECTS 54 (W1.1.21c, tab-r5m2). `'/api/spend/by-feature'` was added
+    to `/spend`'s route list and the table generates one case per route, so the BASELINE scored
+    __PARTIAL_RUN__ and the whole campaign refused to run — every control in this file had been
+    unable to score since that route landed. The anchor check cannot see this: the anchors were all
+    present. A hardcoded expected-count is the same staleness as a stale anchor, one layer over.
 
     ⚠ THE FIRST DRAFT HARDCODED 49 AND SCORED C9 AS `ERROR` — a working control, condemned by
     the harness's own verdict logic for doing precisely what it was written to do. The count
@@ -314,7 +337,11 @@ def main() -> int:
                 assert text != saved[path], f"{c['id']}: {path.name} unchanged by its own edit"
                 path.write_text(text)
 
-            got = run_guard(c.get("collects", 53))
+            # ⚠ THE DEFAULT IS WRITTEN TWICE AND ONLY ONE COPY WAS FOUND FIRST (W1.1.21c,
+            # tab-r5m2). Correcting run_guard's signature alone left this call site pinning
+            # 53, so the baseline went green and TEN controls then scored ERROR on
+            # __PARTIAL_RUN__ — a harness that looks like it is working and grades nothing.
+            got = run_guard(c.get("collects", 54))
 
             for path in pending:
                 path.write_text(saved[path])
@@ -333,7 +360,11 @@ def main() -> int:
             print(f"{c['id']}  {verdict}   ({len(actual)} case(s) red)")
             print(f"    mutation : {c['what']}")
             print(f"    predicted: {c['expect']}")
-            for nm in sorted(actual)[:3]:
+            # ⚠ ALL OF THEM, NOT THE FIRST THREE (W1.1.21c, tab-r5m2). A MISPREDICTED verdict
+            # is only actionable if you can see WHICH cases differ from the predicted set;
+            # truncating to three meant the two cases that a grown sweep added were invisible
+            # and the verdict read as unexplained.
+            for nm in sorted(actual):
                 msg = (got[nm][0] if got[nm] else "")
                 first = next((ln for ln in msg.splitlines() if ln.strip()), "")
                 print(f"    reddened : {nm}")

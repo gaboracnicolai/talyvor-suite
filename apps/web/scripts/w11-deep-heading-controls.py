@@ -38,8 +38,26 @@ DETAIL = WEB / "src" / "areas" / "track" / "IssueDetail.tsx"
 ENTRY = WEB / "src" / "areas" / "auth" / "Entry.tsx"
 GUARD = WEB / "src" / "ConsoleDeepHeading.test.tsx"
 
-HEADING = '          <h2 className="text-title text-ink">{it.title}</h2>'
-FAIL_BRANCH = '        <p className="text-body text-muted">That issue could not be read.</p>'
+# ⚠ BOTH ANCHORS WENT ABSENT BECAUSE THE SCREEN GREW, NOT BECAUSE ANYTHING BROKE (W1.1.21c,
+# tab-r5m2), and the two grew in different directions:
+#   · the title is no longer an <h2> written here. `{it.title}` moved into a `heading` const chosen
+#     from the read's actual state (loading / 404 / fault / dead credential / served), and the
+#     element is rendered by components/Region.tsx from the `heading` prop. So there is no h2 in
+#     this file to mutate, and the mutations move to the Region CALL, which is still local to this
+#     screen — mutating Region.tsx itself would edit every screen and prove something wider.
+#   · "That issue could not be read." is gone as copy. One sentence over four causes was the defect
+#     §THE FOUR HEADLINES records fixing; the strings are the HEADLINE_* consts now.
+# REGION_OPEN is the MAIN render's Region — the multi-line form with `className="max-w-none"` —
+# which is unique; the failure-card Region is the single-line form. Verified by hand.
+REGION_OPEN = (
+    '        heading={heading}\n'
+    '        sectionClassName="pb-10 pt-4 wide:pb-12"\n'
+    '        className="max-w-none"\n'
+    '      >'
+)
+FAILCARD_REGION = (
+    '<Region index="00" label="Issue" heading={heading} sectionClassName="pb-10 pt-4 wide:pb-12">'
+)
 SERVE_ISSUE = "    if (path === '/api/track/issues/iss-1') return json(ISSUE)"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -79,18 +97,28 @@ class Control:
 CONTROLS = [
     Control(
         "C1", "REVERT — the issue title back to the <h1> main ships; two h1s at one address",
-        [(DETAIL, HEADING, '          <h1 className="text-title text-ink">{it.title}</h1>')],
+        [(DETAIL, REGION_OPEN,
+          REGION_OPEN + '\n        <h1 className="text-title text-ink">{heading}</h1>')],
         "<h1> elements, want exactly 1",
     ),
     Control(
         "C2", "the heading REMOVED — same text, same size, no heading element at all",
-        [(DETAIL, HEADING, '          <div className="text-title text-ink">{it.title}</div>')],
+        # ⚠ THE TEXT HAS TO SURVIVE THE MUTATION. `at()` does `findAllByText(ISSUE_TITLE)` FIRST
+        # and fails with "the BFF fake did not serve …" if the title is not on the page at all, so
+        # simply dropping `heading={heading}` would red the wrong case with the wrong sentence —
+        # the same trap C4 below already paid for once. The prop goes and a <div> carrying the same
+        # text takes its place: the title is still findable, and it is no longer a heading.
+        [(DETAIL, REGION_OPEN,
+          '        sectionClassName="pb-10 pt-4 wide:pb-12"\n'
+          '        className="max-w-none"\n'
+          '      >\n'
+          '        <div className="text-title text-ink">{heading}</div>')],
         "Unable to find an accessible element with the role \"heading\"",
     ),
     Control(
         "C3", "an <h1> on a branch NO ADDRESS IN THIS FILE RENDERS — the read-failure card",
-        [(DETAIL, FAIL_BRANCH,
-          FAIL_BRANCH + '\n        <h1 className="text-title text-ink">Issue</h1>')],
+        [(DETAIL, FAILCARD_REGION,
+          FAILCARD_REGION + '\n          <h1 className="text-title text-ink">Issue</h1>')],
         "a page served inside the console shell renders its own <h1>",
     ),
     Control(
@@ -115,8 +143,14 @@ CONTROLS = [
         "the census found no <h1> under areas/auth",
     ),
     Control(
-        "C6", "INVERTED — the same h2 with its classes reordered; MUST STAY GREEN",
-        [(DETAIL, HEADING, '          <h2 className="text-ink text-title">{it.title}</h2>')],
+        "C6", "INVERTED — the same Region with its classes reordered; MUST STAY GREEN",
+        # The class list that survived the move is the Region's own `sectionClassName`, so the
+        # inverted control reorders THAT — the same element, the same classes, a different order.
+        [(DETAIL, REGION_OPEN,
+          '        heading={heading}\n'
+          '        sectionClassName="pt-4 pb-10 wide:pb-12"\n'
+          '        className="max-w-none"\n'
+          '      >')],
         "", must_stay_green=True,
     ),
 ]

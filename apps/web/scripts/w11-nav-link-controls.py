@@ -48,7 +48,11 @@ RAN = re.compile(r"Tests\s+(?:(\d+) failed \| )?(\d+) passed[^(\n]*\((\d+)\)")
 # The shipped call site, verbatim.
 LINK_PROPS = "      href={href}\n      onClick={onClick}"
 ROUTER_HOOKS = "  const href = useHref(to)\n  const onClick = useLinkClickHandler<HTMLAnchorElement>(to)"
-IMPORT_HOOKS = "  useHref,\n  useLinkClickHandler,\n  useLocation,\n} from 'react-router-dom'"
+# ⚠ `useNavigationType,` ARRIVED BETWEEN THE LINES THIS ANCHOR SPANS (W1.1.21c, tab-r5m2). The
+# import block is a span, so the product growing inside it silently unanchors C3 — the control that
+# proves a real <a href> stealing the modified click is caught. Verified by hand against App.tsx.
+IMPORT_HOOKS = ("  useHref,\n  useLinkClickHandler,\n  useLocation,\n  useNavigationType,\n"
+                "} from 'react-router-dom'")
 ARIA_CURRENT = "      'aria-current': active ? ('page' as const) : undefined,"
 
 
@@ -91,7 +95,9 @@ CONTROLS = [
     Control(
         "C3", "THE MODIFIED CLICK STOLEN BACK — a real <a href> that navigates on EVERY click. "
               "Passes every tag and href assertion; this is what the capability block is for",
-        [(APP, IMPORT_HOOKS, "  useHref,\n  useLocation,\n  useNavigate,\n} from 'react-router-dom'"),
+        [(APP, IMPORT_HOOKS,
+          "  useHref,\n  useLocation,\n  useNavigate,\n  useNavigationType,\n"
+          "} from 'react-router-dom'"),
          (APP, ROUTER_HOOKS,
           "  const href = useHref(to)\n  const navigate = useNavigate()\n"
           "  const onClick = (e: React.MouseEvent) => {\n"
@@ -101,7 +107,13 @@ CONTROLS = [
     Control(
         "C4", "A DESTINATION DELETED — is the count a floor, or decoration?",
         [(APP, "        {item('/ledger', 'Ledger')}\n", "")],
-        "focusable destinations, not 12",
+        # ⚠ THE COUNT IS DELIBERATELY NOT IN THIS PHRASE (W1.1.21c, tab-r5m2). It read
+        # "focusable destinations, not 12"; the sidebar has THIRTEEN now, so both C4 and C7
+        # scored NOT CAUGHT while the guard was firing perfectly — the harness was wrong, not
+        # the product. The guard pins the number from `SIDEBAR_DESTINATIONS.length`, derived,
+        # so a second copy of it here buys nothing and goes stale on the next destination.
+        # This phrase's only job is to say WHICH assertion spoke.
+        "focusable destinations, not",
     ),
     Control(
         "C5", "aria-current DROPPED — the selected row becomes a tick and nothing else",
@@ -126,7 +138,13 @@ CONTROLS = [
         [(APP, "        {item('/members', 'Members')}\n",
           "        {item('/members', 'Members')}\n"
           "        <NavItem onClick={() => undefined}>Reports</NavItem>\n")],
-        "focusable destinations, not 12",
+        # ⚠ THE COUNT IS DELIBERATELY NOT IN THIS PHRASE (W1.1.21c, tab-r5m2). It read
+        # "focusable destinations, not 12"; the sidebar has THIRTEEN now, so both C4 and C7
+        # scored NOT CAUGHT while the guard was firing perfectly — the harness was wrong, not
+        # the product. The guard pins the number from `SIDEBAR_DESTINATIONS.length`, derived,
+        # so a second copy of it here buys nothing and goes stale on the next destination.
+        # This phrase's only job is to say WHICH assertion spoke.
+        "focusable destinations, not",
     ),
 ]
 

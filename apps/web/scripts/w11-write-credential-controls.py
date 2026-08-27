@@ -50,15 +50,20 @@ P_ONCE = ("one dead session is one message, not eight", "says it exactly once ev
 P_SHOUT = ("one dead session is one message, not eight", 'no panel still shouts "Couldn’t load"')
 P_500 = ("three states stay three", 'a 500 is still a genuine fault and still says "Couldn’t load"')
 
-KEYS_NOW = """            {mint.error instanceof ApiError && mint.error.status === 403
-              ? 'Couldn’t mint the key — the request origin was rejected. Reach this app at its configured address.'
-              : isSessionExpired(mint.error)
-                ? 'Couldn’t mint the key. Nothing was changed.'
+# ⚠ THE WHOLE BLOCK WAS RE-INDENTED 12 -> 14 IN Keys.tsx (W1.1.21c, tab-r5m2), so these three
+# carry two spaces too few on every line. The FIRST line still matched as a SUBSTRING of the deeper
+# indent — which is why this reads as a near-miss rather than an obvious one — but the continuation
+# lines do not, so C1 and C6 could not arm. Verified by hand against Keys.tsx.
+# ⚠ LIST_401_BRANCH below is NOT stale: it addresses IssueList.tsx, which was not re-indented.
+KEYS_NOW = """              {mint.error instanceof ApiError && mint.error.status === 403
+                ? 'Couldn’t mint the key — the request origin was rejected. Reach this app at its configured address.'
+                : isSessionExpired(mint.error)
+                  ? 'Couldn’t mint the key. Nothing was changed.'
+                  : 'Couldn’t mint the key. Please try again.'}"""
+KEYS_OLD = """              {mint.error instanceof Error && mint.error.message.includes('403')
+                ? 'Couldn’t mint the key — the request origin was rejected. Reach this app at its configured address.'
                 : 'Couldn’t mint the key. Please try again.'}"""
-KEYS_OLD = """            {mint.error instanceof Error && mint.error.message.includes('403')
-              ? 'Couldn’t mint the key — the request origin was rejected. Reach this app at its configured address.'
-              : 'Couldn’t mint the key. Please try again.'}"""
-KEYS_ALWAYS_SILENT = """            {'Couldn’t mint the key. Nothing was changed.'}"""
+KEYS_ALWAYS_SILENT = """              {'Couldn’t mint the key. Nothing was changed.'}"""
 
 LIST_401_BRANCH = "            {isSessionExpired(create.error)\n"
 LIST_401_REMOVED = "            {false\n"
