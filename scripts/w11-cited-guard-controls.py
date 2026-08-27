@@ -84,11 +84,24 @@ CONTROLS = [
      "a real write route is REMOVED from the swept list", [
          (SAME, '\t\t{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc_amount_ulxc":100000}`},\n', "")]),
 
+    # ⚠ RE-AIMED 2026-08-27 (tab-j8w4), NOT DELETED, AND THE OLD ANCHOR IS WHY THIS COMMENT EXISTS.
+    # It read `re := regexp.MustCompile(`a\.mux\.Handle(?:Func)?\("([^"]+)"`)` — the regex-over-
+    # source-text that mountedPatterns USED to be. #274 replaced that with a real AST walk of the
+    # package, which was the right repair and is recorded in the function's own docstring; the
+    # anchor pointed at the deleted line from that moment and THIS CONTROL COULD NOT ARM. Nothing
+    # noticed for the same reason twice over: nothing runs this harness, and the anchor check that
+    # exists to catch exactly this could not READ this harness at all until the same day, because
+    # its path constants are declared by TUPLE UNPACKING (`LENS, SAME, CITED = BFF / …`).
+    # ⚠ The new anchor is the file filter inside mountedPatterns, and it was VERIFIED BY RUNNING
+    # rather than by reading: `return false` there makes ParseDir see no file, and
+    # TestEveryMutatingRoute_IsGuardedOrExplicitlyExempt fails with "mounted patterns found = 0,
+    # want at least 20 — the route-table scan read almost nothing", which is this control's stated
+    # intent word for word.
     ("K8", "TestEveryMutatingRoute_IsGuardedOrExplicitlyExempt",
      "the route-table scan reads nothing (the sweep would check no route)", [
          (SAME,
-          're := regexp.MustCompile(`a\\.mux\\.Handle(?:Func)?\\("([^"]+)"`)',
-          're := regexp.MustCompile(`a\\.zzz\\.Handle(?:Func)?\\("([^"]+)"`)')]),
+          '\t\treturn strings.HasSuffix(fi.Name(), ".go") && !strings.HasSuffix(fi.Name(), "_test.go")',
+          '\t\treturn false')]),
 
     ("K9", "TestOperatorExemptionHoldsOnlyWhileAdminIsNotWired",
      "an exempted operator route is WIRED to a real handler (two files, so it BUILDS)", [

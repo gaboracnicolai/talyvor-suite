@@ -191,13 +191,68 @@ class Extractor(ast.NodeVisitor):
         self.counted_names: set[str] = set()
         self._prescan()
 
+    @staticmethod
+    def _bindings(node: ast.Assign) -> list[tuple[str, ast.AST]]:
+        """The (name, value) pairs this assignment binds — including a TUPLE UNPACKING.
+
+        ⚠ `LENS, SAME, CITED = BFF / "lens.go", BFF / "…", BFF / "…"` BOUND NOTHING HERE, because
+        both readers required `targets[0]` to be a Name and this one is a Tuple. `w11-cited-guard`
+        declares every path it edits on exactly two such lines, so it had `BFF` and nothing else in
+        `consts`, its per-edit path element resolved to nothing, and it read UNREADABLE with a
+        shape already correctly detected (arity 3, anchor 1, PATH AT 0). The path was in plain
+        source the whole time, one syntax form away.
+
+        ⚠ ONLY WHEN THE ARITIES MATCH AND THE RIGHT SIDE IS A LITERAL TUPLE. `a, b = f()` and
+        `a, *rest = xs` bind names to things this cannot evaluate, and guessing there would attach
+        a path to the wrong name — which is a false miss against a harness that is fine.
+        """
+        t = node.targets[0]
+        if isinstance(t, ast.Name):
+            return [(t.id, node.value)]
+        if (isinstance(t, ast.Tuple) and isinstance(node.value, ast.Tuple)
+                and len(t.elts) == len(node.value.elts)
+                and all(isinstance(e, ast.Name) for e in t.elts)):
+            return [(e.id, v) for e, v in zip(t.elts, node.value.elts)]
+        return []
+
+    def _path_bindings(self, node: ast.Assign) -> list[tuple[str, ast.AST]]:
+        """`_bindings`, restricted to values that name a real file.
+
+        ⚠ THE UNRESTRICTED VERSION MANUFACTURED THREE FALSE MISSES AND THE RUN IS WHAT SAID SO.
+        `w11-pointer-pins` writes `CAUGHT, MISSED = 'CAUGHT', 'NOT CAUGHT'` — two LABELS, unpacked
+        exactly like a path pair — and binding them put `'NOT CAUGHT'` in `consts`, from where it
+        was paired with a file and reported as an anchor absent from `src/caseAudit.test.tsx`.
+        ⚠⚠ AND THE EXISTING SENTINEL REJECTION CANNOT CATCH IT: `^[A-Z][A-Z0-9_]{3,}$` has no
+        space in the class, so `NOT CAUGHT` is not a sentinel by that rule. Widening the sentinel
+        instead would have been the wrong repair — an all-caps phrase is a shape real source text
+        can have, and rejecting it would silently drop real anchors.
+        ⚠ So the tuple form is admitted ONLY for values that RESOLVE to a file here, which is the
+        entire reason it was added: `LENS, SAME, CITED = BFF / "lens.go", …`. An anchor stored in
+        a tuple-unpacked constant is not reached, and that is the conservative direction — fewer
+        triples, never a miss against a file the harness never touches.
+        """
+        return [(n, v) for n, v in self._bindings(node)
+                if isinstance(self.__class__._bindings(node), list)
+                and (lambda x: x is not None and resolve(x, self.home) is not None)(self._str(v))]
+
     # module-level `NAME = "…"` so an anchor held in a constant resolves
     def visit_Assign(self, node: ast.Assign) -> None:
+        if len(node.targets) == 1 and not isinstance(node.targets[0], ast.Name):
+            for _n, _v in self._path_bindings(node):
+                _s = self._str(_v)
+                if _s is not None:
+                    self.consts[_n] = _s
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
-            v = self._str(node.value)
-            if v is not None:
-                self.consts[name] = v
+            # ⚠ RESTORED DELIBERATELY. Refactoring the binding into `_bindings` dropped this line,
+            # and MEASURED it costs nothing today — 558 anchors either way, because every constant
+            # these harnesses use for an anchor happens to be module-level and `_prescan` already
+            # has it. But this walk reaches assignments INSIDE functions and `_prescan` does not,
+            # so dropping it is a narrowing that no current harness exercises. Deleting behaviour
+            # because today's tree does not need it is how reach shrinks quietly.
+            _v = self._str(node.value)
+            if _v is not None:
+                self.consts[name] = _v
             # `CONTROLS = [(cid, what, old, new, …), …]` consumed by a for-loop that NAMES the
             # positions. The anchor's index comes from the unpacking, never from the strings.
             idx = self.anchor_index.get(name)
@@ -235,14 +290,15 @@ class Extractor(ast.NodeVisitor):
         for node in tree.body:
             if not isinstance(node, ast.Assign) or len(node.targets) != 1:
                 continue
-            if not isinstance(node.targets[0], ast.Name):
-                continue
-            v = self._str(node.value)
-            if v is None:
-                continue
-            self.consts.setdefault(node.targets[0].id, v)
-            if resolve(v, self.home) is not None and v not in seen:
-                seen.append(v)
+            for name, value in (self._bindings(node)
+                                if isinstance(node.targets[0], ast.Name)
+                                else self._path_bindings(node)):
+                v = self._str(value)
+                if v is None:
+                    continue
+                self.consts.setdefault(name, v)
+                if resolve(v, self.home) is not None and v not in seen:
+                    seen.append(v)
         self.file_consts = seen
         # ⚠ THE ANCHOR POSITION WITHOUT A VOCABULARY. Every name this module hands to `.count(…)`.
         # A harness that writes `original.count(o) == 1` has DECLARED that element 0 is a literal

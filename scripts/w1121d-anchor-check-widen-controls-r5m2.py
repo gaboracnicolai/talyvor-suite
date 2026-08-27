@@ -190,9 +190,12 @@ def main() -> int:
                # Five deliberate moves in one session. Every one of them had to be looked at, and
                # one of them (this) turned out to be a bug the same tab had shipped three hours
                # earlier — which a range would have swallowed without a word.
-               base_anchors >= 547 and base_unread == 3
+               # ⚠ SIXTH MOVE 2026-08-27 (tab-j8w4), 3 → 2 and the floor 547 → 558: tuple-
+               # unpacked path constants now bind, which reads `w11-cited-guard` — and reading it
+               # immediately surfaced a K8 anchor that had been unable to arm since #274.
+               base_anchors >= 558 and base_unread == 2
                and out.count("ANCHOR ON REGEXES") == 1
-               and base_unread + 1 == 4
+               and base_unread + 1 == 3
                and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 
