@@ -72,6 +72,46 @@ CHECKER_STEM = "w1120-anchor-check"
 RE_SPLICE = frozenset({"sub", "subn"})
 
 
+def why_unreadable(ex: "Extractor") -> str:
+    """WHICH HALF IS MISSING — derived from the extractor's own state, never hardcoded per file.
+
+    ⚠ THE LIST THIS FEEDS USED TO SAY ONLY "Widen the extractor or run them", AND THAT SENTENCE IS
+    WRONG FOR MOST OF WHAT IS ON IT. Deciding an anchor needs TWO halves: a FILE to look in and a
+    SHAPE that says which string is the anchor. A harness missing the file half cannot be reached
+    by any vocabulary widening, and a harness missing the shape half will not be helped by teaching
+    `_str` another path expression — but the old output described both the same way, so every tab
+    working this item had to instrument this file by hand to find out which. Three tabs did.
+
+    ⚠⚠ AND THE MISREADING IS NOT FREE: acting on "widen the extractor" against a harness whose
+    anchors are regexes produced 14 false misses on a font-identity guard (see regex_spliced_names,
+    and W1.1.21d's record of it). Naming the missing half is what stops the next tab widening
+    toward a wall — or worse, through one.
+
+    ⚠ DERIVED, NOT LISTED. A hardcoded set of filenames would keep excusing a harness after
+    somebody made it readable, which is the same stale-in-the-flattering-direction defect this
+    check exists to catch. Every clause below reads state the extractor computed on this run.
+    """
+    files = len(ex.file_consts)
+    shaped = bool(ex.edit_shapes or ex.anchor_index)
+    single = ex._single_file()
+    if files == 0:
+        if shaped:
+            return ("NO FILE HALF — an anchor shape WAS matched, so the positions are known and "
+                    "the file is not: no module-level constant resolves to a file here. Widening "
+                    "the anchor vocabulary cannot help. Look at how this harness names its paths")
+        return ("NEITHER HALF — no module-level constant resolves to a file here, and no anchor "
+                "shape matched. Anchors built at runtime look exactly like this and are not a gap "
+                "to close; check that before widening anything")
+    if single is None:
+        return (f"NO FILE HALF — {files} constants resolve to files and none is attributable: not "
+                "one file, and no single write target either, and no edit carries its own path. "
+                + ("A shape IS matched, so a per-edit path is the missing piece"
+                   if shaped else "No shape is matched either"))
+    return (f"NO SHAPE HALF — the file is known ({single}) and nothing says which string is the "
+            "anchor: no `for … in <edits>` unpacking names a position in ANCHOR_NAMES, no dict key "
+            "is one, and no node pairs a path with the element after it")
+
+
 def regex_spliced_names(tree: ast.AST) -> list[str]:
     """Loop variables this harness feeds to `re.sub` as the PATTERN.
 
@@ -584,7 +624,7 @@ def main() -> int:
         # only triples whose PATH resolves to a real file are anchors this check can decide
         decidable = [(p, a, n) for (p, a, n) in ex.triples if resolve(p, home)]
         if not decidable:
-            unreadable.append(f"{rel}: 0 anchors extracted")
+            unreadable.append(f"{rel}\n    {why_unreadable(ex)}")
             continue
 
         for path, anchor, want in decidable:
@@ -627,7 +667,9 @@ def main() -> int:
         print()
     if unreadable:
         print(f"⚠ THE CHECKER COULD NOT READ {len(unreadable)} HARNESS(ES). Each is a harness this")
-        print("  check says NOTHING about — not a clean one. Widen the extractor or run them.")
+        print("  check says NOTHING about — not a clean one. The missing half is named per harness:")
+        print("  a FILE half cannot be closed by widening the anchor vocabulary, and a SHAPE half")
+        print("  cannot be closed by teaching _str another path expression.")
         for u in unreadable:
             print(f"  {u}")
         print()
