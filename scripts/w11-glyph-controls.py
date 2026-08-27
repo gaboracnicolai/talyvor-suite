@@ -60,9 +60,21 @@ def web_test(*targets):
 CONTROLS = [
     Control(
         "C1-regress-a-fixed-site",
-        "the left arrow put back into IssueDetail must be caught as it renders",
-        [("apps/web/src/areas/track/IssueDetail.tsx", f"          {SINGLE_LEFT} Issues\n",
-          f"          {LEFT_ARROW} Issues\n", 1)],
+        "a left arrow put into IssueDetail's way back must be caught as it renders",
+        # ⚠ RE-ANCHORED 2026-08-27. THIS CONTROL HAD NOT RUN SINCE #265 AND SAID SO EVERY TIME —
+        # to a reader, not to a gate. W1.1.8 rebuilt this screen's way back from "‹ Issues" to
+        # "All issues" (the rewrite is documented at the `wayBack` binding and is correct: a
+        # chevron is an instruction about history, not the name of a place), and the anchor went
+        # with it. Every run since has printed ANCHOR FAILED and returned "control NOT RUN".
+        #
+        # ⚠⚠ AND `w1120-anchor-check` — the check whose ENTIRE SUBJECT is stale anchors — could
+        # not see it, because the anchor was an f-string and f-strings were skipped without being
+        # counted. The census read "every decidable anchor matches the tree" with this one outside
+        # the population and no line saying so. Fixed in the same merge; see that file's `chr`
+        # and JoinedStr branches. The replacement still spells the arrow as a codepoint, which is
+        # this file's convention and the reason the anchor was invisible in the first place.
+        [("apps/web/src/areas/track/IssueDetail.tsx", "      All issues\n",
+          f"      {LEFT_ARROW} All issues\n", 1)],
         web_test("src/areas/track/IssueDetail.test.tsx", "src/glyphAudit.test.tsx"),
         r"U\+2190",
         r"✓ src/glyphAudit\.test\.tsx",
