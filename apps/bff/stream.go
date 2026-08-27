@@ -50,6 +50,26 @@ const lensSessionKeyPath = "/v1/auth/session-keys"
 // test rather than as a comment that quietly stopped being true.
 const sessionKeyPrefix = "tlv_sk_"
 
+// chatCredentialRefusedCode marks the one seam a relayed upstream status cannot describe: Lens
+// ANSWERED this BFF and declined to mint the chat credential. It is a code and not a diagnosis —
+// see the note on handleAIStream's credential branch.
+const chatCredentialRefusedCode = "CHAT_CREDENTIAL_REFUSED"
+
+// mintRefused reports that Lens ANSWERED the session-key mint and this BFF came away without a
+// credential. It exists to keep ONE distinction that the previous single error string destroyed:
+// whether Lens spoke at all.
+//
+// ⚠ IT CARRIES THE STATUS FOR THE LOG AND NOT FOR A DIAGNOSIS. lib/productState.ts states the
+// rule: "A 404 is a statement about an ADDRESS. It is never evidence about whether a product is
+// deployed." An un-opted-in Lens (LENS_SESSION_KEYS_ENABLED unset ⇒ the mint route is never
+// registered ⇒ chi 404) and a wrong LENS_BASE_URL are the same 404, so the browser is told WHAT
+// happened and never WHY.
+type mintRefused struct{ status int }
+
+func (e mintRefused) Error() string {
+	return fmt.Sprintf("session key mint refused: %d", e.status)
+}
+
 // streamProviders is the CLOSED set of Lens proxy providers this route will address.
 //
 // ⚠ AN ALLOWLIST, NOT CALLER INPUT, AND THE REFUSAL HAPPENS BEFORE ANY REQUEST IS MADE. The path
@@ -123,17 +143,17 @@ func (a *app) sessionKeyFor(ctx context.Context, t tenant) (string, error) {
 		// refused; that is upstream detail, not something to hand a browser.
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		log.Printf("bff: session-key mint upstream %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-		return "", fmt.Errorf("session key mint refused: %d", resp.StatusCode)
+		return "", mintRefused{status: resp.StatusCode}
 	}
 	var out struct {
 		Key       string    `json:"key"`
 		ExpiresAt time.Time `json:"expires_at"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&out); err != nil {
-		return "", fmt.Errorf("decode session key: %w", err)
+		return "", mintRefused{status: resp.StatusCode}
 	}
 	if out.Key == "" {
-		return "", errors.New("session key mint returned no key")
+		return "", mintRefused{status: resp.StatusCode}
 	}
 
 	a.skMu.Lock()
@@ -163,6 +183,19 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		key, err := a.sessionKeyFor(r.Context(), t)
 		if err != nil {
 			log.Printf("bff: stream credential: %v", err)
+			// ⚠ TWO CAUSES, AND THEY WERE ONE SENTENCE. A Lens that ANSWERED the mint and declined
+			// is not an unreachable Lens — and on a Lens that has not opted into session keys it is
+			// the ONLY thing this route can ever say, so the collapsed form sent an operator to
+			// check whether Lens was running while Lens was running. Measured, both arms, in
+			// TestStream_ALensThatAnsweredIsNotReportedAsUnreachable.
+			var refused mintRefused
+			if errors.As(err, &refused) {
+				writeJSON(w, http.StatusBadGateway, map[string]string{
+					"error": "lens refused the chat credential",
+					"code":  chatCredentialRefusedCode,
+				})
+				return
+			}
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
 			return
 		}
