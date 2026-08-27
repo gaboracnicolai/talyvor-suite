@@ -187,7 +187,16 @@ function mapLiteralKeys(b: LensBody): string[] | null {
  */
 function anonStructKeys(b: LensBody): string[] | null {
   const lines = source(b.file).split('\n')
-  const fnHits = lines.map((l, i) => [l, i] as const).filter(([l]) => l.includes(b.fn ?? ' '))
+  // ⚠ THE SENTINEL IS WRITTEN AS AN ESCAPE AND MUST STAY ONE. It used to be the RAW NUL
+  // byte, and a single 0x00 makes a whole file opaque to grep: `grep -c export lensRequestBodies.ts`
+  // printed NOTHING and exited 1, and `grep -rn anonymousMarshalSites apps/web/src` returned this
+  // module's three CALLERS and not the line that DEFINES it. Measured across the tree at
+  // `81b9e52b`: plain grep found `export` in 141 files under apps/web/src and `git grep` found it
+  // in 142 — this file, missing from every plain-grep census, silently, with rc=0. `git grep`
+  // reads it fine, which is why nobody noticed: this repository's documented commands use it.
+  // The VALUE below is unchanged — U+0000 either way — only the byte on disk is.
+  const NEVER_MATCHES = '\u0000'
+  const fnHits = lines.map((l, i) => [l, i] as const).filter(([l]) => l.includes(b.fn ?? NEVER_MATCHES))
   if (fnHits.length !== 1) return null
   const from = fnHits[0][1]
   const rel = lines.slice(from).findIndex((l) => l.includes(b.anchor))
