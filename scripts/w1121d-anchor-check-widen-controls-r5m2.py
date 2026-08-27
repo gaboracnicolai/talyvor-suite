@@ -78,6 +78,14 @@ SINGLE_ARM = """        if len(self.file_consts) == 1:
         return self.written_file"""
 # The edits-loop widening: the shape (arity, anchor, path?) comes from the INNER `for … in edits`
 # loop, and resolve() learned to strip a leading `talyvor-suite/` that `Path.home() / "…"` leaves on.
+# ⚠ ADDED 2026-08-27 (tab-j8w4). The anchor POSITION now comes from two independent places: the
+# ANCHOR_NAMES vocabulary (ITER_ARM) and the names the harness hands to `.count(…)` (COUNT_ARM).
+# C5 and F4 blind BOTH, because blinding one leaves the other reading the same harness — measured:
+# with ANCHOR_NAMES alone emptied, `w11-spa-fallback` goes unreadable and `w11-debit-allowlist`
+# does NOT, because it writes `original.count(o)` and the count rule reaches it. A control that
+# blinds one arm and expects both harnesses to fall would be scoring a failure against a checker
+# that is working, which is the mistake this file's own F6 comment records being made once.
+COUNT_ARM = "                idx = next((i for i, n in enumerate(names) if n in self.counted_names), None)"
 EDITS_ARM = "        if self.edit_shapes and node.elts:"
 REPONAME_ARM = '    if path.startswith(ROOT.name + "/"):' 
 
@@ -169,9 +177,13 @@ def main() -> int:
                # lets a harness move between the two buckets with the count looking like
                # progress — which is exactly the reclassification that just happened, and the
                # next one might not be honest.
-               base_anchors >= 530 and base_unread == 6
+               # ⚠ MOVED A THIRD TIME 2026-08-27 (tab-j8w4): 6 → 5 and the floor 530 → 537,
+               # because the anchor position is now also derived from the names a harness hands
+               # to `.count(…)` and that reads `w1118-money-name`. Three deliberate moves in one
+               # session is what an exact pin is FOR — each one had to be looked at.
+               base_anchors >= 537 and base_unread == 5
                and out.count("ANCHOR ON REGEXES") == 1
-               and base_unread + 1 == 7
+               and base_unread + 1 == 6
                and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 
@@ -214,9 +226,10 @@ def main() -> int:
         io.open(harness, "w", encoding="utf-8").write(
             src.replace(anchor, anchor + "ZZ_CORRUPTED_BY_A_CONTROL", 1))
         chk = io.open(CHECKER, encoding="utf-8").read()
-        assert ITER_ARM in chk
+        assert ITER_ARM in chk and COUNT_ARM in chk
         io.open(CHECKER, "w", encoding="utf-8").write(
-            chk.replace(ITER_ARM, "    ANCHOR_NAMES = frozenset()", 1))
+            chk.replace(ITER_ARM, "    ANCHOR_NAMES = frozenset()", 1)
+               .replace(COUNT_ARM, "                idx = None", 1))
         rc, out = check()
         ok = (not names_miss(out, harness)) and names_unreadable(out, harness)
         io.open(CHECKER, "wb").write(saved[CHECKER][0])
@@ -252,7 +265,12 @@ def main() -> int:
                     SINGLE_ARM: "        return None",
                     EDITS_ARM: "        if False:",
                     REPONAME_ARM: "    if False:"}[arm]
-            io.open(CHECKER, "w", encoding="utf-8").write(chk.replace(arm, repl, 1))
+            mutated = chk.replace(arm, repl, 1)
+            if arm is ITER_ARM:
+                # both position rules, for the reason recorded beside COUNT_ARM above
+                assert COUNT_ARM in mutated
+                mutated = mutated.replace(COUNT_ARM, "                idx = None", 1)
+            io.open(CHECKER, "w", encoding="utf-8").write(mutated)
             rc, out = check()
             got = [h for h in expect if names_unreadable(out, h)]
             io.open(CHECKER, "wb").write(saved[CHECKER][0])

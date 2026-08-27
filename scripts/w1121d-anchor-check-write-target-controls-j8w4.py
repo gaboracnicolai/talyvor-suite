@@ -148,6 +148,64 @@ def main():
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
 
+    # ── the counted-names half ────────────────────────────────────────────────
+    # ⚠ 537 ANCHORS AND STILL "every decidable anchor matches the tree" IS THE RESULT THIS ITEM
+    # SAYS TO DISTRUST, so what is tested is not the number: G1 requires a corruption in the
+    # newly-read harness to be NAMED, and G2 requires the SAME corruption to be INVISIBLE with the
+    # rule reverted.
+    MONEY2 = os.path.join(REPO, 'apps/web/scripts/w1118-money-name-controls-h3n8.py')
+    COUNT_ARM = "                idx = next((i for i, n in enumerate(names) if n in self.counted_names), None)"
+    VOCAB_ARM = '    ANCHOR_NAMES = frozenset({"old", "find", "anchor"})'
+    MONEY_ANCHOR = '("const MONEY_SEGMENT = /^(usd|cents|cost|price)s?$/i",\n       "const MONEY_SEGMENT = /^(cents|cost|price)s?$/i")'
+    MONEY_BROKEN = '("const MONEY_SEGMENT = /^(usd|cents|cost|price)s?$/i ZZ_CORRUPTED",\n       "const MONEY_SEGMENT = /^(cents|cost|price)s?$/i")'
+
+    control(
+        'G1 an anchor in the newly-read w1118-money-name is corrupted',
+        'the checker NAMES it under MISSES — the rule can say no, not only yes',
+        [(MONEY2, MONEY_ANCHOR, MONEY_BROKEN)],
+        lambda r: (r['misses'] >= 1 and 'money-name' in r['out'] and 'ZZ_CORRUPTED' in r['out'],
+                   f"{r['misses']} miss(es), the corrupted anchor named"
+                   if r['misses'] else 'the corruption was not seen'))
+
+    control(
+        'G2 the SAME corruption with the counted-names rule REVERTED',
+        'INVISIBLE, and the harness reads UNREADABLE again. This is what separates "this rule '
+        'sees it" from "something already did"',
+        [(MONEY2, MONEY_ANCHOR, MONEY_BROKEN), (CHECK, COUNT_ARM, "                idx = None")],
+        lambda r: (r['misses'] == 0 and 'w1118-money-name' in r['out']
+                   and r['unreadable'] == base['unreadable'] + 1,
+                   'invisible without the rule, and the harness is unreadable again'
+                   if r['misses'] == 0 else f"still seen ({r['misses']} misses) — the rule is not what sees it"))
+
+    control(
+        'G3 the counted-names rule blinded on a clean tree',
+        'exactly 530 anchors and 6 unreadable — the census returns to where it was, so the rule '
+        'carries precisely the 7 anchors and the 1 harness it claims',
+        [(CHECK, COUNT_ARM, "                idx = None")],
+        lambda r: (r['anchors'] == 530 and r['unreadable'] == 6,
+                   'carries exactly what it claims'))
+
+    # ⚠ G4 IS THE CONTROL THAT MAKES "KEEP BOTH" A MEASUREMENT INSTEAD OF CAUTION. The tidy answer
+    # is that the count signal replaces the hand-kept vocabulary. It does not: the vocabulary
+    # carries 11 anchors the count signal never sees.
+    control(
+        'G4 ANCHOR_NAMES emptied, leaving the counted-names rule alone',
+        '526 anchors — ELEVEN FEWER than both together and four fewer than the vocabulary alone. '
+        'Neither rule subsumes the other, and deleting the older one would lose real coverage in '
+        'the direction that looks like a simplification',
+        [(CHECK, VOCAB_ARM, '    ANCHOR_NAMES = frozenset()')],
+        lambda r: (r['anchors'] == 526,
+                   f"{r['anchors']} anchors — the vocabulary is still load-bearing"
+                   if r['anchors'] == 526 else f"expected 526, got {r['anchors']}"))
+
+    control(
+        'G5 a comment beside the rule reworded — MUST STAY GREEN',
+        'census unmoved: the evidence is a call the harness makes, never prose',
+        [(CHECK, '# ⚠ IT LOOKS AT NO STRING\'S CONTENTS, which is the line this file draws everywhere: the',
+                 '# ⚠ NO STRING CONTENTS ARE READ, which is the line this file draws everywhere: the')],
+        lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
+                   and r['misses'] == 0, 'census unmoved'))
+
     # ── the why-unreadable half ───────────────────────────────────────────────
     # ⚠ THESE ARE THE CONTROLS THAT MATTER FOR A DIAGNOSTIC, because a diagnostic fails by being
     # PLAUSIBLE rather than by being absent. Each takes a harness the checker reads today, breaks
@@ -182,12 +240,23 @@ def main():
                    and 'A shape IS matched' in reason_for(r['out'], 'w11-scroll-reset'),
                    reason_for(r['out'], 'w11-scroll-reset')[:90]))
 
+    # ⚠ E3 WAS WRITTEN AGAINST AN OLDER TREE AND HAD TO BE RE-AIMED, WHICH IS THE COUNTED-NAMES
+    # RULE SHOWING UP IN ITS OWN CONTROLS. It used to break only w1118-money-name's file constant
+    # and expect NEITHER HALF, because that harness had no shape. It has one now — the `.count(o)`
+    # signal — so breaking the file alone yields NO FILE HALF, and the control was scoring a
+    # failure against a diagnosis that was right. Both halves are broken now, which is what
+    # NEITHER HALF has always meant.
     control(
-        'E3 a harness that already lacks the shape half loses the file half too',
-        'w1118-money-name moves from NO SHAPE HALF to NEITHER HALF — the three verdicts are '
-        'reachable, not two with a decorative third',
+        'E3 a harness loses BOTH halves at once',
+        'NEITHER HALF — the third verdict is reachable, not two and a decoration. The file '
+        'constant is broken AND both `.count(o)` sites are hidden, since one surviving count call '
+        'is enough to keep the shape',
         [(MONEY, 'FF = WEB / "src" / "figureFace.test.ts"',
-                 'FF = WEB / "src" / "figureFaceZZ.test.ts"')],
+                 'FF = WEB / "src" / "figureFaceZZ.test.ts"'),
+         (MONEY, 'if not all(original.count(o) == 1 for o, _ in edits):',
+                 'if not all(original.count(str(o)) == 1 for o, _ in edits):'),
+         (MONEY, 'print(f"{cid} ANCHOR MISS: sites occur {[original.count(o) for o, _ in edits]}, want all 1 "',
+                 'print(f"{cid} ANCHOR MISS: sites occur {[original.count(str(o)) for o, _ in edits]}, want all 1 "')],
         lambda r: ('NEITHER HALF' in reason_for(r['out'], 'w1118-money-name'),
                    reason_for(r['out'], 'w1118-money-name')[:90]))
 
@@ -205,16 +274,24 @@ def main():
                         if l.startswith('    N') and 'HALF' in l}) == 1,
                    'all reasons collapsed to one, as predicted — this is what the floor below catches'))
 
+    # ⚠ E5 ALSO HAD TO BE RESTATED, AND THE RESTATEMENT IS THE HONEST ONE. It asserted three
+    # distinct verdicts on the clean tree. That was true until the counted-names rule read
+    # `w1118-money-name`, which was the ONLY harness producing NO SHAPE HALF — so the clean tree
+    # now yields two kinds, not three. **Reachability and presence are different claims and the
+    # first version conflated them**: all three verdicts are reachable (E1 → NO SHAPE HALF, E2 →
+    # NO FILE HALF, E3 → NEITHER HALF), and the tree happens to show two. Asserting three on the
+    # tree would now be asserting that a harness stays unreadable, which is the wrong thing to pin.
     control(
-        'E5 the diagnosis discriminates on a clean tree — MUST STAY TRUE',
-        'at least three distinct verdicts across the six unreadable harnesses. This is the '
-        'positive half of E4: the floor has to be satisfied by the real tree, not only violated '
-        'by a mutation',
+        'E5 the diagnosis still discriminates on a clean tree — MUST STAY TRUE',
+        'at least TWO distinct verdicts on the real tree, one of them NEITHER HALF. The third, NO '
+        'SHAPE HALF, left the tree when the counted-names rule read w1118-money-name and is kept '
+        'reachable by E1 rather than pinned here',
         [(CHECK, '# after consts are known, because the write target is looked up through them',
                  '# consts first: the write target resolves through them')],
         lambda r: (len({l.strip()[:14] for l in r['out'].split('\n')
-                        if l.strip().startswith(('NO FILE HALF', 'NO SHAPE HALF', 'NEITHER HALF'))}) >= 3,
-                   'three distinct verdicts are present on the real tree'))
+                        if l.strip().startswith(('NO FILE HALF', 'NO SHAPE HALF', 'NEITHER HALF'))}) >= 2
+                   and 'NEITHER HALF' in r['out'],
+                   'two distinct verdicts present, including NEITHER HALF'))
 
     # ⚠ E6 IS A CONTROL ON A REPAIR THIS CHANGE FORCED ELSEWHERE, and it is the one worth reading.
     # Adding the per-harness reason changed the UNREADABLE block's format, and the widen-controls

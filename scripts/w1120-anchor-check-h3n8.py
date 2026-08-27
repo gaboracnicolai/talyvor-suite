@@ -188,6 +188,7 @@ class Extractor(ast.NodeVisitor):
         self.edit_shapes: list[tuple[int, int, int | None]] = []
         self._tree: ast.AST = ast.Module(body=[], type_ignores=[])
         self.written_file: str | None = None
+        self.counted_names: set[str] = set()
         self._prescan()
 
     # module-level `NAME = "…"` so an anchor held in a constant resolves
@@ -243,11 +244,45 @@ class Extractor(ast.NodeVisitor):
             if resolve(v, self.home) is not None and v not in seen:
                 seen.append(v)
         self.file_consts = seen
+        # ⚠ THE ANCHOR POSITION WITHOUT A VOCABULARY. Every name this module hands to `.count(…)`.
+        # A harness that writes `original.count(o) == 1` has DECLARED that element 0 is a literal
+        # whose occurrences in the file's text are the thing that matters — which is the question
+        # this checker asks, phrased by the harness itself.
+        #
+        # ⚠⚠ AND IT IS WHY `o` DID NOT GO INTO ANCHOR_NAMES. `w1118-money-name` reads UNREADABLE
+        # only because its loop says `for o, n in edits`. Measured across all 74: `for o, …`
+        # appears in exactly TWO harnesses, so adding the letter would have worked — and it would
+        # have been a guess about a single letter, with the same argument due again for `needle`
+        # (w1113-landmark-id spells it that way) and for whatever the next harness calls it. The
+        # `.count` signal covers all three spellings and 38 harnesses without naming any of them.
+        #
+        # ⚠ BOTH RULES ARE KEPT AND NEITHER SUBSUMES THE OTHER — MEASURED, NOT ASSUMED, BECAUSE
+        # "the new rule replaces the old one" is the tidy answer and it is false here:
+        #     ANCHOR_NAMES alone     530 anchors
+        #     counted_names alone    526
+        #     both                   537
+        # The vocabulary carries 11 the count signal does not (harnesses that assert their anchors
+        # some other way, or not at all), and the count signal carries 7 the vocabulary does not.
+        # Deleting either loses real coverage in the direction that looks like a simplification.
+        #
+        # ⚠ IT LOOKS AT NO STRING'S CONTENTS, which is the line this file draws everywhere: the
+        # evidence is a call the harness makes, never whether a candidate happens to be in the file.
+        self.counted_names = {n.args[0].id for n in ast.walk(tree)
+                              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                              and n.func.attr == "count" and n.args
+                              and isinstance(n.args[0], ast.Name)}
         for node in ast.walk(tree):
             if not isinstance(node, ast.For) or not isinstance(node.target, ast.Tuple):
                 continue
             names = [e.id if isinstance(e, ast.Name) else "" for e in node.target.elts]
             idx = next((i for i, n in enumerate(names) if n in self.ANCHOR_NAMES), None)
+            # ⚠ SECOND, AND IT IS NOT A VOCABULARY. `self.counted_names` is every name this module
+            # passes to `.count(…)` — the harness saying, in its own code, "this element is a
+            # string whose occurrences in the text I count". That is exactly the question this
+            # checker asks, so it is the strongest evidence available and it needs no list of
+            # spellings. See counted_names in _prescan for what it costs and what it is not.
+            if idx is None:
+                idx = next((i for i, n in enumerate(names) if n in self.counted_names), None)
             if idx is None:
                 continue
             # ⚠ THE EDIT LIST IS ONE LEVEL DEEPER THAN THE CONTROL, and it is where five of the
