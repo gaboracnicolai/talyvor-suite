@@ -123,6 +123,17 @@ func (a *app) docsSummarizePage() http.HandlerFunc {
 			methodNotAllowed(w, http.MethodPost)
 			return
 		}
+		// ⚠ `page_id` IS BILLING AUTHORITY AND IT IS VALIDATED BEFORE ANYTHING ELSE HAPPENS, the
+		// same as suggest-title one handler over. It took r.PathValue straight into the upstream
+		// body; MEASURED through the real handler, `%2e%2e` / `a%2Fb` / `%00bad` all reached it as
+		// `..`, `a/b` and a NUL-prefixed id. The mux answers the UNENCODED `..` and `.` with a 307,
+		// which is why nothing a person tried by hand ever showed it — and none of the shapes
+		// pathID exists for were among them. Refused BEFORE the upstream call, so no charge is
+		// attributed to an id this route would not accept.
+		pageID, ok := pathID(w, "pageID", r.PathValue("pageID"))
+		if !ok {
+			return
+		}
 		ws, ok := a.docsWorkspaceFor(w, r)
 		if !ok {
 			return
@@ -152,7 +163,7 @@ func (a *app) docsSummarizePage() http.HandlerFunc {
 		payload, err := json.Marshal(docsSummarizeBody{
 			Action: docsSummarizeAction,
 			Text:   in.Text,
-			PageID: r.PathValue("pageID"),
+			PageID: pageID,
 		})
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -363,6 +374,17 @@ func (a *app) docsTranslatePage() http.HandlerFunc {
 			methodNotAllowed(w, http.MethodPost)
 			return
 		}
+		// ⚠ `page_id` IS BILLING AUTHORITY AND IT IS VALIDATED BEFORE ANYTHING ELSE HAPPENS, the
+		// same as suggest-title and summarise. It took r.PathValue straight into the upstream
+		// body; MEASURED through the real handler, `%2e%2e` / `a%2Fb` / `%00bad` all reached it as
+		// `..`, `a/b` and a NUL-prefixed id. The mux answers the UNENCODED `..` and `.` with a 307,
+		// which is why nothing a person tried by hand ever showed it — and none of the shapes
+		// pathID exists for were among them. Refused BEFORE the upstream call, so no charge is
+		// attributed to an id this route would not accept.
+		pageID, ok := pathID(w, "pageID", r.PathValue("pageID"))
+		if !ok {
+			return
+		}
 		ws, ok := a.docsWorkspaceFor(w, r)
 		if !ok {
 			return
@@ -401,7 +423,7 @@ func (a *app) docsTranslatePage() http.HandlerFunc {
 		payload, err := json.Marshal(docsTranslateBody{
 			Text:     in.Text,
 			Language: in.Language,
-			PageID:   r.PathValue("pageID"),
+			PageID:   pageID,
 		})
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{
