@@ -197,7 +197,14 @@ def main() -> int:
                # Five deliberate moves in one session. Every one of them had to be looked at, and
                # one of them (this) turned out to be a bug the same tab had shipped three hours
                # earlier — which a range would have swallowed without a word.
-               # ⚠⚠ AND 563 IS NOT WHAT THIS TREE PRINTS ON THE CANONICAL PATH — IT PRINTS 568.
+               # ⚠ EIGHTH MOVE 2026-08-27 (tab-p9r4), 2 → 1 unreadable and the floor 563 → 579:
+               # the assignment-unpacking rule (`needle, replacement = c.edit`) reads
+               # `w116-members`, whose ten anchors it carries. ⚠ THE FLOOR AND THE PATH NOTE BELOW
+               # ARE NOW CONSISTENT — since W1.1.21e the count no longer depends on the checkout
+               # directory's name, so 579 is what EVERY checkout prints and the reason for taking
+               # the lower number is gone. The note is kept because it is why 563 was there.
+               #
+               # ⚠⚠ AND 563 WAS NOT WHAT THIS TREE PRINTED ON THE CANONICAL PATH — IT PRINTED 568.
                # MEASURED at the same commit in two git worktrees differing ONLY in directory
                # name: `…/talyvor-suite` decides 568, `…/p9r4-b` decides 563. Several harnesses
                # anchor at `pathlib.Path.home() / "talyvor-suite" / …`; the extractor cannot
@@ -219,9 +226,15 @@ def main() -> int:
                # ⚠ SIXTH MOVE 2026-08-27 (tab-j8w4), 3 → 2 and the floor 547 → 558: tuple-
                # unpacked path constants now bind, which reads `w11-cited-guard` — and reading it
                # immediately surfaced a K8 anchor that had been unable to arm since #274.
-               base_anchors >= 563 and base_unread == 2
+               base_anchors >= 579 and base_unread == 1
                and out.count("ANCHOR ON REGEXES") == 1
-               and base_unread + 1 == 3
+               # ⚠ THE EXACT PIN ON UNREADABLE, WRITTEN AS `+ 1 ==` BECAUSE THIS FILE WANTS EVERY
+               # MOVE LOOKED AT. 2 → 1 with the assignment-unpacking rule (tab-p9r4). The one that
+               # remains — `w171-docs-search-register` — is the honestly-undecidable one: three
+               # constants, no single write target, and a mutation that is a CALLABLE. It is NOT
+               # a backlog item, and the right next move on it is a decision about whether the
+               # checker should exit 0 with a named undecidable rather than a widening.
+               and base_unread + 1 == 2
                and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 

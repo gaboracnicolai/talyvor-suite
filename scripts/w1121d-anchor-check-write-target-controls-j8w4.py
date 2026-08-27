@@ -106,12 +106,24 @@ def main():
                    'the corrupted anchor is reported as a miss'
                    if r['misses'] == 1 else f"expected exactly 1 miss, got {r['misses']}"))
 
+    # ⚠⚠ THREE EXPECTATIONS BELOW MOVED 2026-08-27 (tab-p9r4) AND ONE FACT EXPLAINS ALL THREE:
+    # `w116-members` IS NO LONGER UNREADABLE, and the 10 anchors it now carries depend on BOTH
+    # rules — this file's write-through-a-join fallback for the FILE, and the assignment-unpacking
+    # rule added in the same item for the anchor POSITION (`needle, replacement = c.edit`).
+    # NEITHER ALONE READS IT, which is why blinding either one takes all ten away:
+    #   · W2/W3 blind the write-target fallback -> w116 loses its file half, so it un-reads AND
+    #     its ten anchors go with it: -19 anchors and +2 harnesses, where it was -9 and +1.
+    #   · K1 blinds the join-write case -> same file half, same ten anchors. Its note said "this
+    #     change adds no anchor", which was TRUE when it was written and is not now.
+    # The deltas are still DERIVED from the pristine baseline rather than pinned as literals —
+    # that shape is why these three reported a number to correct instead of quietly passing.
+
     control(
         'W2 the SAME corruption with the write-target fallback REVERTED',
         'INVISIBLE — 0 misses and the harness back to UNREADABLE. This is what separates "this '
         'change sees it" from "something already did"',
         [(SCROLL, *CORRUPT), (CHECK, FALLBACK, "        return None")],
-        lambda r: (r['misses'] == 0 and r['unreadable'] == base['unreadable'] + 1
+        lambda r: (r['misses'] == 0 and r['unreadable'] == base['unreadable'] + 2
                    and 'w11-scroll-reset' in r['out'],
                    'the corruption is invisible and the harness reads UNREADABLE'
                    if r['misses'] == 0 else f"the corruption was still seen ({r['misses']} misses) "
@@ -119,11 +131,11 @@ def main():
 
     control(
         'W3 the write-target rule blinded on a clean tree',
-        f"the census returns to exactly where it was: {base['anchors'] - 9} anchors, "
-        f"{base['unreadable'] + 1} unreadable",
+        f"the census returns to exactly where it was: {base['anchors'] - 19} anchors, "
+        f"{base['unreadable'] + 2} unreadable",
         [(CHECK, FALLBACK, "        return None")],
-        lambda r: (r['anchors'] == base['anchors'] - 9 and r['unreadable'] == base['unreadable'] + 1,
-                   'the rule carries exactly the 9 anchors and the 1 harness it claims'))
+        lambda r: (r['anchors'] == base['anchors'] - 19 and r['unreadable'] == base['unreadable'] + 2,
+                   'the rule carries exactly the 19 anchors and the 2 harnesses it claims'))
 
     # ⚠ W4 WAS WRITTEN AS "the decline is load-bearing" AND THE RUN SAID OTHERWISE. The first
     # version poisoned `None in names` and nothing moved — I had poisoned the wrong branch, the
@@ -172,11 +184,11 @@ def main():
 
     control(
         'K1 the write-through-a-join case blinded',
-        'w116-members goes back to NO FILE HALF — the verdict is the observable here, not the '
-        'anchor count, because this change adds no anchor',
+        'w116-members goes back to NO FILE HALF, and its ten anchors go with it — the verdict '
+        'AND the count are both observable now that the harness is read',
         [(CHECK, JOINWRITE, JOINWRITE_OFF)],
         lambda r: ('NO FILE HALF' in reason_for(r['out'], 'w116-members')
-                   and r['anchors'] == base['anchors'],
+                   and r['anchors'] == base['anchors'] - 10,
                    reason_for(r['out'], 'w116-members')[:80]))
 
     # ⚠ K2 IS THE ONE THAT MATTERS: it must follow the WRITE, not the order of the constants.
