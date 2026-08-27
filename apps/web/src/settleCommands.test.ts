@@ -464,3 +464,76 @@ describe('a declared subject is read by the command that declares it', () => {
     ).toEqual([])
   })
 })
+
+/**
+ * ⚠ THREE OF THESE COMMANDS ANSWER A PREMISE ABOUT AUTHZ AND MONEY WITH A BARE `1` AND NOT ONE
+ * BYTE OF OUTPUT, AND THE HARDENING THAT MADE THEM SILENT IS THIS REGISTER'S OWN.
+ *
+ * The footer tells a deployer to run the uncheckable half in the named repo before a deploy. Run
+ * COLD — every `*_TEST_DATABASE_URL` stripped from the environment — against read-only exports at
+ * docs df4a90d / track a12e01f / lens f134404, EXACTLY 3 of the 46 red: entry 2 (Track's
+ * `internal/member`), entry 3 and entry 8 (Docs' `internal/trackintegration`). All three are
+ * `go test`; so is entry 5, and entry 5 is GREEN cold, so "runs go test" is not the discriminator
+ * and a deployer cannot tell the two apart by looking.
+ *
+ * ⚠⚠ AND WHAT THEY PRINT IS THE PART THAT MATTERS. MEASURED on entry 8: `exit=1, stdout 0 bytes,
+ * stderr 0 bytes`. Docs' own test writes a good paragraph — "DOCS_TEST_DATABASE_URL is not set …
+ * it FAILS rather than skips: a silently skipped real-PG suite looks exactly like a passing one" —
+ * and `2>&1 | grep -c '^--- PASS: …'` eats every word of it, because grep is counting PASS lines
+ * and a prerequisite failure produces none. That pipe is here ON PURPOSE: it is what stops
+ * `go test -run <filter>` reporting a pass from a run of nothing, a hazard this file's header
+ * records being caught. The fix for one blindness manufactured another. A deployer gets an
+ * unexplained non-zero on "the /v1/service/ lane skips membership authz but still requires the
+ * gateway secret" — indistinguishable from the premise having MOVED, which is the one thing this
+ * register exists to tell them apart. The cost is not the wasted hour; it is that a register which
+ * cries wolf on a security premise teaches the reader to discount its reds.
+ *
+ * R7 — a `go test` settle command states its prerequisite IN THE COMMAND, not in prose. Either it
+ * guards on the database URL it needs and exits 3 with a sentence saying so — 3, not 1, so the
+ * deployer can tell "I have not set this up" from "the premise has moved" — or it declares that it
+ * needs no database. The declaration is a claim like any other and each of the four was MEASURED
+ * cold, twice, before it was written down.
+ */
+/**
+ * ⚠ `[^;]*` WAS WRONG AND THE RED IS WHAT SAID SO. The guard reads
+ * `[ -n "${X:-}" ] || { echo '…'; exit 3; }` — there is a semicolon between the bracket and the
+ * exit, inside the very brace group the rule is looking at, so a class excluding `;` could never
+ * span it. It matched nothing on all three guarded commands and the rule stayed red for a reason
+ * that had nothing to do with the register. Bounded to one line instead, which is the real
+ * constraint: the guard and its exit are one statement in one command string.
+ */
+const NEEDS_DB_GUARD = /\[ -n "\$\{[A-Z_]+_TEST_DATABASE_URL:-\}" \][^\n]*exit 3;/
+const NEEDS_NO_DB = 'NEEDS NO DATABASE'
+
+describe('a settle command says what it needs before it says what it found', () => {
+  it('there are still `go test` settle commands to police', () => {
+    expect(
+      GO_TEST.length,
+      'no settle command was classified as a `go test`, which silently empties R7. Four were ' +
+        'measured at 27b672d — entries 2, 3, 5 and 8.',
+    ).toBeGreaterThanOrEqual(4)
+  })
+
+  for (const entry of GO_TEST) {
+    it(`${handle(entry)} — R7 declares its database prerequisite`, () => {
+      const guarded = NEEDS_DB_GUARD.test(entry.command)
+      const declaredNone = entry.command.includes(NEEDS_NO_DB)
+      expect(
+        guarded || declaredNone,
+        'this settle command runs `go test` and says nothing about what the run needs. MEASURED ' +
+          'cold at docs df4a90d / track a12e01f: three of the four red with no ' +
+          '`*_TEST_DATABASE_URL`, and they red SILENTLY — exit 1, zero bytes on stdout and ' +
+          'stderr — because `2>&1 | grep -c \'^--- PASS: …\'` counts PASS lines and swallows the ' +
+          "upstream test's own explanation. The deployer cannot tell that from a premise that " +
+          'moved. Either guard on the URL and `exit 3` with a sentence, or write ' +
+          `\`${NEEDS_NO_DB}\` and mean it — entry 5 drives a recordingBinder and a lensStub and ` +
+          'opens no connection, which is why that arm exists and is not an escape hatch.',
+      ).toBe(true)
+      expect(
+        guarded && declaredNone,
+        'this command both guards on a database URL and declares it needs no database. One of ' +
+          'the two is false.',
+      ).toBe(false)
+    })
+  }
+})
