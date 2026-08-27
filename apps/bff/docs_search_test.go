@@ -228,14 +228,25 @@ func TestDocsSearch_RefusesNonGET(t *testing.T) {
 
 // ⚠ THE FIRST OF THE TWO FINDINGS. An unrecognised `type` is refused HERE, because upstream
 // answers it with a confident empty list.
-func TestDocsSearch_RefusesATypeUpstreamWouldAnswerWithAConfidentEmptyList(t *testing.T) {
+// ⚠ THIS TEST WAS RENAMED, AND THE OLD NAME IS DELIBERATELY NOT WRITTEN HERE — see git history.
+// It said upstream answers an unrecognised type with a confident empty list. A test NAME is a
+// claim, and that one was false. talyvor-docs `d54d375` (#198) made it refuse with a 400 of its own, before either dispatch
+// arm — so both the name and the message below asserted the opposite of what upstream does. The
+// ASSERTIONS were and are correct: this route refuses, and its refusal names what IS accepted.
+// Cited nowhere (checked by whole-tree grep before renaming). ⚠ AND WRITING THE OLD NAME IN THIS
+// COMMENT REDDENED TestEveryCitedTestExists — correctly: a comment naming a test that does not
+// exist is exactly what that guard is for, and the rename is what made it not exist. Third time a
+// citation guard has caught this tab today; the fix is to describe the rename, not to spell it.
+func TestDocsSearch_RefusesAnUnrecognisedTypeAndNamesWhatIsAccepted(t *testing.T) {
 	u := newSearchUpstream(t, http.StatusOK, oneHitBody)
 	a, sess := searchApp(t, u)
 
 	for _, bad := range []string{"banana", "Fulltext", "full-text", "FULLTEXT", "sematic", "%20all", "all%20"} {
 		rec := getSearch(t, a, sess, "q=auth&type="+bad)
 		if rec.Code != http.StatusBadRequest {
-			t.Errorf("type=%q → %d, want 400 (upstream answers it 200 with an empty list)", bad, rec.Code)
+			t.Errorf("type=%q → %d, want 400. This route refuses before calling Docs; Docs refuses "+
+				"it too since d54d375, so neither layer serves a mistyped type as an empty list.",
+				bad, rec.Code)
 			continue
 		}
 		var out map[string]string
@@ -418,5 +429,55 @@ func TestDocsSearch_UnwiredDeploymentAnswers503WithNoCode(t *testing.T) {
 	}
 	if _, present := out["code"]; present {
 		t.Errorf("the BFF's own \"not configured\" 503 carries code=%v; it must not", out["code"])
+	}
+}
+
+// ⚠ THE REFUSAL THIS ROUTE SHIPS MAKES A FACTUAL CLAIM ABOUT ANOTHER REPOSITORY, AND THAT CLAIM
+// EXPIRED — THE CONSTANT'S OWN COMMENT SAID IT WOULD.
+//
+// `docsSearchTypeRefusal` opens: "names the upstream FACT rather than a policy, so it expires the
+// day the fact does." The fact was: talyvor-docs' Search handler runs neither half for an
+// unrecognised type and answers 200 with an empty list, so a mistyped type is indistinguishable
+// from a workspace with no matching documents. That sentence is written into the message a BROWSER
+// receives.
+//
+// MEASURED at talyvor-docs `d54d375` (#198), in a read-only `git archive` export of the object
+// store: `internal/search/handler.go` now answers
+// `400 {"error":"type must be one of all, fulltext, semantic"}` for any value outside the closed
+// set, BEFORE either dispatch arm. The day the fact expired is the day that merged.
+//
+// ⚠ WHY THIS ROUTE STILL REFUSES, so the constant is corrected rather than deleted: refusing here
+// costs no upstream round trip, and it is the only refusal whose wording this repository controls.
+// Belt-and-braces is a fine reason to keep a check; claiming to be the ONLY one is not.
+//
+// ⚠ AND THE REGISTER COULD NOT SEE IT, WHICH IS THE HALF THAT MATTERS. deploy/decision-expiry.sh
+// carried this premise with a settle command pinning the two dispatch ARMS verbatim. My change
+// upstream added a refusal ABOVE those arms and left them untouched — so the command still EXITS 0
+// and reports "the premise holds" about a premise that is now false. That is the exact failure the
+// register's own header warns about ("a command that exits 0 when the premise is FALSE turns
+// 'someone will notice' into 'someone confirmed it'"), and it is fixed in the same change.
+func TestDocsSearchTypeRefusal_DoesNotClaimUpstreamAnswers200(t *testing.T) {
+	// MUST STAY GREEN: the actionable half of the sentence is the closed set, and it is unchanged.
+	for _, want := range []string{"all", "fulltext", "semantic"} {
+		if !strings.Contains(docsSearchTypeRefusal, want) {
+			t.Fatalf("the refusal no longer names %q. The set is what makes this message "+
+				"actionable; only the claim about upstream was wrong.", want)
+		}
+	}
+
+	// THE FINDING. Each of these is a way the sentence asserts that upstream ACCEPTS the value and
+	// answers emptily — which upstream stopped doing at talyvor-docs d54d375.
+	for _, stale := range []string{
+		"answers 200",
+		"runs neither half",
+		"indistinguishable from a workspace with no matching documents",
+	} {
+		if strings.Contains(docsSearchTypeRefusal, stale) {
+			t.Errorf("the shipped refusal still tells a browser %q.\n"+
+				"talyvor-docs REFUSES an unrecognised type with a 400 as of d54d375 — measured in "+
+				"a read-only git archive export, internal/search/handler.go, before either "+
+				"dispatch arm. This message is the one place this repository states that fact to a "+
+				"user, and it states the opposite.", stale)
+		}
 	}
 }

@@ -197,8 +197,13 @@ const CLAIMS: Claim[] = [
     marker: "grep -o 'kind == .[a-z]*.'",
   },
   {
-    decision: 'docsSearchTypeRefusal — an unrecognised type runs NEITHER half and answers 200 with an empty list',
-    marker: "grep -o 'if kind == .[a-z]*. || kind == .[a-z]*. {'",
+    // ⚠ THIS ROW MOVED BECAUSE THE FACT DID, AND THE OLD COMMAND DID NOT NOTICE. The premise was
+    // "an unrecognised type runs NEITHER half and answers 200 with an empty list", pinned by a
+    // command that grepped the two dispatch ARMS verbatim. talyvor-docs d54d375 added a refusal
+    // ABOVE those arms and left them untouched — so the command kept EXITING 0 about a premise
+    // that had become false. The marker now reads the refusal itself.
+    decision: 'docs\' search REFUSES an unrecognised type with a 400 of its own, before either dispatch arm',
+    marker: "grep -o 'kind != .[a-z]*.'",
   },
   {
     decision: 'docsSearchWindowRefusal exempts the single-source path, because upstream pages it in SQL',
