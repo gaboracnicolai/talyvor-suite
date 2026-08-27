@@ -37,17 +37,30 @@ const docsSearchMergedWindow = 50
 const docsSearchDefaultLimit = 10
 
 // docsSearchTypes is the set talyvor-docs' Search handler discriminates on: `all` (both halves,
-// merged), `fulltext` and `semantic`. It is a closed set upstream in the only sense that matters —
-// see docsSearchTypeRefusal for what an unrecognised value does there.
+// merged), `fulltext` and `semantic`. It is a closed set upstream in the strong sense now — see
+// docsSearchTypeRefusal.
 var docsSearchTypes = map[string]bool{"all": true, "fulltext": true, "semantic": true}
 
 // docsSearchTypeRefusal names the upstream FACT rather than a policy, so it expires the day the
-// fact does. MEASURED against talyvor-docs `7bfa1cf` by running its Search handler: `type=banana`
-// runs NEITHER half — the two `if kind == "all" || kind == …` arms both miss — and answers
-// `200 {"results":[],"total":0}`, byte-identical to a query that genuinely matched nothing.
-const docsSearchTypeRefusal = "type must be one of all, fulltext, semantic — talyvor-docs' search " +
-	"handler runs neither half for any other value and answers 200 with an empty result list, so a " +
-	"mistyped type is indistinguishable from a workspace with no matching documents"
+// fact does — AND THAT DAY CAME, WHICH IS WHY THIS SENTENCE IS NOT THE ONE IT WAS.
+//
+// It used to read: "talyvor-docs' search handler runs neither half for any other value and answers
+// 200 with an empty result list, so a mistyped type is indistinguishable from a workspace with no
+// matching documents." That was measured against talyvor-docs `7bfa1cf` and was true then. It is
+// the reason THIS route's 400 exists at all.
+//
+// MEASURED at talyvor-docs `d54d375` (#198), read-only `git archive` export of the object store:
+// `internal/search/handler.go` now answers `400 {"error":"type must be one of all, fulltext,
+// semantic"}` for any value outside the set, BEFORE either dispatch arm. Upstream refuses. The old
+// sentence was shipped to a browser and asserted the opposite.
+//
+// ⚠ THE CHECK STAYS AND ONLY THE CLAIM MOVES. Refusing here costs no upstream round trip, and this
+// is the only refusal on this path whose wording this repository controls. Belt-and-braces is a
+// good reason to keep a check; claiming to be the ONLY one is not, and that is the whole of what
+// was wrong.
+const docsSearchTypeRefusal = "type must be one of all, fulltext, semantic — this route refuses " +
+	"an unrecognised type before calling Docs, and Docs refuses it too, so a mistyped type is " +
+	"never served as an empty result list"
 
 // docsSearchWindowRefusal is the same argument one parameter along. MEASURED, same handler, 200
 // synthetic documents, type=all: limit=10&offset=45 returned FIVE rows and limit=10&offset=50
