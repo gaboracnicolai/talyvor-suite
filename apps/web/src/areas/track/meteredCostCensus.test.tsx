@@ -77,9 +77,13 @@ const ISSUE = 'iss-7'
 /** One BFF for the whole census. Every metered route answers, so a card that asks for the wrong
  *  one fails loudly rather than sitting in an unasked state that would sail through an assertion
  *  about a sentence. */
-function mockBff() {
+function mockBff(): string[] {
+  // ⚠ THE LOG IS THE POINT OF THE RETURN VALUE — see the spend-at-mount column at the end of this
+  // file. The docs census has recorded one since it was written and no call site ever read it.
+  const calls: string[] = []
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
+    calls.push(url)
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
     if (url.endsWith(`/api/track/issues/${ISSUE}/summary`)) return json({ summary: 'a summary' })
@@ -89,6 +93,7 @@ function mockBff() {
     return json({ error: 'no such endpoint' }, 404)
   })
   vi.stubGlobal('fetch', fetchMock)
+  return calls
 }
 
 function renderIn(node: React.ReactNode) {
@@ -232,6 +237,84 @@ describe('every metered Track surface tells the reader it spent', () => {
           `${s.name} must not borrow meteredCallCopy — that sentence's payer is the issue`,
         ).not.toMatch(/attributed to this issue/i)
       }
+    })
+  }
+})
+
+
+/**
+ * ⚠⚠ WHAT A CARD *DOES* AT MOUNT, NOT WHAT IT *SAYS*. This file's siblings say the rule out loud —
+ * `apps/web/src/areas/track/FindDuplicates.tsx:17` and `apps/web/src/areas/track/TriageIssue.tsx:20` both open with **"IT IS A BUTTON, NOT A PAGE
+ * LOAD, BECAUSE IT COSTS"** — and until now the only thing enforcing it anywhere was ONE per-card
+ * test. MEASURED at `d51933c`: removing AISummary's `enabled: asked` gate reds
+ * `AISummary.test.tsx > spends nothing until it is asked` and NOTHING in either census.
+ *
+ * ⚠ THREE OF THESE FOUR ARE `useMutation` AND CANNOT FIRE ON THEIR OWN, so they hold by
+ * construction today. A construction is not a guard — AISummary is a `useQuery` and is one dropped
+ * `enabled` away from billing on page load, and the payer and price columns would keep passing
+ * because the SENTENCE is unchanged.
+ *
+ * ⚠ THE COLUMN IS IN BOTH AREAS IN ONE CHANGE, deliberately: W1.1.9a records this repo's
+ * recurring mistake as "the fix applied where the defect was reported and the identical shape one
+ * element over never swept for". The docs census had a call log built and thrown away; this one
+ * had no log at all.
+ */
+const MOUNT_ROUTES: { name: string; route: RegExp; sample: string }[] = [
+  { name: 'AISummary', route: /\/api\/track\/issues\/[^/?]+\/summary/, sample: `/api/track/issues/${ISSUE}/summary` },
+  { name: 'FindDuplicates', route: /\/api\/track\/issues\/[^/?]+\/find-duplicates/, sample: `/api/track/issues/${ISSUE}/find-duplicates` },
+  { name: 'TriageIssue', route: /\/api\/track\/issues\/[^/?]+\/triage/, sample: `/api/track/issues/${ISSUE}/triage` },
+  { name: 'SearchIssues', route: /\/api\/track\/issues\/search\?/, sample: '/api/track/issues/search?q=auth' },
+]
+
+describe('a metered Track surface spends nothing before the reader acts', () => {
+  it('the route table covers exactly the censused population', () => {
+    expect(new Set(MOUNT_ROUTES.map((r) => r.name))).toEqual(new Set(METERED.map((s) => s.name)))
+    expect(MOUNT_ROUTES).toHaveLength(EXPECTED_METERED)
+  })
+
+  it('each route matches its own call and no sibling — a matcher that matches nothing proves nothing', () => {
+    for (const r of MOUNT_ROUTES) {
+      expect(r.route.test(r.sample), `${r.name}'s route must match ${r.sample}`).toBe(true)
+      for (const other of MOUNT_ROUTES) {
+        if (other.name === r.name) continue
+        expect(
+          r.route.test(other.sample),
+          `${r.name}'s route also matches ${other.name}'s call (${other.sample})`,
+        ).toBe(false)
+      }
+    }
+    // ⚠ `/issues/search?` MUST NOT be read as `/issues/{id}/summary` and vice versa — the two are
+    // one path segment apart and are billed to DIFFERENT payers (the workspace and the issue).
+    for (const quiet of ['/api/track/issues', '/api/track/teams', '/api/track/workspaces']) {
+      for (const r of MOUNT_ROUTES) {
+        expect(r.route.test(quiet), `${r.name}'s route matched the free read ${quiet}`).toBe(false)
+      }
+    }
+  })
+
+  it('the log records a metered call when one is really made', () => {
+    const calls = mockBff()
+    return fetch(`/api/track/issues/${ISSUE}/triage`, { method: 'POST' }).then(() => {
+      expect(
+        calls.filter((u) => MOUNT_ROUTES[2].route.test(u)),
+        'the stub is not installed or the log is not being pushed to, and every mount assertion ' +
+          'below is vacuously true',
+      ).toHaveLength(1)
+    })
+  })
+
+  for (const s of METERED) {
+    it(`${s.name} issues no metered request at mount`, async () => {
+      const calls = mockBff()
+      renderIn(s.node)
+      // ⚠ A TICK BEFORE READING THE LOG — see the docs census's copy of this comment.
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      const billed = calls.filter((u) => MOUNT_ROUTES.some((r) => r.route.test(u)))
+      expect(
+        billed,
+        `${s.name} called a METERED route before the reader pressed anything (${s.upstream}). ` +
+          `All calls at mount: ${calls.join(', ') || '(none)'}`,
+      ).toEqual([])
     })
   }
 })

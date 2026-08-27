@@ -155,6 +155,28 @@ interface Pin {
  * rather than from the target — a fragment read off the target would be true by construction.
  */
 const PINS: Record<string, Pin> = {
+  // ── W1.7 / tab-p9r4 — the rule the spend-at-mount column enforces, quoted where it is stated.
+  //    Both cards say it in their own words and neither had anything asserting it.
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:491|apps/web/src/areas/track/FindDuplicates.tsx:17': {
+    kind: 'LIVE',
+    fragment: 'IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS',
+    why: 'the product rule the spend-at-mount column exists to hold, stated by a card rather than by a guard',
+  },
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:491|apps/web/src/areas/track/TriageIssue.tsx:20': {
+    kind: 'LIVE',
+    fragment: 'IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS',
+    why: 'the second card saying the same rule — two statements of it, and until now one per-card test between them',
+  },
+  'apps/web/src/areas/track/meteredCostCensus.test.tsx:247|apps/web/src/areas/track/FindDuplicates.tsx:17': {
+    kind: 'LIVE',
+    fragment: 'IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS',
+    why: 'the same quotation in the Track census, where the two cards that state the rule live',
+  },
+  'apps/web/src/areas/track/meteredCostCensus.test.tsx:247|apps/web/src/areas/track/TriageIssue.tsx:20': {
+    kind: 'LIVE',
+    fragment: 'IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS',
+    why: 'its sibling, pinned so a rename of either card is a red rather than a comment that quietly stops resolving',
+  },
   // ── W1.7 / tab-p9r4 — the two upstream MEASUREMENTS that keep a route out of the metered
   //    population. Both are the reason a marker is absent, so a reader checking why a spending
   //    screen is not swept lands on the sentence that says it does not spend.
