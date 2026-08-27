@@ -108,7 +108,7 @@
   "src/mirrorSubsetRegister.test.ts": 68,
   "src/motion.test.tsx": 34,
   "src/noFlashTheme.test.ts": 8,
-  "src/oneActionOneCharge.test.tsx": 11,
+  "src/oneActionOneCharge.test.tsx": 22,
   "src/pageScale.test.tsx": 5,
   "src/PanelReportsItsOwnQuery.test.tsx": 54,
   "src/pinnedClock.test.ts": 5,
