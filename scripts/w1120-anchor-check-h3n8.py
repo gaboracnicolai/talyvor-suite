@@ -156,7 +156,21 @@ class Extractor(ast.NodeVisitor):
         i = hits[0]
         if i + 1 >= len(elts):
             return
-        self._record(self._str(elts[i]), self._str(elts[i + 1]),
+        path = self._str(elts[i])
+        # ⚠ THE ELEMENT AFTER THE PATH IS SOMETIMES A LIST OF (old, new) PAIRS, NOT THE ANCHOR
+        # ITSELF — `edit(CONVERT, [(old, new), …], [1])`. visit_Tuple already reads that shape when
+        # the path and the list are a 2-TUPLE; as CALL ARGUMENTS it fell through `_str`, which
+        # returns None for a List, and the harness read as UNREADABLE with every anchor sitting
+        # there in plain source.
+        after = elts[i + 1]
+        if isinstance(after, (ast.List, ast.Tuple)) and after.elts:
+            inners = [e for e in after.elts if isinstance(e, ast.Tuple) and e.elts]
+            if inners:
+                for inner in inners:
+                    self._record(path, self._str(inner.elts[0]),
+                                 self._num(inner.elts[1]) if len(inner.elts) > 1 else None)
+                return
+        self._record(path, self._str(after),
                      self._num(elts[i + 2]) if i + 2 < len(elts) else None)
 
     def visit_Call(self, node: ast.Call) -> None:
@@ -170,6 +184,24 @@ class Extractor(ast.NodeVisitor):
             self._record(self._str(node.args[0]), self._str(node.args[1]),
                          self._num(node.args[2]) if len(node.args) > 2 else None)
         self._after_the_path(list(node.args))
+        self.generic_visit(node)
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        """A control written as a DICT LITERAL — `{"id": …, "file": CARD, "find": …, "repl": …}`.
+
+        ⚠ THE SAME RULE, NOT A NEW ONE: the anchor is the value right after the one that names a
+        file, read in source order, which is exactly what `_after_the_path` already decides for
+        call arguments and tuples. Reusing it is deliberate — it inherits the one-path-per-node
+        guard, the replacement-is-not-an-anchor argument and both rejections, so this widening
+        cannot introduce a false-miss shape those were bought to prevent.
+
+        ⚠ AND THE KEYS ARE NOT MATCHED BY NAME. `"file"`/`"find"` is what two harnesses happen to
+        call them; keying on those spellings would read those two and silently miss the next
+        harness that says `"target"`/`"anchor"`. Whether a value RESOLVES to a file in the tree is
+        the same question the rest of this extractor asks, and it does not care what the key is
+        called.
+        """
+        self._after_the_path(list(node.values))
         self.generic_visit(node)
 
     def visit_Tuple(self, node: ast.Tuple) -> None:
