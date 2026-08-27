@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""
+W1.1.21d — CONTROLS for the WRITE-TARGET rule in scripts/w1120-anchor-check-h3n8.py.
+
+WHY A CONTROL AT ALL, WHEN THE NUMBER WENT UP AND NOTHING WENT RED
+------------------------------------------------------------------
+unreadable 8 → 7, anchors decided 521 → 530, and "every decidable anchor matches the tree".
+**That is the result this item's own history says to distrust**: "more anchors, all healthy" is
+ALSO exactly what a widening that extracts UNCHECKABLE pairs prints. So the claim under test is
+not that the number moved. It is:
+
+  W1  a corruption in the NEWLY-READ harness is NAMED in the miss block, and
+  W2  the SAME corruption with the widening reverted is INVISIBLE and the harness UNREADABLE
+      — which is what separates "this change sees it" from "something already did",
+  W3  blinding the rule puts the census back exactly where it was,
+  W4  the DECLINE is load-bearing: drop the "a write I cannot name means I decline" guard and
+      `w171-docs-search-register` starts reporting FALSE MISSES against a harness that is fine.
+
+Every mutation is restored from the ORIGINAL BYTES in a `finally` and sha256-verified back.
+"""
+import hashlib, io, os, re, subprocess, sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CHECK = os.path.join(REPO, 'scripts/w1120-anchor-check-h3n8.py')
+SCROLL = os.path.join(REPO, 'apps/web/scripts/w11-scroll-reset-controls.py')
+
+# the write-target fallback, as one line in _single_file
+FALLBACK = "        return self.written_file"
+DECLINE = """        if not names or None in names:
+            return None"""
+RESOLVE_DECLINE = """        paths = [self.consts.get(n) for n in names]
+        if any(pth is None for pth in paths):
+            return None"""
+
+
+def sha(p):
+    return hashlib.sha256(io.open(p, 'rb').read()).hexdigest()
+
+
+def run_check():
+    p = subprocess.run(['python3', CHECK], capture_output=True, text=True, cwd=REPO, timeout=900)
+    out = p.stdout + p.stderr
+    m = re.search(r'harnesses: (\d+)\s+anchors decided: (\d+)', out)
+    u = re.search(r'COULD NOT READ (\d+) HARNESS', out)
+    mi = re.search(r'⚠ (\d+) ANCHOR\(S\) NO LONGER MATCH', out)
+    return {
+        'rc': p.returncode,
+        'anchors': int(m.group(2)) if m else None,
+        'unreadable': int(u.group(1)) if u else 0,
+        'misses': int(mi.group(1)) if mi else 0,
+        'out': out,
+    }
+
+
+def edit(path, old, new):
+    s = io.open(path, encoding='utf-8').read()
+    n = s.count(old)
+    assert n == 1, f'expected 1 occurrence, found {n}: {old[:60]!r}'
+    io.open(path, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+
+
+def main():
+    print('== BASELINE ==')
+    base = run_check()
+    print(f"   anchors={base['anchors']} unreadable={base['unreadable']} misses={base['misses']} rc={base['rc']}")
+    assert base['misses'] == 0, 'baseline already has misses — every control below is uninterpretable'
+    ok = 0
+    total = 0
+
+    def control(name, predict, mutations, check):
+        nonlocal ok, total
+        total += 1
+        print(f'\n== {name}')
+        print(f'   PREDICT: {predict}')
+        originals = {p: io.open(p, 'rb').read() for p, _, _ in mutations}
+        shas = {p: sha(p) for p in originals}
+        try:
+            for p, o, n in mutations:
+                edit(p, o, n)
+            r = run_check()
+        finally:
+            for p, b in originals.items():
+                io.open(p, 'wb').write(b)
+        for p in shas:
+            assert sha(p) == shas[p], f'RESTORE FAILED for {p}'
+        good, why = check(r)
+        print(f"   RESULT : anchors={r['anchors']} unreadable={r['unreadable']} misses={r['misses']}")
+        print(f"   VERDICT: {'OK' if good else 'CONTROL FAILED'} — {why}")
+        ok += 1 if good else 0
+
+    CORRUPT = ('("window.scrollTo(0, 0)", "window.scrollTo(0, 1)")',
+               '("window.scrollTo(0, 0) /* moved */", "window.scrollTo(0, 1)")')
+
+    control(
+        'W1 an anchor in the NEWLY-READ harness is corrupted',
+        'the checker NAMES it in the miss block — the widening can say no, not only yes',
+        [(SCROLL, *CORRUPT)],
+        lambda r: (r['misses'] == 1 and 'window.scrollTo(0, 0) /* moved */' in r['out'],
+                   'the corrupted anchor is reported as a miss'
+                   if r['misses'] == 1 else f"expected exactly 1 miss, got {r['misses']}"))
+
+    control(
+        'W2 the SAME corruption with the write-target fallback REVERTED',
+        'INVISIBLE — 0 misses and the harness back to UNREADABLE. This is what separates "this '
+        'change sees it" from "something already did"',
+        [(SCROLL, *CORRUPT), (CHECK, FALLBACK, "        return None")],
+        lambda r: (r['misses'] == 0 and r['unreadable'] == base['unreadable'] + 1
+                   and 'w11-scroll-reset' in r['out'],
+                   'the corruption is invisible and the harness reads UNREADABLE'
+                   if r['misses'] == 0 else f"the corruption was still seen ({r['misses']} misses) "
+                   'without the widening — the widening is not what sees it'))
+
+    control(
+        'W3 the write-target rule blinded on a clean tree',
+        f"the census returns to exactly where it was: {base['anchors'] - 9} anchors, "
+        f"{base['unreadable'] + 1} unreadable",
+        [(CHECK, FALLBACK, "        return None")],
+        lambda r: (r['anchors'] == base['anchors'] - 9 and r['unreadable'] == base['unreadable'] + 1,
+                   'the rule carries exactly the 9 anchors and the 1 harness it claims'))
+
+    # ⚠ W4 WAS WRITTEN AS "the decline is load-bearing" AND THE RUN SAID OTHERWISE. The first
+    # version poisoned `None in names` and nothing moved — I had poisoned the wrong branch, the
+    # same mistake this item's F1 records ("a mutation that changed a line and disabled nothing").
+    # Poisoning the RIGHT branch moved nothing either, and so did poisoning both. That is the
+    # measurement, and it is now what W4 asserts: the two declines are conservatism whose
+    # populations are large (19 and 37 harnesses) but which change NO anchor on today's tree,
+    # because no harness in either declining group also carries an edit shape. A control that
+    # claims a guard catches something it does not is worse than no control.
+    control(
+        'W4 BOTH declines dropped — the honest claim, which is that they are unexercised today',
+        'NOTHING MOVES: same anchors, same unreadable, no misses. These guard a shape no harness '
+        'currently has (multi-file constants AND an edit shape), so they cannot be demonstrated '
+        'live — which is a fact about them worth recording, not one to dress up',
+        [(CHECK, DECLINE, "        names.discard(None)\n        if not names:\n            return None"),
+         (CHECK, RESOLVE_DECLINE,
+          "        paths = [self.consts.get(n) for n in names]\n"
+          "        paths = [pth for pth in paths if pth is not None]\n"
+          "        if not paths:\n            return None")],
+        lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
+                   and r['misses'] == 0,
+                   'unmoved, as measured — the declines are defence in depth, not a live guard'))
+
+    control(
+        'W5 a comment in the checker reworded — MUST STAY GREEN',
+        'GREEN and the census unmoved: this rule reads write calls, never prose',
+        [(CHECK, '# after consts are known, because the write target is looked up through them',
+                 '# consts must be known first: the write target is resolved through them')],
+        lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
+                   and r['misses'] == 0, 'census unmoved'))
+
+    # ── the census-self-inclusion half ────────────────────────────────────────
+    # ⚠ THESE TWO REPRODUCE THE DEFECT THIS TAB WALKED INTO, RATHER THAN DESCRIBING IT. The file
+    # you are reading was first called `w1121d-write-target-controls-j8w4.py`, matched the
+    # harness glob, and pushed the census to 75 with its own baseline reading `unreadable=8`
+    # against a tree that had 7 — after the warning about exactly that was already written down
+    # in this item. W6 renames it back and requires the census to hold at 74.
+    def rename_control(dst_name):
+        src = os.path.abspath(__file__)
+        dst = os.path.join(os.path.dirname(src), dst_name)
+        os.rename(src, dst)
+        return src, dst
+
+    total += 1
+    print('\n== W6 this control file renamed OUT of the `anchor-check` convention')
+    print('   PREDICT: the census HOLDS at 74. Before this change the same rename took it to 75 — '
+          'the instrument counting itself, in the direction that looks like progress')
+    src, dst = rename_control('w1121d-write-target-controls-j8w4.py')
+    try:
+        r = run_check()
+    finally:
+        os.rename(dst, src)
+    held = re.search(r'harnesses: (\d+)', r['out'])
+    n = int(held.group(1)) if held else -1
+    good = n == 74 and 'RUNS this checker' in r['out']
+    print(f"   RESULT : harnesses={n} anchors={r['anchors']} unreadable={r['unreadable']}")
+    print(f"   VERDICT: {'OK' if good else 'CONTROL FAILED'} — "
+          f"{'excluded by what it does, not what it is called' if good else 'the census absorbed a control for the checker'}")
+    ok += 1 if good else 0
+
+    # ⚠ AND THE OTHER DIRECTION, which is the one a raw text search gets wrong.
+    total += 1
+    print('\n== W7 a real harness that mentions the checker IN A COMMENT — MUST STAY IN THE CENSUS')
+    print('   PREDICT: `w11-uppercase-count-controls.py` is still censused. Excluding on the raw '
+          'text instead of on a string CONSTANT drops it, and a genuine harness leaving the census '
+          'is the direction that looks like nothing happened')
+    r = run_check()
+    excluded = re.findall(r'excluded from the census — [^:]+: (\S+)', r['out'])
+    good = 'w11-uppercase-count-controls.py' not in excluded and len(excluded) == 3
+    print(f"   RESULT : {len(excluded)} excluded: {excluded}")
+    print(f"   VERDICT: {'OK' if good else 'CONTROL FAILED'} — "
+          f"{'the comment-only mention is still checked' if good else 'a real harness was dropped'}")
+    ok += 1 if good else 0
+
+    print(f'\n== {ok}/{total} CONTROLS BEHAVED AS PREDICTED ==')
+    return 0 if ok == total else 1
+
+
+sys.exit(main())

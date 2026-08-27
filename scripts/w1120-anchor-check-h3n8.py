@@ -33,10 +33,54 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
+#: files matching the glob that are controls FOR this checker, with why each was excluded.
+_self_excluded: list[tuple[str, str]] = []
+
+
+def _is_control_for_this_checker(p: pathlib.Path) -> bool:
+    """Does this file RUN the checker, as opposed to mentioning it?
+
+    ⚠ THE NAMING CONVENTION WAS THE WHOLE PROTECTION AND IT DOES NOT HOLD. The glob is
+    `w1*controls*.py`, so a control written FOR this checker is counted as one of the harnesses it
+    checks — the instrument measuring itself, in the direction that looks like progress. That is
+    recorded in W1.1.21d's own history (census 74 → 75, anchors 501 → 504) and the fix was to
+    exclude the substring `anchor-check` from the name. **It happened AGAIN on 2026-08-27, to a
+    tab that had read the warning**: a new control named `w1121d-write-target-controls-j8w4.py`
+    pushed the census to 75 and its own baseline read `unreadable=8` where the tree had 7. A
+    convention nothing enforces is a comment.
+
+    ⚠ SO THE TEST IS WHAT THE FILE DOES, NOT WHAT IT IS CALLED — and the discriminator is exact
+    rather than a substring search, which was MEASURED: `w11-uppercase-count-controls.py` names
+    this checker too, in a COMMENT ("`…anchor-check…` is what noticed; nothing else did"), and it
+    is a real harness whose anchors must keep being checked. A control RUNS the checker, so it
+    carries the path as a STRING CONSTANT. Excluding on the raw text would have dropped a genuine
+    harness from the census — the direction that looks like nothing happened.
+    """
+    try:
+        tree = ast.parse(p.read_text())
+    except (SyntaxError, OSError):
+        return False
+    return any(isinstance(n, ast.Constant) and isinstance(n.value, str) and CHECKER_STEM in n.value
+               for n in ast.walk(tree))
+
+
+CHECKER_STEM = "w1120-anchor-check"
+
+
 def harnesses() -> list[pathlib.Path]:
-    out = [p for p in ROOT.rglob("w1*controls*.py")
-           if "node_modules" not in p.parts and "anchor-check" not in p.name]
-    return sorted(out)
+    _self_excluded.clear()
+    out = []
+    for p in sorted(ROOT.rglob("w1*controls*.py")):
+        if "node_modules" in p.parts:
+            continue
+        if CHECKER_STEM in p.name or "anchor-check" in p.name:
+            _self_excluded.append((p.name, "named as a control for this checker"))
+            continue
+        if _is_control_for_this_checker(p):
+            _self_excluded.append((p.name, "RUNS this checker — a control for it, not a harness it checks"))
+            continue
+        out.append(p)
+    return out
 
 
 class Extractor(ast.NodeVisitor):
@@ -55,6 +99,8 @@ class Extractor(ast.NodeVisitor):
         self.file_consts: list[str] = []
         self.anchor_index: dict[str, int] = {}
         self.edit_shapes: list[tuple[int, int, int | None]] = []
+        self._tree: ast.AST = ast.Module(body=[], type_ignores=[])
+        self.written_file: str | None = None
         self._prescan()
 
     # module-level `NAME = "…"` so an anchor held in a constant resolves
@@ -96,6 +142,7 @@ class Extractor(ast.NodeVisitor):
             tree = ast.parse(self.src)
         except SyntaxError:
             return
+        self._tree = tree
         seen: list[str] = []
         for node in tree.body:
             if not isinstance(node, ast.Assign) or len(node.targets) != 1:
@@ -125,12 +172,76 @@ class Extractor(ast.NodeVisitor):
             self.edit_shapes.append((len(names), idx, pidx))
             if isinstance(node.iter, ast.Name):
                 self.anchor_index[node.iter.id] = idx
+        # after consts are known, because the write target is looked up through them
+        self.written_file = self._write_target()
 
     def _single_file(self) -> str | None:
         """The one file this harness edits, or nothing. EXACTLY one — with two, attributing an
         anchor to either is a guess, and a guess here is a false miss reported against a harness
-        that is fine."""
-        return self.file_consts[0] if len(self.file_consts) == 1 else None
+        that is fine.
+
+        ⚠ …UNLESS THE HARNESS SAYS WHICH ONE BY WRITING TO IT. Naming two files and EDITING two
+        files are different facts, and the second is the one this rule needs. `w11-scroll-reset`
+        names `src/App.tsx` and `src/scrollReset.test.tsx`, and the test file is the suite it RUNS,
+        never a file it splices — only `APP.write_text(...)` appears. Measured across all 74
+        harnesses: 59 name more than one file, and this carries exactly 3 of them.
+
+        ⚠⚠ AND IT IS NOT "the one it writes to" — it is "it writes to exactly one thing and every
+        write target is a module constant that resolves". `w171-docs-search-register` writes
+        through `GUARD` AND through a local `path` variable, so its write targets cannot be
+        enumerated from here and it declines rather than attributing anchors that belong in
+        `apps/bff/docs_search.go` and `deploy/decision-expiry.sh` to `src/docsSearchRegister.test.ts`.
+
+        ⚠⚠⚠ AND BOTH DECLINES ARE UNEXERCISED ON TODAY'S TREE — MEASURED, AND SAID HERE RATHER
+        THAN IMPLIED AWAY. Their populations are large: of the 59 harnesses naming more than one
+        file, 19 write through something that is not a bare Name and 37 write through a name that
+        is not a module constant (`path`, `p`, `f` — a loop variable). But REMOVING EITHER DECLINE,
+        OR BOTH, CHANGES NO ANCHOR AND NO VERDICT: 530 decided and 7 unreadable, before and after.
+        The reason is that `_single_file()` only reaches an anchor through a shape — an edit-list
+        arity, an ANCHOR_NAMES dict key, a for-loop unpacking — and no harness in either declining
+        group also has one. **So these are conservatism, not a guard that has been demonstrated to
+        catch anything**, and the safety of this rule today rests on the shapes above it. When a
+        harness lands with BOTH a multi-file constant set AND an edit shape, re-measure: that is
+        the first run on which these can be wrong, and it will not announce itself.
+
+        ⚠ IT LOOKS AT NO STRING'S CONTENTS. The evidence is the harness's own write calls, not
+        which candidate happens to contain the anchor — that circular version yields a checker
+        that can never report a miss, and is written down elsewhere in this file as the thing not
+        to do."""
+        if len(self.file_consts) == 1:
+            return self.file_consts[0]
+        return self.written_file
+
+    def _write_target(self) -> str | None:
+        """The single file every write in this module goes to, or nothing."""
+        names: set[str | None] = set()
+        for node in ast.walk(self._tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Attribute) and node.func.attr in ("write_text", "write_bytes"):
+                v = node.func.value
+                names.add(v.id if isinstance(v, ast.Name) else None)
+            elif isinstance(node.func, ast.Name) and node.func.id == "open":
+                mode = None
+                if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                    mode = node.args[1].value
+                else:
+                    mode = next((k.value.value for k in node.keywords
+                                 if k.arg == "mode" and isinstance(k.value, ast.Constant)), "r")
+                if isinstance(mode, str) and ("w" in mode or "a" in mode) and node.args:
+                    a = node.args[0]
+                    names.add(a.id if isinstance(a, ast.Name) else None)
+        # a write through anything this analysis cannot name — a local, a subscript, an f-string —
+        # means there are write targets it cannot enumerate, so it declines rather than guesses.
+        if not names or None in names:
+            return None
+        paths = [self.consts.get(n) for n in names]
+        if any(pth is None for pth in paths):
+            return None
+        distinct = list(dict.fromkeys(paths))
+        if len(distinct) != 1 or resolve(distinct[0], self.home) is None:
+            return None
+        return distinct[0]
 
     def _str(self, node: ast.AST | None) -> str | None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -432,6 +543,11 @@ def main() -> int:
                 misses.append(f"{rel}\n    {path}: found {got}, harness expects {want}\n    {anchor[:70]!r}")
 
     print(f"harnesses: {len(harnesses())}   anchors decided: {checked}")
+    # ⚠ ON THE FACE OF EVERY RUN, for the same reason the rejection counts are: a file quietly
+    # dropped from the census is how this instrument's reach shrinks while its output looks
+    # unchanged — and one quietly ADDED is how it starts measuring itself.
+    for name, why in _self_excluded:
+        print(f"  excluded from the census — {why}: {name}")
     # ⚠ SAID, NOT HIDDEN: what the extractor pulled out and then declined to check. A rejection
     # rule is how a checker goes quietly blind, so the count is on the face of every run.
     for why, n in sorted(rejected.items()):
