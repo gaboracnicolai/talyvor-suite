@@ -179,7 +179,12 @@ def main() -> int:
                # supposed to make a reader able to say.
                # ⚠ 553 → 559, the FOURTH move this session. Same shape every time: a harness
                # ADDED (`w11-historical-pin-controls-c7k5.py`, 6 anchors), extractor untouched.
-               base_a == 559 and base_u == 1 and not base_m
+               # ⚠ 559 → 563, the FIFTH move. A harness ADDED again
+               # (`w11-press-c1-controls-c7k5.py`, 4 anchors) — and this one is the harness
+               # whose DOCSTRING exposed the prose-vs-value hole in `_is_control_for_this_checker`
+               # (#318). Until that merge it was silently EXCLUDED and this number did not move
+               # at all, which is the whole reason the pin is exact rather than a floor.
+               base_a == 563 and base_u == 1 and not base_m
                and "every decidable anchor matches" in out,
                f"anchors={base_a} unreadable={base_u} misses={len(base_m)}")
 

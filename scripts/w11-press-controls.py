@@ -68,15 +68,26 @@ CONTROLS: list[Control] = [
              "negations and pulls every test file back into the guard's content set",
         says="this file is reading itself",
         companion="no class list carries a transition without one",
-        # ⚠⚠ THIS CONTROL NOW ARMS AND DOES NOT CATCH — A REAL RED, AND IT IS AN HONEST DOWNGRADE
-        # FROM WHERE IT WAS. Before W1.1.19 it reported ANCHOR MISS: it could not run at all, so
-        # "does the guard still catch a reverted resolver" was unanswered and unanswerable. It now
-        # runs, and the answer is NO. ⚠ I DID NOT DETERMINE WHY, and the lead is stated rather than
-        # guessed: `buildContent` does two things `absoluteContent` did not — it resolves the globs
-        # AND strips comments before extraction — so a replacement that only resolves may still
-        # satisfy whatever the guard asserts about `shippedContent`. Whether the guard is blind to
-        # the resolver, or this replacement no longer expresses the defect, is the next measurement.
-        # DO NOT "fix" it by weakening the assertion or by reverting to an anchor that cannot run.
+        # ⚠⚠ THE NEXT MEASUREMENT THIS NOTE ASKED FOR, TAKEN 2026-08-27 (W1.1.21h) — AND THE
+        # ANSWER IS NEITHER OF THE TWO IT OFFERED. The guard is NOT blind to the resolver, and the
+        # replacement did not merely stop expressing the defect: **IT STOPPED RUNNING.**
+        # `tailwind.config.ts` now exports `content: { files, transform }` — an OBJECT — so
+        # `(tailwindConfig.content as string[]).map(...)` threw `default.content.map is not a
+        # function` and reddened every case in the file. Measured, not inferred: the harness
+        # reported `red=True says-it=False`, i.e. it went red WITHOUT naming its own defect, which
+        # is precisely the "RED BUT WHOLESALE" state this family of harnesses exists to refuse.
+        # A broken build and a catch are the same observation until something separates them.
+        #
+        # ⚠ THE PREVIOUS NOTE'S LEAD WAS REASONABLE AND WRONG, WHICH IS WHY IT WAS RIGHT TO WRITE
+        # IT DOWN AS A LEAD: it guessed the comment-stripping half of `buildContent` was doing the
+        # work. The shape of `tailwindConfig.content` had changed underneath, one line away.
+        #
+        # ⚠⚠ THE DEFECT IS UNCHANGED AND SO IS THE INSTRUCTION: the naive resolver destroys the
+        # `!` negations, `negated.length` reads 0 where the guard requires 2, and the assertion
+        # says "this file is reading itself". The replacement now takes the RAW glob list from
+        # `content.files` — where it lives today — so the mutation changes the RESOLVER and
+        # nothing else. NOT a weakened assertion and NOT an anchor that cannot run, which is what
+        # the previous note forbade.
         #
         # ⚠ RE-ANCHORED AT W1.1.19: the guard moved from `absoluteContent` to `buildContent`, which
         # returns `{ files }` rather than an array, so both the anchor and the shape below it moved
@@ -87,7 +98,8 @@ CONTROLS: list[Control] = [
         edits=[(GUARD, [(
             "  const content = buildContent(appRoot)\n  shippedContent = content.files",
             1,
-            "  const content = { files: (tailwindConfig.content as string[]).map((g) => resolve(appRoot, g)) }\n"
+            "  const content = { files: (tailwindConfig.content as { files: string[] }).files"
+            ".map((g) => resolve(appRoot, g)) }\n"
             "  shippedContent = content.files",
         )])],
     ),
@@ -193,7 +205,33 @@ def run_suite() -> tuple[bool, str]:
     return p.returncode == 0, p.stdout + p.stderr
 
 
+def check_c1_shape() -> None:
+    """C1's replacement hard-codes where the RAW glob list lives, and that moved once already.
+
+    ⚠ THIS EXISTS BECAUSE OF WHAT HAPPENED WITHOUT IT. `tailwind.config.ts` changed
+    `content` from an array to `{ files, transform }`, and C1's replacement — written against the
+    array — threw `default.content.map is not a function` and reddened every case in the file.
+    The harness scored `red=True says-it=False`, i.e. NOT CAUGHT, and the tab that found it could
+    not tell whether the guard had gone blind or the mutation had gone stale. It was the second,
+    and one shape check ahead of the campaign would have said so in a sentence.
+
+    An anchor check cannot reach this: C1's ANCHOR is in `motion.test.tsx` and is present and
+    correct; what went stale is the REPLACEMENT's assumption about another file entirely. A
+    replacement is a claim about the tree exactly as an anchor is, and only one of the two was
+    ever checked.
+    """
+    cfg = (ROOT / "apps/web/tailwind.config.ts").read_text()
+    if "content: { files:" not in cfg:
+        raise AssertionError(
+            "C1's replacement reads the raw globs from `tailwindConfig.content.files`, and "
+            "apps/web/tailwind.config.ts no longer declares `content: { files: … }`. The shape "
+            "moved. Re-express the mutation against the new shape — do NOT leave it, because a "
+            "replacement that throws reds the whole file and scores as NOT CAUGHT, which reads "
+            "like the guard going blind.")
+
+
 def main() -> int:
+    check_c1_shape()
     originals = {p: (ROOT / p).read_text() for p in TOUCHED}
     hashes = {p: sha(ROOT / p) for p in TOUCHED}
 
