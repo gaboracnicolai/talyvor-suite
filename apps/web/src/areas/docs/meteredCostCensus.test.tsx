@@ -476,3 +476,103 @@ describe('every metered Docs surface tells the reader it spent', () => {
     })
   }
 })
+
+
+/**
+ * ⚠⚠ WHAT A CARD *DOES* AT MOUNT, NOT WHAT IT *SAYS* — AND THE LOG THAT PROVES IT WAS ALREADY
+ * BEING RECORDED HERE AND THROWN AWAY.
+ *
+ * `mockBff()` builds a `Call[]`, pushes every request into it, and ends `return calls`. All three
+ * call sites above are a bare `mockBff()`. The `Call` type exists for that log and nothing has
+ * ever read it — an instrument fully built and wired to nothing, which is the same shape this
+ * repo keeps finding in the product.
+ *
+ * ⚠ AND THE PROPERTY IT WOULD HAVE POLICED IS WRITTEN DOWN IN THE CARDS THEMSELVES.
+ * `apps/web/src/areas/track/FindDuplicates.tsx:17` and `apps/web/src/areas/track/TriageIssue.tsx:20` both open with **"IT IS A BUTTON,
+ * NOT A PAGE LOAD, BECAUSE IT COSTS"**. MEASURED at `d51933c`, all nine metered surfaces across
+ * both areas honour it — nothing bills before the reader acts. What enforces it is ONE per-card
+ * test: removing AISummary's `enabled: asked` gate reds `AISummary.test.tsx > spends nothing until
+ * it is asked` and **NOTHING in either census**. That is the shape both these headers exist to
+ * end — the surface nobody writes the test for is the one that goes missing — applied to the only
+ * assertion here that is about money moving rather than about a sentence.
+ *
+ * ⚠ ONLY A QUERY CAN SPEND AT MOUNT AND THAT IS NOT A REASON TO SKIP THE OTHER EIGHT. Eight of the
+ * nine are `useMutation`, which cannot fire on its own, so today they hold BY CONSTRUCTION. A
+ * construction is not a guard: a card rewritten as a `useQuery` (which is what AISummary is) or a
+ * gate dropped from one moves silently from safe to billing on page load, and the census's price
+ * column would keep passing because the SENTENCE is still there.
+ *
+ * ⚠ THE INSTRUMENT IS POSITIVE-CONTROLLED INLINE BEFORE IT IS TRUSTED. An assertion that "no
+ * metered call was logged" is satisfied perfectly by a log that records nothing and by a matcher
+ * that matches nothing. Both are checked below, in this file, on every run.
+ */
+const MOUNT_ROUTES: { name: string; route: RegExp; sample: string }[] = [
+  { name: 'PageSummary', route: /\/api\/docs\/pages\/[^/?]+\/summarize/, sample: '/api/docs/pages/pg-1/summarize' },
+  { name: 'PageTranslation', route: /\/api\/docs\/pages\/[^/?]+\/translate/, sample: '/api/docs/pages/pg-1/translate' },
+  { name: 'PageTitleSuggestion', route: /\/api\/docs\/pages\/[^/?]+\/suggest-title/, sample: '/api/docs/pages/pg-1/suggest-title' },
+  { name: 'AskAI', route: /\/api\/docs\/ai\/ask/, sample: '/api/docs/ai/ask' },
+  { name: 'SearchDocs', route: /\/api\/docs\/search\?/, sample: '/api/docs/search?q=auth' },
+]
+
+describe('a metered Docs surface spends nothing before the reader acts', () => {
+  it('the route table covers exactly the censused population', () => {
+    // ⚠ A JOIN, NOT A RESTATEMENT. This table is keyed on METERED's own names, so a surface added
+    // to the census with no route here reds rather than being silently unwatched — which is the
+    // hole one directory over that #298 closed at the population level.
+    expect(new Set(MOUNT_ROUTES.map((r) => r.name))).toEqual(new Set(METERED.map((s) => s.name)))
+    expect(MOUNT_ROUTES).toHaveLength(EXPECTED_METERED)
+  })
+
+  it('each route matches its own call and no sibling — a matcher that matches nothing proves nothing', () => {
+    for (const r of MOUNT_ROUTES) {
+      expect(r.route.test(r.sample), `${r.name}'s route must match ${r.sample}`).toBe(true)
+      for (const other of MOUNT_ROUTES) {
+        if (other.name === r.name) continue
+        expect(
+          r.route.test(other.sample),
+          `${r.name}'s route also matches ${other.name}'s call (${other.sample}) — a matcher ` +
+            `that cannot tell two metered routes apart cannot say which one was billed`,
+        ).toBe(false)
+      }
+    }
+    // And it must not match the un-metered reads these screens legitimately make at mount.
+    for (const quiet of ['/api/docs/spaces', '/api/docs/spaces/sp-1/pages', '/api/context']) {
+      for (const r of MOUNT_ROUTES) {
+        expect(r.route.test(quiet), `${r.name}'s route matched the free read ${quiet}`).toBe(false)
+      }
+    }
+  })
+
+  it('the log records a metered call when one is really made', () => {
+    // ⚠ THE OTHER HALF OF THE VACUITY PAIR. Every assertion below passes on a log that records
+    // nothing at all, so the log is shown to work against a request this test issues itself.
+    const calls = mockBff()
+    return fetch('/api/docs/pages/pg-1/summarize', { method: 'POST' }).then(() => {
+      expect(
+        calls.map((c) => c.url).filter((u) => MOUNT_ROUTES[0].route.test(u)),
+        'mockBff returns a call log and this is the only place that reads it; if this is empty ' +
+          'the stub is not installed or the log is not being pushed to, and every mount ' +
+          'assertion below is vacuously true',
+      ).toHaveLength(1)
+    })
+  })
+
+  for (const s of METERED) {
+    it(`${s.name} issues no metered request at mount`, async () => {
+      const calls = mockBff()
+      renderIn(s.node)
+      // ⚠ A TICK BEFORE READING THE LOG. render() is synchronous but a query that fires on mount
+      // dispatches its request in a microtask; reading immediately would find an empty log and
+      // pass for the wrong reason — the vacuity this whole column is built around.
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      const billed = calls.map((c) => c.url).filter((u) => MOUNT_ROUTES.some((r) => r.route.test(u)))
+      expect(
+        billed,
+        `${s.name} called a METERED route before the reader pressed anything. The charge lands ` +
+          `on the workspace either way (${s.upstream}), and every other assertion in this file ` +
+          `would still pass because the card's SENTENCE is unchanged. All calls at mount: ` +
+          `${calls.map((c) => `${c.method} ${c.url}`).join(', ') || '(none)'}`,
+      ).toEqual([])
+    })
+  }
+})
