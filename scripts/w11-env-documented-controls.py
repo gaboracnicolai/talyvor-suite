@@ -15,7 +15,7 @@ controlled separately:
 
 Verdict is a PAIR, predicted before the run: the set of (VARIABLE, document) pairs reported, and
 the set of extractor-level messages raised. C0 is the must-stay-green. C1 is not a mutation — it
-restores both documents to origin/main, the state as it shipped.
+restores both documents to the commit BEFORE the gap it describes was closed (2786772^), so its expectation is a non-empty set that an inert guard cannot satisfy.
 
 Usage: python3 scripts/w11-env-documented-controls.py [--only C5]
 """
@@ -93,11 +93,24 @@ CONTROLS = [
          why="No mutation. The documented tree must come back with no reported pair and no "
              "extractor message, or every verdict below is read off a broken instrument.",
          pairs=set(), flags=set()),
-    dict(id="C1", kind="restore-to-origin/main", edits=[], restore=[README, EXAMPLE],
-         why="THE STATE AS IT SHIPPED — both documents checked out from origin/main, nothing "
-             "mutated. Two variables, two documents, four pairs: LENS_PUBLIC_BASE_URL (the Setup "
-             "page's whole precondition) and OPERATOR_SUBS (the operator boundary, read through a "
-             "named constant and therefore invisible to the grep that found the first one).",
+    dict(id="C1", kind="restore-to-2786772^", edits=[], restore=[README, EXAMPLE],
+         restore_ref="2786772^",
+         why="THE STATE BEFORE THE FIX — both documents as they were at 2786772^, which is the "
+             "last commit at which the gap this control describes actually existed. Two variables, "
+             "two documents, four pairs: LENS_PUBLIC_BASE_URL (the Setup page's whole "
+             "precondition) and OPERATOR_SUBS (the operator boundary, read through a named "
+             "constant and therefore invisible to the grep that found the first one). "
+             "\u26a0 THIS CONTROL SAID origin/main UNTIL 2026-08-27 AND HAD BEEN MEASURING "
+             "NOTHING SINCE 2026-08-11. DATED CAUSE: 2786772 (2026-08-11 00:00:17 +0300), "
+             "'fix(deploy): two variables the BFF reads were named in no operator document' — the "
+             "commit whose message states precisely what this control records. Once it landed, "
+             "restoring to origin/main reproduced the FIXED state, the guard correctly reported "
+             "nothing, and the harness scored C1 as a miss and printed 9/10 for sixteen days. "
+             "A control that records a KNOWN DEFECT as its expectation must be re-pointed at a "
+             "commit where the defect is real the day the defect is fixed, or it inverts: it "
+             "starts asserting that a repaired product is still broken. Verified in BOTH "
+             "directions at 6df15da — at 2786772^ the guard reports exactly these four pairs and "
+             "nothing else; at origin/main it reports none.",
          pairs={pair("LENS_PUBLIC_BASE_URL", "README.md"), pair("LENS_PUBLIC_BASE_URL", "bff.env.example"),
                 pair("OPERATOR_SUBS", "README.md"), pair("OPERATOR_SUBS", "bff.env.example")},
          flags=set()),
@@ -207,11 +220,35 @@ def run():
 
 
 def apply(c, originals):
+    # A restore-based control names the REF it restores to. Two things changed here on
+    # 2026-08-27 and both are about the same failure:
+    #
+    #   (a) `git show <ref>:<path>` INSTEAD OF `git checkout <ref> -- <path>`. checkout writes the
+    #       INDEX as well as the tree, so a run left the restored version STAGED. That was
+    #       invisible while the ref was origin/main and the content therefore identical to HEAD;
+    #       the moment a control restores to anything else, `git status` reports staged changes
+    #       the harness did not mean to make and its closing sha256 check — which reads the WORKING
+    #       TREE — cannot see. `git show` writes nothing but the file.
+    #
+    #   (b) A RESTORE THAT CHANGES NOTHING IS A CONTROL THAT MEASURES NOTHING, and that is exactly
+    #       how C1 rotted. It restored to origin/main to reproduce a documentation gap; when
+    #       2786772 closed the gap, the restore became a no-op, C1 became a duplicate of C0 with a
+    #       stale expectation, and the harness reported 9/10 for sixteen days. The assertion below
+    #       is what makes that a loud failure rather than a mispredicted line.
+    ref = c.get("restore_ref", "origin/main")
     for path in c.get("restore", []):
-        r = subprocess.run(["git", "checkout", "origin/main", "--", path], cwd=REPO,
+        r = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=REPO,
                            capture_output=True, text=True)
         if r.returncode != 0:
-            raise SystemExit(f"{c['id']}: checkout {path}: {r.stderr}")
+            raise SystemExit(f"{c['id']}: git show {ref}:{path}: {r.stderr}")
+        if r.stdout == originals[path]:
+            raise SystemExit(
+                f"{c['id']}: restoring {path} to {ref} changes NOTHING — it is byte-identical to "
+                f"the working tree. This control exists to reproduce a state the tree is no longer "
+                f"in; against an identical file it is a duplicate of C0 that will report whatever "
+                f"C0 reports, under a prediction nobody rechecked. Re-point restore_ref at a "
+                f"commit where the state it describes actually holds, or delete the control.")
+        write(path, r.stdout)
     for path in c.get("truncate", []):
         write(path, "")
     if not c["edits"]:
