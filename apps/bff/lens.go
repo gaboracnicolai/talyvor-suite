@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -563,6 +565,46 @@ func (a *app) doGet(ctx context.Context, t tenant, upstreamPath, rawQuery string
 	return a.client.Do(req)
 }
 
+// writeUpstreamFailure answers a failed product call, SEPARATING "nothing is listening" from
+// "it is running and took longer than the client's whole-exchange bound".
+//
+// ⚠ WHY THE DISTINCTION IS NOT COSMETIC, AND WHY IT LIVES HERE RATHER THAN AT EVERY 502 IN THIS
+// FILE. `forwardProduct` is the single `a.client.Do` that every metered AI surface goes through:
+// all nine of them (four Docs write surfaces, docs-search, three Track issue surfaces,
+// track-search) reach their upstream from this one line. Those are the routes where a model is
+// doing the work, so they are the routes where the ten-second bound on `a.client` is a bound on
+// MODEL LATENCY rather than on a network hiccup — stream.go's header measured that bound and
+// called it "truncating every completion longer than that, which is most of them", then removed
+// it from the one AI route that bills nobody. The Lens-side 502s in this file are balance,
+// ledger and key reads; nothing behind them runs a model, so they are deliberately unchanged.
+//
+// ⚠ THE SHAPE IS THE ONE docs_ai_test.go ALREADY ARGUED FOR ONE STATUS DOWN. Two different 503s
+// reach the browser on the ask route and mean opposite things, and only `code` separates them;
+// its header records a day lost to a diagnosis read off a status alone. `502 unreachable` had
+// exactly that problem: emitted both when nothing is there — where it is true — and when the
+// upstream is healthy and still working, where it is false in the most expensive direction,
+// because seven of the nine metered cards read it and tell the reader nothing was asked of the
+// model.
+//
+// ⚠ WHAT THIS DOES NOT DO, ON PURPOSE. It does not change the bound (a threshold), and it does
+// not change what any card says (a product decision about a money claim — see the queue entry).
+// It puts the fact on the wire so whoever takes that decision has something to key on.
+//
+// ⚠ A CANCELLED REQUEST — the reader navigating away — is `context.Canceled`, not a deadline, and
+// falls in the unreachable arm. That is not a claim anybody reads: there is no longer a browser
+// on the other end of this response.
+func writeUpstreamFailure(w http.ResponseWriter, product string, err error) {
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+		writeJSON(w, http.StatusBadGateway, map[string]string{
+			"error": product + " upstream timed out",
+			"code":  "UPSTREAM_TIMEOUT",
+		})
+		return
+	}
+	writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream unreachable"})
+}
+
 // forward streams the upstream status, content-type and body back verbatim. Upstream
 // status is preserved so a real not-found or error surfaces honestly rather than masked.
 // (Capability-gated endpoints use proxyGated instead — a 404 there is "disabled", not a
@@ -700,7 +742,7 @@ func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, ba
 	resp, err := a.client.Do(req)
 	if err != nil {
 		log.Printf("bff: %s upstream %s: %v", product, upstreamPath, err)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": product + " upstream unreachable"})
+		writeUpstreamFailure(w, product, err)
 		return
 	}
 	defer resp.Body.Close()
