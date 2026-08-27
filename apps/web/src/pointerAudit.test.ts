@@ -198,22 +198,22 @@ const PINS: Record<string, Pin> = {
   // sentence's whole force is that these four are REAL, so each is pinned to the assertion it
   // claims is there. If one is deleted or renamed the census's account of what it adds goes
   // stale, and a reader would be told about a gap that had quietly become five gaps.
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:423|apps/web/src/areas/docs/pageSummary.test.tsx:135': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:431|apps/web/src/areas/docs/pageSummary.test.tsx:135': {
     kind: 'LIVE',
     fragment: 'moves this page’s own AI cost',
     why: 'one of the four per-card payer assertions the census says already existed',
   },
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:423|apps/web/src/areas/docs/pageTranslation.test.tsx:159': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:431|apps/web/src/areas/docs/pageTranslation.test.tsx:159': {
     kind: 'LIVE',
     fragment: 'moves this page’s own AI cost',
     why: 'one of the four per-card payer assertions the census says already existed',
   },
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:424|apps/web/src/areas/docs/pageTitleSuggestion.test.tsx:257': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:432|apps/web/src/areas/docs/pageTitleSuggestion.test.tsx:257': {
     kind: 'LIVE',
     fragment: 'moves this page’s own AI cost',
     why: 'one of the four per-card payer assertions the census says already existed',
   },
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:424|apps/web/src/areas/docs/askAI.test.tsx:114': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:432|apps/web/src/areas/docs/askAI.test.tsx:114': {
     kind: 'LIVE',
     fragment: 'no single page',
     why: 'the OTHER payer, on the other surface that binds none — the pair is what shows the clause is two-valued and not boilerplate',

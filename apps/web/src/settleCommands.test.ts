@@ -191,6 +191,28 @@ const EXTRACT_SHAPE = /\bgrep -o[A-Za-z]*\b/
  * from a FILE has a source of truth to be compared against, and one that extracts from a live
  * origin does not.
  */
+/**
+ * ⚠ THE EXPECTED LITERAL MAY BE SINGLE-QUOTED, AND IT HAD TO BECOME SO RATHER THAN THE COMMAND
+ * BENDING TO THE RULE. This read `= "[^"]*"` — a double-quoted expectation only. The W1.7.1 entry
+ * that settles the Docs metering tags compares the extracted SET of feature tags, and those tags
+ * are Go STRING LITERALS, so the expected value CONTAINS double quotes:
+ *
+ *     [ "$(grep -oE '"docs-ai-(ask|…)"' …)" = '"docs-ai-ask" "docs-ai-summarize" …' ]
+ *
+ * ⚠ AND THE OBVIOUS WAY TO SATISFY THE OLD PATTERN WOULD HAVE WEAKENED THE COMMAND, WHICH IS WHY
+ * THE PATTERN MOVED INSTEAD. Dropping the quotes from the grep so the expectation needs none —
+ * `grep -oE 'docs-ai-(ask|…)'` — makes the extraction match the tag in PROSE: talyvor-docs'
+ * engine.go:94 names `docs-ai-ask` and `docs-search` in a comment, so a tag deleted from the code
+ * and left in the paragraph above it would still be extracted. That is the §D7 trap, and taking
+ * it to keep a regex happy is how a guard's shape rule ends up dictating a weaker measurement.
+ *
+ * The PROPERTY is unchanged and is the whole point of the rule: the extraction must be CAPTURED
+ * and COMPARED to a written-down literal, never trusted through an exit status. `'…'` carries a
+ * literal exactly as `"…"` does. Positive-controlled below on the form this rule exists to
+ * refuse — an uncaptured `grep -o` chained with `&&` — which still fails to match.
+ */
+const EXTRACT_COMPARES = /\[\s*"\$\(.*grep -o.*\)"\s*=\s*(?:"[^"]*"|'[^']*')\s*\]/
+
 const EXTRACT = ENTRIES.filter(
   (e) => EXTRACT_SHAPE.test(e.command) && !/\bcurl\b/.test(e.command),
 )
@@ -336,7 +358,7 @@ describe('a settle command exits non-zero when its premise does not hold', () =>
           'pipeline still exits 0 and writes an empty line — so a form that reads the exit ' +
           'status confirms a premise it never looked at. Capture it and compare: ' +
           '[ "$(… | grep -o … )" = "field field,omitempty …" ].',
-      ).toMatch(/\[\s*"\$\(.*grep -o.*\)"\s*=\s*"[^"]*"\s*\]/)
+      ).toMatch(EXTRACT_COMPARES)
     })
   }
 
@@ -536,4 +558,137 @@ describe('a settle command says what it needs before it says what it found', () 
       ).toBe(false)
     })
   }
+})
+
+/**
+ * ⚠⚠ R8 — A CENSUS ROW'S `upstream` FIELD IS A CLAIM ABOUT ANOTHER REPOSITORY, AND UNTIL NOW THE
+ * ONLY ASSERTION ON IT WAS THAT THE STRING STARTS WITH `internal/`.
+ *
+ * Both metered censuses carry one `upstream:` per surface — the call site in talyvor-docs or
+ * talyvor-track that makes that surface cost the workspace money. Both headers presented that
+ * column as holding the STALE direction ("if a surface stops spending, its row must be DELETED
+ * rather than left passing"). It held nothing: `toMatch(/^internal\//)` is a shape, and a shape
+ * is satisfied by any function name at all.
+ *
+ * MEASURED read-only at talyvor-docs `48c8336` and talyvor-track `b2f282e` (W1.7.1, tab-p9r4),
+ * `git archive` exports of the object store — neither working tree written to, no fetch:
+ * **TWO of the nine pointers named a function the upstream repo does not declare.** Docs wrote
+ * `Engine.Ask`, talyvor-docs declares `AskDocs`; Track wrote `Engine.Triage`, talyvor-track
+ * declares `TriageIssue`. Zero declarations of either wrong name, at HEAD and at the SHA each
+ * census pins — so they were never right, not drifted. Both are corrected in those files.
+ *
+ * ⚠ AND THE OBVIOUS CHECK OF THE OTHER SEVEN IS THE WRONG ONE, WHICH IS WHY IT IS WRITTEN DOWN.
+ * Track's four pointers carry LINE NUMBERS, and comparing them against the `func` declarations
+ * (315/349/428/548) makes all four look stale. They are not: they point at the
+ * `callAnthropicViaLens` / `callEmbeddingsViaLens` CALL lines, exactly as that header's arrows
+ * say, and all four are correct at both SHAs. A pointer read against the wrong target reports a
+ * finding that is not there.
+ *
+ * WHAT R8 ENFORCES, AND WHAT IT DELIBERATELY DOES NOT. This repo's CI clones only itself, so it
+ * cannot execute an upstream check — that is the whole reason the `cannot` half exists. What it
+ * CAN decide is whether each upstream file a census names is a DECLARED SUBJECT of some settle
+ * command, so a deployer running the register is running something that covers it, and so a new
+ * census row cannot arrive with nothing in the register pointing at its file. R8 is a
+ * reachability rule of exactly the same kind as R6, one repository boundary further out.
+ */
+/**
+ * ⚠ THE REPO IS PART OF THE KEY, AND THE FIRST CUT OF THIS RULE LEFT IT OUT — CAUGHT BY ITS OWN
+ * CONTROL, NOT BY READING. Both censuses name `internal/ai/engine.go`: one in talyvor-docs, one in
+ * talyvor-track. Joined on the BARE PATH, deleting the Docs settle command scored GREEN, because
+ * the Track entry declares a file of the same name in a different repository. The rule would have
+ * reported every upstream pointer covered with half the register gone. Which repo a census speaks
+ * for is not written in the row — it is the directory the census lives in, so it is derived here
+ * and the pair is what gets joined.
+ */
+const CENSUS_FILES = [
+  { repo: 'talyvor-docs', file: resolve(import.meta.dirname, 'areas/docs/meteredCostCensus.test.tsx') },
+  { repo: 'talyvor-track', file: resolve(import.meta.dirname, 'areas/track/meteredCostCensus.test.tsx') },
+]
+/** `upstream: 'internal/ai/engine.go:320#Engine.TriageIssue',` → `internal/ai/engine.go` */
+const UPSTREAM_FIELD = /upstream:\s*'([^']+)'/g
+const upstreamFiles = (): { census: string; repo: string; path: string; symbol: string }[] => {
+  const out: { census: string; repo: string; path: string; symbol: string }[] = []
+  for (const c of CENSUS_FILES) {
+    const src = readFileSync(c.file, 'utf8')
+    for (const m of src.matchAll(UPSTREAM_FIELD)) {
+      const [locus, symbol] = m[1].split('#')
+      out.push({
+        census: c.file.slice(c.file.lastIndexOf('/areas/')),
+        repo: c.repo,
+        path: locus.split(':')[0],
+        // `Engine.TriageIssue` → `TriageIssue`; `SemanticSearch.embed` → `embed`. The receiver is
+        // dropped because a settle command greps the DECLARATION, where the receiver is spelled
+        // `(e *Engine)` rather than `Engine.`.
+        symbol: (symbol ?? '').split('.').pop() ?? '',
+      })
+    }
+  }
+  return out
+}
+
+describe('R8 — every metered census names an upstream file the register can settle', () => {
+  /**
+   * The vacuity floor, and it is the one that matters: the rule below iterates this list, so a
+   * census renamed or an `upstream:` field that stops matching empties it and this block reports
+   * a clean join having read nothing. NINE measured at `d9060ae` — five Docs, four Track. Named
+   * as a literal, never derived from the parse it polices.
+   */
+  it('parses an upstream pointer out of every metered census row', () => {
+    expect(
+      upstreamFiles().length,
+      'fewer `upstream:` fields parsed than the two metered censuses declare. Either rows were ' +
+        'deleted, or the field changed shape — which silently empties the rule below.',
+    ).toBeGreaterThanOrEqual(9)
+
+    // ⚠ AND EVERY POINTER MUST RESOLVE TO A SYMBOL, RATHER THAN BEING SKIPPED WHEN IT DOES NOT.
+    // A row whose `upstream` names only a file cannot be settled at the granularity the rule
+    // below joins on, and the quiet way to handle that is to let it through — which is the #274
+    // defect exactly: a population that silently excuses what it cannot resolve. It refuses.
+    const symbolless = upstreamFiles().filter((u) => u.symbol === '')
+    expect(
+      symbolless.map((u) => `${u.census} -> ${u.path}`),
+      'these `upstream` pointers name a file and no `#Symbol`, so the rule below cannot ask ' +
+        'whether any settle command looks at the call site this row rests on. Name the symbol.',
+    ).toEqual([])
+  })
+
+  it('every upstream file a census names is a declared subject of a settle command', () => {
+    // ⚠ THE JOIN IS ON THE SYMBOL, NOT THE FILE, AND THAT IS THE SECOND THING A CONTROL TAUGHT
+    // THIS RULE. Joined on (repo, file) alone, deleting the Track settle command scored GREEN:
+    // `talyvor-track internal/ai/engine.go` is ALREADY a declared subject of a PRE-EXISTING entry
+    // about a different premise entirely. "Some command mentions this file" and "a command
+    // settles this row's premise" are different claims, and a file-level join cannot tell them
+    // apart — it would report every metered pointer covered by entries that never look at
+    // metering. So the entry must declare the file for that repo AND its command must NAME the
+    // symbol the row points at.
+    const orphans = upstreamFiles().filter(
+      (u) =>
+        !WITH_SUBJECTS.some(
+          (w) => w.repo === u.repo && w.paths.includes(u.path) && w.entry.command.includes(u.symbol),
+        ),
+    )
+    expect(
+      [...new Set(orphans.map((u) => `${u.census} -> ${u.repo} ${u.path}#${u.symbol}`))],
+      'these upstream call sites are what make a surface METERED, and no `cannot` entry in ' +
+        'deploy/decision-expiry.sh both declares the file for that repository AND names the ' +
+        'symbol in its command. Nothing in either repository asks whether that call site still ' +
+        'exists or still bills under the tag the card prints — which is how two of the nine came ' +
+        'to name a function upstream does not declare. Add a settle command whose `where` field ' +
+        'names the file and whose command greps the symbol, and verify it by RUNNING it against ' +
+        'a read-only checkout of that repo.',
+    ).toEqual([])
+  })
+})
+
+describe('the extraction-shape rule still refuses the form it was written for', () => {
+  it('EXTRACT_COMPARES accepts both quoting forms and rejects an uncaptured pipeline', () => {
+    // The two accepted forms — same property, different shell quoting.
+    expect(EXTRACT_COMPARES.test('[ "$(grep -oE \'json:"[a-z_]+\' f.go | sort -u)" = "a b c" ]')).toBe(true)
+    expect(EXTRACT_COMPARES.test('[ "$(grep -oE \'"x"\' f.go | sort -u)" = \'"a" "b"\' ]')).toBe(true)
+    // ⚠ THE ONE IT EXISTS TO REFUSE: the extraction run for its exit status, compared to nothing.
+    // Every stage writes an empty line and exits 0 with the file absent.
+    expect(EXTRACT_COMPARES.test('grep -oE \'json:"[a-z_]+\' f.go | sort -u && echo ok')).toBe(false)
+    // And a capture compared to a BARE word rather than a written-down literal.
+    expect(EXTRACT_COMPARES.test('[ "$(grep -o x f.go)" = x ]')).toBe(false)
+  })
 })

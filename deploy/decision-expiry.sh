@@ -931,6 +931,34 @@ cannot "[PUT /v1/workspaces/{wsID}/cache-poolable] apps/bff/tenant.go sends {cac
     "talyvor-lens cmd/lens/main.go" \
     "[ \"\$(grep -A12 -F 'authed.Put(\"/v1/workspaces/{wsID}/cache-poolable\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"cache_poolable\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
 
+# ── THE METERED-SURFACE UPSTREAM COLUMN (W1.7.1, tab-p9r4) ───────────────────
+# Both metered censuses carry an `upstream` field per surface — the call site in the other repo
+# that makes that surface cost money — and both headers present it as holding the STALE
+# direction: "an entry names the upstream call site that makes it metered. If a surface stops
+# spending, its row must be DELETED rather than left passing."
+#
+# ⚠ THE ONLY ASSERTION ON THAT COLUMN IS `toMatch(/^internal\//)`, WHICH IS A SHAPE. Nothing
+# asked either repo anything, and it showed: measured read-only at docs 48c8336 / track b2f282e,
+# TWO of the nine pointers name a function that upstream does not declare — the Docs census wrote
+# `Engine.Ask` where talyvor-docs declares `AskDocs`, and the Track census wrote `Engine.Triage`
+# where talyvor-track declares `TriageIssue`. Both were wrong at the SHA each census pins, not
+# drifted since. The line numbers, checked the same way, are all correct — they point at the
+# `callAnthropicViaLens` CALL lines, which is what those tables' arrows say and is NOT the `func`
+# line a first reading assumes.
+#
+# These two entries are what a deployer can run to settle the column. Both were verified by
+# EXECUTING them against read-only `git archive` exports, and armed seven ways: every declared
+# subject emptied AND deleted (3/3 pairs red), and six real premise moves red — including the two
+# renames the suite currently mis-writes, which is the direct evidence these entries would have
+# caught what a shape check could not.
+cannot "the four Docs AI surfaces still bill under the tags their cards print, and the Ask engine is still declared under the name the census names (what makes areas/docs/meteredCostCensus.test.tsx's upstream column a fact rather than a shape)" \
+    "talyvor-docs internal/ai/engine.go, internal/search/semantic.go" \
+    "[ \"\$(grep -oE '\"docs-ai-(ask|summarize|title|translate)\"' internal/ai/engine.go | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = '\"docs-ai-ask\" \"docs-ai-summarize\" \"docs-ai-title\" \"docs-ai-translate\"' ] && [ \"\$(grep -cE '^func \\(e \\*Engine\\) (AskDocs|Summarize|Translate|SuggestTitle)\\(' internal/ai/engine.go)\" = 4 ] && [ \"\$(grep -c 'X-Talyvor-Feature\", \"docs-search\"' internal/search/semantic.go)\" = 1 ] && [ \"\$(grep -c 'func (s \*SemanticSearch) embed(' internal/search/semantic.go)\" = 1 ]   # in a talyvor-docs checkout. Extraction, not exit status: the tag SET is compared, so a fifth tag or a renamed one both red. Verified at 48c8336 — and both renames the suite currently mis-writes (Engine.Ask, Engine.Triage) red their half."
+
+cannot "the three issue-attributed Track AI surfaces still pass the ISSUE as the Lens feature tag and search still passes the static track-search (what makes the payer column in areas/track/meteredCostCensus.test.tsx true — the first three charge a ticket, the fourth charges the workspace)" \
+    "talyvor-track internal/ai/engine.go" \
+    "[ \"\$(grep -cE '^func \\(e \\*Engine\\) (TriageIssue|FindDuplicates|SummarizeThread|SemanticSearch)\\(' internal/ai/engine.go)\" = 4 ] && [ \"\$(grep -c 'callAnthropicViaLens(ctx, issue.WorkspaceID, issue.Identifier,' internal/ai/engine.go)\" = 3 ] && [ \"\$(grep -c 'callEmbeddingsViaLens(ctx, workspaceID, \"track-search\", query)' internal/ai/engine.go)\" = 1 ]   # in a talyvor-track checkout. Counts compared, never grep -c's own status: 3 is the three issue-attributed calls and a drop to 2 is a surface that stopped paying by issue. Verified at b2f282e."
+
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy
 #           checks in README.md §6 and FULL-STACK-DEPLOY.md can read a STATUS CODE for

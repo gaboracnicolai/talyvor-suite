@@ -36,7 +36,7 @@ import { TriageIssue } from './TriageIssue'
 // from source rather than from these components' comments — `X-Talyvor-Feature` is set from the
 // `featureID` argument in both call paths (engine.go:213 completions, engine.go:263 embeddings):
 //
-//   internal/ai/engine.go:320  Triage         → callAnthropicViaLens(…, issue.Identifier, …)
+//   internal/ai/engine.go:320  TriageIssue    → callAnthropicViaLens(…, issue.Identifier, …)
 //   internal/ai/engine.go:373  FindDuplicates → callAnthropicViaLens(…, issue.Identifier, …)
 //   internal/ai/engine.go:455  SummarizeThread→ callAnthropicViaLens(…, issue.Identifier, …)
 //   internal/ai/engine.go:557  SemanticSearch → callEmbeddingsViaLens(…, "track-search", query)
@@ -53,6 +53,17 @@ import { TriageIssue } from './TriageIssue'
 // `engine.go:525` sprint planning, tag `track-sprint-planning`. This app mounts no route and no
 // component for it, so it has no reader to tell. A surface excluded silently is indistinguishable
 // from one forgotten — which is exactly how SearchIssues was missed.
+//
+// ⚠ THE `upstream` COLUMN IS A CLAIM ABOUT ANOTHER REPO AND NOTHING HERE ASKS IT. The only
+// assertion this file makes about it is a shape. Measured read-only at talyvor-track `b2f282e`
+// (tab-p9r4, W1.7.1): the first row named `Engine.Triage` and talyvor-track declares
+// `TriageIssue` — zero declarations of `Engine.Triage`, at HEAD and at the SHA above, so it was
+// never right rather than drifted. Corrected in place. ⚠ THE FOUR LINE NUMBERS ARE CORRECT AND
+// THAT IS WORTH SAYING, because the obvious way to check them is wrong: they point at the
+// `callAnthropicViaLens` / `callEmbeddingsViaLens` CALL lines, exactly as the arrows above say,
+// NOT at the `func` declarations — which sit at 315/349/428/548 and make all four look stale to a
+// reader who compares the wrong thing. `deploy/decision-expiry.sh` now carries a `cannot` entry
+// that settles the declarations and the payer split against a talyvor-track checkout.
 //
 // ⚠ THE FLOOR IS A LITERAL. `EXPECTED_METERED` is 4, typed out, never `METERED.length` — a floor
 // derived from the list it guards moves when someone deletes a row, which is the one direction a
@@ -134,7 +145,7 @@ const METERED: {
     name: 'TriageIssue',
     attribution: 'issue',
     tag: null,
-    upstream: 'internal/ai/engine.go:320#Engine.Triage',
+    upstream: 'internal/ai/engine.go:320#Engine.TriageIssue',
     node: <TriageIssue issueId={ISSUE} />,
   },
   {
