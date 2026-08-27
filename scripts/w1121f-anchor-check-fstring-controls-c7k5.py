@@ -170,7 +170,10 @@ def main() -> int:
         # than a floor precisely so this had to be looked at — the sibling widen file records a
         # `>=` floor absorbing the same kind of change silently and calls it the trade.
         record("B0  pristine, patched",
-               base_a == 543 and base_u == 1 and not base_m
+               # ⚠ 543 → 548, the SECOND deliberate move in one session and again NOT a
+               # widening: `w1117-motion-census-derivation-controls-c7k5.py` was added and
+               # carries 5 anchors. Two moves, two harnesses added, extractor untouched.
+               base_a == 548 and base_u == 1 and not base_m
                and "every decidable anchor matches" in out,
                f"anchors={base_a} unreadable={base_u} misses={len(base_m)}")
 
