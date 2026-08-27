@@ -148,6 +148,68 @@ def main():
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
 
+    # ── the tuple-unpacking half ──────────────────────────────────────────────
+    CG = os.path.join(REPO, 'scripts/w11-cited-guard-controls.py')
+    TUPLE_ARM = """        if (isinstance(t, ast.Tuple) and isinstance(node.value, ast.Tuple)
+                and len(t.elts) == len(node.value.elts)
+                and all(isinstance(e, ast.Name) for e in t.elts)):
+            return [(e.id, v) for e, v in zip(t.elts, node.value.elts)]"""
+    TUPLE_OFF = """        if False and (isinstance(t, ast.Tuple) and isinstance(node.value, ast.Tuple)
+                and len(t.elts) == len(node.value.elts)
+                and all(isinstance(e, ast.Name) for e in t.elts)):
+            return [(e.id, v) for e, v in zip(t.elts, node.value.elts)]"""
+    PATH_RESTRICTION = """                and (lambda x: x is not None and resolve(x, self.home) is not None)(self._str(v))]"""
+    PATH_UNRESTRICTED = """                and True]"""
+    K8_NEW = "'\\t\\treturn strings.HasSuffix(fi.Name(), \".go\") && !strings.HasSuffix(fi.Name(), \"_test.go\")'"
+    K8_STALE = "'re := regexp.MustCompile(`a\\\\.mux\\\\.Handle(?:Func)?\\\\(\"([^\"]+)\"`)'"
+
+    control(
+        'J1 tuple-unpacked path constants no longer bind',
+        'w11-cited-guard goes UNREADABLE and 11 anchors are lost — LENS, SAME, CITED = BFF / … is '
+        'the only place it declares the files it edits',
+        [(CHECK, TUPLE_ARM, TUPLE_OFF)],
+        lambda r: (r['anchors'] == base['anchors'] - 11 and 'w11-cited-guard' in r['out']
+                   and r['unreadable'] == base['unreadable'] + 1,
+                   f"-11 anchors, the harness unreadable again"
+                   if r['anchors'] == base['anchors'] - 11 else
+                   f"expected {base['anchors']-11}, got {r['anchors']}"))
+
+    control(
+        'J2 K8\'s stale anchor put back, WITH this change',
+        'NAMED as a miss. This is the anchor #274 orphaned when it replaced the regex-over-source '
+        'mountedPatterns with an AST walk',
+        [(CG, K8_NEW, K8_STALE)],
+        lambda r: (r['misses'] >= 1 and 'cited-guard' in r['out'],
+                   f"{r['misses']} miss(es) named" if r['misses'] else 'not seen'))
+
+    # ⚠ J3 IS WHY THIS MERGE IS ONE FINDING AND NOT TWO. The stale anchor had been sitting there
+    # since #274, and the instrument that exists to catch exactly that could not READ this harness
+    # — so the same mutation is INVISIBLE without the tuple-unpacking support.
+    control(
+        'J3 K8\'s stale anchor put back, with this change REVERTED',
+        'INVISIBLE, and the harness UNREADABLE — which is precisely the state the tree was in '
+        'between #274 and today',
+        [(CG, K8_NEW, K8_STALE), (CHECK, TUPLE_ARM, TUPLE_OFF)],
+        lambda r: (r['misses'] == 0 and 'w11-cited-guard' in r['out'],
+                   'invisible without this change — that is how it survived'
+                   if r['misses'] == 0 else f"still seen ({r['misses']})"))
+
+    # ⚠ J4 IS THE CONTROL FOR A MISTAKE I MADE AND CORRECTED MID-RUN. The first version of the
+    # tuple rule bound EVERY unpacked name, and `w11-pointer-pins` writes
+    # `CAUGHT, MISSED = 'CAUGHT', 'NOT CAUGHT'` — two LABELS, unpacked exactly like a path pair.
+    # That put 'NOT CAUGHT' in consts and produced THREE false misses against real test files.
+    # The existing SENTINEL rejection cannot catch it: `^[A-Z][A-Z0-9_]{3,}$` has no space in the
+    # class. Widening the sentinel would have been the WRONG repair — an all-caps phrase is a
+    # shape real source text can have.
+    control(
+        'J4 the tuple rule binds every unpacked name, not only the ones naming a file',
+        "THREE false misses come back — 'NOT CAUGHT' from `CAUGHT, MISSED = …` reported as an "
+        'anchor absent from src/caseAudit.test.tsx and src/restingAffordance.test.ts',
+        [(CHECK, PATH_RESTRICTION, PATH_UNRESTRICTED)],
+        lambda r: (r['misses'] == 3 and 'NOT CAUGHT' in r['out'],
+                   f"{r['misses']} false misses — the restriction is load-bearing"
+                   if r['misses'] == 3 else f"expected 3, got {r['misses']}"))
+
     # ── the dropped-head half ─────────────────────────────────────────────────
     # ⚠ #294 SHIPPED THE JOIN BRANCH DROPPING ITS FIRST ARGUMENT, AND THE DIV BRANCH ONE SCREEN
     # BELOW IT CARRIES THE WARNING IN CAPITALS: "JOIN, DO NOT DISCARD THE LEFT … `UI /
