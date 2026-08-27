@@ -87,7 +87,14 @@ SINGLE_ARM = """        if len(self.file_consts) == 1:
 # that is working, which is the mistake this file's own F6 comment records being made once.
 COUNT_ARM = "                idx = next((i for i, n in enumerate(names) if n in self.counted_names), None)"
 EDITS_ARM = "        if self.edit_shapes and node.elts:"
-REPONAME_ARM = '    if path.startswith(ROOT.name + "/"):' 
+# ⚠ RE-ANCHORED 2026-08-27 (tab-p9r4, W1.1.21e), and the crash that demanded it is the good kind.
+# This read `ROOT.name`; the strip now keys on the DECLARED `REPO_DIR_NAME`, because keying it on
+# the checkout directory's name made the whole census depend on what the directory is called (569
+# anchors in `…/talyvor-suite`, 564 in `…/p9r4-other`, same commit). When the arm went stale this
+# harness raised `AssertionError: F7`, by name, rather than replacing nothing and scoring the
+# blinding as harmless — which is the F1 lesson ("a mutation that changed a line and disabled
+# nothing") held by an assert instead of by hope.
+REPONAME_ARM = '    if path.startswith(REPO_DIR_NAME + "/"):' 
 
 
 def sha(p: pathlib.Path) -> str:

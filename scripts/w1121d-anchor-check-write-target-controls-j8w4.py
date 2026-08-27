@@ -707,7 +707,18 @@ def main():
           'is the direction that looks like nothing happened')
     r = run_check()
     excluded = re.findall(r'excluded from the census — [^:]+: (\S+)', r['out'])
-    good = 'w11-uppercase-count-controls.py' not in excluded and len(excluded) == 3
+    # ⚠ THE `len(excluded) == 3` HALF WAS A PINNED POPULATION AND IT BROKE ON A LEGITIMATE
+    # ADDITION (tab-p9r4, W1.1.21e): `w1121e-path-invariance-controls-p9r4.py` landed, RUNS this
+    # checker, and was correctly excluded BY BEHAVIOUR — so the excluded set became four and W7
+    # read "a real harness was dropped" about a checker doing exactly the right thing. That is
+    # defect 1 on this item's list for the third time in one merge (W6's `n == 74`, S10's
+    # `harnesses: 78`, and here), which is worth more than any of them individually: THE SHAPE
+    # RECURS BECAUSE IT IS THE OBVIOUS THING TO WRITE.
+    #
+    # W7's property is not how many files are excluded — it is that the ONE harness which merely
+    # MENTIONS the checker in a comment is not among them. The vacuity floor is separate and is
+    # what stops "excluded nothing" scoring as success.
+    good = 'w11-uppercase-count-controls.py' not in excluded and len(excluded) >= 3
     print(f"   RESULT : {len(excluded)} excluded: {excluded}")
     print(f"   VERDICT: {'OK' if good else 'CONTROL FAILED'} — "
           f"{'the comment-only mention is still checked' if good else 'a real harness was dropped'}")

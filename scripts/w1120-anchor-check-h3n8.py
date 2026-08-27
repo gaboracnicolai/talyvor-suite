@@ -66,6 +66,13 @@ def _is_control_for_this_checker(p: pathlib.Path) -> bool:
 
 CHECKER_STEM = "w1120-anchor-check"
 
+# ⚠ THE DIRECTORY NAME HARNESSES WRITE, NOT THE ONE THIS TREE IS CHECKED OUT INTO — see `resolve`.
+# ⚠ A SIBLING REPO'S NAME MUST NEVER BE ADDED HERE. One harness anchors at
+# `Path.home() / "talyvor-docs"`; stripping that would resolve another repository's path under THIS
+# root and report a match for a file this repo does not have. The strip exists to undo an
+# unevaluated `Path.home()` for THIS repo, and for nothing else.
+REPO_DIR_NAME = "talyvor-suite"
+
 #: the `re` functions that SPLICE. Inspecting with re.search says nothing about the anchor's
 #: shape — a harness can match on a regex and still splice literally — but a harness that
 #: REPLACES with re.sub has, by construction, written its anchor as a pattern.
@@ -707,11 +714,25 @@ def resolve(path: str, home: pathlib.Path | None = None) -> pathlib.Path | None:
     # ⚠ A PATH THAT STILL CARRIES THE REPO'S OWN NAME. Several harnesses anchor at
     # `ROOT = pathlib.Path.home() / "talyvor-suite"`, and `_str` cannot evaluate `Path.home()` — so
     # its Div join yields `talyvor-suite/apps/web/src/…`, which resolves under no root and made the
-    # whole harness read UNREADABLE with every anchor sitting in plain source. Stripping the leading
-    # segment ONLY when it equals this repo's directory name is exact; adding `ROOT.parent` to the
-    # roots instead would let a bare `src/x` resolve to a sibling checkout outside this repo.
-    if path.startswith(ROOT.name + "/"):
-        cands.append(ROOT / path[len(ROOT.name) + 1:])
+    # whole harness read UNREADABLE with every anchor sitting in plain source. Adding `ROOT.parent`
+    # to the roots instead would let a bare `src/x` resolve to a sibling checkout outside this repo,
+    # which is a worse answer than none — so the leading segment is stripped, exactly.
+    #
+    # ⚠⚠ IT WAS STRIPPED ON `ROOT.name` AND THAT MADE THE WHOLE CENSUS DEPEND ON WHAT THE CHECKOUT
+    # DIRECTORY IS CALLED. The comment here used to say stripping on `ROOT.name` "is exact"; it is
+    # exact only while the repository happens to sit in a directory of that name. MEASURED at the
+    # same commit in two `git worktree` checkouts differing ONLY in directory name (W1.1.21e,
+    # tab-p9r4): `…/talyvor-suite` decided **568** anchors, `…/p9r4-b` decided **563** — and the run
+    # printed "every decidable anchor matches the tree" both times. In CI, in a worktree, in a
+    # reviewer's clone, five anchors silently stopped being checked. Worse, three of
+    # `w1121d-anchor-check-widen-controls-r5m2.py`'s positive controls could not pass there at all.
+    #
+    # The segment harnesses WRITE is a constant of this project; the directory it is checked out
+    # into is an accident of the filesystem. Those are different facts and only the first belongs
+    # in a resolution rule. `REPO_DIR_NAME` is declared, and `home_rooted_harnesses()` re-verifies
+    # that harnesses still write it — a declaration nobody re-checks is dead code that looks live.
+    if path.startswith(REPO_DIR_NAME + "/"):
+        cands.append(ROOT / path[len(REPO_DIR_NAME) + 1:])
     for cand in cands:
         try:
             if cand.is_file():
@@ -728,11 +749,44 @@ def resolve(path: str, home: pathlib.Path | None = None) -> pathlib.Path | None:
 MIN_HARNESSES = 70
 
 
+def home_rooted_harnesses() -> list[str]:
+    """Harnesses that build a path from `Path.home() / REPO_DIR_NAME`.
+
+    The strip in `resolve` exists only for these. If none is left, the rule is dead code that
+    still looks live, and the declared name has become a claim about nothing.
+    """
+    needle_a = f'home() / "{REPO_DIR_NAME}"'
+    needle_b = f'home()/"{REPO_DIR_NAME}"'
+    out = []
+    for p in ROOT.rglob("w1*controls*.py"):
+        if "node_modules" in p.parts:
+            continue
+        try:
+            text = p.read_text(errors="ignore")
+        except OSError:
+            continue
+        if needle_a in text or needle_b in text:
+            out.append(p.relative_to(ROOT).as_posix())
+    return sorted(out)
+
+
 def main() -> int:
     found = len(harnesses())
     if found < MIN_HARNESSES:
         print(f"⚠ THE HARNESS CENSUS COLLAPSED: {found} found, floor is {MIN_HARNESSES} "
               f"(74 at 2ed28a1). Every verdict below is drawn from a population this small.")
+        return 1
+
+    # ⚠ THE DECLARATION'S OWN FLOOR. `REPO_DIR_NAME` exists to undo an unevaluated `Path.home()`
+    # in the harnesses that write it. If none does any more, the strip in `resolve` is dead code
+    # that still reads as load-bearing — and the next person to change the constant would be
+    # editing a rule with no population. 3 measured at `da258d4`.
+    home_rooted = home_rooted_harnesses()
+    if not home_rooted:
+        print(f"⚠ NO HARNESS BUILDS A PATH FROM `Path.home() / \"{REPO_DIR_NAME}\"` ANY MORE.")
+        print("  The leading-segment strip in resolve() is the only reason that constant exists,")
+        print("  so it is now dead code that reads as live. Either the harnesses moved to another")
+        print("  spelling — in which case teach resolve() that one — or the rule can go.")
         return 1
 
     unreadable: list[str] = []
