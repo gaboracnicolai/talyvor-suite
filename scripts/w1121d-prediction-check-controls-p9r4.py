@@ -9,7 +9,7 @@ looks like progress. S10 below is the control that says the exclusion is real.
 Each control predicts its verdict BEFORE it runs, is applied alone unless it says otherwise,
 restores from ORIGINAL BYTES in a `finally`, and is sha256-verified back.
 """
-import hashlib, os, pathlib, shutil, subprocess, sys
+import hashlib, os, pathlib, re, shutil, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECK = ROOT / "scripts/w1121d-prediction-check-p9r4.py"
@@ -132,8 +132,14 @@ CONTROLS = [
     ("S11", "the checker's own source back in the corpus — declarations excusing themselves",
      [unblind_self], 1, "this declaration is excusing it", None),
     ("S9", "a reworded comment", [reword], 0, None, None),
+    # ⚠ S10 IS A DELTA, NOT A NUMBER, AND IT WAS A NUMBER FIRST. It pinned `harnesses: 78` and
+    # broke the moment `w1121e-path-invariance-controls-p9r4.py` legitimately landed — defect 1
+    # on W1.1.21d's own list ("A HARDCODED EXPECTED ASSERTION COUNT"), written by the same tab
+    # that had just rewritten W6 out of exactly that shape one merge earlier. The property is
+    # that cloning a control under a non-excluded name makes the census GROW BY ONE; the
+    # population it grows from is nobody's business here.
     ("S10", "a control FOR this checker, renamed so the census cannot exclude it",
-     [clone_self], 0, "harnesses: 78", None),
+     [clone_self], 0, "__CENSUS_GROWS_BY_ONE__", None),
 ]
 
 
@@ -154,9 +160,16 @@ try:
             m()
         rc, out = run_check()
         restore()
-        ok = (rc == want_rc
-              and (want_text is None or want_text in out)
-              and (want_absent is None or want_absent not in out))
+        if want_text == "__CENSUS_GROWS_BY_ONE__":
+            base = int(re.search(r"harnesses: (\d+)", run_check()[1]).group(1))
+            grown = int(re.search(r"harnesses: (\d+)", out).group(1))
+            # ⚠ AND A VACUITY FLOOR ON THE BASE, because 0 -> 1 is also a growth of one.
+            ok = rc == want_rc and grown == base + 1 and base >= 70
+            out = out + f"\n(census {base} -> {grown})"
+        else:
+            ok = (rc == want_rc
+                  and (want_text is None or want_text in out)
+                  and (want_absent is None or want_absent not in out))
         results.append((cid, ok))
         print(f"\n=== {cid} — {desc}")
         print(f"    PREDICTED exit={want_rc}"
