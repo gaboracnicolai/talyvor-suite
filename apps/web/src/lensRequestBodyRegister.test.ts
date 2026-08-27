@@ -334,4 +334,56 @@ describe('every non-lens anon site is either asked by a named register entry or 
         'writing an empty line, and a renamed Create produces exactly that empty line.',
     ).toBe(true)
   })
+
+  /**
+   * ⚠ AND THE ROW ABOVE IT LEANS ON A PIN THAT SPANS TWO FILES, WHICH IS WHY THE SUBJECT LIST IS
+   * ASSERTED AND NOT JUST THE COMMAND.
+   *
+   * Row 1 says the `DocsPage` mirror covers stripPageContentList's two deleted key names ONLY
+   * because the page LIST still serves `model.Page` rows. That premise has two layers —
+   * `Store.List`'s return type AND `page.Handler.List` serving it unprojected — and for two
+   * merges the settle command read the first only. MEASURED at docs 806109b5 against a disposable
+   * export, mutating the handler and leaving the store alone: a projection added in the handler,
+   * the handler renamed, and `internal/page/handler.go` DELETED each left the command exiting 0
+   * while the premise was false, with `model.Page`'s tags untouched so the mirror stayed green
+   * too. The consequence is not a blanked field: measured through the real stripPageContentList,
+   * a projected row went in at 120 bytes and came out at 120 — both deletes matching nothing.
+   *
+   * ⚠ R6 IN settleCommands.test.ts POLICES "a declared subject the command never reads". It could
+   * not see this, because the unread half was never DECLARED — the entry named one file and read
+   * that one file. So this rule holds the DECLARATION, and R6 holds the reading. Either alone is
+   * a scope that can be emptied by editing the other: drop the handler from the subject list and
+   * R6 goes quiet with nothing red, which is the Z4 shape this file already carries a control for.
+   */
+  it('the page-LIST premise is pinned across BOTH layers it spans, not just the store', () => {
+    const hits = ENTRIES.filter((a) => a[0].includes('page LIST still serves model.Page rows'))
+    expect(
+      hits.length,
+      'deploy/decision-expiry.sh holds no entry pinning that talyvor-docs\' page LIST still ' +
+        'serves model.Page rows. Without it, apps/bff#stripPageContentList deleting `content` ' +
+        'and `content_text` BY NAME is nobody\'s question, and the failure mode ships a document ' +
+        'rather than blanking a field.',
+    ).toBe(1)
+    const [, where, command] = hits[0]
+    for (const path of ['internal/page/handler.go', 'internal/page/store.go']) {
+      expect(
+        where.includes(path),
+        `the page-LIST entry does not declare talyvor-docs ${path} as a subject. The premise ` +
+          'spans the handler AND the store; an entry that declares one of them tells R6 there is ' +
+          'only one file to check, and R6 then passes having asked about half a premise.',
+      ).toBe(true)
+      expect(
+        command.includes(path),
+        `the page-LIST settle command never names ${path}. A \`sed\` pipeline reads exactly the ` +
+          'paths it writes down — there is no build graph to reach the rest — so a half it does ' +
+          'not name is a half nothing reads.',
+      ).toBe(true)
+    }
+    expect(
+      /=\s*"[^"]+"\s*\]/.test(command),
+      'the page-LIST command holds no `[ "$(…)" = "…" ]` expectation, so it is not comparing what ' +
+        'it extracted. A deleted handler file yields an EMPTY capture, and an empty capture must ' +
+        'fail this comparison rather than satisfy it.',
+    ).toBe(true)
+  })
 })

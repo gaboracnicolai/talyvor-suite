@@ -506,19 +506,57 @@ describe('a declared subject is read by the command that declares it', () => {
     ).toEqual([])
   })
 
+  /**
+   * ⚠ THE `.go` CARVE-OUT RESTS ON A BUILD GRAPH, AND HALF THESE COMMANDS DO NOT HAVE ONE.
+   * A `go test` command reaches a Go source it never names, through compilation — that is the
+   * whole justification for waving `.go` subjects through. A `sed`/`grep` command reaches
+   * EXACTLY the paths it writes down and nothing else, so for those the extension is not a
+   * reason, it is a coincidence of the file's name.
+   *
+   * MEASURED, and this is why the rule moved: the page-LIST entry declared ONE subject
+   * (`internal/page/store.go`), its command read that one file, and R6 was satisfied — while
+   * the entry's own comment named `page.Handler.List` as the other half of the premise. Four
+   * mutations of the handler (a projection, a rename, the file DELETED, an extra identifier)
+   * each left the shipped command exiting 0 on a premise that was false. R6 could not see it
+   * because it only ever asked about subjects that were DECLARED, and the unread half was never
+   * declared — so the fix is both: the command reads both files, and this rule now refuses to
+   * assume a build graph that a `sed` pipeline does not have.
+   */
+  const RUNS_GO_TEST = /\bgo test\b/
+
   it('R6 — a subject that no `go test` could compile is named in the command', () => {
     const unreachable = PAIRS.filter(
-      (p) => !p.path.endsWith('.go') && !p.entry.command.includes(p.path),
+      (p) =>
+        !p.entry.command.includes(p.path) &&
+        (!p.path.endsWith('.go') || !RUNS_GO_TEST.test(p.entry.command)),
     )
     expect(
       unreachable.map((p) => `${p.repo} ${p.path}`),
-      'these files are declared as subjects of a settle command that never names them, and they ' +
-        'are not Go sources, so no `go test` in the command reaches them through the build graph ' +
-        'either. MEASURED per (entry, subject) at docs 313eb86 — emptied AND deleted, against a ' +
-        'FRESH database, the command still exits 0. The declaration says the premise is read out ' +
-        'of this file and nothing reads it. Either name the path in the command, or stop ' +
-        'declaring it.',
+      'these files are declared as subjects of a settle command that never names them, and ' +
+        'nothing reaches them on the command\'s behalf: either they are not Go sources, or the ' +
+        'command runs no `go test` and so has no build graph at all. MEASURED per (entry, ' +
+        'subject) at docs 313eb86 — emptied AND deleted, against a FRESH database, the command ' +
+        'still exits 0. The declaration says the premise is read out of this file and nothing ' +
+        'reads it. Either name the path in the command, or stop declaring it.',
     ).toEqual([])
+  })
+
+  /**
+   * The positive control on the widened half, in both directions, because the rule above is
+   * GREEN on today's register and a rule that is green for want of a violation is
+   * indistinguishable from one that cannot fire. This asserts the discriminator itself.
+   */
+  it('R6 — the `go test` discriminator reads the command, not the file extension', () => {
+    expect(RUNS_GO_TEST.test('go test ./internal/page/... -run TestList'), 'lost a real go test').toBe(true)
+    expect(RUNS_GO_TEST.test("sed -n '/^func/p' internal/page/handler.go"), 'a sed pipeline was read as a go test').toBe(false)
+    expect(RUNS_GO_TEST.test('cargo test'), 'matched a non-Go test runner').toBe(false)
+    // And the rule it feeds: a `.go` subject unnamed by a sed command is now a violation.
+    const sedEntry = { command: "sed -n '1p' internal/page/store.go", premise: '', where: '' }
+    const pair = { repo: 'talyvor-docs', path: 'internal/page/handler.go', entry: sedEntry }
+    const caught =
+      !pair.entry.command.includes(pair.path) &&
+      (!pair.path.endsWith('.go') || !RUNS_GO_TEST.test(pair.entry.command))
+    expect(caught, 'R6 still waves an unread `.go` subject through for a command with no build graph').toBe(true)
   })
 })
 
