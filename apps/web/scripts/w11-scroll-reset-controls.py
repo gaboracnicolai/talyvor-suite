@@ -37,12 +37,56 @@ PUSH_D = "a push navigation puts the reader at the top of the page they asked fo
 POP_D = "a pop navigation is left to the browser, which restores the offset itself > "
 INSTR_D = "the instrument, before it is pointed at the product > "
 
-# The twelve gated addresses, exactly as App.tsx's CONSOLE_ROUTES spells them once the splat is
-# stripped — the same derivation the test does, so a thirteenth page appears in both or neither.
-GATED_ADDRESSES = [
-    "/", "/ledger", "/billing", "/billing/success", "/billing/cancel", "/keys",
-    "/setup", "/spend", "/members", "/settings", "/track", "/docs",
-]
+# ⚠⚠ THIS WAS A HAND-WRITTEN LIST OF TWELVE, AND THE COMMENT ABOVE IT CLAIMED THE PROPERTY IT DID
+# NOT HAVE: "exactly as App.tsx's CONSOLE_ROUTES spells them once the splat is stripped — the same
+# derivation the test does, so a thirteenth page appears in both or neither." A thirteenth page
+# appeared, and a fourteenth, and they appeared in ONE. `/chat` landed at `24979ab` (#271) and
+# `/earnings` at `b79320e` (#273); this file last changed at #131.
+#
+# ⚠⚠⚠ THE COST WAS THE WHOLE HARNESS, NOT TWO MISSING ROWS. The prediction table is checked
+# against the cases that actually ran BEFORE any control is scored, so from #271 every run has
+# ended four lines in:
+#
+#     ABORT: the predictions do not match the cases that ran.
+#            ran but not named here: ['… /chat → / …', '… /earnings → / …']
+#
+# ZERO controls have been scored since. The scroll-reset guard has been unproven for two screens'
+# worth of merges, and nothing said so except a script nobody ran. ⚠ AND THE ANCHOR CHECK COULD
+# NOT HAVE SEEN IT: every anchor in this file is present and correct. A present anchor proves the
+# splice will land, not that the harness will reach the splice.
+#
+# SO IT IS DERIVED NOW, from the one file that owns the table, by the same rule the test applies
+# (`route.path.replace(/\/\*$/, '')`). A fifteenth page appears in both or in neither because
+# there is only one list.
+CONSOLE_ROUTES_FLOOR = 12  # what this file used to state by hand; the table only ever grows
+
+
+def gated_addresses() -> list[str]:
+    """Every gated address, read out of `App.tsx`'s CONSOLE_ROUTES in source order.
+
+    ⚠ IT REFUSES RATHER THAN RETURNING A SHORT LIST. A derivation that quietly yields nothing
+    would empty `GATED`, and the abort check would then complain that twelve cases "ran but are
+    not named here" — a scary-looking failure with an innocent product, which is exactly the
+    shape #4 of W1.1.21c's five (a working guard that looks broken is a guard somebody deletes).
+    The floor is the count this file used to hardcode: the table has only ever grown.
+    """
+    src = (WEB / "src/App.tsx").read_text(encoding="utf8")
+    m = re.search(r"export const CONSOLE_ROUTES[^=]*=\s*\[(.*?)\n\]", src, re.S)
+    if not m:
+        raise AssertionError(
+            "CONSOLE_ROUTES could not be located in App.tsx. The table this harness predicts "
+            "from has moved or been renamed — fix this reader deliberately. Guessing the "
+            "addresses is what put this file to sleep for two screens.")
+    found = [p.replace("/*", "") for p in re.findall(r"path:\s*'([^']+)'", m.group(1))]
+    if len(found) < CONSOLE_ROUTES_FLOOR:
+        raise AssertionError(
+            f"CONSOLE_ROUTES parsed to {len(found)} address(es), floor is "
+            f"{CONSOLE_ROUTES_FLOOR}. A shrinking table is either a real deletion — say so and "
+            f"move the floor — or this reader has gone blind. It must not be the quiet one.")
+    return found
+
+
+GATED_ADDRESSES = gated_addresses()
 GATED = [
     PUSH_D + f"{a} → {'/ledger' if a == '/' else '/'}: the top of the document is requested"
     for a in GATED_ADDRESSES

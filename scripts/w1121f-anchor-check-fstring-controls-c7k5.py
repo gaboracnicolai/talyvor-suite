@@ -164,8 +164,13 @@ def main() -> int:
     try:
         _rc, out = run_checker()
         base_a, base_u, base_m = anchors(out), unreadable(out), miss_lines(out)
+        # ⚠ 536 → 543 IN THE SAME MERGE, AND NOT BY A WIDENING: `w11-scroll-reset-derivation-
+        # controls-c7k5.py` was ADDED, it matches the census glob as any control harness does,
+        # and it carries 7 anchors. The extractor did not move. Written as an exact pin rather
+        # than a floor precisely so this had to be looked at — the sibling widen file records a
+        # `>=` floor absorbing the same kind of change silently and calls it the trade.
         record("B0  pristine, patched",
-               base_a == 536 and base_u == 1 and not base_m
+               base_a == 543 and base_u == 1 and not base_m
                and "every decidable anchor matches" in out,
                f"anchors={base_a} unreadable={base_u} misses={len(base_m)}")
 
