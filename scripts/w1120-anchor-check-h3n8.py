@@ -54,6 +54,7 @@ class Extractor(ast.NodeVisitor):
         # which tuple position a `for … in NAME:` unpacking calls the anchor.
         self.file_consts: list[str] = []
         self.anchor_index: dict[str, int] = {}
+        self.edit_shapes: list[tuple[int, int, int | None]] = []
         self._prescan()
 
     # module-level `NAME = "…"` so an anchor held in a constant resolves
@@ -79,6 +80,7 @@ class Extractor(ast.NodeVisitor):
     # A control that names NO file is not undecidable — the harness usually names it once, at
     # module level, and the FOR-LOOP that consumes the controls names which position is the anchor.
     ANCHOR_NAMES = frozenset({"old", "find", "anchor"})
+    PATH_NAMES = frozenset({"path", "file", "target", "f"})
 
     def _prescan(self) -> None:
         """Two facts only the WHOLE module can answer, gathered before the walk.
@@ -112,9 +114,17 @@ class Extractor(ast.NodeVisitor):
                 continue
             names = [e.id if isinstance(e, ast.Name) else "" for e in node.target.elts]
             idx = next((i for i, n in enumerate(names) if n in self.ANCHOR_NAMES), None)
-            if idx is None or not isinstance(node.iter, ast.Name):
+            if idx is None:
                 continue
-            self.anchor_index[node.iter.id] = idx
+            # ⚠ THE EDIT LIST IS ONE LEVEL DEEPER THAN THE CONTROL, and it is where five of the
+            # remaining harnesses keep their anchors: `for old, new in edits`,
+            # `for path, find, repl in edits`, `for f, old, _ in edits`. The loop names the
+            # positions INSIDE each edit tuple, so the shape is (arity, anchor, path?) — and ARITY
+            # is the bound that stops it being applied to every list of tuples in the file.
+            pidx = next((i for i, n in enumerate(names) if n in self.PATH_NAMES), None)
+            self.edit_shapes.append((len(names), idx, pidx))
+            if isinstance(node.iter, ast.Name):
+                self.anchor_index[node.iter.id] = idx
 
     def _single_file(self) -> str | None:
         """The one file this harness edits, or nothing. EXACTLY one — with two, attributing an
@@ -249,6 +259,34 @@ class Extractor(ast.NodeVisitor):
         self._after_the_path(list(node.args))
         self.generic_visit(node)
 
+    def visit_List(self, node: ast.List) -> None:
+        """A list of EDIT TUPLES, read through the shape its own for-loop declared.
+
+        ⚠ ARITY IS THE BOUND, and it is doing real work: without it this rule would be applied to
+        every list of tuples in the harness — the reds tables, the expected-title lists — and each
+        would be asked whether some string of theirs is in a file. With it, a `for path, find, repl
+        in edits` loop only ever reads 3-tuples.
+
+        ⚠ AND WITH NO PATH POSITION THE RULE IS DELIBERATELY WEAKER, NOT GUESSIER: it falls back to
+        the harness's single file constant, which returns nothing when the harness names two. A
+        harness that edits two files and does not say which per edit is not decidable here, and
+        reporting it as UNREADABLE is the honest answer.
+        """
+        if self.edit_shapes and node.elts:
+            tups = [e for e in node.elts if isinstance(e, ast.Tuple)]
+            if tups and len(tups) == len(node.elts):
+                arity = len(tups[0].elts)
+                if all(len(t.elts) == arity for t in tups):
+                    for n, aidx, pidx in self.edit_shapes:
+                        if n != arity or aidx >= arity:
+                            continue
+                        for t in tups:
+                            path = (self._str(t.elts[pidx]) if pidx is not None and pidx < arity
+                                    else self._single_file())
+                            self._record(path, self._str(t.elts[aidx]), None)
+                        break
+        self.generic_visit(node)
+
     def visit_Dict(self, node: ast.Dict) -> None:
         """A control written as a DICT LITERAL — `{"id": …, "file": CARD, "find": …, "repl": …}`.
 
@@ -325,7 +363,16 @@ def resolve(path: str, home: pathlib.Path | None = None) -> pathlib.Path | None:
     roots = [ROOT, ROOT / "apps/web", ROOT / "packages/ui"]
     if home is not None and home in roots:
         roots.remove(home)
-    for cand in ([home / path] if home is not None else []) + [r / path for r in roots]:
+    cands = ([home / path] if home is not None else []) + [r / path for r in roots]
+    # ⚠ A PATH THAT STILL CARRIES THE REPO'S OWN NAME. Several harnesses anchor at
+    # `ROOT = pathlib.Path.home() / "talyvor-suite"`, and `_str` cannot evaluate `Path.home()` — so
+    # its Div join yields `talyvor-suite/apps/web/src/…`, which resolves under no root and made the
+    # whole harness read UNREADABLE with every anchor sitting in plain source. Stripping the leading
+    # segment ONLY when it equals this repo's directory name is exact; adding `ROOT.parent` to the
+    # roots instead would let a bare `src/x` resolve to a sibling checkout outside this repo.
+    if path.startswith(ROOT.name + "/"):
+        cands.append(ROOT / path[len(ROOT.name) + 1:])
+    for cand in cands:
         try:
             if cand.is_file():
                 return cand

@@ -48,6 +48,13 @@ NEWLY_READ = [
      "const SETTLED_CHARGE = 'spend'"),
     (ROOT / "scripts/w11-spa-fallback-controls.py",
      'const bundleAssetsDir = "assets"'),
+    # ── the EDITS-LOOP widening (third change under W1.1.21d) ───────────────────────────────────
+    (ROOT / "apps/web/scripts/w11-skipped-test-controls.py",
+     "    if (a.status !== 'passed') {"),
+    (ROOT / "scripts/w11-ui-manifest-controls.py",
+     '"test": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json'),
+    (ROOT / "scripts/w11-spa-cache-controls.py",
+     'w.Header().Set("Cache-Control", "no-cache")'),
 ]
 
 # ⚠ BLIND THE CALL, NOT THE GUARD AROUND IT. The first version of F1 poisoned `before` so the
@@ -59,6 +66,10 @@ LIST_ARM = "        if isinstance(after, (ast.List, ast.Tuple)) and after.elts:"
 # module having exactly one constant that names one. Blinding either must un-read both harnesses.
 ITER_ARM = '    ANCHOR_NAMES = frozenset({"old", "find", "anchor"})'
 SINGLE_ARM = "        return self.file_consts[0] if len(self.file_consts) == 1 else None"
+# The edits-loop widening: the shape (arity, anchor, path?) comes from the INNER `for … in edits`
+# loop, and resolve() learned to strip a leading `talyvor-suite/` that `Path.home() / "…"` leaves on.
+EDITS_ARM = "        if self.edit_shapes and node.elts:"
+REPONAME_ARM = '    if path.startswith(ROOT.name + "/"):' 
 
 
 def sha(p: pathlib.Path) -> str:
@@ -103,7 +114,7 @@ def main() -> int:
         rc, out = check()
         base_anchors, base_unread = counts(out)
         record("BASELINE — widened, pristine",
-               base_anchors >= 510 and base_unread == 11 and "every decidable anchor matches" in out,
+               base_anchors >= 520 and base_unread == 8 and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 
         for i, (harness, anchor) in enumerate(NEWLY_READ, start=1):
@@ -163,13 +174,26 @@ def main() -> int:
                                   ("F4  the for-loop unpacking rule blinded", ITER_ARM,
                                    [NEWLY_READ[3][0], NEWLY_READ[4][0]]),
                                   ("F5  the single-file fallback blinded", SINGLE_ARM,
-                                   [NEWLY_READ[3][0], NEWLY_READ[4][0]])):
+                                   [NEWLY_READ[3][0], NEWLY_READ[4][0]]),
+                                  # ⚠ THE TWO ARMS ARE LOAD-BEARING FOR DISJOINT SETS, MEASURED
+                                  # RATHER THAN ASSUMED. The first version of these two floors
+                                  # expected each arm to un-read all three, and both scored a
+                                  # failure against a change that was working — blinding each in
+                                  # turn shows the edits-loop rule carries spa-cache alone, while
+                                  # skipped-test and ui-manifest were unreadable ONLY because their
+                                  # paths would not resolve. Blinding BOTH un-reads all three.
+                                  ("F6  the edits-loop rule blinded", EDITS_ARM,
+                                   [NEWLY_READ[7][0]]),
+                                  ("F7  the repo-name path prefix blinded", REPONAME_ARM,
+                                   [NEWLY_READ[5][0], NEWLY_READ[6][0]])):
             chk = io.open(CHECKER, encoding="utf-8").read()
             assert arm in chk, name
             repl = {DICT_ARM: "        pass",
                     LIST_ARM: "        if False:",
                     ITER_ARM: "    ANCHOR_NAMES = frozenset()",
-                    SINGLE_ARM: "        return None"}[arm]
+                    SINGLE_ARM: "        return None",
+                    EDITS_ARM: "        if False:",
+                    REPONAME_ARM: "    if False:"}[arm]
             io.open(CHECKER, "w", encoding="utf-8").write(chk.replace(arm, repl, 1))
             rc, out = check()
             got = [h for h in expect if names_unreadable(out, h)]
