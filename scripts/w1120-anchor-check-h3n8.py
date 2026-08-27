@@ -50,14 +50,77 @@ class Extractor(ast.NodeVisitor):
         self._seen: set[tuple[str, str, int | None]] = set()
         self.src = src
         self.home = home
+        # Filled by _prescan: module-level constants that name a real file, and, per list NAME,
+        # which tuple position a `for … in NAME:` unpacking calls the anchor.
+        self.file_consts: list[str] = []
+        self.anchor_index: dict[str, int] = {}
+        self._prescan()
 
     # module-level `NAME = "…"` so an anchor held in a constant resolves
     def visit_Assign(self, node: ast.Assign) -> None:
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
             v = self._str(node.value)
             if v is not None:
-                self.consts[node.targets[0].id] = v
+                self.consts[name] = v
+            # `CONTROLS = [(cid, what, old, new, …), …]` consumed by a for-loop that NAMES the
+            # positions. The anchor's index comes from the unpacking, never from the strings.
+            idx = self.anchor_index.get(name)
+            if idx is not None and isinstance(node.value, (ast.List, ast.Tuple)):
+                home = self._single_file()
+                for elt in node.value.elts:
+                    if not isinstance(elt, ast.Tuple) or len(elt.elts) <= idx:
+                        continue
+                    path = next((self._str(e) for e in elt.elts
+                                 if (t := self._str(e)) and resolve(t, self.home) is not None), home)
+                    self._record(path, self._str(elt.elts[idx]), None)
         self.generic_visit(node)
+
+    # A control that names NO file is not undecidable — the harness usually names it once, at
+    # module level, and the FOR-LOOP that consumes the controls names which position is the anchor.
+    ANCHOR_NAMES = frozenset({"old", "find", "anchor"})
+
+    def _prescan(self) -> None:
+        """Two facts only the WHOLE module can answer, gathered before the walk.
+
+        ⚠ THE TEMPTING VERSION OF THIS IS CIRCULAR AND IS NOT WHAT THIS DOES. "Take whichever
+        string in the control occurs in the file" would extract only anchors that already match,
+        and a checker that can never report a miss is the exact failure this whole file exists to
+        catch. Nothing here looks at a string's CONTENTS to decide whether it is an anchor: the
+        position comes from the unpacking `for cid, what, old, new, expect in CONTROLS:`, and the
+        file comes from the module having exactly ONE constant that names one.
+        """
+        try:
+            tree = ast.parse(self.src)
+        except SyntaxError:
+            return
+        seen: list[str] = []
+        for node in tree.body:
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            if not isinstance(node.targets[0], ast.Name):
+                continue
+            v = self._str(node.value)
+            if v is None:
+                continue
+            self.consts.setdefault(node.targets[0].id, v)
+            if resolve(v, self.home) is not None and v not in seen:
+                seen.append(v)
+        self.file_consts = seen
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.For) or not isinstance(node.target, ast.Tuple):
+                continue
+            names = [e.id if isinstance(e, ast.Name) else "" for e in node.target.elts]
+            idx = next((i for i, n in enumerate(names) if n in self.ANCHOR_NAMES), None)
+            if idx is None or not isinstance(node.iter, ast.Name):
+                continue
+            self.anchor_index[node.iter.id] = idx
+
+    def _single_file(self) -> str | None:
+        """The one file this harness edits, or nothing. EXACTLY one — with two, attributing an
+        anchor to either is a guess, and a guess here is a false miss reported against a harness
+        that is fine."""
+        return self.file_consts[0] if len(self.file_consts) == 1 else None
 
     def _str(self, node: ast.AST | None) -> str | None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -201,7 +264,18 @@ class Extractor(ast.NodeVisitor):
         the same question the rest of this extractor asks, and it does not care what the key is
         called.
         """
+        before = len(self.triples)
         self._after_the_path(list(node.values))
+        # ⚠ A CONTROL DICT THAT NAMES NO FILE. `{"id":…, "what":…, "old":…, "new":…}` — the file is
+        # the harness's single module-level constant, and the KEY says which value is the anchor.
+        # Only when `_after_the_path` found nothing, so a dict that does name its file keeps the
+        # stronger rule.
+        if len(self.triples) == before:
+            keys = [k.value if isinstance(k, ast.Constant) else None for k in node.keys]
+            for k, v in zip(keys, node.values):
+                if isinstance(k, str) and k in self.ANCHOR_NAMES:
+                    self._record(self._single_file(), self._str(v), None)
+                    break
         self.generic_visit(node)
 
     def visit_Tuple(self, node: ast.Tuple) -> None:

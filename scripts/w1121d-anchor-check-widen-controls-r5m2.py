@@ -43,10 +43,22 @@ NEWLY_READ = [
      "body: ['0.875rem', { lineHeight: '1.45', fontWeight: '400' }], // 14px"),
     (ROOT / "apps/web/scripts/w11-field-face-controls.py",
      "  if (PAINTS_NO_TEXT.has(type)) return false\\n"),
+    # ── the ITERATION-SITE widening (second change under W1.1.21d) ──────────────────────────────
+    (ROOT / "scripts/w11-debit-allowlist-controls.py",
+     "const SETTLED_CHARGE = 'spend'"),
+    (ROOT / "scripts/w11-spa-fallback-controls.py",
+     'const bundleAssetsDir = "assets"'),
 ]
 
+# ⚠ BLIND THE CALL, NOT THE GUARD AROUND IT. The first version of F1 poisoned `before` so the
+# "found nothing" test could never fire, and visit_Dict went on extracting exactly as before —
+# a mutation that changed a line and disabled nothing, scored as a floor that did not arm.
 DICT_ARM = "        self._after_the_path(list(node.values))"
 LIST_ARM = "        if isinstance(after, (ast.List, ast.Tuple)) and after.elts:"
+# The iteration-site widening: the position comes from the for-loop unpacking, the file from the
+# module having exactly one constant that names one. Blinding either must un-read both harnesses.
+ITER_ARM = '    ANCHOR_NAMES = frozenset({"old", "find", "anchor"})'
+SINGLE_ARM = "        return self.file_consts[0] if len(self.file_consts) == 1 else None"
 
 
 def sha(p: pathlib.Path) -> str:
@@ -91,7 +103,7 @@ def main() -> int:
         rc, out = check()
         base_anchors, base_unread = counts(out)
         record("BASELINE — widened, pristine",
-               base_anchors >= 500 and base_unread == 13 and "every decidable anchor matches" in out,
+               base_anchors >= 510 and base_unread == 11 and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 
         for i, (harness, anchor) in enumerate(NEWLY_READ, start=1):
@@ -122,18 +134,42 @@ def main() -> int:
         ok = (not names_miss(out, harness)) and names_unreadable(out, harness)
         io.open(CHECKER, "wb").write(saved[CHECKER][0])
         io.open(harness, "wb").write(saved[harness][0])
-        record("C4  same corruption, widening REVERTED", ok,
+        record("C4  same corruption, DICT widening REVERTED", ok,
                "the corruption is invisible and the harness reads UNREADABLE — so the widening is "
                "what sees it" if ok else "the corruption was visible without the widening — this "
                "control proves nothing about the widening")
 
+        # C5 — the same argument for the ITERATION-SITE arm, on one of the harnesses only it reads
+        harness, anchor = NEWLY_READ[3]
+        src = io.open(harness, encoding="utf-8").read()
+        io.open(harness, "w", encoding="utf-8").write(
+            src.replace(anchor, anchor + "ZZ_CORRUPTED_BY_A_CONTROL", 1))
+        chk = io.open(CHECKER, encoding="utf-8").read()
+        assert ITER_ARM in chk
+        io.open(CHECKER, "w", encoding="utf-8").write(
+            chk.replace(ITER_ARM, "    ANCHOR_NAMES = frozenset()", 1))
+        rc, out = check()
+        ok = (not names_miss(out, harness)) and names_unreadable(out, harness)
+        io.open(CHECKER, "wb").write(saved[CHECKER][0])
+        io.open(harness, "wb").write(saved[harness][0])
+        record("C5  same corruption, ITERATION-SITE widening REVERTED", ok,
+               "invisible, and the harness reads UNREADABLE again" if ok else
+               "the corruption was visible without the iteration-site rule")
+
         for name, arm, expect in (("F1  visit_Dict blinded", DICT_ARM,
                                    [NEWLY_READ[0][0], NEWLY_READ[1][0]]),
                                   ("F2  list-of-pairs arm blinded", LIST_ARM,
-                                   [NEWLY_READ[2][0]])):
+                                   [NEWLY_READ[2][0]]),
+                                  ("F4  the for-loop unpacking rule blinded", ITER_ARM,
+                                   [NEWLY_READ[3][0], NEWLY_READ[4][0]]),
+                                  ("F5  the single-file fallback blinded", SINGLE_ARM,
+                                   [NEWLY_READ[3][0], NEWLY_READ[4][0]])):
             chk = io.open(CHECKER, encoding="utf-8").read()
             assert arm in chk, name
-            repl = "        return" if arm == DICT_ARM else "        if False:"
+            repl = {DICT_ARM: "        pass",
+                    LIST_ARM: "        if False:",
+                    ITER_ARM: "    ANCHOR_NAMES = frozenset()",
+                    SINGLE_ARM: "        return None"}[arm]
             io.open(CHECKER, "w", encoding="utf-8").write(chk.replace(arm, repl, 1))
             rc, out = check()
             got = [h for h in expect if names_unreadable(out, h)]
