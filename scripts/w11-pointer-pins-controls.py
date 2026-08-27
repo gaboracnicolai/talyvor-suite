@@ -126,8 +126,15 @@ CONTROLS = [
      [('apps/web/src/areas/track/IssueList.tsx',
        'without a resting affordance". It was not the only one: this cell is the link,',
        'without a resting affordance" (hover:underline). It was not the only one: the link,'),
-      ('apps/web/src/pointerAudit.test.ts',
-       'if (body !== undefined && body.includes(pin.fragment)) {', 'if (false) {')],
+      # ⚠ RE-AIMED 2026-08-27 (W1.1.21g). The old anchor was
+      # `if (body !== undefined && body.includes(pin.fragment)) {` — the LINE-scoped HISTORICAL
+      # predicate, which asked a line that was doing no work: measured, not one of the six
+      # HISTORICAL fragments occurs anywhere in its target file, so that test passed whatever
+      # line number it was given, and C9 below could not catch. The predicate now asks the whole
+      # file, and this blinds the whole-file arm. ⚠ THE RENAME WAS CAUGHT TWICE AND NEITHER WAS
+      # luck: this harness's own anchor assert raised `found 0x, want 1x`, and `w1120-anchor-check`
+      # reported the same anchor under its MISS block.
+      ('apps/web/src/pointerAudit.test.ts', '      if (at.length > 0) {', '      if (false) {')],
      RESTING, MISSED),
 
     # ⚠ A MUTATION ONLY THIS GUARD CAN SEE.  Line 357 is inside a comment, and

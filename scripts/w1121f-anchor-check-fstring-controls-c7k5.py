@@ -177,7 +177,9 @@ def main() -> int:
                # widening: `w11-card-heading-drift-controls-c7k5.py`, 5 anchors. Three moves,
                # three harnesses, extractor untouched — which is exactly what an exact pin is
                # supposed to make a reader able to say.
-               base_a == 553 and base_u == 1 and not base_m
+               # ⚠ 553 → 559, the FOURTH move this session. Same shape every time: a harness
+               # ADDED (`w11-historical-pin-controls-c7k5.py`, 6 anchors), extractor untouched.
+               base_a == 559 and base_u == 1 and not base_m
                and "every decidable anchor matches" in out,
                f"anchors={base_a} unreadable={base_u} misses={len(base_m)}")
 
