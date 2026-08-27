@@ -392,6 +392,14 @@ class Extractor(ast.NodeVisitor):
             if b is not None:
                 a = self._str(node.left)
                 return f"{a.rstrip('/')}/{b}" if a else b
+        # `os.path.join(ROOT, "apps/bff", "lens.go")` — the same join the Div branch above reads,
+        # spelled the other way. The FIRST argument is dropped for the same reason the Div branch
+        # drops its left side when it cannot evaluate it: it is a root the caller already resolves.
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "join" and len(node.args) >= 2):
+            parts = [self._str(a) for a in node.args[1:]]
+            if all(x is not None for x in parts):
+                return "/".join(p.strip("/") for p in parts)
         # Path("…") / pathlib.Path("…")
         if isinstance(node, ast.Call) and len(node.args) == 1:
             fn = node.func

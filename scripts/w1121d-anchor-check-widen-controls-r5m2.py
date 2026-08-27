@@ -181,9 +181,13 @@ def main() -> int:
                # because the anchor position is now also derived from the names a harness hands
                # to `.count(…)` and that reads `w1118-money-name`. Three deliberate moves in one
                # session is what an exact pin is FOR — each one had to be looked at.
-               base_anchors >= 537 and base_unread == 5
+               # ⚠ FOURTH MOVE 2026-08-27 (tab-j8w4), 5 → 4 and the floor 537 → 543: `_str`
+               # learned `os.path.join`, which reads `w18-prose-class`. FOUR deliberate moves in
+               # one session, each one looked at — that is what an exact pin buys, and a range
+               # would have absorbed every one of them silently.
+               base_anchors >= 543 and base_unread == 4
                and out.count("ANCHOR ON REGEXES") == 1
-               and base_unread + 1 == 6
+               and base_unread + 1 == 5
                and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 

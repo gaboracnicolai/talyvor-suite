@@ -148,6 +148,69 @@ def main():
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
 
+    # ── the os.path.join half ─────────────────────────────────────────────────
+    PROSE = os.path.join(REPO, 'apps/web/scripts/w18-prose-class-controls.py')
+    JOIN_ARM = """        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "join" and len(node.args) >= 2):"""
+    JOIN_OFF = """        if (False and isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "join" and len(node.args) >= 2):"""
+    REFUSAL = """        spliced = regex_spliced_names(ast.parse(h.read_text()))
+        if spliced:"""
+    REFUSAL_OFF = """        spliced = []
+        if spliced:"""
+    # ⚠ COPIED FROM THE SOURCE, NOT RETYPED. The first version of this control wrote the anchor
+    # in single quotes and the harness writes it in double quotes with a real `\n` escape, so the
+    # edit found 0 occurrences and the control died before it tested anything. A control that
+    # retypes its needle is testing its own typing.
+    PROSE_ANCHOR = '"  ts: stripComments,\\n  tsx: stripComments,"'
+    PROSE_BROKEN = '"  ts: stripComments,\\n  tsx: stripCommentsZZ,"' 
+
+    control(
+        'H1 an anchor in the newly-read w18-prose-class is corrupted',
+        'the checker NAMES it under MISSES',
+        [(PROSE, PROSE_ANCHOR, PROSE_BROKEN)],
+        lambda r: (r['misses'] >= 1 and 'prose-class' in r['out'],
+                   f"{r['misses']} miss(es), named" if r['misses'] else 'not seen'))
+
+    control(
+        'H2 the SAME corruption with os.path.join support REVERTED',
+        'INVISIBLE, and the harness reads UNREADABLE again',
+        [(PROSE, PROSE_ANCHOR, PROSE_BROKEN), (CHECK, JOIN_ARM, JOIN_OFF)],
+        lambda r: (r['misses'] == 0 and 'w18-prose-class' in r['out']
+                   and r['unreadable'] == base['unreadable'] + 1,
+                   'invisible without the rule, harness unreadable again'
+                   if r['misses'] == 0 else f"still seen ({r['misses']}) — not this rule"))
+
+    control(
+        'H3 os.path.join support blinded on a clean tree',
+        'exactly 537 anchors and 5 unreadable — the census returns to where #293 left it',
+        [(CHECK, JOIN_ARM, JOIN_OFF)],
+        lambda r: (r['anchors'] == 537 and r['unreadable'] == 5,
+                   'carries exactly the 6 anchors and the 1 harness it claims'))
+
+    # ⚠ H4 IS THE ONE TO READ. #291 added a refusal for harnesses that splice with `re.sub`, and
+    # measured its harm on a HYPOTHETICAL two-step: teach _str about os.path.join AND add
+    # `pattern` to the vocabulary. Half of that two-step is now REAL — this merge — and the
+    # refusal has gone from discarding 1 candidate to discarding 15, every one a regex full of
+    # `\(` and `\.` escapes that cannot appear literally in a CSS file. A guard written before
+    # the change that would trip it, now tripping.
+    control(
+        'H4 os.path.join support with the #291 regex refusal REVERTED',
+        'the face-identity regexes become MISSES — the refusal was preventive when it merged and '
+        'is load-bearing now, on a widening that landed after it',
+        [(CHECK, REFUSAL, REFUSAL_OFF)],
+        lambda r: (r['misses'] >= 7 and 'theme.css' in r['out'],
+                   f"{r['misses']} false misses against a font-identity guard"
+                   if r['misses'] >= 7 else f"expected >=7, got {r['misses']}"))
+
+    control(
+        'H5 a comment beside the join branch reworded — MUST STAY GREEN',
+        'census unmoved',
+        [(CHECK, '# spelled the other way. The FIRST argument is dropped for the same reason the Div branch',
+                 '# written the other way. The FIRST argument is dropped for the same reason the Div branch')],
+        lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
+                   and r['misses'] == 0, 'census unmoved'))
+
     # ── the counted-names half ────────────────────────────────────────────────
     # ⚠ 537 ANCHORS AND STILL "every decidable anchor matches the tree" IS THE RESULT THIS ITEM
     # SAYS TO DISTRUST, so what is tested is not the number: G1 requires a corruption in the
@@ -177,26 +240,32 @@ def main():
                    'invisible without the rule, and the harness is unreadable again'
                    if r['misses'] == 0 else f"still seen ({r['misses']} misses) — the rule is not what sees it"))
 
+    # ⚠ G3 AND G4 WERE WRITTEN WITH ABSOLUTE NUMBERS AND THIS SESSION'S NEXT MERGE BROKE BOTH.
+    # `_str` learned `os.path.join`, every count moved by +6, and two controls that were measuring
+    # a rule correctly reported failure. They are DELTAS from the run's own baseline now: what
+    # each rule CARRIES is the invariant, and it survives every unrelated widening.
     control(
         'G3 the counted-names rule blinded on a clean tree',
-        'exactly 530 anchors and 6 unreadable — the census returns to where it was, so the rule '
-        'carries precisely the 7 anchors and the 1 harness it claims',
+        'exactly 7 anchors fewer and 1 harness more unreadable than this run\'s baseline — the '
+        'rule carries precisely what it claims, whatever the absolute census happens to be',
         [(CHECK, COUNT_ARM, "                idx = None")],
-        lambda r: (r['anchors'] == 530 and r['unreadable'] == 6,
-                   'carries exactly what it claims'))
+        lambda r: (r['anchors'] == base['anchors'] - 7 and r['unreadable'] == base['unreadable'] + 1,
+                   f"-7 anchors, +1 unreadable from {base['anchors']}/{base['unreadable']}"
+                   if r['anchors'] == base['anchors'] - 7 else
+                   f"expected {base['anchors']-7}, got {r['anchors']}"))
 
     # ⚠ G4 IS THE CONTROL THAT MAKES "KEEP BOTH" A MEASUREMENT INSTEAD OF CAUTION. The tidy answer
     # is that the count signal replaces the hand-kept vocabulary. It does not: the vocabulary
     # carries 11 anchors the count signal never sees.
     control(
         'G4 ANCHOR_NAMES emptied, leaving the counted-names rule alone',
-        '526 anchors — ELEVEN FEWER than both together and four fewer than the vocabulary alone. '
-        'Neither rule subsumes the other, and deleting the older one would lose real coverage in '
-        'the direction that looks like a simplification',
+        'ELEVEN anchors fewer than both rules together. Neither subsumes the other, and deleting '
+        'the older one would lose real coverage in the direction that looks like a simplification',
         [(CHECK, VOCAB_ARM, '    ANCHOR_NAMES = frozenset()')],
-        lambda r: (r['anchors'] == 526,
-                   f"{r['anchors']} anchors — the vocabulary is still load-bearing"
-                   if r['anchors'] == 526 else f"expected 526, got {r['anchors']}"))
+        lambda r: (r['anchors'] == base['anchors'] - 11,
+                   f"-11 from {base['anchors']} — the vocabulary is still load-bearing"
+                   if r['anchors'] == base['anchors'] - 11 else
+                   f"expected {base['anchors']-11}, got {r['anchors']}"))
 
     control(
         'G5 a comment beside the rule reworded — MUST STAY GREEN',
@@ -274,24 +343,29 @@ def main():
                         if l.startswith('    N') and 'HALF' in l}) == 1,
                    'all reasons collapsed to one, as predicted — this is what the floor below catches'))
 
-    # ⚠ E5 ALSO HAD TO BE RESTATED, AND THE RESTATEMENT IS THE HONEST ONE. It asserted three
-    # distinct verdicts on the clean tree. That was true until the counted-names rule read
-    # `w1118-money-name`, which was the ONLY harness producing NO SHAPE HALF — so the clean tree
-    # now yields two kinds, not three. **Reachability and presence are different claims and the
-    # first version conflated them**: all three verdicts are reachable (E1 → NO SHAPE HALF, E2 →
-    # NO FILE HALF, E3 → NEITHER HALF), and the tree happens to show two. Asserting three on the
-    # tree would now be asserting that a harness stays unreadable, which is the wrong thing to pin.
+    # ⚠⚠ E5 HAS NOW BEEN RESTATED TWICE, AND THE SECOND TIME IS THE INTERESTING ONE. It first
+    # asserted THREE distinct verdicts on the clean tree; reading `w1118-money-name` removed the
+    # only NO SHAPE HALF and it became two. Reading `w18-prose-class` has now removed the only
+    # NEITHER HALF and it is ONE. **The real tree no longer discriminates at all — which is
+    # exactly what a collapsed `why_unreadable` looks like.** E4's counter-example and the true
+    # tree are now indistinguishable from each other, so a floor watching the TREE can no longer
+    # tell them apart, and the discrimination has to be carried by a CONSTRUCTED population:
+    # E1 → NO SHAPE HALF, E2 → NO FILE HALF, E3 → NEITHER HALF, each from a deliberate mutation.
+    # ⚠ This is a diagnostic getting LESS testable as the thing it diagnoses gets better, and it
+    # is worth knowing before somebody reads a single uniform verdict as a healthy signal.
     control(
-        'E5 the diagnosis still discriminates on a clean tree — MUST STAY TRUE',
-        'at least TWO distinct verdicts on the real tree, one of them NEITHER HALF. The third, NO '
-        'SHAPE HALF, left the tree when the counted-names rule read w1118-money-name and is kept '
-        'reachable by E1 rather than pinned here',
+        'E5 every verdict on the real tree is one of the three known kinds — MUST STAY TRUE',
+        'the real tree now yields ONE kind (all four remaining are NO FILE HALF), so this can no '
+        'longer assert discrimination — that is E1/E2/E3\'s job on a constructed population. What '
+        'it still catches is a verdict that is neither of the three: an empty string, a fallback, '
+        'a stack trace',
         [(CHECK, '# after consts are known, because the write target is looked up through them',
                  '# consts first: the write target resolves through them')],
-        lambda r: (len({l.strip()[:14] for l in r['out'].split('\n')
-                        if l.strip().startswith(('NO FILE HALF', 'NO SHAPE HALF', 'NEITHER HALF'))}) >= 2
-                   and 'NEITHER HALF' in r['out'],
-                   'two distinct verdicts present, including NEITHER HALF'))
+        lambda r: (all(l.strip().startswith(('NO FILE HALF', 'NO SHAPE HALF', 'NEITHER HALF'))
+                       for l in r['out'].split('\n')
+                       if l.startswith('    ') and l.strip() and not l.strip().startswith(('#', 'a ')))
+                   and r['unreadable'] > 0,
+                   'every verdict printed is one of the three known kinds'))
 
     # ⚠ E6 IS A CONTROL ON A REPAIR THIS CHANGE FORCED ELSEWHERE, and it is the one worth reading.
     # Adding the per-harness reason changed the UNREADABLE block's format, and the widen-controls
@@ -362,14 +436,23 @@ def main():
                    'the 14 false misses reappear without the refusal — it is what stops them'
                    if r['misses'] == 14 else f"expected 14, got {r['misses']}"))
 
+    # ⚠⚠ P3's ORIGINAL CLAIM WAS TRUE AT #291 AND IS FALSE NOW, AND THIS MERGE IS WHAT FALSIFIED
+    # IT. It asserted that blinding the refusal costs no anchor, "because it discards candidates
+    # nothing could decide anyway" — true while `_str` could not evaluate `os.path.join`, since
+    # w11-face-identity's paths did not resolve and its regexes were never paired with a file.
+    # `_str` can evaluate it now, so the refusal discards 15 candidates that WOULD be decided, and
+    # blinding it yields 14 misses instead of none. **A guard that was preventive when it merged
+    # became load-bearing three merges later, without anything touching the guard.** The claim is
+    # restated rather than deleted, because the pair of dates is the point.
     control(
         'P3 the refusal blinded on a clean tree',
-        'the harness returns to the UNREADABLE list (7) and the regex bucket empties; anchors '
-        'unchanged at 530, because the refusal discards candidates nothing could decide anyway',
+        'FOURTEEN misses now, where #291 measured none. The candidates it discards are no longer '
+        'undecidable — os.path.join support resolves their paths — so the refusal is what stands '
+        'between the census and 14 false misses on a font-identity guard',
         [(CHECK, GUARD, GUARD_OFF)],
-        lambda r: (r['unreadable'] == base['unreadable'] + 1 and r['anchors'] == base['anchors']
-                   and 'ANCHOR ON REGEXES' not in r['out'],
-                   'exactly one harness moves back, no anchor lost'))
+        lambda r: (r['misses'] == 14 and 'theme.css' in r['out'],
+                   f"{r['misses']} misses — the refusal is now load-bearing, and was not at #291"
+                   if r['misses'] == 14 else f"expected 14, got {r['misses']}"))
 
     control(
         'P4 RE_SPLICE widened to include `search` — the narrowing, and it IS load-bearing',
