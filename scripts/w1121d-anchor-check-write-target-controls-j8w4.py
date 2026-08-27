@@ -623,14 +623,26 @@ def main():
                    'refused, not reported as broken'
                    if r['misses'] == 0 else f"{r['misses']} false misses got through"))
 
+    # ⚠ P2 AND P3 MOVED 14 → 7 ON 2026-08-27 (tab-c7k5, W1.1.21f), AND THE NUMBER WAS NEVER
+    # FOURTEEN REAL MISSES: it was SEVEN anchors reported TWICE. The extractor's `_seen` dedupes
+    # on `(path, anchor, count)`, so an anchor found by BOTH a shape rule (which carries the
+    # harness's expected count) and the after-the-path rule (which carries None) survived as two
+    # triples and printed as two misses. The checker now keeps one verdict per anchor at report
+    # time, so this control's own subject halves.
+    # ⚠⚠ MEASURED RATHER THAN INFERRED, because a control expectation being HALVED is the
+    # direction that looks like a guard going quiet: on pristine `2f47eab` the census was 579
+    # triples over 534 DISTINCT anchors — 45 of them counted twice — and this control had pinned
+    # the doubled figure. The harm it demonstrates is unchanged in kind and in file: false misses
+    # against `theme.css`, a file this harness never splices literally, which is still exactly
+    # what the refusal prevents.
     control(
         'P2 the SAME two-step with the regex refusal REVERTED — the harm, measured',
-        '14 misses appear, every one against packages/ui/src/theme.css and every one a regex whose '
+        '7 misses appear, every one against packages/ui/src/theme.css and every one a regex whose '
         'escapes cannot appear literally in a CSS file. This is what the refusal prevents',
         [(CHECK, JOIN_STEP, JOIN_WIDE), (CHECK, VOCAB, VOCAB_WIDE), (CHECK, GUARD, GUARD_OFF)],
-        lambda r: (r['misses'] == 14 and 'theme.css' in r['out'],
-                   'the 14 false misses reappear without the refusal — it is what stops them'
-                   if r['misses'] == 14 else f"expected 14, got {r['misses']}"))
+        lambda r: (r['misses'] == 7 and 'theme.css' in r['out'],
+                   'the 7 false misses reappear without the refusal — it is what stops them'
+                   if r['misses'] == 7 else f"expected 7, got {r['misses']}"))
 
     # ⚠⚠ P3's ORIGINAL CLAIM WAS TRUE AT #291 AND IS FALSE NOW, AND THIS MERGE IS WHAT FALSIFIED
     # IT. It asserted that blinding the refusal costs no anchor, "because it discards candidates
@@ -642,13 +654,13 @@ def main():
     # restated rather than deleted, because the pair of dates is the point.
     control(
         'P3 the refusal blinded on a clean tree',
-        'FOURTEEN misses now, where #291 measured none. The candidates it discards are no longer '
+        'SEVEN misses now, where #291 measured none. The candidates it discards are no longer '
         'undecidable — os.path.join support resolves their paths — so the refusal is what stands '
-        'between the census and 14 false misses on a font-identity guard',
+        'between the census and 7 false misses on a font-identity guard',
         [(CHECK, GUARD, GUARD_OFF)],
-        lambda r: (r['misses'] == 14 and 'theme.css' in r['out'],
+        lambda r: (r['misses'] == 7 and 'theme.css' in r['out'],
                    f"{r['misses']} misses — the refusal is now load-bearing, and was not at #291"
-                   if r['misses'] == 14 else f"expected 14, got {r['misses']}"))
+                   if r['misses'] == 7 else f"expected 7, got {r['misses']}"))
 
     control(
         'P4 RE_SPLICE widened to include `search` — the narrowing, and it IS load-bearing',

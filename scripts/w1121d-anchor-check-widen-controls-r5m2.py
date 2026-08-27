@@ -226,7 +226,22 @@ def main() -> int:
                # ⚠ SIXTH MOVE 2026-08-27 (tab-j8w4), 3 → 2 and the floor 547 → 558: tuple-
                # unpacked path constants now bind, which reads `w11-cited-guard` — and reading it
                # immediately surfaced a K8 anchor that had been unable to arm since #274.
-               base_anchors >= 579 and base_unread == 1
+               # ⚠⚠⚠ NINTH MOVE 2026-08-27 (tab-c7k5, W1.1.21f), AND IT IS THE FIRST TIME THIS
+               # FLOOR HAS EVER GONE **DOWN**: 579 → 536. A floor dropping is the direction that
+               # hides a narrowing, so it is not taken on the arithmetic — it is taken on a set
+               # comparison, and the set comparison is a control in
+               # `w1121f-anchor-check-fstring-controls-c7k5.py` rather than a sentence here.
+               # WHAT CHANGED: the checker now keeps ONE verdict per (path, anchor) at report
+               # time. `_seen` deduped on `(path, anchor, count)`, so every anchor reached by both
+               # a shape rule (count 1) and the after-the-path rule (count None) was checked —
+               # and counted — TWICE.
+               # MEASURED at `2f47eab`, both trees: pristine decides 579 triples over 534
+               # DISTINCT anchors; with the f-string/`chr` rules and the dedupe it decides 583
+               # triples over 536. **NOTHING WAS LOST — the distinct set is a strict superset,
+               # +2 and −0** (the two `w11-glyph-controls` anchors, one of which was stale). So
+               # the 43-point drop is 45 doubles removed and 2 anchors added, not reach going
+               # away, and the floor is set to the measured 536 in the new units.
+               base_anchors >= 536 and base_unread == 1
                and out.count("ANCHOR ON REGEXES") == 1
                # ⚠ THE EXACT PIN ON UNREADABLE, WRITTEN AS `+ 1 ==` BECAUSE THIS FILE WANTS EVERY
                # MOVE LOOKED AT. 2 → 1 with the assignment-unpacking rule (tab-p9r4). The one that

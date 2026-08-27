@@ -565,6 +565,44 @@ class Extractor(ast.NodeVisitor):
             name = fn.id if isinstance(fn, ast.Name) else (fn.attr if isinstance(fn, ast.Attribute) else "")
             if name in ("Path", "resolve", "str"):
                 return self._str(node.args[0])
+        # ⚠ `chr(0x2039)` — AND THIS IS NOT A WIDENING-UNTIL-IT-PARSES, WHICH THIS CHECK HAS PAID
+        # FOR TWICE. `chr` of an INTEGER LITERAL has exactly one value and no context can change
+        # it; there is nothing here to guess at. It is bounded to that one shape on purpose:
+        # `chr(x)`, `chr(a + 1)` and every other call stay unreadable, because the moment the
+        # argument is not a literal the value depends on something this file does not evaluate.
+        #
+        # ⚠⚠ WHY IT IS WORTH A BRANCH AT ALL: `w11-glyph-controls.py` spells its glyphs as
+        # codepoints DELIBERATELY — "spelling them here would still invite a copy of the
+        # classified set that can drift" — and that defensive choice is precisely what put its
+        # two anchors outside the only instrument that would have told it one had rotted.
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == "chr" and len(node.args) == 1 and not node.keywords):
+            cp = self._num(node.args[0])
+            if cp is not None and 0 <= cp <= 0x10FFFF:
+                return chr(cp)
+        # ⚠ AN f-STRING, AND ONLY WHEN EVERY HOLE IS ALREADY A KNOWN CONSTANT. The comment two
+        # screens up said f-strings "are skipped on purpose — an interpolated anchor is not
+        # statically decidable and must not be guessed at", and that is right about the general
+        # case and wrong about this one: `f"  {SINGLE_LEFT} Issues\n"` where `SINGLE_LEFT` is a
+        # module constant is the SAME evidence class as the bare `ast.Name` branch above, spelled
+        # with a hole in it. Anything else — a conversion (`!r`), a format spec (`:>4`), a
+        # subscript, a call, a name this file has not bound — makes the WHOLE f-string unreadable.
+        # No partial reconstruction: half an anchor grepped against a file is a false miss.
+        if isinstance(node, ast.JoinedStr):
+            out = []
+            for part in node.values:
+                if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                    out.append(part.value)
+                    continue
+                if not isinstance(part, ast.FormattedValue):
+                    return None
+                if part.conversion != -1 or part.format_spec is not None:
+                    return None
+                filled = self._str(part.value)
+                if filled is None:
+                    return None
+                out.append(filled)
+            return "".join(out)
         return None
 
     def _num(self, node: ast.AST | None) -> int | None:
@@ -879,6 +917,27 @@ def main() -> int:
             rejected[why] = rejected.get(why, 0) + 1
         # only triples whose PATH resolves to a real file are anchors this check can decide
         decidable = [(p, a, n) for (p, a, n) in ex.triples if resolve(p, home)]
+        # ⚠ ONE ANCHOR, ONE VERDICT — AND THE EXTRACTOR'S OWN DEDUPE DOES NOT GIVE THAT. `_seen`
+        # keys on `(path, anchor, count)`, so an anchor found by BOTH a shape rule (which carries
+        # the harness's expected count) and the after-the-path rule (which carries None) survives
+        # as TWO triples. It is the same anchor in the same file, checked twice.
+        #
+        # ⚠⚠ IT HAS BEEN INVISIBLE FOR THE ONE REASON THAT MAKES IT WORTH FIXING NOW: there have
+        # been NO misses, so nothing ever printed twice. The headline was inflated the whole time
+        # — MEASURED at `2f47eab`: 583 triples over 536 DISTINCT anchors, 47 of them counted
+        # twice — and the first real stale anchor this check found reported as TWO misses, which
+        # is precisely the overstatement `_seen`'s own comment says it exists to prevent.
+        #
+        # THE COUNT-BEARING TRIPLE WINS, and that is not a coin-toss: `want=None` reds only on
+        # `got == 0`, while `want=k` reds on `got != k`, so keeping the count is strictly the
+        # stronger of the two and can never turn a red into a green. MEASURED before relying on
+        # it: all 47 duplicate groups are exactly {None, 1} — there is not one anchor anywhere in
+        # this tree where two rules disagree about a NUMBER, so nothing is being chosen between.
+        _best: dict[tuple[str, str], int | None] = {}
+        for _p, _a, _n in decidable:
+            if (_p, _a) not in _best or (_best[(_p, _a)] is None and _n is not None):
+                _best[(_p, _a)] = _n
+        decidable = [(p, a, n) for (p, a), n in _best.items()]
         if not decidable:
             unreadable.append(f"{rel}\n    {why_unreadable(ex)}")
             continue
