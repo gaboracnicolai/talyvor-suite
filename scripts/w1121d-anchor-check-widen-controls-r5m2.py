@@ -101,8 +101,39 @@ def names_miss(out: str, harness: pathlib.Path) -> bool:
     return any(line.strip() == rel for line in block.split("\n"))
 
 
+def unreadable_set(out: str) -> set[str]:
+    """The harnesses in the UNREADABLE block, PARSED FROM THE BLOCK rather than matched against a
+    magic sentence — and self-checked against the count in its own header.
+
+    ⚠ THIS WAS `f"{rel}: 0 anchors extracted" in out`, AND ON 2026-08-27 THE CHECKER STOPPED
+    PRINTING THAT SENTENCE. It now names the missing half per harness on a second line, so every
+    control asking "did this harness go UNREADABLE again" answered NO — 8 of 17 failed, reporting
+    `0/2 of the harnesses that arm expect go UNREADABLE again` about a checker that was working
+    perfectly. **The detector was a string literal shared across two files with nothing pinning
+    it.** It failed in the visible direction this time, which was luck and not design: the same
+    stale match on a control asking "did it STAY readable" would have answered YES and passed.
+
+    So the block is parsed, and the parse checks itself: the header says how many harnesses are
+    listed, and if the per-harness lines do not add up to that number the format has moved again
+    and this raises instead of quietly returning a short set.
+    """
+    if "COULD NOT READ" not in out:
+        return set()
+    m = re.search(r"COULD NOT READ (\d+) HARNESS\(ES\)", out)
+    declared = int(m.group(1)) if m else -1
+    block = out.split("COULD NOT READ", 1)[1]
+    found = {ln.strip() for ln in block.split("\n")
+             if re.fullmatch(r"  \S+\.py", ln)}
+    if len(found) != declared:
+        raise AssertionError(
+            f"the UNREADABLE block's format moved: header says {declared}, parsed {len(found)}. "
+            "Fix this parser deliberately — a short set here reports a harness as readable when "
+            "it is not, and every control below is drawn from it.")
+    return found
+
+
 def names_unreadable(out: str, harness: pathlib.Path) -> bool:
-    return f"{harness.relative_to(ROOT)}: 0 anchors extracted" in out
+    return str(harness.relative_to(ROOT)) in unreadable_set(out)
 
 
 def counts(out: str) -> tuple[int, int]:

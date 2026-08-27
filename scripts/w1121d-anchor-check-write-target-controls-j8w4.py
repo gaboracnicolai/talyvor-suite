@@ -148,6 +148,103 @@ def main():
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
 
+    # ── the why-unreadable half ───────────────────────────────────────────────
+    # ⚠ THESE ARE THE CONTROLS THAT MATTER FOR A DIAGNOSTIC, because a diagnostic fails by being
+    # PLAUSIBLE rather than by being absent. Each takes a harness the checker reads today, breaks
+    # exactly ONE of the two halves, and requires the named reason to be the one that broke.
+    SR = os.path.join(REPO, 'apps/web/scripts/w11-scroll-reset-controls.py')
+    MONEY = os.path.join(REPO, 'apps/web/scripts/w1118-money-name-controls-h3n8.py')
+
+    def reason_for(out, harness_name):
+        lines = out.split('\n')
+        for i, l in enumerate(lines):
+            if harness_name in l and i + 1 < len(lines):
+                return lines[i + 1].strip()
+        return '<not listed as unreadable>'
+
+    control(
+        'E1 a readable harness loses only its SHAPE half',
+        'reported as NO SHAPE HALF, naming the file it still knows (src/App.tsx). The file half is '
+        'intact, so an answer blaming the file would be plausible and wrong',
+        [(SR, 'for old, new in edits:', 'for a, b in edits:'),
+         (SR, 'for old, _ in c["edits"]:', 'for a, _ in c["edits"]:')],
+        lambda r: ('NO SHAPE HALF' in reason_for(r['out'], 'w11-scroll-reset')
+                   and 'src/App.tsx' in reason_for(r['out'], 'w11-scroll-reset'),
+                   reason_for(r['out'], 'w11-scroll-reset')[:90]))
+
+    control(
+        'E2 the same harness loses only its FILE half',
+        'reported as NO FILE HALF with the count (2 constants) AND the note that a shape IS '
+        'matched — the half that survived has to be named too, or the reader widens the wrong one',
+        [(SR, 'APP.write_text(apply_edits(src, c["edits"]))',
+             '_unused = apply_edits(src, c["edits"])')],
+        lambda r: ('NO FILE HALF' in reason_for(r['out'], 'w11-scroll-reset')
+                   and 'A shape IS matched' in reason_for(r['out'], 'w11-scroll-reset'),
+                   reason_for(r['out'], 'w11-scroll-reset')[:90]))
+
+    control(
+        'E3 a harness that already lacks the shape half loses the file half too',
+        'w1118-money-name moves from NO SHAPE HALF to NEITHER HALF — the three verdicts are '
+        'reachable, not two with a decorative third',
+        [(MONEY, 'FF = WEB / "src" / "figureFace.test.ts"',
+                 'FF = WEB / "src" / "figureFaceZZ.test.ts"')],
+        lambda r: ('NEITHER HALF' in reason_for(r['out'], 'w1118-money-name'),
+                   reason_for(r['out'], 'w1118-money-name')[:90]))
+
+    # ⚠ THE VACUITY FLOOR, AND FOR A DIAGNOSTIC IT IS THE IMPORTANT ONE. A `why` that collapses to
+    # one sentence is INDISTINGUISHABLE FROM A GOOD ONE at a glance: the output still has a reason
+    # under every harness, still reads as an answer, and tells the reader nothing. Blind it and
+    # every harness gets the same verdict.
+    control(
+        'E4 why_unreadable collapsed to a single verdict',
+        'the reasons stop discriminating — all six identical. Nothing else in this file would '
+        'notice, because a uniform diagnosis looks exactly like a working one',
+        [(CHECK, '    files = len(ex.file_consts)\n    shaped = bool(ex.edit_shapes or ex.anchor_index)',
+                 '    return "NEITHER HALF — collapsed"\n    files = len(ex.file_consts)\n    shaped = bool(ex.edit_shapes or ex.anchor_index)')],
+        lambda r: (len({l.strip() for l in r['out'].split('\n')
+                        if l.startswith('    N') and 'HALF' in l}) == 1,
+                   'all reasons collapsed to one, as predicted — this is what the floor below catches'))
+
+    control(
+        'E5 the diagnosis discriminates on a clean tree — MUST STAY TRUE',
+        'at least three distinct verdicts across the six unreadable harnesses. This is the '
+        'positive half of E4: the floor has to be satisfied by the real tree, not only violated '
+        'by a mutation',
+        [(CHECK, '# after consts are known, because the write target is looked up through them',
+                 '# consts first: the write target resolves through them')],
+        lambda r: (len({l.strip()[:14] for l in r['out'].split('\n')
+                        if l.strip().startswith(('NO FILE HALF', 'NO SHAPE HALF', 'NEITHER HALF'))}) >= 3,
+                   'three distinct verdicts are present on the real tree'))
+
+    # ⚠ E6 IS A CONTROL ON A REPAIR THIS CHANGE FORCED ELSEWHERE, and it is the one worth reading.
+    # Adding the per-harness reason changed the UNREADABLE block's format, and the widen-controls
+    # harness detected membership with the literal `f"{rel}: 0 anchors extracted"`. Eight of its
+    # seventeen controls started reporting `0/2 of the harnesses that arm expect go UNREADABLE
+    # again` about a checker that was working perfectly. That detector is now a PARSE that checks
+    # itself against the count in the block's own header; this control moves the format again and
+    # requires it to RAISE rather than quietly return a short set.
+    total += 1
+    print('\n== E6 the UNREADABLE block format moved again — the sibling detector must REFUSE')
+    print("   PREDICT: unreadable_set() raises. It used to match a magic sentence and answered "
+          "'not unreadable' when the sentence moved — the direction that reports a harness as "
+          "readable when it is not")
+    import subprocess as _sp
+    _orig = io.open(CHECK, 'rb').read()
+    _sha = sha(CHECK)
+    try:
+        edit(CHECK, 'unreadable.append(f"{rel}\\n    {why_unreadable(ex)}")',
+                    'unreadable.append(f"* {rel}\\n    {why_unreadable(ex)}")')
+        pr = _sp.run(['python3', os.path.join(REPO, 'scripts/w1121d-anchor-check-widen-controls-r5m2.py')],
+                     capture_output=True, text=True, cwd=REPO, timeout=1800)
+        raised = "UNREADABLE block's format moved" in (pr.stdout + pr.stderr)
+    finally:
+        io.open(CHECK, 'wb').write(_orig)
+    assert sha(CHECK) == _sha, 'RESTORE FAILED for the checker'
+    print(f"   RESULT : detector raised = {raised}")
+    print(f"   VERDICT: {'OK' if raised else 'CONTROL FAILED'} — "
+          f"{'it refuses instead of guessing' if raised else 'it still answered from a broken parse'}")
+    ok += 1 if raised else 0
+
     # ── the regex-anchor half ─────────────────────────────────────────────────
     # ⚠ THE TWO-STEP BELOW IS NOT INVENTED FOR THE CONTROL — IT IS THE OBVIOUS NEXT MOVE, and each
     # half of it looks locally reasonable. `w11-face-identity` reads UNREADABLE because `_str`
