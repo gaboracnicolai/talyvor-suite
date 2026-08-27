@@ -111,3 +111,50 @@ jobs:
       # on a different host, and says so when it does.
       - run: scripts/build-release.sh bff
         working-directory: .
+
+  # Supply-chain gate: govulncheck against the Go vulnerability DB.
+  #
+  # ⚠ THERE WAS NONE, AND THE ABSENCE IS THE FINDING (W6.36). Measured on clean main
+  # `0ce0e603`: `govulncheck ./...` in apps/bff reported NINE CALLED vulnerabilities — CALLED,
+  # not the separate "in modules you require but your code doesn't appear to call" bucket it
+  # counts on its own line — and this file contained the word govulncheck zero times. Every one
+  # of the nine is the STANDARD LIBRARY, not a dependency: net/http, crypto/tls, crypto/x509,
+  # net/url, net/textproto, encoding/asn1. talyvor-lens has gated on this all along; track and
+  # docs were fixed the same night (#202, #201); suite was one of the last two unwatched.
+  #
+  # ⚠⚠ IT USES `go-version-file`, DELIBERATELY, AND NOT A LITERAL PIN. govulncheck grades the
+  # STDLIB against the toolchain it runs under, so the gate is only honest if it runs the Go this
+  # repo actually SHIPS. A literal pin is a second number that can drift from go.mod — talyvor-lens
+  # needs a whole package (internal/toolchainguard) to hold its literal pin in lockstep, and
+  # talyvor-track needed one too. Reading the version from go.mod, exactly as the `bff` job above
+  # already does, makes that drift impossible instead of merely detected.
+  #
+  # ⚠⚠⚠ AND THAT MAKES THIS GATE AN INSTRUMENT FOR THE TRAP W6.34 PAID FOR. actions/setup-go
+  # exports GOTOOLCHAIN=local, so a `toolchain` directive is NOT auto-fetched in CI. W6.34 merged
+  # a pin on talyvor-track whose commit message claimed an 11 → 2 improvement while CI still built
+  # with go1.25.14 and golangci-lint refused to start — the pin was a comment. govulncheck names
+  # the graded stdlib version in its own output ("Found in: net/http@goX.Y.Z"), so if the
+  # directive ever stops reaching this job, THIS JOB SAYS SO IN WORDS rather than going quietly
+  # green over a runtime nobody ships.
+  #
+  # Landed RED on purpose, before the toolchain floor that clears it; the PR's check history is
+  # the evidence. A gate nobody has watched fail is the same thing as no gate.
+  vuln:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/bff
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 (node24)
+        with:
+          go-version-file: apps/bff/go.mod
+          cache-dependency-path: apps/bff/go.sum
+      - name: report the Go this job actually runs
+        run: |
+          go version
+          go env GOVERSION GOTOOLCHAIN
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+          "$(go env GOPATH)/bin/govulncheck" ./...
