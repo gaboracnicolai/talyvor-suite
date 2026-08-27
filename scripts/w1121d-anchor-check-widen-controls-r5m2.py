@@ -65,7 +65,17 @@ LIST_ARM = "        if isinstance(after, (ast.List, ast.Tuple)) and after.elts:"
 # The iteration-site widening: the position comes from the for-loop unpacking, the file from the
 # module having exactly one constant that names one. Blinding either must un-read both harnesses.
 ITER_ARM = '    ANCHOR_NAMES = frozenset({"old", "find", "anchor"})'
-SINGLE_ARM = "        return self.file_consts[0] if len(self.file_consts) == 1 else None"
+# ⚠ RE-AIMED 2026-08-27 (tab-j8w4), NOT DELETED, AND THE MEANING IS PRESERVED EXACTLY. This was
+# the one-line body of `_single_file`; the write-target rule made that body three lines, so the
+# old anchor stopped matching and THIS CONTROL FAILED LOUDLY — which is the anchor check doing
+# its job one level up, on its own control. Aimed at the WHOLE body rather than at the first
+# arm on purpose: blinding only the first arm would leave `return self.written_file` standing,
+# and on a harness whose single file constant IS its write target the method would keep
+# answering — so the narrower mutation would disable nothing and F5 would pass having tested
+# nothing. Replaced by `return None`, this is byte-for-byte the semantics it always had.
+SINGLE_ARM = """        if len(self.file_consts) == 1:
+            return self.file_consts[0]
+        return self.written_file"""
 # The edits-loop widening: the shape (arity, anchor, path?) comes from the INNER `for … in edits`
 # loop, and resolve() learned to strip a leading `talyvor-suite/` that `Path.home() / "…"` leaves on.
 EDITS_ARM = "        if self.edit_shapes and node.elts:"
@@ -114,7 +124,12 @@ def main() -> int:
         rc, out = check()
         base_anchors, base_unread = counts(out)
         record("BASELINE — widened, pristine",
-               base_anchors >= 520 and base_unread == 8 and "every decidable anchor matches" in out,
+               # ⚠ MOVED 2026-08-27 (tab-j8w4) BY A REAL WIDENING, and both numbers are
+               # deliberate. unreadable 8 → 7: the write-target rule carries
+               # w11-scroll-reset. The anchor FLOOR is raised to the measured 530 rather
+               # than left at 520 — a floor that trails the measurement by ten cannot see
+               # a widening being reverted, which is the regression it exists for.
+               base_anchors >= 530 and base_unread == 7 and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 
         for i, (harness, anchor) in enumerate(NEWLY_READ, start=1):
