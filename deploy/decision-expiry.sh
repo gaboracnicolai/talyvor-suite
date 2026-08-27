@@ -959,6 +959,22 @@ cannot "the three issue-attributed Track AI surfaces still pass the ISSUE as the
     "talyvor-track internal/ai/engine.go" \
     "[ \"\$(grep -cE '^func \\(e \\*Engine\\) (TriageIssue|FindDuplicates|SummarizeThread|SemanticSearch)\\(' internal/ai/engine.go)\" = 4 ] && [ \"\$(grep -c 'callAnthropicViaLens(ctx, issue.WorkspaceID, issue.Identifier,' internal/ai/engine.go)\" = 3 ] && [ \"\$(grep -c 'callEmbeddingsViaLens(ctx, workspaceID, \"track-search\", query)' internal/ai/engine.go)\" = 1 ]   # in a talyvor-track checkout. Counts compared, never grep -c's own status: 3 is the three issue-attributed calls and a drop to 2 is a surface that stopped paying by issue. Verified at b2f282e."
 
+# ── D10 ──────────────────────────────────────────────────────────────────────
+# DECISION: apps/web/src/meteredSurfacePopulation.test.ts leaves areas/chat OUT of the metered
+#           surface population, so no census counts it and no metered rule is written for it.
+# PREMISE:  three talyvor-lens facts, all of them flags or branches rather than impossibilities.
+#
+# ⚠ THIS IS THE FIRST ENTRY IN THIS REGISTER FOR THE CHAT SEAM, AND THAT IS THE FINDING RATHER
+#   THAN A TIDY-UP. Measured at d2f11a3: a grep across all 48 uncheckable entries for
+#   session-key / SESSION_KEYS / tlv_sk_ / LXCShadow / shadowSpend / agentKeyID returned ZERO.
+#   R8 in settleCommands.test.ts is the rule that exists for exactly this and it iterates the
+#   `upstream:` fields of census ROWS — an excluded area has no row, so the obligation never
+#   attached. An inclusion whose premise decays gets a wrong NUMBER; an exclusion whose premise
+#   decays gets a surface nobody counts, while every census that says "all nine" keeps saying nine.
+cannot "areas/chat is EXCLUDED from the metered surface population — a session-key request moves NO LXC in the DEFAULT configuration, which is the whole reason that screen shows a catalog LIST PRICE and claims no bill (R9 in apps/web/src/settleCommands.test.ts joins the exclusion to this entry)" \
+    "talyvor-lens internal/proxy/shadow_lxc.go, internal/proxy/agent_allocator.go, internal/config/config.go, internal/auth/manager.go" \
+    "[ \"\$(go test ./internal/config/ -run 'TestLoad_SessionKeysAreOffByDefault|TestLoad_LXCShadowSpendEnabledDefaultsOffAndParses' -v 2>&1 | grep -cE '^--- PASS: (TestLoad_SessionKeysAreOffByDefault|TestLoad_LXCShadowSpendEnabledDefaultsOffAndParses) ')\" = 2 ] && [ \"\$(grep -c 'func (p \*Proxy) shadowSpendLXC(' internal/proxy/shadow_lxc.go)\" = 1 ] && [ \"\$(grep -rcE '\.(SpendLXCForAgent|ReserveLXCForAgent|SettleLXCReservation|SpendLXC)\(' --include='*.go' --exclude='*_test.go' internal/proxy | grep -v ':0\$' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ \$//')\" = 'internal/proxy/agent_allocator.go:4 internal/proxy/shadow_lxc.go:1' ] && [ \"\$(grep -rhoE 'APIKeyID: *[A-Za-z0-9_.]+' --include='*.go' --exclude='*_test.go' internal/auth | sed 's/APIKeyID: *//' | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ \$//')\" = 'key.ID' ]   # NEEDS NO DATABASE — and that is MEASURED, not assumed: the two tests in the first clause live in internal/config and parse environment variables, and both were RUN to PASS in a git archive export with no LENS_TEST_DATABASE_URL set at all. In a talyvor-lens checkout, and every clause was RUN against that read-only export at 1bddd21. The FIRST clause's anchor is a trailing SPACE and not \$: go prints '--- PASS: Name (0.00s)', so the \$ form this was first written with counted ZERO against two PASSING tests and the entry cried wolf on a healthy premise. Only running it showed that — including its negative direction, which is what the third clause exists to record: the first version compared the SET of mover names (sort -u) and ADDING A CALL SITE OF AN EXISTING MOVER DID NOT CHANGE IT, so it could not say no to the one change that matters. Counts per file, not a set of names. The second clause declares the symbol R9 joins on. The FIRST clause is the --- PASS: shape rather than a bare go test for a reason measured here too: TestSessionKey_AuthenticatesWithExactlyTheProxyScope holds the APIKeyID assertion and SKIPS without Postgres, and a bare `go test` exits 0 on that skip — so the source extraction in the fourth clause carries that half instead."
+
 # ── D9 ───────────────────────────────────────────────────────────────────────
 # DECISION: a missing bundle file 404s instead of answering 200 with index.html, so the deploy
 #           checks in README.md §6 and FULL-STACK-DEPLOY.md can read a STATUS CODE for

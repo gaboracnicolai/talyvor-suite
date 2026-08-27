@@ -156,7 +156,25 @@ const GO_TEST = ENTRIES.filter((e) => /\bgo test\b/.test(e.command))
  * invisible. Any `-cq`, `-ci`, `-cw` would have gone the same way. The rule was never about the
  * spelling of the flag: it is about a command that reads `grep`'s EXIT STATUS instead of its count.
  */
-const COUNT_SHAPE = /\bgrep -c[A-Za-z]*\b/
+/**
+ * ⚠⚠ AND THE THIRD SPELLING IS THE FLAG BEFORE THE LETTER, NOT AFTER IT. Both patterns were widened
+ * to `-c[A-Za-z]*` / `-o[A-Za-z]*` after `-cE` and `-oE` each escaped in turn — a fix for the
+ * SUFFIX, twice, and never for the PREFIX. `grep -rcE` counts and `grep -rhoE` extracts, and
+ * neither anchored form matches either, because the letter the pattern names is no longer first.
+ *
+ * ⚠ IT WAS LATENT AND IT WENT LIVE IN THE SAME CHANGE THAT FOUND IT: 0 of the 48 entries used an
+ * `-r`-first bundle, and D10 — added beside this — needs one, because the premise it settles is
+ * "no LXC mover call site exists OUTSIDE these two files" and only a recursive grep can say that.
+ * H4 below is what caught it, on D10, before it merged; the patterns are now keyed on the letter
+ * appearing ANYWHERE in the cluster, which is what `grepFlagClusters` has always done.
+ *
+ * ⚠ AND ONE CLASSIFIED CLAUSE MASKS AN UNCLASSIFIED ONE, which is why the `c` half did NOT red
+ * when the `o` half did. These rules classify an ENTRY, and D10's command has four clauses: its
+ * plain `grep -c` satisfied COUNT_SHAPE for the whole entry while its `grep -rcE` sat unseen
+ * inside the same string. Widening both patterns closes that for the flag bundle; the
+ * entry-versus-clause granularity is a separate limit and is stated here rather than fixed.
+ */
+const COUNT_SHAPE = /\bgrep -[A-Za-z]*c[A-Za-z]*\b/
 const GREP_C = ENTRIES.filter((e) => COUNT_SHAPE.test(e.command))
 /**
  * ⚠ THE BUNDLED FLAG IS IN THIS PATTERN TOO, AND IT WAS NOT — the identical defect recorded
@@ -164,7 +182,7 @@ const GREP_C = ENTRIES.filter((e) => COUNT_SHAPE.test(e.command))
  * `grep -oE`, so the six talyvor-lens request-body entries were in NO rule in this file. See H4
  * below, which is the control that keeps both patterns flag-bundling-proof.
  */
-const EXTRACT_SHAPE = /\bgrep -o[A-Za-z]*\b/
+const EXTRACT_SHAPE = /\bgrep -[A-Za-z]*o[A-Za-z]*\b/
 /**
  * H3 — AN EXTRACTION PIPELINE ANSWERS YES ABOUT WHATEVER IT FOUND, INCLUDING NOTHING. The seven
  * struct-mirror entries added with mirrorSubsetRegister.test.ts read a Go struct's json tags with
@@ -211,7 +229,20 @@ const EXTRACT_SHAPE = /\bgrep -o[A-Za-z]*\b/
  * literal exactly as `"…"` does. Positive-controlled below on the form this rule exists to
  * refuse — an uncaptured `grep -o` chained with `&&` — which still fails to match.
  */
-const EXTRACT_COMPARES = /\[\s*"\$\(.*grep -o.*\)"\s*=\s*(?:"[^"]*"|'[^']*')\s*\]/
+/**
+ * ⚠⚠ AND THIS IS THE THIRD PATTERN NAMING THE FLAG, AND THE ONLY ONE THAT HAD NEVER BEEN WIDENED
+ * AT ALL. The bundled-flag defect is recorded twice above and fixed twice — in COUNT_SHAPE and
+ * then in EXTRACT_SHAPE. Both fixes were to the classifiers. `EXTRACT_COMPARES` is the rule those
+ * classifiers HAND OFF TO, it spells `grep -o` bare, and its own control (H5, at the end of this
+ * file) tests the two QUOTING forms and says nothing about flags — so widening the classifiers
+ * moved D10 into a rule that then could not read it.
+ *
+ * MEASURED, in this order, which is why it is worth recording: widening EXTRACT_SHAPE made H4 go
+ * green and turned THIS rule red on the same entry. A classifier and its consumer have to be
+ * widened together, or widening the classifier only moves the blindness one rule along.
+ */
+const EXTRACT_COMPARES =
+  /\[\s*"\$\(.*grep -[A-Za-z]*o[A-Za-z]*.*\)"\s*=\s*(?:"[^"]*"|'[^']*')\s*\]/
 
 const EXTRACT = ENTRIES.filter(
   (e) => EXTRACT_SHAPE.test(e.command) && !/\bcurl\b/.test(e.command),
@@ -284,6 +315,10 @@ describe('a bundled grep flag does not fall out of the rule that names the flag'
     const cases = [
       { name: 'EXTRACT_SHAPE', shape: EXTRACT_SHAPE, bare: 'grep -o x', bundled: 'grep -oE x' },
       { name: 'COUNT_SHAPE', shape: COUNT_SHAPE, bare: 'grep -c x', bundled: 'grep -cE x' },
+      // ⚠ THE FLAG BEFORE THE LETTER. Both patterns were widened for the SUFFIX twice and never
+      // for the PREFIX; D10 needs a recursive grep and reddened H4 on the `o` half alone.
+      { name: 'EXTRACT_SHAPE', shape: EXTRACT_SHAPE, bare: 'grep -o x', bundled: 'grep -rhoE x' },
+      { name: 'COUNT_SHAPE', shape: COUNT_SHAPE, bare: 'grep -c x', bundled: 'grep -rcE x' },
     ]
     for (const c of cases) {
       expect(c.shape.test(c.bare), `${c.name} lost the bare form`).toBe(true)
@@ -626,6 +661,24 @@ const upstreamFiles = (): { census: string; repo: string; path: string; symbol: 
   return out
 }
 
+/**
+ * ⚠ THE JOIN IS ON A WHOLE WORD, NOT A SUBSTRING, AND A CONTROL IS WHAT FOUND THAT.
+ *
+ * R8 and R9 both ask "does this settle command NAME this symbol", and both spelled it
+ * `command.includes(symbol)`. Control X4 renamed D10's symbol from `shadowSpendLXC` to
+ * `shadowSpendLXCv2` — the exact shape of an upstream rename — and R9 STAYED GREEN, because the
+ * new name CONTAINS the old one. A command that greps `shadowSpendLXCv2` does not look at
+ * `shadowSpendLXC`, and the rule said it did.
+ *
+ * It is the same class as the bundled-flag defect three patterns above: a rule that names a token
+ * and then matches it without boundaries. `\b` on both sides is enough here because every symbol
+ * these rules join on is `[A-Za-z0-9_]+`; the symbol is escaped anyway rather than trusted, since
+ * it comes out of a file this rule does not own.
+ */
+const namesSymbol = (command: string, symbol: string): boolean =>
+  symbol !== '' &&
+  new RegExp(`\\b${symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(command)
+
 describe('R8 — every metered census names an upstream file the register can settle', () => {
   /**
    * The vacuity floor, and it is the one that matters: the rule below iterates this list, so a
@@ -664,7 +717,7 @@ describe('R8 — every metered census names an upstream file the register can se
     const orphans = upstreamFiles().filter(
       (u) =>
         !WITH_SUBJECTS.some(
-          (w) => w.repo === u.repo && w.paths.includes(u.path) && w.entry.command.includes(u.symbol),
+          (w) => w.repo === u.repo && w.paths.includes(u.path) && namesSymbol(w.entry.command, u.symbol),
         ),
     )
     expect(
@@ -690,5 +743,100 @@ describe('the extraction-shape rule still refuses the form it was written for', 
     expect(EXTRACT_COMPARES.test('grep -oE \'json:"[a-z_]+\' f.go | sort -u && echo ok')).toBe(false)
     // And a capture compared to a BARE word rather than a written-down literal.
     expect(EXTRACT_COMPARES.test('[ "$(grep -o x f.go)" = x ]')).toBe(false)
+  })
+
+  /**
+   * ⚠ H5 — AND THE FLAG FORMS, WHICH THIS CONTROL DID NOT TEST AND SHOULD HAVE. Everything above
+   * varies the QUOTING. The defect this file has now met three times varies the FLAG CLUSTER, and
+   * a rule that names `grep -o` is blind to `grep -rhoE` however it is quoted. D10 is the entry
+   * that found it: widening the two classifiers turned this consumer red on a command both
+   * classifiers had just accepted.
+   */
+  it('EXTRACT_COMPARES reads the flag wherever the letter sits in the cluster', () => {
+    for (const flags of ['-o', '-oE', '-ho', '-rhoE', '-rho']) {
+      expect(
+        EXTRACT_COMPARES.test(`[ "$(grep ${flags} 'x' f.go | sort -u)" = "a b" ]`),
+        `EXTRACT_COMPARES did not read \`grep ${flags}\`. A rule that names a flag letter must ` +
+          'find it anywhere in the cluster, or widening the classifier just moves the blind spot ' +
+          'from the classifier to its consumer.',
+      ).toBe(true)
+    }
+    // The negative half: a cluster with NO `o` is not an extraction, however long it is.
+    expect(EXTRACT_COMPARES.test('[ "$(grep -rcE \'x\' f.go)" = "1" ]'), 'matched a count').toBe(false)
+    expect(EXTRACT_COMPARES.test('[ "$(grep -A12 \'x\' f.go)" = "1" ]'), 'matched -A').toBe(false)
+  })
+})
+
+/**
+ * R9 — AND AN EXCLUSION IS A PREMISE TOO, WHICH R8 CANNOT SEE BY CONSTRUCTION.
+ *
+ * R8 above iterates the `upstream:` fields of metered census ROWS, so every INCLUDED surface's
+ * upstream call site must be a declared subject of a `cannot` entry. An area EXCLUDED from the
+ * population has no row, no field, and therefore no obligation — and the exclusions are where the
+ * upstream premise is doing the most work, because an inclusion that decays gets a wrong NUMBER
+ * while an exclusion that decays gets a surface nobody is counting at all.
+ *
+ * MEASURED at `d2f11a3`, not inferred: `areas/chat` is out of the metered population on a
+ * talyvor-lens fact (a session-key request moves no LXC in the default configuration), and a
+ * `grep -c` for session-key / SESSION_KEYS / tlv_sk_ / LXCShadow / shadowSpend / agentKeyID across
+ * all 48 uncheckable entries of deploy/decision-expiry.sh returned **0**. The newest cross-repo
+ * surface in this app was the one the register had never heard of.
+ *
+ * ⚠ THE JOIN IS R8's, DELIBERATELY — repo AND path AND symbol — for R8's own measured reason: a
+ * bare-path join scored GREEN with half the register deleted, because two repos each declare
+ * `internal/ai/engine.go`. The one difference is where the repository comes from: R8 derives it
+ * from the directory the census lives in, and meteredSurfacePopulation.test.ts is not inside an
+ * area, so its rows carry the repo themselves.
+ */
+const POPULATION_FILE = resolve(import.meta.dirname, 'meteredSurfacePopulation.test.ts')
+/** `kind: 'upstream', repo: 'talyvor-lens', upstream: 'internal/proxy/shadow_lxc.go#shadowSpendLXC'` */
+const EXCLUSION_UPSTREAM =
+  /kind:\s*'upstream'\s*,\s*repo:\s*'([^']+)'\s*,\s*upstream:\s*'([^']+)'/g
+
+const exclusionPremises = (): { repo: string; path: string; symbol: string }[] => {
+  const src = readFileSync(POPULATION_FILE, 'utf8')
+  return [...src.matchAll(EXCLUSION_UPSTREAM)].map((m) => {
+    const [path, symbol] = m[2].split('#')
+    return { repo: m[1], path: path ?? '', symbol: (symbol ?? '').split('.').pop() ?? '' }
+  })
+}
+
+describe('R9 — every EXCLUSION resting on another repo is a declared subject of a settle command', () => {
+  /**
+   * The vacuity floor. The rule below iterates this list, so a reformat that breaks the parse —
+   * or an exclusion table emptied — reports a clean join having read nothing. ONE upstream
+   * exclusion measured at `d2f11a3`; named as a literal, never derived from the parse it polices.
+   *
+   * ⚠ IT IS `>= 1` AND NOT `=== 1` ON PURPOSE, because the failure this floor exists for is the
+   * parse going to ZERO. Pinning the exact count would make ADDING a correctly-declared exclusion
+   * red a rule about vacuity, which trains the next reader to edit the floor rather than read it.
+   */
+  it('parses an upstream premise out of the exclusion table', () => {
+    expect(
+      exclusionPremises().length,
+      'no `kind: upstream` exclusion parsed out of meteredSurfacePopulation.test.ts. Either the ' +
+        'table was emptied or its shape changed — which silently empties the rule below and ' +
+        'reports every exclusion covered.',
+    ).toBeGreaterThanOrEqual(1)
+  })
+
+  it('every upstream exclusion premise is named by a settle command', () => {
+    const orphans = exclusionPremises().filter(
+      (u) =>
+        !WITH_SUBJECTS.some(
+          (w) => w.repo === u.repo && w.paths.includes(u.path) && namesSymbol(w.entry.command, u.symbol),
+        ),
+    )
+    expect(
+      [...new Set(orphans.map((u) => `${u.repo} ${u.path}#${u.symbol}`))],
+      'these premises are the ONLY thing keeping a surface out of the metered population, and no ' +
+        '`cannot` entry in deploy/decision-expiry.sh both declares the file for that repository ' +
+        'AND names the symbol in its command. Nothing anywhere asks whether the fact still holds. ' +
+        'An excluded surface whose premise decays is worse than an included one whose premise ' +
+        'decays: the second gets a wrong number, the first gets no number at all and every census ' +
+        'that enumerates "all nine" keeps saying nine. Add a settle command whose `where` names ' +
+        'the file and whose command greps the symbol, and verify it by RUNNING it against a ' +
+        'read-only checkout of that repo.',
+    ).toEqual([])
   })
 })

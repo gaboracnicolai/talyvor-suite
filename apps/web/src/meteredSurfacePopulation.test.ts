@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -71,6 +71,81 @@ import { stripComments } from '../../../packages/ui/src/lib/sourceText'
 // Chat.tsx:37 records that in the default configuration a session-key request moves no LXC at all
 // (talyvor-lens `dd1bb44`), which is why that screen shows a catalog LIST PRICE and refuses to
 // claim a bill.
+
+/**
+ * ⚠⚠ AN EXCLUSION IS A CLAIM, AND IT IS THE CLAIM IN THIS FILE DOING THE MOST WORK — SO IT IS DATA
+ * HERE RATHER THAN THE PROSE IT WAS.
+ *
+ * Docs' census already states the rule: *"A surface excluded silently is indistinguishable from one
+ * forgotten, which is how SearchDocs was missed; excluded surfaces are therefore named here."* They
+ * WERE named — in the paragraph above — and naming was as far as it went. Nothing joined an
+ * exclusion to anything, and the difference matters most for the one whose premise is not in this
+ * repository.
+ *
+ * ⚠ R8 IN settleCommands.test.ts IS THE RULE THAT EXISTS FOR EXACTLY THIS AND IT CANNOT SEE AN
+ * EXCLUSION. It iterates the `upstream:` FIELDS OF CENSUS ROWS, so every INCLUDED surface's
+ * upstream call site must be a declared subject of a `cannot` entry — and an excluded area has no
+ * row, no field, and therefore no obligation. MEASURED, not inferred: `grep -c` for
+ * session-key / SESSION_KEYS / tlv_sk_ / LXCShadow / shadowSpend / agentKeyID across
+ * deploy/decision-expiry.sh returns **0** over its 48 uncheckable entries. The newest cross-repo
+ * surface in this app is the one the register has never heard of, and the reason is structural: a
+ * rule that iterates rows is blind to the rows that were removed.
+ *
+ * ⚠ THE REPO IS IN THE ROW, WHICH IS THE ONE PLACE THIS DIFFERS FROM THE CENSUSES' OWN `upstream:`
+ * SHAPE, AND IT IS NOT AN INCONSISTENCY. settleCommands.test.ts derives a census's repository from
+ * the DIRECTORY it lives in (`areas/docs` → talyvor-docs) precisely because a bare path joined
+ * across repos scored GREEN with half the register deleted — both repos declare
+ * `internal/ai/engine.go`. This file is not inside an area and covers three of them, so no
+ * directory names its repository and the row has to.
+ */
+type Exclusion = {
+  /** What is out of the population. */
+  readonly subject: string
+  /** Why, in the words of whatever measured it. */
+  readonly why: string
+  /**
+   * Where the premise lives.
+   *
+   * ⚠ THERE IS NO THIRD STATE, DELIBERATELY. "local" means a reader can settle it in this
+   * checkout; "upstream" means they cannot and the register must carry it. An exclusion that
+   * declared neither would be the #274 defect again — a population that silently excuses what it
+   * cannot resolve — so the type does not allow one and the rules below refuse it anyway.
+   */
+  readonly premise:
+    | { readonly kind: 'local'; readonly at: string; readonly symbol: string }
+    | { readonly kind: 'upstream'; readonly repo: string; readonly upstream: string }
+}
+
+/**
+ * ⚠ A LITERAL, never `EXCLUDED.length`. A floor measured from the thing it protects passes at
+ * zero — this repo's most-repeated finding, and the same reason `expectedRoutes` below is typed
+ * out. TWO measured at `d2f11a3`.
+ */
+const EXPECTED_EXCLUSIONS = 2
+
+const EXCLUDED: readonly Exclusion[] = [
+  {
+    subject: 'docsApi.generateChangelog (areas/docs/PageChangelog.tsx)',
+    why: 'not a metered route at all — "GenerateFromIssues reaches Lens never", no own_ai_cost_usd moves.',
+    // Settleable HERE: the measurement is in this repo, in the file it is about.
+    premise: { kind: 'local', at: 'areas/docs/PageChangelog.tsx', symbol: 'GenerateFromIssues' },
+  },
+  {
+    subject: 'areas/chat (Chat.tsx)',
+    why:
+      'in the DEFAULT configuration a session-key request moves no LXC at all, so the screen shows ' +
+      'a catalog LIST PRICE and refuses to claim a bill (talyvor-lens dd1bb44, W4.6.1 step 4b).',
+    // ⚠ NOT SETTLEABLE HERE, AND THAT IS THE WHOLE POINT. Three upstream facts hold this up and
+    // every one of them is a talyvor-lens flag or branch: LXCShadowSpendEnabled defaults FALSE,
+    // the agent movers are confined to a file reached only under a non-empty agentKeyID, and
+    // internal/auth sets APIKeyID on the workspace-key branch alone. The register carries them.
+    premise: {
+      kind: 'upstream',
+      repo: 'talyvor-lens',
+      upstream: 'internal/proxy/shadow_lxc.go#shadowSpendLXC',
+    },
+  },
+]
 
 /** A route whose use bills Lens, and the token its callers must write to reach it.
  *
@@ -263,4 +338,66 @@ describe('the metered-surface population comes from the source', () => {
       })
     })
   }
+})
+
+describe('an exclusion is a claim, and it names where its premise can be settled', () => {
+  /**
+   * ⚠ THE VACUITY FLOOR, AND IT IS THE ONE THAT MATTERS HERE. Every rule below iterates EXCLUDED,
+   * so emptying the table turns this whole block green having read nothing — and an empty
+   * exclusion table is exactly what "we forgot to write the area down" looks like. The number is
+   * a literal, never `EXCLUDED.length`.
+   */
+  it('the exclusion table still has the exclusions this file was written about', () => {
+    expect(
+      EXCLUDED.length,
+      'fewer exclusions declared than this file measured. An area dropped OUT of the population ' +
+        'without a row here is a surface excluded silently, which is the failure Docs’ census ' +
+        'names as how SearchDocs came to be missed.',
+    ).toBe(EXPECTED_EXCLUSIONS)
+  })
+
+  /**
+   * ⚠ A LOCAL PREMISE MUST ACTUALLY BE READABLE HERE, or "settle it in this checkout" is a
+   * sentence rather than an instruction. Both halves are asserted — the file resolves AND the
+   * symbol is in it — because a pointer that resolves to a file which no longer declares the
+   * thing is the stale-anchor shape this repo has repaired eight times.
+   */
+  it('every local premise resolves to a file that still declares its symbol', () => {
+    const broken = EXCLUDED.filter((e) => e.premise.kind === 'local').filter((e) => {
+      const p = e.premise as { kind: 'local'; at: string; symbol: string }
+      const full = resolve(WEB_SRC, p.at)
+      if (!existsSync(full)) return true
+      return !readFileSync(full, 'utf8').includes(p.symbol)
+    })
+    expect(
+      broken.map((e) => e.subject),
+      'these exclusions say their premise is measurable in this repo and it is not — the file is ' +
+        'gone, or it no longer declares the symbol named. Re-anchor it deliberately; do not ' +
+        'downgrade it to `upstream`, which would move a premise this checkout CAN settle into the ' +
+        'half nobody runs.',
+    ).toEqual([])
+  })
+
+  /**
+   * ⚠ AND AN UPSTREAM PREMISE MUST BE SHAPED SO THE REGISTER CAN JOIN ON IT. R9 in
+   * settleCommands.test.ts does the join; this asserts the pointer is well formed BEFORE that
+   * rule reads it, so a malformed pointer reds here with a sentence about the pointer rather than
+   * there with a sentence about the register.
+   *
+   * ⚠ THE SYMBOL IS REQUIRED, for R8's own measured reason: joined on the bare path, deleting a
+   * settle command scored GREEN because a file of the same name is declared for a different
+   * premise in the same repo. A file is not a call site.
+   */
+  it('every upstream premise names a repo, a path and a symbol', () => {
+    const malformed = EXCLUDED.filter((e) => e.premise.kind === 'upstream').filter((e) => {
+      const p = e.premise as { kind: 'upstream'; repo: string; upstream: string }
+      const [path, symbol] = p.upstream.split('#')
+      return p.repo.trim() === '' || !path?.endsWith('.go') || (symbol ?? '').trim() === ''
+    })
+    expect(
+      malformed.map((e) => e.subject),
+      'these exclusions rest on a premise in another repository and do not name it as ' +
+        '`repo` + `path#Symbol`, so no settle command can be joined to them.',
+    ).toEqual([])
+  })
 })
