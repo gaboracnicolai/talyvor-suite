@@ -35,7 +35,7 @@ import { SearchDocs } from './SearchDocs'
 //   internal/ai/engine.go   Summarize → e.run(…, "docs-ai-summarize", pageID)
 //                           Translate → e.run(…, "docs-ai-translate", pageID)
 //                           SuggestTitle → e.run(…, "docs-ai-title", pageID)
-//                           Ask       → e.run(…, "docs-ai-ask", "")      ← no page by construction
+//                           AskDocs   → e.run(…, "docs-ai-ask", "")      ← no page by construction
 //   internal/search/semantic.go:400  req.Header.Set("X-Talyvor-Feature", "docs-search")
 //
 // and internal/search/handler.go#WithRateLimit states the property that makes search the one that
@@ -47,9 +47,17 @@ import { SearchDocs } from './SearchDocs'
 // derived from the list it guards is a floor that moves when someone deletes a row, which is the
 // one direction this census exists to refuse.
 //
-// ⚠ AND THE STALE DIRECTION IS ASSERTED TOO. An entry names the upstream call site that makes it
-// metered. If a surface stops spending, its row must be DELETED rather than left passing — see
-// the changelog note below, which is the one Docs AI surface deliberately NOT in this population.
+// ⚠ AND THE STALE DIRECTION IS **NOT** ASSERTED HERE — THIS PARAGRAPH USED TO SAY IT WAS, AND THE
+// COLUMN IT DESCRIBED CAUGHT NOTHING. An entry names the upstream call site that makes it metered,
+// and if a surface stops spending its row must be DELETED rather than left passing. That is a rule
+// for a person: the only assertion this file makes about `upstream` is `toMatch(/^internal\//)`, a
+// SHAPE. Measured read-only at talyvor-docs `48c8336` (tab-p9r4, W1.7.1): the row below named
+// `Engine.Ask` and talyvor-docs declares `AskDocs` — zero declarations of `Engine.Ask` at the SHA
+// this header pins, so it was never right rather than drifted. Corrected in place, and the
+// direction is now settleable rather than described: `deploy/decision-expiry.sh` carries a
+// `cannot` entry that compares the extracted tag SET and the four engine declarations against a
+// talyvor-docs checkout, armed against both the rename this file was making and a tag rename.
+// (The one Docs AI surface deliberately NOT in this population is the changelog — see below.)
 //
 // ⚠ PageChangelog IS OUT, WITH A REASON RATHER THAN AN OMISSION. Its header records that the
 // generate route's charge does not land on the page's own_ai_cost_usd, so it must NOT print the
@@ -257,7 +265,7 @@ const METERED: {
     name: 'AskAI',
     tag: 'docs-ai-ask',
     payer: 'workspace',
-    upstream: 'internal/ai/engine.go#Engine.Ask',
+    upstream: 'internal/ai/engine.go#Engine.AskDocs',
     node: <AskAI />,
     drive: () => {
       fireEvent.change(screen.getByLabelText(/question/i), { target: { value: 'how do we roll back?' } })
