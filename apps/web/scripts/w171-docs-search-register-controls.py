@@ -55,46 +55,70 @@ def sha(p: Path) -> str:
 
 GUARD_NAME = "docsSearchRegister.test.ts"
 
-# (label, file, mutate(text)->text, caught?)  — caught means THIS guard must be among the failures.
+# (label, path, old, new, extra, caught?) — caught means THIS guard must be among the failures.
+#
+# ⚠ THE ANCHORS ARE DATA, NOT CLOSURES, AND THAT IS THE WHOLE POINT OF THE SHAPE.
+# Until 2026-08-27 each row carried a `lambda t: t.replace(A, B)`. The mutations were identical to
+# these, and the harness scored the same 11/1/0 — but the anchor string A was inside a lambda, so
+# scripts/w1120-anchor-check-h3n8.py could not attribute it and reported this file UNREADABLE:
+# "NO FILE HALF — 3 constants resolve to files and none is attributable ... No shape is matched
+# either". An unreadable harness is one that check says NOTHING about, which is why it is a
+# non-zero exit there and not a footnote.
+#
+# ⚠ THE CHECKER WAS NOT WIDENED TO REACH THIS FILE. Its own report says a missing FILE half cannot
+# be closed by widening the anchor vocabulary and points at how the harness names its paths, so the
+# harness moved instead: `path` was already in its PATH_NAMES and `old` is now in its ANCHOR_NAMES,
+# which is the shape it has always been able to read. Widening a checker to reach one file is how
+# it starts reporting false misses elsewhere — measured, at 14 of them, in W1.1.21d.
+#
+# ⚠ `extra` IS NOT STATICALLY CHECKED AND IS SAID OUT LOUD RATHER THAN LEFT TO BE NOTICED. Only V1
+# needs more than one replace (a rename with three call sites). Its first pair is the anchor the
+# check reads; the other two are applied at runtime and EACH must change something — see the
+# per-pair VOID check in main(), which is stronger than the old single check on the final text: a
+# chained replace whose second link stopped matching used to be invisible.
 CONTROLS = [
     ("G1  a SIXTH parameter put on the wire, register untouched", ROUTE,
-     lambda t: t.replace('out.Set("limit", strconv.Itoa(limit))',
-                         'out.Set("sort", "title")\n\t\tout.Set("limit", strconv.Itoa(limit))'), True),
+     'out.Set("limit", strconv.Itoa(limit))',
+     'out.Set("sort", "title")\n\t\tout.Set("limit", strconv.Itoa(limit))', (), True),
     ("G2  a FOURTH type accepted here, register untouched", ROUTE,
-     lambda t: t.replace('map[string]bool{"all": true, "fulltext": true, "semantic": true}',
-                         'map[string]bool{"all": true, "fulltext": true, "semantic": true, "titles": true}'), True),
+     'map[string]bool{"all": true, "fulltext": true, "semantic": true}',
+     'map[string]bool{"all": true, "fulltext": true, "semantic": true, "titles": true}', (), True),
     ("G3  the merged window moved to 40, register untouched", ROUTE,
-     lambda t: t.replace("const docsSearchMergedWindow = 50", "const docsSearchMergedWindow = 40"), True),
+     "const docsSearchMergedWindow = 50",
+     "const docsSearchMergedWindow = 40", (), True),
     ("G4  a THIRD upstream-behaviour refusal declared with no entry", ROUTE,
-     lambda t: t.replace("// docsSearch — GET /api/docs/search",
-                         'const docsSearchSpaceRefusal = "space_id must name a space"\n\n'
-                         "// docsSearch — GET /api/docs/search"), True),
+     "// docsSearch — GET /api/docs/search",
+     'const docsSearchSpaceRefusal = "space_id must name a space"\n\n'
+     "// docsSearch — GET /api/docs/search", (), True),
     ("G5  a refusal constant DECLARED but never written to a caller", ROUTE,
-     lambda t: t.replace('writeJSON(w, http.StatusBadRequest, map[string]string{"error": docsSearchTypeRefusal})',
-                         'writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad type"})'), True),
+     'writeJSON(w, http.StatusBadRequest, map[string]string{"error": docsSearchTypeRefusal})',
+     'writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad type"})', (), True),
     ("G6  the window entry DELETED from the register", REGISTER,
-     lambda t: t.replace("cannot \"the 50-row merged window is talyvor-docs' own maxFetchRows",
-                         "true \"the 50-row merged window is talyvor-docs' own maxFetchRows"), True),
+     "cannot \"the 50-row merged window is talyvor-docs' own maxFetchRows",
+     "true \"the 50-row merged window is talyvor-docs' own maxFetchRows", (), True),
     ("G7  the key-set entry's EXPECTATION narrowed to four keys", REGISTER,
-     lambda t: t.replace("URL.Query().Get(limit)|URL.Query().Get(offset)|URL.Query().Get(q)|"
-                         "URL.Query().Get(space_id)|URL.Query().Get(type)|",
-                         "URL.Query().Get(limit)|URL.Query().Get(offset)|URL.Query().Get(q)|"
-                         "URL.Query().Get(type)|"), True),
+     "URL.Query().Get(limit)|URL.Query().Get(offset)|URL.Query().Get(q)|"
+     "URL.Query().Get(space_id)|URL.Query().Get(type)|",
+     "URL.Query().Get(limit)|URL.Query().Get(offset)|URL.Query().Get(q)|"
+     "URL.Query().Get(type)|", (), True),
     ("G8  the type entry's grep pattern RE-AIMED (the entry still exists, and still counts)", REGISTER,
-     lambda t: t.replace("grep -o 'kind == .[a-z]*.'", "grep -o 'kinds == .[a-z]*.'"), True),
+     "grep -o 'kind == .[a-z]*.'",
+     "grep -o 'kinds == .[a-z]*.'", (), True),
     ("G9  the window entry's expectation moved to 60 while the const stays 50", REGISTER,
-     lambda t: t.replace('= \\"maxFetchRows = 50|\\"', '= \\"maxFetchRows = 60|\\"'), True),
+     '= \\"maxFetchRows = 50|\\"',
+     '= \\"maxFetchRows = 60|\\"', (), True),
     # ── VACUITY. Every population is a parse; a parse that finds nothing must not pass. ──
     ("V1  the wire-query builder renamed, so `out.Set` parses to NOTHING", ROUTE,
-     lambda t: t.replace("out.Set(", "wire.Set(").replace("out := url.Values{}", "wire := url.Values{}")
-                .replace("docsWorkspacePath(ws, \"/search\"), out.Encode()",
-                         "docsWorkspacePath(ws, \"/search\"), wire.Encode()"), True),
+     "out.Set(", "wire.Set(",
+     (("out := url.Values{}", "wire := url.Values{}"),
+      ('docsWorkspacePath(ws, "/search"), out.Encode()',
+       'docsWorkspacePath(ws, "/search"), wire.Encode()')), True),
     ("V2  the type map renamed, so the discriminator parses to NOTHING", ROUTE,
-     lambda t: t.replace("docsSearchTypes", "docsSearchKinds"), True),
+     "docsSearchTypes", "docsSearchKinds", (), True),
     # ── THE NEGATIVE CONTROL. A guard that reds on everything is not a guard. ──
     ("N1  a COMMENT reworded in the route — nothing declared moved", ROUTE,
-     lambda t: t.replace("// docsSearchDefaultLimit is THIS route's default page size",
-                         "// docsSearchDefaultLimit is this route's default page size"), False),
+     "// docsSearchDefaultLimit is THIS route's default page size",
+     "// docsSearchDefaultLimit is this route's default page size", (), False),
 ]
 
 # The blinded runs: the same defect with the guard file removed. If the project is still red, the
@@ -115,15 +139,30 @@ def main() -> int:
     guard_text, guard_sha = GUARD.read_text(), sha(GUARD)
     caught = green = anomalies = 0
 
-    for label, path, mutate, want_caught in CONTROLS:
+    for label, path, old, new, extra, want_caught in CONTROLS:
         text, digest = originals[path]
         blind = label in BLINDED
         try:
-            mutated = mutate(text)
+            # ⚠ EVERY PAIR MUST BITE, NOT JUST THE COMBINATION. The old check compared only the
+            # FINAL text to the original, so in a chained replace a link that had stopped matching
+            # was invisible as long as any other link still landed. Checked per pair now.
+            mutated = text.replace(old, new)
             if mutated == text:
                 print(f"  ⚠ VOID  {label}: the mutation changed NOTHING — a no-op reads exactly "
                       "like a defect nobody watches")
                 anomalies += 1
+                continue
+            void_extra = False
+            for e_old, e_new in extra:
+                stepped = mutated.replace(e_old, e_new)
+                if stepped == mutated:
+                    print(f"  ⚠ VOID  {label}: the extra pair {e_old[:40]!r} matched NOTHING, so "
+                          "this control applies less than it says it does")
+                    anomalies += 1
+                    void_extra = True
+                    break
+                mutated = stepped
+            if void_extra:
                 continue
             path.write_text(mutated)
             failing = run_suite()
