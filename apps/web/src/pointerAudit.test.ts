@@ -796,17 +796,61 @@ describe('every file:line pointer names a line that holds what the sentence prom
     expect(stale).toEqual([])
   })
 
-  it('every HISTORICAL pointer names a line that no longer holds its fragment', () => {
+  /**
+   * ⚠⚠ THIS ASKED THE NAMED LINE AND THE NAMED LINE WAS DOING NO WORK. MEASURED at `5e61fde`
+   * across all six HISTORICAL pins: not one of their fragments occurs ANYWHERE in its target
+   * file, so `lines[f.line - 1].includes(fragment)` was false for every line of every file and
+   * the assertion passed independently of the number it was given. A HISTORICAL pin could name
+   * line 357, line 1, or a line that does not exist, and pass identically.
+   *
+   * ⚠⚠⚠ AND THAT IS NOT HYPOTHETICAL — IT DISARMED THE ONE CONTROL THIS PIN'S OWN HARNESS SAYS
+   * IT MUST HAVE. `w11-pointer-pins-controls.py` states: "ONE CONTROL MUST BE A MUTATION ONLY
+   * THIS GUARD CAN SEE (C9), or the pin has not been shown to earn its place next to the seven
+   * audits already here." C9 puts `hover:underline` back into `IssueList.tsx` — and scored
+   * NOT CAUGHT, because the rebuild of that screen moved the quoted comment from line 357 to
+   * line 530 while the pin kept watching 357. `restingAffordance.test.ts:26` still cites
+   * `IssueList.tsx:357` for a `<Link className="underline-offset-2 hover:underline">`; line 357
+   * is an `onSubmit` handler and that Link is nowhere in the file.
+   *
+   * ⚠ SO THE QUESTION IS ASKED OF THE WHOLE FILE, which is what a HISTORICAL entry actually
+   * claims: this offender WAS FIXED. If it is back anywhere in that file the history is false,
+   * whatever line it lands on. That is strictly stronger than the line check — it cannot turn a
+   * red green — and it is deliberately BROADER: a genuine unrelated reoccurrence elsewhere in
+   * the same file will red here, and it should, because the entry says the file no longer does
+   * this. Measured green on all six at `5e61fde`, and RED under C9.
+   *
+   * The past-EOF arm is parity with the LIVE case above, which has always reported it. It is
+   * preventive today — measured, 0 of 74 pins point past EOF — and it exists because the
+   * asymmetry ran the wrong way: LIVE said so, HISTORICAL passed silently.
+   */
+  it('every HISTORICAL pointer names a file that no longer holds its fragment', () => {
     const misfiled: string[] = []
+    let examined = 0
     for (const f of found) {
       const pin = PINS[f.key]
       if (!pin || pin.kind !== 'HISTORICAL') continue
+      examined += 1
       const lines = readFileSync(resolve(REPO, f.target), 'utf8').split('\n')
-      const body = lines[f.line - 1]
-      if (body !== undefined && body.includes(pin.fragment)) {
-        misfiled.push(`${f.key} — filed as history but the line holds ${JSON.stringify(pin.fragment)} again`)
+      if (lines[f.line - 1] === undefined) {
+        misfiled.push(`${f.key} — line ${f.line} is past EOF (${lines.length} lines)`)
+        continue
+      }
+      const at = lines
+        .map((body, i) => (body.includes(pin.fragment) ? i + 1 : 0))
+        .filter((n) => n > 0)
+      if (at.length > 0) {
+        misfiled.push(
+          `${f.key} — filed as history but ${JSON.stringify(pin.fragment)} is back in that ` +
+            `file at line(s) ${at.join(', ')}`,
+        )
       }
     }
     expect(misfiled).toEqual([])
+    // ⚠ A FLOOR ON THE POPULATION, NOT ON THE VERDICT, and this assertion needed one more than
+    // most: `misfiled` is empty when every HISTORICAL pin is honest AND when not one was
+    // examined — a `kind` spelling change, a narrowed `found`, or a pin table that stops parsing
+    // all read as a clean bill. Six at this commit; the floor leaves room for one honest
+    // deletion and no room for the set collapsing.
+    expect(examined).toBeGreaterThan(4)
   })
 })
