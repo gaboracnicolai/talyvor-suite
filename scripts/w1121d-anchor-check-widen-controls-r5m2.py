@@ -185,9 +185,14 @@ def main() -> int:
                # learned `os.path.join`, which reads `w18-prose-class`. FOUR deliberate moves in
                # one session, each one looked at — that is what an exact pin buys, and a range
                # would have absorbed every one of them silently.
-               base_anchors >= 543 and base_unread == 4
+               # ⚠ FIFTH MOVE 2026-08-27 (tab-j8w4), 4 → 3 and the floor 543 → 547: the join
+               # branch stopped DROPPING its first argument, which reads `w17-mounted-patterns`.
+               # Five deliberate moves in one session. Every one of them had to be looked at, and
+               # one of them (this) turned out to be a bug the same tab had shipped three hours
+               # earlier — which a range would have swallowed without a word.
+               base_anchors >= 547 and base_unread == 3
                and out.count("ANCHOR ON REGEXES") == 1
-               and base_unread + 1 == 5
+               and base_unread + 1 == 4
                and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 

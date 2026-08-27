@@ -392,14 +392,31 @@ class Extractor(ast.NodeVisitor):
             if b is not None:
                 a = self._str(node.left)
                 return f"{a.rstrip('/')}/{b}" if a else b
-        # `os.path.join(ROOT, "apps/bff", "lens.go")` — the same join the Div branch above reads,
-        # spelled the other way. The FIRST argument is dropped for the same reason the Div branch
-        # drops its left side when it cannot evaluate it: it is a root the caller already resolves.
+        # `os.path.join(ROOT, "apps/bff", "lens.go")` — the same join the Div branch below reads,
+        # spelled the other way, and it obeys the same rule.
+        #
+        # ⚠ JOIN THE FIRST ARGUMENT TOO WHEN IT CAN BE EVALUATED — THIS SHIPPED DROPPING IT (#294)
+        # AND THE DIV BRANCH'S OWN COMMENT, ONE SCREEN BELOW, IS THE WARNING I WALKED PAST. It
+        # dropped args[0] on the reasoning that it is "a root the caller already resolves", which
+        # is true of `ROOT = os.path.dirname(...)` and FALSE of everything built from it:
+        # `w17-mounted-patterns` writes `BFF = os.path.join(ROOT, "apps/bff")` and then
+        # `LENS = os.path.join(BFF, "lens.go")`, and dropping the first argument yielded the bare
+        # `"lens.go"`. That harness stayed UNREADABLE with its paths apparently learned.
+        #
+        # ⚠⚠ AND UNREADABLE WAS THE LUCKY OUTCOME. `lens.go` happens to exist under none of the
+        # roots, so it resolved to nothing. The Div branch records what happens when the bare name
+        # DOES exist somewhere: `UI / "vitest.config.ts"` read as bare "vitest.config.ts" resolved
+        # onto apps/web's copy and reported a miss against a file the harness never touches. Same
+        # bug, same file, one branch apart, and the second time it was written by someone who had
+        # read the first. An unevaluable first argument still yields nothing, which is correct:
+        # nothing means repo-relative.
         if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr == "join" and len(node.args) >= 2):
-            parts = [self._str(a) for a in node.args[1:]]
-            if all(x is not None for x in parts):
-                return "/".join(p.strip("/") for p in parts)
+            parts = [self._str(a) for a in node.args]
+            if all(x is not None for x in parts[1:]):
+                head = parts[0]
+                tail = "/".join(x.strip("/") for x in parts[1:])
+                return f"{head.rstrip('/')}/{tail}" if head else tail
         # Path("…") / pathlib.Path("…")
         if isinstance(node, ast.Call) and len(node.args) == 1:
             fn = node.func
