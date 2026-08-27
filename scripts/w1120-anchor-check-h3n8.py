@@ -66,6 +66,53 @@ def _is_control_for_this_checker(p: pathlib.Path) -> bool:
 
 CHECKER_STEM = "w1120-anchor-check"
 
+#: the `re` functions that SPLICE. Inspecting with re.search says nothing about the anchor's
+#: shape — a harness can match on a regex and still splice literally — but a harness that
+#: REPLACES with re.sub has, by construction, written its anchor as a pattern.
+RE_SPLICE = frozenset({"sub", "subn"})
+
+
+def regex_spliced_names(tree: ast.AST) -> list[str]:
+    """Loop variables this harness feeds to `re.sub` as the PATTERN.
+
+    ⚠ THIS IS A GUARD AGAINST A WIDENING, AND THE WIDENING IS THE OBVIOUS NEXT MOVE. `w11-face-
+    identity` reads UNREADABLE, and the two things standing in the way each look like a plain gap:
+    `_str` cannot evaluate `os.path.join(ROOT, 'packages/ui/src/theme.css')`, and its edit tuples
+    call the anchor `pattern`, which is not in ANCHOR_NAMES. Teaching `_str` about `os.path.join`
+    and adding `pattern` to the vocabulary are each locally reasonable, and MEASURED TOGETHER they
+    take the census to 550 anchors and 5 unreadable — it reads as progress — while manufacturing
+    **14 misses, every one against packages/ui/src/theme.css, every one a REGEX** whose `\\(` and
+    `\\.` escapes can never appear literally in a CSS file. The anchors are all present and the
+    harness's own `re.findall` assertion passes on every one. A tab reading that output would go
+    and "repair" fourteen working anchors in a font-identity guard.
+
+    ⚠⚠ SO THIS IS NOT A LABEL, IT IS A REFUSAL. Extraction for such a harness is DISCARDED even if
+    a future vocabulary would reach it, and the harness is reported in its own bucket rather than
+    under "widen the extractor" — because widening is precisely the wrong answer here. This check
+    compares with `str.count`; an anchor that is a pattern is not a thing it can decide, and the
+    harness already asserts its own anchor counts with `re.findall`, which is the stronger check.
+
+    ⚠ NARROWED TO `re.sub` DELIBERATELY, AND THE WIDER VERSION WAS MEASURED AND REJECTED. Keying on
+    any `re.*` call also flags `w17-keysweep-per-route`, which uses `re.search(expect, f)` on test
+    OUTPUT while splicing literally — it has 3 decided anchors today, and flagging it would delete
+    real coverage in the direction that looks like nothing happened.
+    """
+    patterns = set()
+    for n in ast.walk(tree):
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and isinstance(n.func.value, ast.Name) and n.func.value.id == "re"
+                and n.func.attr in RE_SPLICE and n.args and isinstance(n.args[0], ast.Name)):
+            patterns.add(n.args[0].id)
+    if not patterns:
+        return []
+    out = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.For) and isinstance(n.target, ast.Tuple):
+            for e in n.target.elts:
+                if isinstance(e, ast.Name) and e.id in patterns and e.id not in out:
+                    out.append(e.id)
+    return out
+
 
 def harnesses() -> list[pathlib.Path]:
     _self_excluded.clear()
@@ -511,6 +558,7 @@ def main() -> int:
     checked = 0
     rejected: dict[str, int] = {}
     ambiguous = 0
+    pattern_anchored: list[tuple[str, list[str], int]] = []
 
     for h in harnesses():
         rel = str(h.relative_to(ROOT))
@@ -520,6 +568,14 @@ def main() -> int:
             ex.visit(ast.parse(h.read_text()))
         except SyntaxError as e:
             unreadable.append(f"{rel}: does not parse ({e})")
+            continue
+
+        spliced = regex_spliced_names(ast.parse(h.read_text()))
+        if spliced:
+            # ⚠ DISCARDED, NOT MERELY UNLABELLED. Whatever the extractor found here is a regex, and
+            # comparing a regex with str.count reports a control that arms perfectly as one that
+            # cannot arm.
+            pattern_anchored.append((rel, spliced, len(ex.triples)))
             continue
 
         ambiguous += ex.ambiguous
@@ -558,6 +614,17 @@ def main() -> int:
         # checker's reach quietly shrinks while its output keeps looking the same.
         print(f"  nodes skipped — more than one file named, no unambiguous anchor: {ambiguous}")
     print()
+    if pattern_anchored:
+        # ⚠ ITS OWN BUCKET, AND NOT UNDER "widen the extractor". These are not a gap to close; they
+        # are outside what a literal comparison can decide, and saying so is the whole point — the
+        # measured cost of not saying it is 14 false misses on a font-identity guard.
+        print(f"⚠ {len(pattern_anchored)} HARNESS(ES) ANCHOR ON REGEXES, NOT LITERALS — this check")
+        print("  compares with str.count and CANNOT decide them. Do NOT widen the extractor to")
+        print("  reach these: each asserts its own anchor counts with re.findall, which is the")
+        print("  stronger check. Widening reaches them and reports every anchor as a miss.")
+        for rel, names, found in pattern_anchored:
+            print(f"  {rel}: spliced with re.sub via {names} ({found} candidate(s) discarded)")
+        print()
     if unreadable:
         print(f"⚠ THE CHECKER COULD NOT READ {len(unreadable)} HARNESS(ES). Each is a harness this")
         print("  check says NOTHING about — not a clean one. Widen the extractor or run them.")

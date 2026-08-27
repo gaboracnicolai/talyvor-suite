@@ -129,7 +129,19 @@ def main() -> int:
                # w11-scroll-reset. The anchor FLOOR is raised to the measured 530 rather
                # than left at 520 — a floor that trails the measurement by ten cannot see
                # a widening being reverted, which is the regression it exists for.
-               base_anchors >= 530 and base_unread == 7 and "every decidable anchor matches" in out,
+               # ⚠ MOVED AGAIN 2026-08-27 (tab-j8w4), 7 → 6, and this time NOT by a widening:
+               # `w11-face-identity` was RECLASSIFIED out of "widen the extractor" into the
+               # regex-anchored bucket, because its anchors are patterns spliced with re.sub and
+               # this check compares with str.count.
+               # ⚠⚠ SO THE SUM IS PINNED TOO, AND IT IS THE HONEST INVARIANT: the number of
+               # harnesses this check CANNOT DECIDE is 7 either way. Pinning only `unreadable`
+               # lets a harness move between the two buckets with the count looking like
+               # progress — which is exactly the reclassification that just happened, and the
+               # next one might not be honest.
+               base_anchors >= 530 and base_unread == 6
+               and out.count("ANCHOR ON REGEXES") == 1
+               and base_unread + 1 == 7
+               and "every decidable anchor matches" in out,
                f"anchors decided={base_anchors}, unreadable={base_unread}")
 
         for i, (harness, anchor) in enumerate(NEWLY_READ, start=1):
