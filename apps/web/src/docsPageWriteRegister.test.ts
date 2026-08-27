@@ -271,13 +271,32 @@ describe('the docs page-LIST premise the BFF strips by name is asked about too',
       'the page-LIST entry no longer compares an extracted value to an expected one, so it is ' +
         'not asking talyvor-docs anything — it is a pipeline whose exit status is read.',
     ).toBeDefined()
+    //
+    // ⚠⚠ AND THE TYPE ALONE WAS NOT THE PREMISE. This rule used to assert the expectation was
+    // EXACTLY `[]model.Page`, which is `Store.List`'s return type and nothing else — while the
+    // entry's own comment rested on a second fact, "`page.Handler.List` returns whatever
+    // `Store.List` returns", that the command never read. MEASURED at docs 806109b5 against a
+    // disposable export, mutating the handler and leaving the store alone: a projection added in
+    // page.Handler.List, that handler renamed, and internal/page/handler.go DELETED each left the
+    // shipped command EXITING 0 on a premise that was false, with model.Page's tags untouched so
+    // the DocsPage mirror above stayed green through all three. So the expectation now carries
+    // BOTH halves and this rule asserts both — anchored at the ends rather than by containment,
+    // because `[]model.Page` also appears in the entry's prose and containment is what control S5
+    // above already caught being satisfied by an explanation.
     expect(
-      compared,
-      'the page-LIST entry\'s comparison is not `[]model.Page`, so a deployer running it gets a ' +
-        'confident yes about a list route that may serve a projection type — the exact change ' +
-        'this entry exists to catch, and the one that turns both of the BFF\'s by-name deletes ' +
-        'into no-ops while every other guard stays green.',
-    ).toBe('[]model.Page')
+      compared?.endsWith('|[]model.Page'),
+      'the page-LIST entry\'s comparison does not END with `[]model.Page`, so a deployer running ' +
+        'it gets a confident yes about a list route that may serve a projection type — the exact ' +
+        'change this entry exists to catch, and the one that turns both of the BFF\'s by-name ' +
+        `deletes into no-ops while every other guard stays green. Compared against: ${compared}`,
+    ).toBe(true)
+    expect(
+      compared?.startsWith('out, err := h.store.List(|'),
+      'the page-LIST entry\'s comparison does not open with the store call `page.Handler.List` ' +
+        'makes, so it pins the store\'s return type and nothing about the handler that serves it. ' +
+        'A projection in the HANDLER leaves Store.List returning []model.Page and this entry ' +
+        `saying the premise holds. Compared against: ${compared}`,
+    ).toBe(true)
   })
 
   it('every key the BFF deletes is a key the DocsPage mirror pins upstream', () => {

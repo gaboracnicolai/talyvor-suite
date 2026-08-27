@@ -615,9 +615,32 @@ cannot "talyvor-docs' page CREATE binds model.Page, which is the ONLY reason the
 # four directions: unchanged -> []model.Page (match) · return type -> []pageRow (EMPTY capture,
 # mismatch) · List renamed (EMPTY capture, mismatch) · model.Page -> model.PageSummary
 # ([]model.PageSummary, mismatch). An empty capture FAILS this comparison rather than passing it.
+#
+# ⚠⚠ AND FOR TWO MERGES THAT WAS ONLY HALF THE PREMISE, SO THE COMMAND EXITED 0 WHILE THE PREMISE
+# WAS FALSE — the exact failure this file's own header names. The paragraph above says the other
+# half out loud: "`page.Handler.List` returns whatever `Store.List` returns". That sentence IS a
+# premise and the command did not read it. MEASURED at docs 806109b5 against a disposable
+# `git archive` export, mutating the HANDLER and leaving the store alone:
+#   a projection added in page.Handler.List  -> Store.List still returns []model.Page -> EXIT 0
+#   page.Handler.List renamed                                                         -> EXIT 0
+#   internal/page/handler.go DELETED                                                  -> EXIT 0
+#   the store's value served through a second identifier (`shaped := forTree(out)`)   -> EXIT 0
+# Four ways for the list route to stop serving model.Page rows with this register reporting that
+# it still does — and model.Page's tags are untouched throughout, so the DocsPage mirror above
+# stays green through all four as well.
+# ⚠ THE CONSEQUENCE IS NOT A BLANKED FIELD, IT IS A DOCUMENT. Measured through the real
+# apps/bff#stripPageContentList rather than reasoned about: a projected row carrying the page body
+# under `body` went in at 120 bytes and came out at 120 bytes — both deletes matched nothing, no
+# error, no 502, a 200 with the whole ProseMirror document on the space tree.
+# ⚠ SO THE COMMAND NOW READS BOTH HALVES IN ONE COMPARISON, and both files are declared subjects
+# because both are read. A `sed` command has no build graph to reach a file it does not name,
+# which is why R6 in apps/web/src/settleCommands.test.ts no longer waves a `.go` subject through
+# for a command that does not run `go test`. 10/10 controls, each predicted before it ran, both
+# the old command and the new one against the same mutated export:
+# ~/talyvor-queue/w171-pagelist-premise-controls-r5k9.py.
 cannot "talyvor-docs' page LIST still serves model.Page rows — apps/bff/lens.go#stripPageContentList deletes content and content_text from every row BY NAME, and that redaction is the only thing keeping each page's whole ProseMirror document off the space tree; the DocsPage mirror pins the tags but not that this route still returns them" \
-    "talyvor-docs internal/page/store.go" \
-    "[ \"\$(sed -n 's/^func (s \\*Store) List(.*) (\\(\\[\\]model\\.[A-Za-z]*\\), error) {\$/\\1/p' internal/page/store.go)\" = \"[]model.Page\" ]   # in a talyvor-docs checkout; the RETURN TYPE of the function the list handler serves. A projection type, a rename of List, or model.PageSummary each yield a capture that does not equal []model.Page — including the empty capture, which is the vacuity case a command reading an exit status cannot see"
+    "talyvor-docs internal/page/handler.go, internal/page/store.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) List(/,/^}/p' internal/page/handler.go | grep -o 'out, err := h\\.store\\.List(\\|writeJSON(w, http\\.StatusOK, out)' | tr '\\n' '|')\$(sed -n 's/^func (s \\*Store) List(.*) (\\(\\[\\]model\\.[A-Za-z]*\\), error) {\$/\\1/p' internal/page/store.go)\" = \"out, err := h.store.List(|writeJSON(w, http.StatusOK, out)|[]model.Page\" ]   # in a talyvor-docs checkout; BOTH halves of the premise in ONE comparison — the store call page.Handler.List makes, the identifier it hands to writeJSON, and Store.List's RETURN TYPE. A projection in EITHER layer, a rename of either function, or either file gone yields a capture that does not equal the expected string — including the empty capture, which is the vacuity case a command reading an exit status cannot see"
 
 # ── THE REQUEST HALF OF THE SAME CLASS, AND IT IS THE HALF THAT SPENDS MONEY ─
 # DECISION: this app builds the request body for three talyvor-docs AI routes (apps/bff/docs_ai.go)
