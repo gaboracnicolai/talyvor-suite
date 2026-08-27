@@ -352,3 +352,115 @@ describe('a settle command exits non-zero when its premise does not hold', () =>
     })
   }
 })
+
+/**
+ * ⚠ THE DECLARED SUBJECT IS A CLAIM ABOUT WHAT THE COMMAND READS, AND ONE OF THEM IS FALSE.
+ *
+ * `cannot`'s second argument names the repository AND the files the premise is read out of. It is
+ * the cross-repo twin of `subject` in the same script: a deployer who has to re-anchor a settle
+ * command reads that list to know which files matter.
+ *
+ * ⚠⚠ WHY THE 45/45 THAT CAME BEFORE THIS DID NOT SEE IT: IT WAS COUNTED PER ENTRY. tab-r5m2 armed
+ * the register "45/45 against their declared subject file being emptied AND deleted" — an entry
+ * scores armed as soon as ONE of its subjects reds the command. Re-run per (entry, SUBJECT) pair
+ * at docs 313eb86 / track a12e01f / lens f134404 — every command executed in a read-only
+ * `git archive` export, each subject emptied AND deleted in turn, restored and sha256-verified
+ * back (~/talyvor-queue/w171-subject-arming-census-j8w4.py) — and it is 51 pairs, X0 green on all
+ * 45 checkable entries, **50 ARMED and ONE INERT**: entry 5's `migrations/0018_page_own_ai_spend.sql`.
+ * Empty it, delete it, and the command still exits 0. An entry-level control cannot see this,
+ * because the other two subjects of that same entry red it correctly.
+ *
+ * ⚠ AND IT IS NOT AN ARTEFACT OF THE HARNESS, WHICH WAS THE FIRST THING CHECKED. A reused test
+ * database would explain a green — `internal/migrate` records each migration's checksum, so an
+ * already-migrated database never re-reads the file. Re-run against a FRESH database it was still
+ * green, and the reason is simpler and worse: `TestAttribution_*` drives a `recordingBinder` fake
+ * and a `lensStub` and opens no connection at all. The declared subject is not weakly read. It is
+ * read by nothing, on any run, by any route.
+ *
+ * WHAT IS ENFORCEABLE FROM HERE. This repository's CI clones only itself, so it cannot execute a
+ * settle command and cannot watch a subject red one. What it CAN decide is whether a declared
+ * subject is reachable AT ALL:
+ *
+ *   R5 SHAPE       — a subject token is a bare repo-relative path. The register writes its lists
+ *                    with TWO separators — `, ` (entry 5) and ` + ` (entries 37/38/39) — and a
+ *                    parser that knows only one of them reads three real paths as a single path
+ *                    that does not exist. It still ENDS IN `.go`, so a reachability rule would
+ *                    wave it through. Whitespace in a token is what makes a third separator fail
+ *                    here rather than silently become one unreadable subject.
+ *   R6 REACHABILITY— a subject that is not a Go source file must be NAMED in the settle command.
+ *                    `go test ./internal/ai/` pulls in `internal/page/ai_spend.go` through the
+ *                    build graph without naming it — that is why .go files are exempt and why
+ *                    this rule is not "every subject must appear in the command". A .sql file has
+ *                    no such route: nothing compiles it. ⚠ THIS IS A POLICY, NOT A LAW OF THE
+ *                    UNIVERSE — a test CAN reach a .sql through an `embed.FS`, and this repo
+ *                    cannot see that either. The policy is what makes the arming visible from
+ *                    here: declare a non-Go subject and name it, so a reader can tell whether it
+ *                    is read.
+ */
+const SUBJECT_LIST = /^([a-z-]+)\s+(.*)$/
+const declaredSubjects = (where: string): { repo: string | null; paths: string[] } => {
+  const m = SUBJECT_LIST.exec(where)
+  if (!m) return { repo: null, paths: [] }
+  return { repo: m[1], paths: m[2].split(/,| \+ /).map((s) => s.trim()).filter(Boolean) }
+}
+
+/**
+ * The palette entry declares "talyvor.higgsfield.app — a third-party deployment, not a
+ * repository", which is prose ON PURPOSE and is excluded here for the same reason it is excluded
+ * from EXTRACT: it reads a live origin, not a file in a checkout. Recognised by the absence of a
+ * repo-shaped first token rather than by name, so a second such entry is covered without an edit.
+ */
+const WITH_SUBJECTS = ENTRIES.map((e) => ({ entry: e, ...declaredSubjects(e.where) })).filter(
+  (s) => s.repo !== null,
+)
+const PAIRS = WITH_SUBJECTS.flatMap((s) =>
+  s.paths.map((p) => ({ entry: s.entry, repo: s.repo as string, path: p })),
+)
+
+describe('a declared subject is read by the command that declares it', () => {
+  /**
+   * The vacuity floor, and it is the one that matters most here: every rule below iterates PAIRS,
+   * so a `where` field whose shape stops matching empties all of them and this file reports a
+   * clean register having read nothing. 51 measured at 095d4b7e; the floor is named rather than
+   * derived from the parse it polices.
+   */
+  it('parses a subject list out of substantially every uncheckable entry', () => {
+    expect(
+      WITH_SUBJECTS.length,
+      'fewer `cannot` entries yielded a repo-and-paths subject list than the register declares. ' +
+        'Either entries were deleted, or the `where` field changed shape — which silently empties ' +
+        'every rule in this block.',
+    ).toBeGreaterThanOrEqual(44)
+    expect(
+      PAIRS.length,
+      'fewer (entry, subject) pairs than were measured armed. A subject that stops parsing is a ' +
+        'subject nothing below can police.',
+    ).toBeGreaterThanOrEqual(50)
+  })
+
+  it('R5 — every declared subject is a bare path, so a third separator cannot hide inside one', () => {
+    const malformed = PAIRS.filter((p) => !/^[A-Za-z0-9_][A-Za-z0-9_./-]*$/.test(p.path))
+    expect(
+      malformed.map((p) => `${p.repo} ${p.path}`),
+      'these subject tokens are not bare repo-relative paths. The register writes its lists with ' +
+        '`, ` and with ` + `; a separator this parser does not know leaves several paths glued ' +
+        'into one token that names no file, and because such a token still ends in `.go` the ' +
+        'reachability rule below waves it through. Add the separator to the split, deliberately.',
+    ).toEqual([])
+  })
+
+  it('R6 — a subject that no `go test` could compile is named in the command', () => {
+    const unreachable = PAIRS.filter(
+      (p) => !p.path.endsWith('.go') && !p.entry.command.includes(p.path),
+    )
+    expect(
+      unreachable.map((p) => `${p.repo} ${p.path}`),
+      'these files are declared as subjects of a settle command that never names them, and they ' +
+        'are not Go sources, so no `go test` in the command reaches them through the build graph ' +
+        'either. MEASURED per (entry, subject) at docs 313eb86 — emptied AND deleted, against a ' +
+        'FRESH database, the command still exits 0. The declaration says the premise is read out ' +
+        'of this file and nothing reads it. Either name the path in the command, or stop ' +
+        'declaring it.',
+    ).toEqual([])
+  })
+})
