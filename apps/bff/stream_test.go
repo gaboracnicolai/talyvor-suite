@@ -629,6 +629,23 @@ func TestStream_ALensThatAnsweredIsNotReportedAsUnreachable(t *testing.T) {
 // "The request was refused (502): <body>", so these bytes are on screen.
 func driveStreamAgainst(t *testing.T, lensURL string) (int, string) {
 	t.Helper()
+	return driveStreamWithMintBound(t, lensURL, 0)
+}
+
+// driveStreamWithMintBound is driveStreamAgainst with the SHARED client's whole-exchange bound
+// narrowed, so a healthy-but-slow mint can be driven in milliseconds instead of eleven seconds.
+//
+// ⚠ THE REAL BOUND IS NOT RESTATED HERE. TestSharedClient_BoundsTheWholeExchange already fatals if
+// a.client.Timeout stops being 10s (and if a.streamClient ever acquires one), so this override
+// narrows a bound that is PINNED ELSEWHERE rather than describing one. bound == 0 leaves the
+// product's own client exactly as newApp built it.
+//
+// ⚠ I FIRST CITED THAT PIN UNDER A NAME I INVENTED, AND SPLIT IT ACROSS TWO COMMENT LINES SO THE
+// GUARD SAW A THIRD, SHORTER NAME. TestEveryCitedTestExists reddened the whole package on the
+// harness's BASELINE run — before a single control had been applied — which is the only reason the
+// controls below are not all measuring a broken tree. A cited guard must be readable.
+func driveStreamWithMintBound(t *testing.T, lensURL string, bound time.Duration) (int, string) {
+	t.Helper()
 	cfg := config{
 		lensBaseURL: lensURL, provisionSecret: testProvisionSecret,
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
@@ -638,6 +655,9 @@ func driveStreamAgainst(t *testing.T, lensURL string) (int, string) {
 	seedProvisionedSession(auth, "cred-sid", "u1", "ng@example.com", "u-test-workspace")
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
+	if bound > 0 {
+		a.client = &http.Client{Timeout: bound}
+	}
 
 	ts := httptest.NewServer(a)
 	defer ts.Close()
@@ -660,4 +680,89 @@ func driveStreamAgainst(t *testing.T, lensURL string) (int, string) {
 		t.Fatalf("read body: %v", err)
 	}
 	return resp.StatusCode, strings.TrimSpace(string(b))
+}
+
+// ⚠ THE THIRD ARM OF THE SAME COLLAPSE, AND IT IS #306's FINDING ON THIS ROUTE'S CREDENTIAL SEAM.
+//
+// The merge above separated "Lens ANSWERED and declined" from "Lens is not there". It left a third
+// state inside the second: sessionKeyFor mints on `a.client`, the SHARED client whose 10s
+// whole-exchange bound stream.go's own header names as hazard 3. A Lens that is healthy and simply
+// slow to mint trips that bound, `Do` returns a timeout, and the answer was the unreachable
+// sentence again.
+//
+// MEASURED on the merged tree at 63b9018 with a real 11-second mint, not reasoned about:
+//
+//	SLOW MINT (healthy Lens, 11s) -> 502 {"error":"lens upstream unreachable"}
+//
+// which is product_timeout_test.go's finding verbatim — "a healthy upstream ... produces exactly
+// the bytes a connection refused produces" — on the one seam that file could not reach, because it
+// polices forwardProduct and the mint does not go through it.
+//
+// ⚠ THE FIX ADDS NO SECOND DECIDER. writeUpstreamFailure already owns this split for every product
+// route and is already controlled; the credential seam now calls it instead of hardcoding one of
+// its two answers. The unreachable arm is byte-identical to what it emitted before — asserted
+// below, because "reuse the helper" is worth nothing if the reuse changes the true arm.
+// ⚠ 8 CONTROLS (~/talyvor-queue/w17-mint-timeout-controls-m9x4.py), each applied ALONE against the
+// whole apps/bff suite, verdicts from FAILING TEST NAMES, every file sha256-verified back. T1 the
+// finding · T1P the pre-merge world (0 red — nothing watched this seam) · T4 vacuity (the mint is
+// no longer slow) · T5 the instrument (the narrowed bound is not applied) · T6 the pin · T7 negative.
+//
+// ⚠⚠ TWO PREDICTIONS WERE WRONG, BOTH THE SAME WAY, AND WHAT THEY MEASURED IS BETTER THAN WHAT I
+// EXPECTED. T2 rewords writeUpstreamFailure's unreachable sentence and T3 forces every transport
+// failure into the timeout arm; I named the two stream tests for one and this test alone for the
+// other. THREE reddened each time — including TestMeteredRoute_AbsentUpstreamIsStillCalledUnreachable,
+// which #306 wrote for forwardProduct and which has never heard of this route. That is precisely
+// what routing this seam through the SHARED helper buys instead of restating its two sentences
+// here: neither arm can now be moved for one caller without the other callers' guards saying so.
+func TestStream_ASlowMintIsNotAnUnreachableLens(t *testing.T) {
+	// Lens is healthy. Its mint simply answers after the (narrowed) client bound.
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		if r.URL.Path == lensSessionKeyPath && r.Method == http.MethodPost {
+			time.Sleep(300 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"key":%q,"expires_at":%q}`, testSessionKey,
+				time.Now().Add(time.Hour).UTC().Format(time.RFC3339)))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(slow.Close)
+
+	_, body := driveStreamWithMintBound(t, slow.URL, 50*time.Millisecond)
+
+	if strings.Contains(body, "unreachable") {
+		t.Errorf("slow-mint body = %s\n"+
+			"A LENS THAT IS HEALTHY AND STILL WORKING IS NOT AN UNREACHABLE LENS. The mint answered "+
+			"300ms after a 50ms bound; the real bound is 10s and the real Lens mints against "+
+			"Postgres. This is the same sentence a connection refused produces.", body)
+	}
+	if !strings.Contains(body, "UPSTREAM_TIMEOUT") {
+		t.Errorf("slow-mint body = %s, want the UPSTREAM_TIMEOUT code writeUpstreamFailure already "+
+			"emits for every product route — the credential seam is the one that did not go "+
+			"through it", body)
+	}
+
+	// ⚠ THE TRUE ARM MUST BE UNTOUCHED. Routing this seam through a shared helper is only a repair
+	// if the answer it already gave correctly is byte-identical afterwards.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	dead := "http://" + ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	deadStatus, deadBody := driveStreamAgainst(t, dead)
+	if deadStatus != http.StatusBadGateway || deadBody != `{"error":"lens upstream unreachable"}` {
+		t.Errorf("not-listening = %d %s, want 502 {\"error\":\"lens upstream unreachable\"} unchanged",
+			deadStatus, deadBody)
+	}
+	if strings.Contains(deadBody, "UPSTREAM_TIMEOUT") {
+		t.Errorf("not-listening body = %s, and a Lens that never answered now claims a timeout", deadBody)
+	}
 }
