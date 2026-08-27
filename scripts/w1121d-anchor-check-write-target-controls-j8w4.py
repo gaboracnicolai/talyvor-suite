@@ -148,6 +148,65 @@ def main():
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
 
+    # ── the regex-anchor half ─────────────────────────────────────────────────
+    # ⚠ THE TWO-STEP BELOW IS NOT INVENTED FOR THE CONTROL — IT IS THE OBVIOUS NEXT MOVE, and each
+    # half of it looks locally reasonable. `w11-face-identity` reads UNREADABLE because `_str`
+    # cannot evaluate `os.path.join(ROOT, …)` and because its edit tuples call the anchor
+    # `pattern`. Teach _str one and add the other to the vocabulary and the census reads 550
+    # anchors / 5 unreadable — progress — while manufacturing 14 misses against a font-identity
+    # guard whose anchors are all present and whose own re.findall assertion passes on every one.
+    JOIN_STEP = ('        # Path("…") / pathlib.Path("…")\n'
+                 '        if isinstance(node, ast.Call) and len(node.args) == 1:')
+    JOIN_WIDE = ('        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)\n'
+                 '                and node.func.attr == "join" and len(node.args) >= 2):\n'
+                 '            parts = [self._str(a) for a in node.args[1:]]\n'
+                 '            if all(x is not None for x in parts):\n'
+                 '                return "/".join(parts)\n' + JOIN_STEP)
+    VOCAB = '    ANCHOR_NAMES = frozenset({"old", "find", "anchor"})'
+    VOCAB_WIDE = '    ANCHOR_NAMES = frozenset({"old", "find", "anchor", "pattern"})'
+    GUARD = """        spliced = regex_spliced_names(ast.parse(h.read_text()))
+        if spliced:"""
+    GUARD_OFF = """        spliced = []
+        if spliced:"""
+    SPLICE_SET = 'RE_SPLICE = frozenset({"sub", "subn"})'
+
+    control(
+        'P1 the two-step widening applied, WITH the regex refusal in place',
+        'ZERO misses. The extractor now reaches those anchors and the refusal DISCARDS them, '
+        'which is the point: reaching them is not the same as being able to decide them',
+        [(CHECK, JOIN_STEP, JOIN_WIDE), (CHECK, VOCAB, VOCAB_WIDE)],
+        lambda r: (r['misses'] == 0 and 'ANCHOR ON REGEXES' in r['out'],
+                   'refused, not reported as broken'
+                   if r['misses'] == 0 else f"{r['misses']} false misses got through"))
+
+    control(
+        'P2 the SAME two-step with the regex refusal REVERTED — the harm, measured',
+        '14 misses appear, every one against packages/ui/src/theme.css and every one a regex whose '
+        'escapes cannot appear literally in a CSS file. This is what the refusal prevents',
+        [(CHECK, JOIN_STEP, JOIN_WIDE), (CHECK, VOCAB, VOCAB_WIDE), (CHECK, GUARD, GUARD_OFF)],
+        lambda r: (r['misses'] == 14 and 'theme.css' in r['out'],
+                   'the 14 false misses reappear without the refusal — it is what stops them'
+                   if r['misses'] == 14 else f"expected 14, got {r['misses']}"))
+
+    control(
+        'P3 the refusal blinded on a clean tree',
+        'the harness returns to the UNREADABLE list (7) and the regex bucket empties; anchors '
+        'unchanged at 530, because the refusal discards candidates nothing could decide anyway',
+        [(CHECK, GUARD, GUARD_OFF)],
+        lambda r: (r['unreadable'] == base['unreadable'] + 1 and r['anchors'] == base['anchors']
+                   and 'ANCHOR ON REGEXES' not in r['out'],
+                   'exactly one harness moves back, no anchor lost'))
+
+    control(
+        'P4 RE_SPLICE widened to include `search` — the narrowing, and it IS load-bearing',
+        'w17-keysweep-per-route is flagged and its 3 real anchors are discarded. It uses '
+        're.search(expect, f) on test OUTPUT while splicing literally, so keying on any re.* call '
+        'deletes real coverage in the direction that looks like nothing happened',
+        [(CHECK, SPLICE_SET, 'RE_SPLICE = frozenset({"sub", "subn", "search"})')],
+        lambda r: (r['anchors'] < base['anchors'] and 'keysweep' in r['out'],
+                   f"anchors {base['anchors']} -> {r['anchors']}, coverage lost as predicted"
+                   if r['anchors'] < base['anchors'] else 'the narrowing appears to change nothing'))
+
     # ── the census-self-inclusion half ────────────────────────────────────────
     # ⚠ THESE TWO REPRODUCE THE DEFECT THIS TAB WALKED INTO, RATHER THAN DESCRIBING IT. The file
     # you are reading was first called `w1121d-write-target-controls-j8w4.py`, matched the
