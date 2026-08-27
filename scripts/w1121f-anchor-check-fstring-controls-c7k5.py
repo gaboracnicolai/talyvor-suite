@@ -173,7 +173,11 @@ def main() -> int:
                # ⚠ 543 → 548, the SECOND deliberate move in one session and again NOT a
                # widening: `w1117-motion-census-derivation-controls-c7k5.py` was added and
                # carries 5 anchors. Two moves, two harnesses added, extractor untouched.
-               base_a == 548 and base_u == 1 and not base_m
+               # ⚠ 548 → 553, the THIRD move this session and again a harness ADDED, not a
+               # widening: `w11-card-heading-drift-controls-c7k5.py`, 5 anchors. Three moves,
+               # three harnesses, extractor untouched — which is exactly what an exact pin is
+               # supposed to make a reader able to say.
+               base_a == 553 and base_u == 1 and not base_m
                and "every decidable anchor matches" in out,
                f"anchors={base_a} unreadable={base_u} misses={len(base_m)}")
 
