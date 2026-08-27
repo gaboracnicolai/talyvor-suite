@@ -155,6 +155,19 @@ interface Pin {
  * rather than from the target — a fragment read off the target would be true by construction.
  */
 const PINS: Record<string, Pin> = {
+  // ── W1.7 / tab-p9r4 — the two upstream MEASUREMENTS that keep a route out of the metered
+  //    population. Both are the reason a marker is absent, so a reader checking why a spending
+  //    screen is not swept lands on the sentence that says it does not spend.
+  'apps/web/src/meteredSurfacePopulation.test.ts:64|apps/web/src/areas/docs/PageChangelog.tsx:15': {
+    kind: 'LIVE',
+    fragment: 'reaches Lens never',
+    why: 'the measurement that keeps generateChangelog out of the metered markers — the one Docs\' census names as its single excluded surface',
+  },
+  'apps/web/src/meteredSurfacePopulation.test.ts:71|apps/web/src/areas/chat/Chat.tsx:37': {
+    kind: 'LIVE',
+    fragment: 'NOTHING HERE CLAIMS THE CONVERSATION IS BILLED',
+    why: 'the measurement that keeps areas/chat out of the population entirely, so an absent area reads as decided rather than forgotten',
+  },
   'apps/web/src/eyebrowAudit.ts:25|apps/web/src/areas/lens/Overview.tsx:226': {
     kind: 'LIVE',
     fragment: 'text-eyebrow uppercase',
