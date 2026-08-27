@@ -1,4 +1,10 @@
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import {
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+  onlineManager,
+  useQuery,
+} from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
@@ -93,6 +99,25 @@ import { TriageIssue } from './areas/track/TriageIssue'
 //   R9   PageSummary's mutation given `retry: 1`          → 1 red here + 2 in its own tests
 //   R9P  R9 with THIS FILE DELETED                        → 2 red, neither naming a charge
 //   R10  a reworded comment                               → 0 red
+//
+// And six more for the SECOND column (the re-ask property), same discipline:
+//
+//   S1   AISummary loses `refetchOnReconnect: false`        → 1 red  (AISummary, here)
+//   S1P  S1 with THIS COLUMN removed — the tree that        → 0 RED / 1934 tests ← what shipped
+//        main `dc8e13b1` actually shipped
+//   S2   the reconnect probe stops asking to be refetched   → 1 red  (that probe)
+//   S3   the refocus probe, the same                        → 1 red  (that probe)
+//   S4   S1 + the clock never moving                        → 2 red  (BOTH probes)
+//   S5   AISummary AND App.tsx lose refetchOnWindowFocus    → 1 red  (the other event)
+//   S6   a reworded comment in this column                  → 0 red
+//
+// ⚠⚠ S1P IS THE SECOND FINDING AND IT WAS LIVE, NOT ONE LINE AWAY. Nothing had to be deleted to
+// make it true: main `dc8e13b1` shipped a metered query that bought a second call the moment a
+// slept laptop reconnected, and 1934 tests said nothing.
+//
+// ⚠ S4 IS THE PAIR THAT STOPS S1 BEING MISREAD. Freeze the clock and the defect goes quiet — an
+// unstale query is refetched by neither event — so "nothing re-asked" would be true for a reason
+// that has nothing to do with the product. Both probes red instead of nothing at all.
 //
 // ⚠⚠ R1P IS THE WHOLE FINDING. One line removed from one card, and 1923 tests across 134 files
 // pass while a single press of "Summarise the thread" buys the workspace TWO metered calls.
@@ -247,18 +272,53 @@ function clientUnderTest(): QueryClient {
 }
 
 function failingBff(): string[] {
+  return stubBff({ status: 500, body: { error: 'upstream is down' } })
+}
+
+/** ⚠ ONE UNION BODY FOR ALL NINE, AND IT IS NOT LAZINESS. Every card reads a different shape, and
+ *  a per-surface answer table would be a fourth copy of what the two censuses already hold. What
+ *  is measured here is a REQUEST COUNT, so the body only has to be rich enough that a reader
+ *  reaches its answered state and the query caches data — an object carrying every field the nine
+ *  readers look for does that without a table. */
+const ANSWER = {
+  text: 'a summary',
+  title: 'A Better Title',
+  answer: 'an answer',
+  sources: [],
+  results: [],
+  total: 0,
+  query: '',
+  took_ms: 1,
+  summary: 'a thread summary',
+  key_points: [],
+  next_action: '',
+  duplicates: [],
+  suggestions: [],
+} as const
+
+function stubBff(opts: { status: number; body: unknown }): string[] {
   const calls: string[] = []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       calls.push(String(input))
-      return new Response(JSON.stringify({ error: 'upstream is down' }), {
-        status: 500,
+      return new Response(JSON.stringify(opts.body), {
+        status: opts.status,
         headers: { 'Content-Type': 'application/json' },
       })
     }),
   )
   return calls
+}
+
+/** A day, which is past any staleTime this product sets — AISummary's is an hour, and it is the
+ *  longest. Moving the clock rather than the option is what keeps this a measurement of the
+ *  product's own settings. */
+const A_DAY = 25 * 60 * 60 * 1000
+
+function jumpForward(ms: number): void {
+  const real = Date.now()
+  vi.spyOn(Date, 'now').mockImplementation(() => real + ms)
 }
 
 async function settle(qc: QueryClient): Promise<void> {
@@ -276,6 +336,10 @@ async function settle(qc: QueryClient): Promise<void> {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  // react-query's managers are MODULE-LEVEL singletons: a test that leaves the app offline or
+  // blurred hands the next one a client that will not fetch, and it would pass for that reason.
+  onlineManager.setOnline(true)
+  focusManager.setFocused(undefined)
 })
 
 describe('one reader action buys at most one metered call', () => {
@@ -347,6 +411,113 @@ describe('one reader action buys at most one metered call', () => {
           `the reader ONE. react-query re-issues a failed request under the policy in App.tsx ` +
           `(one retry on any non-401); a metered surface must opt out of it. Calls: ` +
           `${calls.join(', ') || '(none)'}`,
+      ).toHaveLength(1)
+    })
+  }
+})
+
+
+/**
+ * ⚠⚠ AND NOTHING MAY RE-ASK ON ITS OWN — THE SECOND WAY A PRESS BECOMES TWO CHARGES, AND THE ONE
+ * THAT WAS LIVE IN THE PRODUCT RATHER THAN ONE LINE AWAY FROM IT.
+ *
+ * The column above holds the reader's action fixed and counts what it buys. This one holds the
+ * COUNT fixed and asks what else can move it: react-query re-issues a query when the browser
+ * reconnects (`refetchOnReconnect`, default TRUE) and when the window is refocused
+ * (`refetchOnWindowFocus`, which App.tsx switches off for everything). Neither is a reader
+ * action, and a metered query answers both by spending.
+ *
+ * MEASURED at main `dc8e13b1`, not reviewed. AISummary carried `retry: false` and
+ * `refetchOnWindowFocus: false` under the sentence "A summary is a paid call. Nothing re-asks on
+ * its own" — and NOT `refetchOnReconnect`. One press, then an hour with the screen open (a laptop
+ * that slept), then the network back: `/api/track/issues/{id}/summary` was issued a SECOND time
+ * with no press. `staleTime` bounds it to an hour rather than preventing it, and Track's own
+ * hour-long cache has expired by then too, so the second call is a real charge on the ticket. The
+ * missing line is added in AISummary.tsx in this same change; this column is what says so.
+ *
+ * ⚠ THE OTHER EIGHT HOLD BY CONSTRUCTION AND ARE ASSERTED ANYWAY, for the reason this file's
+ * first column already gives: a mutation has no refetch, so today they cannot move — and a card
+ * rewritten as a `useQuery` (which is exactly what AISummary is) arrives with the default back on
+ * and every sentence on screen unchanged.
+ *
+ * ⚠ THE PROBES SET THE OPTION THEY ARE PROVING, DELIBERATELY. "Nothing re-asked" is satisfied
+ * perfectly by a harness that cannot drive a reconnect, by a clock that never went stale, and by
+ * a focus manager nobody wired. Each probe is a bare read that ASKS to be refetched, so it must
+ * be issued more than once; the nine surfaces are then measured under the PRODUCTION options
+ * alone. A probe that inherited the app's `refetchOnWindowFocus: false` would prove only that the
+ * app had switched it off, which is the thing under test rather than the instrument.
+ */
+function Probe({ opts }: { opts: Record<string, unknown> }) {
+  useQuery({ queryKey: ['re-ask-probe'], queryFn: () => getJSON<unknown>('/api/probe'), ...opts })
+  return null
+}
+
+describe('no metered surface re-asks on its own', () => {
+  for (const probe of [
+    { event: 'reconnect', opts: { refetchOnReconnect: true }, fire: () => {
+      onlineManager.setOnline(false)
+      onlineManager.setOnline(true)
+    } },
+    { event: 'refocus', opts: { refetchOnWindowFocus: true }, fire: () => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    } },
+  ]) {
+    it(`the harness can drive a ${probe.event} refetch at all`, async () => {
+      const calls = stubBff({ status: 200, body: ANSWER })
+      const qc = clientUnderTest()
+      render(
+        <QueryClientProvider client={qc}>
+          <Probe opts={probe.opts} />
+        </QueryClientProvider>,
+      )
+      await settle(qc)
+      expect(calls, 'the probe never made its first read').toHaveLength(1)
+      jumpForward(A_DAY)
+      probe.fire()
+      await settle(qc)
+      expect(
+        calls.length,
+        `a query that asks to be refetched on ${probe.event} was not — this harness cannot drive ` +
+          `the event, or the clock never went stale. Either way every "did not re-ask" below is ` +
+          `vacuous rather than true`,
+      ).toBeGreaterThan(1)
+    })
+  }
+
+  for (const s of SURFACES) {
+    it(`${s.name} does not re-ask on a reconnect or a refocus`, async () => {
+      const calls = stubBff({ status: 200, body: ANSWER })
+      const qc = clientUnderTest()
+      render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>{s.node}</MemoryRouter>
+        </QueryClientProvider>,
+      )
+      s.act()
+      await settle(qc)
+      expect(calls, `${s.name}'s one press did not reach the network, so nothing is cached and ` +
+        `the two assertions below would pass on an empty log`).toHaveLength(1)
+
+      // A day later — past every staleTime this product sets — the laptop wakes.
+      jumpForward(A_DAY)
+      onlineManager.setOnline(false)
+      onlineManager.setOnline(true)
+      await settle(qc)
+      expect(
+        calls,
+        `${s.name} bought a second metered call on ${s.upstream} when the network came back, ` +
+          `with no press. react-query's refetchOnReconnect defaults to true; a paid call must ` +
+          `switch it off. Calls: ${calls.join(', ')}`,
+      ).toHaveLength(1)
+
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+      await settle(qc)
+      expect(
+        calls,
+        `${s.name} bought a second metered call on ${s.upstream} when the window was refocused, ` +
+          `with no press. Calls: ${calls.join(', ')}`,
       ).toHaveLength(1)
     })
   }

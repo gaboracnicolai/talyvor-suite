@@ -61,9 +61,19 @@ export function AISummary({ issueId }: { issueId: string }) {
     queryKey: ['track-issue-summary', issueId],
     queryFn: () => getJSON<unknown>(`/api/track/issues/${encodeURIComponent(issueId)}/summary`),
     enabled: asked && issueId !== '',
-    // A summary is a paid call. Nothing re-asks on its own: no retry, no refetch on focus.
+    // A summary is a paid call, so NOTHING here may re-ask on its own — and that sentence used
+    // to be written above two of the three options it needs. MEASURED at main `dc8e13b1`, not
+    // reviewed: with `refetchOnReconnect` left at react-query's default (`true`), pressing the
+    // button once and then letting an hour pass with this screen open — a laptop that slept —
+    // issued `/api/track/issues/{id}/summary` a SECOND time the moment the network came back,
+    // with no press. `staleTime` below is what bounds it to an hour rather than preventing it:
+    // once the answer is stale a reconnect refetches, and Track's own hour-long cache has
+    // expired too, so the second call is a real charge on the issue. The three options are
+    // therefore listed together, and oneActionOneCharge.test.tsx asserts the property rather
+    // than this comment restating it.
     retry: false,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     // Track's own cache is an hour; matching it here means a second press inside the hour does not
     // even leave the browser. Longer would outlive the thread it summarises.
     staleTime: 60 * 60 * 1000,
