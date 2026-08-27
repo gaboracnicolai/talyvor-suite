@@ -95,6 +95,7 @@
   "src/focusAudit.test.tsx": 21,
   "src/formatterReach.test.ts": 8,
   "src/glyphAudit.test.tsx": 30,
+  "src/greppableSources.test.ts": 3,
   "src/headerReflow.test.tsx": 4,
   "src/inlineLinkTreatment.test.ts": 6,
   "src/LandmarkCoverage.test.tsx": 27,
