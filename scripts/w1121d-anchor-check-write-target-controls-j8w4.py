@@ -148,6 +148,51 @@ def main():
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
 
+    # ── the dropped-head half ─────────────────────────────────────────────────
+    # ⚠ #294 SHIPPED THE JOIN BRANCH DROPPING ITS FIRST ARGUMENT, AND THE DIV BRANCH ONE SCREEN
+    # BELOW IT CARRIES THE WARNING IN CAPITALS: "JOIN, DO NOT DISCARD THE LEFT … `UI /
+    # 'vitest.config.ts'` read as bare 'vitest.config.ts' resolved onto apps/web's copy and
+    # reported a miss against a file the harness never touches." Same bug, same file, one branch
+    # apart, written second by somebody who had read the first. These two controls reproduce BOTH
+    # outcomes rather than describing them.
+    MP = os.path.join(REPO, 'scripts/w17-mounted-patterns-controls-m5x8.py')
+    HEAD_JOINED = "            parts = [self._str(a) for a in node.args]"
+    HEAD_DROPPED = "            parts = [None] + [self._str(a) for a in node.args[1:]]"
+    SAME_REAL = 'SAME = os.path.join(BFF, "sameorigin_test.go")'
+    SAME_COLLIDING = 'SAME = os.path.join(BFF, "vitest.config.ts")'
+
+    control(
+        'I1 the join branch drops its first argument — the #294 bug exactly as it shipped',
+        'w17-mounted-patterns goes UNREADABLE and 4 anchors are lost: BFF = join(ROOT,"apps/bff") '
+        'then LENS = join(BFF,"lens.go") yields the bare "lens.go", which resolves nowhere',
+        [(CHECK, HEAD_JOINED, HEAD_DROPPED)],
+        lambda r: (r['anchors'] == base['anchors'] - 4 and 'w17-mounted-patterns' in r['out']
+                   and r['unreadable'] == base['unreadable'] + 1,
+                   f"-4 anchors and the harness unreadable again"
+                   if r['anchors'] == base['anchors'] - 4 else
+                   f"expected {base['anchors']-4}, got {r['anchors']}"))
+
+    # ⚠ I2 IS THE ONE THAT MATTERS. Unreadable was the LUCKY outcome of the #294 bug — `lens.go`
+    # exists under none of the roots, so it resolved to nothing. Point the same join at a tail
+    # that DOES exist at another root and the bug stops being quiet.
+    control(
+        'I2 the head dropped, with a tail that exists at ANOTHER root',
+        'a MISS is reported against vitest.config.ts — a file this harness never touches. That is '
+        'the Div branch\'s recorded failure, reproduced in the join branch',
+        [(CHECK, HEAD_JOINED, HEAD_DROPPED), (MP, SAME_REAL, SAME_COLLIDING)],
+        lambda r: (r['misses'] >= 1 and 'vitest.config.ts' in r['out'],
+                   f"{r['misses']} miss against a file the harness never touches"
+                   if r['misses'] else 'no miss — the collision did not reproduce'))
+
+    control(
+        'I3 the SAME colliding tail with the head JOINED — MUST STAY CLEAN',
+        'no miss: join(BFF,"vitest.config.ts") is apps/bff/vitest.config.ts, which does not exist, '
+        'so the triple is dropped rather than checked against the wrong file. This is the half '
+        'that shows the fix is the fix, and not that the collision stopped existing',
+        [(MP, SAME_REAL, SAME_COLLIDING)],
+        lambda r: (r['misses'] == 0 and 'vitest.config.ts' not in r['out'],
+                   'the collision resolves to nothing and is dropped'))
+
     # ── the os.path.join half ─────────────────────────────────────────────────
     PROSE = os.path.join(REPO, 'apps/web/scripts/w18-prose-class-controls.py')
     JOIN_ARM = """        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
@@ -176,17 +221,23 @@ def main():
         'H2 the SAME corruption with os.path.join support REVERTED',
         'INVISIBLE, and the harness reads UNREADABLE again',
         [(PROSE, PROSE_ANCHOR, PROSE_BROKEN), (CHECK, JOIN_ARM, JOIN_OFF)],
+        # ⚠ +2, NOT +1, AND THE CHANGE IS DELIBERATE: blinding the join branch now un-reads
+        # w18-prose-class AND w17-mounted-patterns, because the head-join repair carried the
+        # second one. Written as a delta so the next unrelated widening does not break it.
         lambda r: (r['misses'] == 0 and 'w18-prose-class' in r['out']
-                   and r['unreadable'] == base['unreadable'] + 1,
+                   and r['unreadable'] == base['unreadable'] + 2,
                    'invisible without the rule, harness unreadable again'
                    if r['misses'] == 0 else f"still seen ({r['misses']}) — not this rule"))
 
     control(
         'H3 os.path.join support blinded on a clean tree',
-        'exactly 537 anchors and 5 unreadable — the census returns to where #293 left it',
+        'ten anchors fewer and two harnesses more unreadable than this run\'s baseline — the '
+        'join branch carries w18-prose-class AND (since the head-join repair) w17-mounted-patterns',
         [(CHECK, JOIN_ARM, JOIN_OFF)],
-        lambda r: (r['anchors'] == 537 and r['unreadable'] == 5,
-                   'carries exactly the 6 anchors and the 1 harness it claims'))
+        lambda r: (r['anchors'] == base['anchors'] - 10 and r['unreadable'] == base['unreadable'] + 2,
+                   f"-10 anchors, +2 unreadable from {base['anchors']}/{base['unreadable']}"
+                   if r['anchors'] == base['anchors'] - 10 else
+                   f"expected {base['anchors']-10}, got {r['anchors']}"))
 
     # ⚠ H4 IS THE ONE TO READ. #291 added a refusal for harnesses that splice with `re.sub`, and
     # measured its harm on a HYPOTHETICAL two-step: teach _str about os.path.join AND add
@@ -206,8 +257,11 @@ def main():
     control(
         'H5 a comment beside the join branch reworded — MUST STAY GREEN',
         'census unmoved',
-        [(CHECK, '# spelled the other way. The FIRST argument is dropped for the same reason the Div branch',
-                 '# written the other way. The FIRST argument is dropped for the same reason the Div branch')],
+        # ⚠ RE-AIMED: this control's needle was the comment the head-join repair rewrote, so it
+        # died on `expected 1 occurrence, found 0` before testing anything. Aimed at a line the
+        # repair did not touch.
+        [(CHECK, '# purpose — an interpolated anchor is not statically decidable and must not be guessed at.',
+                 '# purpose: an interpolated anchor is not statically decidable and must not be guessed at.')],
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
 
