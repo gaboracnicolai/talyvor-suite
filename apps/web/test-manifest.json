@@ -121,6 +121,7 @@
   "src/proseClasses.test.ts": 9,
   "src/reachAudit.test.ts": 12,
   "src/reachGateScope.test.ts": 5,
+  "src/registerProseIsNotExecuted.test.ts": 4,
   "src/renderedClock.test.ts": 3,
   "src/restingAffordance.test.ts": 9,
   "src/routeParamState.test.ts": 10,
