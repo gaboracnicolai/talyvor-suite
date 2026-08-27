@@ -20,6 +20,7 @@ Usage:  python3 scripts/w11-card-heading-controls.py
 """
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -37,14 +38,68 @@ LEVEL = "h2 is the right LEVEL — it sits under the page name the shell already
 FLOOR = "the sweep actually reaches card headers — a floor over the whole gated set"
 OTHERS = "nothing ELSE on the page became a heading — the over-correction this file refuses"
 FIGURE = "a money FIGURE wearing the head step is not a heading either"
-ADDRESSES = [
-    "/", "/ledger", "/billing", "/billing/success", "/billing/cancel", "/keys", "/setup",
-    "/spend", "/members", "/settings", "/track", "/docs",
-]
+# ⚠ A THIRD FLOOR, ADDED AT `5c5fa86` (#256) — "the card-header census said 20, was never 20, and
+# nothing could say so" — AND THIS FILE PREDATES IT (`b17a6ac`, 2026-08-10). It reds whenever a
+# mutation removes the sweep's SUBJECT, which is exactly when FLOOR reds, so C5 and C6 have been
+# scoring MISPREDICTED against a guard that grew a second way to say the same true thing.
+CENSUS = "the census is the number, not a remembered one — per address, and complete"
+# ⚠⚠ BOTH LISTS BELOW WERE HAND-WRITTEN AND BOTH WENT STALE, AND THE SECOND ONE'S COMMENT STATED
+# A PREMISE THAT IS NOW FALSE. This file predicted twelve addresses; `CONSOLE_ROUTES` holds
+# FOURTEEN (`/chat` at #271, `/earnings` at #273). And it asserted "every address in the table has
+# at least one [card header], which is why the whole sweep reds together" — `CARD_HEADER_CENSUS`
+# in the test says `/billing/cancel` has **0**, and so do `/chat` and `/earnings`. An address with
+# no card header CANNOT red on a card-header mutation, so predicting that it will is a
+# misprediction manufactured by this file, against a guard that is working.
+#
+# ⚠⚠⚠ AND THAT IS THE DANGEROUS DIRECTION, NOT A COSMETIC ONE. Five of this file's seven controls
+# scored MISPREDICTED at `1690e4f` while the guard caught everything it should — and a working
+# guard that looks broken is a guard somebody deletes. Nothing was wrong with the product.
+#
+# So both are DERIVED: the addresses from the table that owns them, and the sweep's subject from
+# the census the test itself checks against. If a screen gains its first card header, this file
+# starts predicting its sweep case in the same commit.
+def _console_addresses() -> list[str]:
+    src = APP.read_text(encoding="utf-8")
+    m = re.search(r"export const CONSOLE_ROUTES[^=]*=\s*\[(.*?)\n\]", src, re.S)
+    if not m:
+        raise AssertionError(
+            "CONSOLE_ROUTES could not be located in App.tsx — this file's per-address predictions "
+            "come from it, and guessing them is what produced five false mispredictions.")
+    found = [a.replace("/*", "") for a in re.findall(r"path:\s*'([^']+)'", m.group(1))]
+    if len(found) < 12:
+        raise AssertionError(
+            f"CONSOLE_ROUTES parsed to {len(found)} address(es), floor is 12 — the number this "
+            f"file used to hardcode. A shorter list here silently predicts fewer reds.")
+    return found
+
+
+def _addresses_with_headers() -> list[str]:
+    """The addresses `CARD_HEADER_CENSUS` says render at least one card header.
+
+    ⚠ READ FROM THE TEST'S OWN CENSUS, not counted here. That census is itself checked against the
+    rendered product by `the census is the number, not a remembered one` — so if it is stale the
+    TEST reds, not this file. Restating it here would put a third copy in play.
+    """
+    src = (WEB / "src/CardHeaderHeading.test.tsx").read_text(encoding="utf-8")
+    m = re.search(r"const CARD_HEADER_CENSUS[^=]*=\s*\{(.*?)\n\}", src, re.S)
+    if not m:
+        raise AssertionError(
+            "CARD_HEADER_CENSUS could not be located in CardHeaderHeading.test.tsx.")
+    rows = re.findall(r"'([^']+)':\s*(\d+)", m.group(1))
+    if len(rows) < 12:
+        raise AssertionError(
+            f"CARD_HEADER_CENSUS parsed to {len(rows)} row(s), floor is 12. A short parse here "
+            f"predicts fewer reds and every control silently gets easier.")
+    return [a for a, n in rows if int(n) > 0]
+
+
+ADDRESSES = _console_addresses()
 SWEEP = [f"{a} renders every card header it has as a heading" for a in ADDRESSES]
-# /billing/success and /billing/cancel render a card header too; every address in the table has
-# at least one, which is why the whole sweep reds together.
-SWEEP_WITH_HEADERS = SWEEP
+# ⚠ ONLY the addresses that HAVE a card header can red on a card-header mutation. Measured at
+# `1690e4f`: 10 of the 14 (`/chat`, `/earnings`, `/billing/cancel` are structural zeroes — they
+# render no Card at all — and the census records why for each).
+SWEEP_WITH_HEADERS = [f"{a} renders every card header it has as a heading"
+                      for a in _addresses_with_headers()]
 
 CONTROLS = [
     {
@@ -76,11 +131,18 @@ CONTROLS = [
         "file": MU,
         "find": '<span className="text-head text-ink">{wholeStr}</span>',
         "repl": '<h2 className="text-head text-ink">{wholeStr}</h2>',
-        "reds": [FIGURE],
-        "expect": "ONLY the direct-render figure case. ⚠ THE FIRST DRAFT PREDICTED THE COUNT "
-                  "CASE AND SCORED 0 RED: this file's BFF fake 404s the balance reads, so no "
-                  "MuNumeral renders at ANY address and the address-shaped assertion could not "
-                  "see it. The component is rendered directly for exactly that reason",
+        "reds": [FIGURE, OTHERS],
+        "expect": "the direct-render figure case AND the over-correction count. ⚠⚠ THE SECOND "
+                  "ONE IS NEW AND THE REASON IS DATED: the note below was TRUE and stopped being "
+                  "true at `9b39741` (#277, W1.1.17b), which replaced this file's 404-everything "
+                  "fake with the shared POPULATED fixture. `/api/lxc/balance` now answers "
+                  "4_250_000 and `Overview.tsx:83` renders `<MuNumeral micros={…} />`, so a "
+                  "MuNumeral DOES render at `/` and turning its figure into an h2 is now visible "
+                  "to the address-shaped assertion as well. **THE GUARD GAINED REACH; THIS FILE "
+                  "SCORED IT AS BROKEN.** ORIGINAL, kept because it is why the component is "
+                  "rendered directly at all: THE FIRST DRAFT PREDICTED THE COUNT CASE AND SCORED "
+                  "0 RED: this file's BFF fake 404s the balance reads, so no MuNumeral renders at "
+                  "ANY address and the address-shaped assertion could not see it",
     },
     {
         "id": "C4",
@@ -98,7 +160,9 @@ CONTROLS = [
         "file": CARD,
         "find": '<h2 className="text-head text-ink">{children}</h2>',
         "repl": '<h2 className="text-ink">{children}</h2>',
-        "reds": [ELEMENT, LEVEL, FLOOR, OTHERS],
+        # ⚠ `CENSUS` ADDED 2026-08-27: it is a floor, it landed at #256 after this file was
+        # written, and it reds for the same reason FLOOR does — the subject is gone.
+        "reds": [ELEMENT, LEVEL, FLOOR, OTHERS, CENSUS],
         "expect": "MEASURED, AND NOT WHAT I FIRST PREDICTED. I expected the twelve address cases "
                   "to red as well; they do NOT, because dropping the token removes the sweep's "
                   "SUBJECT and a loop over nothing passes. The element case (it pins the classes) "
@@ -111,7 +175,9 @@ CONTROLS = [
         "file": CARD,
         "find": "'flex items-center justify-between gap-gutter border-b border-rule px-gutter py-2.5'",
         "repl": "'flex items-center justify-between gap-gutter border-rule px-gutter py-2.5'",
-        "reds": [FLOOR, LEVEL, OTHERS],
+        # ⚠ `CENSUS` ADDED 2026-08-27, same reason as C5 — and it makes the vacuity control
+        # STRONGER, not weaker: two independent floors now say the sweep lost its subject.
+        "reds": [FLOOR, LEVEL, OTHERS, CENSUS],
         "expect": "THE VACUITY CONTROL. Every per-address case now passes by finding NOTHING; "
                   "only the floor (and /setup's own >4 floor) can say the sweep lost its subject",
     },
