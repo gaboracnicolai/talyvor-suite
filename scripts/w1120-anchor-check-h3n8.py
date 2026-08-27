@@ -390,6 +390,34 @@ class Extractor(ast.NodeVisitor):
             return self.file_consts[0]
         return self.written_file
 
+    def _write_name(self, node: ast.AST) -> str | None:
+        """The module constant a write is aimed at, or None when this cannot name one.
+
+        ⚠ A HARNESS THAT COPIES THE TREE FIRST STILL NAMES ITS FILE. `w116-members` writes
+        `open(os.path.join(tree, SCREEN), "w")` — `tree` is the throwaway checkout it made and
+        SCREEN is the repo-relative path whose anchors are being checked. Requiring a bare Name
+        declined on that and the harness stayed UNREADABLE, with `TESTFILE` (the suite it hands to
+        `npx vitest run`, never a file it edits) making its constant set ambiguous.
+
+        ⚠ EXACTLY ONE argument of the join may name a file in this tree. `os.path.join(a, b)` with
+        two repo paths is not a write this can attribute, and guessing between them is the
+        false-miss shape `_single_file` exists to refuse. A scratch prefix like `tree` resolves to
+        nothing, which is what leaves exactly one.
+        """
+        if isinstance(node, ast.Name):
+            return node.id
+        # `os.path.join(tree, SCREEN)` / `ROOT / SCREEN` — exactly one operand may name a file here
+        parts: list[ast.AST] = []
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "join"):
+            parts = list(node.args)
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            parts = [node.left, node.right]
+        named = [e.id for e in parts
+                 if isinstance(e, ast.Name) and e.id in self.consts
+                 and resolve(self.consts[e.id], self.home) is not None]
+        return named[0] if len(named) == 1 else None
+
     def _write_target(self) -> str | None:
         """The single file every write in this module goes to, or nothing."""
         names: set[str | None] = set()
@@ -397,8 +425,7 @@ class Extractor(ast.NodeVisitor):
             if not isinstance(node, ast.Call):
                 continue
             if isinstance(node.func, ast.Attribute) and node.func.attr in ("write_text", "write_bytes"):
-                v = node.func.value
-                names.add(v.id if isinstance(v, ast.Name) else None)
+                names.add(self._write_name(node.func.value))
             elif isinstance(node.func, ast.Name) and node.func.id == "open":
                 mode = None
                 if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
@@ -407,8 +434,7 @@ class Extractor(ast.NodeVisitor):
                     mode = next((k.value.value for k in node.keywords
                                  if k.arg == "mode" and isinstance(k.value, ast.Constant)), "r")
                 if isinstance(mode, str) and ("w" in mode or "a" in mode) and node.args:
-                    a = node.args[0]
-                    names.add(a.id if isinstance(a, ast.Name) else None)
+                    names.add(self._write_name(node.args[0]))
         # a write through anything this analysis cannot name — a local, a subscript, an f-string —
         # means there are write targets it cannot enumerate, so it declines rather than guesses.
         if not names or None in names:

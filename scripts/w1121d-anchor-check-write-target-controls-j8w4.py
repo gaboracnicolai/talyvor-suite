@@ -88,6 +88,13 @@ def main():
         print(f"   VERDICT: {'OK' if good else 'CONTROL FAILED'} — {why}")
         ok += 1 if good else 0
 
+    def reason_for(out, harness_name):
+        lines = out.split('\n')
+        for i, l in enumerate(lines):
+            if harness_name in l and i + 1 < len(lines):
+                return lines[i + 1].strip()
+        return '<not listed as unreadable>'
+
     CORRUPT = ('("window.scrollTo(0, 0)", "window.scrollTo(0, 1)")',
                '("window.scrollTo(0, 0) /* moved */", "window.scrollTo(0, 1)")')
 
@@ -147,6 +154,74 @@ def main():
                  '# consts must be known first: the write target is resolved through them')],
         lambda r: (r['anchors'] == base['anchors'] and r['unreadable'] == base['unreadable']
                    and r['misses'] == 0, 'census unmoved'))
+
+    # ── the write-through-a-join half ─────────────────────────────────────────
+    # ⚠ THIS CHANGE ADDS NO ANCHOR, WHICH IS EXACTLY WHY IT NEEDS CONTROLS. It moves
+    # `w116-members` from "NO FILE HALF — 2 constants and none attributable" to "NO SHAPE HALF —
+    # the file is known (Members.tsx)". Nothing in the counts moves, so a broken version of it
+    # looks identical to a working one on the summary line.
+    MEM = os.path.join(REPO, 'scripts/w116-members-controls-7q4m.py')
+    JOINWRITE = """        parts: list[ast.AST] = []
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "join"):
+            parts = list(node.args)"""
+    JOINWRITE_OFF = """        parts: list[ast.AST] = []
+        if False and (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "join"):
+            parts = list(node.args)"""
+
+    control(
+        'K1 the write-through-a-join case blinded',
+        'w116-members goes back to NO FILE HALF — the verdict is the observable here, not the '
+        'anchor count, because this change adds no anchor',
+        [(CHECK, JOINWRITE, JOINWRITE_OFF)],
+        lambda r: ('NO FILE HALF' in reason_for(r['out'], 'w116-members')
+                   and r['anchors'] == base['anchors'],
+                   reason_for(r['out'], 'w116-members')[:80]))
+
+    # ⚠ K2 IS THE ONE THAT MATTERS: it must follow the WRITE, not the order of the constants.
+    # w116-members names Members.tsx and Members.test.tsx, and the test file is the suite it hands
+    # to `npx vitest run` — never a file it edits. Point the writes at the test file instead and
+    # the verdict must follow.
+    control(
+        'K2 the harness is made to write a DIFFERENT file than the one it names first',
+        'the verdict names Keys.tsx. If it still said Members.tsx it would be reading the '
+        'constant order, not the write, and would attribute anchors to a file nothing edits',
+        # ⚠ the SCREEN constant is repointed rather than the two write sites, because the
+        # write appears twice and an edit that matches twice is refused by this harness — and
+        # repointing at a THIRD real file (not at TESTFILE) keeps the two constants distinct, so
+        # the verdict cannot come from a single-constant fallback instead of from the write.
+        [(MEM, 'SCREEN = "apps/web/src/areas/lens/Members.tsx"',
+               'SCREEN = "apps/web/src/areas/lens/Keys.tsx"')],
+        lambda r: ('Keys.tsx' in reason_for(r['out'], 'w116-members'),
+                   reason_for(r['out'], 'w116-members')[:80]))
+
+    # ⚠ K3 IS A UNIT CONTROL AND THE TWO ATTEMPTS BEFORE IT ARE WHY. The guard under test is
+    # "`os.path.join(a, b)` with TWO operands naming a file is not a write I can attribute". No
+    # harness has that shape, so both attempts to construct it in a real harness moved OTHER rules
+    # instead of this one: rebinding the function-local `tree` is invisible to `_prescan` (module
+    # body only), and adding a module-level `tree = TESTFILE` made the harness readable through a
+    # different path and produced a miss that had nothing to do with the guard. **A control that
+    # perturbs three rules to test one is not a control.** Calling `_write_name` directly isolates
+    # it, and says out loud that this guard is conservatism with no live population today.
+    total += 1
+    print('\n== K3 the join-write ambiguity guard, called directly (no harness perturbed)')
+    print("   PREDICT: two operands naming a file -> None; one -> that one. No harness has the "
+          "two-operand shape today, so this is the only way to exercise it without moving "
+          "unrelated rules — and that it has no live population is itself the finding")
+    import importlib.util as _ilu, ast as _ast
+    _spec = _ilu.spec_from_file_location('acu', CHECK)
+    _m = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_m)
+    _ex = _m.Extractor('X = "apps/web/src/areas/lens/Members.tsx"\n'
+                       'Y = "apps/web/src/areas/lens/Keys.tsx"\n', _m.ROOT)
+    _two = _ast.parse('os.path.join(X, Y)', mode='eval').body
+    _one = _ast.parse('os.path.join(scratch, X)', mode='eval').body
+    _r2, _r1 = _ex._write_name(_two), _ex._write_name(_one)
+    _good = _r2 is None and _r1 == 'X'
+    print(f"   RESULT : two-operand -> {_r2!r}   one-operand -> {_r1!r}")
+    print(f"   VERDICT: {'OK' if _good else 'CONTROL FAILED'} — "
+          f"{'ambiguity refused, the unambiguous case attributed' if _good else 'the guard does not behave as claimed'}")
+    ok += 1 if _good else 0
 
     # ── the tuple-unpacking half ──────────────────────────────────────────────
     CG = os.path.join(REPO, 'scripts/w11-cited-guard-controls.py')
@@ -397,13 +472,6 @@ def main():
     # exactly ONE of the two halves, and requires the named reason to be the one that broke.
     SR = os.path.join(REPO, 'apps/web/scripts/w11-scroll-reset-controls.py')
     MONEY = os.path.join(REPO, 'apps/web/scripts/w1118-money-name-controls-h3n8.py')
-
-    def reason_for(out, harness_name):
-        lines = out.split('\n')
-        for i, l in enumerate(lines):
-            if harness_name in l and i + 1 < len(lines):
-                return lines[i + 1].strip()
-        return '<not listed as unreadable>'
 
     control(
         'E1 a readable harness loses only its SHAPE half',
