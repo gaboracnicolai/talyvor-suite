@@ -190,10 +190,29 @@ def main() -> int:
                # Five deliberate moves in one session. Every one of them had to be looked at, and
                # one of them (this) turned out to be a bug the same tab had shipped three hours
                # earlier — which a range would have swallowed without a word.
+               # ⚠⚠ AND 563 IS NOT WHAT THIS TREE PRINTS ON THE CANONICAL PATH — IT PRINTS 568.
+               # MEASURED at the same commit in two git worktrees differing ONLY in directory
+               # name: `…/talyvor-suite` decides 568, `…/p9r4-b` decides 563. Several harnesses
+               # anchor at `pathlib.Path.home() / "talyvor-suite" / …`; the extractor cannot
+               # evaluate `Path.home()`, and the leading `talyvor-suite` segment is stripped only
+               # when it equals `ROOT.name`. In any checkout not NAMED talyvor-suite — CI, a git
+               # worktree, a reviewer's clone — those five anchors go undecided and the run still
+               # prints "every decidable anchor matches the tree". The floor takes the LOWER,
+               # reproducible number on purpose: a floor that only holds on one developer's path
+               # is a floor that reds for everyone else. Reported as the next finding on this
+               # item, NOT fixed here — one merge per finding.
+               # ⚠ SEVENTH MOVE 2026-08-27 (tab-p9r4), floor 558 → 563 AND THE EXTRACTOR DID
+               # NOT WIDEN. `scripts/w1121d-prediction-check-controls-p9r4.py` landed and matched
+               # the harness glob as any control harness does, so the census read 74 → 75 and its
+               # anchors 558 → 563 (measured in a clean checkout). Worth separating, because this item tracks the anchor count as
+               # evidence of widening and a reader comparing 558 to 568 would conclude the
+               # extractor moved. It did not: a harness was ADDED. ⚠ The equality pin one file
+               # over (`n == 74`, W6) read CONTROL FAILED on the same change; this floor, written
+               # `>=`, absorbed it silently. Both shapes have a cost and this is the trade.
                # ⚠ SIXTH MOVE 2026-08-27 (tab-j8w4), 3 → 2 and the floor 547 → 558: tuple-
                # unpacked path constants now bind, which reads `w11-cited-guard` — and reading it
                # immediately surfaced a K8 anchor that had been unable to arm since #274.
-               base_anchors >= 558 and base_unread == 2
+               base_anchors >= 563 and base_unread == 2
                and out.count("ANCHOR ON REGEXES") == 1
                and base_unread + 1 == 3
                and "every decidable anchor matches" in out,

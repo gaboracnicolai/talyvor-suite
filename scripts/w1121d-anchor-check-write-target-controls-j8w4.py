@@ -653,26 +653,48 @@ def main():
     # you are reading was first called `w1121d-write-target-controls-j8w4.py`, matched the
     # harness glob, and pushed the census to 75 with its own baseline reading `unreadable=8`
     # against a tree that had 7 — after the warning about exactly that was already written down
-    # in this item. W6 renames it back and requires the census to hold at 74.
+    # in this item. W6 renames it back and requires the census to HOLD — the same number with the
+    # file renamed as without it.
+    #
+    # ⚠⚠ THE PIN WAS A LITERAL `74` AND A LEGITIMATE NEW HARNESS BROKE IT (tab-p9r4, W1.1.21d).
+    # `scripts/w1121d-prediction-check-controls-p9r4.py` landed, matched the glob as any control
+    # harness does, and the census moved to 75 — so W6 read CONTROL FAILED against a checker
+    # behaving exactly as designed. That is defect 1 on this item's own list ("A HARDCODED
+    # EXPECTED ASSERTION COUNT … pinned 53 where the sweep collects 54"), sitting inside a control
+    # written after the list.
+    #
+    # ⚠ THE PROPERTY W6 TESTS WAS NEVER THE NUMBER — it is INVARIANCE: the census must be the same
+    # with this file renamed as with it named conventionally. Measured in the same run, that
+    # cannot go stale when the harness population legitimately grows. The sibling pin one file
+    # over was written `base_anchors >= 558` and survived the same change untouched; this one was
+    # written `== 74` and did not. A baseline's SHAPE decides whether it ages.
+    #
+    # ⚠ AND IT KEEPS A VACUITY FLOOR, because "before == after" is satisfied by 0 == 0 — which is
+    # exactly the blinded-glob world the checker's own MIN_HARNESSES exists for.
     def rename_control(dst_name):
         src = os.path.abspath(__file__)
         dst = os.path.join(os.path.dirname(src), dst_name)
         os.rename(src, dst)
         return src, dst
 
+    def censused(out):
+        m = re.search(r'harnesses: (\d+)', out)
+        return int(m.group(1)) if m else -1
+
     total += 1
     print('\n== W6 this control file renamed OUT of the `anchor-check` convention')
-    print('   PREDICT: the census HOLDS at 74. Before this change the same rename took it to 75 — '
-          'the instrument counting itself, in the direction that looks like progress')
+    print('   PREDICT: the census HOLDS — the same count renamed as unrenamed. Before this change '
+          'the same rename took it UP by one: the instrument counting itself, in the direction '
+          'that looks like progress')
+    before = censused(run_check()['out'])
     src, dst = rename_control('w1121d-write-target-controls-j8w4.py')
     try:
         r = run_check()
     finally:
         os.rename(dst, src)
-    held = re.search(r'harnesses: (\d+)', r['out'])
-    n = int(held.group(1)) if held else -1
-    good = n == 74 and 'RUNS this checker' in r['out']
-    print(f"   RESULT : harnesses={n} anchors={r['anchors']} unreadable={r['unreadable']}")
+    n = censused(r['out'])
+    good = n == before and before >= 70 and 'RUNS this checker' in r['out']
+    print(f"   RESULT : harnesses={n} (unrenamed: {before}) anchors={r['anchors']} unreadable={r['unreadable']}")
     print(f"   VERDICT: {'OK' if good else 'CONTROL FAILED'} — "
           f"{'excluded by what it does, not what it is called' if good else 'the census absorbed a control for the checker'}")
     ok += 1 if good else 0
