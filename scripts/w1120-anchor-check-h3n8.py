@@ -193,6 +193,9 @@ class Extractor(ast.NodeVisitor):
         self.file_consts: list[str] = []
         self.anchor_index: dict[str, int] = {}
         self.edit_shapes: list[tuple[int, int, int | None]] = []
+        # field name -> (arity, anchor index), learned from a tuple-unpacking ASSIGNMENT of that
+        # field. See the prescan block below.
+        self.field_anchor: dict[str, tuple[int, int]] = {}
         self._tree: ast.AST = ast.Module(body=[], type_ignores=[])
         self.written_file: str | None = None
         self.counted_names: set[str] = set()
@@ -357,8 +360,58 @@ class Extractor(ast.NodeVisitor):
             self.edit_shapes.append((len(names), idx, pidx))
             if isinstance(node.iter, ast.Name):
                 self.anchor_index[node.iter.id] = idx
+        # ⚠ THE SAME DECLARATION, MADE BY AN ASSIGNMENT INSTEAD OF A LOOP — `needle, replacement =
+        # c.edit`. That is the shape `w116-members` keeps its anchor position in, and it was the
+        # last harness whose FILE was known and whose ANCHOR was not.
+        #
+        # ⚠⚠ IT IS NOT A NEW KIND OF EVIDENCE, AND THAT IS THE WHOLE POINT. The index comes from
+        # ANCHOR_NAMES or from `counted_names` — exactly the two signals the for-loop rule above
+        # already uses — so nothing here decides an anchor by looking at a string's contents.
+        # `w116-members` writes `original.count(needle)` on the line AFTER the unpacking, which is
+        # the harness stating in its own code that element 0 is a literal whose occurrences in the
+        # file's text are what matter. Adding `needle` to ANCHOR_NAMES would have been a guess
+        # about a spelling with the same argument due again for the next harness; this reads the
+        # claim the harness makes. (`_prescan`'s own note on `o` records that argument in full.)
+        #
+        # ⚠ THE FIELD NAME IS PART OF THE KEY, so learning that `edit` is a 2-tuple anchored at 0
+        # says nothing about any other keyword; and the ARITY travels with it for the same reason
+        # it bounds the loop rule — without it this would be asked of every 2-tuple in the file.
+        #
+        # ⚠ MEASURED, NOT ASSUMED, THAT IT REACHES NOTHING ELSE: with `w116-members` removed from
+        # the census the count is 569 with this rule and 569 without it. It carries exactly one
+        # harness, which is what a rule written from one harness's shape should carry until another
+        # is measured to need it.
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            tgt = node.targets[0]
+            if not isinstance(tgt, ast.Tuple) or not isinstance(node.value, ast.Attribute):
+                continue
+            names = [e.id if isinstance(e, ast.Name) else "" for e in tgt.elts]
+            # ⚠ THE SAME TWO SIGNALS AS THE LOOP RULE, THROUGH ONE HELPER. Written out a second
+            # time it was byte-identical to the loop rule's two lines, and
+            # `w1121d-anchor-check-write-target-controls` refused: its blinding arm asserts its
+            # anchor occurs EXACTLY ONCE and found two. That assertion is right and the duplication
+            # was the defect — a rule stated twice is a rule that can be blinded in one place.
+            idx = self._declared_anchor_index(names)
+            if idx is None:
+                continue
+            self.field_anchor.setdefault(node.value.attr, (len(names), idx))
         # after consts are known, because the write target is looked up through them
         self.written_file = self._write_target()
+
+    def _declared_anchor_index(self, names: list[str]) -> int | None:
+        """Which position in an unpacking the harness has DECLARED to be the anchor.
+
+        Two signals, in order, and neither looks at a string's contents: the ANCHOR_NAMES
+        vocabulary, then `counted_names` — every name this module hands to `.count(…)`, which is
+        the harness saying in its own code that the element is a literal whose occurrences in the
+        file's text are what matter. `_prescan`'s note on `o` records why the second exists.
+        """
+        idx = next((i for i, n in enumerate(names) if n in self.ANCHOR_NAMES), None)
+        if idx is None:
+            idx = next((i for i, n in enumerate(names) if n in self.counted_names), None)
+        return idx
 
     def _single_file(self) -> str | None:
         """The one file this harness edits, or nothing. EXACTLY one — with two, attributing an
@@ -603,6 +656,13 @@ class Extractor(ast.NodeVisitor):
         if len(node.args) >= 2:
             self._record(self._str(node.args[0]), self._str(node.args[1]),
                          self._num(node.args[2]) if len(node.args) > 2 else None)
+        # ⚠ A KEYWORD WHOSE FIELD NAME WAS DECLARED BY AN UNPACKING — `Control(…, edit=(needle,
+        # replacement))`. The arity must match what the unpacking named, so a same-named keyword
+        # carrying a different shape is left alone rather than read on a guess.
+        for field, (arity, aidx) in self.field_anchor.items():
+            v = kw.get(field)
+            if isinstance(v, ast.Tuple) and len(v.elts) == arity and aidx < arity:
+                self._record(self._single_file(), self._str(v.elts[aidx]), None)
         self._after_the_path(list(node.args))
         self.generic_visit(node)
 
