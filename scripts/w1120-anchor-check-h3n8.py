@@ -55,12 +55,34 @@ def _is_control_for_this_checker(p: pathlib.Path) -> bool:
     is a real harness whose anchors must keep being checked. A control RUNS the checker, so it
     carries the path as a STRING CONSTANT. Excluding on the raw text would have dropped a genuine
     harness from the census — the direction that looks like nothing happened.
+
+    ⚠⚠ AND "A STRING CONSTANT" WAS TOO WIDE BY EXACTLY ONE SHAPE: **A DOCSTRING IS AN
+    `ast.Constant`.** Measured 2026-08-27 (W1.1.21h) — `w11-press-c1-controls-c7k5.py`, a genuine
+    harness with real anchors, named this checker in its module docstring as PROSE, and was
+    silently excluded. The census stayed at 79 where it should have read 80, which is the
+    direction that looks like nothing happened: a number that does not move is not a number
+    anybody checks.
+
+    ⚠⚠⚠ THE PARAGRAPH ABOVE IS WHY IT SLIPPED THROUGH: it says "a COMMENT" and its control (W7 in
+    `w1121d-anchor-check-write-target-controls-j8w4.py`) plants a `#` comment, which is not an AST
+    node at all. Python represents a `#` comment as nothing and a docstring as a Constant — so the
+    rule and its control agreed about prose in the one form the rule already handled, and neither
+    had an opinion about the other form. **The intent was always "what the file DOES": a control
+    RUNS the checker, so it uses the path as a VALUE — in a call, an assignment, a join. Prose
+    that happens to be a Constant is a bare expression statement and computes nothing.** That is
+    exact and decidable, so it is what is tested.
     """
     try:
         tree = ast.parse(p.read_text())
     except (SyntaxError, OSError):
         return False
-    return any(isinstance(n, ast.Constant) and isinstance(n.value, str) and CHECKER_STEM in n.value
+    # Every string Constant that IS a statement on its own — a module/class/function docstring, or
+    # a stray literal. It is evaluated and discarded; nothing can be running the checker with it.
+    prose = {id(n.value) for n in ast.walk(tree)
+             if isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant)
+             and isinstance(n.value.value, str)}
+    return any(isinstance(n, ast.Constant) and isinstance(n.value, str)
+               and CHECKER_STEM in n.value and id(n) not in prose
                for n in ast.walk(tree))
 
 
