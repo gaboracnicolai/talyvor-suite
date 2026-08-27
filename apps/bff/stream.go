@@ -196,7 +196,13 @@ func (a *app) handleAIStream() http.HandlerFunc {
 				})
 				return
 			}
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
+			// ⚠ AND THE REMAINING ARM IS NOT ONE STATE EITHER — writeUpstreamFailure OWNS THAT
+			// SPLIT AND THIS SEAM WAS THE ONE ROUTE THAT DID NOT GO THROUGH IT. The mint runs on
+			// `a.client`, the shared client whose 10s whole-exchange bound is hazard 3 in this
+			// file's header, so a Lens that is healthy and merely slow to mint tripped it and got
+			// the unreachable sentence — #306's finding, on the credential seam forwardProduct
+			// cannot reach. Reused rather than restated: a second decider is a decider that drifts.
+			writeUpstreamFailure(w, "lens", err)
 			return
 		}
 
