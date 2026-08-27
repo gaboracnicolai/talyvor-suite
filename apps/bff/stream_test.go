@@ -30,6 +30,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -494,4 +495,169 @@ func TestStream_ForeignOriginIsRefused(t *testing.T) {
 	if up.proxyCalls != 0 {
 		t.Fatalf("a foreign-origin request reached the upstream %d times", up.proxyCalls)
 	}
+}
+
+// ⚠ A LENS THAT ANSWERED IS NOT AN UNREACHABLE LENS — AND ON A DEFAULT LENS DEPLOYMENT THIS IS
+// THE ONLY THING THE CHAT SCREEN CAN EVER SAY.
+//
+// talyvor-lens gates the session-key mint on LENS_SESSION_KEYS_ENABLED, and cmd/lens/main.go says
+// what unset means in its own words: "the three routes below are never registered — a chi 404
+// rather than a route that exists and refuses. A deployment that does not opt in is byte-for-byte
+// unchanged by this feature." config.Load leaves that flag FALSE.
+//
+// So on a Lens that is running perfectly and has simply not opted in, POST /v1/auth/session-keys
+// answers 404, sessionKeyFor returns an error, and handleAIStream mapped EVERY error from it —
+// transport and refusal alike — to `502 {"error":"lens upstream unreachable"}`.
+//
+// MEASURED through the real handler before this test existed, not reasoned about:
+//
+//	A  Lens RUNNING, mint route absent (404) -> 502 {"error":"lens upstream unreachable"}
+//	B  Lens NOT LISTENING                    -> 502 {"error":"lens upstream unreachable"}
+//	IDENTICAL? true
+//
+// That is the #306 defect one route over. product_timeout_test.go opens by recording that a
+// healthy-but-slow product upstream reached the browser as an unreachable one, and separated the
+// two causes in forwardProduct — and it excluded THIS route by name, because the fix that built
+// newStreamClient() was about the stream's timeout rather than its credential. The credential
+// seam had the same collapse and nothing was watching it: all nine tests above mint 201.
+//
+// ⚠ THE ASSERTION IS THE DIFFERENCE, IN BOTH DIRECTIONS. Asserting only that the refusal stops
+// saying "unreachable" is satisfied by deleting the word everywhere, at which case a Lens that is
+// genuinely down stops saying so. So the not-listening arm asserts it KEEPS the sentence.
+//
+// ⚠ AND NO DIAGNOSIS IS READ OFF THE 404. lib/productState.ts states the rule this route has to
+// obey: "A 404 is a statement about an ADDRESS. It is never evidence about whether a product is
+// deployed." A wrong LENS_BASE_URL 404s exactly like an un-opted-in Lens, so this says what
+// happened — Lens answered and refused to mint — and not why. Naming the cause would be the same
+// laundering in the opposite direction.
+// ⚠ 7 CONTROLS (~/talyvor-queue/w17-chat-credential-controls-m9x4.py), each applied ALONE against
+// the whole apps/bff suite, verdicts read from FAILING TEST NAMES, every file sha256-verified back.
+// C1 the finding · C2 the word restored · C3 the other direction · C4 vacuity (the probe never
+// reaches the credential seam) · C5 the fixture actually mints · C6 negative.
+//
+// ⚠⚠ C1P IS THE ONE THAT MATTERS AND IT TOOK THREE TRIES TO STOP LYING, WHICH IS RECORDED HERE
+// RATHER THAN QUIETLY REPAIRED. It asks what the pre-merge world caught: the defect present, this
+// test absent.
+//
+//	try 1 — reverted the split by DELETING the errors.As block. `errors` went unused, the package
+//	        did not compile, and the harness scored "BUILD FAILED" AS ITS PREDICTED *nothing*. A
+//	        control that cannot build has measured the compiler, not the suite.
+//	try 2 — built, and reddened TestEveryCitedTestExists — because the comment above cites this
+//	        test BY NAME and the test had just been deleted. A red produced by my own diff. Reading
+//	        that as coverage would have been the same lie one layer up.
+//	try 3 — stream.go reconstructed VERBATIM from origin/main, block gone, import gone:
+//	        **0 RED, EXIT 0, whole apps/bff suite.** Nothing was watching this seam.
+func TestStream_ALensThatAnsweredIsNotReportedAsUnreachable(t *testing.T) {
+	// Lens is UP; the mint route was never registered, which is chi's 404.
+	lensNoMint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(lensNoMint.Close)
+
+	// Nothing is listening on this address at all.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	deadLens := "http://" + ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	refusedStatus, refusedBody := driveStreamAgainst(t, lensNoMint.URL)
+	deadStatus, deadBody := driveStreamAgainst(t, deadLens)
+
+	if refusedStatus == deadStatus && refusedBody == deadBody {
+		t.Fatalf("A LENS THAT ANSWERED AND A LENS THAT IS NOT THERE ARE THE SAME BYTES.\n"+
+			"  mint refused (Lens up, 404): %d %s\n"+
+			"  not listening:               %d %s\n"+
+			"On a default Lens deployment LENS_SESSION_KEYS_ENABLED is unset and the mint route is "+
+			"never registered, so the first line is the ONLY answer this route can give — and it "+
+			"sends an operator to check whether Lens is running when Lens is running.",
+			refusedStatus, refusedBody, deadStatus, deadBody)
+	}
+
+	// A Lens that answered is not unreachable, whatever else it is.
+	if strings.Contains(refusedBody, "unreachable") {
+		t.Errorf("mint-refused body = %s, and it still claims unreachability about a Lens that "+
+			"answered this BFF within the same request", refusedBody)
+	}
+	if !strings.Contains(refusedBody, chatCredentialRefusedCode) {
+		t.Errorf("mint-refused body = %s, want the %s code so the browser can tell this seam from "+
+			"a relayed upstream status", refusedBody, chatCredentialRefusedCode)
+	}
+
+	// ⚠ A 201 THIS BFF CANNOT USE IS STILL LENS ANSWERING. The mint has three ways to leave this
+	// BFF without a credential — a non-201, a body that will not decode, and a 201 carrying no key
+	// — and only the first is a refusal in Lens's own words. All three are Lens SPEAKING, which is
+	// the one distinction the old single sentence destroyed, so all three take the same arm.
+	lensEmptyKey := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		if r.URL.Path == lensSessionKeyPath && r.Method == http.MethodPost {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"key":"","expires_at":"2026-01-01T00:00:00Z"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(lensEmptyKey.Close)
+	if _, emptyBody := driveStreamAgainst(t, lensEmptyKey.URL); strings.Contains(emptyBody, "unreachable") {
+		t.Errorf("201-with-no-key body = %s, and it calls a Lens that answered 201 unreachable", emptyBody)
+	}
+
+	// ⚠ THE OTHER DIRECTION. Deleting the word everywhere would satisfy the check above.
+	if !strings.Contains(deadBody, "unreachable") {
+		t.Errorf("not-listening body = %s, want it to KEEP saying unreachable — that one is true, "+
+			"and this arm is what stops the fix being 'stop claiming it at all'", deadBody)
+	}
+	if strings.Contains(deadBody, chatCredentialRefusedCode) {
+		t.Errorf("not-listening body = %s, and it carries the credential-refusal code for a Lens "+
+			"that never answered — the two causes are collapsed again, the other way round", deadBody)
+	}
+}
+
+// driveStreamAgainst points a fresh BFF at lensURL and posts one chat turn, returning the status
+// and the trimmed body the browser would receive. chatApi.ts renders that body VERBATIM into
+// "The request was refused (502): <body>", so these bytes are on screen.
+func driveStreamAgainst(t *testing.T, lensURL string) (int, string) {
+	t.Helper()
+	cfg := config{
+		lensBaseURL: lensURL, provisionSecret: testProvisionSecret,
+		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
+		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
+	}
+	auth := newSessionOnlyAuthenticator(cfg)
+	seedProvisionedSession(auth, "cred-sid", "u1", "ng@example.com", "u-test-workspace")
+	a := newApp(cfg, auth)
+	a.cfg.webDist = t.TempDir()
+
+	ts := httptest.NewServer(a)
+	defer ts.Close()
+	req, err := http.NewRequest(http.MethodPost,
+		ts.URL+"/api/ai/stream/openai/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "cred-sid"})
+	req.Header.Set("Origin", "https://app.talyvor.com")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return resp.StatusCode, strings.TrimSpace(string(b))
 }
