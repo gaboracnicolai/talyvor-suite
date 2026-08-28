@@ -12,11 +12,30 @@ must-stay-green companion: an edit that changes the register's text without chan
 premise must leave all 34 assertions green, or the file is reading formatting rather than
 meaning.
 
+⚠ AND A `finally` IS NOT ENOUGH, WHICH IS MEASURED RATHER THAN ANTICIPATED — THIS SCRIPT LEFT A
+MUTATION IN THE WORKING TREE ON 2026-08-28. A 2-minute command timeout SIGTERM'd it mid-control
+and the `finally` never ran, so `deploy/decision-expiry.sh` was left with D8's line reading
+`if true; then` — ITS SUBJECT GATE REMOVED — and `apps/web/src/expirySubjects.test.ts` was left
+with `D8: 'zzz never printed'`. Nothing about the tree looked wrong: `pnpm test` had passed
+minutes earlier and `git status` showed only files the session had edited on purpose. It was
+found because the NEXT harness refused to score against a red baseline.
+
+The signal handlers below restore and then re-raise, so the exit status is still honest. They
+are installed AFTER the snapshot is taken and cover SIGTERM, SIGINT and SIGHUP — a SIGKILL still
+strands, and nothing in Python can change that; the defence against SIGKILL is the baseline
+refusal already at the top of main().
+
+⚠ COUNTED, NOT GUESSED, AT 82cffd5: of the 46 scripts in this directory that mutate a tracked
+file and restore it in a `finally`, ZERO installed a restoring signal handler. This is the
+first, and the shape is deliberately self-contained so the next one is a copy-paste rather than
+an import.
+
 Usage:  python3 scripts/w11-expiry-subject-controls.py
 """
 import hashlib
 import pathlib
 import re
+import signal
 import subprocess
 import sys
 
@@ -29,6 +48,30 @@ GUARD = WEB / TEST
 
 def sha(p: pathlib.Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def restore_on_signal(snapshot: dict) -> None:
+    """Put every snapshotted file back, then die of the signal we were sent.
+
+    Re-raising with SIG_DFL is what keeps the exit status honest: a caller that killed this
+    process still sees it die of that signal, not exit 0 with a tidy tree.
+    """
+    def handler(signum, _frame):
+        for path, blob in snapshot.items():
+            try:
+                path.write_bytes(blob)
+            except OSError:
+                pass
+        sys.stderr.write(
+            "\n!! signal %d — restored %d mutated file(s) before exiting\n"
+            % (signum, len(snapshot))
+        )
+        signal.signal(signum, signal.SIG_DFL)
+        import os
+        os.kill(os.getpid(), signum)
+
+    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(s, handler)
 
 
 def run_guard() -> tuple[int, set[str]]:
@@ -167,6 +210,10 @@ CONTROLS = [
 
 
 def main() -> int:
+    # SNAPSHOT BEFORE ANYTHING RUNS. Every file any control mutates is captured here, so the
+    # handler can put the tree back from whatever state a signal interrupts.
+    restore_on_signal({p: p.read_bytes() for p in {c[1] for c in CONTROLS}})
+
     rc, failed = run_guard()
     print(f"BASELINE rc={rc} failures={sorted(failed) or 'none'}")
     if rc != 0 or failed:
