@@ -421,6 +421,29 @@ func requireLoopback(addr string) error {
 	return nil
 }
 
+// newHTTPServer builds the serving http.Server. The four bounds below are the
+// only thing standing between this process and a client that opens a
+// connection and then does nothing: ReadHeaderTimeout is the slowloris bound,
+// and the other three cap a request's read, write and idle phases.
+//
+// ⚠ THEY LIVED AS AN INLINE LITERAL IN main() AND NOTHING COULD REACH THEM.
+// MEASURED 2026-08-28 (tab-k2w8, W4.35) rather than assumed: each of the four
+// was multiplied by 100 and `go test -race ./...` stayed GREEN, while the same
+// census found every session-cookie attribute (Secure, HttpOnly, SameSite,
+// Path), pendingTTL and the loopback BFF_ADDR default all properly defended.
+// Extracting the literal into this function is what makes the bounds
+// addressable by a test; it changes no value and no behaviour.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+}
+
 func main() {
 	log.SetFlags(0)
 
@@ -459,14 +482,7 @@ func main() {
 
 	app := newApp(cfg, auth)
 
-	srv := &http.Server{
-		Addr:              cfg.addr,
-		Handler:           app,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	srv := newHTTPServer(cfg.addr, app)
 
 	// Bind explicitly (not ListenAndServe) so we control the listener and can log the
 	// real, resolved address — a second belt-and-braces confirmation of loopback.
