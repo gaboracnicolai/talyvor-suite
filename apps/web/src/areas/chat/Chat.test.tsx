@@ -120,7 +120,17 @@ describe('the model picker reads the deployment, not this file', () => {
     mockChat()
     renderChat()
     const line = await screen.findByText(/List price/i)
-    expect(line.textContent).toContain('2.5')
+    // ⚠ THE WHOLE RENDERED STRING, NOT A SUBSTRING. This assertion used to be
+    // `toContain('2.5')`, which passes on `$2.50` AND on the bare `2.5` this screen actually
+    // shipped — so it could not tell a priced figure from an unlabelled number. Measured in the
+    // DOM before the fix: `List price · 2.5 in / 10 out per 1M tokens`, no currency mark anywhere,
+    // on the one screen whose thesis is cost.
+    expect(line.textContent).toBe('List price · $2.50 in / $10.00 out per 1M tokens')
+    // Stated separately so the reason survives if the copy around it is reworded: a price on this
+    // screen must carry a currency mark. The product's figureAudit cannot enforce it here — this
+    // element's text carries words, so figureKind() reads it as prose (its TRAP TWO) and never
+    // applies the currency floor. That is correct of the audit and is why this lives here.
+    expect(line.textContent).toMatch(/\$\d/)
     // ⚠ AND IT IS ON THE FIGURE FACE. A price caption set in the body sans is the exact defect
     // figureAudit exists for, and this line is the one numeral a reader compares between models.
     expect(line.getAttribute('class')).toContain('font-figure')

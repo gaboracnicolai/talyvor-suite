@@ -180,6 +180,12 @@ const FORMATTERS: Record<string, true | string> = {
   // The money formatter that sat outside the old three-file list entirely: it prints the price
   // on /billing's buy buttons, the one numeral a stranger reads before spending money.
   'apps/web/src/areas/lens/topupApi.ts#formatCents': true,
+  // W4.9. The chat screen's catalog LIST RATE, and a figure by the same rule as every other money
+  // formatter here: it renders `$2.50`, on the figure face, in the one caption a reader compares
+  // between models. ⚠ IT IS DELIBERATELY NOT `formatCost` ABOVE — that formatter's
+  // `usd < 0.01 ? toFixed(4) : toFixed(2)` branch renders the real 0.015 catalog rate as `$0.01`,
+  // corrupting it by a third and DOWNWARD (0.015 has no exact double). See areas/chat/price.ts.
+  'apps/web/src/areas/chat/price.ts#formatUsdPer1M': true,
   // Was `formatUSD` here — "A FIGURE BY ITS OUTPUT, AND NOTHING RENDERS IT … classified honestly
   // and enforced by nothing". That is now resolved rather than described: the dead export is
   // deleted and this is the rule IssueDetail.tsx actually renders (it was the local `costLabel`).

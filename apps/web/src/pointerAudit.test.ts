@@ -185,7 +185,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'reaches Lens never',
     why: 'the measurement that keeps generateChangelog out of the metered markers — the one Docs\' census names as its single excluded surface',
   },
-  'apps/web/src/meteredSurfacePopulation.test.ts:71|apps/web/src/areas/chat/Chat.tsx:37': {
+  'apps/web/src/meteredSurfacePopulation.test.ts:71|apps/web/src/areas/chat/Chat.tsx:38': {
     kind: 'LIVE',
     fragment: 'NOTHING HERE CLAIMS THE CONVERSATION IS BILLED',
     why: 'the measurement that keeps areas/chat out of the population entirely, so an absent area reads as decided rather than forgotten',

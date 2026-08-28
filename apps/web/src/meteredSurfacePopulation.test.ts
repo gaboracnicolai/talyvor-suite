@@ -68,7 +68,7 @@ import { stripComments } from '../../../packages/ui/src/lib/sourceText'
 // in.
 //
 // areas/chat is out for the same kind of reason, also measured upstream rather than assumed:
-// Chat.tsx:37 records that in the default configuration a session-key request moves no LXC at all
+// Chat.tsx:38 records that in the default configuration a session-key request moves no LXC at all
 // (talyvor-lens `dd1bb44`), which is why that screen shows a catalog LIST PRICE and refuses to
 // claim a bill.
 
