@@ -4,6 +4,7 @@
   "src/areas/auth/Entry.test.tsx": 14,
   "src/areas/chat/Chat.test.tsx": 14,
   "src/areas/chat/chatStream.test.ts": 15,
+  "src/areas/chat/price.test.ts": 5,
   "src/areas/docs/askAI.test.tsx": 11,
   "src/areas/docs/DocsArea.test.tsx": 43,
   "src/areas/docs/docsWrites.test.tsx": 14,

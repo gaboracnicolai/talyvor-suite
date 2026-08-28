@@ -13,6 +13,7 @@ import {
   streamChat,
   streamableModels,
 } from './chatApi'
+import { formatUsdPer1M } from './price'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
 //
@@ -293,8 +294,17 @@ function ModelPicker({
 
       {/* ⚠ THE PRICE IS THE CATALOG'S LIST RATE AND IS LABELLED AS SUCH. It is NOT what this
           conversation cost: a session-key request moves no LXC in the default configuration
-          (measured in talyvor-lens, dd1bb44), so a "you spent" figure here would be a claim about a
-          ledger that did not move. A list price is a fact about the catalog and is true. */}
+          (measured in talyvor-lens, dd1bb44 — re-verified at lens cc1576a, where serve()'s LXC
+          admission-and-debit block still sits inside `if agentKeyID != ""` and the session-key
+          branch still leaves APIKeyID empty), so a "you spent" figure here would be a claim about a
+          ledger that did not move. A list price is a fact about the catalog and is true.
+
+          ⚠ IT RENDERED WITHOUT A CURRENCY MARK UNTIL W4.9. Measured in the DOM: `List price · 2.5
+          in / 10 out per 1M tokens` — no `$` anywhere, on the one screen whose thesis is cost, and
+          the two figures disagreeing about their decimals. The figure audit could not have caught
+          it and is not at fault: this text carries words, so figureKind() reads it as prose and
+          declines to police it (its own TRAP TWO). See ./price.ts for why formatCost is the wrong
+          formatter here. */}
       {(() => {
         const shown = models.find((m) => m.id === selectedId) ?? models[0]
         return shown === undefined ? null : (
@@ -303,7 +313,8 @@ function ModelPicker({
                 other derived-value caption. The sentence that qualifies it is prose and carries no
                 digits, so it stays in the sans. */}
             <p className="mt-3 font-figure text-caption text-muted">
-              List price · {shown.input_per_1m} in / {shown.output_per_1m} out per 1M tokens
+              List price · {formatUsdPer1M(shown.input_per_1m)} in /{' '}
+              {formatUsdPer1M(shown.output_per_1m)} out per 1M tokens
             </p>
             <p className="mt-1 text-caption text-muted">
               That is the catalog rate, not this conversation&rsquo;s bill.
