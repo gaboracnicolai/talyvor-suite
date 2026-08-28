@@ -146,7 +146,59 @@ function parseUncheckable(text: string): Uncheckable[] {
 }
 
 const ENTRIES = parseUncheckable(readFileSync(REGISTER, 'utf8'))
-const GO_TEST = ENTRIES.filter((e) => /\bgo test\b/.test(e.command))
+
+/**
+ * ⚠ THE `#` NOTE ON A SETTLE COMMAND IS INERT TO THE SHELL AND LOAD-BEARING TO THIS FILE — IN
+ * OPPOSITE DIRECTIONS, WHICH IS WHY IT NEEDS ITS OWN SPLIT.
+ *
+ * Every entry ends with a `   # …` note explaining what was measured. A deployer pastes the
+ * whole string and the shell ignores everything after the `#`. The classifiers below did NOT:
+ * they matched `\bgo test\b` / `grep -o` / `grep -c` anywhere in the string, INCLUDING the
+ * prose. MEASURED while writing the entry-1 fix: a note containing the words "no `grep -o`"
+ * moved that entry into EXTRACT, and the extraction rule then demanded a captured `grep -o`
+ * comparison from a command that has no `grep -o` in it. A rule reading its own documentation
+ * as code is the same defect the register's D7 and D9 headers record one level down.
+ *
+ * ⚠ AND IT IS LATENT RATHER THAN LIVE, WHICH IS SAID HERE RATHER THAN LEFT IMPLIED. Swept over
+ * all 49 at 0e6e42a: every command has a `␣␣#` note, NO command has a `#` in its code half, and
+ * splitting changes the family of exactly ZERO existing entries. It was a door nobody had
+ * walked through, and writing one note opened it.
+ *
+ * ⚠⚠ R7 KEEPS READING THE WHOLE STRING, DELIBERATELY. Its `NEEDS NO DATABASE` declaration lives
+ * in the NOTE — both of the two that use it — because it is a claim by the author, not a shell
+ * word. Shape rules read `code`; declaration rules read the whole command. The floor below pins
+ * that the split cannot swallow real code.
+ */
+const codeOf = (command: string) => command.split(/\s{2,}#/)[0]
+
+describe('the note on a settle command is prose, and the code half is all of the code', () => {
+  it('every command has a note, and no code half contains a `#`', () => {
+    expect(
+      ENTRIES.filter((e) => codeOf(e.command) === e.command).length,
+      'this entry has no `␣␣#` note, so `codeOf` returns the whole string for it. That is safe ' +
+        'today — it just means nothing is stripped — but the split below is only unambiguous ' +
+        'while no command carries a bare `#`.',
+    ).toBe(0)
+    expect(
+      ENTRIES.filter((e) => codeOf(e.command).includes('#')).map((e) => e.where),
+      'the code half of this command contains a `#`, so the note boundary is ambiguous and the ' +
+        'split may be cutting real code away from the classifiers. Move the `#` or re-anchor ' +
+        'the boundary deliberately.',
+    ).toEqual([])
+  })
+
+  it('a `grep -o` written in a NOTE does not classify the entry as an extraction', () => {
+    const probe = { premise: 'control', where: 'x y', command: "true   # mentions grep -o in prose" }
+    expect(
+      /\bgrep -[A-Za-z]*o[A-Za-z]*\b/.test(codeOf(probe.command)),
+      'the note split does not strip a `grep -o` written in prose, so the classifiers still ' +
+        'read documentation as code and this rule is not doing anything.',
+    ).toBe(false)
+    expect(/\bgrep -[A-Za-z]*o[A-Za-z]*\b/.test(probe.command)).toBe(true)
+  })
+})
+
+const GO_TEST = ENTRIES.filter((e) => /\bgo test\b/.test(codeOf(e.command)))
 /**
  * ⚠ THE BUNDLED FLAGS ARE IN THE PATTERN, AND THEY WERE NOT — MEASURED, NOT ANTICIPATED. This read
  * `/\bgrep -c\b/`, and `\b` between `c` and `E` is not a boundary: both are word characters. So
@@ -175,7 +227,7 @@ const GO_TEST = ENTRIES.filter((e) => /\bgo test\b/.test(e.command))
  * entry-versus-clause granularity is a separate limit and is stated here rather than fixed.
  */
 const COUNT_SHAPE = /\bgrep -[A-Za-z]*c[A-Za-z]*\b/
-const GREP_C = ENTRIES.filter((e) => COUNT_SHAPE.test(e.command))
+const GREP_C = ENTRIES.filter((e) => COUNT_SHAPE.test(codeOf(e.command)))
 /**
  * ⚠ THE BUNDLED FLAG IS IN THIS PATTERN TOO, AND IT WAS NOT — the identical defect recorded
  * against `grep -c` directly above, fixed there and not here. `/\bgrep -o\b/` does not match
@@ -245,7 +297,7 @@ const EXTRACT_COMPARES =
   /\[\s*"\$\(.*grep -[A-Za-z]*o[A-Za-z]*.*\)"\s*=\s*(?:"[^"]*"|'[^']*')\s*\]/
 
 const EXTRACT = ENTRIES.filter(
-  (e) => EXTRACT_SHAPE.test(e.command) && !/\bcurl\b/.test(e.command),
+  (e) => EXTRACT_SHAPE.test(codeOf(e.command)) && !/\bcurl\b/.test(codeOf(e.command)),
 )
 
 /** A short, stable handle for a test name — the premise lines are paragraphs. */
@@ -257,7 +309,7 @@ const handle = (e: Uncheckable) => e.premise.slice(0, 56)
  * decided its own population would agree with itself in every state, including the broken one.
  */
 const grepFlagClusters = (command: string): string[] =>
-  [...command.matchAll(/\bgrep -([A-Za-z]+)/g)].map((m) => m[1])
+  [...codeOf(command).matchAll(/\bgrep -([A-Za-z]+)/g)].map((m) => m[1])
 
 /**
  * H4 — A BUNDLED GREP FLAG FALLS OUT OF THE RULE THAT NAMES THE FLAG, AND THIS FILE HAD ALREADY
@@ -285,7 +337,8 @@ describe('a bundled grep flag does not fall out of the rule that names the flag'
   it('every command whose grep flags include `o` is classified as an extraction', () => {
     const byFlag = ENTRIES.filter(
       (e) =>
-        grepFlagClusters(e.command).some((f) => f.includes('o')) && !/\bcurl\b/.test(e.command),
+        grepFlagClusters(e.command).some((f) => f.includes('o')) &&
+        !/\bcurl\b/.test(codeOf(e.command)),
     )
     const missed = byFlag.filter((e) => !EXTRACT.includes(e))
     expect(
@@ -408,6 +461,76 @@ describe('a settle command exits non-zero when its premise does not hold', () =>
       ).toMatch(/\[\s*"\$\(.*grep -c.*\)"\s*=\s*\d+\s*\]/)
     })
   }
+})
+
+/**
+ * R10 — EVERY SETTLE COMMAND IS IN A RULE, AND ONE OF THEM WAS IN NONE.
+ *
+ * The three families above are `go test`, `grep -o` extraction and `grep -c` count, and each has
+ * a rule saying the same thing in its own dialect: CAPTURE THE VALUE AND COMPARE IT, never read
+ * a status. A fourth shape needs no capture because its verdict IS the status —
+ *
+ *     grep -q "source = 'track'" internal/membership/store.go
+ *
+ * — and belongs to no family, so not one rule in this file has ever run for it. MEASURED at
+ * 94b9899: 49 entries, 48 classified, 1 curl-excluded palette entry, and exactly ONE left over.
+ *
+ * ⚠ AND THE HOLE IS NOT HYPOTHETICAL — IT IS THE §D7 TRAP, WHICH THIS FILE ALREADY DESCRIBES
+ * TWO SCREENS UP AND DECLINED TO WALK INTO. Measured in a read-only `git archive` export of
+ * talyvor-docs at f64e967: DELETE the `source = 'track'` predicate from the prune's WHERE clause
+ * — the entire premise, gone — and that command STILL EXITS 0, because a provenance comment 59
+ * lines earlier repeats the literal. Its own code says what that costs: "without the source
+ * filter a Docs-native member of a mixed workspace is deleted on the first reconcile, because
+ * they are absent from Track's roster by definition."
+ *
+ * ⚠ THE PRODUCT IS DEFENDED AND THAT IS SAID RATHER THAN LEFT FLATTERING: talyvor-docs'
+ * TestReconcileWorkspace_NeverPrunesRowsItDidNotSync seeds a Docs-native member beside two
+ * Track-synced ones and fails if the prune takes it. What was blind is the SETTLE COMMAND —
+ * the thing this register hands a deployer to run before a deploy.
+ *
+ * The rule is population completeness, not a fourth dialect: an entry outside every family is
+ * an entry nothing here polices, and nothing said so. The curl palette entry is the ONE
+ * deliberate exclusion, recognised by its command rather than by name, and the second assertion
+ * pins that it is still exactly one — a rule whose escape hatch quietly widens is the same
+ * defect one level up.
+ */
+describe('R10 — no settle command falls outside every rule in this file', () => {
+  const CURL = ENTRIES.filter((e) => /\bcurl\b/.test(codeOf(e.command)))
+  const UNRULED = ENTRIES.filter(
+    (e) =>
+      !GO_TEST.includes(e) && !EXTRACT.includes(e) && !GREP_C.includes(e) && !CURL.includes(e),
+  )
+
+  it('has entries to classify at all', () => {
+    expect(
+      ENTRIES.length,
+      'no `cannot` entry was parsed, so the sweep below is over an empty set and asserts ' +
+        'nothing. 49 were measured at 94b9899.',
+    ).toBeGreaterThanOrEqual(45)
+  })
+
+  it('classifies every entry into a family', () => {
+    expect(
+      UNRULED.map((e) => `${e.where} :: ${e.command.slice(0, 90)}`),
+      'this settle command is in NO family above, so R3, R7 and every other rule here skipped ' +
+        'it silently. MEASURED on the one that was: a bare `grep -q` whose verdict IS grep\'s ' +
+        'exit status exited 0 with the premise DELETED from the code, because the literal it ' +
+        'greps also appears in a comment in the same file — the §D7 trap this file describes ' +
+        'higher up and avoided once. Put it in a family: capture what it extracts and compare ' +
+        'it, count with `grep -c` and compare the number, or drive the upstream test that ' +
+        'actually asserts the premise and check its `--- PASS:` line.',
+    ).toEqual([])
+  })
+
+  it('keeps the deliberate exclusion at exactly one, and it is the palette entry', () => {
+    expect(
+      CURL.length,
+      'the curl exclusion covers a command that reads a LIVE ORIGIN rather than a file in a ' +
+        'checkout, which is the line drawn for it higher up this file. A second one means ' +
+        'either a new live-origin premise (say so here) or an entry that has quietly escaped ' +
+        'every rule through the one door left open.',
+    ).toBe(1)
+  })
 })
 
 /**

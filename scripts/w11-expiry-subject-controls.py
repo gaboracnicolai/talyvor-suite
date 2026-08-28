@@ -146,8 +146,8 @@ CONTROLS = [
         GUARD,
         lambda: sub(
             GUARD,
-            "if (line.startsWith('#') || !/\\bgrep\\b/.test(line)) continue",
-            "if (line.startsWith('#') || !/\\bzzzgrep\\b/.test(line)) continue",
+            "if (line.startsWith('#') || line.startsWith('cannot ') || !/\\bgrep\\b/.test(line)) continue",
+            "if (line.startsWith('#') || line.startsWith('cannot ') || !/\\bzzzgrep\\b/.test(line)) continue",
         ),
         "finds the grep targets at all",
     ),
