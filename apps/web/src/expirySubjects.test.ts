@@ -249,9 +249,17 @@ describe('the expiry register is readable before anything is asked of it', () =>
  */
 function grepTargets(text: string): string[] {
   const out = new Set<string>()
-  for (const raw of text.split('\n')) {
+  // ⚠ `cannot` CALLS ARE DROPPED BY NAME NOW, NOT BY THEIR PATHS FAILING TO RESOLVE. The note
+  // above says the upstream paths "point at talyvor-track / talyvor-docs checkouts, so resolving
+  // against THIS repo drops them" — true, but that is a discriminator by ACCIDENT: any upstream
+  // path that happens to also exist here, or any repo-relative path written in an entry's `#`
+  // NOTE, is read as a local grep target and reported as an ungated check. MEASURED at 0e6e42a:
+  // a note naming apps/web/src/settleCommands.test.ts did exactly that. The calls are
+  // backslash-continued, so they are joined before the prefix test — matching how
+  // settleCommands.test.ts parses the same file.
+  for (const raw of text.replace(/\\\n\s*/g, ' ').split('\n')) {
     const line = raw.trim()
-    if (line.startsWith('#') || !/\bgrep\b/.test(line)) continue
+    if (line.startsWith('#') || line.startsWith('cannot ') || !/\bgrep\b/.test(line)) continue
     for (const tok of line.match(/[A-Za-z0-9_][A-Za-z0-9_./-]*/g) ?? []) {
       if (!tok.includes('/')) continue
       const abs = join(REPO_ROOT, tok)
