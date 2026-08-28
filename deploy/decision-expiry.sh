@@ -196,11 +196,40 @@ fi
 # DECISION: the runbook's bundle checks read a version rather than grepping content, and the
 #           tester-notice grep is kept only as a transitional fallback.
 # PREMISE:  the build stamps a version into the bundle.
+#
+# ⚠ THIS READ `grep -q 'stampBuild' apps/web/vite.config.ts` AND WAS SATISFIED BY THE PARAGRAPH
+# THAT DESCRIBES THE PLUGIN. Measured 2026-08-28 at 94b9899: with the plugin REMOVED FROM THE
+# PIPELINE AND ITS DEFINITION DELETED, the doc comment at the top of that file — "stampBuild writes
+# the commit this bundle was built from into the build output" — still matched, and this check
+# printed `ok` under "All locally-checkable premises still hold." It is the same failure D7's
+# header records ("the test file and these very comments satisfy" it) and the one D9's header
+# records ("a guard that cannot tell a mention from a setting"), on the file D9 strips comments
+# out of, and it was the only check of the four positive ones that had never had the lesson
+# applied. apps/web/src/expiryLiveCode.test.ts is what keeps it applied.
+#
+# ⚠ AND THE DEFINITION ALONE IS NOT THE PREMISE — the plugin has to be IN THE PIPELINE. Deleting
+# `stampBuild()` from `plugins: [...]` and leaving the function defined stops the stamp landing
+# while a definition-only check still says yes, so both halves are asserted.
+#
+# ⚠ TWO MECHANISMS STAND HERE AND EITHER ALONE IS SUFFICIENT — MEASURED WHEN A CONTROL CAME BACK
+# GREEN AND WAS DIAGNOSED RATHER THAN SCORED (~/talyvor-queue/w17-commentblind-controls-d7q2.py).
+# Removing the comment-strip alone moves NO verdict, because every comment form puts a non-space
+# character before the token and `^[[:space:]]*` already refuses it; removing the anchors alone
+# moves no verdict either, because the strip has already dropped the line. So neither
+# single-mechanism control can fail, and the only whole-fix control is C1a, which reverts this
+# block to the one line it shipped with. The strip is kept rather than deleted as dead weight
+# because D9 reads this same file the same way and the two should not diverge in method — but it
+# is redundant TODAY, and that is written down so nobody mistakes it for the load-bearing half.
 if subject apps/web/vite.config.ts "version comparison replaces the bundle content grep"; then
-    if ! grep -q 'stampBuild' apps/web/vite.config.ts 2>/dev/null; then
+    _d5_src=$(grep -vE '^[[:space:]]*(//|/\*|\*)' apps/web/vite.config.ts 2>/dev/null)
+    _d5_def=0
+    _d5_use=0
+    printf '%s\n' "${_d5_src}" | grep -qE '^[[:space:]]*function stampBuild\(' && _d5_def=1
+    printf '%s\n' "${_d5_src}" | grep -qE '^[[:space:]]*plugins:.*stampBuild\(' && _d5_use=1
+    if [ "${_d5_def}" = 0 ] || [ "${_d5_use}" = 0 ]; then
         void "version comparison replaces the bundle content grep" \
             "deploy/FULL-STACK-DEPLOY.md § 'STEP 6d'" \
-            "the stamping plugin is gone from vite.config.ts, so dist/version.json is not emitted and every version-based check silently reads nothing."
+            "$( [ "${_d5_def}" = 1 ] || echo 'vite.config.ts no longer DEFINES stampBuild in live code. ' )$( [ "${_d5_use}" = 1 ] || echo 'vite.config.ts no longer lists stampBuild() in its plugins array, so the plugin is defined and never runs. ' )dist/version.json is not emitted and every version-based check silently reads nothing."
     else
         ok "bundle stamping present — version checks are readable"
     fi
@@ -254,6 +283,17 @@ fi
 # It now matches the CALL, in non-test source only. Keep it that way: widening it back to a
 # word that appears in prose restores the hole.
 #
+# ⚠⚠ AND THAT NARROWING CLOSED THE PROSE DOOR AND LEFT THE COMMENTED-OUT-CALL DOOR OPEN, WHICH
+# IS THE SAME DOOR. Measured 2026-08-28 at 94b9899: comment out the whole `if trackWS != ""`
+# block in apps/bff/auth.go — it still COMPILES and `go vet` is clean — and `grep -qF
+# 'a.nudgeDocsMemberSync('` matches the disabled call exactly as well as the live one did.
+# `_d7_code=1`, this check printed `ok`, and the register exited 0 saying every locally-checkable
+# premise holds, while the login-time nudge 3a-bis PROMISES was gone. The product IS defended —
+# the BFF test TestDocsNudge_FailureDoesNotAbortLogin fails on that same mutation — so what was
+# blind is this register, whose whole job is to tell a deployer the premise still holds.
+# Comment lines are dropped before the match now, the way D9 already does it, and
+# apps/web/src/expiryLiveCode.test.ts is what keeps both halves honest.
+#
 # ⚠ ONLY THE DOCUMENT HALF TAKES A `subject` GATE, and that is a statement about the two halves
 # rather than an omission. The code half is a GLOB over apps/bff/*.go looking for the CALL: it
 # already fails closed, because a glob that matches nothing leaves `_d7_code=0` and voids. The
@@ -265,7 +305,8 @@ if subject deploy/FULL-STACK-DEPLOY.md "STEP 3a-bis's promise that membership la
     _d7_code=0; _d7_doc=0
     for _f in apps/bff/*.go; do
         case "$_f" in *_test.go) continue ;; esac
-        grep -qF 'a.nudgeDocsMemberSync(' "$_f" 2>/dev/null && _d7_code=1
+        grep -vE '^[[:space:]]*(//|/\*|\*)' "$_f" 2>/dev/null |
+            grep -qF 'a.nudgeDocsMemberSync(' && _d7_code=1
     done
     grep -qF 'membership row exists' deploy/FULL-STACK-DEPLOY.md 2>/dev/null && _d7_doc=1
     if [ "$_d7_code" = 1 ] && [ "$_d7_doc" = 1 ]; then
