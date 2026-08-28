@@ -318,6 +318,65 @@ describe('the register is readable before anything is asked of it', () => {
   })
 })
 
+/**
+ * ⚠ AND A SHAPE RULE, BECAUSE THE FIRST FIX FOR D7 WAS GREEN ON macOS AND RED ON LINUX AND A
+ * FULL LOCAL GAUNTLET DID NOT SEE IT.
+ *
+ * The register runs under `set -uo pipefail` (its own line 40). GNU `grep -q` exits the instant
+ * it matches; the upstream stage of the pipeline is then killed by SIGPIPE, the pipeline's
+ * status is 141, and any `&& …` / `|| …` hanging off it takes the WRONG branch. BSD grep reads
+ * to EOF, so the identical pipeline returns 0 on a workstation.
+ *
+ * MEASURED 2026-08-28 in debian:bookworm-slim against this repo, both directions:
+ *
+ *     grep -v … apps/bff/auth.go | grep -qF 'a.nudgeDocsMemberSync('   -> 141   (pipefail)
+ *     the same pipeline with `set +o pipefail`                          -> 0
+ *     the same pipeline on macOS                                        -> 0
+ *
+ * D7 therefore VOIDED on a healthy premise and took the register's exit code with it. ⚠⚠ AND
+ * D9's vite half was the SAME SHAPE ALREADY, failing in the worse direction: `… | grep -qE
+ * '\bassetsDir\b' || _d9_vite=1` would have reported "vite still writes there (default
+ * assetsDir)" ABOUT A FILE THAT SETS assetsDir — the exact state D9 exists to detect. It
+ * measured 0 rather than 141 only because vite.config.ts has ~2 KB left to write after the
+ * match where auth.go has ~10.8 KB. It was safe by the size of a file, and files grow.
+ *
+ * So: in the LOCAL half, never read the status of a pipeline that ends in `grep -q`. Count with
+ * `grep -c`, which reads to EOF, and compare the number. The `cannot` strings are excluded
+ * because they are commands for a DEPLOYER's shell, not statements in this one — two of them do
+ * pipe `go test` into `grep -q`, and there the same accident would be a false MOVED, which is
+ * loud. That is a real difference in direction and it is why this rule is scoped rather than
+ * global.
+ */
+describe('the local half never reads the status of a pipe into `grep -q`', () => {
+  const registerText = readFileSync(join(REPO_ROOT, REGISTER_REL), 'utf8')
+  // `cannot` calls are written across backslash-continued lines; join them, then drop them.
+  const localHalf = registerText
+    .replace(/\\\n\s*/g, ' ')
+    .split('\n')
+    .filter((l) => !l.startsWith('cannot ') && !l.trim().startsWith('#'))
+
+  it('reads the register at all', () => {
+    expect(
+      localHalf.filter((l) => /\bgrep\b/.test(l)).length,
+      'no grep line was parsed out of the local half, so the rule below sweeps nothing.',
+    ).toBeGreaterThanOrEqual(6)
+  })
+
+  it('finds no pipeline ending in `grep -q`', () => {
+    const offenders = localHalf
+      .filter((l) => /\|[^|]*\bgrep -[A-Za-z]*q[A-Za-z]*\b/.test(l))
+      .map((l) => l.trim())
+    expect(
+      offenders,
+      'this line pipes into `grep -q` and its STATUS decides a branch. Under the `pipefail` this ' +
+        'script sets, GNU grep -q exits on the first match, the upstream stage dies of SIGPIPE, ' +
+        'and the pipeline reports 141 — so the branch inverts, on Linux only, depending on how ' +
+        'much the upstream still had to write. MEASURED: D7 was red in CI and green on macOS for ' +
+        'exactly this. Count with `grep -c` and compare the number.',
+    ).toEqual([])
+  })
+})
+
 describe('a presence check cannot be satisfied by a comment', () => {
   for (const site of LIVE_SITES) {
     const run = () =>

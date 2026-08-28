@@ -222,14 +222,14 @@ fi
 # is redundant TODAY, and that is written down so nobody mistakes it for the load-bearing half.
 if subject apps/web/vite.config.ts "version comparison replaces the bundle content grep"; then
     _d5_src=$(grep -vE '^[[:space:]]*(//|/\*|\*)' apps/web/vite.config.ts 2>/dev/null)
-    _d5_def=0
-    _d5_use=0
-    printf '%s\n' "${_d5_src}" | grep -qE '^[[:space:]]*function stampBuild\(' && _d5_def=1
-    printf '%s\n' "${_d5_src}" | grep -qE '^[[:space:]]*plugins:.*stampBuild\(' && _d5_use=1
+    _d5_def=$(printf '%s\n' "${_d5_src}" | grep -cE '^[[:space:]]*function stampBuild\(')
+    _d5_use=$(printf '%s\n' "${_d5_src}" | grep -cE '^[[:space:]]*plugins:.*stampBuild\(')
+    case "${_d5_def}" in '' | *[!0-9]*) _d5_def=0 ;; esac
+    case "${_d5_use}" in '' | *[!0-9]*) _d5_use=0 ;; esac
     if [ "${_d5_def}" = 0 ] || [ "${_d5_use}" = 0 ]; then
         void "version comparison replaces the bundle content grep" \
             "deploy/FULL-STACK-DEPLOY.md § 'STEP 6d'" \
-            "$( [ "${_d5_def}" = 1 ] || echo 'vite.config.ts no longer DEFINES stampBuild in live code. ' )$( [ "${_d5_use}" = 1 ] || echo 'vite.config.ts no longer lists stampBuild() in its plugins array, so the plugin is defined and never runs. ' )dist/version.json is not emitted and every version-based check silently reads nothing."
+            "$( [ "${_d5_def}" != 0 ] || echo 'vite.config.ts no longer DEFINES stampBuild in live code. ' )$( [ "${_d5_use}" != 0 ] || echo 'vite.config.ts no longer lists stampBuild() in its plugins array, so the plugin is defined and never runs. ' )dist/version.json is not emitted and every version-based check silently reads nothing."
     else
         ok "bundle stamping present — version checks are readable"
     fi
@@ -294,6 +294,18 @@ fi
 # Comment lines are dropped before the match now, the way D9 already does it, and
 # apps/web/src/expiryLiveCode.test.ts is what keeps both halves honest.
 #
+# ⚠⚠⚠ AND THE FIRST FIX FOR IT WAS `grep -v … | grep -qF …`, WHICH IS GREEN ON macOS AND RED ON
+# LINUX, SO A FULL LOCAL GAUNTLET PASSED AND CI CAUGHT IT. This script sets `-o pipefail`. GNU
+# grep's `-q` exits the moment it matches; the upstream `grep -v` is then killed by SIGPIPE, the
+# pipeline's status is 141, and `&& _d7_code=1` never runs — so D7 VOIDED on a healthy premise
+# and took the whole register to exit 1. BSD grep reads to EOF, so the identical pipeline returns
+# 0 on a workstation. Measured both ways in a debian:bookworm-slim container against this repo:
+# 141 with pipefail, 0 without it, 0 on macOS. THE RULE: under `pipefail`, never read the STATUS
+# of a pipeline that ends in `grep -q` — count with `grep -c`, which reads to EOF, and compare
+# the number. That is what this file's own `cannot` header has always said about `grep -c`, for
+# a different reason, and it is now true for two. The shape is guarded statically in
+# apps/web/src/expiryLiveCode.test.ts so the next one is caught before CI rather than by it.
+#
 # ⚠ ONLY THE DOCUMENT HALF TAKES A `subject` GATE, and that is a statement about the two halves
 # rather than an omission. The code half is a GLOB over apps/bff/*.go looking for the CALL: it
 # already fails closed, because a glob that matches nothing leaves `_d7_code=0` and voids. The
@@ -305,8 +317,10 @@ if subject deploy/FULL-STACK-DEPLOY.md "STEP 3a-bis's promise that membership la
     _d7_code=0; _d7_doc=0
     for _f in apps/bff/*.go; do
         case "$_f" in *_test.go) continue ;; esac
-        grep -vE '^[[:space:]]*(//|/\*|\*)' "$_f" 2>/dev/null |
-            grep -qF 'a.nudgeDocsMemberSync(' && _d7_code=1
+        _d7_hits=$(grep -vE '^[[:space:]]*(//|/\*|\*)' "$_f" 2>/dev/null |
+            grep -cF 'a.nudgeDocsMemberSync(')
+        case "${_d7_hits}" in '' | *[!0-9]*) _d7_hits=0 ;; esac
+        [ "${_d7_hits}" != 0 ] && _d7_code=1
     done
     grep -qF 'membership row exists' deploy/FULL-STACK-DEPLOY.md 2>/dev/null && _d7_doc=1
     if [ "$_d7_code" = 1 ] && [ "$_d7_doc" = 1 ]; then
@@ -1059,6 +1073,16 @@ cannot "areas/chat is EXCLUDED from the metered surface population — a session
 #   are stripped first, and the two directions are controlled: adding `assetsDir: 'static'` to
 #   vite.config.ts voids this, and the warning prose alone does not.
 #
+# ⚠⚠ THE VITE HALF WAS `grep -v … | grep -qE …` AND WOULD HAVE FAILED TOWARD "FINE" IN EXACTLY
+#   THE STATE IT EXISTS TO DETECT. Under this script's `-o pipefail`, GNU grep's `-q` exits on
+#   the first match and the upstream `grep -v` dies of SIGPIPE, so the pipeline is 141 — non-zero
+#   — and `|| _d9_vite=1` fires: "vite still writes there (default assetsDir)" ABOUT A FILE THAT
+#   SETS assetsDir. Measured 2026-08-28 in debian:bookworm-slim: D7's identical shape on
+#   apps/bff/auth.go returns 141 (10.8 KB still to write after the match), this one on
+#   vite.config.ts returns 0 (2 KB to write — the writer finishes first). SO IT IS SAFE ONLY BY
+#   THE SIZE OF THE FILE, AND FILES GROW. Counted instead, which reads to EOF. A count that is
+#   not a number is -1 and voids, the way D3's already does.
+#
 # ⚠ THE VITE HALF IS AN ABSENCE TEST. `_d9_vite=1` means "assetsDir is NOT set", which is what a
 # missing vite.config.ts also looks like: measured, D9 printed `ok` — "vite still writes there
 # (default assetsDir)" — about a build configuration that was not on disk. The BFF half is a
@@ -1075,7 +1099,9 @@ if [ "${_d9_read}" = 0 ]; then
 _d9_bff=0
 _d9_vite=0
 grep -qE '^const bundleAssetsDir = "assets"$' apps/bff/lens.go 2>/dev/null && _d9_bff=1
-grep -vE '^\s*(//|/\*|\*)' apps/web/vite.config.ts 2>/dev/null | grep -qE '\bassetsDir\b' || _d9_vite=1
+_d9_assets=$(grep -vE '^\s*(//|/\*|\*)' apps/web/vite.config.ts 2>/dev/null | grep -cE '\bassetsDir\b')
+case "${_d9_assets}" in '' | *[!0-9]*) _d9_assets=-1 ;; esac
+[ "${_d9_assets}" = 0 ] && _d9_vite=1
 if [ "${_d9_bff}" = 1 ] && [ "${_d9_vite}" = 1 ]; then
     ok "the BFF excludes /assets/ from the SPA fallback and vite still writes there (default assetsDir)"
 else

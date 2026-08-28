@@ -87,7 +87,7 @@
   "src/EmptyStates.test.tsx": 15,
   "src/emptyVsFault.test.ts": 16,
   "src/errorTypes.test.ts": 5,
-  "src/expiryLiveCode.test.ts": 21,
+  "src/expiryLiveCode.test.ts": 23,
   "src/expirySubjects.test.ts": 34,
   "src/eyebrowAudit.test.tsx": 16,
   "src/fieldFaceAudit.test.tsx": 16,
