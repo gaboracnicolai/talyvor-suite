@@ -47,8 +47,14 @@ import { isSessionExpired } from '../../lib/productState'
 // the page-scale claim now, which is what it always was; the five states and their wording are
 // unchanged, because the argument for each of them is in the header above and none of it moved.
 
-const DEFAULT_POLL_MS = 2_000
-const DEFAULT_TIMEOUT_MS = 45_000
+// Exported for billingTimingContract.test.ts. MEASURED 2026-08-28 (tab-k2w8,
+// W4.41): both were module-private and every one of this file's 15 tests passes
+// explicit `pollIntervalMs={5} timeoutMs={400}` props, so the values a customer
+// actually gets after paying were exercised by nothing. Multiplying the poll by
+// 1000, and cutting the timeout from 45s to 45ms, each left the whole suite
+// green — 141 files, 2067 tests.
+export const DEFAULT_POLL_MS = 2_000
+export const DEFAULT_TIMEOUT_MS = 45_000
 
 /**
  * The one page-scale claim each state is allowed to make. Written out together so they can be

@@ -18,6 +18,7 @@
   "src/areas/docs/searchDocs.test.tsx": 18,
   "src/areas/docs/tree.test.ts": 4,
   "src/areas/lens/BillingReturn.test.tsx": 15,
+  "src/areas/lens/billingTimingContract.test.ts": 3,
   "src/areas/lens/Convert.test.tsx": 12,
   "src/areas/lens/convertRefusal.test.tsx": 11,
   "src/areas/lens/Documents.test.tsx": 12,
