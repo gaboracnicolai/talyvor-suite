@@ -464,6 +464,80 @@ describe('a settle command exits non-zero when its premise does not hold', () =>
 })
 
 /**
+ * R11 — A STRUCT-MIRROR ENTRY ASSERTS THAT THE DECLARATION IS STILL THE WIRE, NOT MERELY THAT
+ * THE TAGS DID NOT MOVE.
+ *
+ * Fifteen entries settle a claim of the form "TrackWorkspace mirrors talyvor-track Workspace" by
+ * extracting the json tags out of the struct DECLARATION and comparing the set. That is a proxy,
+ * and MEASURED at e4ba7f4 it is a proxy with three holes, every one of which COMPILES and leaves
+ * the extracted tag set byte-identical:
+ *
+ *   · a custom MarshalJSON/UnmarshalJSON on the type, in a NEW file of the same package. Verified
+ *     end to end on talyvor-track model.Workspace: `go build ./...` exit 0, `go vet` clean, and
+ *     the response becomes {"d7q2_only_key":1} — every declared tag gone from the wire — while
+ *     the settle command still reported the mirror as holding. `go test -short ./...` on that
+ *     export is identical to baseline; the real-Postgres half was not run and is not claimed.
+ *   · an EXPORTED FIELD WITH NO json TAG. encoding/json puts it on the wire under its Go name, and
+ *     an extraction that reads `json:"…"` cannot see it. This is the likeliest of the three: a
+ *     field added in a hurry.
+ *   · an EMBEDDED field, which promotes another type's fields — and its MarshalJSON — onto this
+ *     one without a single tag changing here.
+ *
+ * So each of the fifteen now carries two more clauses: FIELD LINES = TAGGED LINES inside the
+ * declaration window (which refuses the untagged field and the embedded one), and NO
+ * (Un)MarshalJSON for that type in its package. All 15 hold on read-only `git archive` exports of
+ * origin/main, and all 45 mutations — three per entry, run against the command THE REGISTER
+ * PRINTS rather than a reconstruction — are caught.
+ *
+ * ⚠ THE BOUNDARY, STATED SO IT IS NOT OVERQUOTED. This makes the DECLARATION honest about itself.
+ * It still cannot see a handler that wraps the struct before writing it, and it is scoped to the
+ * declaration-anchored entries — the six request-body entries that extract from an ANONYMOUS
+ * struct at a route mount are out of population, and by construction: no method can attach to an
+ * anonymous type, so the marshaller hole cannot exist there.
+ *
+ * ⚠ AND THE POPULATION FLOOR IS A HARD LITERAL, NOT A COUNT DERIVED FROM THE SAME PARSE. A rule
+ * whose population is computed from the thing it polices agrees with it in every state.
+ */
+describe('R11 — a struct-mirror entry says the declaration is still the wire', () => {
+  const MIRROR = /(?:\^|\/)?type ([A-Za-z_][A-Za-z0-9_]*) struct/
+  const MIRRORS = ENTRIES.map((e) => ({ entry: e, type: MIRROR.exec(codeOf(e.command))?.[1] })).filter(
+    (m): m is { entry: Uncheckable; type: string } => Boolean(m.type),
+  )
+
+  it('finds the struct-mirror entries at all', () => {
+    expect(
+      MIRRORS.length,
+      'no settle command anchors on a `type X struct` window, so both rules below sweep nothing ' +
+        'and report green about an empty set. 15 were measured at e4ba7f4.',
+    ).toBeGreaterThanOrEqual(15)
+  })
+
+  for (const { entry, type } of MIRRORS) {
+    it(`${handle(entry)} — ${type}: every field line is a TAGGED field line`, () => {
+      const code = codeOf(entry.command)
+      expect(
+        code.includes("grep -cE '^[[:space:]]+[A-Za-z_]'") && code.includes("grep -c 'json:'"),
+        `this entry extracts ${type}'s json tags and compares the set, which cannot see a field ` +
+          'that has NO tag: encoding/json puts an exported untagged field on the wire under its ' +
+          'Go name, and an embedded field brings a whole other type with it. Neither moves the ' +
+          'tag set. Compare the count of field lines in the declaration window against the count ' +
+          'that carry `json:` — equal means the tags ARE the wire.',
+      ).toBe(true)
+    })
+
+    it(`${handle(entry)} — ${type}: no custom (Un)MarshalJSON in its package`, () => {
+      expect(
+        codeOf(entry.command).includes(`?${type}\\) (Marshal|Unmarshal)JSON\\(`),
+        `this entry reads ${type}'s DECLARATION. A MarshalJSON in a new file of the same package ` +
+          'compiles, changes the whole wire shape, and leaves that declaration byte-identical — ' +
+          'MEASURED on talyvor-track model.Workspace, whose response became a single unrelated ' +
+          'key while this command still said the mirror held. Assert the method is absent.',
+      ).toBe(true)
+    })
+  }
+})
+
+/**
  * R10 — EVERY SETTLE COMMAND IS IN A RULE, AND ONE OF THEM WAS IN NONE.
  *
  * The three families above are `go test`, `grep -o` extraction and `grep -c` count, and each has

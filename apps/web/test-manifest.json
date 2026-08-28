@@ -130,7 +130,7 @@
   "src/routeParamState.test.ts": 10,
   "src/scrollReset.test.tsx": 20,
   "src/SessionExpired.test.tsx": 20,
-  "src/settleCommands.test.ts": 84,
+  "src/settleCommands.test.ts": 130,
   "src/Sharing.test.tsx": 8,
   "src/statusChangeRefusal.test.tsx": 7,
   "src/timerCleanup.test.tsx": 5,
