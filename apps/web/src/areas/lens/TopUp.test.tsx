@@ -375,3 +375,59 @@ describe('W1.1.4 — a workspace with nothing in it is told what to do', () => {
     expect(screen.getByText(/LENS_BILLING_ENABLED/)).toBeInTheDocument()
   })
 })
+
+/* ── What the amount BUYS (W4.10) ───────────────────────────────────────── */
+
+// MEASURED BEFORE THIS CHANGE: the buttons rendered `$10` / `$50` / `$100` and nothing else. W4.10:
+// "it must show what the amount BUYS in credits before the person commits — the conversion is the
+// thing they cannot do in their head at $0.10 per credit."
+//
+// ⚠ THE PEG COMES FROM THE RESPONSE, NOT FROM THIS REPO. These tests therefore serve it, and the
+// pair below is the whole point: with a peg the credits appear, WITHOUT one the button falls back
+// to the price alone rather than to a number written somewhere in the frontend.
+function mockOptions(extra: Record<string, unknown>) {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const url = String(input)
+    if (url === '/api/lxc/topup-options')
+      return new Response(JSON.stringify({ allowed_usd_cents: [1000, 5000, 10000], ...extra }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    if (url === '/api/lxc/balance')
+      return new Response(JSON.stringify(BALANCE), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    return new Response('null', { status: 404 })
+  })
+}
+
+it('says what each amount buys, at the peg the deployment served', async () => {
+  mockOptions({ usd_per_lxc: 0.1 })
+  renderTopUp()
+  expect(await screen.findByRole('button', { name: '$10 · 100 LXC' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '$50 · 500 LXC' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '$100 · 1,000 LXC' })).toBeTruthy()
+})
+
+// ⚠ THE FAILURE DIRECTION, AND IT IS THE ONE THAT MATTERS ON A MONEY SCREEN. The BFF OMITS the peg
+// — never zero, never a guess — whenever Lens will not confirm it (economy off ⇒ the route was
+// never registered ⇒ 404, unreachable, malformed). The button must then show the price ALONE. A
+// frontend fallback constant here would be a second copy of a price, and it would be shown at
+// exactly the moment nothing had confirmed it.
+it('shows the price alone when the deployment served no peg', async () => {
+  mockOptions({})
+  renderTopUp()
+  expect(await screen.findByRole('button', { name: '$10' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /LXC/ })).toBeNull()
+})
+
+// A peg that is not a peg must be refused as hard as a missing one — 0 is what an absent JSON
+// field decodes to, and dividing by it makes every amount buy Infinity credits.
+it('refuses a zero peg rather than dividing by it', async () => {
+  mockOptions({ usd_per_lxc: 0 })
+  renderTopUp()
+  expect(await screen.findByRole('button', { name: '$10' })).toBeTruthy()
+  expect(screen.queryByText(/Infinity/)).toBeNull()
+  expect(screen.queryByRole('button', { name: /LXC/ })).toBeNull()
+})

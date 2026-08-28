@@ -33,6 +33,14 @@ type checkoutUpstream struct {
 	gotBody    string
 	nextStatus int    // 0 ⇒ 200
 	nextBody   string // "" ⇒ the session-url body
+
+	// The PUBLIC conversion-rate surface, answered separately because the peg read
+	// is a different route with a different failure story. 0 ⇒ 200 with usd_per_lxc
+	// 0.10; set rateStatus to 404 to model an economy-off deployment (Lens reveals
+	// that only by not registering the route), or rateBody to model a malformed answer.
+	rateStatus int
+	rateBody   string
+	rateHits   int
 }
 
 func newCheckoutUpstream(t *testing.T) *checkoutUpstream {
@@ -41,6 +49,25 @@ func newCheckoutUpstream(t *testing.T) *checkoutUpstream {
 	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == provisionPath {
 			serveFakeProvision(w, r)
+			return
+		}
+		// ⚠ ANSWERED BEFORE THE RECORDING BELOW, ON PURPOSE. The options read now makes TWO
+		// upstream calls; if the peg read overwrote gotPath/gotMethod/gotBody, every existing
+		// "the upstream was never dialled" assertion in this file would start describing the
+		// wrong request. This branch keeps those recordings about the billing surface alone.
+		if r.URL.Path == "/v1/economy/conversion-rate" {
+			u.rateHits++
+			status := u.rateStatus
+			if status == 0 {
+				status = http.StatusOK
+			}
+			body := u.rateBody
+			if body == "" {
+				body = `{"rate":1.5,"usd_per_lxc":0.10,"lens_per_lxc":1.5}`
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_, _ = io.WriteString(w, body)
 			return
 		}
 		u.gotAuth = r.Header.Get("Authorization")
@@ -579,4 +606,94 @@ func itoa(n int64) string {
 		return "-" + string(b)
 	}
 	return string(b)
+}
+
+/* ── The peg: what an amount BUYS, served rather than mirrored ──────────── */
+
+// W4.10 asks the screen to show what an amount buys in credits, because "the conversion is the
+// thing they cannot do in their head at $0.10 per credit".
+//
+// ⚠ THE REASON THIS IS A FETCH AND NOT A CONSTANT, AND IT IS A CORRECTION TO THIS FILE'S OWN
+// NEIGHBOURING COMMENT. `allowedTopUpCents` above is mirrored because Lens exposes the LIST on no
+// endpoint. That justification does NOT extend to the PEG: Lens serves
+// `GET /v1/economy/conversion-rate` → {"usd_per_lxc": economy.LXCUSDValue} on its UNAUTHENTICATED,
+// rate-limited public group. So a second copy of a money constant is avoidable here, and a copy
+// would be the exact defect the mirror above has to carry a whole paragraph to justify.
+func TestTopUpOptionsServesThePeg(t *testing.T) {
+	up := newCheckoutUpstream(t)
+	a, sess := checkoutApp(t, up)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/lxc/topup-options", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		USDPerLXC *float64 `json:"usd_per_lxc"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("bad body: %s", rec.Body.String())
+	}
+	if body.USDPerLXC == nil {
+		t.Fatalf("usd_per_lxc absent — the screen cannot say what an amount buys: %s", rec.Body.String())
+	}
+	if *body.USDPerLXC != 0.10 {
+		t.Fatalf("usd_per_lxc = %v, want 0.10 (Lens's economy.LXCUSDValue, served not mirrored)", *body.USDPerLXC)
+	}
+	if up.rateHits == 0 {
+		t.Fatal("the peg was answered without the conversion-rate route being called — it is being " +
+			"read from somewhere in this repo, which is the second copy of a money constant this " +
+			"whole approach exists to avoid")
+	}
+}
+
+// TestTopUpOptionsOmitsThePegWhenLensCannotSupplyIt — the failure direction, which is the one that
+// matters: a WRONG conversion on a money screen is worse than no conversion. The field is ABSENT,
+// never zero and never a guess, so the screen has something falsifiable to branch on.
+func TestTopUpOptionsOmitsThePegWhenLensCannotSupplyIt(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		rateStatus int
+		rateBody   string
+	}{
+		{"economy off — Lens never registered the route", http.StatusNotFound, ""},
+		{"upstream error", http.StatusInternalServerError, ""},
+		{"malformed body", http.StatusOK, `{"rate":1.5}`},
+		{"a nonsense peg", http.StatusOK, `{"usd_per_lxc":0}`},
+		{"a negative peg", http.StatusOK, `{"usd_per_lxc":-0.10}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newCheckoutUpstream(t)
+			up.rateStatus, up.rateBody = tc.rateStatus, tc.rateBody
+			a, sess := checkoutApp(t, up)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/lxc/topup-options", nil)
+			req.AddCookie(sess)
+			a.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("got %d, want 200 — a missing peg must not break the screen: %s", rec.Code, rec.Body.String())
+			}
+			var body struct {
+				Amounts   []int64  `json:"allowed_usd_cents"`
+				USDPerLXC *float64 `json:"usd_per_lxc"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("bad body: %s", rec.Body.String())
+			}
+			if body.USDPerLXC != nil {
+				t.Fatalf("usd_per_lxc = %v, want ABSENT — a conversion the deployment did not "+
+					"confirm is a number on a money screen that nothing backs", *body.USDPerLXC)
+			}
+			// The amounts must survive: they are BFF-held and do not depend on Lens being reachable.
+			if len(body.Amounts) != len(allowedTopUpCents) {
+				t.Fatalf("allowed_usd_cents = %v, want %v — the amounts are BFF-held and must "+
+					"survive an unreachable Lens", body.Amounts, allowedTopUpCents)
+			}
+		})
+	}
 }

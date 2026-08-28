@@ -180,6 +180,10 @@ const FORMATTERS: Record<string, true | string> = {
   // The money formatter that sat outside the old three-file list entirely: it prints the price
   // on /billing's buy buttons, the one numeral a stranger reads before spending money.
   'apps/web/src/areas/lens/topupApi.ts#formatCents': true,
+  // W4.10. The credit figure on the /billing buy buttons — "$10 · 100 LXC". A figure by the same
+  // rule as the price beside it: it is a numeral a customer compares between buttons before
+  // spending money, and it renders inside the same font-figure span.
+  'apps/web/src/areas/lens/topupApi.ts#formatLXC': true,
   // W4.9. The chat screen's catalog LIST RATE, and a figure by the same rule as every other money
   // formatter here: it renders `$2.50`, on the figure face, in the one caption a reader compares
   // between models. ⚠ IT IS DELIBERATELY NOT `formatCost` ABOVE — that formatter's

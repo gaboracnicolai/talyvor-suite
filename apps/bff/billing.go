@@ -147,10 +147,81 @@ func (a *app) handleTopUpOptions(w http.ResponseWriter, r *http.Request, t tenan
 		methodNotAllowed(w, http.MethodGet)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"allowed_usd_cents": allowedTopUpCents,
 		"billing_enabled":   a.probeBillingEnabled(r, t),
-	})
+	}
+	// The peg, when Lens will supply it. OMITTED — never zero, never a guess — when it will not,
+	// so the screen has something falsifiable to branch on and shows dollars alone rather than a
+	// conversion nothing backs.
+	if peg, ok := a.fetchUSDPerLXC(r, t); ok {
+		out["usd_per_lxc"] = peg
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// fetchUSDPerLXC reads Lens's fixed USD-per-LXC peg so the screen can say what an amount BUYS.
+//
+// ⚠ WHY THIS IS A FETCH AND NOT A SECOND `allowedTopUpCents`-STYLE MIRROR — AND IT IS A CORRECTION
+// TO THIS FILE'S OWN REASONING, NOT AN EXCEPTION TO IT. The amounts are mirrored above because Lens
+// exposes the LIST on no endpoint; that paragraph is right. It does NOT extend to the PEG. Lens
+// serves GET /v1/economy/conversion-rate → {"usd_per_lxc": economy.LXCUSDValue} on its
+// UNAUTHENTICATED, rate-limited public group, so a second copy of a money constant is avoidable
+// here — and an avoidable copy of a price is the exact defect the mirror above needs a whole
+// paragraph to justify.
+//
+// HOW IT CANNOT CHARGE OR CHANGE ANYTHING: it is a GET, on a route Lens registers on its PUBLIC
+// read-only group, and the only thing read out of the response is one float. There is no body to
+// send and no write path to reach.
+//
+// FAIL-QUIET, AND THE DIRECTION IS THE POINT. Every failure — unreachable, non-200, malformed, or a
+// non-positive value — returns ok=false and the field is omitted. A WRONG conversion on a money
+// screen is worse than no conversion: the customer would be told what they are buying, incorrectly,
+// before they commit. Note this is the OPPOSITE posture to probeBillingEnabled directly above,
+// which is deliberately optimistic — a false "billing off" hides a working paid feature, while a
+// false peg misstates a price. The two failures are not symmetric, so the two defaults are not either.
+//
+// ⚠ ECONOMY-OFF IS A 404 HERE, exactly as billing-off is for the probe above: econReg.get simply
+// does not register the route when LENS_ECONOMY_ENABLED is unset. So an economy-off deployment
+// shows its amounts with no conversion, which is true.
+func (a *app) fetchUSDPerLXC(r *http.Request, t tenant) (float64, bool) {
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		a.cfg.lensBaseURL+"/v1/economy/conversion-rate", nil)
+	if err != nil {
+		return 0, false
+	}
+	// ⚠ THE TOKEN IS ATTACHED EVEN THOUGH THIS ROUTE IS PUBLIC, AND THAT IS DELIBERATE. Lens
+	// registers /v1/economy/conversion-rate on its unauthenticated group and ignores this header.
+	// It is sent because TestKeyNeverReachesResponse asserts a blanket invariant — every upstream
+	// request a key-bearing route makes carries the session's workspace token, attached
+	// SERVER-SIDE — and the honest way to satisfy a security sweep is to satisfy it, not to add
+	// the first entry to an exemption list that would then grow. Nothing is exposed by it: same
+	// Lens, same credential this route already sends on its billing probe, one request earlier.
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return 0, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body) // drain so the connection is reusable
+		return 0, false
+	}
+	var body struct {
+		USDPerLXC float64 `json:"usd_per_lxc"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
+		return 0, false
+	}
+	// A zero or negative peg is not a peg. Zero is also what an ABSENT field decodes to, so this
+	// one check covers both "Lens sent no peg" and "Lens sent nonsense" — and without it a missing
+	// field would render every amount as buying infinitely many credits.
+	if !(body.USDPerLXC > 0) {
+		return 0, false
+	}
+	return body.USDPerLXC, true
 }
 
 // probeBillingEnabled asks Lens whether its checkout route exists, WITHOUT being
