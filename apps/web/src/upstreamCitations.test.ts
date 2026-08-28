@@ -53,13 +53,13 @@ import { describe, expect, it } from 'vitest'
  * rather than trust this paragraph's numbers.
  *
  * ⚠ NOT EVERY Go CITATION IS THE SAME CLASS, AND THE OTHER CLASS IS NOW CHECKED. `apps/bff/lens.go:505`
- * and `apps/bff/billing.go:203` name a file IN THIS REPOSITORY, so they are verifiable from here
+ * and `apps/bff/billing.go:274` name a file IN THIS REPOSITORY, so they are verifiable from here
  * and stay out of this rule's scope. This paragraph used to end "a guard could actually check
  * them", and none did — `pointerAudit.test.ts`'s POINTER regex covered `.tsx|.ts|.css|.mjs|.js`
  * and not `.go`. MEASURED at `eb051cd`: the `billing.go` citation was right when written at
  * `31095b7` and a LOCAL commit moved the comment it named twenty lines, so it pointed inside
  * `probeBillingEnabled` — the one function on that path that cannot charge anyone — while the
- * `TopUp.tsx:24` citation in the SAME PARENTHESIS was pinned and green. `pointerAudit` now
+ * `TopUp.tsx:26` citation in the SAME PARENTHESIS was pinned and green. `pointerAudit` now
  * resolves in-repo `.go` pointers and pins both of these, which is what this paragraph asked for.
  * The cross-repo half is unchanged: it is still unreachable from here, and still banned rather
  * than checked.

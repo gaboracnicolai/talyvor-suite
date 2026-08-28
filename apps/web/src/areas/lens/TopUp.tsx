@@ -9,6 +9,8 @@ import { formatUSD } from './format'
 import {
   CheckoutError,
   formatCents,
+  formatLXC,
+  lxcForCents,
   recordPendingTopUp,
   topupApi,
   type CheckoutFailureKind,
@@ -333,7 +335,24 @@ export function TopUp({
                       {start.isPending && start.variables === cents ? (
                         'Starting…'
                       ) : (
-                        <span className="font-figure">{formatCents(cents)}</span>
+                        <span className="font-figure">
+                          {formatCents(cents)}
+                          {/* ⚠ THE CONVERSION IS COMPUTED HERE, INSIDE THE FIGURE FACE, AND NOT
+                              HOISTED TO A const ABOVE THE Button. It was hoisted first, and
+                              figureFace.test.ts red: `lxcForCents` carries a money NAME SEGMENT
+                              (`Cents`), so the call-site scan reads it as a money render and the
+                              nearest face was the plain flex div. The rule is deliberately broad —
+                              this file says narrowing a detector until its false positives vanish
+                              is how it stops finding the real ones — so the call moved to where the
+                              value is actually rendered rather than the rule moving. */}
+                          {(() => {
+                            // What this amount BUYS, at the peg the DEPLOYMENT confirmed. null when
+                            // Lens would not supply one: the button then shows the price alone,
+                            // which is still true, rather than a conversion nothing backs.
+                            const lxc = lxcForCents(cents, options.data?.usd_per_lxc)
+                            return lxc === null ? null : ` · ${formatLXC(lxc)}`
+                          })()}
+                        </span>
                       )}
                     </Button>
                   ))}

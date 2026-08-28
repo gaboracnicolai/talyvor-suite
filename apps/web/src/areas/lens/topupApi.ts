@@ -34,6 +34,43 @@ import { ApiError } from '../../lib/api'
 export interface TopUpOptions {
   allowed_usd_cents: number[]
   billing_enabled: boolean
+  /**
+   * The fixed USD-per-LXC peg, SERVED by the BFF from Lens's public
+   * `GET /v1/economy/conversion-rate` — never a constant in this repo.
+   *
+   * ⚠ OPTIONAL, AND THE ABSENCE IS LOAD-BEARING. The BFF omits it — never sends zero, never
+   * guesses — whenever Lens will not confirm it (economy off ⇒ the route is not registered ⇒ 404,
+   * unreachable, malformed, or a non-positive value). A WRONG conversion on a money screen is
+   * worse than no conversion, so the screen must show dollars alone when this is missing rather
+   * than fall back to a number written here.
+   */
+  usd_per_lxc?: number
+}
+
+/**
+ * What an amount BUYS, at the peg the deployment confirmed. Null when the peg is unknown — the
+ * caller renders nothing rather than a conversion nothing backs.
+ *
+ * W4.10: "it must show what the amount BUYS in credits before the person commits — the conversion
+ * is the thing they cannot do in their head at $0.10 per credit."
+ */
+export function lxcForCents(cents: number, usdPerLXC: number | undefined): number | null {
+  if (typeof usdPerLXC !== 'number' || !Number.isFinite(usdPerLXC) || usdPerLXC <= 0) return null
+  if (!Number.isFinite(cents) || cents <= 0) return null
+  return cents / 100 / usdPerLXC
+}
+
+/**
+ * The credit figure for a button, e.g. `100 LXC`. Whole credits when the division is exact — which
+ * it is for every advertised amount at the $0.10 peg — and two decimals when it is not, so an
+ * off-peg deployment is not silently rounded into a number the customer will not be credited.
+ */
+export function formatLXC(lxc: number): string {
+  const whole = Number.isInteger(lxc)
+  return `${lxc.toLocaleString('en-US', {
+    minimumFractionDigits: whole ? 0 : 2,
+    maximumFractionDigits: whole ? 0 : 2,
+  })} LXC`
 }
 
 /** POST /api/lxc/checkout — a Stripe Checkout Session to send the browser to. */
