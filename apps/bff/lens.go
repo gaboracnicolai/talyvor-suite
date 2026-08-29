@@ -1113,6 +1113,34 @@ func docsSpaceCreateBody(w http.ResponseWriter, r *http.Request, ws string) (io.
 	return strings.NewReader(string(out)), true
 }
 
+// docsRelayBody reads a page-write body under maxDocsBody and answers for itself.
+//
+// ⚠ THE POINT IS *WHO ANSWERS*, NOT THE CAP. Handing `http.MaxBytesReader(w, r.Body, …)`
+// straight to forwardProduct as the request body also caps the body — but the cap then trips
+// mid-forward, and the forward reports what it sees: the upstream call failed. MEASURED
+// (W4.46) on 75091a8, an oversize page create answered **502 {"error":"docs upstream
+// unreachable"}** — the wrong CLASS (5xx says "retry, our fault"; the caller must shrink the
+// body) naming the wrong SYSTEM (Docs is healthy and never received the request).
+//
+// This is the same fix, and the same reasoning, as the five AI routes already carry; see
+// TestDocsAsk_OversizeQuestionIs413AndNotAnUpstreamDiagnosis. Reading first is what lets the
+// BFF answer 413 itself, and it also guarantees an oversize body is never forwarded at all.
+//
+// ⚠ strings.NewReader(string(raw)), not bytes.NewReader(raw), and the reason is not style:
+// `bytes` is not otherwise imported here, and ADDING an import shifts every line in this
+// file by one. apps/web/src/pointerAudit.test.ts audits `file:line` pointers into this file
+// and five of them broke on exactly that — measured in CI, not predicted. The sibling helper
+// docsSpaceCreateBody above already spells it this way, so matching it costs one copy of a
+// body already bounded at 512 KiB and keeps the diff to the lines this change is about.
+func docsRelayBody(w http.ResponseWriter, r *http.Request) (io.Reader, bool) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDocsBody))
+	if err != nil {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+		return nil, false
+	}
+	return strings.NewReader(string(raw)), true
+}
+
 // docsCreatePage — POST /api/docs/spaces/{spaceID}/pages. Body forwarded VERBATIM: Docs owns its
 // schema (Create requires AccessEdit on the space), and re-encoding here would invent a second
 // schema to drift from.
@@ -1125,9 +1153,13 @@ func (a *app) docsCreatePage() http.HandlerFunc {
 		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
+		body, ok := docsRelayBody(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
 			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages", "",
-			http.MethodPost, http.MaxBytesReader(w, r.Body, maxDocsBody), nil)
+			http.MethodPost, body, nil)
 	})
 }
 
@@ -1146,8 +1178,12 @@ func (a *app) docsUpdatePage() http.HandlerFunc {
 		if _, ok := a.docsWorkspaceFor(w, r); !ok {
 			return
 		}
+		body, ok := docsRelayBody(w, r)
+		if !ok {
+			return
+		}
 		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
 			"/v1/spaces/"+url.PathEscape(spaceID)+"/pages/"+url.PathEscape(pageID),
-			"", http.MethodPatch, http.MaxBytesReader(w, r.Body, maxDocsBody), nil)
+			"", http.MethodPatch, body, nil)
 	})
 }
