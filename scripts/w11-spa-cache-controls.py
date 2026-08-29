@@ -18,8 +18,10 @@ fix as complete.
 
 Restore is from a byte copy taken before anything is written, not from git.
 """
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -139,6 +141,36 @@ def run_target():
     return failed, passed, msgs, out
 
 
+
+def restore_on_signal(snapshot):
+    """Put every snapshotted file back, then die of the signal we were sent.
+
+    A `finally` DOES NOT RUN ON SIGTERM — and until this edit this campaign had no `finally`
+    either: it restored `lens.go` on the HAPPY PATH ONLY, so ANY exception inside the control loop
+    left a mutated apps/bff/lens.go in the working tree. That is the WORSE half of the shape
+    scripts/check-restore-signal-handlers.py watches (rule R6), not the lesser one.
+
+    Measured in talyvor-suite (W1.7, 78c69c8): a 2-minute timeout killed a control mid-mutation and
+    left a GATE REMOVED in the tree, with a green suite and a `git status` showing only files the
+    session had edited on purpose.
+
+    Re-raising with SIG_DFL keeps the exit status honest. SIGKILL still strands.
+    """
+    def handler(signum, _frame):
+        for path, blob in snapshot.items():
+            try:
+                path.write_bytes(blob)
+            except OSError:
+                pass
+        sys.stderr.write("\n!! signal %d — restored %d mutated file(s) before exiting\n"
+                         % (signum, len(snapshot)))
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(s, handler)
+
+
 def apply_edits(text, edits):
     for old, new in edits:
         text = text.replace(old, new, 1)
@@ -150,6 +182,9 @@ def main():
     pristine = tmp / LENS.name
     shutil.copy2(LENS, pristine)
     src0 = LENS.read_text()
+    # The `finally` below is the normal path; this is the one a SIGTERM takes. Installed as soon
+    # as the pristine bytes exist, which is the first moment a restore is possible.
+    restore_on_signal({LENS: src0.encode("utf-8")})
 
     # ASSERT EVERY ANCHOR BEFORE ANY WRITE. A control with two edits in one file can apply half
     # of itself; every anchor of every control is checked against the pristine text first, and
@@ -175,37 +210,46 @@ def main():
     print(f"  {len(passed)} green, 0 red — and all {len(EVERYTHING)} are named in this file\n")
 
     score = caught = 0
-    for c in CONTROLS:
-        src = LENS.read_text()
-        LENS.write_text(apply_edits(src, c["edits"]))
-        assert LENS.read_text() != src, "control did not change the file"
-        failed, passed, msgs, out = run_target()
-        if not failed and not passed:
-            verdict = ("BROKEN — the run produced no test results. A compile error or a panic "
-                       "kills the package binary and prints no PASS lines; that is not a catch")
-        else:
-            want_red = set(c["reds"]) & failed
-            want_green_broken = set(c["greens"]) & failed
-            ok = len(want_red) == len(c["reds"]) and not want_green_broken
-            if ok and not c["reds"]:
-                verdict = "STAYED GREEN AS PREDICTED"
-            elif ok:
-                verdict = "CAUGHT by the predicted case"
+    # ⚠ THE LOOP RESTORED ON THE HAPPY PATH ONLY. Every `shutil.copy2(pristine, LENS)`
+    # below sits AFTER the work, so an exception — a timeout, a failed assert, a
+    # KeyboardInterrupt — left apps/bff/lens.go MUTATED in the working tree with nothing
+    # saying so. The `finally` is the fix for that; the signal handler above is the fix
+    # for the case a `finally` cannot reach (rule R6 in check-restore-signal-handlers.py).
+    try:
+        for c in CONTROLS:
+            src = LENS.read_text()
+            LENS.write_text(apply_edits(src, c["edits"]))
+            assert LENS.read_text() != src, "control did not change the file"
+            failed, passed, msgs, out = run_target()
+            if not failed and not passed:
+                verdict = ("BROKEN — the run produced no test results. A compile error or a panic "
+                           "kills the package binary and prints no PASS lines; that is not a catch")
             else:
-                verdict = "NOT AS PREDICTED"
-                verdict += f"\n      predicted red, did not red: {sorted(set(c['reds']) - want_red)}"
-                verdict += f"\n      predicted green, went red: {sorted(want_green_broken)}"
-        print(f"{c['name']}\n   {c['why']}\n   -> {verdict}")
-        print(f"      red={sorted(failed)} green={len(passed)}")
-        for m in msgs[:2]:
-            print(f"      msg: {m[:190]}")
-        print()
-        if verdict.startswith(("CAUGHT", "STAYED GREEN")):
-            score += 1
-            if c["reds"]:
-                caught += 1
+                want_red = set(c["reds"]) & failed
+                want_green_broken = set(c["greens"]) & failed
+                ok = len(want_red) == len(c["reds"]) and not want_green_broken
+                if ok and not c["reds"]:
+                    verdict = "STAYED GREEN AS PREDICTED"
+                elif ok:
+                    verdict = "CAUGHT by the predicted case"
+                else:
+                    verdict = "NOT AS PREDICTED"
+                    verdict += f"\n      predicted red, did not red: {sorted(set(c['reds']) - want_red)}"
+                    verdict += f"\n      predicted green, went red: {sorted(want_green_broken)}"
+            print(f"{c['name']}\n   {c['why']}\n   -> {verdict}")
+            print(f"      red={sorted(failed)} green={len(passed)}")
+            for m in msgs[:2]:
+                print(f"      msg: {m[:190]}")
+            print()
+            if verdict.startswith(("CAUGHT", "STAYED GREEN")):
+                score += 1
+                if c["reds"]:
+                    caught += 1
+            shutil.copy2(pristine, LENS)
+            assert LENS.read_text() == pristine.read_text(), "restore failed"
+    finally:
         shutil.copy2(pristine, LENS)
-        assert LENS.read_text() == pristine.read_text(), "restore failed"
+
 
     assert LENS.read_text() == src0, "lens.go not restored to the tree this campaign started from"
     failed, passed, _, _ = run_target()
