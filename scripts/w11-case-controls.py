@@ -16,6 +16,8 @@ Run from the repo root:  python3 scripts/w11-case-controls.py
 """
 
 import hashlib
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +32,38 @@ AUDIT = ROOT / "apps/web/src/caseAudit.ts"
 CASESAFE = ROOT / "packages/ui/src/components/CaseSafe.tsx"
 LEDGER_TEST = "src/areas/lens/Ledger.test.tsx"
 AUDIT_TEST = "src/caseAudit.test.tsx"
+
+
+
+def restore_on_signal(snapshot: dict) -> None:
+    """Put every snapshotted file back, then die of the signal we were sent.
+
+    A `finally` DOES NOT RUN ON SIGTERM. Measured (W1.7, 78c69c8): a 2-minute command timeout
+    killed a sibling control mid-mutation and left a GATE REMOVED in the working tree, with a
+    green suite and a `git status` that showed only files the session had edited on purpose.
+
+    Re-raising with SIG_DFL is what keeps the exit status honest: a caller that killed this
+    process still sees it die of that signal, not exit 0 with a tidy tree. SIGKILL still strands
+    and nothing in Python can change that.
+
+    The shape is deliberately self-contained rather than an import, matching
+    scripts/w11-expiry-subject-controls.py, so adopting it in the next script is a paste.
+    """
+    def handler(signum, _frame):
+        for path, blob in snapshot.items():
+            try:
+                path.write_bytes(blob)
+            except OSError:
+                pass
+        sys.stderr.write(
+            "\n!! signal %d — restored %d mutated file(s) before exiting\n"
+            % (signum, len(snapshot))
+        )
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(s, handler)
 
 
 def sha(p: Path) -> str:
@@ -246,6 +280,10 @@ def main() -> int:
         if only and not any(c.name.startswith(o) for o in only):
             continue
         before = {p: (p.read_text(), sha(p)) for p, _, _, _ in c.edits}
+        # Installed AFTER the snapshot exists and re-installed each control, because `before`
+        # names a different file set per control. The `finally` below is the normal path; this is
+        # the one a SIGTERM takes.
+        restore_on_signal({p: text.encode("utf-8") for p, (text, _) in before.items()})
         print(f"\n=== {c.name}\n    {c.why}")
         try:
             c.apply()

@@ -53,6 +53,23 @@ jobs:
       # these are executable and run here. Exits non-zero naming the document section that is
       # now void. Cross-repo premises are reported UNCHECKABLE, never as passes.
       - run: deploy/decision-expiry.sh
+      # A `finally` DOES NOT RUN ON SIGTERM, and this repo has already paid for it.
+      #
+      # MEASURED (W1.7, 78c69c8): a 2-minute command timeout killed a control script mid-mutation;
+      # the `finally` never ran and the tree was left with deploy/decision-expiry.sh reading
+      # `if true; then` where a gate had been. NOTHING ABOUT THAT TREE LOOKED WRONG — the suite was
+      # green and `git status` showed only files the session had edited on purpose. A kill landing
+      # on a control whose mutation WEAKENS a guard leaves that weakening in the tree, green.
+      #
+      # ⚠ THE POPULATION GREW WHILE THE FIX SAT IN ONE FILE: 1 protected of 46 at 82cffd5, 2 of 58
+      # at a083c67. Prose does not stop a population growing; this step does. The allowlist inside
+      # the script may only SHRINK — R2 fails on an entry that has been fixed, R1 on a new
+      # unprotected script.
+      #
+      # Detection is `ast`, never grep: the word "signal" appears in four English sentences in
+      # scripts/w1121d-anchor-check-write-target-controls-j8w4.py, and `grep -l signal` calls that
+      # file protected. A regex reads the documentation as the implementation.
+      - run: python3 scripts/check-restore-signal-handlers.py --ci
 
   # The BFF gates. inc5 added the OIDC deps (go-oidc + x/oauth2), so there IS a
   # go.sum now — the module cache keys off it, and the Go version comes from
