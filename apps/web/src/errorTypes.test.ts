@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from '../../../packages/ui/src/lib/sourceText'
 
 import { queryClient } from './App'
 import { ApiError } from './lib/api'
@@ -168,6 +169,19 @@ function errorTypes(decls: Decl[]): Chain[] {
  * programmer error nobody classifies: `glyphAudit.ts` refusing a malformed woff2 and
  * `packages/ui/src/lib/contrast.ts` refusing an unreadable colour are the ten and three sites
  * this scope deliberately leaves alone, and neither is on a request path.
+ *
+ * ⚠ THE MEMBERSHIP TEST READS THE CODE, NOT THE COMMENTS, AND IT USED NOT TO. `text.includes('fetch(')`
+ * over the RAW file is a census of a spelling: a module whose only occurrences of `fetch(` are in
+ * prose ABOUT fetch call sites joined the population and was held to a rule about request paths it
+ * has none of. Found by `bffRequestFields.ts` — a build-time source-analysis module that mentions
+ * `fetch(` twice in comments and calls it never — whose `throw new Error('apps/web/tsconfig.json
+ * not found')` was reported as an unclassifiable refusal on a request path. Narrowing a guard's
+ * population is the dangerous direction, so it was measured rather than argued: with
+ * `bffRequestFields.ts` in the tree the raw population is 19 and the stripped one 18, and the ONE
+ * module the narrowing drops is that file — nothing else in either app mentions `fetch(` only in
+ * prose, so on the tree before it the two populations are IDENTICAL at 18 and this change moves
+ * no existing member. Rule D's offender set is empty on both. w649's control C9 puts a real
+ * `throw new Error` into a module that genuinely calls fetch and requires D to still name it.
  */
 function fetchingModules(): { path: string; text: string }[] {
   const out: { path: string; text: string }[] = []
@@ -182,7 +196,7 @@ function fetchingModules(): { path: string; text: string }[] {
       const path = relOf(p)
       if (isTestFile(path)) continue
       const text = readFileSync(p, 'utf8')
-      if (text.includes('fetch(')) out.push({ path, text })
+      if (stripComments(text).includes('fetch(')) out.push({ path, text })
     }
   }
   for (const r of roots) walk(r)

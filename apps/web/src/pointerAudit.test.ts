@@ -311,12 +311,12 @@ const PINS: Record<string, Pin> = {
     fragment: 'ApiError, NOT a bare Error',
     why: 'the sentence this write path is the fifth instance of — quoted so the two Track write paths cannot state the rule differently',
   },
-  'apps/web/src/errorTypes.test.ts:78|apps/web/src/areas/track/IssueDetail.tsx:98': {
+  'apps/web/src/errorTypes.test.ts:79|apps/web/src/areas/track/IssueDetail.tsx:98': {
     kind: 'HISTORICAL',
     fragment: 'throw new Error(String(res.status))',
     why: 'the sixth instance AS IT STOOD AT `d7652cf`, quoted with that SHA; this merge made it an ApiError, and rule D is what now holds it there',
   },
-  'apps/web/src/errorTypes.test.ts:79|apps/web/src/areas/track/IssueDetail.tsx:120': {
+  'apps/web/src/errorTypes.test.ts:80|apps/web/src/areas/track/IssueDetail.tsx:120': {
     kind: 'HISTORICAL',
     fragment: 'throw new Error(String(res.status))',
     why: 'the seventh, the comment POST, same SHA and same repair — filed separately because the two paths were controlled separately',
@@ -434,7 +434,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'ApiError, NOT a bare Error',
     why: 'the hazard named at the site of its FIFTH occurrence, on the path that takes money',
   },
-  'apps/web/src/errorTypes.test.ts:18|apps/web/src/areas/track/IssueList.tsx:282': {
+  'apps/web/src/errorTypes.test.ts:19|apps/web/src/areas/track/IssueList.tsx:282': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the census quoting the one place the repo recorded the class, so its list of four is checkable',
