@@ -65,6 +65,7 @@
   "src/areas/track/triageIssue.test.tsx": 14,
   "src/AuthGate.test.tsx": 3,
   "src/authProbeLoop.test.tsx": 10,
+  "src/bffRequestFieldRegister.test.ts": 6,
   "src/BillingRoutes.test.tsx": 4,
   "src/buildIdentity.test.ts": 9,
   "src/CardHeaderHeading.test.tsx": 20,
