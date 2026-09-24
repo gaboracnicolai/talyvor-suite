@@ -94,7 +94,9 @@ function treatment(cls: string): string {
  */
 const SHAPES: Record<string, { count: number; why: string }> = {
   '(none)': {
-    count: 36,
+    // 36 → 41 at B4.1: the Track area's All issues / Cycles links and the Cycles screen's three
+    // (back to issues, an issue in a cycle, file a new issue) took the majority answer.
+    count: 41,
     why:
       'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
       'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +

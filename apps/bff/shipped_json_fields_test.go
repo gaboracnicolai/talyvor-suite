@@ -70,6 +70,7 @@ var builtByThisService = map[string]string{
 var decodedFromUpstream = map[string]string{
 	"provisionResult":      "Lens's POST /v1/provision reply, decoded in provision()",
 	"trackBootstrapResult": "Track's POST /v1/bootstrap reply, decoded in bootstrapTrackWorkspace()",
+	"trackCycleCreateBody": "request body this service POSTs to Track's cycle create (B4.1), built from three chosen fields",
 }
 
 // filledByAssignment names fields that are NOT set in a composite literal but

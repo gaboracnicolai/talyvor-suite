@@ -367,6 +367,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	// ITSELF, so a second wrapper here would be a no-op that reads like a guard.
 	a.mux.HandleFunc("/api/track/issues/{id}/triage", a.trackTriage())
 	a.mux.HandleFunc("/api/track/teams", a.requireSession(a.trackTeams()))
+	a.mux.HandleFunc("/api/track/teams/{teamID}/cycles", a.trackCycles()) // B4.1 — track_cycles.go
+	a.mux.HandleFunc("/api/track/teams/{teamID}/cycles/{id}/progress", a.trackCycleProgress())
 
 	// The Track roster and Lens month-spend, both pinned at registration from
 	// config — client input never shapes an upstream path.
