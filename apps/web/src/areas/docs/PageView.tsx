@@ -21,8 +21,9 @@
 // address — so a wired-in PMDoc rendering a stored level-1 heading would count two `<h1>`s here
 // and go red. The census is blind and the sweep is not, at the one address it matters.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, focusRing } from '@talyvor/ui'
-import { useEffect, useRef, useState } from 'react'
+import { Button } from '@talyvor/ui'
+import type { Node as PMNode } from 'prosemirror-model'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError } from '../../lib/api'
@@ -37,6 +38,7 @@ import { PageSummary } from './PageSummary'
 import { PageTranslation } from './PageTranslation'
 import { PageChangelog } from './PageChangelog'
 import { PageTitleSuggestion } from './PageTitleSuggestion'
+import { DocEditor, type DocEditorHandle, docFromStored } from './editor/DocEditor'
 
 // ── THE FIVE HEADLINES, AND WHY THIS SCREEN'S TITLE CARRIES STATE AT ALL ─────
 //
@@ -81,12 +83,15 @@ export function PageView() {
     retry: false,
     enabled: spaceId !== '' && pageId !== '',
   })
-  const [draft, setDraft] = useState<string | null>(null)
+  // B2.1 — the unsaved document, or null when what is on screen is what Docs recorded.
+  const [draft, setDraft] = useState<PMNode | null>(null)
+  // Bumped to rebuild the editor from what Docs recorded, when that differs from what was sent.
+  const [editorEpoch, setEditorEpoch] = useState(0)
   // ⚠ THE EMPTY STATE PERFORMS ITS NEXT ACTION RATHER THAN POINTING AT IT — the rule both sibling
   // Docs screens now follow, for the reason SpaceView records: a spatial word ("below", "above")
   // names no control, means nothing to a reader navigating by rotor, and has to be kept true by
   // hand against a layout that moves.
-  const editorRef = useRef<HTMLTextAreaElement | null>(null)
+  const editorRef = useRef<DocEditorHandle | null>(null)
   // ⚠ THE DRAFT BELONGS TO ONE PAGE, AND NOTHING USED TO SAY SO.
   //
   // React Router matches /docs/spaces/:spaceId/pages/:pageId to ONE <Route> element, so moving
@@ -111,38 +116,40 @@ export function PageView() {
     setDraftOf(pageIdentity)
     setDraft(null)
   }
-  // Seed the editor from the server ONCE the page arrives, and never clobber an in-flight edit:
-  // the draft is only initialised while it is null.
-  useEffect(() => {
-    if (draft === null && page.data) setDraft(page.data.content_text ?? '')
-  }, [draft, page.data])
-
+  // ⚠ B2.1: THE SAVE WRITES `content`, THE DOCUMENT. It used to PATCH `content_text` alone — the
+  // search projection, which Docs admits by a special case — so the canonical document never
+  // moved: no structure could be written, no page_versions row was appended (Docs versions title
+  // and content only), and `content` went stale against its own projection. Docs derives
+  // `content_text` FROM `content` on this same write.
+  //
+  // What is shown after a save is still what Docs RECORDED (Documents.tsx's rule): the page is
+  // re-read, and when the recorded document differs from what was sent the editor is rebuilt from
+  // it. When it matches, the caret stays where it was. A refused save keeps the draft — it is the
+  // only copy of those words.
   const save = useMutation({
-    mutationFn: (text: string) => docsApi.updatePage(spaceId, pageId, { content_text: text }),
-    // ⚠ THE RE-READ HAS TO REACH THE BOX, AND FOR ITS WHOLE LIFE IT COULD NOT. The invalidate was
-    // here from the start — the intent is not in doubt — but the seeding effect above only ever
-    // fills the draft `while it is null`, so the refetched page had nowhere to land and the
-    // textarea went on showing the text that was typed at it whatever Docs did with it. A write
-    // whose re-read cannot be observed is an optimistic echo with a network call in front of it,
-    // and this app refuses that shape everywhere else it writes: Documents.tsx ("the rendered
-    // state must be what Lens RECORDED"), Sharing.tsx, and the BFF's setDistillPolicy ("Report
-    // what Lens RECORDED, never what was asked for").
-    //
-    // Dropping the draft AFTER the invalidate resolves — react-query awaits the refetch — hands
-    // the effect a fresh page.data to seed from, so the box shows the stored value rather than
-    // the submitted one. It matters here more than on the consent screens: the page PATCH sends
-    // content_text, the projection Docs DERIVES from the document, so what comes back is not
-    // always what went up. Whichever way that open question is settled, the reader is now looking
-    // at the stored answer instead of their own keystrokes.
-    //
-    // ⚠ ONLY ON SUCCESS. A refused save keeps the draft — it is the only copy of those words, and
-    // re-seeding from a server that did not take them would delete them. docsWrites.test.tsx
-    // holds both directions.
-    onSuccess: async () => {
+    mutationFn: (doc: PMNode) =>
+      docsApi.updatePage(spaceId, pageId, { content: JSON.stringify(doc.toJSON()) }),
+    onSuccess: async (_row, doc) => {
       await qc.invalidateQueries({ queryKey: pageKey })
-      setDraft(null)
+      const recorded = qc.getQueryData<{ content?: string }>(pageKey)?.content
+      if (recorded !== JSON.stringify(doc.toJSON())) setEditorEpoch((e) => e + 1)
+      // Only a draft that was not edited while the save was in flight is now clean.
+      setDraft((d) => (d === doc ? null : d))
     },
   })
+
+  // Leaving with unsaved words asks first.
+  useEffect(() => {
+    if (draft === null) return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [draft])
+
+  const initial = useMemo(
+    () => docFromStored(page.data?.content, page.data?.content_text ?? ''),
+    [page.data?.content, page.data?.content_text],
+  )
 
   // ⚠ THE HEADLINE IS CHOSEN FROM THE READ'S ACTUAL STATE, never from whether `page.data` is
   // undefined. `!page.data` is true while the read is in flight, true on a 404, true on a fault
@@ -255,16 +262,23 @@ export function PageView() {
       </Region>
 
       <Region index="01" label="What it says">
-        <label className="flex flex-col gap-1">
-          <span className="text-caption text-muted">Content</span>
-          <textarea
-            ref={editorRef}
-            className={`min-h-40 w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-            value={draft ?? ''}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </label>
-        <div className="mt-4 flex items-center gap-2">
+        {initial.unreadable ? (
+          <p className="mb-4 max-w-2xl text-caption text-ink" role="alert">
+            This page&rsquo;s stored document could not be read by the editor, so its plain text is
+            shown. Saving replaces the stored document with what you see here.
+          </p>
+        ) : null}
+        <DocEditor
+          key={`${pageIdentity}#${editorEpoch}`}
+          ref={editorRef}
+          initial={initial.doc}
+          onChange={setDraft}
+          onSave={() => {
+            if (draft !== null && !save.isPending) save.mutate(draft)
+          }}
+          label="Content"
+        />
+        <div className="mt-4 flex items-center gap-3">
           <Button
             variant="primary"
             disabled={save.isPending || draft === null}
@@ -272,11 +286,15 @@ export function PageView() {
           >
             {save.isPending ? 'Saving…' : 'Save'}
           </Button>
-          {save.isError ? (
-            <span className="text-caption text-muted">
-              Couldn’t save — nothing was changed. Try again.
-            </span>
-          ) : null}
+          <span className="text-caption text-muted" role="status">
+            {save.isError
+              ? 'Couldn’t save — nothing was changed. Try again.'
+              : draft !== null
+                ? 'Unsaved changes'
+                : save.isSuccess
+                  ? 'Saved.'
+                  : null}
+          </span>
         </div>
       </Region>
 

@@ -103,16 +103,19 @@ const untransformed = emitted({ files: absoluteContent(appRoot) })
  *
  * The split is deliberate and it is what makes a missing transformer visible. `p-[13px]`,
  * `leading-[1.04]`, `tracking-[-0.03em]` and `tabular-nums` come from packages/ui/src/preset.ts,
- * a `.ts` file. `inline` and `transition` come only from `.tsx` comments — measured: register a
- * transformer for `ts` alone and exactly six classes come back, `inline` and `transition` among
- * them. A one-key transform map is therefore red here, and green everywhere else in the repo.
+ * a `.ts` file. `transition` comes only from `.tsx` comments — measured: register a
+ * transformer for `ts` alone and exactly six classes come back, `transition` among them. A
+ * one-key transform map is therefore red here, and green everywhere else in the repo.
+ *
+ * `inline` was listed beside it until B2.1: the Docs editor's ProseMirror schema writes the word
+ * in CODE (`inline: true`, `group: 'inline'`), so it is extracted from source and ships, and it is
+ * no longer a class only prose asks for.
  */
 const PROSE_ONLY: Record<string, string> = {
   'p-[13px]': "preset.ts's sentence naming the arbitrary values local/no-arbitrary-value forbids",
   'leading-[1.04]': "preset.ts's display-scale comment quoting the site's markup",
   'tracking-[-0.03em]': "preset.ts's display-scale comment quoting the site's markup",
   'tabular-nums': "preset.ts's comment explaining that the numerals STOPPED using it",
-  inline: 'a .tsx comment — the bare word, where the code only ever writes inline-flex/-block',
   transition: 'a .tsx comment — the bare word, where the code only ever writes transition-colors',
 }
 
