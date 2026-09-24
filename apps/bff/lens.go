@@ -136,6 +136,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	// carries no {spaceID}, because the upstream operation takes no space: an id here that the
 	// upstream never sees would be decoration a reader could mistake for a scope.
 	a.mux.HandleFunc("/api/docs/pages/{pageID}/summarize", a.docsSummarizePage())
+	// B2.3 — shorten / lengthen / fix grammar on the editor's selection. See docs_ai.go.
+	a.mux.HandleFunc("/api/docs/pages/{pageID}/rewrite", a.docsRewriteSelection())
+	a.mux.HandleFunc("/api/docs/pages/{pageID}/write", a.docsWriteWithAI())
 
 	// TRANSLATE. The fourth W1.7 control, and the second whose cost lands on a page. Same address
 	// shape and same reasons as summarise above — the page is in the path because that is what the

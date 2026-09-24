@@ -201,9 +201,19 @@ const AREAS: readonly AreaSpec[] = [
         route: 'POST /api/docs/pages/{id}/suggest-title',
         upstream: 'internal/ai/engine.go#Engine.SuggestTitle (docs-ai-title)',
       },
+      {
+        marker: /\bdocsApi\.rewriteSelection\b/,
+        route: 'POST /api/docs/pages/{id}/rewrite',
+        upstream: 'internal/ai/engine.go#Engine.MakeShorter|MakeLonger|FixGrammar (docs-ai-shorter/-longer/-grammar)',
+      },
+      {
+        marker: /\bdocsApi\.writeWithAI\b/,
+        route: 'POST /api/docs/pages/{id}/write',
+        upstream: 'internal/ai/engine.go#Engine.WriteWithAI (docs-ai-write)',
+      },
     ],
-    expectedRoutes: 5,
-    expectedSurfaces: 5,
+    expectedRoutes: 7,
+    expectedSurfaces: 6,
   },
   {
     area: 'track',

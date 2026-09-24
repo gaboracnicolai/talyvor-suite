@@ -59,6 +59,7 @@ var builtByThisService = map[string]string{
 	"docsGenerateBody":     "request body this service POSTs to the Docs changelog route",
 	"docsSuggestTitleBody": "request body this service POSTs to the Docs suggest-title route",
 	"docsSummarizeBody":    "request body this service POSTs to the Docs transform route",
+	"docsWriteBody":        "request body this service POSTs to the Docs write route (B2.3)",
 	"docsTranslateBody":    "request body this service POSTs to the Docs translate route",
 	"versionResponse":      "the /api/version payload",
 }

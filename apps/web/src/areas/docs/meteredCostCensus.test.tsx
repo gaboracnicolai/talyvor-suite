@@ -8,6 +8,17 @@ import { PageSummary } from './PageSummary'
 import { PageTitleSuggestion } from './PageTitleSuggestion'
 import { PageTranslation } from './PageTranslation'
 import { SearchDocs } from './SearchDocs'
+import { SelectionAI } from './SelectionAI'
+import type { SelectionControls } from './editor/DocEditor'
+
+/** The editor as SelectionAI sees it with nothing selected — the state a writer meets it in. */
+const NO_SELECTION: SelectionControls = {
+  selection: null,
+  cursor: 1,
+  docText: 'The rollback runbook, in full.',
+  replace: () => true,
+  insertAfter: () => true,
+}
 
 // meteredCostCensus.test.tsx — every Docs surface that SPENDS must tell the reader it spent.
 //
@@ -167,6 +178,8 @@ function mockBff() {
     if (/^\/api\/docs\/pages\/[^/]+\/summarize$/.test(url)) return json({ text: 'a summary' })
     if (/^\/api\/docs\/pages\/[^/]+\/translate$/.test(url)) return json({ text: 'une traduction' })
     if (/^\/api\/docs\/pages\/[^/]+\/suggest-title$/.test(url)) return json({ title: 'A Better Title' })
+    if (/^\/api\/docs\/pages\/[^/]+\/write$/.test(url)) return json({ text: 'a written paragraph' })
+    if (/^\/api\/docs\/pages\/[^/]+\/rewrite$/.test(url)) return json({ text: 'a rewritten sentence' })
     if (url === '/api/docs/ai/ask') return json({ answer: 'an answer', sources: [] })
     if (url.startsWith('/api/docs/search?')) {
       // A row tagged `semantic` — the ONE thing that proves the metered half actually ran. The
@@ -287,10 +300,26 @@ const METERED: {
     landed: /Auth flow/,
     receipt: /Embedding the query was a metered Lens call/i,
   },
+  {
+    // B2.3 — the editor's AI row. Censused in the state a writer meets it: nothing selected, so
+    // Write with AI is the control on screen and docs-ai-write the tag it names. Its selection
+    // actions bill under their own tags and are held by docsWrites.test.tsx.
+    name: 'SelectionAI',
+    tag: 'docs-ai-write',
+    payer: 'page',
+    upstream: 'internal/ai/engine.go#Engine.WriteWithAI',
+    node: <SelectionAI pageId="pg-1" controls={NO_SELECTION} onSpent={() => {}} />,
+    drive: () => {
+      fireEvent.change(screen.getByLabelText(/what to write/i), { target: { value: 'a rollback checklist' } })
+      fireEvent.click(screen.getByRole('button', { name: /^write$/i }))
+    },
+    landed: /a written paragraph/,
+    receipt: /This text was a metered Lens call/i,
+  },
 ]
 
 /** ⚠ A LITERAL. Never METERED.length — see the header. */
-const EXPECTED_METERED = 5
+const EXPECTED_METERED = 6
 
 describe('every metered Docs surface tells the reader it spent', () => {
   it(`the population is ${EXPECTED_METERED} surfaces, each naming the upstream call that bills`, () => {
@@ -512,6 +541,7 @@ const MOUNT_ROUTES: { name: string; route: RegExp; sample: string }[] = [
   { name: 'PageTitleSuggestion', route: /\/api\/docs\/pages\/[^/?]+\/suggest-title/, sample: '/api/docs/pages/pg-1/suggest-title' },
   { name: 'AskAI', route: /\/api\/docs\/ai\/ask/, sample: '/api/docs/ai/ask' },
   { name: 'SearchDocs', route: /\/api\/docs\/search\?/, sample: '/api/docs/search?q=auth' },
+  { name: 'SelectionAI', route: /\/api\/docs\/pages\/[^/?]+\/(?:re)?write$/, sample: '/api/docs/pages/pg-1/write' },
 ]
 
 describe('a metered Docs surface spends nothing before the reader acts', () => {

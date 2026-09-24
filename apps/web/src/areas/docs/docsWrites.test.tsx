@@ -134,6 +134,13 @@ const SPACE_URL = '/docs/spaces/sp eng'
 
 afterEach(() => vi.restoreAllMocks())
 
+// jsdom has no layout, and ProseMirror measures a Range when it scrolls a change into view. An
+// empty rect list is what an unlaid-out range honestly has; without it the scroll throws.
+if (typeof Range.prototype.getClientRects !== 'function') {
+  Range.prototype.getClientRects = () => [] as unknown as DOMRectList
+  Range.prototype.getBoundingClientRect = () => new DOMRect()
+}
+
 describe('the page editor (B2.1)', () => {
   it('opens the stored DOCUMENT, with its structure, not a flattened projection', async () => {
     const doc = JSON.stringify({
@@ -559,5 +566,129 @@ describe('the AI cost readout, pinned where you write (B2.2)', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('AI on the selection, and ask from the page (B2.3)', () => {
+  function mockWithAI(answer = 'Short.') {
+    const calls: Call[] = []
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      const raw = init?.body
+      calls.push({ url, method, body: typeof raw === 'string' ? JSON.parse(raw) : raw })
+      if (url === '/api/docs/spaces') return json(SPACES)
+      if (url === '/api/docs/spaces/sp%20eng/pages/pg-1') {
+        if (method === 'PATCH') return json({ id: 'pg-1', title: 'First page' })
+        return json({ id: 'pg-1', title: 'First page', content: pm('A very long winded sentence here.', 'Keep this.'), content_text: 'x' })
+      }
+      if (url === '/api/docs/pages/pg-1/rewrite') return json({ text: answer })
+      if (url === '/api/docs/pages/pg-1/write') return json({ text: 'Step one.\nStep two.' })
+      return new Response('null', { status: 404 })
+    })
+    return calls
+  }
+
+  /** Selects `text` inside the editor the way a browser does: a DOM range, then selectionchange. */
+  function select(ed: HTMLElement, text: string) {
+    const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+      const i = (n.textContent ?? '').indexOf(text)
+      if (i < 0) continue
+      const range = document.createRange()
+      range.setStart(n, i)
+      range.setEnd(n, i + text.length)
+      ed.focus()
+      const sel = document.getSelection()
+      sel?.removeAllRanges()
+      sel?.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+      return
+    }
+    throw new Error(`"${text}" is not in the editor`)
+  }
+
+  it('shortens the selection as a suggestion, and Replace puts it in the page', async () => {
+    const calls = mockWithAI('Short.')
+    renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toContain('A very long winded sentence here.'))
+
+    select(ed, 'A very long winded sentence here.')
+    fireEvent.click(await screen.findByRole('button', { name: 'Shorten' }))
+
+    expect((await screen.findByTestId('ai-suggestion')).textContent).toBe('Short.')
+    const post = calls.find((c) => c.url === '/api/docs/pages/pg-1/rewrite')
+    expect(post?.body).toEqual({ action: 'shorter', text: 'A very long winded sentence here.' })
+    // A suggestion: the page has not changed yet.
+    expect(ed.textContent).toContain('A very long winded sentence here.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace selection' }))
+    await waitFor(() => expect(ed.querySelector('p')?.textContent).toBe('Short.'))
+    expect(ed.textContent).toContain('Keep this.')
+    expect(screen.getByText('Unsaved changes')).toBeTruthy()
+  })
+
+  it('refuses to Replace words that changed while the model was answering', async () => {
+    mockWithAI('Short.')
+    renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toContain('A very long winded sentence here.'))
+    select(ed, 'A very long winded sentence here.')
+    fireEvent.click(await screen.findByRole('button', { name: 'Shorten' }))
+    await screen.findByTestId('ai-suggestion')
+
+    typeInto(ed, 'Someone rewrote this meanwhile.')
+    await waitFor(() => expect(ed.textContent).toContain('Someone rewrote this meanwhile.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Replace selection' }))
+
+    expect(await screen.findByText(/selected words changed after they were sent/)).toBeTruthy()
+    expect(ed.textContent).toContain('Someone rewrote this meanwhile.')
+  })
+
+  it('will not translate without a language — upstream that is a billed answer in English', async () => {
+    mockWithAI()
+    renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toContain('Keep this.'))
+    select(ed, 'Keep this.')
+    expect((await screen.findByRole('button', { name: 'Translate' })).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('writes with AI from a prompt, with the page as context, and inserts it below the caret', async () => {
+    const calls = mockWithAI()
+    renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toContain('Keep this.'))
+
+    fireEvent.change(screen.getByLabelText('What to write'), { target: { value: 'a rollback checklist' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Write' }))
+
+    expect((await screen.findByTestId('ai-suggestion')).textContent).toBe('Step one.\nStep two.')
+    const post = calls.find((c) => c.url === '/api/docs/pages/pg-1/write')
+    expect(post?.body).toEqual({
+      prompt: 'a rollback checklist',
+      context: 'A very long winded sentence here.\nKeep this.',
+    })
+    // A suggestion first; a write has nothing to replace.
+    expect(screen.queryByRole('button', { name: 'Replace selection' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Insert below' }))
+    await waitFor(() =>
+      expect([...ed.querySelectorAll('p')].map((p) => p.textContent)).toEqual([
+        'A very long winded sentence here.',
+        'Step one.',
+        'Step two.',
+        'Keep this.',
+      ]),
+    )
+  })
+
+  it('offers Ask AI from the page itself', async () => {
+    mockWithAI()
+    renderAt(PAGE_URL)
+    await editor()
+    expect(await screen.findByRole('button', { name: /^ask/i })).toBeTruthy()
   })
 })

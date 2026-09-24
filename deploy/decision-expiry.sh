@@ -760,6 +760,12 @@ cannot "the suggest-title route sends what talyvor-docs SuggestTitle binds — t
     "talyvor-docs internal/ai/handler.go" \
     "[ \"\$(sed -n '/^func (h \\*Handler) SuggestTitle(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"content page_id \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and on this route a wrong key is a 200 with a billed completion, not an error"
 
+# B2.3 — the editor's Write with AI builds this body. Verified at talyvor-docs 5994a3b by running
+# the command below in a read-only export.
+cannot "the write route sends what talyvor-docs Write binds — prompt is what gets written, context is the page it is written into, page_id is what the charge lands on" \
+    "talyvor-docs internal/ai/handler.go" \
+    "[ \"\$(sed -n '/^func (h \\*Handler) Write(/,/^}/p' internal/ai/handler.go | grep -o 'json:\"[a-z_]*\"' | sed 's/json://;s/\"//g' | LC_ALL=C sort | tr '\n' ' ')\" = \"context page_id prompt \" ]   # in a talyvor-docs checkout; the WHOLE bind-tag set, so an ADDED key, a REMOVED one or a RENAMED one are each a mismatch — and a wrong key here is an unattributed or context-free billed completion, not an error"
+
 # ⚠ THE FIFTH ENTRY IS NOT AN AI ROUTE AND IS NOT IN THE AI FILE, WHICH IS WHY IT WAS MISSING.
 # The four above were added by sweeping talyvor-docs' `internal/ai/handler.go`; the changelog body
 # is built the same way, sent by the same BFF, and binds its keys in `internal/changelog/handler.go`
@@ -1067,6 +1073,13 @@ cannot "[PUT /v1/workspaces/{wsID}/cache-poolable] apps/bff/tenant.go sends {cac
 cannot "the four Docs AI surfaces still bill under the tags their cards print, and the Ask engine is still declared under the name the census names (what makes areas/docs/meteredCostCensus.test.tsx's upstream column a fact rather than a shape)" \
     "talyvor-docs internal/ai/engine.go, internal/search/semantic.go" \
     "[ \"\$(grep -oE '\"docs-ai-(ask|summarize|title|translate)\"' internal/ai/engine.go | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = '\"docs-ai-ask\" \"docs-ai-summarize\" \"docs-ai-title\" \"docs-ai-translate\"' ] && [ \"\$(grep -cE '^func \\(e \\*Engine\\) (AskDocs|Summarize|Translate|SuggestTitle)\\(' internal/ai/engine.go)\" = 4 ] && [ \"\$(grep -c 'X-Talyvor-Feature\", \"docs-search\"' internal/search/semantic.go)\" = 1 ] && [ \"\$(grep -c 'func (s \*SemanticSearch) embed(' internal/search/semantic.go)\" = 1 ]   # in a talyvor-docs checkout. Extraction, not exit status: the tag SET is compared, so a fifth tag or a renamed one both red. Verified at 48c8336 — and both renames the suite currently mis-writes (Engine.Ask, Engine.Triage) red their half."
+
+# B2.3 — the Docs editor's AI row (areas/docs/SelectionAI.tsx) prints four more tags than the
+# entry above holds, and its census and population markers name four more engine functions.
+# Verified at talyvor-docs 5994a3b by running the command in a read-only export.
+cannot "the Docs editor's AI row still bills under the tags it prints — docs-ai-write for Write with AI, docs-ai-shorter / -longer / -grammar for the selection rewrites — and the engine still declares WriteWithAI, MakeShorter, MakeLonger and FixGrammar, the functions its census and markers name" \
+    "talyvor-docs internal/ai/engine.go" \
+    "[ \"\$(grep -oE '\"docs-ai-(write|shorter|longer|grammar)\"' internal/ai/engine.go | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = '\"docs-ai-grammar\" \"docs-ai-longer\" \"docs-ai-shorter\" \"docs-ai-write\"' ] && [ \"\$(grep -cE '^func \\(e \\*Engine\\) (WriteWithAI|MakeShorter|MakeLonger|FixGrammar)\\(' internal/ai/engine.go)\" = 4 ]   # in a talyvor-docs checkout. Extraction, not exit status: the tag SET is compared, so a renamed or added tag reds."
 
 cannot "the three issue-attributed Track AI surfaces still pass the ISSUE as the Lens feature tag and search still passes the static track-search (what makes the payer column in areas/track/meteredCostCensus.test.tsx true — the first three charge a ticket, the fourth charges the workspace)" \
     "talyvor-track internal/ai/engine.go" \
