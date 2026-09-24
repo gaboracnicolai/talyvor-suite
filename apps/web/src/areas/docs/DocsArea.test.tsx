@@ -779,8 +779,7 @@ describe('W1.1.9b — the page reader reads as one screen, in regions', () => {
     await screen.findByText(/^Nothing has been written on this page yet\./)
     fireEvent.click(screen.getByRole('button', { name: 'Write the first words' }))
     // The caret is HANDED OVER, not pointed at: the editor is what the invitation invites you into.
-    expect(document.activeElement?.tagName).toBe('TEXTAREA')
-    expect(document.activeElement).toBe(screen.getByLabelText('Content'))
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Content' }))
   })
 
   // ⚠ THE FOUR `Page*` PANELS KEEP THEIR CARDS, and this is the re-measurement the item asked for

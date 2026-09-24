@@ -19,10 +19,11 @@ import { DocsArea } from './DocsArea'
 // PROJECTION, rather than the document) had to be found by reading three repositories: no test
 // in this one ever sent the request, so no test in this one could have looked at it.
 //
-// These cases drive the requests themselves and read what goes on the wire. They deliberately do
-// NOT pin the body of the page PATCH — what that write should carry is the open cross-repo
-// decision recorded in the queue, and pinning today's answer would make that decision harder to
-// take rather than easier.
+// These cases drive the requests themselves and read what goes on the wire.
+//
+// ⚠ B2.1 SETTLED THE PAGE PATCH'S BODY, SO IT IS NOW PINNED: `content`, the ProseMirror document.
+// The textarea this replaced sent `content_text` alone — the search projection — so the document
+// itself never moved and Docs appended no version.
 
 const SPACES = [
   {
@@ -49,7 +50,27 @@ type Call = { url: string; method: string; body: unknown }
  * the server's answer CHANGE across a save — which is the only way to tell a screen that re-reads
  * from one that renders what was typed at it.
  */
+/** A Docs `content` string: a doc of paragraphs. */
+function pm(...paras: string[]): string {
+  return JSON.stringify({
+    type: 'doc',
+    content: paras.map((t) => (t === '' ? { type: 'paragraph' } : { type: 'paragraph', content: [{ type: 'text', text: t }] })),
+  })
+}
+
+/** The editor, and a way to type into it: ProseMirror reads DOM edits through its MutationObserver. */
+async function editor() {
+  return screen.findByRole('textbox', { name: 'Content' })
+}
+function typeInto(ed: HTMLElement, text: string) {
+  const p = ed.querySelector('p')
+  if (p === null) throw new Error('no paragraph to type into')
+  if (p.firstChild === null) p.appendChild(document.createTextNode(text))
+  else p.firstChild.textContent = text
+}
+
 function mockDocs(opts: {
+  /** Successive answers to the page read, as Docs `content` strings (see pm()). */
   pageText: string[]
   pages?: Array<{ id: string; title: string }>
   patchStatus?: number
@@ -81,12 +102,18 @@ function mockDocs(opts: {
         return json({ id: 'pg-1', title: 'First page' })
       }
       if (text.length > 0) last = text.shift() as string
-      return json({ id: 'pg-1', title: 'First page', content_text: last })
+      return json({ id: 'pg-1', title: 'First page', content: last, content_text: plain(last) })
     }
     if (url === '/api/docs/pages/pg-1/summarize') return json({ text: '• a summary' })
     return new Response('null', { status: 404 })
   })
   return calls
+}
+
+/** Docs' content_text: the document's text, a line per block. */
+function plain(content: string): string {
+  const doc = JSON.parse(content) as { content?: Array<{ content?: Array<{ text?: string }> }> }
+  return (doc.content ?? []).map((b) => (b.content ?? []).map((t) => t.text ?? '').join('')).join('\n')
 }
 
 function renderAt(path: string) {
@@ -107,46 +134,78 @@ const SPACE_URL = '/docs/spaces/sp eng'
 
 afterEach(() => vi.restoreAllMocks())
 
-describe('the page editor re-reads what Docs recorded', () => {
-  // ⚠ THE RED THIS FILE WAS WRITTEN FOR. The save already invalidated the page query on success —
-  // the author's intent is in the source — but the editor seeds its draft only `while it is
-  // null`, so the refetched value had no way to reach the textarea. The re-read ran and NOTHING
-  // could observe it: a screen that renders what you typed at it, whatever the server did with
-  // it. This app refuses exactly that shape everywhere else it writes (Documents.tsx "the
-  // rendered state must be what Lens RECORDED"; Sharing.tsx; the BFF's setDistillPolicy "Report
-  // what Lens RECORDED, never what was asked for").
-  it('shows the server value after a save, not the text that was typed', async () => {
-    mockDocs({ pageText: ['from the server', 'WHAT DOCS RECORDED'] })
+describe('the page editor (B2.1)', () => {
+  it('opens the stored DOCUMENT, with its structure, not a flattened projection', async () => {
+    const doc = JSON.stringify({
+      type: 'doc',
+      content: [
+        { type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Runbook' }] },
+        { type: 'bullet_list', content: [{ type: 'list_item', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'restart it' }] }] }] },
+      ],
+    })
+    mockDocs({ pageText: [doc] })
     renderAt(PAGE_URL)
-
-    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
-    await waitFor(() => expect(box.value).toBe('from the server'))
-
-    fireEvent.change(box, { target: { value: 'what the person typed' } })
-    expect(box.value).toBe('what the person typed')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-    await waitFor(() => expect(box.value).toBe('WHAT DOCS RECORDED'))
+    const ed = await editor()
+    await waitFor(() => expect(ed.querySelector('h2')?.textContent).toBe('Runbook'))
+    expect(ed.querySelector('ul li')?.textContent).toBe('restart it')
   })
 
-  // ⚠ THE SUMMARY IS OF THE PAGE AS STORED, AND THAT IS WHAT MAKES ITS COST SENTENCE TRUE.
-  //
-  // Docs binds this completion's cost to page pg-1 and later rolls it onto that page's
-  // `own_ai_cost_usd`, so the bytes sent have to be that page's bytes. Feeding the control the
-  // editor's `draft` instead would bill a document for words it does not contain — and it would
-  // read as the more helpful choice ("summarise what I'm looking at"), which is exactly why the
-  // wiring is asserted here rather than trusted to the comment on it.
-  //
-  // It is also the assertion behind the claim that this control needs no editor at all: the text
-  // comes from the page query, and a reader with no draft in the box gets the same request.
-  it('summarises the page as STORED, not the unsaved keystrokes in the box', async () => {
-    const calls = mockDocs({ pageText: ['the text Docs has stored'] })
+  // The body is the document. `content_text` is Docs' projection of it, derived on this write.
+  it('saves what was typed as the DOCUMENT — `content`, never `content_text`', async () => {
+    const calls = mockDocs({ pageText: [pm('one')] })
     renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toBe('one'))
 
-    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
-    await waitFor(() => expect(box.value).toBe('the text Docs has stored'))
-    fireEvent.change(box, { target: { value: 'unsaved keystrokes nobody has stored' } })
+    typeInto(ed, 'one, edited')
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1))
+    const patch = calls.find((c) => c.method === 'PATCH')
+    expect(patch?.url).toBe('/api/docs/spaces/sp%20eng/pages/pg-1')
+    const body = patch?.body as Record<string, unknown>
+    expect(Object.keys(body)).toEqual(['content'])
+    expect(JSON.parse(String(body.content))).toEqual(JSON.parse(pm('one, edited')))
+  })
+
+  it('shows what Docs RECORDED after a save, when that differs from what was sent', async () => {
+    const calls = mockDocs({ pageText: [pm('from the server'), pm('WHAT DOCS RECORDED')] })
+    renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toBe('from the server'))
+
+    typeInto(ed, 'what the person typed')
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect((screen.getByRole('textbox', { name: 'Content' })).textContent).toBe('WHAT DOCS RECORDED'))
+    expect(calls.filter((c) => c.url.endsWith('/pages/pg-1') && c.method === 'GET')).toHaveLength(2)
+    expect(screen.getByText('Saved.')).toBeTruthy()
+  })
+
+  // Mod-S is how people who write save.
+  it('saves on Mod-S', async () => {
+    const calls = mockDocs({ pageText: [pm('one')] })
+    renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toBe('one'))
+    typeInto(ed, 'two')
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeTruthy())
+    fireEvent.keyDown(ed, { key: 's', ctrlKey: true })
+    await waitFor(() => expect(calls.filter((c) => c.method === 'PATCH')).toHaveLength(1))
+  })
+
+  // ⚠ THE SUMMARY IS OF THE PAGE AS STORED, AND THAT IS WHAT MAKES ITS COST SENTENCE TRUE. Docs
+  // binds this completion's cost to page pg-1, so the bytes sent have to be that page's bytes, not
+  // the unsaved keystrokes in the editor.
+  it('summarises the page as STORED, not the unsaved keystrokes in the editor', async () => {
+    const calls = mockDocs({ pageText: [pm('the text Docs has stored')] })
+    renderAt(PAGE_URL)
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toBe('the text Docs has stored'))
+    typeInto(ed, 'unsaved keystrokes nobody has stored')
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: /summarise this page/i }))
 
@@ -157,49 +216,19 @@ describe('the page editor re-reads what Docs recorded', () => {
     expect(post?.body).toEqual({ text: 'the text Docs has stored' })
   })
 
-  it('re-reads the page after a successful save', async () => {
-    const calls = mockDocs({ pageText: ['one', 'two'] })
-    renderAt(PAGE_URL)
-    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
-    await waitFor(() => expect(box.value).toBe('one'))
-
-    fireEvent.change(box, { target: { value: 'edited' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-    await waitFor(() =>
-      expect(calls.filter((c) => c.url.endsWith('/pages/pg-1') && c.method === 'GET')).toHaveLength(2),
-    )
-  })
-
-  it('PATCHes the page route, with the space id escaped', async () => {
-    const calls = mockDocs({ pageText: ['one'] })
-    renderAt(PAGE_URL)
-    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
-    await waitFor(() => expect(box.value).toBe('one'))
-
-    fireEvent.change(box, { target: { value: 'edited' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-
-    await waitFor(() => {
-      const patch = calls.filter((c) => c.method === 'PATCH')
-      expect(patch).toHaveLength(1)
-      expect(patch[0].url).toBe('/api/docs/spaces/sp%20eng/pages/pg-1')
-    })
-  })
-
-  // A failed write must say so AND leave the words on screen. Clearing the box on a refusal
-  // destroys the only copy of what the person wrote.
+  // A failed write must say so AND leave the words on screen — they are the only copy.
   it('a refused save states it and keeps the draft', async () => {
-    mockDocs({ pageText: ['one'], patchStatus: 502 })
+    mockDocs({ pageText: [pm('one')], patchStatus: 502 })
     renderAt(PAGE_URL)
-    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
-    await waitFor(() => expect(box.value).toBe('one'))
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toBe('one'))
 
-    fireEvent.change(box, { target: { value: 'still mine' } })
+    typeInto(ed, 'still mine')
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText(/Couldn’t save/)).toBeTruthy()
-    expect(box.value).toBe('still mine')
+    expect(ed.textContent).toBe('still mine')
   })
 })
 
@@ -212,9 +241,9 @@ describe('the draft belongs to one page', () => {
       const url = String(input)
       if (url === '/api/docs/spaces') return json(SPACES)
       if (url === '/api/docs/spaces/sp%20eng/pages/pg-1')
-        return json({ id: 'pg-1', title: 'First page', content_text: 'ONE' })
+        return json({ id: 'pg-1', title: 'First page', content: pm('ONE'), content_text: 'ONE' })
       if (url === '/api/docs/spaces/sp%20eng/pages/pg-2')
-        return json({ id: 'pg-2', title: 'Second page', content_text: 'TWO' })
+        return json({ id: 'pg-2', title: 'Second page', content: pm('TWO'), content_text: 'TWO' })
       return new Response('null', { status: 404 })
     })
   }
@@ -229,14 +258,8 @@ describe('the draft belongs to one page', () => {
   }
 
   // ⚠ THE ROUTE IS THE SAME ROUTE. React Router matches both pages to one <Route> element, so
-  // PageView is NOT remounted when only :pageId changes — the params move underneath it and
-  // useState survives. The seeding effect fills the draft only `while it is null`, and after the
-  // first page it never is again. Unfixed, this leaves page A's text in the box under page B's
-  // title, and Save writes A's content INTO B.
-  //
-  // Nothing in this UI links one page to a sibling today; the button below is what a page tree,
-  // a "next page" link or a search result would be. That is why this is a test and not a bug
-  // report: the failure is in the component, one ordinary link away from being live.
+  // PageView is NOT remounted when only :pageId changes. The editor is keyed by page, so page B
+  // opens B's document — never A's edits under B's title, which Save would then write INTO B.
   it('a different page gets a different draft, not the last one’s text', async () => {
     mockTwoPages()
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -251,13 +274,16 @@ describe('the draft belongs to one page', () => {
       </QueryClientProvider>,
     )
 
-    const box = (await screen.findByLabelText('Content')) as HTMLTextAreaElement
-    await waitFor(() => expect(box.value).toBe('ONE'))
+    const ed = await editor()
+    await waitFor(() => expect(ed.textContent).toBe('ONE'))
+    typeInto(ed, 'ONE, edited')
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeTruthy())
 
     fireEvent.click(screen.getByText('jump'))
     await screen.findByText('Second page')
 
-    await waitFor(() => expect((screen.getByLabelText('Content') as HTMLTextAreaElement).value).toBe('TWO'))
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Content' }).textContent).toBe('TWO'))
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
   })
 })
 

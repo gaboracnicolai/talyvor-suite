@@ -126,7 +126,8 @@ function registeredAppliedKeys(): string[] {
 
 describe('the docs page-write seam is asked about, in both directions', () => {
   it('finds the keys this app PATCHes at all', () => {
-    expect(sentPatchKeys()).toEqual(['content_text', 'title'])
+    // B2.1: the editor writes `content`, the document; Docs derives content_text from it.
+    expect(sentPatchKeys()).toEqual(['content', 'title'])
   })
 
   it('finds the register entry that asks talyvor-docs about them', () => {

@@ -242,7 +242,7 @@ export const docsApi = {
    */
   createSpace: (name: string) => send<DocsSpace>('/api/docs/spaces', 'POST', { name }),
 
-  page: (spaceId: string, pageId: string): Promise<DocsPageRow & { content_text?: string }> =>
+  page: (spaceId: string, pageId: string): Promise<DocsPageRow & { content?: string; content_text?: string }> =>
     getJSON(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`),
 
   pages: (spaceId: string): Promise<DocsPageRow[]> =>
@@ -393,7 +393,9 @@ export const docsApi = {
       { version, issue_ids: issueIds },
     ),
 
-  updatePage: (spaceId: string, pageId: string, patch: { title?: string; content_text?: string }) =>
+  /** `content` is the canonical ProseMirror JSON (string-encoded). Docs derives `content_text` from
+   *  it on the same write, and versions it; `content_text` alone would move neither. */
+  updatePage: (spaceId: string, pageId: string, patch: { title?: string; content?: string }) =>
     send<DocsPageRow>(
       `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`,
       'PATCH',
