@@ -21,6 +21,33 @@ export interface Extraction {
   unrecognised: number
   /** An error the SERVER reported inside the stream. Distinct from a transport failure. */
   error?: string
+  /** Token counts the provider reported in this frame, if any (B1.4 prices the answer from them). */
+  usage?: Usage
+  /** The model the provider says served the request, if this frame names one. */
+  model?: string
+}
+
+/**
+ * Token counts as the provider reports them. Each side is optional because the two wire formats
+ * report them in different frames: Anthropic sends input in `message_start` and output in
+ * `message_delta`; OpenAI sends both in its final usage-only frame.
+ */
+export interface Usage {
+  input_tokens?: number
+  output_tokens?: number
+}
+
+function count(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined
+}
+
+/** Later frames win per side; a side a frame does not report keeps its earlier value. */
+export function mergeUsage(prev: Usage | undefined, next: Usage | undefined): Usage | undefined {
+  if (next === undefined) return prev
+  return {
+    input_tokens: next.input_tokens ?? prev?.input_tokens,
+    output_tokens: next.output_tokens ?? prev?.output_tokens,
+  }
 }
 
 /**
@@ -99,6 +126,8 @@ export function extractDeltas(frame: string): Extraction {
   let done = false
   let unrecognised = 0
   let error: string | undefined
+  let usage: Usage | undefined
+  let model: string | undefined
 
   for (const payload of dataLines(frame)) {
     if (payload === '') continue
@@ -144,6 +173,23 @@ export function extractDeltas(frame: string): Extraction {
       }
       if (ANTHROPIC_CONTROL.has(type)) {
         if (type === 'message_stop') done = true
+        if (type === 'message_start' && isRecord(obj.message)) {
+          if (typeof obj.message.model === 'string') model = obj.message.model
+          const u = obj.message.usage
+          if (isRecord(u)) {
+            usage = mergeUsage(usage, {
+              input_tokens: count(u.input_tokens),
+              output_tokens: count(u.output_tokens),
+            })
+          }
+        }
+        // message_delta's output_tokens is CUMULATIVE, so the last one is the answer's total.
+        if (type === 'message_delta' && isRecord(obj.usage)) {
+          usage = mergeUsage(usage, {
+            input_tokens: count(obj.usage.input_tokens),
+            output_tokens: count(obj.usage.output_tokens),
+          })
+        }
         continue
       }
       unrecognised += 1
@@ -153,6 +199,13 @@ export function extractDeltas(frame: string): Extraction {
     // ── OpenAI ─────────────────────────────────────────────────────────────
     const choices = obj.choices
     if (Array.isArray(choices)) {
+      if (typeof obj.model === 'string') model = obj.model
+      if (isRecord(obj.usage)) {
+        usage = mergeUsage(usage, {
+          input_tokens: count(obj.usage.prompt_tokens),
+          output_tokens: count(obj.usage.completion_tokens),
+        })
+      }
       for (const c of choices) {
         if (!isRecord(c)) continue
         const d = c.delta
@@ -169,7 +222,9 @@ export function extractDeltas(frame: string): Extraction {
     unrecognised += 1
   }
 
-  return error === undefined
-    ? { deltas, done, unrecognised }
-    : { deltas, done, unrecognised, error }
+  const out: Extraction = { deltas, done, unrecognised }
+  if (error !== undefined) out.error = error
+  if (usage !== undefined) out.usage = usage
+  if (model !== undefined) out.model = model
+  return out
 }

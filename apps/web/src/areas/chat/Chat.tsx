@@ -22,7 +22,8 @@ import {
   saveConversations,
   upsertConversation,
 } from './history'
-import { formatUsdPer1M } from './price'
+import { type AnswerCost, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
+import { topupApi } from '../lens/topupApi'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
 //
@@ -58,6 +59,9 @@ import { formatUsdPer1M } from './price'
 
 export function Chat() {
   const catalog = useQuery({ queryKey: ['chat-models'], queryFn: fetchModels, retry: false })
+  // The credit peg, from the deployment. Absent ⇒ answers are priced in dollars, never at a guess.
+  const peg = useQuery({ queryKey: ['topup-options'], queryFn: topupApi.options, retry: false })
+  const usdPerLXC = peg.data?.usd_per_lxc
 
   const [modelId, setModelId] = useState<string>('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -136,6 +140,7 @@ export function Chat() {
     const controller = new AbortController()
     abortRef.current = controller
     let answer = ''
+    let cost: AnswerCost | undefined
 
     await streamChat(
       selected.provider,
@@ -157,7 +162,18 @@ export function Chat() {
             return next
           })
         },
-        onDone: ({ unrecognised }) => {
+        onDone: ({ unrecognised, usage, model: servedBy }) => {
+          // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
+          const priced = pricedAnswer(usage, selected, servedBy)
+          if (priced !== undefined) {
+            cost = priced
+            setMessages((prev) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced }
+              return next
+            })
+          }
           setPending(false)
           setUnreadable(unrecognised)
         },
@@ -169,7 +185,7 @@ export function Chat() {
       controller.signal,
     )
     store((list) =>
-      upsertConversation(list, id, model, [...turn, { role: 'assistant', content: answer }], Date.now()),
+      upsertConversation(list, id, model, [...turn, { role: 'assistant', content: answer, cost }], Date.now()),
     )
   }, [activeId, draft, messages, pending, selected, store])
 
@@ -318,7 +334,7 @@ export function Chat() {
                     data-testid={m.role === 'user' ? 'turn-user' : 'turn-assistant'}
                   >
                     <span className="font-figure text-eyebrow uppercase text-faint">
-                      {m.role === 'user' ? 'You' : (selected?.display_name ?? 'Assistant')}
+                      {m.role === 'user' ? 'You' : (m.cost?.model ?? selected?.display_name ?? 'Assistant')}
                     </span>
                     <p className="mt-2 whitespace-pre-wrap text-body text-ink">
                       {m.content === '' && pending ? (
@@ -327,6 +343,16 @@ export function Chat() {
                         m.content
                       )}
                     </p>
+                    {m.role === 'assistant' && m.content !== '' && !(pending && i === messages.length - 1) ? (
+                      // B1.4 — every answer carries its price. Figures on the figure face.
+                      <p className="mt-3 font-figure text-caption text-muted" data-testid="turn-cost">
+                        {m.cost !== undefined
+                          ? `${formatAnswerCost(m.cost.usd, usdPerLXC)} · ${m.cost.model} · ` +
+                            `${m.cost.input_tokens.toLocaleString('en-US')} in / ` +
+                            `${m.cost.output_tokens.toLocaleString('en-US')} out tokens`
+                          : 'Price not known — the provider reported no token counts for this answer'}
+                      </p>
+                    ) : null}
                   </li>
                 ))}
               </ol>
