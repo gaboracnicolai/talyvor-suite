@@ -496,3 +496,68 @@ describe('the create form belongs to one space', () => {
     expect((post.body as { title: string }).title).toBe('Still typing in AAA')
   })
 })
+
+describe('the AI cost readout, pinned where you write (B2.2)', () => {
+  /** A page whose AI totals change across reads — Docs' sweep pricing an action between them. */
+  function mockCostedPage(totals: Array<{ own: number; issues: number }>) {
+    const queue = [...totals]
+    let now = queue[0]
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    const reads = vi.fn()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/docs/spaces') return json(SPACES)
+      if (url === '/api/docs/spaces/sp%20eng/pages/pg-1') {
+        reads()
+        if (queue.length > 0) now = queue.shift() as { own: number; issues: number }
+        return json({
+          id: 'pg-1',
+          title: 'First page',
+          content: pm('words'),
+          content_text: 'words',
+          own_ai_cost_usd: now.own,
+          ai_cost_usd: now.issues,
+          total_ai_cost_usd: now.own + now.issues,
+        })
+      }
+      if (url === '/api/docs/pages/pg-1/summarize') return json({ text: '• a summary' })
+      return new Response('null', { status: 404 })
+    })
+    return reads
+  }
+
+  it('shows the page’s total AI cost in the editor’s toolbar, and what it is made of', async () => {
+    mockCostedPage([{ own: 0.012, issues: 0.03 }])
+    renderAt(PAGE_URL)
+    const readout = await screen.findByTestId('page-ai-cost')
+    await waitFor(() => expect(readout.textContent).toBe('AI on this page $0.04'))
+    // Pinned in the editor itself — the sticky toolbar row the writing surface sits under.
+    expect(readout.closest('.sticky')?.querySelector('[role="toolbar"]')).toBeTruthy()
+    expect(screen.getByText(/from AI actions on/).textContent).toMatch(
+      /\$0\.01 from AI actions on\s+this page, \$0\.03 from its linked\s+Track issues\./,
+    )
+  })
+
+  it('after an AI action, re-reads the page until Docs has priced it, then shows the new total', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const reads = mockCostedPage([
+        { own: 0, issues: 0 },
+        { own: 0.02, issues: 0 },
+      ])
+      renderAt(PAGE_URL)
+      const readout = await screen.findByTestId('page-ai-cost')
+      await waitFor(() => expect(readout.textContent).toBe('No AI spend recorded on this page'))
+
+      fireEvent.click(screen.getByRole('button', { name: /summarise this page/i }))
+      await waitFor(() => expect(readout.textContent).toContain('pricing the last AI action'))
+
+      await vi.advanceTimersByTimeAsync(20_000)
+      await waitFor(() => expect(screen.getByTestId('page-ai-cost').textContent).toBe('AI on this page $0.02'))
+      expect(reads.mock.calls.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
