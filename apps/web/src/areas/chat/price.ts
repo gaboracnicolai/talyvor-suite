@@ -62,3 +62,71 @@ function trimZeros(s: string): string {
   const trimmed = s.replace(/0+$/, '')
   return trimmed.endsWith('.') ? `${trimmed}0` : trimmed
 }
+
+/**
+ * What one answer cost — B1.4. Stored with the answer in this browser's history.
+ *
+ * ⚠ USD IS STORED, CREDITS ARE DERIVED AT RENDER. The credit peg is the deployment's
+ * (`usd_per_lxc` from /api/lxc/topup-options) and is not this file's to write down; storing
+ * credits would freeze a conversion the deployment may change.
+ *
+ * ⚠ THIS IS THE ANSWER'S PRICE AT THE CATALOG RATE, NOT A LEDGER ROW. It is tokens the provider
+ * reported × the list rate the picker shows. Whether the workspace was debited is a different
+ * question (see the note in Chat.tsx on session keys), and nothing here answers it.
+ */
+export interface AnswerCost {
+  /** The model that served the answer, as the screen names it. */
+  model: string
+  input_tokens: number
+  output_tokens: number
+  usd: number
+}
+
+/** USD for a token count at per-1M-token rates. Null when a count or rate is missing. */
+export function answerUsd(
+  usage: { input_tokens?: number; output_tokens?: number } | undefined,
+  rates: { input_per_1m: number; output_per_1m: number },
+): number | null {
+  const tin = usage?.input_tokens
+  const tout = usage?.output_tokens
+  if (tin === undefined || tout === undefined) return null
+  if (!Number.isFinite(rates.input_per_1m) || !Number.isFinite(rates.output_per_1m)) return null
+  return (tin * rates.input_per_1m + tout * rates.output_per_1m) / 1_000_000
+}
+
+/**
+ * The answer's price record, or undefined when the stream reported no complete token counts.
+ * Priced at the rate of the model that was ASKED; named by the one the provider says ANSWERED,
+ * except that a dated variant of the asked-for id (`gpt-4o-2024-08-06`) keeps the catalog's name.
+ */
+export function pricedAnswer(
+  usage: { input_tokens?: number; output_tokens?: number } | undefined,
+  asked: { id: string; display_name: string; input_per_1m: number; output_per_1m: number },
+  servedBy: string | undefined,
+): AnswerCost | undefined {
+  const usd = answerUsd(usage, asked)
+  if (usd === null) return undefined
+  return {
+    model: servedBy !== undefined && !servedBy.startsWith(asked.id) ? servedBy : asked.display_name,
+    input_tokens: usage?.input_tokens ?? 0,
+    output_tokens: usage?.output_tokens ?? 0,
+    usd,
+  }
+}
+
+/**
+ * The price line's figure: credits at the deployment's peg, dollars when the deployment has not
+ * confirmed one. Two significant digits below one unit, because a typical answer costs hundredths
+ * of a credit and `0.00` would state that it was free.
+ */
+export function formatAnswerCost(usd: number, usdPerLXC: number | undefined): string {
+  const pegged = typeof usdPerLXC === 'number' && Number.isFinite(usdPerLXC) && usdPerLXC > 0
+  const amount = pegged ? usd / usdPerLXC : usd
+  const figure =
+    amount === 0
+      ? '0'
+      : amount < 1
+        ? amount.toLocaleString('en-US', { maximumSignificantDigits: 2 })
+        : amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return pegged ? `≈ ${figure} LXC` : `≈ $${figure}`
+}

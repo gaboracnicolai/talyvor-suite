@@ -55,6 +55,7 @@ function mockChat({
   streamStatus = 200,
   body,
   sub = 'user-a',
+  usdPerLXC,
 }: {
   catalog?: unknown
   catalogStatus?: number
@@ -62,6 +63,8 @@ function mockChat({
   body?: BodyInit | null
   /** Who /auth/me says is signed in — history is kept per identity. */
   sub?: string
+  /** The credit peg /api/lxc/topup-options confirms. Absent ⇒ that read 404s, as on economy-off. */
+  usdPerLXC?: number
 } = {}) {
   const posted = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -71,6 +74,12 @@ function mockChat({
         JSON.stringify({ mode: 'oidc', authenticated: true, user: { sub, email: `${sub}@example.com` } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
+    }
+    if (url === '/api/lxc/topup-options' && usdPerLXC !== undefined) {
+      return new Response(JSON.stringify({ amounts_cents: [1000], usd_per_lxc: usdPerLXC }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
     }
     if (url === '/api/models') {
       if (catalogStatus !== 200) return new Response('nope', { status: catalogStatus })
@@ -365,5 +374,67 @@ describe('conversation history', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete conversation' }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Newer' })).toBeNull())
     expect(loadConversations('user-a').list.map((c) => c.title)).toEqual(['Older'])
+  })
+})
+
+// B1.4 — every answer carries a visible price: the provider's token counts × the catalog rate,
+// in credits at the deployment's peg.
+const OPENAI_PRICED =
+  'data: {"model":"gpt-4o-2024-08-06","choices":[{"delta":{"content":"Paris."}}]}\n\n' +
+  'data: {"model":"gpt-4o-2024-08-06","choices":[],"usage":{"prompt_tokens":2000,"completion_tokens":1000}}\n\n' +
+  'data: [DONE]\n\n'
+
+describe('what each answer cost', () => {
+  it('prices an OpenAI answer in credits at the deployment’s peg, and names the model', async () => {
+    mockChat({ body: OPENAI_PRICED, usdPerLXC: 0.1 })
+    renderChat()
+    await ask('Capital of France?')
+    // (2000 × $2.50 + 1000 × $10.00) / 1M = $0.015 = 0.15 LXC at $0.10. A dated variant of the
+    // asked-for id keeps the catalog's name.
+    expect((await screen.findByTestId('turn-cost')).textContent).toBe(
+      '≈ 0.15 LXC · GPT-4o · 2,000 in / 1,000 out tokens',
+    )
+  })
+
+  it('prices an Anthropic answer from message_start input and the LAST message_delta output', async () => {
+    mockChat({
+      usdPerLXC: 0.1,
+      body:
+        'data: {"type":"message_start","message":{"model":"claude-opus-5","usage":{"input_tokens":200,"output_tokens":1}}}\n\n' +
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hi."}}\n\n' +
+        'data: {"type":"message_delta","usage":{"output_tokens":400}}\n\n' +
+        'data: {"type":"message_stop"}\n\n',
+    })
+    renderChat()
+    await screen.findByRole('option', { name: 'Claude Opus 5' })
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'claude-opus-5' } })
+    await ask('hello')
+    // (200 × $5 + 400 × $25) / 1M = $0.011 = 0.11 LXC.
+    expect((await screen.findByTestId('turn-cost')).textContent).toBe(
+      '≈ 0.11 LXC · Claude Opus 5 · 200 in / 400 out tokens',
+    )
+  })
+
+  it('prices in dollars when the deployment confirms no peg — never a credit figure at a guess', async () => {
+    mockChat({ body: OPENAI_PRICED })
+    renderChat()
+    await ask('Capital of France?')
+    expect((await screen.findByTestId('turn-cost')).textContent).toMatch(/^≈ \$0\.015 · GPT-4o/)
+  })
+
+  it('keeps the price with the saved answer, and never sends it upstream', async () => {
+    const { posted } = mockChat({ body: OPENAI_PRICED, usdPerLXC: 0.1 })
+    const tab = renderChat()
+    await ask('first')
+    await screen.findByTestId('turn-cost')
+    tab.unmount()
+
+    renderChat()
+    expect((await screen.findByTestId('turn-cost')).textContent).toContain('0.15 LXC')
+    await ask('second')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+    const sent = JSON.parse(String(posted.mock.calls[1][0].init.body))
+    // Anthropic refuses a message field it does not know; the price is the screen's, not the wire's.
+    for (const m of sent.messages) expect(Object.keys(m).sort()).toEqual(['content', 'role'])
   })
 })

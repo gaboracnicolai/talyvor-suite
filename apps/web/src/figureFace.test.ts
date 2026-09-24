@@ -190,6 +190,9 @@ const FORMATTERS: Record<string, true | string> = {
   // `usd < 0.01 ? toFixed(4) : toFixed(2)` branch renders the real 0.015 catalog rate as `$0.01`,
   // corrupting it by a third and DOWNWARD (0.015 has no exact double). See areas/chat/price.ts.
   'apps/web/src/areas/chat/price.ts#formatUsdPer1M': true,
+  // B1.4. The price under every chat answer — `≈ 0.15 LXC`, or `≈ $0.015` when the deployment
+  // confirms no peg. A figure by the same rule: it renders inside the font-figure price line.
+  'apps/web/src/areas/chat/price.ts#formatAnswerCost': true,
   // Was `formatUSD` here — "A FIGURE BY ITS OUTPUT, AND NOTHING RENDERS IT … classified honestly
   // and enforced by nothing". That is now resolved rather than described: the dead export is
   // deleted and this is the rule IssueDetail.tsx actually renders (it was the local `costLabel`).

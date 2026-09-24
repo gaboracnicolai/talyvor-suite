@@ -1,5 +1,6 @@
 import { ApiError } from '../../lib/api'
-import { extractDeltas, splitFrames } from './chatStream'
+import { type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
+import type { AnswerCost } from './price'
 
 // chatApi.ts — the wire for W4.6.1 step 6.
 //
@@ -46,6 +47,8 @@ const CHAT_PATH: Record<string, string> = {
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** B1.4 — what an answer cost. Screen-side only: requestBody() never sends it upstream. */
+  cost?: AnswerCost
 }
 
 /** Reads the deployment's catalog. Errors are the shared ApiError so the app-wide bar sees them. */
@@ -77,7 +80,10 @@ export function streamableModels(all: ChatModel[]): { models: ChatModel[]; hidde
  * ⚠ ANTHROPIC REQUIRES max_tokens AND OPENAI DOES NOT. Omitting it is a 400 from Anthropic, which
  * would arrive as a dead stream with no frames — the hardest failure to read from a chat screen.
  */
-function requestBody(provider: string, model: string, messages: ChatMessage[]): unknown {
+function requestBody(provider: string, model: string, turns: ChatMessage[]): unknown {
+  // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
+  // refuses a message with a field it does not know.
+  const messages = turns.map(({ role, content }) => ({ role, content }))
   if (provider === 'anthropic') {
     return { model, max_tokens: 4096, stream: true, messages }
   }
@@ -87,8 +93,9 @@ function requestBody(provider: string, model: string, messages: ChatMessage[]): 
 export interface StreamHandlers {
   /** Called with each text delta as it arrives. */
   onDelta: (text: string) => void
-  /** Called once when the stream ends cleanly. `unrecognised` is frames this parser could not read. */
-  onDone: (info: { unrecognised: number }) => void
+  /** Called once when the stream ends. `unrecognised` is frames this parser could not read;
+   *  `usage` and `model` are what the provider reported, when it did. */
+  onDone: (info: { unrecognised: number; usage?: Usage; model?: string }) => void
   /** A server-reported error inside the stream, or a transport failure. */
   onError: (message: string) => void
 }
@@ -151,6 +158,8 @@ export async function streamChat(
   const decoder = new TextDecoder()
   let buffer = ''
   let unrecognised = 0
+  let usage: Usage | undefined
+  let served: string | undefined
 
   try {
     for (;;) {
@@ -162,13 +171,15 @@ export async function streamChat(
       for (const frame of split.frames) {
         const got = extractDeltas(frame)
         unrecognised += got.unrecognised
+        usage = mergeUsage(usage, got.usage)
+        served = got.model ?? served
         if (got.error !== undefined) {
           handlers.onError(got.error)
           return
         }
         for (const d of got.deltas) handlers.onDelta(d.text)
         if (got.done) {
-          handlers.onDone({ unrecognised })
+          handlers.onDone({ unrecognised, usage, model: served })
           return
         }
       }
@@ -183,7 +194,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised })
+  handlers.onDone({ unrecognised, usage, model: served })
 }
 
 /**
