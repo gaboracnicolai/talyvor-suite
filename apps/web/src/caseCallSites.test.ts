@@ -346,16 +346,19 @@ const PINS: Record<string, Pin> = {
   // consecutive rebuild, same rule. The prediction is now worth stating as one: a screen built from
   // Region moves this census by the number of labels it writes ITSELF, so a rebuild that moves it
   // by more than that is applying the transform by hand somewhere and should be looked at.
+  //
+  // 32 → 33 at B1.3: chat history adds ONE — the rename field's label. Its region eyebrow goes
+  // through Region.tsx. Sixth consecutive rebuild, same rule.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 32,
+    states: 33,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 32,
+    states: 33,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

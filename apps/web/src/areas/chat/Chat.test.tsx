@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { Chat } from './Chat'
+import { type Conversation, historyKey, loadConversations } from './history'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
 // (apps/bff/lens.go, apps/bff/stream.go). These tests drive the real fetch surface, mocked at the
@@ -28,6 +29,7 @@ const CATALOG = [
 
 afterEach(() => {
   vi.restoreAllMocks()
+  window.localStorage.clear()
 })
 
 /** A ReadableStream the test drives by hand, so the response can be held open mid-answer. */
@@ -52,15 +54,24 @@ function mockChat({
   catalogStatus = 200,
   streamStatus = 200,
   body,
+  sub = 'user-a',
 }: {
   catalog?: unknown
   catalogStatus?: number
   streamStatus?: number
   body?: BodyInit | null
+  /** Who /auth/me says is signed in — history is kept per identity. */
+  sub?: string
 } = {}) {
   const posted = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
+    if (url === '/auth/me') {
+      return new Response(
+        JSON.stringify({ mode: 'oidc', authenticated: true, user: { sub, email: `${sub}@example.com` } }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
     if (url === '/api/models') {
       if (catalogStatus !== 200) return new Response('nope', { status: catalogStatus })
       return new Response(JSON.stringify(catalog), {
@@ -279,9 +290,80 @@ describe('failures are stated, never swallowed', () => {
 })
 
 describe('what this screen refuses to imply', () => {
-  it('says the conversation is not saved, before anything is lost', async () => {
+  it('says WHERE conversations are kept, so "saved" is not read as "saved to my account"', async () => {
     mockChat()
     renderChat()
-    expect(await screen.findByText(/it is not saved, and\s+reloading empties it/i)).toBeTruthy()
+    expect(await screen.findByText(/Kept in this browser only, not on Talyvor/i)).toBeTruthy()
+  })
+})
+
+// B1.3 — conversations persist and reopen. Kept in localStorage, per signed-in identity.
+function seed(sub: string, ...convs: Array<Pick<Conversation, 'id' | 'title' | 'updated_at'>>) {
+  const full: Conversation[] = convs.map((c) => ({
+    ...c,
+    renamed: false,
+    model_id: 'gpt-4o',
+    created_at: c.updated_at,
+    messages: [
+      { role: 'user', content: c.title },
+      { role: 'assistant', content: `answer to ${c.title}` },
+    ],
+  }))
+  window.localStorage.setItem(historyKey(sub), JSON.stringify(full))
+}
+
+describe('conversation history', () => {
+  it('survives a closed tab: reopening shows the conversation in the list AND on screen', async () => {
+    mockChat({ body: 'data: {"choices":[{"delta":{"content":"Paris."}}]}\n\ndata: [DONE]\n\n' })
+    const tab = renderChat()
+    await ask('Capital of France?')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy())
+    tab.unmount()
+
+    // A fresh render with a fresh QueryClient is a fresh tab; only localStorage carries over.
+    renderChat()
+    expect(await screen.findByRole('button', { name: 'Capital of France?' })).toBeTruthy()
+    expect(screen.getByTestId('turn-user').textContent).toContain('Capital of France?')
+    expect(screen.getByTestId('turn-assistant').textContent).toContain('Paris.')
+  })
+
+  it('lists newest first, and opening one shows its turns', async () => {
+    seed('user-a', { id: 'a', title: 'Older', updated_at: 1 }, { id: 'b', title: 'Newer', updated_at: 2 })
+    mockChat()
+    renderChat()
+    const list = await screen.findByRole('list', { name: 'Saved conversations' })
+    expect([...list.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Newer', 'Older'])
+    fireEvent.click(screen.getByRole('button', { name: 'Older' }))
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('answer to Older'))
+  })
+
+  it('is not shown to a different account on the same browser', async () => {
+    seed('user-a', { id: 'a', title: 'Private', updated_at: 1 })
+    mockChat({ sub: 'user-b' })
+    renderChat()
+    expect(await screen.findByText(/None yet/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Private' })).toBeNull()
+  })
+
+  it('renames, and the name is what storage keeps', async () => {
+    seed('user-a', { id: 'a', title: 'Capital of France?', updated_at: 1 })
+    mockChat()
+    renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename' }))
+    fireEvent.change(screen.getByLabelText('Conversation name'), { target: { value: 'Geography' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save name' }))
+    expect(await screen.findByRole('button', { name: 'Geography' })).toBeTruthy()
+    expect(loadConversations('user-a').list[0]?.title).toBe('Geography')
+  })
+
+  it('deletes only after a confirm, and only the one asked for', async () => {
+    seed('user-a', { id: 'a', title: 'Older', updated_at: 1 }, { id: 'b', title: 'Newer', updated_at: 2 })
+    mockChat()
+    renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    expect(loadConversations('user-a').list).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete conversation' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Newer' })).toBeNull())
+    expect(loadConversations('user-a').list.map((c) => c.title)).toEqual(['Older'])
   })
 })
