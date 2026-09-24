@@ -2,7 +2,7 @@
   "src/AdminRemoved.test.tsx": 4,
   "src/aiRequestBodyRegister.test.ts": 28,
   "src/areas/auth/Entry.test.tsx": 14,
-  "src/areas/chat/Chat.test.tsx": 14,
+  "src/areas/chat/Chat.test.tsx": 19,
   "src/areas/chat/chatStream.test.ts": 15,
   "src/areas/chat/price.test.ts": 5,
   "src/areas/docs/askAI.test.tsx": 11,

@@ -2,10 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Button, cn, focusRing } from '@talyvor/ui'
+import { Button, Input, cn, focusRing } from '@talyvor/ui'
 
 import { Region } from '../../components/Region'
 import { InlineFailure } from '../../components/SessionExpiredBar'
+import { useAuthMeReader } from '../../lib/authMe'
 import {
   type ChatMessage,
   type ChatModel,
@@ -13,6 +14,14 @@ import {
   streamChat,
   streamableModels,
 } from './chatApi'
+import {
+  type Conversation,
+  type History,
+  loadConversations,
+  newConversationId,
+  saveConversations,
+  upsertConversation,
+} from './history'
 import { formatUsdPer1M } from './price'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
@@ -42,10 +51,10 @@ import { formatUsdPer1M } from './price'
 // is a fact about the catalog, and says nothing about what the workspace was charged, which would
 // be a claim about a ledger that did not move.
 //
-// ⚠ AND NO HISTORY IS PERSISTED. Step 5 (conversation history) is BLOCKED on a privacy decision:
-// Lens's migration 0009 states "prompt/response text is intentionally NOT stored in DB (privacy)",
-// and `logging_policy` defaults to `metadata`, which strips prompt text. So a reload empties this
-// screen, and it says so rather than letting someone discover it by losing an answer.
+// ⚠ HISTORY LIVES IN THIS BROWSER (B1.3), NOT ON A SERVER. Lens's migration 0009 states
+// "prompt/response text is intentionally NOT stored in DB (privacy)", and a server-side history
+// would reverse that for every workspace. ./history.ts keeps conversations in localStorage, scoped
+// to the signed-in identity, and the screen says where they are kept.
 
 export function Chat() {
   const catalog = useQuery({ queryKey: ['chat-models'], queryFn: fetchModels, retry: false })
@@ -57,6 +66,46 @@ export function Chat() {
   const [failure, setFailure] = useState<string | null>(null)
   const [unreadable, setUnreadable] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
+
+  // History is scoped to who is signed in; until that is known there is nowhere to keep it.
+  const me = useAuthMeReader()
+  const scope =
+    me.data?.user?.sub ?? me.data?.workspace_id ?? (me.data?.mode === 'disabled' ? 'local' : null)
+  const [history, setHistory] = useState<History>({ list: [], error: null })
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [storageRefused, setStorageRefused] = useState(false)
+
+  const open = useCallback((c: Conversation | undefined) => {
+    setActiveId(c?.id ?? null)
+    setMessages(c?.messages ?? [])
+    if (c !== undefined) setModelId(c.model_id)
+    setFailure(null)
+    setUnreadable(0)
+    setRenaming(null)
+    setConfirmingDelete(false)
+  }, [])
+
+  // Reopening the tab lands on the most recent conversation — "it is still there", literally.
+  useEffect(() => {
+    if (scope === null) return
+    const read = loadConversations(scope)
+    setHistory(read)
+    open(read.list[0])
+  }, [scope, open])
+
+  // ⚠ READS STORAGE, NOT STATE. It runs after an await inside send(), where `history` from the
+  // closure is a render old; merging into that would drop a rename made while it streamed.
+  const store = useCallback(
+    (update: (list: Conversation[]) => Conversation[]) => {
+      if (scope === null) return
+      const next = update(loadConversations(scope).list)
+      setStorageRefused(!saveConversations(scope, next))
+      setHistory({ list: next, error: null })
+    },
+    [scope],
+  )
 
   // ⚠ ABORT ON UNMOUNT. r.Context() in the BFF is the browser's connection, and cancelling it
   // cancels the upstream — which is what stops Lens generating, and being billed for, tokens
@@ -72,6 +121,12 @@ export function Chat() {
     if (text === '' || selected === undefined || pending) return
 
     const turn: ChatMessage[] = [...messages, { role: 'user', content: text }]
+    const id = activeId ?? newConversationId()
+    const model = selected.id
+    setActiveId(id)
+    // The question is kept before the answer starts, so a tab closed mid-stream loses only the
+    // answer.
+    store((list) => upsertConversation(list, id, model, turn, Date.now()))
     setMessages([...turn, { role: 'assistant', content: '' }])
     setDraft('')
     setPending(true)
@@ -80,6 +135,7 @@ export function Chat() {
 
     const controller = new AbortController()
     abortRef.current = controller
+    let answer = ''
 
     await streamChat(
       selected.provider,
@@ -87,6 +143,7 @@ export function Chat() {
       turn,
       {
         onDelta: (chunk) => {
+          answer += chunk
           // ⚠ APPENDED PER DELTA, NOT ASSIGNED AT THE END. This is what makes the screen a stream
           // rather than a spinner that resolves. Chat.test.tsx asserts partial text is on screen
           // while the response is still open, because a buffering client's finished DOM is
@@ -111,7 +168,12 @@ export function Chat() {
       },
       controller.signal,
     )
-  }, [draft, messages, pending, selected])
+    store((list) =>
+      upsertConversation(list, id, model, [...turn, { role: 'assistant', content: answer }], Date.now()),
+    )
+  }, [activeId, draft, messages, pending, selected, store])
+
+  const active = history.list.find((c) => c.id === activeId)
 
   return (
     <>
@@ -142,97 +204,266 @@ export function Chat() {
         )}
       </Region>
 
-      <Region index="02" label="The conversation">
-        {catalog.isError ? (
-          // ⚠ AN EMPTY CONVERSATION IS NOT A FAILED ONE, AND emptyVsFault.test.ts REFUSED THIS
-          // SCREEN UNTIL IT SAID SO. With no catalog there is no model, so the composer is
-          // disabled — telling the reader to "type a message below" would point at a control that
-          // cannot be used, which is the shape where an absence reads as a working empty system.
-          <p className="mt-6 max-w-2xl text-body text-muted">
-            The model catalog could not be read, so there is nothing to ask yet. This is a failed
-            read, not an empty deployment — the catalog is above.
-          </p>
-        ) : messages.length === 0 ? (
-          <p className="mt-6 max-w-2xl text-body text-muted">
-            Nothing asked yet — type a message in the box below and send it. This conversation
-            lives in this tab only: it is not saved, and reloading empties it.
-          </p>
-        ) : (
-          <ol className="mt-6 max-w-3xl space-y-4">
-            {messages.map((m, i) => (
-              <li
-                // The index is the identity here: turns are append-only and never reordered, and
-                // two turns can carry byte-identical text.
-                key={i}
-                className="border border-rule bg-surface px-gutter py-4"
-                data-testid={m.role === 'user' ? 'turn-user' : 'turn-assistant'}
-              >
-                <span className="font-figure text-eyebrow uppercase text-faint">
-                  {m.role === 'user' ? 'You' : (selected?.display_name ?? 'Assistant')}
-                </span>
-                <p className="mt-2 whitespace-pre-wrap text-body text-ink">
-                  {m.content === '' && pending ? (
-                    <span className="text-muted">Answering…</span>
-                  ) : (
-                    m.content
-                  )}
-                </p>
-              </li>
-            ))}
-          </ol>
-        )}
-
-        {failure !== null ? (
-          <p className="mt-4 max-w-2xl text-body text-ink" role="alert">
-            {failure}{' '}
-            {failure.includes('Top up') ? <Link className="underline" to="/billing">Billing</Link> : null}
-          </p>
-        ) : null}
-
-        {unreadable > 0 ? (
-          // ⚠ SURFACED, NEVER SWALLOWED. The parser knows two wire shapes; a frame it cannot read
-          // is counted rather than dropped, because "the model answered nothing" and "I could not
-          // read what it sent" look identical on screen and have completely different causes.
-          <p className="mt-4 max-w-2xl text-caption text-muted" role="status">
-            <span className="font-figure">{unreadable}</span> frame(s) in that response were in a shape this client
-            does not read, so part of the answer may be missing.
-          </p>
-        ) : null}
-
-        <form
-          className="mt-6 flex max-w-3xl items-end gap-3"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void send()
-          }}
+      <div className="wide:flex">
+        <Region
+          index="02"
+          label="Your conversations"
+          sectionClassName="wide:w-72 wide:shrink-0 wide:border-b-0 wide:border-r"
         >
-          <label className="flex-1">
-            <span className="font-figure text-eyebrow uppercase text-muted">Your message</span>
-            <textarea
-              className={cn(
-                'mt-2 block w-full resize-y border border-rule bg-surface px-3 py-2 text-body text-ink',
-                'placeholder:text-faint',
-                // ⚠ THE SAME CONTRACT Input.tsx GIVES EVERY OTHER TEXT FIELD. controlParity.test.ts
-                // refused this field without it, correctly: a hand-rolled control that hovers,
-                // disables or transitions differently from the shared one is a second opinion about
-                // what a text field is.
-                'transition-colors duration-200 hover:border-rule-strong',
-                'disabled:cursor-not-allowed disabled:opacity-50',
-                focusRing,
-              )}
-              rows={3}
-              value={draft}
-              disabled={selected === undefined}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={selected === undefined ? 'No model available' : 'Ask anything'}
-            />
-          </label>
-          <Button type="submit" variant="primary" disabled={pending || draft.trim() === '' || selected === undefined}>
-            {pending ? 'Answering…' : 'Send'}
+          <Button className="mt-6" onClick={() => open(undefined)} disabled={pending || activeId === null}>
+            New conversation
           </Button>
-        </form>
-      </Region>
+          {scope === null ? (
+            <p className="mt-4 text-caption text-muted">
+              {me.isPending
+                ? 'Reading who is signed in…'
+                : 'Conversations can’t be kept until this browser knows who is signed in.'}
+            </p>
+          ) : history.error !== null ? (
+            <p className="mt-4 text-caption text-ink" role="alert">
+              {history.error} Nothing is shown rather than an empty list that would read as none saved.
+            </p>
+          ) : history.list.length === 0 ? (
+            <p className="mt-4 text-caption text-muted">
+              None yet. Send a message and the conversation is kept here.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-1" aria-label="Saved conversations">
+              {history.list.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className={cn(
+                      'block w-full truncate border px-3 py-2 text-left text-body text-ink',
+                      'transition-colors duration-200 hover:border-rule-strong',
+                      'disabled:cursor-not-allowed disabled:opacity-50',
+                      c.id === activeId ? 'border-rule bg-surface' : 'border-transparent',
+                      focusRing,
+                    )}
+                    aria-current={c.id === activeId ? 'true' : undefined}
+                    disabled={pending}
+                    onClick={() => open(c)}
+                  >
+                    {c.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-4 text-caption text-muted">
+            Kept in this browser only, not on Talyvor&rsquo;s servers — another browser won&rsquo;t
+            have them, and clearing site data removes them.
+          </p>
+          {storageRefused ? (
+            <p className="mt-2 text-caption text-ink" role="alert">
+              This browser refused to save the latest change, so it will be gone after a reload.
+            </p>
+          ) : null}
+        </Region>
+
+        <div className="min-w-0 wide:flex-1">
+          <Region index="03" label="The conversation">
+            {active !== undefined ? (
+              <ConversationTitle
+                conversation={active}
+                renaming={renaming}
+                confirmingDelete={confirmingDelete}
+                disabled={pending}
+                onRenameStart={() => {
+                  setConfirmingDelete(false)
+                  setRenaming(active.title)
+                }}
+                onRenameChange={setRenaming}
+                onRenameCancel={() => setRenaming(null)}
+                onRenameSave={() => {
+                  const title = (renaming ?? '').replace(/\s+/g, ' ').trim()
+                  if (title !== '') {
+                    store((list) => list.map((c) => (c.id === active.id ? { ...c, title, renamed: true } : c)))
+                  }
+                  setRenaming(null)
+                }}
+                onDeleteStart={() => {
+                  setRenaming(null)
+                  setConfirmingDelete(true)
+                }}
+                onDeleteCancel={() => setConfirmingDelete(false)}
+                onDeleteConfirm={() => {
+                  store((list) => list.filter((c) => c.id !== active.id))
+                  open(undefined)
+                }}
+              />
+            ) : null}
+            {catalog.isError ? (
+              // ⚠ AN EMPTY CONVERSATION IS NOT A FAILED ONE, AND emptyVsFault.test.ts REFUSED THIS
+              // SCREEN UNTIL IT SAID SO. With no catalog there is no model, so the composer is
+              // disabled — telling the reader to "type a message below" would point at a control that
+              // cannot be used, which is the shape where an absence reads as a working empty system.
+              <p className="mt-6 max-w-2xl text-body text-muted">
+                The model catalog could not be read, so there is nothing to ask yet. This is a failed
+                read, not an empty deployment — the catalog is above.
+              </p>
+            ) : messages.length === 0 ? (
+              <p className="mt-6 max-w-2xl text-body text-muted">
+                Nothing asked yet — type a message in the box below and send it. The conversation is
+                kept in this browser as you go.
+              </p>
+            ) : (
+              <ol className="mt-6 max-w-3xl space-y-4">
+                {messages.map((m, i) => (
+                  <li
+                    // The index is the identity here: turns are append-only and never reordered, and
+                    // two turns can carry byte-identical text.
+                    key={i}
+                    className="border border-rule bg-surface px-gutter py-4"
+                    data-testid={m.role === 'user' ? 'turn-user' : 'turn-assistant'}
+                  >
+                    <span className="font-figure text-eyebrow uppercase text-faint">
+                      {m.role === 'user' ? 'You' : (selected?.display_name ?? 'Assistant')}
+                    </span>
+                    <p className="mt-2 whitespace-pre-wrap text-body text-ink">
+                      {m.content === '' && pending ? (
+                        <span className="text-muted">Answering…</span>
+                      ) : (
+                        m.content
+                      )}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {failure !== null ? (
+              <p className="mt-4 max-w-2xl text-body text-ink" role="alert">
+                {failure}{' '}
+                {failure.includes('Top up') ? <Link className="underline" to="/billing">Billing</Link> : null}
+              </p>
+            ) : null}
+
+            {unreadable > 0 ? (
+              // ⚠ SURFACED, NEVER SWALLOWED. The parser knows two wire shapes; a frame it cannot read
+              // is counted rather than dropped, because "the model answered nothing" and "I could not
+              // read what it sent" look identical on screen and have completely different causes.
+              <p className="mt-4 max-w-2xl text-caption text-muted" role="status">
+                <span className="font-figure">{unreadable}</span> frame(s) in that response were in a shape this client
+                does not read, so part of the answer may be missing.
+              </p>
+            ) : null}
+
+            <form
+              className="mt-6 flex max-w-3xl items-end gap-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void send()
+              }}
+            >
+              <label className="flex-1">
+                <span className="font-figure text-eyebrow uppercase text-muted">Your message</span>
+                <textarea
+                  className={cn(
+                    'mt-2 block w-full resize-y border border-rule bg-surface px-3 py-2 text-body text-ink',
+                    'placeholder:text-faint',
+                    // ⚠ THE SAME CONTRACT Input.tsx GIVES EVERY OTHER TEXT FIELD. controlParity.test.ts
+                    // refused this field without it, correctly: a hand-rolled control that hovers,
+                    // disables or transitions differently from the shared one is a second opinion about
+                    // what a text field is.
+                    'transition-colors duration-200 hover:border-rule-strong',
+                    'disabled:cursor-not-allowed disabled:opacity-50',
+                    focusRing,
+                  )}
+                  rows={3}
+                  value={draft}
+                  disabled={selected === undefined}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={selected === undefined ? 'No model available' : 'Ask anything'}
+                />
+              </label>
+              <Button type="submit" variant="primary" disabled={pending || draft.trim() === '' || selected === undefined}>
+                {pending ? 'Answering…' : 'Send'}
+              </Button>
+            </form>
+          </Region>
+        </div>
+      </div>
     </>
+  )
+}
+
+function ConversationTitle({
+  conversation,
+  renaming,
+  confirmingDelete,
+  disabled,
+  onRenameStart,
+  onRenameChange,
+  onRenameCancel,
+  onRenameSave,
+  onDeleteStart,
+  onDeleteCancel,
+  onDeleteConfirm,
+}: {
+  conversation: Conversation
+  renaming: string | null
+  confirmingDelete: boolean
+  disabled: boolean
+  onRenameStart: () => void
+  onRenameChange: (title: string) => void
+  onRenameCancel: () => void
+  onRenameSave: () => void
+  onDeleteStart: () => void
+  onDeleteCancel: () => void
+  onDeleteConfirm: () => void
+}) {
+  if (renaming !== null) {
+    return (
+      <form
+        className="mt-6 flex max-w-3xl items-end gap-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          onRenameSave()
+        }}
+      >
+        <label className="flex-1">
+          <span className="font-figure text-eyebrow uppercase text-muted">Conversation name</span>
+          <Input
+            className="mt-2"
+            value={renaming}
+            autoFocus
+            onChange={(e) => onRenameChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') onRenameCancel()
+            }}
+          />
+        </label>
+        <Button type="submit" variant="primary" disabled={renaming.trim() === ''}>
+          Save name
+        </Button>
+        <Button onClick={onRenameCancel}>Cancel</Button>
+      </form>
+    )
+  }
+  if (confirmingDelete) {
+    return (
+      <div className="mt-6 flex max-w-3xl flex-wrap items-center gap-3" role="group" aria-label="Confirm delete">
+        <p className="text-body text-ink">
+          Delete &ldquo;{conversation.title}&rdquo; from this browser? It can&rsquo;t be brought back.
+        </p>
+        <Button variant="danger" onClick={onDeleteConfirm}>
+          Delete conversation
+        </Button>
+        <Button onClick={onDeleteCancel}>Keep it</Button>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-6 flex max-w-3xl flex-wrap items-center gap-3">
+      <h3 className="min-w-0 flex-1 truncate text-title text-ink">{conversation.title}</h3>
+      <Button onClick={onRenameStart} disabled={disabled}>
+        Rename
+      </Button>
+      <Button variant="danger" onClick={onDeleteStart} disabled={disabled}>
+        Delete
+      </Button>
+    </div>
   )
 }
 
