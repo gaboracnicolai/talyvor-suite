@@ -151,7 +151,8 @@ const ADDRESS_ROUTES: Record<string, string[]> = {
   '/spend': ['/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
   '/members': ['/api/members'],
   '/settings': ['/api/distill'],
-  '/track': ['/api/members', '/api/track/issues', '/api/track/workspaces'],
+  // B4.2 added /api/track/projects — the issue list's Project filter.
+  '/track': ['/api/members', '/api/track/issues', '/api/track/projects', '/api/track/workspaces'],
   '/docs': ['/api/docs/spaces'],
 }
 
@@ -225,7 +226,7 @@ describe('the swept set', () => {
     // fixture that stops reaching the app — shows up as a smaller sweep rather than as a
     // quieter one.
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(26)
+    expect(pairs).toBe(27)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {

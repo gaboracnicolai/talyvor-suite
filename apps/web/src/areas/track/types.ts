@@ -159,3 +159,14 @@ export interface TrackCycleProgress {
   total_ai_cost_usd: number
   avg_ai_cost_per_issue: number
 }
+
+/** B4.2 — talyvor-track model.Project, as GET/POST /api/track/projects answer it.
+ *  UPSTREAM-ONLY TrackProject: workspace_id, priority, start_date?, target_date?, created_at, updated_at */
+export interface TrackProject {
+  id: string
+  team_id: string
+  name: string
+  identifier: string
+  description: string
+  status: string
+}

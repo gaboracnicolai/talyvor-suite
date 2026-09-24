@@ -12,10 +12,10 @@ import {
 } from '@talyvor/ui'
 import { useRef, useState } from 'react'
 import { Region, RegionScreen } from '../../components/Region'
-import { ApiError } from '../../lib/api'
+import { ApiError, getJSONArray } from '../../lib/api'
 import { isUnconfigured } from '../../lib/productState'
 import { isSessionExpired } from '../../lib/productState'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 // ⚠ THE STATUS WORDS COME FROM ./format AND ARE NOT SPELLED HERE. Both controls below used to
 // render `s.replace('_', ' ')`, which is a THIRD vocabulary for one field: the pill beside the row
 // control says "In progress" through `statusLabel` and the control said "in progress". That is the
@@ -23,10 +23,11 @@ import { Link } from 'react-router-dom'
 // it added, issueVocabulary.test.tsx, rendered only IssueDetail, so nothing looked here. The
 // partial humanising is also why the guard's raw-enum sweep would not have caught it if it had:
 // `in_progress` is not on screen once the underscore is gone. Do not re-inline the list.
+import { asList } from './data'
 import { statusLabel } from './format'
 import { StatusPill } from './StatusPill'
 import { UpstreamCard } from './UpstreamCard'
-import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackMember } from './types'
+import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackMember, type TrackProject } from './types'
 
 // THE ISSUE LIST. It used to render fourteen FABRICATED issues — plausible titles, assignees, AI
 // costs — behind a filter rail that could never query anything, all marked with a fixture badge.
@@ -71,6 +72,8 @@ export interface IssueView {
   status: IssueStatus | ''
   /** A member id, or '' for anyone. */
   assignee: string
+  /** B4.2 — a project id, or '' for every project. Opened from a project as /track?project=<id>. */
+  project?: string
   /** ⚠ TIMESTAMP COLUMNS ONLY, AND THAT IS A MEASUREMENT, NOT A PREFERENCE — see SORT_OPTIONS.
    *  issuesQuery sends ONE direction for whichever column is named here, so a column whose
    *  useful end is not "highest first" cannot be listed. */
@@ -122,7 +125,7 @@ export const SORT_OPTIONS: { value: IssueView['orderBy']; label: string }[] = [
 /** The default view. ORDER MATTERS MOST: recently-touched-first is what keeps the list usable as
  *  it grows, because the work someone is actually doing stays at the top without them filtering
  *  for it. */
-export const DEFAULT_VIEW: IssueView = { status: '', assignee: '', orderBy: 'updated_at' }
+export const DEFAULT_VIEW: IssueView = { status: '', assignee: '', project: '', orderBy: 'updated_at' }
 
 /** Builds the query string. Empty controls are OMITTED rather than sent blank: the BFF treats a
  *  present-but-empty value as absent-filter semantics, and sending one anyway would make the
@@ -131,13 +134,14 @@ export function issuesQuery(v: IssueView, limit = PAGE): string {
   const q = new URLSearchParams()
   if (v.status) q.set('status', v.status)
   if (v.assignee) q.set('assignee_id', v.assignee)
+  if (v.project) q.set('project_id', v.project)
   q.set('order_by', v.orderBy)
   q.set('order_dir', 'desc')
   q.set('limit', String(limit))
   return q.toString()
 }
 
-const ISSUES_KEY = (v: IssueView) => ['track', 'issues', v.status, v.assignee, v.orderBy] as const
+const ISSUES_KEY = (v: IssueView) => ['track', 'issues', v.status, v.assignee, v.project, v.orderBy] as const
 
 async function listIssues(v: IssueView): Promise<TrackIssue[]> {
   const res = await fetch(`/api/track/issues?${issuesQuery(v)}`, {
@@ -228,7 +232,13 @@ const HEADLINE_FAULT = 'Track can’t be reached, so nothing can be listed.'
 
 export function IssueList() {
   const qc = useQueryClient()
-  const [view, setView] = useState<IssueView>(DEFAULT_VIEW)
+  // A project's "Its issues" link opens this list already filtered to it (B4.2).
+  const [params] = useSearchParams()
+  const [view, setView] = useState<IssueView>(() => ({ ...DEFAULT_VIEW, project: params.get('project') ?? '' }))
+  const projects = useQuery({
+    queryKey: ['track', 'projects'],
+    queryFn: () => getJSONArray<TrackProject>('/api/track/projects'),
+  })
   const issues = useQuery({
     queryKey: ISSUES_KEY(view),
     queryFn: () => listIssues(view),
@@ -455,6 +465,26 @@ export function IssueList() {
           </label>
 
           <label className="flex flex-col gap-1">
+            <span className="text-caption text-muted">Project</span>
+            <Select
+              value={view.project || 'any'}
+              onValueChange={(v) => setView((s) => ({ ...s, project: v === 'any' ? '' : v }))}
+            >
+              <SelectTrigger aria-label="Filter by project" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Every project</SelectItem>
+                {asList(projects.data).map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+
+          <label className="flex flex-col gap-1">
             <span className="text-caption text-muted">Sort</span>
             <Select
               value={view.orderBy}
@@ -473,7 +503,7 @@ export function IssueList() {
             </Select>
           </label>
 
-          {view.status || view.assignee || view.orderBy !== DEFAULT_VIEW.orderBy ? (
+          {view.status || view.assignee || view.project || view.orderBy !== DEFAULT_VIEW.orderBy ? (
             <Button onClick={() => setView(DEFAULT_VIEW)}>Reset</Button>
           ) : null}
         </div>

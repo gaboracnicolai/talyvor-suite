@@ -240,7 +240,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'no single page',
     why: 'the OTHER payer, on the other surface that binds none — the pair is what shows the clause is two-valued and not boilerplate',
   },
-  'apps/web/src/areas/track/meteredCostCensus.test.tsx:27|apps/web/src/areas/track/TrackArea.tsx:111': {
+  'apps/web/src/areas/track/meteredCostCensus.test.tsx:27|apps/web/src/areas/track/TrackArea.tsx:112': {
     kind: 'LIVE',
     fragment: '<SearchIssues />',
     why: 'the census says the surface it was written for is MOUNTED, not merely exported — "reachable only by curl" is what W1.7 opened on, so a metered card that shipped nowhere would be a different finding entirely',
@@ -250,7 +250,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'error={ledger.error}',
     why: 'the CORRECT copy of the seam Spend.tsx had backwards — the whole positive control for that finding is that this line reads `ledger.error` while its guard is `ledger.isError`',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:311|apps/web/src/areas/lens/Overview.tsx:342': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:312|apps/web/src/areas/lens/Overview.tsx:342': {
     kind: 'LIVE',
     fragment: '<Failed what="the mint ledger" error={ledger.error} />',
     why: 'the same line quoted VERBATIM beside the must-stay-green control that asserts its wording, so the quote and the assertion cannot drift apart',
@@ -306,7 +306,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-display-3',
     why: 'the console surface that reached for display type AS AT `c71ca9c`, quoted with that SHA',
   },
-  'apps/web/src/areas/track/IssueDetail.tsx:232|apps/web/src/areas/track/IssueList.tsx:282': {
+  'apps/web/src/areas/track/IssueDetail.tsx:247|apps/web/src/areas/track/IssueList.tsx:292': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the sentence this write path is the fifth instance of — quoted so the two Track write paths cannot state the rule differently',
@@ -396,17 +396,17 @@ const PINS: Record<string, Pin> = {
   // FIRST wrote the hazard down, at its third site; the fourth is what that merge fixed. The pin
   // is what stops the citation from decaying into a sentence nobody can check — the exact rot this
   // file was built for, and the reason a line citation is allowed here at all.
-  'apps/web/src/areas/lens/convertApi.ts:51|apps/web/src/areas/track/IssueList.tsx:282': {
+  'apps/web/src/areas/lens/convertApi.ts:51|apps/web/src/areas/track/IssueList.tsx:292': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the comment that names the hand-rolled-error-type hazard, quoted by the fix for its fourth occurrence',
   },
-  'apps/web/src/areas/lens/convertRefusal.test.tsx:37|apps/web/src/areas/track/IssueList.tsx:282': {
+  'apps/web/src/areas/lens/convertRefusal.test.tsx:37|apps/web/src/areas/track/IssueList.tsx:292': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the same line quoted by the guard, so the finding and its evidence cite one checked place rather than two drifting ones',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:379': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:389': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the surface #141 fixed, quoted so the two findings are visibly the same shape one area over',
@@ -429,12 +429,12 @@ const PINS: Record<string, Pin> = {
   // The two pointers the error-type CENSUS writes. Both name the line where this repo first wrote
   // the hazard down, at its third site — the same line convertApi.ts and convertRefusal.test.tsx
   // already cite for the fourth. Four citations of one sentence, all checkable, none drifting.
-  'apps/web/src/areas/lens/topupApi.ts:104|apps/web/src/areas/track/IssueList.tsx:282': {
+  'apps/web/src/areas/lens/topupApi.ts:104|apps/web/src/areas/track/IssueList.tsx:292': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the hazard named at the site of its FIFTH occurrence, on the path that takes money',
   },
-  'apps/web/src/errorTypes.test.ts:19|apps/web/src/areas/track/IssueList.tsx:282': {
+  'apps/web/src/errorTypes.test.ts:19|apps/web/src/areas/track/IssueList.tsx:292': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the census quoting the one place the repo recorded the class, so its list of four is checkable',
@@ -449,7 +449,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the BFF half of the same parenthesis — the sentence promises this line says the payment happens at Stripe AFTER the redirect',
   },
-  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:510': {
+  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:511': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'the first of the TWO independent clamps the page ceiling rests on, quoted verbatim by the sentence that cites it',
@@ -459,7 +459,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the example that paragraph gives of a citation checkable from here — now checked, which is what it asked for',
   },
-  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:510': {
+  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:511': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'its second example, pinned for the same reason',
@@ -516,7 +516,7 @@ const PINS: Record<string, Pin> = {
   // in THIS repository can move without touching the screen. That is exactly the rot this file
   // was written for: `billing.go:180` moved and the sentence explaining "nothing was charged"
   // ended up pointing at the one function that cannot charge.
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:744': {
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:745': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the screen marks YOUR row by comparing /auth/me\'s email to the roster; the claim that this header is the membership join key is the whole basis for that being a join rather than a guess',
@@ -551,7 +551,7 @@ const PINS: Record<string, Pin> = {
     fragment: 's.email',
     why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:744': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:745': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',

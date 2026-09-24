@@ -19,8 +19,16 @@ import { FindDuplicates } from './FindDuplicates'
 import { TriageIssue } from './TriageIssue'
 import { StatusPill } from './StatusPill'
 import { PRIORITY_VALUES, formatCost, priorityLabel, statusLabel } from './format'
-import { memberName, teamIdentifier } from './data'
-import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackComment, type TrackMember, type TrackTeam } from './types'
+import { asList, memberName, teamIdentifier } from './data'
+import {
+  ISSUE_STATUSES,
+  type IssueStatus,
+  type TrackComment,
+  type TrackIssue,
+  type TrackMember,
+  type TrackProject,
+  type TrackTeam,
+} from './types'
 
 // IssueDetail — the ticket.
 //
@@ -60,6 +68,8 @@ import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackComment, t
 // BOTH Track screens, so a branch that edits it collides in main rather than in either CI.
 
 const UNASSIGNED = '__unassigned__'
+/** The "no project" sentinel, for the same Radix reason as UNASSIGNED. */
+const NO_PROJECT = '__no_project__'
 
 // ⚠ THE STATUS AND PRIORITY WORDS COME FROM ./format AND ARE NOT WRITTEN HERE. This screen used
 // to speak two vocabularies for one field at the same moment: <StatusPill> beside these controls
@@ -211,6 +221,11 @@ export function IssueDetail() {
     queryFn: () => getJSONArray<TrackTeam>('/api/track/teams'),
     staleTime: 60_000,
   })
+  const projects = useQuery({
+    queryKey: ['track', 'projects'],
+    queryFn: () => getJSONArray<TrackProject>('/api/track/projects'),
+    staleTime: 60_000,
+  })
 
   const it = issue.data
 
@@ -229,7 +244,7 @@ export function IssueDetail() {
       })
       // ⚠ ApiError, NOT `new Error(String(res.status))`. Every shared mechanism in this app keys on
       // `instanceof ApiError`, so a bare Error carrying the status in its MESSAGE is invisible to
-      // all of them — the fifth instance of the repair recorded at IssueList.tsx:282, and the one
+      // all of them — the fifth instance of the repair recorded at IssueList.tsx:292, and the one
       // `errorTypes.test.ts` says up front it cannot see, because that rule matches class
       // declarations and this shape declares nothing.
       if (!res.ok) throw new ApiError(res.status, path)
@@ -474,6 +489,34 @@ export function IssueDetail() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* B4.2 — the project this issue belongs to. Only the issue's own team's projects are
+              offered: a project belongs to a team. */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-caption text-muted">Project</span>
+            <Select
+              value={it.project_id || NO_PROJECT}
+              disabled={busy}
+              onValueChange={(v) => void patch({ project_id: v === NO_PROJECT ? null : v })}
+            >
+              <SelectTrigger aria-label="Project" className="w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PROJECT}>No project</SelectItem>
+                {asList(projects.data)
+                  .filter((p) => p.team_id === it.team_id || p.id === it.project_id)
+                  .map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <Link className="text-caption underline" to="/track/projects">
+              Start a project
+            </Link>
           </div>
 
           {/* Team is READ-ONLY on purpose — see the note at the top of this file. */}

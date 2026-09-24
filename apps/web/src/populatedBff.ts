@@ -177,6 +177,10 @@ const ARRAYS: Record<string, unknown[]> = {
       updated_at: '2026-08-20T00:00:00Z',
     },
   ],
+  // B4.2 — the issue list's Project filter reads the workspace's projects.
+  '/api/track/projects': [
+    { id: 'pr-1', team_id: 'team-1', name: 'Importer', identifier: 'IMP', description: '', status: 'active' },
+  ],
   '/api/docs/spaces': [
     {
       id: 'sp-eng',
