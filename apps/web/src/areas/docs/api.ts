@@ -57,10 +57,10 @@ export interface DocsSpace {
  *  ⚠ THE TWO OMITTED FIELDS ARE THE PER-PAGE AI SPEND, AND THEY ARE NOT MIRRORED ON PURPOSE.
  *  `own_ai_cost_usd` is a documented LOWER BOUND upstream (docs-ai-ask and docs-search have no
  *  single page and are excluded by design) and `ai_cost_usd`, which IS mirrored, is recomputed
- *  and overwritten from the linked issues on every sweep. Rendering either as "the cost of this
- *  document" is a claim decision this app has not made — see deploy/decision-expiry.sh, where
- *  that premise is already registered. Mirroring them here would put the number one `.tsx` away
- *  from a screen, which is not a shape decision.
+ *  and overwritten from the linked issues on every sweep. The one screen that renders them is
+ *  the page reader (B2.2), which reads them off `docsApi.page` alone and states the lower bound
+ *  beside the figure; this shared type still does not carry them, so no other surface can
+ *  render them by accident — see deploy/decision-expiry.sh, where the premise is registered.
  *  UPSTREAM-ONLY DocsPage: own_ai_cost_usd, total_ai_cost_usd */
 export interface DocsPage {
   id: string
@@ -242,7 +242,21 @@ export const docsApi = {
    */
   createSpace: (name: string) => send<DocsSpace>('/api/docs/spaces', 'POST', { name }),
 
-  page: (spaceId: string, pageId: string): Promise<DocsPageRow & { content?: string; content_text?: string }> =>
+  /** B2.2 reads the page's AI spend off this one read — the cost readout pinned in the editor.
+   *  `total_ai_cost_usd` = `own_ai_cost_usd` (actions on this page, priced later by Docs' sweep)
+   *  + `ai_cost_usd` (its linked Track issues); Docs computes it on every read path. */
+  page: (
+    spaceId: string,
+    pageId: string,
+  ): Promise<
+    DocsPageRow & {
+      content?: string
+      content_text?: string
+      ai_cost_usd?: number
+      own_ai_cost_usd?: number
+      total_ai_cost_usd?: number
+    }
+  > =>
     getJSON(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`),
 
   pages: (spaceId: string): Promise<DocsPageRow[]> =>

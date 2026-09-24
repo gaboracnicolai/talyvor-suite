@@ -54,11 +54,14 @@ import { aiNotConfiguredCopy, isAIUnavailable, isSessionExpired } from '../../li
  * @param text   the page's STORED text. Not the editor's draft: the charge lands on the page, so
  *               billing it for words it does not contain would make the cost sentence false.
  */
-export function PageTranslation({ pageId, text }: { pageId: string; text: string }) {
+export function PageTranslation({ pageId, text, onSpent }: { pageId: string; text: string; onSpent?: () => void }) {
   // ⚠ THE EMPTY STRING IS THE INITIAL VALUE ON PURPOSE. See the header: any default here is the
   // same silent choice `defaultLang` makes upstream, relocated into a component.
   const [language, setLanguage] = useState('')
-  const translate = useMutation({ mutationFn: () => docsApi.translatePage(pageId, text, language) })
+  const translate = useMutation({
+    mutationFn: () => docsApi.translatePage(pageId, text, language),
+    onSuccess: () => onSpent?.(),
+  })
 
   // The same two predicates the BFF applies, for the same measured reasons, and deliberately no
   // wider. "Too short to be worth translating" and "is that a real language" would both be product

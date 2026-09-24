@@ -41,8 +41,8 @@ import { aiNotConfiguredCopy, isAIUnavailable, isSessionExpired } from '../../li
  * @param text   the page's STORED text. Not the editor's draft: the charge lands on the page, so
  *               billing it for words it does not contain would make the cost sentence false.
  */
-export function PageSummary({ pageId, text }: { pageId: string; text: string }) {
-  const summarize = useMutation({ mutationFn: () => docsApi.summarizePage(pageId, text) })
+export function PageSummary({ pageId, text, onSpent }: { pageId: string; text: string; onSpent?: () => void }) {
+  const summarize = useMutation({ mutationFn: () => docsApi.summarizePage(pageId, text), onSuccess: () => onSpent?.() })
   // The same predicate the BFF applies, for the same measured reason — and deliberately no wider.
   // "Too short to be worth it" would be a product threshold invented in a component.
   const nothingToSummarize = text.trim() === ''

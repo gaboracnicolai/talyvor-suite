@@ -60,13 +60,16 @@ export function PageTitleSuggestion({
   spaceId,
   pageId,
   text,
+  onSpent,
 }: {
   spaceId: string
   pageId: string
   text: string
+  /** Called when a suggestion was bought — the page's AI cost will move when Docs prices it. */
+  onSpent?: () => void
 }) {
   const qc = useQueryClient()
-  const suggest = useMutation({ mutationFn: () => docsApi.suggestTitle(pageId, text) })
+  const suggest = useMutation({ mutationFn: () => docsApi.suggestTitle(pageId, text), onSuccess: () => onSpent?.() })
   const apply = useMutation({
     mutationFn: (title: string) => docsApi.updatePage(spaceId, pageId, { title }),
     // ⚠ THE READER HAS TO SEE THE TITLE IT NOW HAS, NOT THE ONE IT HAD. PageView renders the header

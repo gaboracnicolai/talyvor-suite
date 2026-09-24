@@ -39,6 +39,7 @@ import { PageTranslation } from './PageTranslation'
 import { PageChangelog } from './PageChangelog'
 import { PageTitleSuggestion } from './PageTitleSuggestion'
 import { DocEditor, type DocEditorHandle, docFromStored } from './editor/DocEditor'
+import { formatCost } from '../track/format'
 
 // ── THE FIVE HEADLINES, AND WHY THIS SCREEN'S TITLE CARRIES STATE AT ALL ─────
 //
@@ -65,6 +66,14 @@ const HEADLINE_FAULT = 'Docs can’t be reached, so this page can’t be shown.'
 const HEADLINE_OFF = 'Docs is not configured here.'
 const HEADLINE_UNAVAILABLE = 'Unavailable.'
 
+const PRICING_POLL_MS = 20_000
+const PRICING_GIVE_UP_MS = 12 * 60_000
+
+/** One half of the page's AI cost, in the pinned total's formatter; a zero half is `$0.00`. */
+function costPart(usd: number | undefined): string {
+  return (usd ?? 0) > 0 ? formatCost(usd ?? 0) : '$0.00'
+}
+
 /** A read that answered 404 — see the headlines above for why this screen reads it as a state. */
 function isMissing(err: unknown): boolean {
   return err instanceof ApiError && err.status === 404
@@ -76,13 +85,28 @@ export function PageView() {
   const spacesQ = useQuery({ queryKey: ['docs-spaces'], queryFn: docsApi.spaces })
   const space = spacesQ.data?.find((s) => s.id === spaceId)
 
+  // B2.2 — after an AI action the page's cost moves only when Docs' sweep prices it from Lens, so
+  // the page is re-read until the total differs from what it was when the action returned. The
+  // wait is bounded: a charge that is never priced must not poll for ever.
+  const [pricing, setPricing] = useState<{ baseline: number | undefined } | null>(null)
   const pageKey = ['docs-page', spaceId, pageId] as const
   const page = useQuery({
     queryKey: pageKey,
     queryFn: () => docsApi.page(spaceId, pageId),
     retry: false,
     enabled: spaceId !== '' && pageId !== '',
+    refetchInterval: pricing !== null ? PRICING_POLL_MS : false,
   })
+  const aiTotal = page.data?.total_ai_cost_usd
+  useEffect(() => {
+    if (pricing !== null && aiTotal !== pricing.baseline) setPricing(null)
+  }, [aiTotal, pricing])
+  useEffect(() => {
+    if (pricing === null) return
+    const t = setTimeout(() => setPricing(null), PRICING_GIVE_UP_MS)
+    return () => clearTimeout(t)
+  }, [pricing])
+  const onSpent = () => setPricing({ baseline: aiTotal })
   // B2.1 — the unsaved document, or null when what is on screen is what Docs recorded.
   const [draft, setDraft] = useState<PMNode | null>(null)
   // Bumped to rebuild the editor from what Docs recorded, when that differs from what was sent.
@@ -277,6 +301,19 @@ export function PageView() {
             if (draft !== null && !save.isPending) save.mutate(draft)
           }}
           label="Content"
+          aside={
+            // B2.2 — the cost readout, pinned where you write.
+            <span className="text-caption text-muted" data-testid="page-ai-cost">
+              {(aiTotal ?? 0) > 0 ? (
+                <>
+                  AI on this page <span className="font-figure text-ink">{formatCost(aiTotal ?? 0)}</span>
+                </>
+              ) : (
+                'No AI spend recorded on this page'
+              )}
+              {pricing !== null ? ' · pricing the last AI action…' : null}
+            </span>
+          }
         />
         <div className="mt-4 flex items-center gap-3">
           <Button
@@ -296,6 +333,20 @@ export function PageView() {
                   : null}
           </span>
         </div>
+        {/* What the pinned figure is made of, and what it cannot include. Docs attributes a
+            summary, a translation or a title to this page and prices it later from Lens; an ask
+            or a search spans pages and is attributed to none, so the figure is a floor. */}
+        <p className="mt-3 max-w-2xl text-caption text-muted">
+          {(aiTotal ?? 0) > 0 ? (
+            <>
+              <span className="font-figure">{costPart(page.data.own_ai_cost_usd)}</span> from AI actions on
+              this page, <span className="font-figure">{costPart(page.data.ai_cost_usd)}</span> from its linked
+              Track issues.{' '}
+            </>
+          ) : null}
+          An AI action&rsquo;s cost lands when Docs prices it from Lens; asks and searches span pages and
+          are not counted here.
+        </p>
       </Region>
 
       {/* ⚠ THE FOUR PANELS KEEP THEIR CARDS, AND THAT WAS RE-MEASURED RATHER THAN INHERITED. The
@@ -320,16 +371,16 @@ export function PageView() {
               failed to load would send an empty text and, but for the refusal on both sides, buy
               a completion of nothing; PageChangelog's reason differs and is stronger, since it
               would WRITE a row onto a page that is not there. */}
-          <PageSummary pageId={pageId} text={stored} />
+          <PageSummary pageId={pageId} text={stored} onSpent={onSpent} />
           {/* Translate adds a third rule of its own: it is the one control here that can succeed
               in the wrong language, because upstream a missing `language` is a 200 and a billed
               completion in English rather than an error. PageTranslation.tsx therefore ships with
               no default language; see its header for the measurement. */}
-          <PageTranslation pageId={pageId} text={stored} />
+          <PageTranslation pageId={pageId} text={stored} onSpent={onSpent} />
           {/* The one card here whose output can be WRITTEN BACK. It writes `title`, a column of
               its own, so it does not touch the `content_text` question the editor above still
               owns; and it writes on its OWN second click, never on the suggestion arriving. */}
-          <PageTitleSuggestion spaceId={spaceId} pageId={pageId} text={stored} />
+          <PageTitleSuggestion spaceId={spaceId} pageId={pageId} text={stored} onSpent={onSpent} />
           {/* The one control here that sends NONE of the page, and the one that leaves something
               behind. Summarise and translate both read `content_text` and both buy a metered Lens
               completion; this sends only a version and a list of issue ids, and buys nothing —
