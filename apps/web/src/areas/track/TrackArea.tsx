@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Route, Routes } from 'react-router-dom'
+import { Link, Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
+import { Cycles } from './Cycles'
 import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
 import { SearchIssues } from './SearchIssues'
@@ -108,11 +109,21 @@ export function TrackArea() {
           looking for the related one. See SearchIssues.tsx for what this card may and may not
           claim about the half that served it. */}
       <SearchIssues />
+      <nav aria-label="Track" className="flex gap-4 px-gutter text-body">
+        <Link className="underline" to="/track">
+          All issues
+        </Link>
+        <Link className="underline" to="/track/cycles">
+          Cycles
+        </Link>
+      </nav>
       <Routes>
         <Route index element={<IssueList />} />
         {/* The ticket. Restored: this route was retired while the detail screen did not exist,
             which left the suite able to LIST issues and unable to open one. */}
         <Route path="issues/:id" element={<IssueDetail />} />
+        {/* B4.1 — cycles. */}
+        <Route path="cycles" element={<Cycles />} />
         {/* Anything else under /track/* is this area's to answer: fall back to the list, so an
             old or mistyped link lands somewhere real rather than on a dead end. */}
         <Route path="*" element={<IssueList />} />

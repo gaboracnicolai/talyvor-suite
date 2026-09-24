@@ -134,3 +134,28 @@ export type IssueSummaryView =
   | { kind: 'ai-unavailable'; reason: string }
   | { kind: 'too-short'; minComments: number | null }
   | { kind: 'unrecognised' }
+
+/** B4.1 — talyvor-track model.Cycle, as GET/POST /api/track/teams/{teamID}/cycles answer it.
+ *  UPSTREAM-ONLY TrackCycle: workspace_id, created_at, updated_at */
+export interface TrackCycle {
+  id: string
+  team_id: string
+  name: string
+  number: number
+  status: string
+  start_date: string
+  end_date: string
+}
+
+/** talyvor-track cycle.CycleProgress — GET …/cycles/{id}/progress. Counts come from the issues'
+ *  status buckets; `total_ai_cost_usd` is the SUM of those issues' own AI cost. */
+export interface TrackCycleProgress {
+  cycle_id: string
+  total_issues: number
+  completed: number
+  in_progress: number
+  not_started: number
+  completion_pct: number
+  total_ai_cost_usd: number
+  avg_ai_cost_per_issue: number
+}

@@ -130,6 +130,11 @@ export const LENS_BODIES: LensBody[] = [
  */
 export const NON_LENS_ANON_SITES = [
   {
+    file: 'track_cycles.go',
+    what:
+      'trackCycles (B4.1) marshals trackCycleCreateBody for talyvor-track’s cycle Create — name, start_date and end_date, three of model.Cycle’s json tags, chosen here so the browser cannot set status or number. A Track key set, not a lens one. ASKED BY THE `TrackCycle` MIRROR ENTRY: it pins model.Cycle’s whole json-tag set, and Track’s cycle Create decodes into model.Cycle, so the three keys sent here are three of the tags that entry holds.',
+  },
+  {
     file: 'lens.go',
     what:
       'stripPageContentList re-marshals a talyvor-docs page LIST after deleting content/content_text — a RESPONSE projection, so its cross-repo claim is the two deleted key names, not a key set it sends. ' +
