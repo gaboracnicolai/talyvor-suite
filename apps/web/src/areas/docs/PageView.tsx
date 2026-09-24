@@ -40,6 +40,8 @@ import { PageChangelog } from './PageChangelog'
 import { PageTitleSuggestion } from './PageTitleSuggestion'
 import { DocEditor, type DocEditorHandle, docFromStored } from './editor/DocEditor'
 import { formatCost } from '../track/format'
+import { SelectionAI } from './SelectionAI'
+import { AskAI } from './AskAI'
 
 // ── THE FIVE HEADLINES, AND WHY THIS SCREEN'S TITLE CARRIES STATE AT ALL ─────
 //
@@ -301,6 +303,7 @@ export function PageView() {
             if (draft !== null && !save.isPending) save.mutate(draft)
           }}
           label="Content"
+          below={(controls) => <SelectionAI pageId={pageId} controls={controls} onSpent={onSpent} />}
           aside={
             // B2.2 — the cost readout, pinned where you write.
             <span className="text-caption text-muted" data-testid="page-ai-cost">
@@ -386,6 +389,10 @@ export function PageView() {
               completion; this sends only a version and a list of issue ids, and buys nothing —
               measured, changelog generation reaches Lens never (it groups Track issues by label). */}
           <PageChangelog spaceId={spaceId} pageId={pageId} />
+          {/* B2.3 — ask from the page you are writing. Docs' Ask takes a question and grounds it in
+              a workspace search, so it answers about your docs rather than this page alone, and
+              its charge lands on no page (AskAI.tsx says so). */}
+          <AskAI />
         </div>
       </Region>
     </RegionScreen>

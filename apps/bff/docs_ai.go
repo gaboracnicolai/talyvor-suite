@@ -209,6 +209,130 @@ func (a *app) docsSummarizePage() http.HandlerFunc {
 // whose key was the finding, so the declaration is not a formality: `content` here and `text` on
 // its two siblings, and upstream neither refuses the other.
 // UPSTREAM-BINDS-ONLY docsSuggestTitleBody: none
+// docsRewriteActions are the Transform actions that REWRITE text for insertion — the three
+// docsSummarizeAction's note held back because this app had nowhere to put their output. The
+// Docs editor (B2.1) is that place: B2.3 offers them on the editor's selection, and the result is
+// a suggestion the writer applies, never an automatic edit. A closed set, checked here: `action`
+// chooses which operation the workspace pays for, so the browser does not get to name one this
+// route was not built for.
+var docsRewriteActions = map[string]bool{"shorter": true, "longer": true, "grammar": true}
+
+// docsRewriteSelection — POST /api/docs/pages/{pageID}/rewrite {action, text}
+// → POST /v1/workspaces/{ws}/ai/transform {action, text, page_id}.
+//
+// The same body, cap, empty-text refusal and page attribution as docsSummarizePage, for the same
+// measured reasons (see its note): an empty text is a billed completion of nothing, and the page
+// id comes from the path so the charge cannot land unattributed. It lands on that page's
+// own_ai_cost_usd, which B2.2's readout shows.
+func (a *app) docsRewriteSelection() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		pageID, ok := pathID(w, "pageID", r.PathValue("pageID"))
+		if !ok {
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDocsBody))
+		if err != nil {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": "selected text too large to rewrite"})
+			return
+		}
+		var in struct {
+			Action string `json:"action"`
+			Text   string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json"})
+			return
+		}
+		if !docsRewriteActions[in.Action] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "action must be one of shorter, longer, grammar"})
+			return
+		}
+		if strings.TrimSpace(in.Text) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "there is no selected text to rewrite"})
+			return
+		}
+		payload, err := json.Marshal(docsSummarizeBody{Action: in.Action, Text: in.Text, PageID: pageID})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "could not build the rewrite request"})
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/ai/transform"), "", http.MethodPost,
+			bytes.NewReader(payload), nil)
+	})
+}
+
+// docsWriteBody is talyvor-docs' Write request (internal/ai/handler.go#Handler.Write). It sends
+// every key Write binds.
+//
+// UPSTREAM-BINDS-ONLY docsWriteBody: none
+type docsWriteBody struct {
+	Prompt  string `json:"prompt"`
+	Context string `json:"context"`
+	PageID  string `json:"page_id"`
+}
+
+// docsWriteWithAI — POST /api/docs/pages/{pageID}/write {prompt, context}
+// → POST /v1/workspaces/{ws}/ai/write {prompt, context, page_id}. B2.3's "Write with AI" in the
+// editor: new text from a prompt, with the page's words as context, offered as a suggestion.
+// Billed under docs-ai-write and attributed to this page (the id is the path's, as summarize's
+// is). A blank prompt is refused here; upstream refuses it too, but nothing is sent for it.
+func (a *app) docsWriteWithAI() http.HandlerFunc {
+	return a.requireSession(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		pageID, ok := pathID(w, "pageID", r.PathValue("pageID"))
+		if !ok {
+			return
+		}
+		ws, ok := a.docsWorkspaceFor(w, r)
+		if !ok {
+			return
+		}
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDocsBody))
+		if err != nil {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{
+				"error": "page text too large to write from"})
+			return
+		}
+		var in struct {
+			Prompt  string `json:"prompt"`
+			Context string `json:"context"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad json"})
+			return
+		}
+		if strings.TrimSpace(in.Prompt) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "say what to write"})
+			return
+		}
+		payload, err := json.Marshal(docsWriteBody{Prompt: in.Prompt, Context: in.Context, PageID: pageID})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{
+				"error": "could not build the write request"})
+			return
+		}
+		a.forwardProduct(w, r, "docs", a.cfg.docsBaseURL, a.cfg.docsGatewaySecret,
+			docsWorkspacePath(ws, "/ai/write"), "", http.MethodPost,
+			bytes.NewReader(payload), nil)
+	})
+}
+
 type docsSuggestTitleBody struct {
 	Content string `json:"content"`
 	PageID  string `json:"page_id"`

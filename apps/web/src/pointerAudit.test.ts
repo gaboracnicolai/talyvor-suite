@@ -157,12 +157,12 @@ interface Pin {
 const PINS: Record<string, Pin> = {
   // ── W1.7 / tab-p9r4 — the rule the spend-at-mount column enforces, quoted where it is stated.
   //    Both cards say it in their own words and neither had anything asserting it.
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:491|apps/web/src/areas/track/FindDuplicates.tsx:17': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:520|apps/web/src/areas/track/FindDuplicates.tsx:17': {
     kind: 'LIVE',
     fragment: 'IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS',
     why: 'the product rule the spend-at-mount column exists to hold, stated by a card rather than by a guard',
   },
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:491|apps/web/src/areas/track/TriageIssue.tsx:20': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:520|apps/web/src/areas/track/TriageIssue.tsx:20': {
     kind: 'LIVE',
     fragment: 'IT IS A BUTTON, NOT A PAGE LOAD, BECAUSE IT COSTS',
     why: 'the second card saying the same rule — two statements of it, and until now one per-card test between them',
@@ -220,22 +220,22 @@ const PINS: Record<string, Pin> = {
   // sentence's whole force is that these four are REAL, so each is pinned to the assertion it
   // claims is there. If one is deleted or renamed the census's account of what it adds goes
   // stale, and a reader would be told about a gap that had quietly become five gaps.
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:431|apps/web/src/areas/docs/pageSummary.test.tsx:135': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:460|apps/web/src/areas/docs/pageSummary.test.tsx:135': {
     kind: 'LIVE',
     fragment: 'moves this page’s own AI cost',
     why: 'one of the four per-card payer assertions the census says already existed',
   },
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:431|apps/web/src/areas/docs/pageTranslation.test.tsx:159': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:460|apps/web/src/areas/docs/pageTranslation.test.tsx:159': {
     kind: 'LIVE',
     fragment: 'moves this page’s own AI cost',
     why: 'one of the four per-card payer assertions the census says already existed',
   },
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:432|apps/web/src/areas/docs/pageTitleSuggestion.test.tsx:257': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:461|apps/web/src/areas/docs/pageTitleSuggestion.test.tsx:257': {
     kind: 'LIVE',
     fragment: 'moves this page’s own AI cost',
     why: 'one of the four per-card payer assertions the census says already existed',
   },
-  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:432|apps/web/src/areas/docs/askAI.test.tsx:114': {
+  'apps/web/src/areas/docs/meteredCostCensus.test.tsx:461|apps/web/src/areas/docs/askAI.test.tsx:114': {
     kind: 'LIVE',
     fragment: 'no single page',
     why: 'the OTHER payer, on the other surface that binds none — the pair is what shows the clause is two-valued and not boilerplate',
@@ -449,7 +449,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the BFF half of the same parenthesis — the sentence promises this line says the payment happens at Stripe AFTER the redirect',
   },
-  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:505': {
+  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:508': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'the first of the TWO independent clamps the page ceiling rests on, quoted verbatim by the sentence that cites it',
@@ -459,7 +459,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the example that paragraph gives of a citation checkable from here — now checked, which is what it asked for',
   },
-  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:505': {
+  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:508': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'its second example, pinned for the same reason',
@@ -516,7 +516,7 @@ const PINS: Record<string, Pin> = {
   // in THIS repository can move without touching the screen. That is exactly the rot this file
   // was written for: `billing.go:180` moved and the sentence explaining "nothing was charged"
   // ended up pointing at the one function that cannot charge.
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:739': {
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:742': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the screen marks YOUR row by comparing /auth/me\'s email to the roster; the claim that this header is the membership join key is the whole basis for that being a join rather than a guess',
@@ -551,7 +551,7 @@ const PINS: Record<string, Pin> = {
     fragment: 's.email',
     why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:739': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:742': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',

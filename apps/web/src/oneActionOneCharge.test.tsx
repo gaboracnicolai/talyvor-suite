@@ -19,6 +19,8 @@ import { PageSummary } from './areas/docs/PageSummary'
 import { PageTitleSuggestion } from './areas/docs/PageTitleSuggestion'
 import { PageTranslation } from './areas/docs/PageTranslation'
 import { SearchDocs } from './areas/docs/SearchDocs'
+import { SelectionAI } from './areas/docs/SelectionAI'
+import type { SelectionControls } from './areas/docs/editor/DocEditor'
 import { AISummary } from './areas/track/AISummary'
 import { FindDuplicates } from './areas/track/FindDuplicates'
 import { SearchIssues } from './areas/track/SearchIssues'
@@ -150,6 +152,15 @@ type Surface = {
 const PAGE_TEXT = 'The rollback runbook, in full.'
 const ISSUE = 'iss-1'
 
+/** SelectionAI (B2.3) as a writer meets it: nothing selected, so Write with AI is the control. */
+const NO_SELECTION: SelectionControls = {
+  selection: null,
+  cursor: 1,
+  docText: 'The rollback runbook, in full.',
+  replace: () => true,
+  insertAfter: () => true,
+}
+
 const SURFACES: readonly Surface[] = [
   {
     name: 'PageSummary',
@@ -198,6 +209,16 @@ const SURFACES: readonly Surface[] = [
     },
   },
   {
+    name: 'SelectionAI',
+    area: 'docs',
+    upstream: 'internal/ai/engine.go#Engine.WriteWithAI (docs-ai-write)',
+    node: <SelectionAI pageId="pg-1" controls={NO_SELECTION} onSpent={() => {}} />,
+    act: () => {
+      fireEvent.change(screen.getByLabelText(/what to write/i), { target: { value: 'a checklist' } })
+      fireEvent.click(screen.getByRole('button', { name: /^write$/i }))
+    },
+  },
+  {
     name: 'AISummary',
     area: 'track',
     upstream: 'internal/ai/engine.go:455#Engine.SummarizeThread',
@@ -232,7 +253,7 @@ const SURFACES: readonly Surface[] = [
 
 /** ⚠ LITERALS, never `SURFACES.length` or anything derived from the thing they guard. A floor
  *  measured from its own subject passes at zero — this repo's most-repeated finding. */
-const EXPECTED_DOCS = 5
+const EXPECTED_DOCS = 6
 const EXPECTED_TRACK = 4
 
 const CENSUS = {

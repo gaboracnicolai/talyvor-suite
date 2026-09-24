@@ -3,7 +3,7 @@ import { baseKeymap, chainCommands, exitCode, setBlockType, toggleMark, wrapIn }
 import { history, redo, undo } from 'prosemirror-history'
 import { inputRules, textblockTypeInputRule, wrappingInputRule } from 'prosemirror-inputrules'
 import { keymap } from 'prosemirror-keymap'
-import type { MarkType, Node as PMNode, NodeType } from 'prosemirror-model'
+import { Fragment, type MarkType, type Node as PMNode, type NodeType, Slice } from 'prosemirror-model'
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from 'prosemirror-schema-list'
 import { type Command, EditorState } from 'prosemirror-state'
 import { EditorView } from 'prosemirror-view'
@@ -21,7 +21,7 @@ import { docsSchema } from './schema'
 
 const s = docsSchema
 
-/** A stored `content` string → a document. Unreadable is reported, never thrown. */
+/** A stored `content` string to a document. Unreadable is reported, never thrown. */
 export function docFromStored(content: string | undefined, fallbackText: string): { doc: PMNode; unreadable: boolean } {
   const raw = (content ?? '').trim()
   // `{}` is what Docs stores for a page created with no content.
@@ -35,7 +35,7 @@ export function docFromStored(content: string | undefined, fallbackText: string)
   }
 }
 
-/** Plain text → one paragraph per line. */
+/** Plain text to one paragraph per line. */
 export function textDoc(text: string): PMNode {
   const lines = text === '' ? [''] : text.split(/\r?\n/)
   return s.node(
@@ -84,6 +84,58 @@ export interface DocEditorHandle {
   focus: () => void
 }
 
+/** The non-empty selection, as plain text, with the positions it was read at. */
+export interface EditorSelection {
+  from: number
+  to: number
+  text: string
+}
+
+/** What a slot below the toolbar may do to the document (B2.3's AI on the selection). */
+export interface SelectionControls {
+  selection: EditorSelection | null
+  /** Where the caret is — Write with AI inserts below it. */
+  cursor: number | null
+  /** The whole document as plain text, for context. */
+  docText: string
+  /** Puts new text where the selection was. REFUSED (false) when those positions no longer hold
+   *  the selected words, so a suggestion never overwrites words it was not written for. */
+  replace: (sel: EditorSelection, text: string) => boolean
+  /** Adds new text, as paragraphs, after the block the selection ends in. */
+  insertAfter: (sel: EditorSelection, text: string) => boolean
+}
+
+/** Model text to paragraphs: one per non-empty line. */
+function paragraphs(text: string): PMNode[] {
+  return text
+    .split(/\r?\n+/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+    .map((l) => s.node('paragraph', null, [s.text(l)]))
+}
+
+function replaceSelection(view: EditorView | null, sel: EditorSelection, text: string): boolean {
+  if (view === null) return false
+  const doc = view.state.doc
+  if (sel.to > doc.content.size || doc.textBetween(sel.from, sel.to, '\n') !== sel.text) return false
+  const nodes = paragraphs(text)
+  if (nodes.length < 1) return false
+  // Open on both sides, so the first and last paragraphs join the text around the selection.
+  view.dispatch(view.state.tr.replaceRange(sel.from, sel.to, new Slice(Fragment.from(nodes), 1, 1)))
+  view.focus()
+  return true
+}
+
+function insertAfterSelection(view: EditorView | null, sel: EditorSelection, text: string): boolean {
+  if (view === null) return false
+  const doc = view.state.doc
+  const nodes = paragraphs(text)
+  if (nodes.length < 1 || sel.to > doc.content.size) return false
+  view.dispatch(view.state.tr.insert(doc.resolve(sel.to).after(1), nodes))
+  view.focus()
+  return true
+}
+
 export interface DocEditorProps {
   initial: PMNode
   /** Called with the new document on every change. */
@@ -94,10 +146,13 @@ export interface DocEditorProps {
   label: string
   /** Pinned at the toolbar's end, so it stays in view while writing (B2.2's cost readout). */
   aside?: React.ReactNode
+  /** Rendered under the toolbar, inside its sticky band, with the selection and what may be done
+   *  to it. Re-rendered on every transaction. */
+  below?: (controls: SelectionControls) => React.ReactNode
 }
 
 export const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor(
-  { initial, onChange, onSave, label, aside },
+  { initial, onChange, onSave, label, aside, below },
   ref,
 ) {
   const host = useRef<HTMLDivElement>(null)
@@ -159,6 +214,9 @@ export const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function Do
       },
     })
     viewRef.current = view
+    // The toolbar and the slot below it read the view during render, and the view only exists
+    // from here — so render once more now, or they read nothing until the first keystroke.
+    setTick((t) => t + 1)
     return () => {
       view.destroy()
       viewRef.current = null
@@ -174,6 +232,22 @@ export const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function Do
     view.focus()
   }
   const state = viewRef.current?.state
+
+  const selection: EditorSelection | null =
+    state === undefined || state.selection.empty
+      ? null
+      : {
+          from: state.selection.from,
+          to: state.selection.to,
+          text: state.doc.textBetween(state.selection.from, state.selection.to, '\n'),
+        }
+  const controls: SelectionControls = {
+    selection,
+    cursor: state === undefined ? null : state.selection.head,
+    docText: state === undefined ? '' : state.doc.textBetween(0, state.doc.content.size, '\n'),
+    replace: (sel, text) => replaceSelection(viewRef.current, sel, text),
+    insertAfter: (sel, text) => insertAfterSelection(viewRef.current, sel, text),
+  }
 
   const tools: Array<{ name: string; active: boolean; cmd: Command }> = [
     { name: 'Bold', active: state ? markActive(state, s.marks.strong) : false, cmd: toggleMark(s.marks.strong) },
@@ -226,6 +300,7 @@ export const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function Do
           ))}
         </div>
         {aside !== undefined ? <div className="ml-auto pl-2">{aside}</div> : null}
+        {below !== undefined ? <div className="basis-full">{below(controls)}</div> : null}
       </div>
       <div ref={host} />
     </div>

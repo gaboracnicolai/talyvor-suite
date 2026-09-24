@@ -353,7 +353,9 @@ func TestDocsWorkspacePathOnlyForWorkspaceScopedUpstreamRoutes(t *testing.T) {
 		// 200 with a summary, 503+AI_UNAVAILABLE with Lens unconfigured, and 400 on an unknown
 		// action — see docs_summarize_test.go's header for the full set of measured responses,
 		// including the empty-text one that this BFF refuses.
-		"docsSummarizePage:/ai/transform": "POST /v1/workspaces/{wsID}/ai/transform — internal/ai/handler.go Mount",
+		"docsSummarizePage:/ai/transform":    "POST /v1/workspaces/{wsID}/ai/transform — internal/ai/handler.go Mount",
+		"docsWriteWithAI:/ai/write":          "POST /v1/workspaces/{wsID}/ai/write — internal/ai/handler.go Mount (B2.3)",
+		"docsRewriteSelection:/ai/transform": "POST /v1/workspaces/{wsID}/ai/transform — internal/ai/handler.go Mount (B2.3; same route as summarize, actions shorter/longer/grammar)",
 		// Checked at talyvor-docs `6aca7db`, and checked by RUNNING it rather than by reading:
 		// internal/ai/handler.go#Handler.Mount registers `POST /workspaces/{wsID}/ai/translate`
 		// beside /ai/transform, and Handler.Translate's first act is AuthorizeWorkspace on that

@@ -258,9 +258,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// copies the upstream Content-Type and relays the upstream body verbatim, and the only
 	// credential it holds — the narrow session key — travels in a REQUEST header (stream.go). It
 	// adds no field of its own to the response at all.
-	if len(methodOnly) > 12 {
+	//
+	// THE THIRTEENTH AND FOURTEENTH, /api/docs/pages/{pageID}/rewrite and /write (B2.3), ARE
+	// POST-ONLY FOR SUMMARIZE'S REASON: a metered completion on caller-supplied text, so a GET would
+	// re-spend on every prefetch and put the writer's words in a query string. Each relays Docs'
+	// `{"text": …}` body verbatim and adds nothing of its own.
+	if len(methodOnly) > 14 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 12 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 14 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

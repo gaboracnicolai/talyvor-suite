@@ -186,6 +186,7 @@ const BODIES: AIBody[] = [
   { route: 'POST /api/docs/pages/{pageID}/summarize', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) Transform(', file: 'apps/bff/docs_ai.go', subject: 'docsSummarizeBody', kind: 'go-struct' },
   { route: 'POST /api/docs/pages/{pageID}/translate', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) Translate(', file: 'apps/bff/docs_ai.go', subject: 'docsTranslateBody', kind: 'go-struct' },
   { route: 'POST /api/docs/pages/{pageID}/suggest-title', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) SuggestTitle(', file: 'apps/bff/docs_ai.go', subject: 'docsSuggestTitleBody', kind: 'go-struct' },
+  { route: 'POST /api/docs/pages/{pageID}/write', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) Write(', file: 'apps/bff/docs_ai.go', subject: 'docsWriteBody', kind: 'go-struct' },
   { route: 'POST /api/docs/spaces/{spaceID}/pages/{pageID}/changelog/generate', upstream: 'internal/changelog/handler.go', selector: 'type generateBody struct', file: 'apps/bff/docs_changelog.go', subject: 'docsGenerateBody', kind: 'go-struct' },
   { route: 'POST /api/docs/ai/ask', upstream: 'internal/ai/handler.go', selector: 'func (h \\*Handler) Ask(', file: 'apps/web/src/areas/docs/api.ts', subject: 'ask', kind: 'ts-ask-call' },
 ]

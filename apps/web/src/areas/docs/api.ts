@@ -316,6 +316,16 @@ export const docsApi = {
    * bytes sent must be this page's; summarising an unsaved draft would bill a document for words
    * it does not contain.
    */
+  /** B2.3 — shorten / lengthen / fix grammar on the editor's selection. POST /api/docs/pages/{pageID}/rewrite
+   *  → Docs' Transform, attributed to this page. The answer is Transform's `{"text": …}`. */
+  rewriteSelection: (pageId: string, action: 'shorter' | 'longer' | 'grammar', text: string) =>
+    send<DocsSummary>(`/api/docs/pages/${encodeURIComponent(pageId)}/rewrite`, 'POST', { action, text }),
+
+  /** B2.3 — Write with AI: new text from a prompt, the page's words as context. POST
+   *  /api/docs/pages/{pageID}/write → Docs' Write, billed under docs-ai-write to this page. */
+  writeWithAI: (pageId: string, prompt: string, context: string) =>
+    send<DocsSummary>(`/api/docs/pages/${encodeURIComponent(pageId)}/write`, 'POST', { prompt, context }),
+
   summarizePage: (pageId: string, text: string) =>
     send<DocsSummary>(`/api/docs/pages/${encodeURIComponent(pageId)}/summarize`, 'POST', { text }),
 

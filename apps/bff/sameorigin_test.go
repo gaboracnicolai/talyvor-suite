@@ -205,6 +205,8 @@ func everyMutatingRoute() []mutatingRoute {
 		// reproduce that defect exactly: the same-origin half asserts the row's own write ARRIVES
 		// upstream, and it cannot arrive if this handler refuses it first.
 		{method: http.MethodPost, path: "/api/docs/pages/p1/summarize", body: `{"text":"real page text"}`},
+		{method: http.MethodPost, path: "/api/docs/pages/p1/rewrite", body: `{"action":"shorter","text":"selected text"}`},
+		{method: http.MethodPost, path: "/api/docs/pages/p1/write", body: `{"prompt":"a checklist","context":"page text"}`},
 
 		// Same reasoning one route over, and with one more field: translate refuses a blank
 		// LANGUAGE as well as blank text, for its own measured reason (docs_ai.go: upstream turns
