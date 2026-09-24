@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
 import { Cycles } from './Cycles'
+import { Projects } from './Projects'
 import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
 import { SearchIssues } from './SearchIssues'
@@ -116,6 +117,9 @@ export function TrackArea() {
         <Link className="underline" to="/track/cycles">
           Cycles
         </Link>
+        <Link className="underline" to="/track/projects">
+          Projects
+        </Link>
       </nav>
       <Routes>
         <Route index element={<IssueList />} />
@@ -124,6 +128,8 @@ export function TrackArea() {
         <Route path="issues/:id" element={<IssueDetail />} />
         {/* B4.1 — cycles. */}
         <Route path="cycles" element={<Cycles />} />
+        {/* B4.2 — projects. */}
+        <Route path="projects" element={<Projects />} />
         {/* Anything else under /track/* is this area's to answer: fall back to the list, so an
             old or mistyped link lands somewhere real rather than on a dead end. */}
         <Route path="*" element={<IssueList />} />

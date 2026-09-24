@@ -94,3 +94,9 @@ export function memberName(members: TrackMember[], id: string | undefined): stri
 export function teamIdentifier(teams: TrackTeam[], id: string): string {
   return teams.find((t) => t.id === id)?.identifier ?? '—'
 }
+
+/** A list read's rows, or none. getJSONArray only turns `null` into `[]`; a body that is not an
+ *  array at all (an error object answered 200, a changed upstream shape) must not reach `.map`. */
+export function asList<T>(v: T[] | null | undefined): T[] {
+  return Array.isArray(v) ? v : []
+}

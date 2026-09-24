@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, getJSONArray } from '../../lib/api'
 import { isSessionExpired, isUnconfigured } from '../../lib/productState'
+import { asList } from './data'
 import { formatCost } from './format'
 import { StatusPill } from './StatusPill'
 import type { TrackCycle, TrackCycleProgress, TrackIssue, TrackTeam } from './types'
@@ -72,7 +73,7 @@ export function Cycles() {
     queryFn: () => readJSON<TrackCycle[] | null>(cyclesPath(teamId)),
     enabled: teamId !== '',
   })
-  const list = [...(cycles.data ?? [])].sort((a, b) => b.number - a.number)
+  const list = [...asList(cycles.data)].sort((a, b) => b.number - a.number)
 
   const qc = useQueryClient()
   const today = new Date()
@@ -116,7 +117,7 @@ export function Cycles() {
         <Region index="01" label="Teams">
           <p className="text-body text-muted">Reading teams from Track…</p>
         </Region>
-      ) : (teams.data ?? []).length === 0 ? (
+      ) : asList(teams.data).length === 0 ? (
         <Region index="01" label="Teams">
           <p className="max-w-2xl text-body text-muted">
             This Track workspace has no teams yet, and cycles belong to a team. Create a team in
@@ -126,7 +127,7 @@ export function Cycles() {
       ) : (
         <>
           <Region index="01" label="Start a cycle">
-            {(teams.data ?? []).length > 1 ? (
+            {asList(teams.data).length > 1 ? (
               <div className="mb-4 flex items-center gap-2">
                 <span className="font-figure text-eyebrow uppercase text-muted">Team</span>
                 <Select value={teamId} onValueChange={setChosen}>
@@ -134,7 +135,7 @@ export function Cycles() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(teams.data ?? []).map((t) => (
+                    {asList(teams.data).map((t) => (
                       <SelectItem key={t.id} value={t.id}>
                         {t.name}
                       </SelectItem>
@@ -242,7 +243,7 @@ function CycleCard({ cycle }: { cycle: TrackCycle }) {
 
   const p = progress.data
   const pct = p === undefined ? 0 : Math.max(0, Math.min(100, p.completion_pct))
-  const unplanned = (candidates.data ?? []).filter(
+  const unplanned = asList(candidates.data).filter(
     (i) => !i.cycle_id && i.status !== 'done' && i.status !== 'cancelled',
   )
 
@@ -296,11 +297,11 @@ function CycleCard({ cycle }: { cycle: TrackCycle }) {
               <p className="mt-2 text-caption text-muted">Couldn’t read this cycle’s issues from Track.</p>
             ) : inCycle.isPending ? (
               <p className="mt-2 text-caption text-muted">Reading…</p>
-            ) : (inCycle.data ?? []).length === 0 ? (
+            ) : asList(inCycle.data).length === 0 ? (
               <p className="mt-2 text-caption text-muted">Nothing in it yet — add issues from the list below.</p>
             ) : (
               <ul className="mt-2 flex flex-col gap-1">
-                {(inCycle.data ?? []).map((i) => (
+                {asList(inCycle.data).map((i) => (
                   <li key={i.id} className="flex items-center gap-2">
                     <StatusPill status={i.status} />
                     <Link className="text-body text-ink underline" to={`/track/issues/${encodeURIComponent(i.id)}`}>

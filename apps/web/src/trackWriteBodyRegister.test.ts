@@ -155,6 +155,12 @@ const BODIES: WriteBody[] = [
         kind: 'literal',
         re: /\bpatch\(\{([^}]*)\}\)/g,
       },
+      {
+        // B4.1 — putting an issue in a cycle is this same PATCH, from the Cycles screen.
+        file: 'apps/web/src/areas/track/Cycles.tsx',
+        kind: 'literal',
+        re: /method: 'PATCH',[\s\S]{0,200}?JSON\.stringify\(\{([^}]*)\}\)/g,
+      },
     ],
   },
   {

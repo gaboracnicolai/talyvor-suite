@@ -369,6 +369,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/track/teams", a.requireSession(a.trackTeams()))
 	a.mux.HandleFunc("/api/track/teams/{teamID}/cycles", a.trackCycles()) // B4.1 — track_cycles.go
 	a.mux.HandleFunc("/api/track/teams/{teamID}/cycles/{id}/progress", a.trackCycleProgress())
+	a.mux.HandleFunc("/api/track/projects", a.trackProjects()) // B4.2 — track_projects.go
 
 	// The Track roster and Lens month-spend, both pinned at registration from
 	// config — client input never shapes an upstream path.
