@@ -23,11 +23,20 @@ import { Link, useSearchParams } from 'react-router-dom'
 // it added, issueVocabulary.test.tsx, rendered only IssueDetail, so nothing looked here. The
 // partial humanising is also why the guard's raw-enum sweep would not have caught it if it had:
 // `in_progress` is not on screen once the underscore is gone. Do not re-inline the list.
-import { asList } from './data'
+import { asList, memberName, teamIdentifier } from './data'
+import { formatCost } from './format'
+import { download, exportSummary, fetchAllIssues, issuesCSV, issuesJSON } from './issueExport'
 import { statusLabel } from './format'
 import { StatusPill } from './StatusPill'
 import { UpstreamCard } from './UpstreamCard'
-import { ISSUE_STATUSES, type IssueStatus, type TrackIssue, type TrackMember, type TrackProject } from './types'
+import {
+  ISSUE_STATUSES,
+  type IssueStatus,
+  type TrackIssue,
+  type TrackMember,
+  type TrackProject,
+  type TrackTeam,
+} from './types'
 
 // THE ISSUE LIST. It used to render fourteen FABRICATED issues — plausible titles, assignees, AI
 // costs — behind a filter rail that could never query anything, all marked with a fixture badge.
@@ -239,6 +248,7 @@ export function IssueList() {
     queryKey: ['track', 'projects'],
     queryFn: () => getJSONArray<TrackProject>('/api/track/projects'),
   })
+
   const issues = useQuery({
     queryKey: ISSUES_KEY(view),
     queryFn: () => listIssues(view),
@@ -254,6 +264,35 @@ export function IssueList() {
       return Array.isArray(b) ? (b as TrackMember[]) : []
     },
     retry: false,
+  })
+
+  // B4.4 — export every issue this view matches, as CSV or JSON. See issueExport.ts for why the AI
+  // cost column is the API's own number and why it is every page, not the one on screen.
+  const exportView = useMutation({
+    mutationFn: async (format: 'csv' | 'json') => {
+      const q = new URLSearchParams(issuesQuery(view))
+      q.delete('limit')
+      const result = await fetchAllIssues(q)
+      const day = new Date().toISOString().slice(0, 10)
+      if (format === 'json') {
+        download(`track-issues-${day}.json`, 'application/json', issuesJSON(result.issues))
+      } else {
+        const teams = await getJSONArray<TrackTeam>('/api/track/teams').catch(() => [] as TrackTeam[])
+        const people = asList(members.data)
+        const projectName = (id: string | undefined) =>
+          id ? (asList(projects.data).find((p) => p.id === id)?.name ?? id) : ''
+        download(
+          `track-issues-${day}.csv`,
+          'text/csv',
+          issuesCSV(result.issues, {
+            assignee: (id) => (id ? memberName(people, id) : ''),
+            team: (id) => teamIdentifier(asList(teams), id),
+            project: projectName,
+          }),
+        )
+      }
+      return exportSummary(result)
+    },
   })
   const [title, setTitle] = useState('')
   // ⚠ THE EMPTY STATE'S NEXT ACTION IS ON THIS SCREEN, so it is performed rather than
@@ -506,6 +545,30 @@ export function IssueList() {
           {view.status || view.assignee || view.project || view.orderBy !== DEFAULT_VIEW.orderBy ? (
             <Button onClick={() => setView(DEFAULT_VIEW)}>Reset</Button>
           ) : null}
+        </div>
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <span className="text-caption text-muted">Export what you are looking at, with AI cost</span>
+          <Button disabled={exportView.isPending} onClick={() => exportView.mutate('csv')}>
+            CSV
+          </Button>
+          <Button disabled={exportView.isPending} onClick={() => exportView.mutate('json')}>
+            JSON
+          </Button>
+          <span className="text-caption text-muted" role="status">
+            {exportView.isPending ? (
+              'Reading every matching issue…'
+            ) : exportView.isError ? (
+              'Couldn’t read the issues from Track, so nothing was exported.'
+            ) : exportView.data !== undefined ? (
+              <>
+                Exported <span className="font-figure">{exportView.data.count}</span> issue(s) · AI cost{' '}
+                <span className="font-figure">{formatCost(exportView.data.total)}</span> in total
+                {exportView.data.truncated
+                  ? ' — stopped at the export cap, so the file is the first part of this view, not all of it.'
+                  : '.'}
+              </>
+            ) : null}
+          </span>
         </div>
       </Region>
 
