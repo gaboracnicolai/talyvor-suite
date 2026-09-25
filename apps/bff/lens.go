@@ -41,6 +41,9 @@ type app struct {
 	// chat message does not cost a mint round-trip and a database write upstream.
 	skMu        sync.Mutex
 	sessionKeys map[string]sessionKeyLease
+
+	// publicPeg caches the peg /api/pricing read, so an anonymous route does not dial Lens per hit.
+	publicPeg publicPegCache
 }
 
 func newApp(cfg config, auth *authenticator) *app {
@@ -61,11 +64,14 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/auth/logout", a.handleLogout)
 	a.mux.HandleFunc("/auth/me", a.handleMe)
 
-	// /api/version is the ONLY /api/ route with no session gate. It reports which commit this
+	// /api/version is one of the TWO /api/ routes with no session gate. It reports which commit this
 	// binary was built from and which bundle it is serving, and it is deliberately readable
 	// without logging in — see handleVersion and TestVersionEndpointIsNotBehindTheSession. Go's
 	// ServeMux prefers the more specific pattern, so this wins over the /api/ catch-all below.
 	a.mux.HandleFunc("/api/version", a.handleVersion)
+	// B5.2 — what anything costs, for a buyer who has no account yet. The second public /api/ route,
+	// for the same reason as the first: the reader is by definition not signed in. See pricing.go.
+	a.mux.HandleFunc("/api/pricing", a.handlePricing)
 
 	// /api/context is the only endpoint that never calls upstream and never touches the
 	// key: it tells the UI which workspace it is looking at, and nothing more.

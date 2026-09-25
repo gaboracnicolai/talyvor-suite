@@ -30,6 +30,8 @@ function mockBff() {
     // fixture arm for a URL the BFF does not mount.
     if (url.startsWith('/auth/me'))
       return json({ mode: 'oidc', authenticated: false, user: null, signup_open: true })
+    if (url.startsWith('/api/pricing'))
+      return json({ usd_per_lxc: 0.1, min_usd_cents: 1000, max_usd_cents: 1_000_000, preset_usd_cents: [1000] })
     return new Response('null', { status: 404 })
   })
 }
@@ -83,6 +85,20 @@ describe('a signed-out visitor arrives from talyvor.com and can act', () => {
     mockBff()
     at(href)
     expect((await screen.findAllByText(/needs legal review/i)).length).toBeGreaterThan(0)
+  })
+
+  it('reaches pricing — and the price list it arrives at says what a credit costs', async () => {
+    mockBff()
+    const { unmount } = at('/marketing')
+    const link = (await screen.findAllByRole('link', { name: /^pricing$/i }))[0]
+    const href = link.getAttribute('href') ?? ''
+    expect(href).toBe('/pricing')
+    unmount()
+
+    mockBff()
+    at(href)
+    expect(await screen.findByRole('heading', { name: /buy credits up front/i })).toBeInTheDocument()
+    expect(await screen.findByText('$0.10')).toBeInTheDocument()
   })
 
   it('reaches terms', async () => {

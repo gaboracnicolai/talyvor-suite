@@ -51,7 +51,7 @@ const HAS_CONTACT = CONTACT_EMAIL !== ''
 
 /** Numbered section label: a 2px accent tick (colour on a tick, never on text), a mono index, and a
  *  muted caption — the page's recurring instrument marking, carried over from the console. */
-function SectionLabel({ index, children }: { index: string; children: React.ReactNode }) {
+export function SectionLabel({ index, children }: { index: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2.5">
       <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />
@@ -68,7 +68,7 @@ function SectionLabel({ index, children }: { index: string; children: React.Reac
  *  label painted `MLXC`: the mega prefix on a micro figure, on the four numbers this page offers as
  *  checkable against the ledger. It is fixed HERE rather than at the six call sites because the
  *  µ arrives as a prop from 130 lines away and no future caller should have to know. */
-function Figure({ value, unit, tone = 'ink' }: { value: string; unit: string; tone?: 'ink' | 'muted' }) {
+export function Figure({ value, unit, tone = 'ink' }: { value: string; unit: string; tone?: 'ink' | 'muted' }) {
   return (
     <span className="inline-flex items-baseline gap-1.5">
       <span
@@ -380,6 +380,9 @@ export function Landing() {
             <div className="text-caption font-normal text-faint">Suite</div>
           </div>
           <div className="flex items-center gap-3">
+            <a href="/pricing" className={`text-body text-muted underline ${focusRing}`}>
+              Pricing
+            </a>
             <ThemeToggle />
             {/* The one "Open the app" link — Landing.test.tsx pins its name and href. */}
             <Button asChild>
@@ -711,6 +714,10 @@ export function Landing() {
             {' · '}
             <a href="/terms" className="underline">
               Terms
+            </a>
+            {' · '}
+            <a href="/pricing" className="underline">
+              Pricing
             </a>
             {' · '}
             <a href="#suite" className="underline">

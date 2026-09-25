@@ -98,7 +98,9 @@ const SHAPES: Record<string, { count: number; why: string }> = {
     // (back to issues, an issue in a cycle, file a new issue) took the majority answer.
     // 41 → 45 at B4.2: the Projects nav link, the Projects screen's two (back to issues, a
     // project's issues) and the issue page's "Start a project" — the majority answer again.
-    count: 45,
+    // 45 → 51 at B5.2: Landing's two Pricing links (header, footer) and /pricing's four (the
+    // GET /api/pricing check, the pooled-answer link, Privacy, Terms) — copied from Landing's own.
+    count: 51,
     why:
       'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
       'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +

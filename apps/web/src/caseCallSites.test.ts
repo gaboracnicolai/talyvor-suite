@@ -356,16 +356,19 @@ const PINS: Record<string, Pin> = {
   //
   // 40 → 44 at B4.2: the Projects screen writes FOUR labels itself — Team, Name, Identifier and
   // Description; its regions' eyebrows go through Region.tsx. Eighth.
+  //
+  // 44 → 46 at B5.2: /pricing's rate-card eyebrow ("One credit") and its footer line, both copied
+  // from Landing's instrument markings. Its section labels go through Landing's SectionLabel.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 44,
+    states: 46,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 44,
+    states: 46,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {
