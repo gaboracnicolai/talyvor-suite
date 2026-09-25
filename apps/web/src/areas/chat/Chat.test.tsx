@@ -669,3 +669,37 @@ describe('attached documents (B10.3)', () => {
     expect(posted).not.toHaveBeenCalled()
   })
 })
+
+describe('the sidebar hides and comes back (B15.5)', () => {
+  const column = () => screen.queryByRole('button', { name: 'Hide sidebar' })
+
+  it('hides from the top of the sidebar, stays hidden across a reload, and one click brings it back', async () => {
+    mockChat()
+    const first = renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: 'Hide sidebar' }))
+    // The slim rail keeps a new chat and the way back; the conversation list is gone.
+    const slim = screen.getByRole('complementary', { name: 'Conversations' })
+    expect(within(slim).getByRole('button', { name: 'New chat' })).toBeInTheDocument()
+    expect(within(slim).getByRole('button', { name: 'Show sidebar' }).getAttribute('title')).toMatch(/Shift/)
+    expect(within(slim).queryByRole('link', { name: 'How to use Talyvor Chat' })).toBeNull()
+
+    first.unmount()
+    renderChat()
+    expect(await screen.findByRole('button', { name: 'Show sidebar' })).toBeInTheDocument()
+    expect(column()).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+    expect(column()).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'How to use Talyvor Chat' })).toBeInTheDocument()
+  })
+
+  it('Ctrl+Shift+S toggles it', async () => {
+    mockChat()
+    renderChat()
+    await screen.findByRole('button', { name: 'Hide sidebar' })
+    fireEvent.keyDown(document, { key: 'S', code: 'KeyS', ctrlKey: true, shiftKey: true })
+    expect(await screen.findByRole('button', { name: 'Show sidebar' })).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'S', code: 'KeyS', ctrlKey: true, shiftKey: true })
+    expect(await screen.findByRole('button', { name: 'Hide sidebar' })).toBeInTheDocument()
+  })
+})
