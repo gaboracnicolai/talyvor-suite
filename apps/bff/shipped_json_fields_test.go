@@ -58,6 +58,7 @@ var builtByThisService = map[string]string{
 	"distillState":         "the distill panel's state, assembled in readDistillState",
 	"featuresState":        "the Features screen's settings, projected field by field in readFeatures",
 	"featuresGuardrails":   "the two guardrail switches readFeatures lifts off Lens's guardrail policy",
+	"tareSavingsTotal":     "Tare's savings for the Features screen: Lens's per-work-item rows summed, estimates labelled as such",
 	"docsGenerateBody":     "request body this service POSTs to the Docs changelog route",
 	"docsSuggestTitleBody": "request body this service POSTs to the Docs suggest-title route",
 	"docsSummarizeBody":    "request body this service POSTs to the Docs transform route",

@@ -159,6 +159,84 @@ func (a *app) handleFeatureCostRouting(w http.ResponseWriter, r *http.Request, t
 
 // lensPutWorkspace PUTs body to a workspace-scoped Lens route and returns Lens's reply, which states
 // what it recorded.
+// handleFeatureDistillPoolable — B11.2: POST /api/features/distill-poolable {"distill_poolable": bool}
+// writes Lens's PUT /v1/workspaces/{ws}/distill-poolable (the shared-document-conversions consent,
+// separate from answer sharing) and answers what Lens recorded.
+func (a *app) handleFeatureDistillPoolable(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		DistillPoolable *bool `json:"distill_poolable"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.DistillPoolable == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "distill_poolable (boolean) required"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensDistillPoolableBody: none
+	body, _ := json.Marshal(map[string]bool{"distill_poolable": *in.DistillPoolable})
+	raw, err := a.lensPutWorkspace(r.Context(), t, "/distill-poolable", body)
+	var out struct {
+		DistillPoolable bool `json:"distill_poolable"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not record the choice"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"distill_poolable": out.DistillPoolable})
+}
+
+// tareSavingsTotal is what Tare saved in this workspace, all work items together. Token counts are
+// Lens's request-body ESTIMATES before and after the reduction, and the cost is those tokens at the
+// billed model's input rate — so the screen labels both as estimated.
+type tareSavingsTotal struct {
+	Requests     int64   `json:"requests"`
+	TokensBefore int64   `json:"tokens_before"`
+	TokensAfter  int64   `json:"tokens_after"`
+	CostSavedUSD float64 `json:"cost_saved_usd"`
+}
+
+// handleFeatureTareSavings — B11.2: GET /api/features/tare-savings sums Lens's
+// GET /v1/workspaces/{ws}/tare/savings (grouped per work item) into one reading for the Tare row.
+func (a *app) handleFeatureTareSavings(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	raw, err := a.lensGet(r.Context(), t, lensWorkspacePath(t, "/tare/savings"))
+	var in struct {
+		ByWorkItem []struct {
+			Requests     int64   `json:"requests"`
+			TokensIn     int64   `json:"tokens_in"`
+			TokensOut    int64   `json:"tokens_out"`
+			DeltaCostUSD float64 `json:"delta_cost_usd"`
+		} `json:"by_work_item"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &in)
+	}
+	if err == nil && in.ByWorkItem == nil {
+		// A reply without the list is not "nothing saved" — it is a reply this BFF does not understand.
+		err = fmt.Errorf("tare savings: no by_work_item in the reply")
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not read Tare's savings"})
+		return
+	}
+	var out tareSavingsTotal
+	for _, s := range in.ByWorkItem {
+		out.Requests += s.Requests
+		out.TokensBefore += s.TokensIn
+		out.TokensAfter += s.TokensOut
+		out.CostSavedUSD += s.DeltaCostUSD
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (a *app) lensPutWorkspace(ctx context.Context, t tenant, suffix string, body []byte) ([]byte, error) {
 	path := lensWorkspacePath(t, suffix)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, a.cfg.lensBaseURL+path, bytes.NewReader(body))

@@ -267,9 +267,12 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE FIFTEENTH AND SIXTEENTH, /api/features/tare and /api/features/cost-optimize-routing (B8.2),
 	// ARE POLICY WRITES: their state is READ on GET /api/features, which the sweep reaches. Each
 	// answers only the one field Lens recorded.
-	if len(methodOnly) > 16 {
+	//
+	// THE SEVENTEENTH, /api/features/distill-poolable (B11.2), IS THE SAME KIND: the shared-
+	// conversions consent, read back through GET /api/features as distill_poolable.
+	if len(methodOnly) > 17 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 16 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 17 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

@@ -270,6 +270,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/features", a.requireTenant(a.handleFeatures))
 	a.mux.HandleFunc("/api/features/tare", a.requireTenant(a.handleFeatureTare))
 	a.mux.HandleFunc("/api/features/cost-optimize-routing", a.requireTenant(a.handleFeatureCostRouting))
+	// B11.2 — the shared-conversions switch Lens had and nothing called, and Tare's recorded savings.
+	a.mux.HandleFunc("/api/features/distill-poolable", a.requireTenant(a.handleFeatureDistillPoolable))
+	a.mux.HandleFunc("/api/features/tare-savings", a.requireTenant(a.handleFeatureTareSavings))
 
 	// LXC top-up (this PR) — the BFF's SECOND write path, and the front door for
 	// the only way a customer can buy LXC. GET serves the allowed amounts (so the
