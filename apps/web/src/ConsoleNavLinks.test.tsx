@@ -89,6 +89,8 @@ const SIDEBAR_DESTINATIONS = [
   '/pricing',
   '/features',
   '/billing',
+  // B13.3 — the three plans, the usage meter and the earnings card.
+  '/plans',
   '/setup',
   '/keys',
   '/spend',

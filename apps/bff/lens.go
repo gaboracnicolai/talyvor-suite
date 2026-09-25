@@ -105,6 +105,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	// the team's answers earned back (Lens caps that at the fee). Lens registers the route only
 	// where subscriptions are sold, so absent reads as {enabled:false}, never as a fault.
 	a.mux.HandleFunc("/api/billing/allowance", a.requireSession(a.wsProxyGated("/billing/allowance", "subscriptions")))
+	// B13.3 — start a Stripe Checkout for one of the three plans. Session-gated, same-Origin,
+	// the workspace from the SESSION and the plan from a fixed list. See billing.go.
+	a.mux.HandleFunc("/api/billing/subscribe", a.requireTenant(a.handleSubscribe))
 
 	// PRODUCT UPSTREAMS (inc6). Track and Docs gate /v1 behind their gatewayauth
 	// boundary: a request must carry X-Gateway-Auth equal to their GATEWAY_AUTH_SECRET

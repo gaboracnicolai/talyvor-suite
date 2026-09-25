@@ -186,6 +186,7 @@ func everyMutatingRoute() []mutatingRoute {
 		// the two MONEY routes in this table were the two that never reached upstream at all. The
 		// wrong names survived because no assertion here has ever looked past the status code.
 		{method: http.MethodPost, path: "/api/lxc/checkout", body: `{"usd_cents":5000}`},
+		{method: http.MethodPost, path: "/api/billing/subscribe", body: `{"plan":"plus"}`},
 		{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc_amount_ulxc":100000}`},
 		{method: http.MethodPost, path: "/api/track/issues", body: `{"title":"t"}`},
 		{method: http.MethodPost, path: "/api/track/projects", body: `{"team_id":"t","name":"n","identifier":"N"}`},

@@ -27,7 +27,11 @@ import { useDocumentTitle } from '../documentTitle'
 /** One string, painted by the card and told to the browser. This screen BLOCKS the console, so
  *  the address is still /overview or /setup while it is up; a title derived from the location
  *  would name a page nobody has reached yet. */
-const CONSENT_HEADER = 'Your answers are being shared'
+//
+// ⚠ DRAFT WORDING (B13.3) — the header and the consent paragraph below go to Nicolai's lawyer
+// before public launch. They lead with earning as the reason to say yes, as decided; the facts
+// and the two equal buttons underneath are unchanged.
+const CONSENT_HEADER = 'Share your answers, and earn from them'
 
 export function PoolingConsent({ onDone }: { onDone: () => void }) {
   useDocumentTitle(CONSENT_HEADER)
@@ -42,12 +46,16 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
         <div className="flex flex-col gap-4 px-gutter py-4">
           {/* The state, before the explanation. Someone who reads one sentence and nothing else
               must still leave knowing what is true and that they can stop it. */}
+          {/* ⚠ DRAFT — see CONSENT_HEADER. */}
           <p className="text-body text-ink">
             <strong>
               Sharing is on for this workspace right now. Answers you generate here may be served
-              to other companies.
+              to other companies — and each time one is, you earn.
             </strong>{' '}
-            You can turn it off below — one click, and nothing of yours is shared.
+            When someone else asks a question this workspace has already paid to answer, they can
+            be served your answer, and you earn half of what they were charged. On a plan, what
+            you earn counts against your plan&rsquo;s price. You can turn sharing off below, or any
+            time in Features — one click, and then nothing of yours is shared and you earn nothing.
           </p>
           <SharingFacts />
           {/* ⚠ THE UNPAID-CONTRIBUTION NOTICE, and it sits ABOVE the choice deliberately: a tester

@@ -1076,6 +1076,10 @@ cannot "[PUT /v1/workspaces/{wsID}/distill-poolable] apps/bff/features.go sends 
     "talyvor-lens cmd/lens/main.go" \
     "[ \"\$(grep -A12 -F 'authed.Put(\"/v1/workspaces/{wsID}/distill-poolable\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"distill_poolable\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main e89a054 before this merge: it settles."
 
+cannot "[POST /v1/workspaces/{wsID}/billing/subscribe] apps/bff/billing.go sends {plan} and Lens reads an EMPTY plan as the single configured price, so a renamed key is a checkout for a different plan than the one the customer chose — a money path, written down because Stripe would charge that price with a 200 all the way" \
+    "talyvor-lens cmd/lens/main.go" \
+    "[ \"\$(grep -A12 -F 'subs.post(authed, \"/v1/workspaces/{wsID}/billing/subscribe\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"plan\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main 412658b before this merge: it settles."
+
 # ── THE METERED-SURFACE UPSTREAM COLUMN (W1.7.1, tab-p9r4) ───────────────────
 # Both metered censuses carry an `upstream` field per surface — the call site in the other repo
 # that makes that surface cost money — and both headers present it as holding the STALE

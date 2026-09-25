@@ -54,7 +54,7 @@ import { BRAND, documentTitle } from './documentTitle'
  * tab and the header cannot disagree — asserted, not assumed); `Not found` is `NOT_FOUND_TITLE`;
  * `Privacy` and `Terms` are those pages' own `<h1>`; `Sign in` and `Create a workspace` are the
  * labels the product writes on its own links to `/signin` and `/signup` (areas/auth/Entry.tsx);
- * `Your answers are being shared` is the consent screen's own `CardHeader`. `/marketing/*` takes
+ * `Share your answers, and earn from them` is the consent screen's own `CardHeader`. `/marketing/*` takes
  * the brand alone because it IS the front door, which is what the website does with its own.
  *
  * ⚠ AND THE SENTINEL IS LOAD-BEARING. `document.title` is one property of one jsdom document
@@ -131,6 +131,7 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/chat/help': 'How to use Talyvor Chat',
   '/earnings': 'Earnings',
   '/billing': 'Billing',
+  '/plans': 'Plans',
   '/billing/success': 'Billing',
   '/billing/cancel': 'Billing',
   '/keys': 'API keys',
@@ -260,7 +261,7 @@ describe('a screen you are gated out of does not take the name of the page behin
     mockBff(NEEDS_POOLING)
     await at('/')
     await waitFor(() => expect(document.title).not.toBe(SENTINEL))
-    expect(document.title).toBe(`Your answers are being shared | ${BRAND}`)
+    expect(document.title).toBe(`Share your answers, and earn from them | ${BRAND}`)
     expect(document.title).not.toContain('Overview')
   })
 })

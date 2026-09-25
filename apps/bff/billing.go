@@ -82,6 +82,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // allowedTopUpCents MIRRORS talyvor-lens internal/billing/billing.go
@@ -398,5 +399,78 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant
 		log.Printf("bff: lxc checkout: lens upstream status %d", resp.StatusCode)
 		writeJSON(w, http.StatusBadGateway, map[string]any{
 			"error": "Lens couldn’t start the payment — nothing was charged"})
+	}
+}
+
+// subscriptionPlans — the plans a subscribe may name (B13.1: Plus, Pro and Max).
+// Lens decides which of them this deployment actually sells; this list only stops a client from
+// sending Lens anything else.
+var subscriptionPlans = map[string]bool{"plus": true, "pro": true, "max": true}
+
+// handleSubscribe (B13.3) — POST /api/billing/subscribe {"plan":"plus"|"pro"|"max"} starts a
+// Stripe Checkout in subscription mode for the SESSION's workspace and hands back its URL.
+// Stripe sends the customer to /billing/success, the same return as a top-up.
+func (a *app) handleSubscribe(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		Plan string `json:"plan"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || !subscriptionPlans[in.Plan] {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": "plan must be one of plus, pro, max — nothing was charged"})
+		return
+	}
+
+	// UPSTREAM-BINDS-ONLY lensSubscribeBody: none
+	body, err := json.Marshal(map[string]string{"plan": in.Plan})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "encode"})
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		a.cfg.lensBaseURL+lensWorkspacePath(t, "/billing/subscribe"), bytes.NewReader(body))
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "lens upstream request"})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("bff: subscribe upstream: %v", err)
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error": "couldn’t reach Lens to start the subscription — nothing was charged"})
+		return
+	}
+	defer resp.Body.Close()
+	upstream, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(upstream)
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusNotImplemented ||
+		resp.StatusCode == http.StatusBadRequest:
+		// 404: subscriptions are off here; 501: no plan price configured; 400: this plan is not
+		// among the ones this deployment sells. All three mean "not on sale here", not a fault.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error":    "that plan isn’t on sale on this deployment yet — nothing was charged",
+			"for_sale": false,
+		})
+	case strings.Contains(string(upstream), "already has a live subscription"):
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "this workspace already has a plan — nothing was charged"})
+	default:
+		log.Printf("bff: subscribe: lens upstream status %d", resp.StatusCode)
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"error": "Lens couldn’t start the subscription — nothing was charged"})
 	}
 }

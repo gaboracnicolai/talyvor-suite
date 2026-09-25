@@ -123,7 +123,7 @@ describe('first run routes a new user to Setup', () => {
     mockBff({ needsChoice: true })
     at('/')
     // The disclosure blocks first.
-    await screen.findByText(/Your answers are being shared/i)
+    await screen.findByText(/Share your answers, and earn from them/i)
 
     // Choosing dismisses it; the app must then put the person on Setup rather than Overview.
     const decline = await screen.findByRole('button', { name: /^Do not share my answers$/i })

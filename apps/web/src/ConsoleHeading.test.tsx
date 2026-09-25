@@ -78,6 +78,7 @@ const PINNED: Readonly<Record<string, string>> = {
   '/chat/help': 'How to use Talyvor Chat',
   '/earnings': 'Earnings',
   '/billing': 'Billing',
+  '/plans': 'Plans',
   '/billing/success': 'Billing',
   '/billing/cancel': 'Billing',
   '/keys': 'API keys',

@@ -56,13 +56,13 @@ import { PENDING_TOPUP_KEY } from './areas/lens/topupApi'
 // ⚠ AND NO BAR COVERS FOR IT. Measured false above: a fetch rejection carries no status, so
 // `isSessionExpired` (ApiError + 401) is false, and the mutation error never reaches the query
 // cache that SessionExpiredBar derives from. The App's only global handler is
-// `QueryCache.onError` (App.tsx:50) — queries, not mutations.
+// `QueryCache.onError` (App.tsx:51) — queries, not mutations.
 //
 // THE FIX SAYS NOTHING NEW. The fallback is the sentence topupApi.ts already raises for an
 // answer it cannot use (`'upstream'`, topupApi.ts:264): "Couldn't start the payment — nothing
 // was charged. Please try again." It is honest for a rejection by construction — this call only
 // asks Lens to create a Stripe Checkout Session, and the payment happens at Stripe AFTER the
-// redirect (TopUp.tsx:29, apps/bff/billing.go:299), so a call that never completed cannot
+// redirect (TopUp.tsx:29, apps/bff/billing.go:300), so a call that never completed cannot
 // have charged anyone.
 
 const AUTHENTICATED = {

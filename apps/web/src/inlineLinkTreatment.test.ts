@@ -106,7 +106,9 @@ const SHAPES: Record<string, { count: number; why: string }> = {
     // there) and "Open the ledger" (the audit trail) — the majority answer again.
     // 54 → 56 at B10.3: the chat rail's "How to use Talyvor Chat" and the how-to page's "Back to
     // the chat" — the majority answer again.
-    count: 56,
+    // 56 → 58 at B13.3: the plans screen's "Billing" (where plans are not sold) and "Turn it on in
+    // Features" (a subscriber with sharing off) — the majority answer again.
+    count: 58,
     why:
       'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
       'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +
