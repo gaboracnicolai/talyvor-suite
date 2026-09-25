@@ -23,6 +23,7 @@ import { Setup } from './areas/lens/Setup'
 import { Spend } from './areas/lens/Spend'
 import { Members } from './areas/lens/Members'
 import { Settings } from './areas/lens/Sharing'
+import { Features } from './areas/lens/Features'
 import { TopUp } from './areas/lens/TopUp'
 import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { Chat } from './areas/chat/Chat'
@@ -128,6 +129,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/spend', title: 'Spend & routing', element: <Spend /> },
   { path: '/members', title: 'Members', element: <Members /> },
   { path: '/settings', title: 'Settings', element: <Settings /> },
+  // B8.2 — every capability, what it does and costs, whether it is on, and its switch.
+  { path: '/features', title: 'Features', element: <Features /> },
   { path: '/track/*', title: 'Track', element: <TrackArea /> },
   { path: '/docs/*', title: 'Docs', element: <DocsArea /> },
 ]
@@ -263,6 +266,7 @@ function Sidebar() {
         {item('/pricing', 'Pricing')}
       </Group>
       <Group label="Workspace">
+        {item('/features', 'Features')}
         {item('/members', 'Members')}
         {item('/settings', 'Settings')}
       </Group>

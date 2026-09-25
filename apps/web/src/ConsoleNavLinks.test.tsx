@@ -87,6 +87,7 @@ const SIDEBAR_DESTINATIONS = [
   '/track/cycles',
   '/track/projects',
   '/pricing',
+  '/features',
   '/billing',
   '/setup',
   '/keys',

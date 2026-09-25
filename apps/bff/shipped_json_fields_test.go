@@ -56,6 +56,8 @@ var builtByThisService = map[string]string{
 	"bundleVersion":        "identity of the web bundle on disk; assembled by readBundleVersion",
 	"convertQuote":         "the LENS->LXC quote returned to the money screen",
 	"distillState":         "the distill panel's state, assembled in readDistillState",
+	"featuresState":        "the Features screen's settings, projected field by field in readFeatures",
+	"featuresGuardrails":   "the two guardrail switches readFeatures lifts off Lens's guardrail policy",
 	"docsGenerateBody":     "request body this service POSTs to the Docs changelog route",
 	"docsSuggestTitleBody": "request body this service POSTs to the Docs suggest-title route",
 	"docsSummarizeBody":    "request body this service POSTs to the Docs transform route",

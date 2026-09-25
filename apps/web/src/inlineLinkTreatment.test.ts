@@ -102,7 +102,9 @@ const SHAPES: Record<string, { count: number; why: string }> = {
     // GET /api/pricing check, the pooled-answer link, Privacy, Terms) — copied from Landing's own.
     // 51 → 52 at B3.4: the catch-all's "Go to Overview" (App.tsx), so a mistyped address is not a
     // dead end — the majority answer again.
-    count: 52,
+    // 52 → 54 at B8.2: the Features screen's "Change in Settings" (answer sharing's control lives
+    // there) and "Open the ledger" (the audit trail) — the majority answer again.
+    count: 54,
     why:
       'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
       'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +

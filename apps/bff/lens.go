@@ -265,6 +265,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	// RECORDED. See distill.go — distill_poolable is deliberately NOT exposed here.
 	a.mux.HandleFunc("/api/distill", a.requireTenant(a.handleDistill))
 
+	// B8.2 — the Features screen: every capability setting on the workspace (read), and the two
+	// switches Lens already had a route for and nothing called. See features.go.
+	a.mux.HandleFunc("/api/features", a.requireTenant(a.handleFeatures))
+	a.mux.HandleFunc("/api/features/tare", a.requireTenant(a.handleFeatureTare))
+	a.mux.HandleFunc("/api/features/cost-optimize-routing", a.requireTenant(a.handleFeatureCostRouting))
+
 	// LXC top-up (this PR) — the BFF's SECOND write path, and the front door for
 	// the only way a customer can buy LXC. GET serves the allowed amounts (so the
 	// screen hardcodes no price); POST starts a Stripe Checkout Session against
