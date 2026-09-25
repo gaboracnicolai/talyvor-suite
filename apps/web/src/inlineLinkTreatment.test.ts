@@ -104,7 +104,9 @@ const SHAPES: Record<string, { count: number; why: string }> = {
     // dead end — the majority answer again.
     // 52 → 54 at B8.2: the Features screen's "Change in Settings" (answer sharing's control lives
     // there) and "Open the ledger" (the audit trail) — the majority answer again.
-    count: 54,
+    // 54 → 56 at B10.3: the chat rail's "How to use Talyvor Chat" and the how-to page's "Back to
+    // the chat" — the majority answer again.
+    count: 56,
     why:
       'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
       'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +

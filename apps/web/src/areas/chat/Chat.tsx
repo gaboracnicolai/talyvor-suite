@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Button, Input, cn, focusRing } from '@talyvor/ui'
 
-import { Region } from '../../components/Region'
 import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
@@ -22,6 +21,8 @@ import {
   saveConversations,
   upsertConversation,
 } from './history'
+import { Markdown } from './Markdown'
+import { CopyButton } from './CopyButton'
 import { type AnswerCost, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
 import { topupApi } from '../lens/topupApi'
 
@@ -56,6 +57,21 @@ import { topupApi } from '../lens/topupApi'
 // "prompt/response text is intentionally NOT stored in DB (privacy)", and a server-side history
 // would reverse that for every workspace. ./history.ts keeps conversations in localStorage, scoped
 // to the signed-in identity, and the screen says where they are kept.
+//
+// ── B10.3: THE LAYOUT PEOPLE ALREADY KNOW ────────────────────────────────────
+//
+// A collapsible rail (New chat, conversations newest first, the how-to link), one centred reading
+// column, and a composer pinned to the bottom with the model picker inside it. Replies render as
+// Markdown. Explanations live on /chat/help (./ChatHelp.tsx), not on this screen; what stays here
+// is what a reader needs at the moment of reading — a price, a failure, where history is kept.
+
+/** Click-to-ask prompts for an empty conversation. Plain requests, no instructions. */
+export const EXAMPLE_PROMPTS: readonly string[] = [
+  'Explain the difference between TCP and UDP in plain words',
+  'Write a short, polite email declining a meeting',
+  'What makes a code review genuinely useful?',
+  'Plan a relaxed weekend in Lisbon',
+]
 
 export function Chat() {
   const catalog = useQuery({ queryKey: ['chat-models'], queryFn: fetchModels, retry: false })
@@ -81,6 +97,10 @@ export function Chat() {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [storageRefused, setStorageRefused] = useState(false)
 
+  // The rail: collapsed on a wide screen by choice, a drawer on a narrow one.
+  const [railHidden, setRailHidden] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
   const open = useCallback((c: Conversation | undefined) => {
     setActiveId(c?.id ?? null)
     setMessages(c?.messages ?? [])
@@ -89,6 +109,7 @@ export function Chat() {
     setUnreadable(0)
     setRenaming(null)
     setConfirmingDelete(false)
+    setDrawerOpen(false)
   }, [])
 
   // Reopening the tab lands on the most recent conversation — "it is still there", literally.
@@ -99,7 +120,7 @@ export function Chat() {
     open(read.list[0])
   }, [scope, open])
 
-  // ⚠ READS STORAGE, NOT STATE. It runs after an await inside send(), where `history` from the
+  // ⚠ READS STORAGE, NOT STATE. It runs after an await inside run(), where `history` from the
   // closure is a render old; merging into that would drop a rename made while it streamed.
   const store = useCallback(
     (update: (list: Conversation[]) => Conversation[]) => {
@@ -120,77 +141,94 @@ export function Chat() {
   const selected: ChatModel | undefined =
     models.find((m) => m.id === modelId) ?? models[0]
 
-  const send = useCallback(async () => {
-    const text = draft.trim()
-    if (text === '' || selected === undefined || pending) return
+  /** Streams an answer to `turn`, whose last message is the question. */
+  const run = useCallback(
+    async (turn: ChatMessage[]) => {
+      if (selected === undefined || pending) return
+      const id = activeId ?? newConversationId()
+      const model = selected.id
+      setActiveId(id)
+      // The question is kept before the answer starts, so a tab closed mid-stream loses only the
+      // answer.
+      store((list) => upsertConversation(list, id, model, turn, Date.now()))
+      setMessages([...turn, { role: 'assistant', content: '' }])
+      setPending(true)
+      setFailure(null)
+      setUnreadable(0)
 
-    const turn: ChatMessage[] = [...messages, { role: 'user', content: text }]
-    const id = activeId ?? newConversationId()
-    const model = selected.id
-    setActiveId(id)
-    // The question is kept before the answer starts, so a tab closed mid-stream loses only the
-    // answer.
-    store((list) => upsertConversation(list, id, model, turn, Date.now()))
-    setMessages([...turn, { role: 'assistant', content: '' }])
-    setDraft('')
-    setPending(true)
-    setFailure(null)
-    setUnreadable(0)
+      const controller = new AbortController()
+      abortRef.current = controller
+      let answer = ''
+      let cost: AnswerCost | undefined
 
-    const controller = new AbortController()
-    abortRef.current = controller
-    let answer = ''
-    let cost: AnswerCost | undefined
-
-    await streamChat(
-      selected.provider,
-      selected.id,
-      turn,
-      {
-        onDelta: (chunk) => {
-          answer += chunk
-          // ⚠ APPENDED PER DELTA, NOT ASSIGNED AT THE END. This is what makes the screen a stream
-          // rather than a spinner that resolves. Chat.test.tsx asserts partial text is on screen
-          // while the response is still open, because a buffering client's finished DOM is
-          // identical to a streaming one's.
-          setMessages((prev) => {
-            const next = [...prev]
-            const last = next[next.length - 1]
-            if (last !== undefined && last.role === 'assistant') {
-              next[next.length - 1] = { role: 'assistant', content: last.content + chunk }
-            }
-            return next
-          })
-        },
-        onDone: ({ unrecognised, usage, model: servedBy }) => {
-          // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
-          const priced = pricedAnswer(usage, selected, servedBy)
-          if (priced !== undefined) {
-            cost = priced
+      await streamChat(
+        selected.provider,
+        selected.id,
+        turn,
+        {
+          onDelta: (chunk) => {
+            answer += chunk
+            // ⚠ APPENDED PER DELTA, NOT ASSIGNED AT THE END. This is what makes the screen a stream
+            // rather than a spinner that resolves. Chat.test.tsx asserts partial text is on screen
+            // while the response is still open, because a buffering client's finished DOM is
+            // identical to a streaming one's.
             setMessages((prev) => {
               const next = [...prev]
               const last = next[next.length - 1]
-              if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced }
+              if (last !== undefined && last.role === 'assistant') {
+                next[next.length - 1] = { role: 'assistant', content: last.content + chunk }
+              }
               return next
             })
-          }
-          setPending(false)
-          setUnreadable(unrecognised)
+          },
+          onDone: ({ unrecognised, usage, model: servedBy }) => {
+            // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
+            const priced = pricedAnswer(usage, selected, servedBy)
+            if (priced !== undefined) {
+              cost = priced
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced }
+                return next
+              })
+            }
+            setPending(false)
+            setUnreadable(unrecognised)
+          },
+          onError: (message) => {
+            setPending(false)
+            setFailure(message)
+          },
         },
-        onError: (message) => {
-          setPending(false)
-          setFailure(message)
-        },
-      },
-      controller.signal,
-    )
-    store((list) =>
-      upsertConversation(list, id, model, [...turn, { role: 'assistant', content: answer, cost }], Date.now()),
-    )
-  }, [activeId, draft, messages, pending, selected, store])
+        controller.signal,
+      )
+      store((list) =>
+        upsertConversation(list, id, model, [...turn, { role: 'assistant', content: answer, cost }], Date.now()),
+      )
+    },
+    [activeId, pending, selected, store],
+  )
+
+  const send = useCallback(
+    (text: string = draft) => {
+      const question = text.trim()
+      if (question === '' || selected === undefined || pending) return
+      setDraft('')
+      void run([...messages, { role: 'user', content: question }])
+    },
+    [draft, messages, pending, run, selected],
+  )
+
+  // Regenerate answers the last question again: the previous answer is dropped, not kept beside it.
+  const regenerate = useCallback(() => {
+    const lastUser = messages.map((m) => m.role).lastIndexOf('user')
+    if (lastUser < 0) return
+    void run(messages.slice(0, lastUser + 1))
+  }, [messages, run])
 
   // B10.2 — Stop ends the answer where it is. streamChat returns silently on an aborted signal
-  // (neither onDone nor onError), so the screen leaves the answering state here; send() then keeps
+  // (neither onDone nor onError), so the screen leaves the answering state here; run() then keeps
   // whatever part of the answer had arrived.
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -199,94 +237,64 @@ export function Chat() {
 
   const active = history.list.find((c) => c.id === activeId)
 
+  // The newest turn stays in view as it streams, unless the reader has scrolled up to read.
+  const endRef = useRef<HTMLDivElement | null>(null)
+  const lastContent = messages[messages.length - 1]?.content
+  useEffect(() => {
+    const el = endRef.current
+    if (el === null || typeof el.scrollIntoView !== 'function') return
+    const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160
+    if (nearBottom) el.scrollIntoView({ block: 'end' })
+  }, [messages.length, lastContent])
+
+  const rail = (
+    <ChatRail
+      history={history}
+      activeId={activeId}
+      pending={pending}
+      signedIn={scope !== null}
+      readingIdentity={me.isPending}
+      storageRefused={storageRefused}
+      onNew={() => open(undefined)}
+      onOpen={open}
+    />
+  )
+
   return (
-    <>
-      <Region
-        index="01"
-        label="What you can ask"
-        heading="One subscription, the models this deployment actually serves."
-      >
-        {catalog.isPending ? (
-          <p className="mt-6 text-body text-muted">Reading the model catalog…</p>
-        ) : catalog.isError ? (
-          // ⚠ A FAILED READ IS NOT AN EMPTY CATALOG. This project has paid twice for that
-          // conflation. The screen says the read failed and offers no picker at all, rather than
-          // rendering an empty list that reads as "this deployment serves nothing".
-          <div className="mt-6">
-            <InlineFailure error={catalog.error} failed="Couldn’t read the model catalog" />
-          </div>
-        ) : models.length === 0 ? (
-          <NoStreamableModels total={catalog.data?.length ?? 0} />
-        ) : (
-          <ModelPicker
-            models={models}
-            hidden={hidden}
-            selectedId={selected?.id ?? ''}
-            onSelect={setModelId}
-            disabled={pending}
-          />
-        )}
-      </Region>
-
-      <div className="wide:flex">
-        <Region
-          index="02"
-          label="Your conversations"
-          sectionClassName="wide:w-72 wide:shrink-0 wide:border-b-0 wide:border-r"
+    <div className="-m-gutter flex min-h-below-header">
+      {/* The rail on a wide screen: a column beside the conversation, collapsible. */}
+      {railHidden ? null : (
+        <aside
+          aria-label="Conversations"
+          className="hidden border-r border-rule bg-sidebar wide:sticky wide:top-12 wide:flex wide:h-below-header wide:w-64 wide:shrink-0 wide:flex-col"
         >
-          <Button className="mt-6" onClick={() => open(undefined)} disabled={pending || activeId === null}>
-            New conversation
-          </Button>
-          {scope === null ? (
-            <p className="mt-4 text-caption text-muted">
-              {me.isPending
-                ? 'Reading who is signed in…'
-                : 'Conversations can’t be kept until this browser knows who is signed in.'}
-            </p>
-          ) : history.error !== null ? (
-            <p className="mt-4 text-caption text-ink" role="alert">
-              {history.error} Nothing is shown rather than an empty list that would read as none saved.
-            </p>
-          ) : history.list.length === 0 ? (
-            <p className="mt-4 text-caption text-muted">
-              None yet. Send a message and the conversation is kept here.
-            </p>
-          ) : (
-            <ul className="mt-4 space-y-1" aria-label="Saved conversations">
-              {history.list.map((c) => (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    className={cn(
-                      'block w-full truncate border px-3 py-2 text-left text-body text-ink',
-                      'transition-colors duration-200 hover:border-rule-strong',
-                      'disabled:cursor-not-allowed disabled:opacity-50',
-                      c.id === activeId ? 'border-rule bg-surface' : 'border-transparent',
-                      focusRing,
-                    )}
-                    aria-current={c.id === activeId ? 'true' : undefined}
-                    disabled={pending}
-                    onClick={() => open(c)}
-                  >
-                    {c.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="mt-4 text-caption text-muted">
-            Kept in this browser only, not on Talyvor&rsquo;s servers — another browser won&rsquo;t
-            have them, and clearing site data removes them.
-          </p>
-          {storageRefused ? (
-            <p className="mt-2 text-caption text-ink" role="alert">
-              This browser refused to save the latest change, so it will be gone after a reload.
-            </p>
-          ) : null}
-        </Region>
+          {rail}
+        </aside>
+      )}
 
-        <div className="min-w-0 wide:flex-1">
-          <Region index="03" label="The conversation">
+      {/* The rail on a narrow screen: a drawer over the conversation. */}
+      {drawerOpen ? (
+        <Drawer onClose={() => setDrawerOpen(false)}>{rail}</Drawer>
+      ) : null}
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-row items-center gap-2 px-gutter pt-2">
+          <button
+            type="button"
+            className={cn(railButtonClass, 'wide:hidden')}
+            onClick={() => setDrawerOpen(true)}
+          >
+            Conversations
+          </button>
+          <button
+            type="button"
+            className={cn(railButtonClass, 'hidden wide:inline-flex')}
+            aria-expanded={!railHidden}
+            onClick={() => setRailHidden((h) => !h)}
+          >
+            {railHidden ? 'Show conversations' : 'Hide conversations'}
+          </button>
+          <div className="min-w-0 flex-1">
             {active !== undefined ? (
               <ConversationTitle
                 conversation={active}
@@ -317,61 +325,60 @@ export function Chat() {
                 }}
               />
             ) : null}
-            {catalog.isError ? (
-              // ⚠ AN EMPTY CONVERSATION IS NOT A FAILED ONE, AND emptyVsFault.test.ts REFUSED THIS
-              // SCREEN UNTIL IT SAID SO. With no catalog there is no model, so the composer is
-              // disabled — telling the reader to "type a message below" would point at a control that
-              // cannot be used, which is the shape where an absence reads as a working empty system.
-              <p className="mt-6 max-w-2xl text-body text-muted">
-                The model catalog could not be read, so there is nothing to ask yet. This is a failed
-                read, not an empty deployment — the catalog is above.
-              </p>
-            ) : messages.length === 0 ? (
-              <div className="mt-6 flex flex-col items-start gap-3">
-                <p className="max-w-2xl text-body text-muted">
-                  Nothing asked yet — type a message in the box below and send it. The conversation is
-                  kept in this browser as you go.
+          </div>
+        </div>
+
+        <div className="flex flex-1 flex-col px-gutter">
+          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+            {catalog.isPending ? (
+              <p className="mt-10 text-body text-muted">Reading the model catalog…</p>
+            ) : catalog.isError ? (
+              // ⚠ A FAILED READ IS NOT AN EMPTY CATALOG, AND AN EMPTY CONVERSATION IS NOT A FAILED
+              // ONE. emptyVsFault.test.ts refused this screen until it said so. With no catalog
+              // there is no model, so the composer is disabled and no greeting invites a question.
+              <div className="mt-10 space-y-3">
+                <InlineFailure error={catalog.error} failed="Couldn’t read the model catalog" />
+                <p className="text-body text-muted">
+                  The model catalog could not be read, so there is nothing to ask yet. This is a failed
+                  read, not an empty deployment.
                 </p>
-                {/* B3.4 — the empty state goes where it points: the caret lands in the message box. */}
-                <Button onClick={() => document.getElementById('chat-message')?.focus()}>Ask something</Button>
               </div>
+            ) : models.length === 0 ? (
+              <NoStreamableModels total={catalog.data?.length ?? 0} />
+            ) : messages.length === 0 ? (
+              <Greeting disabled={pending} onAsk={(prompt) => send(prompt)} />
             ) : (
-              <ol className="mt-6 max-w-3xl space-y-4">
+              <ol className="space-y-8 py-6">
                 {messages.map((m, i) => (
                   <li
                     // The index is the identity here: turns are append-only and never reordered, and
                     // two turns can carry byte-identical text.
                     key={i}
-                    className="border border-rule bg-surface px-gutter py-4"
                     data-testid={m.role === 'user' ? 'turn-user' : 'turn-assistant'}
+                    className={m.role === 'user' ? 'flex justify-end' : undefined}
                   >
-                    <span className="font-figure text-eyebrow uppercase text-faint">
-                      {m.role === 'user' ? 'You' : (m.cost?.model ?? selected?.display_name ?? 'Assistant')}
-                    </span>
-                    <p className="mt-2 whitespace-pre-wrap text-body text-ink">
-                      {m.content === '' && pending ? (
-                        <span className="text-muted">Answering…</span>
-                      ) : (
-                        m.content
-                      )}
-                    </p>
-                    {m.role === 'assistant' && m.content !== '' && !(pending && i === messages.length - 1) ? (
-                      // B1.4 — every answer carries its price. Figures on the figure face.
-                      <p className="mt-3 font-figure text-caption text-muted" data-testid="turn-cost">
-                        {m.cost !== undefined
-                          ? `${formatAnswerCost(m.cost.usd, usdPerLXC)} · ${m.cost.model} · ` +
-                            `${m.cost.input_tokens.toLocaleString('en-US')} in / ` +
-                            `${m.cost.output_tokens.toLocaleString('en-US')} out tokens`
-                          : 'Price not known — the provider reported no token counts for this answer'}
-                      </p>
-                    ) : null}
+                    {m.role === 'user' ? (
+                      <div className="max-w-prose whitespace-pre-wrap rounded-card bg-surface px-4 py-3 text-body text-ink">
+                        <span className="sr-only">You: </span>
+                        {m.content}
+                      </div>
+                    ) : (
+                      <Reply
+                        message={m}
+                        answering={pending && i === messages.length - 1}
+                        canRegenerate={!pending && i === messages.length - 1}
+                        onRegenerate={regenerate}
+                        usdPerLXC={usdPerLXC}
+                        fallbackModel={selected?.display_name}
+                      />
+                    )}
                   </li>
                 ))}
               </ol>
             )}
 
             {failure !== null ? (
-              <p className="mt-4 max-w-2xl text-body text-ink" role="alert">
+              <p className="mb-4 text-body text-ink" role="alert">
                 {failure}{' '}
                 {failure.includes('Top up') ? <Link className="underline" to="/billing">Billing</Link> : null}
               </p>
@@ -381,74 +388,360 @@ export function Chat() {
               // ⚠ SURFACED, NEVER SWALLOWED. The parser knows two wire shapes; a frame it cannot read
               // is counted rather than dropped, because "the model answered nothing" and "I could not
               // read what it sent" look identical on screen and have completely different causes.
-              <p className="mt-4 max-w-2xl text-caption text-muted" role="status">
+              <p className="mb-4 text-caption text-muted" role="status">
                 <span className="font-figure">{unreadable}</span> frame(s) in that response were in a shape this client
                 does not read, so part of the answer may be missing.
               </p>
             ) : null}
+            <div ref={endRef} />
+          </div>
+        </div>
 
-            <form
-              className="mt-6 flex max-w-3xl items-end gap-3"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void send()
-              }}
-            >
-              <label className="flex-1">
-                <span className="font-figure text-eyebrow uppercase text-muted">Your message</span>
-                <textarea
-                  id="chat-message"
-                  className={cn(
-                    'mt-2 block w-full resize-y border border-rule bg-surface px-3 py-2 text-body text-ink',
-                    'placeholder:text-faint',
-                    // ⚠ THE SAME CONTRACT Input.tsx GIVES EVERY OTHER TEXT FIELD. controlParity.test.ts
-                    // refused this field without it, correctly: a hand-rolled control that hovers,
-                    // disables or transitions differently from the shared one is a second opinion about
-                    // what a text field is.
-                    'transition-colors duration-200 hover:border-rule-strong',
-                    'disabled:cursor-not-allowed disabled:opacity-50',
-                    focusRing,
-                  )}
-                  rows={3}
-                  value={draft}
-                  disabled={selected === undefined}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return
-                    // ⚠ AN IME COMPOSITION USES ENTER TO CONFIRM CHARACTERS (Chinese, Japanese, Korean).
-                    // Safari reports that keydown with isComposing false, so keyCode 229 is checked too.
-                    if (e.nativeEvent.isComposing || e.keyCode === 229) return
-                    // Shift+Enter is a new line; Enter, Cmd+Enter and Ctrl+Enter send.
-                    if (e.shiftKey && !e.metaKey && !e.ctrlKey) return
-                    e.preventDefault()
-                    // send() refuses an empty draft and a send while an answer is streaming, so Enter
-                    // mid-answer queues nothing.
-                    void send()
-                  }}
-                  aria-describedby="chat-message-keys"
-                  placeholder={selected === undefined ? 'No model available' : 'Ask anything'}
-                />
-              </label>
-              {pending ? (
-                // ⚠ KEYED APART FROM Send. Reusing one <button> and flipping its type lets the click on
-                // Stop land on a submit button by the time the browser acts on it, which would send
-                // whatever was typed meanwhile.
-                <Button key="stop" type="button" onClick={stop}>
-                  Stop
-                </Button>
-              ) : (
-                <Button key="send" type="submit" variant="primary" disabled={draft.trim() === '' || selected === undefined}>
-                  Send
-                </Button>
-              )}
-            </form>
-            <p id="chat-message-keys" className="mt-2 max-w-3xl text-caption text-muted">
-              Enter sends · Shift+Enter adds a new line
-            </p>
-          </Region>
+        <div className="sticky bottom-0 bg-canvas px-gutter pb-gutter pt-2">
+          <div className="mx-auto w-full max-w-3xl">
+            <Composer
+              draft={draft}
+              onDraft={setDraft}
+              onSend={() => send()}
+              onStop={stop}
+              pending={pending}
+              models={models}
+              selected={selected}
+              onSelectModel={setModelId}
+            />
+            {selected !== undefined ? (
+              // ⚠ THE PRICE IS THE CATALOG'S LIST RATE AND IS LABELLED AS SUCH. A session-key
+              // request moves no LXC in the default configuration (see this file's header), so a
+              // "you spent" figure here would be a claim about a ledger that did not move. Figures
+              // on the figure face.
+              <p className="mt-2 font-figure text-caption text-faint">
+                List price · {formatUsdPer1M(selected.input_per_1m)} in /{' '}
+                {formatUsdPer1M(selected.output_per_1m)} out per 1M tokens
+                {hidden > 0 ? (
+                  <>
+                    {' · '}
+                    {hidden} catalog model(s) not offered here
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
-    </>
+    </div>
+  )
+}
+
+const railButtonClass = cn(
+  'inline-flex h-8 items-center rounded-control px-2 text-caption text-muted transition-colors duration-200 hover:text-ink',
+  focusRing,
+)
+
+function ChatRail({
+  history,
+  activeId,
+  pending,
+  signedIn,
+  readingIdentity,
+  storageRefused,
+  onNew,
+  onOpen,
+}: {
+  history: History
+  activeId: string | null
+  pending: boolean
+  signedIn: boolean
+  readingIdentity: boolean
+  storageRefused: boolean
+  onNew: () => void
+  onOpen: (c: Conversation) => void
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col p-2">
+      <Button className="w-full justify-start" onClick={onNew} disabled={pending || activeId === null}>
+        New chat
+      </Button>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+        {!signedIn ? (
+          <p className="px-2 text-caption text-muted">
+            {readingIdentity
+              ? 'Reading who is signed in…'
+              : 'Conversations can’t be kept until this browser knows who is signed in.'}
+          </p>
+        ) : history.error !== null ? (
+          <p className="px-2 text-caption text-ink" role="alert">
+            {history.error} Nothing is shown rather than an empty list that would read as none saved.
+          </p>
+        ) : history.list.length === 0 ? (
+          <p className="px-2 text-caption text-muted">No conversations yet.</p>
+        ) : (
+          <ul className="space-y-1" aria-label="Saved conversations">
+            {history.list.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  className={cn(
+                    'block w-full truncate rounded-control px-2 py-2 text-left text-body text-ink',
+                    'transition-colors duration-200 hover:bg-surface',
+                    'disabled:cursor-not-allowed disabled:opacity-50',
+                    c.id === activeId ? 'bg-surface' : undefined,
+                    focusRing,
+                  )}
+                  aria-current={c.id === activeId ? 'true' : undefined}
+                  disabled={pending}
+                  onClick={() => onOpen(c)}
+                >
+                  {c.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {storageRefused ? (
+          <p className="mt-2 px-2 text-caption text-ink" role="alert">
+            This browser refused to save the latest change, so it will be gone after a reload.
+          </p>
+        ) : null}
+      </div>
+      <div className="mt-2 space-y-1 border-t border-rule px-2 pt-3">
+        <Link className={cn('block text-caption text-ink underline', focusRing)} to="/chat/help">
+          How to use Talyvor Chat
+        </Link>
+        <p className="text-caption text-faint">Kept in this browser only.</p>
+      </div>
+    </div>
+  )
+}
+
+/** The rail as a drawer on a narrow screen. Escape or the backdrop closes it. */
+function Drawer({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    panelRef.current?.querySelector<HTMLElement>('button:not(:disabled), a')?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      opener?.focus()
+    }
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-20 wide:hidden">
+      <button type="button" aria-label="Close conversations" className="absolute inset-0 bg-canvas opacity-80" onClick={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Conversations"
+        className="absolute inset-y-0 left-0 flex w-72 max-w-full flex-col border-r border-rule bg-sidebar"
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Greeting({ disabled, onAsk }: { disabled: boolean; onAsk: (prompt: string) => void }) {
+  return (
+    <div className="flex flex-1 flex-col justify-center py-10">
+      <h2 className="text-title text-ink">What can I help with?</h2>
+      <ul className="mt-6 grid gap-2 wide:grid-cols-2" aria-label="Example questions">
+        {EXAMPLE_PROMPTS.map((p) => (
+          <li key={p}>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onAsk(p)}
+              className={cn(
+                'h-full w-full rounded-card border border-rule bg-surface px-4 py-3 text-left text-body text-ink',
+                'transition-colors duration-200 hover:border-rule-strong',
+                'disabled:cursor-not-allowed disabled:opacity-50',
+                focusRing,
+              )}
+            >
+              {p}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function Reply({
+  message,
+  answering,
+  canRegenerate,
+  onRegenerate,
+  usdPerLXC,
+  fallbackModel,
+}: {
+  message: ChatMessage
+  answering: boolean
+  canRegenerate: boolean
+  onRegenerate: () => void
+  usdPerLXC: number | undefined
+  fallbackModel: string | undefined
+}) {
+  return (
+    <div>
+      <span className="sr-only">{message.cost?.model ?? fallbackModel ?? 'Assistant'}: </span>
+      {message.content === '' && answering ? (
+        <p className="text-body text-muted">Answering…</p>
+      ) : (
+        <Markdown source={message.content} />
+      )}
+      {message.content !== '' && !answering ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          <CopyButton text={message.content} label="Copy" className="-ml-2" />
+          {canRegenerate ? (
+            <button
+              type="button"
+              onClick={onRegenerate}
+              className={cn(
+                'rounded-control px-2 py-1 text-caption text-muted transition-colors duration-200 hover:text-ink',
+                focusRing,
+              )}
+            >
+              Regenerate
+            </button>
+          ) : null}
+          {/* B1.4 — every answer carries its price and model: one quiet line, figures on the face. */}
+          <p className="ml-1 font-figure text-caption text-faint" data-testid="turn-cost">
+            {message.cost !== undefined
+              ? `${formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model} · ` +
+                `${message.cost.input_tokens.toLocaleString('en-US')} in / ` +
+                `${message.cost.output_tokens.toLocaleString('en-US')} out tokens`
+              : 'Price not known — the provider reported no token counts for this answer'}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function Composer({
+  draft,
+  onDraft,
+  onSend,
+  onStop,
+  pending,
+  models,
+  selected,
+  onSelectModel,
+}: {
+  draft: string
+  onDraft: (text: string) => void
+  onSend: () => void
+  onStop: () => void
+  pending: boolean
+  models: ChatModel[]
+  selected: ChatModel | undefined
+  onSelectModel: (id: string) => void
+}) {
+  const boxRef = useRef<HTMLTextAreaElement | null>(null)
+  // The box grows with what is typed, up to a limit, then scrolls.
+  useLayoutEffect(() => {
+    const el = boxRef.current
+    if (el === null) return
+    el.style.height = 'auto'
+    // No layout (a hidden tab, a test DOM) reports 0: leave the box at its natural one row.
+    if (el.scrollHeight > 0) el.style.height = `${Math.min(el.scrollHeight, 240)}px`
+  }, [draft])
+
+  return (
+    <form
+      className={cn(
+        'rounded-card border border-rule bg-surface transition-colors duration-200',
+        'focus-within:border-rule-strong',
+      )}
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSend()
+      }}
+    >
+      <label htmlFor="chat-message" className="sr-only">
+        Your message
+      </label>
+      <textarea
+        ref={boxRef}
+        id="chat-message"
+        className={cn(
+          'block max-h-60 w-full resize-none rounded-t-card bg-surface px-4 pt-3 text-body text-ink',
+          'placeholder:text-faint',
+          // ⚠ THE SAME CONTRACT Input.tsx GIVES EVERY OTHER TEXT FIELD. controlParity.test.ts
+          // refused this field without it, correctly: a hand-rolled control that hovers,
+          // disables or transitions differently from the shared one is a second opinion about
+          // what a text field is.
+          'transition-colors duration-200 hover:border-rule-strong',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          focusRing,
+        )}
+        rows={1}
+        value={draft}
+        disabled={selected === undefined}
+        onChange={(e) => onDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return
+          // ⚠ AN IME COMPOSITION USES ENTER TO CONFIRM CHARACTERS (Chinese, Japanese, Korean).
+          // Safari reports that keydown with isComposing false, so keyCode 229 is checked too.
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return
+          // Shift+Enter is a new line; Enter, Cmd+Enter and Ctrl+Enter send.
+          if (e.shiftKey && !e.metaKey && !e.ctrlKey) return
+          e.preventDefault()
+          // send() refuses an empty draft and a send while an answer is streaming, so Enter
+          // mid-answer queues nothing.
+          onSend()
+        }}
+        aria-describedby="chat-message-keys"
+        placeholder={selected === undefined ? 'No model available' : 'Ask anything'}
+      />
+      <span id="chat-message-keys" className="sr-only">
+        Enter sends. Shift+Enter adds a new line.
+      </span>
+      <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+        {models.length > 0 ? (
+          <>
+            <label htmlFor="chat-model" className="sr-only">
+              Model
+            </label>
+            <select
+              id="chat-model"
+              className={cn(
+                'h-8 max-w-60 truncate rounded-control bg-surface px-2 text-caption text-muted',
+                'transition-colors duration-200 hover:text-ink disabled:opacity-50',
+                focusRing,
+              )}
+              value={selected?.id ?? ''}
+              disabled={pending}
+              onChange={(e) => onSelectModel(e.target.value)}
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.display_name}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : null}
+        <div className="flex-1" />
+        {pending ? (
+          // ⚠ KEYED APART FROM Send. Reusing one <button> and flipping its type lets the click on
+          // Stop land on a submit button by the time the browser acts on it, which would send
+          // whatever was typed meanwhile.
+          <Button key="stop" type="button" onClick={onStop}>
+            Stop
+          </Button>
+        ) : (
+          <Button key="send" type="submit" variant="primary" disabled={draft.trim() === '' || selected === undefined}>
+            Send
+          </Button>
+        )}
+      </div>
+    </form>
   )
 }
 
@@ -480,16 +773,15 @@ function ConversationTitle({
   if (renaming !== null) {
     return (
       <form
-        className="mt-6 flex max-w-3xl items-end gap-3"
+        className="flex items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault()
           onRenameSave()
         }}
       >
-        <label className="flex-1">
-          <span className="font-figure text-eyebrow uppercase text-muted">Conversation name</span>
+        <label className="min-w-0 flex-1">
+          <span className="sr-only">Conversation name</span>
           <Input
-            className="mt-2"
             value={renaming}
             autoFocus
             onChange={(e) => onRenameChange(e.target.value)}
@@ -507,7 +799,7 @@ function ConversationTitle({
   }
   if (confirmingDelete) {
     return (
-      <div className="mt-6 flex max-w-3xl flex-wrap items-center gap-3" role="group" aria-label="Confirm delete">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Confirm delete">
         <p className="text-body text-ink">
           Delete &ldquo;{conversation.title}&rdquo; from this browser? It can&rsquo;t be brought back.
         </p>
@@ -519,14 +811,14 @@ function ConversationTitle({
     )
   }
   return (
-    <div className="mt-6 flex max-w-3xl flex-wrap items-center gap-3">
-      <h3 className="min-w-0 flex-1 truncate text-title text-ink">{conversation.title}</h3>
-      <Button onClick={onRenameStart} disabled={disabled}>
+    <div className="flex items-center gap-1">
+      <h2 className="min-w-0 flex-1 truncate text-body font-medium text-ink">{conversation.title}</h2>
+      <button type="button" className={railButtonClass} onClick={onRenameStart} disabled={disabled}>
         Rename
-      </Button>
-      <Button variant="danger" onClick={onDeleteStart} disabled={disabled}>
+      </button>
+      <button type="button" className={railButtonClass} onClick={onDeleteStart} disabled={disabled}>
         Delete
-      </Button>
+      </button>
     </div>
   )
 }
@@ -539,91 +831,16 @@ function ConversationTitle({
 function NoStreamableModels({ total }: { total: number }) {
   if (total === 0) {
     return (
-      <p className="mt-6 max-w-2xl text-body text-muted">
+      <p className="mt-10 text-body text-muted">
         This deployment&rsquo;s model catalog is empty, so there is nothing to chat with yet.
       </p>
     )
   }
   return (
-    <p className="mt-6 max-w-2xl text-body text-muted">
+    <p className="mt-10 text-body text-muted">
       This deployment serves <span className="font-figure">{total}</span> model(s), and none of them is on a provider
       whose stream this console can read yet. Chat reads two wire formats — OpenAI&rsquo;s and
       Anthropic&rsquo;s — because those are the two Lens streams.
     </p>
-  )
-}
-
-function ModelPicker({
-  models,
-  hidden,
-  selectedId,
-  onSelect,
-  disabled,
-}: {
-  models: ChatModel[]
-  hidden: number
-  selectedId: string
-  onSelect: (id: string) => void
-  disabled: boolean
-}) {
-  return (
-    <div className="mt-6">
-      <label className="block max-w-sm">
-        <span className="font-figure text-eyebrow uppercase text-muted">Model</span>
-        <select
-          className={cn(
-            'mt-2 block w-full border border-rule bg-surface px-3 py-2 text-body text-ink',
-            focusRing,
-          )}
-          value={selectedId}
-          disabled={disabled}
-          onChange={(e) => onSelect(e.target.value)}
-        >
-          {models.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.display_name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {/* ⚠ THE PRICE IS THE CATALOG'S LIST RATE AND IS LABELLED AS SUCH. It is NOT what this
-          conversation cost: a session-key request moves no LXC in the default configuration
-          (measured in talyvor-lens, dd1bb44 — re-verified at lens cc1576a, where serve()'s LXC
-          admission-and-debit block still sits inside `if agentKeyID != ""` and the session-key
-          branch still leaves APIKeyID empty), so a "you spent" figure here would be a claim about a
-          ledger that did not move. A list price is a fact about the catalog and is true.
-
-          ⚠ IT RENDERED WITHOUT A CURRENCY MARK UNTIL W4.9. Measured in the DOM: `List price · 2.5
-          in / 10 out per 1M tokens` — no `$` anywhere, on the one screen whose thesis is cost, and
-          the two figures disagreeing about their decimals. The figure audit could not have caught
-          it and is not at fault: this text carries words, so figureKind() reads it as prose and
-          declines to police it (its own TRAP TWO). See ./price.ts for why formatCost is the wrong
-          formatter here. */}
-      {(() => {
-        const shown = models.find((m) => m.id === selectedId) ?? models[0]
-        return shown === undefined ? null : (
-          <>
-            {/* The figure caption is ON THE FACE, which is the treatment this product gives every
-                other derived-value caption. The sentence that qualifies it is prose and carries no
-                digits, so it stays in the sans. */}
-            <p className="mt-3 font-figure text-caption text-muted">
-              List price · {formatUsdPer1M(shown.input_per_1m)} in /{' '}
-              {formatUsdPer1M(shown.output_per_1m)} out per 1M tokens
-            </p>
-            <p className="mt-1 text-caption text-muted">
-              That is the catalog rate, not this conversation&rsquo;s bill.
-            </p>
-          </>
-        )
-      })()}
-
-      {hidden > 0 ? (
-        <p className="mt-4 max-w-2xl text-caption text-muted">
-          <span className="font-figure">{hidden}</span> further catalog entr(y/ies) are not offered here — they are
-          deprecated, or on a provider whose stream this console does not read yet.
-        </p>
-      ) : null}
-    </div>
   )
 }
