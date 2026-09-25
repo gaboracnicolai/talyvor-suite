@@ -141,9 +141,24 @@ export function Chat() {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [storageRefused, setStorageRefused] = useState(false)
 
-  // The rail: collapsed on a wide screen by choice, a drawer on a narrow one.
-  const [railHidden, setRailHidden] = useState(false)
+  // The rail: hidden on a wide screen by choice (remembered per browser), a drawer on a narrow one.
+  const [railHidden, setRailHidden] = useState(readRailHidden)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  useEffect(() => writeRailHidden(railHidden), [railHidden])
+  const toggleRail = useCallback(() => setRailHidden((h) => !h), [])
+
+  // B15.5 — ⌘⇧S / Ctrl+Shift+S hides and shows the rail; on a narrow screen it opens the drawer.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.code !== 'KeyS') return
+      e.preventDefault()
+      const wide = typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 840px)').matches
+      if (wide) toggleRail()
+      else setDrawerOpen((o) => !o)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [toggleRail])
 
   const open = useCallback((c: Conversation | undefined) => {
     setActiveId(c?.id ?? null)
@@ -355,12 +370,55 @@ export function Chat() {
 
   return (
     <div className="-m-gutter flex min-h-below-header">
-      {/* The rail on a wide screen: a column beside the conversation, collapsible. */}
-      {railHidden ? null : (
+      {/* The rail on a wide screen: a column beside the conversation. Hidden, it leaves a slim
+          rail that still starts a new chat and brings the column back. */}
+      {railHidden ? (
+        <aside
+          aria-label="Conversations"
+          className="hidden border-r border-rule bg-sidebar wide:sticky wide:top-12 wide:flex wide:h-below-header wide:w-12 wide:shrink-0 wide:flex-col wide:items-center wide:gap-1 wide:py-2"
+        >
+          <button
+            type="button"
+            className={railIconClass}
+            onClick={toggleRail}
+            aria-label="Show sidebar"
+            aria-expanded={false}
+            aria-keyshortcuts="Meta+Shift+S Control+Shift+S"
+            title={`Show sidebar (${RAIL_SHORTCUT})`}
+          >
+            <SidebarGlyph />
+          </button>
+          <button
+            type="button"
+            className={railIconClass}
+            onClick={() => open(undefined)}
+            disabled={pending || activeId === null}
+            aria-label="New chat"
+            title="New chat"
+          >
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+          </button>
+        </aside>
+      ) : (
         <aside
           aria-label="Conversations"
           className="hidden border-r border-rule bg-sidebar wide:sticky wide:top-12 wide:flex wide:h-below-header wide:w-64 wide:shrink-0 wide:flex-col"
         >
+          <div className="flex justify-end px-2 pt-2">
+            <button
+              type="button"
+              className={railIconClass}
+              onClick={toggleRail}
+              aria-label="Hide sidebar"
+              aria-expanded={true}
+              aria-keyshortcuts="Meta+Shift+S Control+Shift+S"
+              title={`Hide sidebar (${RAIL_SHORTCUT})`}
+            >
+              <SidebarGlyph />
+            </button>
+          </div>
           {rail}
         </aside>
       )}
@@ -378,14 +436,6 @@ export function Chat() {
             onClick={() => setDrawerOpen(true)}
           >
             Conversations
-          </button>
-          <button
-            type="button"
-            className={cn(railButtonClass, 'hidden wide:inline-flex')}
-            aria-expanded={!railHidden}
-            onClick={() => setRailHidden((h) => !h)}
-          >
-            {railHidden ? 'Show conversations' : 'Hide conversations'}
           </button>
           <div className="min-w-0 flex-1">
             {active !== undefined ? (
@@ -530,6 +580,47 @@ const railButtonClass = cn(
   'inline-flex h-8 items-center rounded-control px-2 text-caption text-muted transition-colors duration-200 hover:text-ink',
   focusRing,
 )
+
+const railIconClass = cn(
+  'inline-flex h-8 w-8 items-center justify-center rounded-control text-muted transition-colors duration-200 hover:text-ink disabled:text-faint disabled:hover:text-faint',
+  focusRing,
+)
+
+/** The rail-toggle shortcut as this platform writes it, for the button's tooltip. */
+const RAIL_SHORTCUT =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+    ? '⌘⇧S'
+    : 'Ctrl+Shift+S'
+
+/** Per browser, like the conversations themselves. */
+export const RAIL_HIDDEN_KEY = 'talyvor.chat.rail-hidden'
+
+function readRailHidden(): boolean {
+  try {
+    return window.localStorage.getItem(RAIL_HIDDEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeRailHidden(hidden: boolean): void {
+  try {
+    if (hidden) window.localStorage.setItem(RAIL_HIDDEN_KEY, '1')
+    else window.localStorage.removeItem(RAIL_HIDDEN_KEY)
+  } catch {
+    // Storage refused: the choice lasts for this visit only.
+  }
+}
+
+/** A panel with its left column marked — the sidebar, shown or hidden. */
+function SidebarGlyph() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="3" width="12" height="10" rx="1.5" />
+      <path d="M6 3v10" />
+    </svg>
+  )
+}
 
 function ChatRail({
   history,
