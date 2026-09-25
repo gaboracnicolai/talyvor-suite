@@ -797,3 +797,14 @@ describe('W1.1.9b — the page reader reads as one screen, in regions', () => {
     expect(cardTitles).toEqual(['Summary', 'Translation', 'Title', 'Changelog entry'])
   })
 })
+
+// B3.4 — the space list's own empty state has a control too, not only the region's name.
+it('the empty space list goes where it points: Start a space puts the caret in the name', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  )
+  renderAt('/docs')
+  await screen.findByText(/^No spaces in this workspace yet\./)
+  fireEvent.click(screen.getByRole('button', { name: 'Start a space' }))
+  expect((document.activeElement as HTMLInputElement | null)?.placeholder).toBe('Engineering')
+})

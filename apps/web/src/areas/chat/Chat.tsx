@@ -319,10 +319,14 @@ export function Chat() {
                 read, not an empty deployment — the catalog is above.
               </p>
             ) : messages.length === 0 ? (
-              <p className="mt-6 max-w-2xl text-body text-muted">
-                Nothing asked yet — type a message in the box below and send it. The conversation is
-                kept in this browser as you go.
-              </p>
+              <div className="mt-6 flex flex-col items-start gap-3">
+                <p className="max-w-2xl text-body text-muted">
+                  Nothing asked yet — type a message in the box below and send it. The conversation is
+                  kept in this browser as you go.
+                </p>
+                {/* B3.4 — the empty state goes where it points: the caret lands in the message box. */}
+                <Button onClick={() => document.getElementById('chat-message')?.focus()}>Ask something</Button>
+              </div>
             ) : (
               <ol className="mt-6 max-w-3xl space-y-4">
                 {messages.map((m, i) => (
@@ -385,6 +389,7 @@ export function Chat() {
               <label className="flex-1">
                 <span className="font-figure text-eyebrow uppercase text-muted">Your message</span>
                 <textarea
+                  id="chat-message"
                   className={cn(
                     'mt-2 block w-full resize-y border border-rule bg-surface px-3 py-2 text-body text-ink',
                     'placeholder:text-faint',

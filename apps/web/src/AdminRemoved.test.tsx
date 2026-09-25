@@ -87,3 +87,9 @@ describe('the /admin area is gone', () => {
     expect(screen.queryByText(/Nothing at this address/)).toBeNull()
   })
 })
+
+// B3.4 — an address with no page is not a dead end: it links somewhere real.
+it('the catch-all links back to Overview', async () => {
+  at('/nowhere-at-all')
+  expect(await screen.findByRole('link', { name: 'Go to Overview' })).toHaveAttribute('href', '/')
+})

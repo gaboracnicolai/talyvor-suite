@@ -438,3 +438,12 @@ describe('what each answer cost', () => {
     for (const m of sent.messages) expect(Object.keys(m).sort()).toEqual(['content', 'role'])
   })
 })
+
+// B3.4 — a new chat's empty state goes where it points.
+it('nothing asked yet: Ask something puts the caret in the message box', async () => {
+  mockChat({})
+  renderChat()
+  const box = await screen.findByPlaceholderText('Ask anything')
+  fireEvent.click(screen.getByRole('button', { name: 'Ask something' }))
+  expect(document.activeElement).toBe(box)
+})

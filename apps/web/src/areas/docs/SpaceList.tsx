@@ -217,11 +217,15 @@ export function SpaceList() {
             )}
           </>
         ) : spaces.length === 0 ? (
-          <p className="max-w-2xl text-body text-muted">
-            No spaces in this workspace yet. The first one is named in “Start a space” — that is a
-            region label, which is the section&rsquo;s accessible name, so it is a place a rotor can
-            actually go. It lands in your own workspace.
-          </p>
+          <div className="flex flex-col items-start gap-3">
+            <p className="max-w-2xl text-body text-muted">
+              No spaces in this workspace yet. The first one is named in “Start a space” — that is a
+              region label, which is the section&rsquo;s accessible name, so it is a place a rotor can
+              actually go. It lands in your own workspace.
+            </p>
+            {/* B3.4 — and a control that goes there, not only its name. */}
+            <Button onClick={() => nameRef.current?.focus()}>Start a space</Button>
+          </div>
         ) : (
           <div className="flex flex-col">
             {spaces.map((s) => (
