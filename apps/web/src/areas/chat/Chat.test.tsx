@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { Chat } from './Chat'
+import { Chat, EXAMPLE_PROMPTS } from './Chat'
 import { type Conversation, historyKey, loadConversations } from './history'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
@@ -132,7 +132,7 @@ describe('the model picker reads the deployment, not this file', () => {
     // 4 in the catalog, 2 offered ⇒ 2 hidden. A screen that shows 2 of 4 without saying so is
     // making an unstated claim about the deployment.
     await waitFor(() => {
-      expect(screen.getByText(/further catalog entr/i).textContent).toContain('2')
+      expect(screen.getByText(/catalog model\(s\) not offered here/i).textContent).toContain('2')
     })
   })
 
@@ -145,7 +145,7 @@ describe('the model picker reads the deployment, not this file', () => {
     // shipped — so it could not tell a priced figure from an unlabelled number. Measured in the
     // DOM before the fix: `List price · 2.5 in / 10 out per 1M tokens`, no currency mark anywhere,
     // on the one screen whose thesis is cost.
-    expect(line.textContent).toBe('List price · $2.50 in / $10.00 out per 1M tokens')
+    expect(line.textContent).toBe('List price · $2.50 in / $10.00 out per 1M tokens · 2 catalog model(s) not offered here')
     // Stated separately so the reason survives if the copy around it is reworded: a price on this
     // screen must carry a currency mark. The product's figureAudit cannot enforce it here — this
     // element's text carries words, so figureKind() reads it as prose (its TRAP TWO) and never
@@ -154,10 +154,11 @@ describe('the model picker reads the deployment, not this file', () => {
     // ⚠ AND IT IS ON THE FIGURE FACE. A price caption set in the body sans is the exact defect
     // figureAudit exists for, and this line is the one numeral a reader compares between models.
     expect(line.getAttribute('class')).toContain('font-figure')
-    // ⚠ THE DISCLAIMER IS THE ASSERTION, AND IT IS ITS OWN SENTENCE. A session-key request moves no
-    // LXC in the default configuration (measured in talyvor-lens, dd1bb44), so a price on this
-    // screen that read as a charge would be a claim about a ledger that did not move.
-    expect(screen.getByText(/catalog rate, not this conversation/i)).toBeTruthy()
+    // ⚠ THE DISCLAIMER IS ITS OWN SENTENCE, AND SINCE B10.3 IT LIVES ON /chat/help — the chat
+    // carries no instructions. A session-key request moves no LXC in the default configuration
+    // (measured in talyvor-lens, dd1bb44), so a price that read as a charge would be a claim about
+    // a ledger that did not move. The help page's test asserts the sentence.
+    expect(line.textContent).toMatch(/^List price/)
   })
 
   it('a FAILED catalog read is not an empty deployment', async () => {
@@ -371,7 +372,8 @@ describe('what this screen refuses to imply', () => {
   it('says WHERE conversations are kept, so "saved" is not read as "saved to my account"', async () => {
     mockChat()
     renderChat()
-    expect(await screen.findByText(/Kept in this browser only, not on Talyvor/i)).toBeTruthy()
+    // One quiet fact in the rail; the full sentence is on /chat/help (asserted there).
+    expect(await screen.findByText('Kept in this browser only.')).toBeTruthy()
   })
 })
 
@@ -419,7 +421,7 @@ describe('conversation history', () => {
     seed('user-a', { id: 'a', title: 'Private', updated_at: 1 })
     mockChat({ sub: 'user-b' })
     renderChat()
-    expect(await screen.findByText(/None yet/)).toBeTruthy()
+    expect(await screen.findByText(/No conversations yet/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Private' })).toBeNull()
   })
 
@@ -508,11 +510,51 @@ describe('what each answer cost', () => {
   })
 })
 
-// B3.4 — a new chat's empty state goes where it points.
-it('nothing asked yet: Ask something puts the caret in the message box', async () => {
-  mockChat({})
+// B10.3 — a new chat greets and offers questions to click; clicking one asks it.
+it('nothing asked yet: an example question is asked when clicked', async () => {
+  const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
   renderChat()
-  const box = await screen.findByPlaceholderText('Ask anything')
-  fireEvent.click(screen.getByRole('button', { name: 'Ask something' }))
-  expect(document.activeElement).toBe(box)
+  expect(await screen.findByRole('heading', { name: 'What can I help with?' })).toBeTruthy()
+  await screen.findByRole('option', { name: 'GPT-4o' })
+  fireEvent.click(screen.getByRole('button', { name: EXAMPLE_PROMPTS[0] }))
+  await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+  expect(JSON.parse(String(posted.mock.calls[0][0].init.body)).messages).toEqual([
+    { role: 'user', content: EXAMPLE_PROMPTS[0] },
+  ])
+})
+
+describe('the reading column (B10.3)', () => {
+  it('renders a reply as Markdown — a heading, a list, a table, and code with its own Copy', async () => {
+    const reply = '## Steps\n\n- one\n- **two**\n\n| a | b |\n|---|---|\n| x | y |\n\n```go\nfmt.Println("hi")\n```\n'
+    mockChat({ body: `data: ${JSON.stringify({ choices: [{ delta: { content: reply } }] })}\n\ndata: [DONE]\n\n` })
+    renderChat()
+    await ask('show me')
+    const turn = await screen.findByTestId('turn-assistant')
+    await waitFor(() => expect(turn.querySelector('h4')?.textContent).toBe('Steps'))
+    expect(Array.from(turn.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['one', 'two'])
+    expect(turn.querySelector('strong')?.textContent).toBe('two')
+    expect(Array.from(turn.querySelectorAll('td')).map((td) => td.textContent)).toEqual(['x', 'y'])
+    expect(turn.querySelector('pre code')?.textContent).toBe('fmt.Println("hi")')
+    expect(screen.getByRole('button', { name: 'Copy code' })).toBeTruthy()
+  })
+
+  it('Regenerate asks the last question again and replaces the answer', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"first"}}]}\n\ndata: [DONE]\n\n' })
+    renderChat()
+    await ask('question')
+    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }))
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+    // The same question, without the answer being replaced.
+    expect(JSON.parse(String(posted.mock.calls[1][0].init.body)).messages).toEqual([
+      { role: 'user', content: 'question' },
+    ])
+    await waitFor(() => expect(screen.getAllByTestId('turn-assistant')).toHaveLength(1))
+  })
+
+  it('links to the how-to page from the rail', async () => {
+    mockChat()
+    renderChat()
+    const link = await screen.findByRole('link', { name: 'How to use Talyvor Chat' })
+    expect(link.getAttribute('href')).toBe('/chat/help')
+  })
 })

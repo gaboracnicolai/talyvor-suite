@@ -185,7 +185,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'reaches Lens never',
     why: 'the measurement that keeps generateChangelog out of the metered markers — the one Docs\' census names as its single excluded surface',
   },
-  'apps/web/src/meteredSurfacePopulation.test.ts:71|apps/web/src/areas/chat/Chat.tsx:48': {
+  'apps/web/src/meteredSurfacePopulation.test.ts:71|apps/web/src/areas/chat/Chat.tsx:49': {
     kind: 'LIVE',
     fragment: 'NOTHING HERE CLAIMS THE CONVERSATION IS BILLED',
     why: 'the measurement that keeps areas/chat out of the population entirely, so an absent area reads as decided rather than forgotten',
@@ -416,7 +416,7 @@ const PINS: Record<string, Pin> = {
     fragment: '!body.url',
     why: 'the reason a 200 with no url is NOT the finding — it is already converted, so the gate lets it through',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:59|apps/web/src/App.tsx:49': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:59|apps/web/src/App.tsx:50': {
     kind: 'LIVE',
     fragment: 'onError',
     why: 'the app\'s only global error handler, quoted to show it hangs off the QUERY cache and cannot see a mutation',

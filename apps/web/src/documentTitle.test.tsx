@@ -128,6 +128,7 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/': 'Overview',
   '/ledger': 'Ledger',
   '/chat': 'Chat',
+  '/chat/help': 'How to use Talyvor Chat',
   '/earnings': 'Earnings',
   '/billing': 'Billing',
   '/billing/success': 'Billing',

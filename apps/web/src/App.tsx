@@ -27,6 +27,7 @@ import { Features } from './areas/lens/Features'
 import { TopUp } from './areas/lens/TopUp'
 import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { Chat } from './areas/chat/Chat'
+import { ChatHelp } from './areas/chat/ChatHelp'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
 import { docsApi } from './areas/docs/api'
@@ -116,6 +117,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   // W4.6.1 step 6 — the chat screen. It sits directly under Overview because it is the first
   // surface a subscriber uses, not an administrative one.
   { path: '/chat', title: 'Chat', element: <Chat /> },
+  // B10.3 — the chat carries no instructions; they live here, linked from its rail.
+  { path: '/chat/help', title: 'How to use Talyvor Chat', element: <ChatHelp /> },
   // THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect targets already default to
   // app.talyvor.com/billing/success?session_id={CHECKOUT_SESSION_ID} and /billing/cancel — the
   // design assumed the suite owned them. A customer arrives here by full page load from Stripe,

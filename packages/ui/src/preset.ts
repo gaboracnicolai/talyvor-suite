@@ -223,8 +223,10 @@ const preset = {
       borderColor: { DEFAULT: 'var(--rule)' },
       borderRadius: { card: '10px', control: '6px', pill: '9999px' },
       spacing: { gutter: '16px', row: '38px' },
-      height: { row: '38px' },
-      minHeight: { row: '38px' },
+      // `below-header` — the viewport under the console's sticky header (`top-12`, a 32px control +
+      // py-2). B10.3's chat fills exactly that, so its composer sits at the bottom of the screen.
+      height: { row: '38px', 'below-header': 'calc(100dvh - 3rem)' },
+      minHeight: { row: '38px', 'below-header': 'calc(100dvh - 3rem)' },
       outlineColor: { accent: 'var(--accent)' },
       ringColor: { accent: 'var(--accent)' },
     },
