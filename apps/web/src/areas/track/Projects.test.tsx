@@ -104,3 +104,17 @@ describe('projects', () => {
     )
   })
 })
+
+// B3.4 — the empty project list goes where it points.
+it('no projects: Start the first project puts the caret in the name', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+    new Response(JSON.stringify(String(input) === '/api/track/teams' ? [TEAM] : []), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  )
+  renderAt('/track/projects')
+  await screen.findByText(/^No projects yet\./)
+  fireEvent.click(screen.getByRole('button', { name: 'Start the first project' }))
+  expect((document.activeElement as HTMLInputElement | null)?.placeholder).toBe('Billing v2')
+})

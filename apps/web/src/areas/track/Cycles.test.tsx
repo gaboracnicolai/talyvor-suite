@@ -109,3 +109,21 @@ describe('cycles', () => {
     await waitFor(() => expect(screen.getByTestId('cycle-progress').textContent).toContain('0 of 1 done'))
   })
 })
+
+// B3.4 — both of this screen's empty states go where they point.
+describe('Cycles — empty states with somewhere to go', () => {
+  it('no cycles: Start the first cycle puts the caret in Name', async () => {
+    mockTrack({ cycles: [] })
+    renderCycles()
+    await screen.findByText(/^No cycles yet\./)
+    fireEvent.click(screen.getByRole('button', { name: 'Start the first cycle' }))
+    expect((document.activeElement as HTMLInputElement | null)?.placeholder).toBe('Sprint 12')
+  })
+
+  it('an empty cycle: Add issues opens it on this team’s open issues', async () => {
+    mockTrack({ cycles: [CYCLE] })
+    renderCycles()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add issues' }))
+    expect(await screen.findByText('Fix the flaky deploy')).toBeInTheDocument()
+  })
+})

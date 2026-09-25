@@ -153,7 +153,7 @@ export function Cycles() {
             >
               <label className="flex min-w-48 flex-1 flex-col gap-1">
                 <span className="font-figure text-eyebrow uppercase text-muted">Name</span>
-                <Input value={name} placeholder="Sprint 12" onChange={(e) => setName(e.target.value)} />
+                <Input id="cycle-name" value={name} placeholder="Sprint 12" onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="flex flex-col gap-1">
                 <span className="font-figure text-eyebrow uppercase text-muted">Starts</span>
@@ -185,9 +185,15 @@ export function Cycles() {
             ) : cycles.isPending ? (
               <p className="text-body text-muted">Reading cycles from Track…</p>
             ) : list.length === 0 ? (
-              <p className="max-w-2xl text-body text-muted">
-                No cycles yet. Name one above and start it — then put this team’s issues in it.
-              </p>
+              <div className="flex flex-col items-start gap-3">
+                <p className="max-w-2xl text-body text-muted">
+                  No cycles yet. Name one above and start it — then put this team’s issues in it.
+                </p>
+                {/* B3.4 — the empty state goes where it points: the caret lands in Name. */}
+                <Button variant="primary" onClick={() => document.getElementById('cycle-name')?.focus()}>
+                  Start the first cycle
+                </Button>
+              </div>
             ) : (
               <ul className="flex flex-col gap-4">
                 {list.map((c) => (
@@ -268,7 +274,12 @@ function CycleCard({ cycle }: { cycle: TrackCycle }) {
         ) : p === undefined ? (
           <p className="text-caption text-muted">Reading progress…</p>
         ) : p.total_issues === 0 ? (
-          <p className="text-caption text-muted">No issues in this cycle yet — open it to add some.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-caption text-muted">
+              No issues in this cycle yet{open ? ' — add them from this team’s list below.' : '.'}
+            </p>
+            {open ? null : <Button onClick={() => setOpen(true)}>Add issues</Button>}
+          </div>
         ) : (
           <>
             <div

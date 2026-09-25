@@ -595,9 +595,13 @@ export function IssueList() {
               // is named by its REGION LABEL rather than by "above": the label is that section's
               // accessible name (Region sets `aria-labelledby` to it), so it is a place a rotor can
               // actually go, which "above" never is.
-              <p className="text-caption text-muted">
-                No issues yet. Create the first one under “Add to the tracker”.
-              </p>
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-caption text-muted">
+                  No issues yet. Create the first one under “Add to the tracker”.
+                </p>
+                {/* B3.4 — and a control that goes there, not only its name. */}
+                <Button onClick={() => titleRef.current?.focus()}>Create an issue</Button>
+              </div>
             ) : (
               <table className="w-full border-collapse text-body">
                 <thead>

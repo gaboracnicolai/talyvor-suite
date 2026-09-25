@@ -112,7 +112,7 @@ export function Projects() {
               ) : null}
               <label className="flex min-w-48 flex-1 flex-col gap-1">
                 <span className="font-figure text-eyebrow uppercase text-muted">Name</span>
-                <Input value={name} placeholder="Billing v2" onChange={(e) => setName(e.target.value)} />
+                <Input id="project-name" value={name} placeholder="Billing v2" onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="flex w-32 flex-col gap-1">
                 <span className="font-figure text-eyebrow uppercase text-muted">Identifier</span>
@@ -148,9 +148,15 @@ export function Projects() {
         ) : projects.isPending ? (
           <p className="text-body text-muted">Reading projects from Track…</p>
         ) : list.length === 0 ? (
-          <p className="max-w-2xl text-body text-muted">
-            No projects yet. Name one above and start it — then put issues in it from their pages.
-          </p>
+          <div className="flex flex-col items-start gap-3">
+            <p className="max-w-2xl text-body text-muted">
+              No projects yet. Name one above and start it — then put issues in it from their pages.
+            </p>
+            {/* B3.4 — the empty state goes where it points: the caret lands in Name. */}
+            <Button variant="primary" onClick={() => document.getElementById('project-name')?.focus()}>
+              Start the first project
+            </Button>
+          </div>
         ) : (
           <ul className="flex flex-col divide-y divide-rule border-y border-rule">
             {list.map((p) => (

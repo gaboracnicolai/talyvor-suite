@@ -100,7 +100,9 @@ const SHAPES: Record<string, { count: number; why: string }> = {
     // project's issues) and the issue page's "Start a project" — the majority answer again.
     // 45 → 51 at B5.2: Landing's two Pricing links (header, footer) and /pricing's four (the
     // GET /api/pricing check, the pooled-answer link, Privacy, Terms) — copied from Landing's own.
-    count: 51,
+    // 51 → 52 at B3.4: the catch-all's "Go to Overview" (App.tsx), so a mistyped address is not a
+    // dead end — the majority answer again.
+    count: 52,
     why:
       'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
       'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +

@@ -322,7 +322,10 @@ function AppShell() {
           path="*"
           element={
             <div className="mx-auto max-w-3xl px-gutter py-4 text-body text-muted">
-              Nothing at this address — pick a section from the sidebar.
+              Nothing at this address — pick a section from the sidebar.{' '}
+              <Link className="text-ink underline underline-offset-2" to="/">
+                Go to Overview
+              </Link>
             </div>
           }
         />

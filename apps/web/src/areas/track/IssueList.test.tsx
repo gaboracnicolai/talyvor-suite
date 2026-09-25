@@ -499,3 +499,13 @@ describe('W1.1.7 — the page-scale heading does not collapse the three states',
     expect(screen.queryByRole('button', { name: /write the first issue/i })).toBeNull()
   })
 })
+
+// B3.4 — the panel's empty state has its own control, because the opening region's button is off
+// screen by the time a reader reaches the panel on a narrow viewport.
+it('the empty issue panel goes where it points: Create an issue puts the caret in the title', async () => {
+  fakeBff([])
+  renderList()
+  await screen.findByText(/^No issues yet\./)
+  fireEvent.click(screen.getByRole('button', { name: 'Create an issue' }))
+  expect((document.activeElement as HTMLInputElement | null)?.placeholder).toBe('What needs doing?')
+})
