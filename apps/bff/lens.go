@@ -95,6 +95,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	// explicit "disabled" signal (see proxyGated). Others (economy, attestation, pattern
 	// mining) are added here the same way when a screen needs them.
 	a.mux.HandleFunc("/api/bonds", a.requireSession(a.proxyGated("/v1/bonds", "bonds")))
+	// B1.6 — a subscriber's plan this period: the allowance, what has been used of it, and what
+	// the team's answers earned back (Lens caps that at the fee). Lens registers the route only
+	// where subscriptions are sold, so absent reads as {enabled:false}, never as a fault.
+	a.mux.HandleFunc("/api/billing/allowance", a.requireSession(a.wsProxyGated("/billing/allowance", "subscriptions")))
 
 	// PRODUCT UPSTREAMS (inc6). Track and Docs gate /v1 behind their gatewayauth
 	// boundary: a request must carry X-Gateway-Auth equal to their GATEWAY_AUTH_SECRET
@@ -655,28 +659,46 @@ func (a *app) proxyGated(upstreamPath, capability string) http.HandlerFunc {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		resp, err := a.doGet(r.Context(), t, upstreamPath, "")
-		if err != nil {
-			log.Printf("bff: upstream %s: %v", upstreamPath, err)
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
+		a.forwardGated(w, r, t, upstreamPath, capability)
+	})
+}
+
+// wsProxyGated is proxyGated for a WORKSPACE-scoped Lens read. The caveat above does not bite:
+// the one path parameter is the workspace id, taken from the SESSION and never from the client,
+// and Lens answers a workspace the credential does not own with 403 (and no credential with 401),
+// never 404. So on a pinned suffix a 404 still means only "this route is not registered here".
+func (a *app) wsProxyGated(suffix, capability string) http.HandlerFunc {
+	return a.requireTenant(func(w http.ResponseWriter, r *http.Request, t tenant) {
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
 			return
 		}
-		defer resp.Body.Close()
-
-		switch resp.StatusCode {
-		case http.StatusNotFound:
-			writeJSON(w, http.StatusOK, map[string]any{"capability": capability, "enabled": false})
-		case http.StatusOK:
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream read"})
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"capability": capability, "enabled": true, "data": json.RawMessage(body)})
-		default:
-			writeJSON(w, resp.StatusCode, map[string]string{"error": "lens upstream error", "capability": capability})
-		}
+		a.forwardGated(w, r, t, lensWorkspacePath(t, suffix), capability)
 	})
+}
+
+func (a *app) forwardGated(w http.ResponseWriter, r *http.Request, t tenant, upstreamPath, capability string) {
+	resp, err := a.doGet(r.Context(), t, upstreamPath, "")
+	if err != nil {
+		log.Printf("bff: upstream %s: %v", upstreamPath, err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		writeJSON(w, http.StatusOK, map[string]any{"capability": capability, "enabled": false})
+	case http.StatusOK:
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream read"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"capability": capability, "enabled": true, "data": json.RawMessage(body)})
+	default:
+		writeJSON(w, resp.StatusCode, map[string]string{"error": "lens upstream error", "capability": capability})
+	}
 }
 
 // proxyProduct forwards GET → a fixed path on a gatewayauth-gated product upstream

@@ -123,7 +123,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. /earnings is
   // built from Region and renders no Card at all; its three regions carry their own headings.
   '/earnings': 0,
-  '/billing': 2,
+  '/billing': 3,
   // 0 → 1 at W1.1.17b: the return screen draws a card, and the old census was reading its
   // pre-query state.
   '/billing/success': 1,

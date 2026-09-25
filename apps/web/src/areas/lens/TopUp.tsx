@@ -7,6 +7,7 @@ import { CapabilityOff } from './Capability'
 import { InlineFailure } from '../../components/SessionExpiredBar'
 import { Region, RegionScreen } from '../../components/Region'
 import { formatUSD } from './format'
+import { YourPlan } from './Plan'
 import {
   CheckoutError,
   dollarsToCents,
@@ -386,6 +387,7 @@ export function TopUp({
             )}
           </Row>
         </Card>
+        <YourPlan />
       </Region>
 
       <Region index="02" label={billingOff ? 'What this deployment can sell' : 'Add credit'}>

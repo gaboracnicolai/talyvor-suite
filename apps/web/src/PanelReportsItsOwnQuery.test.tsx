@@ -95,6 +95,7 @@ function bodyFor(url: string): unknown {
   if (url.includes('/api/lxc/balance')) return { balance_ulxc: 49360000, held_ulxc: 0 }
   if (url.includes('/api/tokens/balance')) return { balance_ulens: 1000 }
   if (url.includes('/api/bonds')) return { enabled: false }
+  if (url.includes('/api/billing/allowance')) return { capability: 'subscriptions', enabled: false }
   if (url.includes('/api/lxc/topup-options')) return { allowed_usd_cents: [1000, 2500], billing_enabled: true }
   if (url.includes('/api/context')) return { workspace_id: 'uabcdefghijklmnopqrstuvwxy', lens_base_url: 'http://lens:8080', lens_public_base_url: 'https://lens.example' }
   if (url.includes('/api/distill')) return { distill_policy: 'disabled', converted: 0, vision_ocr: 0, days: 30 }
@@ -145,7 +146,7 @@ function mockBff(refusals: Array<[string, number]> = []) {
 const ADDRESS_ROUTES: Record<string, string[]> = {
   '/': ['/api/bonds', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/history', '/api/spend/month', '/api/tokens/balance', '/api/tokens/history', '/api/track/workspaces', '/api/usage'],
   '/ledger': ['/api/lxc/history'],
-  '/billing': ['/api/lxc/balance', '/api/lxc/topup-options'],
+  '/billing': ['/api/billing/allowance', '/api/lxc/balance', '/api/lxc/topup-options'],
   '/keys': ['/api/keys'],
   '/setup': ['/api/context', '/api/keys'],
   '/spend': ['/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
@@ -226,7 +227,7 @@ describe('the swept set', () => {
     // fixture that stops reaching the app — shows up as a smaller sweep rather than as a
     // quieter one.
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(27)
+    expect(pairs).toBe(28)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {

@@ -525,3 +525,56 @@ func TestLoadConfigLensBaseURLTransport(t *testing.T) {
 		})
 	}
 }
+
+// B1.6: /api/billing/allowance reads the SESSION workspace's plan from Lens, wrapped like every
+// gated read — the payload under {enabled:true} where subscriptions are sold, {enabled:false}
+// where Lens never registered the route.
+func TestBillingAllowanceIsAGatedWorkspaceRead(t *testing.T) {
+	for _, tc := range []struct {
+		status  int
+		body    string
+		enabled bool
+	}{
+		{http.StatusOK, `{"allowance":{"granted_ulxc":200000000,"consumed_ulxc":50000000,"remaining_ulxc":150000000,"fee_usd_cents":2000},"earned_back_usd_cents":600}`, true},
+		{http.StatusNotFound, "404 page not found", false},
+	} {
+		var gotPath string
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == provisionPath {
+				serveFakeProvision(w, r)
+				return
+			}
+			gotPath = r.URL.Path
+			w.WriteHeader(tc.status)
+			_, _ = io.WriteString(w, tc.body)
+		}))
+		a := newApp(config{lensBaseURL: upstream.URL, provisionSecret: testProvisionSecret, webDist: t.TempDir(), authMode: authModeDisabled}, nil)
+
+		rec := httptest.NewRecorder()
+		a.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/billing/allowance", nil))
+		upstream.Close()
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("upstream %d: got %d (%s), want 200", tc.status, rec.Code, rec.Body.String())
+		}
+		if !strings.HasPrefix(gotPath, "/v1/workspaces/") || !strings.HasSuffix(gotPath, "/billing/allowance") {
+			t.Fatalf("upstream %d: Lens was asked for %q, want the session workspace's /billing/allowance", tc.status, gotPath)
+		}
+		var got struct {
+			Capability string `json:"capability"`
+			Enabled    bool   `json:"enabled"`
+			Data       struct {
+				EarnedBack int64 `json:"earned_back_usd_cents"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("upstream %d: not the gated envelope: %v (%s)", tc.status, err, rec.Body.String())
+		}
+		if got.Capability != "subscriptions" || got.Enabled != tc.enabled {
+			t.Fatalf("upstream %d: got %+v, want {capability:subscriptions, enabled:%v}", tc.status, got, tc.enabled)
+		}
+		if tc.enabled && got.Data.EarnedBack != 600 {
+			t.Fatalf("the plan payload must pass through unchanged, got %s", rec.Body.String())
+		}
+	}
+}
