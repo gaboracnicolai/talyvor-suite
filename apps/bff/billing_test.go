@@ -230,7 +230,7 @@ func TestCheckoutForwardsToPinnedWorkspaceWithKeyAndReturnsTheURL(t *testing.T) 
 /* ── The allow-list: refused HERE, before a Stripe customer is ever made ─── */
 
 func TestCheckoutRefusesOffAllowListAmountsBeforeDialling(t *testing.T) {
-	for _, cents := range []int64{0, -1000, 1, 2000, 999999} {
+	for _, cents := range []int64{0, -1000, 1, 999, 1_000_001} {
 		up := newCheckoutUpstream(t)
 		a, sess := checkoutApp(t, up)
 
@@ -244,9 +244,31 @@ func TestCheckoutRefusesOffAllowListAmountsBeforeDialling(t *testing.T) {
 			t.Fatalf("usd_cents=%d reached the upstream — an off-list amount must be refused before "+
 				"Lens creates a Stripe customer for it", cents)
 		}
-		// The refusal must name the amounts, so the screen can say what IS allowed.
-		if body := decodeBody(t, rec); body["allowed_usd_cents"] == nil {
-			t.Fatalf("usd_cents=%d: the refusal must carry the allowed amounts, got %s", cents, rec.Body.String())
+		// The refusal must name the bounds, so the screen can say what IS allowed.
+		body := decodeBody(t, rec)
+		if body["min_usd_cents"] != float64(1000) || body["max_usd_cents"] != float64(1_000_000) {
+			t.Fatalf("usd_cents=%d: the refusal must carry the bounds, got %s", cents, rec.Body.String())
+		}
+		if msg, _ := body["error"].(string); !strings.Contains(msg, "$10 to $10,000") {
+			t.Fatalf("usd_cents=%d: the refusal must state the bounds in words, got %q", cents, msg)
+		}
+	}
+}
+
+// B5.1: any whole-cent amount in bounds reaches Lens as exactly that many cents — $2,500 is not
+// rounded to a preset, and $12.34 is not rounded at all.
+func TestCheckoutForwardsAnyInBoundsAmountExactly(t *testing.T) {
+	for _, cents := range []int64{1000, 1234, 250_000, 1_000_000} {
+		up := newCheckoutUpstream(t)
+		a, sess := checkoutApp(t, up)
+
+		rec := postCheckout(a, sess, "https://app.talyvor.com", `{"usd_cents":`+itoa(cents)+`}`)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("usd_cents=%d: got %d (%s), want 200", cents, rec.Code, rec.Body.String())
+		}
+		if want := `{"usd_cents":` + itoa(cents) + `}`; up.gotBody != want {
+			t.Fatalf("usd_cents=%d: Lens was sent %s, want %s", cents, up.gotBody, want)
 		}
 	}
 }
