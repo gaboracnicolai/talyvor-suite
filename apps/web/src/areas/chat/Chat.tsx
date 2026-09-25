@@ -7,6 +7,7 @@ import { Button, Input, cn, focusRing } from '@talyvor/ui'
 import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
+  type ChatAttachment,
   type ChatMessage,
   type ChatModel,
   fetchModels,
@@ -23,6 +24,7 @@ import {
 } from './history'
 import { Markdown } from './Markdown'
 import { CopyButton } from './CopyButton'
+import { FilePicker } from './FilePicker'
 import { type AnswerCost, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
 import { topupApi } from '../lens/topupApi'
 
@@ -65,6 +67,44 @@ import { topupApi } from '../lens/topupApi'
 // Markdown. Explanations live on /chat/help (./ChatHelp.tsx), not on this screen; what stays here
 // is what a reader needs at the moment of reading — a price, a failure, where history is kept.
 
+/**
+ * B10.3 — the documents a question can carry: exactly the formats Lens's converter reads
+ * (talyvor-lens internal/distill/orchestrator.go, FormatFromMediaType). Keyed by extension because
+ * a browser often reports no type for .md or .csv. Slide decks are not among them.
+ */
+export const ATTACHABLE: Record<string, string> = {
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  csv: 'text/csv',
+  html: 'text/html',
+  htm: 'text/html',
+  json: 'application/json',
+  xml: 'application/xml',
+  txt: 'text/plain',
+  md: 'text/markdown',
+}
+
+/**
+ * ⚠ 2.5 MB OF DOCUMENTS PER CONVERSATION, AND THE REASON IS THE WIRE. The BFF and Lens each refuse a
+ * request body over 4 MiB, a document travels base64-encoded (a third larger), and every later
+ * question in the conversation carries it again.
+ */
+export const ATTACH_LIMIT_BYTES = 2_500_000
+
+function readBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''))
+    reader.onerror = () => reject(reader.error ?? new Error('unreadable'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function formatSize(bytes: number): string {
+  return bytes < 1_000_000 ? `${Math.max(1, Math.round(bytes / 1000))} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`
+}
+
 /** Click-to-ask prompts for an empty conversation. Plain requests, no instructions. */
 export const EXAMPLE_PROMPTS: readonly string[] = [
   'Explain the difference between TCP and UDP in plain words',
@@ -82,6 +122,8 @@ export function Chat() {
   const [modelId, setModelId] = useState<string>('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [attachError, setAttachError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [unreadable, setUnreadable] = useState(0)
@@ -160,6 +202,10 @@ export function Chat() {
       abortRef.current = controller
       let answer = ''
       let cost: AnswerCost | undefined
+      // B10.3 — whether Lens converted the documents this question carried, marked on the question.
+      const asked = turn.length - 1
+      const carriedDocs = turn[asked]?.attachments?.some((a) => a.data !== undefined) === true
+      let sentTurn = turn
 
       await streamChat(
         selected.provider,
@@ -181,7 +227,11 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted }) => {
+            if (carriedDocs) {
+              sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
+              setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
+            }
             // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
             const priced = pricedAnswer(usage, selected, servedBy)
             if (priced !== undefined) {
@@ -204,7 +254,7 @@ export function Chat() {
         controller.signal,
       )
       store((list) =>
-        upsertConversation(list, id, model, [...turn, { role: 'assistant', content: answer, cost }], Date.now()),
+        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost }], Date.now()),
       )
     },
     [activeId, pending, selected, store],
@@ -215,9 +265,47 @@ export function Chat() {
       const question = text.trim()
       if (question === '' || selected === undefined || pending) return
       setDraft('')
-      void run([...messages, { role: 'user', content: question }])
+      const docs = attachments
+      setAttachments([])
+      setAttachError(null)
+      void run([...messages, docs.length > 0 ? { role: 'user', content: question, attachments: docs } : { role: 'user', content: question }])
     },
-    [draft, messages, pending, run, selected],
+    [attachments, draft, messages, pending, run, selected],
+  )
+
+  const attach = useCallback(
+    async (files: File[]) => {
+      setAttachError(null)
+      const inMemory = [...messages.flatMap((m) => m.attachments ?? []), ...attachments]
+        .filter((a) => a.data !== undefined)
+        .reduce((sum, a) => sum + a.size, 0)
+      let room = ATTACH_LIMIT_BYTES - inMemory
+      const added: ChatAttachment[] = []
+      for (const f of files) {
+        const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+        const mediaType = ATTACHABLE[ext]
+        if (mediaType === undefined) {
+          setAttachError(
+            `${f.name} can’t be converted. PDF, Word, Excel, CSV, HTML, JSON, XML, text and Markdown files can — save a slide deck as PDF first.`,
+          )
+          continue
+        }
+        if (f.size > room) {
+          setAttachError(
+            `${f.name} is too large: documents are limited to 2.5 MB per conversation, because a request can carry at most 4 MB and a document travels base64-encoded.`,
+          )
+          continue
+        }
+        try {
+          added.push({ name: f.name, media_type: mediaType, size: f.size, data: await readBase64(f) })
+          room -= f.size
+        } catch {
+          setAttachError(`${f.name} could not be read by this browser.`)
+        }
+      }
+      if (added.length > 0) setAttachments((prev) => [...prev, ...added])
+    },
+    [attachments, messages],
   )
 
   // Regenerate answers the last question again: the previous answer is dropped, not kept beside it.
@@ -358,9 +446,12 @@ export function Chat() {
                     className={m.role === 'user' ? 'flex justify-end' : undefined}
                   >
                     {m.role === 'user' ? (
-                      <div className="max-w-prose whitespace-pre-wrap rounded-card bg-surface px-4 py-3 text-body text-ink">
+                      <div className="max-w-prose rounded-card bg-surface px-4 py-3 text-body text-ink">
                         <span className="sr-only">You: </span>
-                        {m.content}
+                        {m.attachments !== undefined && m.attachments.length > 0 ? (
+                          <SentDocuments message={m} answering={pending && i === messages.length - 2} />
+                        ) : null}
+                        <p className="whitespace-pre-wrap">{m.content}</p>
                       </div>
                     ) : (
                       <Reply
@@ -400,6 +491,10 @@ export function Chat() {
         <div className="sticky bottom-0 bg-canvas px-gutter pb-gutter pt-2">
           <div className="mx-auto w-full max-w-3xl">
             <Composer
+              attachments={attachments}
+              onAttach={(files) => void attach(files)}
+              onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+              attachError={attachError}
               draft={draft}
               onDraft={setDraft}
               onSend={() => send()}
@@ -544,6 +639,37 @@ function Drawer({ onClose, children }: { onClose: () => void; children: React.Re
   )
 }
 
+/**
+ * The documents a question carried, and what became of them. Lens says `applied` when it converted
+ * them to text before the model read them; without that, the model was sent the original file.
+ */
+function SentDocuments({ message, answering }: { message: ChatMessage; answering: boolean }) {
+  const docs = message.attachments ?? []
+  const kept = docs.every((d) => d.data !== undefined)
+  return (
+    <div className="mb-2 space-y-1">
+      <ul className="flex flex-wrap gap-2" aria-label="Documents sent">
+        {docs.map((d, i) => (
+          <li key={`${d.name}-${i}`} className="rounded-control border border-rule bg-canvas px-2 py-1 text-caption text-ink">
+            {d.name} <span className="font-figure text-faint">{formatSize(d.size)}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-caption text-muted" data-testid="documents-status">
+        {message.converted === true
+          ? 'Converted to text before the model read it.'
+          : message.converted === false
+            ? 'Sent as the original file — Lens did not convert it (document conversion is off for this workspace; see Settings).'
+            : answering
+              ? 'Sending…'
+              : kept
+                ? ''
+                : 'The file itself isn’t kept after a reload, so later questions can’t see it.'}
+      </p>
+    </div>
+  )
+}
+
 function Greeting({ disabled, onAsk }: { disabled: boolean; onAsk: (prompt: string) => void }) {
   return (
     <div className="flex flex-1 flex-col justify-center py-10">
@@ -624,6 +750,10 @@ function Reply({
 }
 
 function Composer({
+  attachments,
+  onAttach,
+  onRemoveAttachment,
+  attachError,
   draft,
   onDraft,
   onSend,
@@ -633,6 +763,10 @@ function Composer({
   selected,
   onSelectModel,
 }: {
+  attachments: ChatAttachment[]
+  onAttach: (files: File[]) => void
+  onRemoveAttachment: (index: number) => void
+  attachError: string | null
   draft: string
   onDraft: (text: string) => void
   onSend: () => void
@@ -643,6 +777,7 @@ function Composer({
   onSelectModel: (id: string) => void
 }) {
   const boxRef = useRef<HTMLTextAreaElement | null>(null)
+  const fileRef = useRef<HTMLInputElement | null>(null)
   // The box grows with what is typed, up to a limit, then scrolls.
   useLayoutEffect(() => {
     const el = boxRef.current
@@ -663,6 +798,24 @@ function Composer({
         onSend()
       }}
     >
+      {attachments.length > 0 ? (
+        <ul className="flex flex-wrap gap-2 px-3 pt-3" aria-label="Attached documents">
+          {attachments.map((a, i) => (
+            <li key={`${a.name}-${i}`} className="flex items-center gap-1 rounded-control border border-rule bg-canvas py-1 pl-2 pr-1 text-caption text-ink">
+              <span className="max-w-48 truncate">{a.name}</span>
+              <span className="font-figure text-faint">{formatSize(a.size)}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${a.name}`}
+                className={cn('rounded-control px-1 text-muted transition-colors duration-200 hover:text-ink', focusRing)}
+                onClick={() => onRemoveAttachment(i)}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <label htmlFor="chat-message" className="sr-only">
         Your message
       </label>
@@ -703,6 +856,21 @@ function Composer({
         Enter sends. Shift+Enter adds a new line.
       </span>
       <div className="flex items-center gap-2 px-2 pb-2 pt-1">
+        <FilePicker
+          ref={fileRef}
+          accept={Object.keys(ATTACHABLE)
+            .map((ext) => `.${ext}`)
+            .join(',')}
+          onFiles={onAttach}
+        />
+        <button
+          type="button"
+          className={cn(railButtonClass, 'disabled:opacity-50')}
+          disabled={pending || selected === undefined}
+          onClick={() => fileRef.current?.click()}
+        >
+          Attach
+        </button>
         {models.length > 0 ? (
           <>
             <label htmlFor="chat-model" className="sr-only">
@@ -741,6 +909,11 @@ function Composer({
           </Button>
         )}
       </div>
+      {attachError !== null ? (
+        <p className="px-4 pb-3 text-caption text-ink" role="alert">
+          {attachError}
+        </p>
+      ) : null}
     </form>
   )
 }

@@ -225,6 +225,12 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		// ⚠ NOT application/json. The shared forward() sets that, and it is how a streaming lane
 		// silently becomes a buffered one.
 		up.Header.Set("Accept", "text/event-stream")
+		// B10.3 — a message with an attached document asks Lens to convert it (distill), so a
+		// workspace on `opt_in` converts it too. Only the one opt-in value is forwarded; every other
+		// request header stays behind, as it always has.
+		if strings.EqualFold(strings.TrimSpace(r.Header.Get(distillHeader)), "true") {
+			up.Header.Set(distillHeader, "true")
+		}
 
 		resp, err := a.streamClient.Do(up)
 		if err != nil {
@@ -240,6 +246,11 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		if ct := resp.Header.Get("Content-Type"); ct != "" {
 			w.Header().Set("Content-Type", ct)
 		}
+		// Lens says `applied` when it converted an attached document before the model read it; the
+		// chat shows that on the message.
+		if resp.Header.Get(distillHeader) == "applied" {
+			w.Header().Set(distillHeader, "applied")
+		}
 		// A stream must not be cached or buffered by anything between here and the browser.
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Accel-Buffering", "no")
@@ -247,6 +258,10 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		relayFlushing(w, resp.Body)
 	})
 }
+
+// distillHeader is Lens's document-conversion header: `true` on a request opts it in, `applied` on
+// the response says the conversion happened.
+const distillHeader = "X-Talyvor-Distill"
 
 // streamRequestMaxBytes bounds the prompt a browser may post. Generous — a long conversation is a
 // legitimately large body — but not unbounded.

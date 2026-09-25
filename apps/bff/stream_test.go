@@ -56,6 +56,7 @@ type streamUpstream struct {
 	gotMintAuth  string
 	gotProxyPath string
 	gotAccept    string
+	gotDistill   string
 	mintCalls    int
 	proxyCalls   int
 	chunkGap     time.Duration
@@ -92,6 +93,10 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotProxyAuth = r.Header.Get("Authorization")
 			u.gotProxyPath = r.URL.Path
 			u.gotAccept = r.Header.Get("Accept")
+			u.gotDistill = r.Header.Get("X-Talyvor-Distill")
+			if u.gotDistill == "true" {
+				w.Header().Set("X-Talyvor-Distill", "applied") // as Lens does when it converted a document
+			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			fl, _ := w.(http.Flusher)
@@ -764,5 +769,44 @@ func TestStream_ASlowMintIsNotAnUnreachableLens(t *testing.T) {
 	}
 	if strings.Contains(deadBody, "UPSTREAM_TIMEOUT") {
 		t.Errorf("not-listening body = %s, and a Lens that never answered now claims a timeout", deadBody)
+	}
+}
+
+// B10.3 — a chat message with an attached document opts it into Lens's conversion, and the chat is
+// told when the conversion happened. Only the opt-in value travels up; only `applied` travels back.
+func TestStream_DocumentConversionOptInReachesLensAndItsAnswerReachesTheChat(t *testing.T) {
+	for _, tc := range []struct {
+		name, sent, wantUp, wantBack string
+	}{
+		{"opted in", "true", "true", "applied"},
+		{"not opted in", "", "", ""},
+		{"any other value is not forwarded", "always", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newStreamUpstream(t)
+			up.noBlock = true
+			a, sess := streamApp(t, up)
+			ts := httptest.NewServer(a)
+			defer ts.Close()
+			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+			req.AddCookie(sess)
+			req.Header.Set("Origin", "https://app.talyvor.com")
+			req.Header.Set("Content-Type", "application/json")
+			if tc.sent != "" {
+				req.Header.Set("X-Talyvor-Distill", tc.sent)
+			}
+			resp, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatalf("do: %v", err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if up.gotDistill != tc.wantUp {
+				t.Fatalf("Lens received X-Talyvor-Distill %q, want %q", up.gotDistill, tc.wantUp)
+			}
+			if got := resp.Header.Get("X-Talyvor-Distill"); got != tc.wantBack {
+				t.Fatalf("the chat received X-Talyvor-Distill %q, want %q", got, tc.wantBack)
+			}
+		})
 	}
 }

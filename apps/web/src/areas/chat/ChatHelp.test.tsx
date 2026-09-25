@@ -14,6 +14,7 @@ describe('How to use Talyvor Chat (B10.3)', () => {
     expect(screen.getAllByRole('heading').map((h) => h.textContent)).toEqual([
       'Asking',
       'Models',
+      'Attaching documents',
       'What an answer costs',
       'Where conversations are kept',
     ])

@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { Chat, EXAMPLE_PROMPTS } from './Chat'
+import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS } from './Chat'
 import { type Conversation, historyKey, loadConversations } from './history'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
@@ -56,6 +56,7 @@ function mockChat({
   body,
   sub = 'user-a',
   usdPerLXC,
+  converts = false,
 }: {
   catalog?: unknown
   catalogStatus?: number
@@ -65,6 +66,8 @@ function mockChat({
   sub?: string
   /** The credit peg /api/lxc/topup-options confirms. Absent ⇒ that read 404s, as on economy-off. */
   usdPerLXC?: number
+  /** Whether Lens converts an opted-in document (answers X-Talyvor-Distill: applied). */
+  converts?: boolean
 } = {}) {
   const posted = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -91,7 +94,11 @@ function mockChat({
     if (url.startsWith('/api/ai/stream/')) {
       posted({ url, init })
       if (streamStatus !== 200) return new Response('refused', { status: streamStatus })
-      return new Response(body ?? '', { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+      const optedIn = new Headers(init?.headers).get('X-Talyvor-Distill') === 'true'
+      return new Response(body ?? '', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream', ...(converts && optedIn ? { 'X-Talyvor-Distill': 'applied' } : {}) },
+      })
     }
     return new Response('null', { status: 404 })
   })
@@ -556,5 +563,59 @@ describe('the reading column (B10.3)', () => {
     renderChat()
     const link = await screen.findByRole('link', { name: 'How to use Talyvor Chat' })
     expect(link.getAttribute('href')).toBe('/chat/help')
+  })
+})
+
+describe('attached documents (B10.3)', () => {
+  const pdf = () => new File(['%PDF-1.7 quarterly report'], 'report.pdf', { type: 'application/pdf' })
+
+  async function attach(files: File[]) {
+    await screen.findByRole('option', { name: 'GPT-4o' })
+    fireEvent.change(document.getElementById('chat-attach') as HTMLInputElement, { target: { files } })
+  }
+
+  it('sends the document in the shape Lens converts, asks for conversion, and says it happened', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', converts: true })
+    renderChat()
+    await attach([pdf()])
+    expect(await screen.findByText('report.pdf')).toBeTruthy()
+    await ask('summarise this')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+
+    const { init } = posted.mock.calls[0][0]
+    expect(new Headers(init.headers).get('X-Talyvor-Distill')).toBe('true')
+    const [message] = JSON.parse(String(init.body)).messages
+    expect(message.content[0]).toEqual({ type: 'text', text: 'summarise this' })
+    expect(message.content[1].type).toBe('file')
+    expect(message.content[1].file.filename).toBe('report.pdf')
+    expect(message.content[1].file.file_data).toBe(`data:application/pdf;base64,${btoa('%PDF-1.7 quarterly report')}`)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('documents-status').textContent).toBe('Converted to text before the model read it.'),
+    )
+    // The bytes never reach storage; the name, size and outcome do.
+    const kept = loadConversations('user-a').list[0].messages[0]
+    expect(kept.attachments).toEqual([{ name: 'report.pdf', media_type: 'application/pdf', size: 25 }])
+    expect(kept.converted).toBe(true)
+  })
+
+  it('says so when Lens sent the original file instead of converting it', async () => {
+    mockChat({ body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', converts: false })
+    renderChat()
+    await attach([pdf()])
+    await screen.findByText('report.pdf')
+    await ask('summarise this')
+    await waitFor(() => expect(screen.getByTestId('documents-status').textContent).toMatch(/^Sent as the original file/))
+  })
+
+  it('refuses a format Lens cannot convert, and a document over the limit, in words', async () => {
+    const { posted } = mockChat()
+    renderChat()
+    await attach([new File(['x'], 'deck.pptx')])
+    expect((await screen.findByRole('alert')).textContent).toMatch(/deck\.pptx can’t be converted/)
+    await attach([new File([new Uint8Array(ATTACH_LIMIT_BYTES + 1)], 'huge.pdf', { type: 'application/pdf' })])
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/huge\.pdf is too large/))
+    expect(screen.queryByRole('list', { name: 'Attached documents' })).toBeNull()
+    expect(posted).not.toHaveBeenCalled()
   })
 })
