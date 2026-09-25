@@ -29,6 +29,7 @@ import { Chat } from './areas/chat/Chat'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
 import { Landing } from './areas/marketing/Landing'
+import { Pricing } from './areas/marketing/Pricing'
 import { Privacy } from './routes/Privacy'
 import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
@@ -378,6 +379,8 @@ export function App() {
         <Routes>
           {/* Public marketing landing — OUTSIDE the AuthGate by design. */}
           <Route path="/marketing/*" element={<Landing />} />
+          {/* B5.2 — the price list, public for the same reason: a buyer reads it before signing up. */}
+          <Route path="/pricing" element={<Pricing />} />
           {/* Legal pages are public for the same reason: someone deciding whether to sign up must
               be able to read what the service does with their data BEFORE creating an account.
               Putting these behind the gate would mean you had to agree in order to read. */}

@@ -201,6 +201,13 @@ func (a *app) handleTopUpOptions(w http.ResponseWriter, r *http.Request, t tenan
 // does not register the route when LENS_ECONOMY_ENABLED is unset. So an economy-off deployment
 // shows its amounts with no conversion, which is true.
 func (a *app) fetchUSDPerLXC(r *http.Request, t tenant) (float64, bool) {
+	return a.readUSDPerLXC(r, t.token)
+}
+
+// readUSDPerLXC is fetchUSDPerLXC's body, with the bearer as a parameter so the public pricing
+// route (pricing.go), which has no session and therefore no token, reads the SAME peg the same way.
+// An empty bearer sends no Authorization header at all.
+func (a *app) readUSDPerLXC(r *http.Request, bearer string) (float64, bool) {
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
 		a.cfg.lensBaseURL+"/v1/economy/conversion-rate", nil)
 	if err != nil {
@@ -213,7 +220,9 @@ func (a *app) fetchUSDPerLXC(r *http.Request, t tenant) (float64, bool) {
 	// SERVER-SIDE — and the honest way to satisfy a security sweep is to satisfy it, not to add
 	// the first entry to an exemption list that would then grow. Nothing is exposed by it: same
 	// Lens, same credential this route already sends on its billing probe, one request earlier.
-	req.Header.Set("Authorization", "Bearer "+t.token)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := a.client.Do(req)

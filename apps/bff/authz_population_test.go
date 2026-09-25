@@ -100,6 +100,8 @@ import (
 var publicReadRoutes = map[string]string{
 	"/api/version": "the version surface is deliberately unauthenticated so an operator can " +
 		"identify a deployment before signing in — version_test.go asserts the 200 and the reason",
+	"/api/pricing": "B5.2 — the price list for a buyer with no account: the public Lens peg and the " +
+		"top-up range, nothing per-workspace — pricing_test.go asserts the 200 and what it carries",
 	"/auth/me": "the session PROBE. It must answer without a session; that is the whole point — " +
 		"`{authenticated:false}` is how the app learns to render the signed-out shell",
 	"/auth/login": "the sign-in entry point. Requiring a session to reach it would be a door " +
