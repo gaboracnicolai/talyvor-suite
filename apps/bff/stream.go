@@ -231,6 +231,11 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		if strings.EqualFold(strings.TrimSpace(r.Header.Get(distillHeader)), "true") {
 			up.Header.Set(distillHeader, "true")
 		}
+		// B15.6 — Regenerate asks Lens for a fresh answer rather than the cached one. Again only the
+		// one value is forwarded.
+		if strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheHeader)), "bypass") {
+			up.Header.Set(cacheHeader, "bypass")
+		}
 
 		resp, err := a.streamClient.Do(up)
 		if err != nil {
@@ -251,6 +256,13 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		if resp.Header.Get(distillHeader) == "applied" {
 			w.Header().Set(distillHeader, "applied")
 		}
+		// B15.6 — where the answer came from: Lens replays a cached answer (own, free) and states a
+		// pooled one's list price, charge, saving and discount. The chat's footer reads them.
+		for _, h := range answerSourceHeaders {
+			if v := resp.Header.Get(h); v != "" {
+				w.Header().Set(h, v)
+			}
+		}
 		// A stream must not be cached or buffered by anything between here and the browser.
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Accel-Buffering", "no")
@@ -262,6 +274,20 @@ func (a *app) handleAIStream() http.HandlerFunc {
 // distillHeader is Lens's document-conversion header: `true` on a request opts it in, `applied` on
 // the response says the conversion happened.
 const distillHeader = "X-Talyvor-Distill"
+
+// cacheHeader is Lens's cache-bypass header (talyvor-lens B15.2): `bypass` on a request skips every
+// cache read.
+const cacheHeader = "X-Talyvor-Cache"
+
+// answerSourceHeaders are the response headers that say where an answer came from: a replay of a
+// cached answer, and a pooled serve's price in µLXC (talyvor-lens internal/proxy setSavingHeaders).
+var answerSourceHeaders = []string{
+	"X-Talyvor-Cache-Replay",
+	"X-Talyvor-Pool-List-ULXC",
+	"X-Talyvor-Pool-Charged-ULXC",
+	"X-Talyvor-Pool-Saved-ULXC",
+	"X-Talyvor-Pool-Discount-Rate",
+}
 
 // streamRequestMaxBytes bounds the prompt a browser may post. Generous — a long conversation is a
 // legitimately large body — but not unbounded.

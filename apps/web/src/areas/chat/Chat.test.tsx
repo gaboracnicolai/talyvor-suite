@@ -57,6 +57,7 @@ function mockChat({
   sub = 'user-a',
   usdPerLXC,
   converts = false,
+  answerHeaders = {},
 }: {
   catalog?: unknown
   catalogStatus?: number
@@ -68,6 +69,8 @@ function mockChat({
   usdPerLXC?: number
   /** Whether Lens converts an opted-in document (answers X-Talyvor-Distill: applied). */
   converts?: boolean
+  /** Headers Lens sends with the answer, e.g. X-Talyvor-Cache-Replay on a cached one (B15.6). */
+  answerHeaders?: Record<string, string>
 } = {}) {
   const posted = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -97,7 +100,11 @@ function mockChat({
       const optedIn = new Headers(init?.headers).get('X-Talyvor-Distill') === 'true'
       return new Response(body ?? '', {
         status: 200,
-        headers: { 'Content-Type': 'text/event-stream', ...(converts && optedIn ? { 'X-Talyvor-Distill': 'applied' } : {}) },
+        headers: {
+          'Content-Type': 'text/event-stream',
+          ...(converts && optedIn ? { 'X-Talyvor-Distill': 'applied' } : {}),
+          ...answerHeaders,
+        },
       })
     }
     return new Response('null', { status: 404 })
@@ -606,6 +613,42 @@ describe('the reading column (B10.3)', () => {
       { role: 'user', content: 'question' },
     ])
     await waitFor(() => expect(screen.getAllByTestId('turn-assistant')).toHaveLength(1))
+  })
+
+  // B15.6 — the footer says where an answer came from when the model did not write it just now.
+  it('an answer Lens replayed from the cache says it came from your earlier answer, at 0 LXC', async () => {
+    mockChat({
+      body: 'data: {"choices":[{"delta":{"content":"London."}}]}\n\ndata: [DONE]\n\n',
+      answerHeaders: { 'X-Talyvor-Cache-Replay': 'true' },
+    })
+    renderChat()
+    await ask('what is the capital of the UK?')
+    expect((await screen.findByTestId('turn-cost')).textContent).toBe('from your earlier answer · 0 LXC')
+  })
+
+  it('an answer served from the shared pool says so, with its discount and what it cost', async () => {
+    mockChat({
+      body: 'data: {"choices":[{"delta":{"content":"London."}}]}\n\ndata: [DONE]\n\n',
+      answerHeaders: {
+        'X-Talyvor-Cache-Replay': 'true',
+        'X-Talyvor-Pool-Charged-ULXC': '1519',
+        'X-Talyvor-Pool-Discount-Rate': '0.3',
+      },
+    })
+    renderChat()
+    await ask('what is the capital of the UK?')
+    expect((await screen.findByTestId('turn-cost')).textContent).toBe('shared answer · 30% off · ≈ 0.0015 LXC')
+  })
+
+  it('Regenerate asks Lens to bypass its cache; a question asked normally does not', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"first"}}]}\n\ndata: [DONE]\n\n' })
+    renderChat()
+    await ask('question')
+    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }))
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+    const bypass = (i: number) => new Headers(posted.mock.calls[i][0].init.headers).get('X-Talyvor-Cache')
+    expect(bypass(0)).toBeNull()
+    expect(bypass(1)).toBe('bypass')
   })
 
   it('links to the how-to page from the rail', async () => {
