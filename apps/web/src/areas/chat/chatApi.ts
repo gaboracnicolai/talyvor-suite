@@ -44,11 +44,27 @@ const CHAT_PATH: Record<string, string> = {
   anthropic: 'v1/messages',
 }
 
+/**
+ * B10.3 — a document attached to a question. `data` (base64) lives in memory only: history.ts
+ * keeps the name and size, never the bytes, so a reopened conversation shows what was attached but
+ * cannot send it again.
+ */
+export interface ChatAttachment {
+  name: string
+  media_type: string
+  size: number
+  data?: string
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   /** B1.4 — what an answer cost. Screen-side only: requestBody() never sends it upstream. */
   cost?: AnswerCost
+  /** B10.3 — documents sent with this question. */
+  attachments?: ChatAttachment[]
+  /** B10.3 — set once the answer arrives: whether Lens converted the attached documents to text. */
+  converted?: boolean
 }
 
 /** Reads the deployment's catalog. Errors are the shared ApiError so the app-wide bar sees them. */
@@ -83,7 +99,29 @@ export function streamableModels(all: ChatModel[]): { models: ChatModel[]; hidde
 function requestBody(provider: string, model: string, turns: ChatMessage[]): unknown {
   // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
   // refuses a message with a field it does not know.
-  const messages = turns.map(({ role, content }) => ({ role, content }))
+  const messages = turns.map(({ role, content, attachments }) => {
+    const docs = (attachments ?? []).filter((a) => a.data !== undefined)
+    if (docs.length === 0) return { role, content }
+    // ⚠ THE TWO SHAPES LENS'S CONVERTER READS (talyvor-lens internal/proxy/distill_integration.go,
+    // extractBlockDocument): Anthropic's base64 `document` block and OpenAI's `file` part with a
+    // data: URL. Lens replaces each with the document's text before the model sees it.
+    if (provider === 'anthropic') {
+      return {
+        role,
+        content: [
+          ...docs.map((d) => ({ type: 'document', source: { type: 'base64', media_type: d.media_type, data: d.data } })),
+          { type: 'text', text: content },
+        ],
+      }
+    }
+    return {
+      role,
+      content: [
+        { type: 'text', text: content },
+        ...docs.map((d) => ({ type: 'file', file: { filename: d.name, file_data: `data:${d.media_type};base64,${d.data}` } })),
+      ],
+    }
+  })
   if (provider === 'anthropic') {
     return { model, max_tokens: 4096, stream: true, messages }
   }
@@ -94,8 +132,9 @@ export interface StreamHandlers {
   /** Called with each text delta as it arrives. */
   onDelta: (text: string) => void
   /** Called once when the stream ends. `unrecognised` is frames this parser could not read;
-   *  `usage` and `model` are what the provider reported, when it did. */
-  onDone: (info: { unrecognised: number; usage?: Usage; model?: string }) => void
+   *  `usage` and `model` are what the provider reported, when it did; `converted` is Lens saying it
+   *  turned an attached document into text (X-Talyvor-Distill: applied). */
+  onDone: (info: { unrecognised: number; usage?: Usage; model?: string; converted: boolean }) => void
   /** A server-reported error inside the stream, or a transport failure. */
   onError: (message: string) => void
 }
@@ -132,7 +171,11 @@ export async function streamChat(
     res = await fetch(`/api/ai/stream/${provider}/${path}`, {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
+        ...(messages.some((m) => m.attachments?.some((a) => a.data !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
+      },
       body: JSON.stringify(requestBody(provider, model, messages)),
       signal,
     })
@@ -154,6 +197,7 @@ export async function streamChat(
     return
   }
 
+  const converted = res.headers.get('X-Talyvor-Distill') === 'applied'
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -179,7 +223,7 @@ export async function streamChat(
         }
         for (const d of got.deltas) handlers.onDelta(d.text)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served })
+          handlers.onDone({ unrecognised, usage, model: served, converted })
           return
         }
       }
@@ -194,7 +238,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served })
+  handlers.onDone({ unrecognised, usage, model: served, converted })
 }
 
 /**

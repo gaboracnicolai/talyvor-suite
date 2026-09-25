@@ -241,6 +241,8 @@ function requiredOfATextField(): string[] {
 const NOT_A_TEXT_FIELD: Record<string, string> = {
   'packages/ui/src/components/Input.tsx':
     'the component itself — it IS the contract, and holding the definition to its own derived requirements is circular',
+  'apps/web/src/areas/chat/FilePicker.tsx':
+    'an sr-only <input type="file"> the chat composer\'s Attach button opens; it is never seen or typed into, so no text-field affordance applies',
   'apps/web/src/areas/marketing/Landing.tsx':
     'an <input type="range"> pool slider wearing the tal-range treatment; a slider is not a text field and shares none of its affordances',
 }
