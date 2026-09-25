@@ -137,6 +137,7 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/spend': 'Spend & routing',
   '/members': 'Members',
   '/settings': 'Settings',
+  '/features': 'Features',
   '/track/*': 'Track',
   '/docs/*': 'Docs',
 }

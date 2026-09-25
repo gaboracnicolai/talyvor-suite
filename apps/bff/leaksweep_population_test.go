@@ -263,9 +263,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// POST-ONLY FOR SUMMARIZE'S REASON: a metered completion on caller-supplied text, so a GET would
 	// re-spend on every prefetch and put the writer's words in a query string. Each relays Docs'
 	// `{"text": …}` body verbatim and adds nothing of its own.
-	if len(methodOnly) > 14 {
+	//
+	// THE FIFTEENTH AND SIXTEENTH, /api/features/tare and /api/features/cost-optimize-routing (B8.2),
+	// ARE POLICY WRITES: their state is READ on GET /api/features, which the sweep reaches. Each
+	// answers only the one field Lens recorded.
+	if len(methodOnly) > 16 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 14 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 16 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

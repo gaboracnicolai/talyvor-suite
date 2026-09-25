@@ -115,6 +115,25 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/cache-poolable", func',
     subject: 'lensCachePoolableBody',
   },
+  // B8.2 — the Features screen's two switches.
+  {
+    route: 'PUT /v1/workspaces/{wsID}/tare',
+    file: 'apps/bff/features.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"tare_policy": *in.TarePolicy})',
+    upstreamFile: 'cmd/lens/main.go',
+    upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/tare", func',
+    subject: 'lensTareBody',
+  },
+  {
+    route: 'PUT /v1/workspaces/{wsID}/cost-optimize-routing',
+    file: 'apps/bff/features.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]bool{"cost_optimize_routing": *in.CostOptimizeRouting})',
+    upstreamFile: 'cmd/lens/main.go',
+    upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/cost-optimize-routing", func',
+    subject: 'lensCostRoutingBody',
+  },
 ]
 
 /**

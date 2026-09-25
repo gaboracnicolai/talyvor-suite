@@ -112,6 +112,17 @@ const BODIES: Record<string, unknown> = {
 
 /** Bodies for endpoints whose URL carries a query string — matched on pathname. */
 const BY_PATH: Record<string, unknown> = {
+  // B8.2 — the Features screen reads every capability setting on the workspace.
+  '/api/features': {
+    tare_policy: 'disabled',
+    distill_policy: 'always',
+    compression_policy: 'disabled',
+    logging_policy: 'metadata',
+    cache_poolable: false,
+    distill_poolable: false,
+    cost_optimize_routing: false,
+    guardrails: { injection: true, pii: true },
+  },
   '/api/usage': {
     period_days: 7,
     models: [
