@@ -193,9 +193,9 @@ describe('streaming', () => {
     await waitFor(() => {
       expect(screen.getByTestId('turn-assistant').textContent).toContain('Hel')
     })
-    // ⚠ AND THE ANSWER IS NOT FINISHED — the button still reads Answering…, so this is genuinely
+    // ⚠ AND THE ANSWER IS NOT FINISHED — the button still reads Stop, so this is genuinely
     // mid-stream and not a completed response the test happened to read early.
-    expect(screen.getByRole('button', { name: 'Answering…' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
 
     // SECOND HALF, then the terminator.
     s.push('data: {"choices":[{"delta":{"content":"lo!"}}]}\n\n')
@@ -255,6 +255,75 @@ describe('streaming', () => {
       { role: 'assistant', content: 'one' },
       { role: 'user', content: 'second' },
     ])
+  })
+})
+
+describe('the keyboard sends (B10.2)', () => {
+  it('Enter sends; Shift+Enter is a new line; an empty box sends nothing', async () => {
+    const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
+    renderChat()
+    const box = await screen.findByPlaceholderText('Ask anything')
+    await screen.findByRole('option', { name: 'GPT-4o' })
+
+    fireEvent.keyDown(box, { key: 'Enter' })
+    fireEvent.change(box, { target: { value: 'line one' } })
+    // fireEvent returns false when the handler called preventDefault — the newline was suppressed.
+    expect(fireEvent.keyDown(box, { key: 'Enter', shiftKey: true })).toBe(true)
+    expect(posted).not.toHaveBeenCalled()
+
+    expect(fireEvent.keyDown(box, { key: 'Enter' })).toBe(false)
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(String(posted.mock.calls[0][0].init.body)).messages).toEqual([
+      { role: 'user', content: 'line one' },
+    ])
+  })
+
+  it('Cmd+Enter and Ctrl+Enter send too', async () => {
+    const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
+    renderChat()
+    const box = await screen.findByPlaceholderText('Ask anything')
+    await screen.findByRole('option', { name: 'GPT-4o' })
+    fireEvent.change(box, { target: { value: 'one' } })
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true })
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy())
+    fireEvent.change(box, { target: { value: 'two' } })
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+  })
+
+  it('never sends on the Enter that confirms an IME composition', async () => {
+    const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
+    renderChat()
+    const box = await screen.findByPlaceholderText('Ask anything')
+    await screen.findByRole('option', { name: 'GPT-4o' })
+    fireEvent.change(box, { target: { value: 'tokyo' } }) // mid-composition; the draft's script is irrelevant to the guard
+    fireEvent.keyDown(box, { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(box, { key: 'Enter', keyCode: 229 }) // Safari's form of the same keydown
+    expect(posted).not.toHaveBeenCalled()
+  })
+
+  it('while answering, Enter queues nothing and Stop ends the request', async () => {
+    const s = controllableStream()
+    const { posted } = mockChat({ body: s.stream })
+    renderChat()
+    await ask('hello')
+    s.push('data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n')
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('Hel'))
+
+    const box = screen.getByPlaceholderText('Ask anything')
+    fireEvent.change(box, { target: { value: 'next question' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(posted).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    // ⚠ THE SIGNAL THE REQUEST WAS MADE WITH IS ABORTED — that is what reaches the BFF and stops Lens
+    // generating. A button that only flipped its label would pass the next assertion alone.
+    expect((posted.mock.calls[0][0].init.signal as AbortSignal).aborted).toBe(true)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy())
+    // Stop did not send the draft typed meanwhile, and the part of the answer that arrived stays.
+    expect(posted).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('turn-assistant').textContent).toContain('Hel')
   })
 })
 

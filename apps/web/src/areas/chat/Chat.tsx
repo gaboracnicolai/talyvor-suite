@@ -189,6 +189,14 @@ export function Chat() {
     )
   }, [activeId, draft, messages, pending, selected, store])
 
+  // B10.2 — Stop ends the answer where it is. streamChat returns silently on an aborted signal
+  // (neither onDone nor onError), so the screen leaves the answering state here; send() then keeps
+  // whatever part of the answer had arrived.
+  const stop = useCallback(() => {
+    abortRef.current?.abort()
+    setPending(false)
+  }, [])
+
   const active = history.list.find((c) => c.id === activeId)
 
   return (
@@ -405,13 +413,38 @@ export function Chat() {
                   value={draft}
                   disabled={selected === undefined}
                   onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    // ⚠ AN IME COMPOSITION USES ENTER TO CONFIRM CHARACTERS (Chinese, Japanese, Korean).
+                    // Safari reports that keydown with isComposing false, so keyCode 229 is checked too.
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                    // Shift+Enter is a new line; Enter, Cmd+Enter and Ctrl+Enter send.
+                    if (e.shiftKey && !e.metaKey && !e.ctrlKey) return
+                    e.preventDefault()
+                    // send() refuses an empty draft and a send while an answer is streaming, so Enter
+                    // mid-answer queues nothing.
+                    void send()
+                  }}
+                  aria-describedby="chat-message-keys"
                   placeholder={selected === undefined ? 'No model available' : 'Ask anything'}
                 />
               </label>
-              <Button type="submit" variant="primary" disabled={pending || draft.trim() === '' || selected === undefined}>
-                {pending ? 'Answering…' : 'Send'}
-              </Button>
+              {pending ? (
+                // ⚠ KEYED APART FROM Send. Reusing one <button> and flipping its type lets the click on
+                // Stop land on a submit button by the time the browser acts on it, which would send
+                // whatever was typed meanwhile.
+                <Button key="stop" type="button" onClick={stop}>
+                  Stop
+                </Button>
+              ) : (
+                <Button key="send" type="submit" variant="primary" disabled={draft.trim() === '' || selected === undefined}>
+                  Send
+                </Button>
+              )}
             </form>
+            <p id="chat-message-keys" className="mt-2 max-w-3xl text-caption text-muted">
+              Enter sends · Shift+Enter adds a new line
+            </p>
           </Region>
         </div>
       </div>
