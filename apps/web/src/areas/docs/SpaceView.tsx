@@ -21,6 +21,7 @@ import { isSessionExpired, isUnconfigured } from '../../lib/productState'
 import { docsApi } from './api'
 import { BackButton, Crumbs, spaceCrumbLabel, spaceTitle } from './components'
 import { DocsUpstreamCard } from './DocsUpstreamCard'
+import { PinToggle } from './PinToggle'
 
 export function SpaceView() {
   const { spaceId = '' } = useParams()
@@ -201,13 +202,15 @@ export function SpaceView() {
         ) : (
           <ul className="flex flex-col">
             {rows.map((pg) => (
-              <li key={pg.id} className="border-t border-rule py-2 first:border-t-0">
+              <li key={pg.id} className="flex items-center justify-between gap-3 border-t border-rule py-2 first:border-t-0">
                 <Link
                   className="text-body text-ink underline underline-offset-2"
                   to={`/docs/spaces/${spaceId}/pages/${pg.id}`}
                 >
                   {pg.title}
                 </Link>
+                {/* B10.6 — pin from the list as well as from the page. */}
+                <PinToggle doc={{ spaceId, pageId: pg.id, title: pg.title }} />
               </li>
             ))}
           </ul>

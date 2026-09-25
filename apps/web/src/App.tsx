@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react'
-import { QueryCache, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   BrowserRouter,
   Link,
@@ -30,13 +30,13 @@ import { Chat } from './areas/chat/Chat'
 import { ChatHelp } from './areas/chat/ChatHelp'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
-import { docsApi } from './areas/docs/api'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
 import { Privacy } from './routes/Privacy'
 import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
 import { SessionExpiredBar } from './components/SessionExpiredBar'
+import { type DocRef, pageHref, useDocsNav } from './areas/docs/docsNav'
 
 // App.tsx is a SHARED file (see README §Directory ownership): it owns routing
 // and the nav for every area. Area work happens inside src/areas/<area>/ —
@@ -194,24 +194,27 @@ function NavDestination({
   )
 }
 
-/** How many of the workspace's Docs spaces the sidebar lists by name; the rest are one click away
- * on "All spaces". */
-const SIDEBAR_SPACES = 5
-
 function Sidebar() {
   const { pathname } = useLocation()
   const item = (to: string, label: string, wildcard = false, active?: boolean) => (
     <NavDestination to={to} label={label} wildcard={wildcard} active={active} />
   )
-  // B8.1 — the Docs editor lives on a page inside a space, so "Docs → a space → a page" was three
-  // clicks from anywhere. Naming the spaces here makes a page two. Same query key as the space
-  // list, so opening /docs after this costs no second fetch. No spaces (or Docs unreachable) leaves
-  // "All spaces", which still says what to do.
-  const spaces = useQuery({ queryKey: ['docs-spaces'], queryFn: docsApi.spaces })
-  const listedSpaces = (spaces.data ?? []).slice(0, SIDEBAR_SPACES)
-  const inSpace = (id: string) => pathname.startsWith(`/docs/spaces/${encodeURIComponent(id)}`)
+  // B10.6 — Docs lists the pages a person PINNED and the last five they OPENED, never every page
+  // (at fifty it was unusable); every page is one click away on "All documents". B8.1's reason for
+  // naming things here stands: a page is one click from anywhere once it is pinned or recent.
+  const docsNav = useDocsNav()
+  const docsListed = [...docsNav.pinned, ...docsNav.recent]
   const onTrackIssues = pathname === '/track' || pathname.startsWith('/track/issues')
-  const onDocsIndex = pathname.startsWith('/docs') && !listedSpaces.some((s) => inSpace(s.id))
+  const onDocsIndex = pathname.startsWith('/docs') && !docsListed.some((d) => pathname === pageHref(d))
+  const docLink = (d: DocRef) => (
+    <NavDestination
+      key={`${d.spaceId}/${d.pageId}`}
+      to={pageHref(d)}
+      label={d.title}
+      active={pathname === pageHref(d)}
+      className="pl-6"
+    />
+  )
   return (
     <nav className="flex flex-col gap-4 pb-2" aria-label="Sections">
       {/* The corner carries a MARK, not only text: the hold indicator abstracted
@@ -250,16 +253,19 @@ function Sidebar() {
           apps/bff docsWorkspaceFor and the Track↔Docs enumeration that broke the cold-start
           deadlock (talyvor-track bf60842, talyvor-docs c970329). */}
       <Group label="Docs">
-        {item('/docs', 'All spaces', false, onDocsIndex)}
-        {listedSpaces.map((s) => (
-          <NavDestination
-            key={s.id}
-            to={`/docs/spaces/${encodeURIComponent(s.id)}`}
-            label={s.name}
-            active={inSpace(s.id)}
-            className="pl-6"
-          />
-        ))}
+        {item('/docs', 'All documents', false, onDocsIndex)}
+        {docsNav.pinned.length > 0 ? (
+          <>
+            <p className="px-3 pt-1 text-caption text-faint">Pinned</p>
+            {docsNav.pinned.map(docLink)}
+          </>
+        ) : null}
+        {docsNav.recent.length > 0 ? (
+          <>
+            <p className="px-3 pt-1 text-caption text-faint">Recent</p>
+            {docsNav.recent.map(docLink)}
+          </>
+        ) : null}
       </Group>
       <Group label="Billing">
         {/* Buying LXC has to be findable, not a URL you have to be told. The

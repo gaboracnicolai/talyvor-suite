@@ -42,6 +42,8 @@ import { DocEditor, type DocEditorHandle, docFromStored } from './editor/DocEdit
 import { formatCost } from '../track/format'
 import { SelectionAI } from './SelectionAI'
 import { AskAI } from './AskAI'
+import { useDocsNav } from './docsNav'
+import { PinToggle } from './PinToggle'
 
 // ── THE FIVE HEADLINES, AND WHY THIS SCREEN'S TITLE CARRIES STATE AT ALL ─────
 //
@@ -109,6 +111,13 @@ export function PageView() {
     return () => clearTimeout(t)
   }, [pricing])
   const onSpent = () => setPricing({ baseline: aiTotal })
+  // B10.6 — an opened page becomes the first of the sidebar's recent pages, under its current title.
+  const docsNav = useDocsNav()
+  const openedTitle = page.data ? pageTitle(page.data.title) : null
+  const { opened } = docsNav
+  useEffect(() => {
+    if (openedTitle !== null) opened({ spaceId, pageId, title: openedTitle })
+  }, [opened, spaceId, pageId, openedTitle])
   // B2.1 — the unsaved document, or null when what is on screen is what Docs recorded.
   const [draft, setDraft] = useState<PMNode | null>(null)
   // Bumped to rebuild the editor from what Docs recorded, when that differs from what was sent.
@@ -210,6 +219,7 @@ export function PageView() {
         ]}
       />
       <span className="font-mono text-caption text-muted">{pageId}</span>
+      {openedTitle !== null ? <PinToggle doc={{ spaceId, pageId, title: openedTitle }} /> : null}
     </div>
   )
 
