@@ -29,13 +29,16 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     body: (
       <>
         <p>
-          The model picker sits inside the message box. It lists the models this deployment serves,
-          read from its catalog each time the page opens — nothing in the list is typed into the app.
+          The model picker sits inside the message box. It lists every priced model this deployment
+          serves, grouped by provider, newest generation first, with each model&rsquo;s price per million
+          tokens; type to search, use the arrow keys and Enter to choose. The list is read from the
+          deployment&rsquo;s catalog each time the page opens, so a model added there appears here on its
+          own. A new conversation starts on the newest flagship model.
         </p>
         <p>
           Chat reads two streaming formats, OpenAI&rsquo;s and Anthropic&rsquo;s, so models from other
-          providers in the catalog are not offered yet; the line under the message box says how many
-          were left out.
+          providers are listed but can&rsquo;t be chosen yet. The catalog gives no release dates, so
+          &ldquo;newest&rdquo; is read from the generation number in each model&rsquo;s name.
         </p>
       </>
     ),

@@ -75,19 +75,87 @@ export async function fetchModels(): Promise<ChatModel[]> {
   return Array.isArray(body) ? (body as ChatModel[]) : []
 }
 
+/** How a provider is named in the picker. Presentation only — which providers exist is the catalog's. */
+const PROVIDER_LABEL: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  bedrock: 'Amazon Bedrock',
+  mistral: 'Mistral',
+  groq: 'Groq',
+  vllm: 'vLLM',
+}
+
 /**
- * streamableModels narrows the catalog to what this client can read, and reports what it dropped.
+ * B10.4 — a model's generation, read from the number in its name: GPT-5.6 → 5.6, Claude Opus 4.5 →
+ * 4.5, Llama 3.3 70B → 3.3. A model with no number sorts last.
  *
- * ⚠ IT RETURNS THE DROPPED COUNT RATHER THAN JUST FILTERING. A screen that silently shows 4 of 15
- * models is making an unstated claim about the deployment. The count is rendered.
- *
- * ⚠ DEPRECATED MODELS ARE DROPPED TOO — the catalog carries the flag, and offering a model the
- * provider has retired is a request that fails at the far end for a reason the screen could have
- * known.
+ * ⚠ AN INFERENCE, BECAUSE THE CATALOG CARRIES NO RELEASE DATE. Lens's catalog.Model has prices,
+ * capabilities and limits, and nothing that says when a model came out or which is a provider's
+ * flagship. Providers number their generations, so the number in the name is the closest fact the
+ * catalog does hold. A `released` field in Lens would replace this (recorded in FOUND.md).
  */
-export function streamableModels(all: ChatModel[]): { models: ChatModel[]; hidden: number } {
-  const models = all.filter((m) => STREAMABLE_PROVIDERS.includes(m.provider) && !m.deprecated)
-  return { models, hidden: all.length - models.length }
+export function generation(m: ChatModel): number {
+  const match = /(\d+(?:\.\d+)?)/.exec(m.display_name)
+  return match === null ? -1 : Number(match[1])
+}
+
+/** Newest generation first; within one, the flagship (highest output price) first. */
+function newestFirst(a: ChatModel, b: ChatModel): number {
+  return generation(b) - generation(a) || b.output_per_1m - a.output_per_1m || a.display_name.localeCompare(b.display_name)
+}
+
+export interface CatalogGroup {
+  provider: string
+  label: string
+  /** False when this client cannot read the provider's stream: listed, never selectable. */
+  streamable: boolean
+  models: ChatModel[]
+}
+
+export interface PickerCatalog {
+  groups: CatalogGroup[]
+  /** Every model a conversation can use, in picker order. */
+  offered: ChatModel[]
+  /** Catalog entries that are not chat models (no output price, e.g. embeddings) or are retired. */
+  omitted: number
+  /** The newest flagship among the offered models — the default, chosen from data, never a name. */
+  defaultModel: ChatModel | undefined
+}
+
+/**
+ * B10.4 — the whole catalog, as the picker shows it: every priced chat model, grouped by provider,
+ * newest first.
+ *
+ * ⚠ MODELS THIS CLIENT CANNOT STREAM ARE LISTED, NOT HIDDEN — disabled, with the reason, so the
+ * picker shows everything the deployment prices and a model becomes usable the day Lens streams its
+ * provider. ⚠ A CATALOG ENTRY WITH NO OUTPUT PRICE IS NOT A CHAT MODEL (embeddings), and a
+ * deprecated one is retired at the provider; both are counted rather than silently dropped.
+ */
+export function pickerCatalog(all: ChatModel[]): PickerCatalog {
+  const chat = all.filter((m) => !m.deprecated && m.output_per_1m > 0)
+  const byProvider = new Map<string, ChatModel[]>()
+  for (const m of chat) byProvider.set(m.provider, [...(byProvider.get(m.provider) ?? []), m])
+  const groups: CatalogGroup[] = [...byProvider.entries()]
+    .map(([provider, models]) => ({
+      provider,
+      label: PROVIDER_LABEL[provider] ?? provider,
+      streamable: STREAMABLE_PROVIDERS.includes(provider),
+      models: [...models].sort(newestFirst),
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.streamable) - Number(a.streamable) ||
+        (a.streamable ? STREAMABLE_PROVIDERS.indexOf(a.provider) - STREAMABLE_PROVIDERS.indexOf(b.provider) : 0) ||
+        a.label.localeCompare(b.label),
+    )
+  const offered = groups.filter((g) => g.streamable).flatMap((g) => g.models)
+  return {
+    groups,
+    offered,
+    omitted: all.length - chat.length,
+    defaultModel: [...offered].sort(newestFirst)[0],
+  }
 }
 
 /**

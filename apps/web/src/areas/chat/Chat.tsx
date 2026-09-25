@@ -10,9 +10,10 @@ import {
   type ChatAttachment,
   type ChatMessage,
   type ChatModel,
+  type PickerCatalog,
   fetchModels,
+  pickerCatalog,
   streamChat,
-  streamableModels,
 } from './chatApi'
 import {
   type Conversation,
@@ -25,6 +26,7 @@ import {
 import { Markdown } from './Markdown'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
+import { ModelPicker } from './ModelPicker'
 import { type AnswerCost, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
 import { topupApi } from '../lens/topupApi'
 
@@ -179,9 +181,12 @@ export function Chat() {
   // nobody will read. Navigating away from this screen must do that.
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  const { models, hidden } = streamableModels(catalog.data ?? [])
+  // B10.4 — the default is the newest flagship the catalog offers, chosen from its data, never a
+  // model name typed into this file.
+  const picker = pickerCatalog(catalog.data ?? [])
+  const models = picker.offered
   const selected: ChatModel | undefined =
-    models.find((m) => m.id === modelId) ?? models[0]
+    models.find((m) => m.id === modelId) ?? picker.defaultModel
 
   /** Streams an answer to `turn`, whose last message is the question. */
   const run = useCallback(
@@ -500,7 +505,7 @@ export function Chat() {
               onSend={() => send()}
               onStop={stop}
               pending={pending}
-              models={models}
+              picker={picker}
               selected={selected}
               onSelectModel={setModelId}
             />
@@ -512,12 +517,6 @@ export function Chat() {
               <p className="mt-2 font-figure text-caption text-faint">
                 List price · {formatUsdPer1M(selected.input_per_1m)} in /{' '}
                 {formatUsdPer1M(selected.output_per_1m)} out per 1M tokens
-                {hidden > 0 ? (
-                  <>
-                    {' · '}
-                    {hidden} catalog model(s) not offered here
-                  </>
-                ) : null}
               </p>
             ) : null}
           </div>
@@ -759,7 +758,7 @@ function Composer({
   onSend,
   onStop,
   pending,
-  models,
+  picker,
   selected,
   onSelectModel,
 }: {
@@ -772,7 +771,7 @@ function Composer({
   onSend: () => void
   onStop: () => void
   pending: boolean
-  models: ChatModel[]
+  picker: PickerCatalog
   selected: ChatModel | undefined
   onSelectModel: (id: string) => void
 }) {
@@ -790,7 +789,8 @@ function Composer({
   return (
     <form
       className={cn(
-        'rounded-card border border-rule bg-surface transition-colors duration-200',
+        // `relative` so the model picker's panel opens above the whole composer.
+        'relative rounded-card border border-rule bg-surface transition-colors duration-200',
         'focus-within:border-rule-strong',
       )}
       onSubmit={(e) => {
@@ -871,30 +871,7 @@ function Composer({
         >
           Attach
         </button>
-        {models.length > 0 ? (
-          <>
-            <label htmlFor="chat-model" className="sr-only">
-              Model
-            </label>
-            <select
-              id="chat-model"
-              className={cn(
-                'h-8 max-w-60 truncate rounded-control bg-surface px-2 text-caption text-muted',
-                'transition-colors duration-200 hover:text-ink disabled:opacity-50',
-                focusRing,
-              )}
-              value={selected?.id ?? ''}
-              disabled={pending}
-              onChange={(e) => onSelectModel(e.target.value)}
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.display_name}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : null}
+        <ModelPicker catalog={picker} selected={selected} onSelect={onSelectModel} disabled={pending} />
         <div className="flex-1" />
         {pending ? (
           // ⚠ KEYED APART FROM Send. Reusing one <button> and flipping its type lets the click on

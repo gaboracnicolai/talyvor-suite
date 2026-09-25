@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -116,6 +116,14 @@ function renderChat() {
   )
 }
 
+/** Opens the picker and chooses a model — which also waits for the catalog to load. */
+async function chooseModel(name: string) {
+  const trigger = await screen.findByRole('button', { name: /^Model: / })
+  fireEvent.click(trigger)
+  fireEvent.click(await screen.findByRole('option', { name: new RegExp(`^${name}\\b`) }))
+  await screen.findByRole('button', { name: `Model: ${name}` })
+}
+
 async function ask(text: string) {
   const box = await screen.findByPlaceholderText('Ask anything')
   fireEvent.change(box, { target: { value: text } })
@@ -123,49 +131,90 @@ async function ask(text: string) {
 }
 
 describe('the model picker reads the deployment, not this file', () => {
-  it('offers the models whose stream this client can read, and NOT the others', async () => {
-    mockChat()
-    renderChat()
-    expect(await screen.findByRole('option', { name: 'GPT-4o' })).toBeTruthy()
-    expect(screen.getByRole('option', { name: 'Claude Opus 5' })).toBeTruthy()
-    // The measured limit, asserted rather than described in a comment.
-    expect(screen.queryByRole('option', { name: 'Gemini 2 Pro' })).toBeNull()
-    expect(screen.queryByRole('option', { name: 'GPT-4 (old)' })).toBeNull()
-  })
-
-  it('SAYS how many catalog entries it hid, rather than silently showing a subset', async () => {
-    mockChat()
-    renderChat()
-    // 4 in the catalog, 2 offered ⇒ 2 hidden. A screen that shows 2 of 4 without saying so is
-    // making an unstated claim about the deployment.
-    await waitFor(() => {
-      expect(screen.getByText(/catalog model\(s\) not offered here/i).textContent).toContain('2')
+  it('lists every priced chat model by provider, newest first — one it cannot stream is shown, not offered', async () => {
+    mockChat({
+      catalog: [
+        ...CATALOG,
+        { id: 'gpt-5', provider: 'openai', display_name: 'GPT-5', input_per_1m: 1.25, output_per_1m: 10 },
+        // Not a chat model: an embedding has no output price.
+        { id: 'text-embedding-3-small', provider: 'openai', display_name: 'Embedding 3 small', input_per_1m: 0.02, output_per_1m: 0 },
+      ],
     })
+    renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^Model: / }))
+    const listed = screen
+      .getAllByRole('group')
+      .map((g) => [g.getAttribute('aria-label'), within(g).getAllByRole('option').map((o) => o.querySelector('span')?.firstChild?.textContent)])
+    expect(listed).toEqual([
+      ['OpenAI', ['GPT-5', 'GPT-4o']],
+      ['Anthropic', ['Claude Opus 5']],
+      // ⚠ LISTED, NOT OFFERED. Lens streams every non-openai provider through ServeAnthropic, so a
+      // Google model would be parsed with the wrong wire format; it is shown disabled, with the reason.
+      ['Google', ['Gemini 2 Pro']],
+    ])
+    expect(screen.getByRole('option', { name: /^Gemini 2 Pro/ }).getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText(/Lens streams OpenAI and Anthropic formats only/)).toBeTruthy()
+    // The retired model and the embedding are COUNTED, never silently dropped.
+    expect(screen.getByText(/retired or non-chat catalog entr/).textContent).toContain('2')
   })
 
-  it('shows the LIST price and says it is not the bill', async () => {
+  it('defaults to the newest flagship in the catalog, and a model added to Lens appears — and leads — with no change here', async () => {
+    mockChat()
+    const { unmount } = renderChat()
+    // Claude Opus 5 is the fixture's newest generation.
+    expect(await screen.findByRole('button', { name: 'Model: Claude Opus 5' })).toBeTruthy()
+    unmount()
+
+    vi.restoreAllMocks()
+    mockChat({ catalog: [...CATALOG, { id: 'gpt-6', provider: 'openai', display_name: 'GPT-6', input_per_1m: 3, output_per_1m: 20 }] })
+    renderChat()
+    expect(await screen.findByRole('button', { name: 'Model: GPT-6' })).toBeTruthy()
+  })
+
+  it('searches, and is driven from the keyboard: arrows move, Enter picks, Escape closes', async () => {
     mockChat()
     renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^Model: / }))
+    const search = screen.getByRole('textbox', { name: 'Search models' })
+    fireEvent.change(search, { target: { value: 'gpt' } })
+    expect(screen.getAllByRole('option').map((o) => o.querySelector('span')?.firstChild?.textContent)).toEqual(['GPT-4o'])
+    fireEvent.keyDown(search, { key: 'Enter' })
+    expect(await screen.findByRole('button', { name: 'Model: GPT-4o' })).toBeTruthy()
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Model: GPT-4o' }))
+    const again = screen.getByRole('textbox', { name: 'Search models' })
+    fireEvent.keyDown(again, { key: 'ArrowDown' }) // GPT-4o → Claude Opus 5
+    fireEvent.keyDown(again, { key: 'Enter' })
+    expect(await screen.findByRole('button', { name: 'Model: Claude Opus 5' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Model: Claude Opus 5' }))
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Search models' }), { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('scrolls inside a panel of fixed height, so it never covers the page', async () => {
+    mockChat()
+    renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^Model: / }))
+    const list = screen.getByRole('listbox')
+    expect(list.className).toContain('overflow-y-auto')
+    expect(list.parentElement?.className).toContain('h-80')
+  })
+
+  it('shows the LIST price of the chosen model and says what it is', async () => {
+    mockChat()
+    renderChat()
+    await chooseModel('GPT-4o')
     const line = await screen.findByText(/List price/i)
     // ⚠ THE WHOLE RENDERED STRING, NOT A SUBSTRING. This assertion used to be
     // `toContain('2.5')`, which passes on `$2.50` AND on the bare `2.5` this screen actually
-    // shipped — so it could not tell a priced figure from an unlabelled number. Measured in the
-    // DOM before the fix: `List price · 2.5 in / 10 out per 1M tokens`, no currency mark anywhere,
-    // on the one screen whose thesis is cost.
-    expect(line.textContent).toBe('List price · $2.50 in / $10.00 out per 1M tokens · 2 catalog model(s) not offered here')
-    // Stated separately so the reason survives if the copy around it is reworded: a price on this
-    // screen must carry a currency mark. The product's figureAudit cannot enforce it here — this
-    // element's text carries words, so figureKind() reads it as prose (its TRAP TWO) and never
-    // applies the currency floor. That is correct of the audit and is why this lives here.
+    // shipped — so it could not tell a priced figure from an unlabelled number.
+    expect(line.textContent).toBe('List price · $2.50 in / $10.00 out per 1M tokens')
     expect(line.textContent).toMatch(/\$\d/)
-    // ⚠ AND IT IS ON THE FIGURE FACE. A price caption set in the body sans is the exact defect
-    // figureAudit exists for, and this line is the one numeral a reader compares between models.
+    // ⚠ AND IT IS ON THE FIGURE FACE — this line is the one numeral a reader compares between models.
     expect(line.getAttribute('class')).toContain('font-figure')
-    // ⚠ THE DISCLAIMER IS ITS OWN SENTENCE, AND SINCE B10.3 IT LIVES ON /chat/help — the chat
-    // carries no instructions. A session-key request moves no LXC in the default configuration
-    // (measured in talyvor-lens, dd1bb44), so a price that read as a charge would be a claim about
-    // a ledger that did not move. The help page's test asserts the sentence.
-    expect(line.textContent).toMatch(/^List price/)
+    // The disclaimer that it is not the bill lives on /chat/help (ChatHelp.test.tsx asserts it).
   })
 
   it('a FAILED catalog read is not an empty deployment', async () => {
@@ -234,8 +283,7 @@ describe('streaming', () => {
   it('posts the conversation to the SELECTED provider’s path, with the provider’s own body shape', async () => {
     const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
     renderChat()
-    await screen.findByRole('option', { name: 'Claude Opus 5' })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'claude-opus-5' } })
+    await chooseModel('Claude Opus 5')
     await ask('question')
 
     await waitFor(() => expect(posted).toHaveBeenCalled())
@@ -271,7 +319,7 @@ describe('the keyboard sends (B10.2)', () => {
     const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
     renderChat()
     const box = await screen.findByPlaceholderText('Ask anything')
-    await screen.findByRole('option', { name: 'GPT-4o' })
+    await chooseModel('GPT-4o')
 
     fireEvent.keyDown(box, { key: 'Enter' })
     fireEvent.change(box, { target: { value: 'line one' } })
@@ -290,7 +338,7 @@ describe('the keyboard sends (B10.2)', () => {
     const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
     renderChat()
     const box = await screen.findByPlaceholderText('Ask anything')
-    await screen.findByRole('option', { name: 'GPT-4o' })
+    await chooseModel('GPT-4o')
     fireEvent.change(box, { target: { value: 'one' } })
     fireEvent.keyDown(box, { key: 'Enter', metaKey: true })
     await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
@@ -304,7 +352,7 @@ describe('the keyboard sends (B10.2)', () => {
     const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
     renderChat()
     const box = await screen.findByPlaceholderText('Ask anything')
-    await screen.findByRole('option', { name: 'GPT-4o' })
+    await chooseModel('GPT-4o')
     fireEvent.change(box, { target: { value: 'tokyo' } }) // mid-composition; the draft's script is irrelevant to the guard
     fireEvent.keyDown(box, { key: 'Enter', isComposing: true })
     fireEvent.keyDown(box, { key: 'Enter', keyCode: 229 }) // Safari's form of the same keydown
@@ -466,6 +514,7 @@ describe('what each answer cost', () => {
   it('prices an OpenAI answer in credits at the deployment’s peg, and names the model', async () => {
     mockChat({ body: OPENAI_PRICED, usdPerLXC: 0.1 })
     renderChat()
+    await chooseModel('GPT-4o')
     await ask('Capital of France?')
     // (2000 × $2.50 + 1000 × $10.00) / 1M = $0.015 = 0.15 LXC at $0.10. A dated variant of the
     // asked-for id keeps the catalog's name.
@@ -484,8 +533,7 @@ describe('what each answer cost', () => {
         'data: {"type":"message_stop"}\n\n',
     })
     renderChat()
-    await screen.findByRole('option', { name: 'Claude Opus 5' })
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'claude-opus-5' } })
+    await chooseModel('Claude Opus 5')
     await ask('hello')
     // (200 × $5 + 400 × $25) / 1M = $0.011 = 0.11 LXC.
     expect((await screen.findByTestId('turn-cost')).textContent).toBe(
@@ -496,6 +544,7 @@ describe('what each answer cost', () => {
   it('prices in dollars when the deployment confirms no peg — never a credit figure at a guess', async () => {
     mockChat({ body: OPENAI_PRICED })
     renderChat()
+    await chooseModel('GPT-4o')
     await ask('Capital of France?')
     expect((await screen.findByTestId('turn-cost')).textContent).toMatch(/^≈ \$0\.015 · GPT-4o/)
   })
@@ -503,6 +552,7 @@ describe('what each answer cost', () => {
   it('keeps the price with the saved answer, and never sends it upstream', async () => {
     const { posted } = mockChat({ body: OPENAI_PRICED, usdPerLXC: 0.1 })
     const tab = renderChat()
+    await chooseModel('GPT-4o')
     await ask('first')
     await screen.findByTestId('turn-cost')
     tab.unmount()
@@ -522,7 +572,7 @@ it('nothing asked yet: an example question is asked when clicked', async () => {
   const { posted } = mockChat({ body: 'data: [DONE]\n\n' })
   renderChat()
   expect(await screen.findByRole('heading', { name: 'What can I help with?' })).toBeTruthy()
-  await screen.findByRole('option', { name: 'GPT-4o' })
+  await chooseModel('GPT-4o')
   fireEvent.click(screen.getByRole('button', { name: EXAMPLE_PROMPTS[0] }))
   await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
   expect(JSON.parse(String(posted.mock.calls[0][0].init.body)).messages).toEqual([
@@ -570,7 +620,7 @@ describe('attached documents (B10.3)', () => {
   const pdf = () => new File(['%PDF-1.7 quarterly report'], 'report.pdf', { type: 'application/pdf' })
 
   async function attach(files: File[]) {
-    await screen.findByRole('option', { name: 'GPT-4o' })
+    await chooseModel('GPT-4o')
     fireEvent.change(document.getElementById('chat-attach') as HTMLInputElement, { target: { files } })
   }
 
