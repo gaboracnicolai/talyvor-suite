@@ -6,6 +6,7 @@ import { Projects } from './Projects'
 import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
 import { SearchIssues } from './SearchIssues'
+import { useIssueListKeys } from './issueKeys'
 import { useTrackWorkspaces } from './data'
 import { isUnconfigured } from '../../lib/productState'
 import { isSessionExpired } from '../../lib/productState'
@@ -101,6 +102,8 @@ function WorkspaceStrip() {
 }
 
 export function TrackArea() {
+  // B4.3 — c, /, j, k, e and Esc, for every Track screen. See issueKeys.ts.
+  useIssueListKeys()
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-gutter px-gutter py-4">
       <WorkspaceStrip />

@@ -58,6 +58,7 @@
   "src/areas/track/format.test.ts": 10,
   "src/areas/track/IssueDetail.test.tsx": 27,
   "src/areas/track/issueExport.test.tsx": 3,
+  "src/areas/track/issueKeys.test.tsx": 2,
   "src/areas/track/IssueList.test.tsx": 23,
   "src/areas/track/issueVocabulary.test.tsx": 32,
   "src/areas/track/meteredCostCensus.test.tsx": 17,

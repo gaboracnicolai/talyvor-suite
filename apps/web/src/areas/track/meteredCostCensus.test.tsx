@@ -24,7 +24,7 @@ import { TriageIssue } from './TriageIssue'
 //     FindDuplicates.tsx, TriageIssue.tsx.
 //
 // MEASURED at main `16d2218`: Track has FOUR browser-reachable surfaces whose use bills Lens.
-// Three print a sentence. The fourth — SearchIssues, mounted on /track at TrackArea.tsx:112 —
+// Three print a sentence. The fourth — SearchIssues, mounted on /track at TrackArea.tsx:115 —
 // printed NOTHING, while its own file header carried a paragraph titled "⚠ WHAT IT COSTS"
 // stating the fact in full. That is the SearchDocs defect (#240) one directory over, found the
 // same way and hidden by the same thing: a population that is a list of names.

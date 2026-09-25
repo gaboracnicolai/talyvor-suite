@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -228,6 +228,20 @@ export function IssueDetail() {
   })
 
   const it = issue.data
+
+  // B4.3 — `e` on the issue list arrives here with {edit: true} in router state (issueKeys.ts):
+  // open the description editor, caret in it, once the issue has loaded. Once only, so Cancel sticks.
+  const location = useLocation()
+  const [editOnArrival, setEditOnArrival] = useState(
+    () => (location.state as { edit?: boolean } | null)?.edit === true,
+  )
+  useEffect(() => {
+    if (editOnArrival && it) {
+      setEditOnArrival(false)
+      setDraft(it.description)
+      setFocusEditor(true)
+    }
+  }, [editOnArrival, it])
 
   // ⚠ ONE WRITE PATH FOR EVERY FIELD. Track's Update takes a field map and drops unknown keys, and
   // the BFF forwards verbatim — so a single patch() covers status, priority, assignee and the
