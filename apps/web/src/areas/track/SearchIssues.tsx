@@ -84,6 +84,7 @@ export function SearchIssues() {
         <label className="flex min-w-0 flex-col gap-1">
           <span className="text-caption text-muted">Search</span>
           <input
+            id="track-search" // issueKeys.ts TRACK_SEARCH_INPUT_ID — `/` puts the caret here
             className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
             value={term}
             onChange={(e) => setTerm(e.target.value)}

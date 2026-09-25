@@ -240,7 +240,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'no single page',
     why: 'the OTHER payer, on the other surface that binds none — the pair is what shows the clause is two-valued and not boilerplate',
   },
-  'apps/web/src/areas/track/meteredCostCensus.test.tsx:27|apps/web/src/areas/track/TrackArea.tsx:112': {
+  'apps/web/src/areas/track/meteredCostCensus.test.tsx:27|apps/web/src/areas/track/TrackArea.tsx:115': {
     kind: 'LIVE',
     fragment: '<SearchIssues />',
     why: 'the census says the surface it was written for is MOUNTED, not merely exported — "reachable only by curl" is what W1.7 opened on, so a metered card that shipped nowhere would be a different finding entirely',
@@ -306,7 +306,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-display-3',
     why: 'the console surface that reached for display type AS AT `c71ca9c`, quoted with that SHA',
   },
-  'apps/web/src/areas/track/IssueDetail.tsx:247|apps/web/src/areas/track/IssueList.tsx:331': {
+  'apps/web/src/areas/track/IssueDetail.tsx:261|apps/web/src/areas/track/IssueList.tsx:331': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the sentence this write path is the fifth instance of — quoted so the two Track write paths cannot state the rule differently',
@@ -406,7 +406,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'ApiError, NOT a bare Error',
     why: 'the same line quoted by the guard, so the finding and its evidence cite one checked place rather than two drifting ones',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:428': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:429': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the surface #141 fixed, quoted so the two findings are visibly the same shape one area over',

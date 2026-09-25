@@ -414,6 +414,7 @@ export function IssueList() {
             <span className="text-caption text-muted">Title</span>
             <input
               ref={titleRef}
+              id="new-issue-title" // issueKeys.ts NEW_ISSUE_INPUT_ID — `c` puts the caret here
               className={`w-full rounded-control border border-rule bg-canvas px-2 py-1 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -613,7 +614,7 @@ export function IssueList() {
                     // largest pointer target on this screen and it gave no sign it was one.
                     <tr
                       key={it.id}
-                      className="border-t border-rule align-middle transition-colors duration-200 hover:bg-surface"
+                      className="border-t border-rule align-middle transition-colors duration-200 focus-within:bg-surface hover:bg-surface"
                     >
                       {/* ⚠ THE LINK IS THE WHOLE POINT. Until now a row was terminal: you could see an
                           issue existed and had no way to open it. The title is the target because that
@@ -629,8 +630,9 @@ export function IssueList() {
                       <td className="py-2 pr-3 font-mono text-caption text-muted">{it.identifier}</td>
                       <td className="py-2 pr-3 text-ink">
                         <Link
-                          className="underline underline-offset-2 transition-colors duration-200 hover:text-accent"
+                          className={`underline underline-offset-2 transition-colors duration-200 hover:text-accent ${focusRing}`}
                           to={`/track/issues/${it.id}`}
+                          data-issue-link={it.id} // issueKeys.ts ISSUE_LINK_ATTR — what j/k step through
                         >
                           {it.title}
                         </Link>
@@ -660,6 +662,15 @@ export function IssueList() {
                 </tbody>
               </table>
             )}
+
+            {answered && !empty ? (
+              <p className="text-caption text-muted">
+                Keys: <kbd className="font-mono">c</kbd> new issue · <kbd className="font-mono">/</kbd> search ·{' '}
+                <kbd className="font-mono">j</kbd> <kbd className="font-mono">k</kbd> next and previous ·{' '}
+                <kbd className="font-mono">Enter</kbd> open · <kbd className="font-mono">e</kbd> edit ·{' '}
+                <kbd className="font-mono">Esc</kbd> leave a field
+              </p>
+            ) : null}
 
             {/* ⚠ THE ROW CONTROL'S REFUSAL, WHICH USED TO GO NOWHERE. `setStatus.isError` was read
                 in no place at all: the mutation appeared exactly three times in this file (here, its
