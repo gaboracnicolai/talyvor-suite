@@ -178,6 +178,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/distill", body: `{"distill_policy":"disabled"}`},
 		{method: http.MethodPost, path: "/api/features/tare", body: `{"tare_policy":"disabled"}`},
 		{method: http.MethodPost, path: "/api/features/cost-optimize-routing", body: `{"cost_optimize_routing":false}`},
+		{method: http.MethodPost, path: "/api/features/distill-poolable", body: `{"distill_poolable":false}`},
 		{method: http.MethodPost, path: "/api/keys", body: `{"name":"k","scopes":["proxy"]}`},
 		{method: http.MethodDelete, path: "/api/keys/abc", body: ``},
 		// ⚠ `usd_cents` AND `lxc_amount_ulxc`, NOT `amount_usd` AND `lxc`. Both rows named a field

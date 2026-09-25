@@ -123,6 +123,8 @@ const BY_PATH: Record<string, unknown> = {
     cost_optimize_routing: false,
     guardrails: { injection: true, pii: true },
   },
+  // B11.2 — Tare's savings, summed by the BFF from Lens's per-work-item rows.
+  '/api/features/tare-savings': { requests: 14, tokens_before: 52_000, tokens_after: 18_500, cost_saved_usd: 0.084 },
   '/api/usage': {
     period_days: 7,
     models: [

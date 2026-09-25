@@ -27,6 +27,10 @@ func fakeLensFeatures(t *testing.T, puts *[]string) *app {
 			_ = json.Unmarshal(raw, &in)
 			in["ok"] = true
 			_ = json.NewEncoder(w).Encode(in)
+		case strings.HasSuffix(r.URL.Path, "/tare/savings"):
+			_, _ = io.WriteString(w, `{"by_work_item":[
+				{"work_item_id":"ENG-1","requests":3,"tokens_in":9000,"tokens_out":3000,"delta_cost_usd":0.015},
+				{"work_item_id":"","requests":1,"tokens_in":1000,"tokens_out":800,"delta_cost_usd":0.0005}]}`)
 		case strings.HasSuffix(r.URL.Path, "/guardrails"):
 			_, _ = io.WriteString(w, `{"workspace_id":"ws","enable_injection":true,"enable_pii":false,"blocked_words":["x"]}`)
 		default:
@@ -105,4 +109,38 @@ func TestFeaturesCostRoutingSwitchWritesLens(t *testing.T) {
 func mustJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// B11.2 — the shared-document-conversions consent is written to Lens's own route, and the reply is
+// what Lens recorded.
+func TestFeaturesDistillPoolableSwitchWritesLens(t *testing.T) {
+	var puts []string
+	a := fakeLensFeatures(t, &puts)
+	rec := doJSON(a, http.MethodPost, "/api/features/distill-poolable", `{"distill_poolable":true}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"distill_poolable":true`) {
+		t.Fatalf("POST /api/features/distill-poolable = %d %s", rec.Code, rec.Body.String())
+	}
+	if len(puts) != 1 || !strings.HasSuffix(strings.Fields(puts[0])[0], "/distill-poolable") ||
+		strings.Fields(puts[0])[1] != `{"distill_poolable":true}` {
+		t.Fatalf("Lens received %q", puts)
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/features/distill-poolable", `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a body without the setting = %d, want 400", rec.Code)
+	}
+}
+
+// B11.2 — Tare's savings are Lens's per-work-item rows, summed into one reading.
+func TestFeaturesTareSavingsSumsLensRows(t *testing.T) {
+	var puts []string
+	rec := doJSON(fakeLensFeatures(t, &puts), http.MethodGet, "/api/features/tare-savings", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/features/tare-savings = %d %s", rec.Code, rec.Body.String())
+	}
+	var got tareSavingsTotal
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Requests != 4 || got.TokensBefore != 10000 || got.TokensAfter != 3800 || got.CostSavedUSD < 0.01549 || got.CostSavedUSD > 0.01551 {
+		t.Fatalf("summed savings = %+v", got)
+	}
 }

@@ -1072,6 +1072,10 @@ cannot "[PUT /v1/workspaces/{wsID}/cost-optimize-routing] apps/bff/features.go s
     "talyvor-lens cmd/lens/main.go" \
     "[ \"\$(grep -A12 -F 'authed.Put(\"/v1/workspaces/{wsID}/cost-optimize-routing\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"cost_optimize_routing\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. 30/30 controls red (~/talyvor-queue/w171-lens-register-controls-9f2c.py): key renamed, key added, key deleted, the route mount renamed, and the file emptied, for each of the six"
 
+cannot "[PUT /v1/workspaces/{wsID}/distill-poolable] apps/bff/features.go sends {distill_poolable} and Lens binds a plain bool, so a renamed key is false: a workspace that CONSENTED to sharing its document conversions is recorded as not consenting, with a 200 — the privacy-preserving direction, written down because a consent an upstream rename can silently withdraw is not being recorded" \
+    "talyvor-lens cmd/lens/main.go" \
+    "[ \"\$(grep -A12 -F 'authed.Put(\"/v1/workspaces/{wsID}/distill-poolable\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"distill_poolable\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main e89a054 before this merge: it settles."
+
 # ── THE METERED-SURFACE UPSTREAM COLUMN (W1.7.1, tab-p9r4) ───────────────────
 # Both metered censuses carry an `upstream` field per surface — the call site in the other repo
 # that makes that surface cost money — and both headers present it as holding the STALE

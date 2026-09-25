@@ -134,6 +134,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/cost-optimize-routing", func',
     subject: 'lensCostRoutingBody',
   },
+  // B11.2 — the shared-document-conversions consent, a switch Lens had and nothing called.
+  {
+    route: 'PUT /v1/workspaces/{wsID}/distill-poolable',
+    file: 'apps/bff/features.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]bool{"distill_poolable": *in.DistillPoolable})',
+    upstreamFile: 'cmd/lens/main.go',
+    upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/distill-poolable", func',
+    subject: 'lensDistillPoolableBody',
+  },
 ]
 
 /**
