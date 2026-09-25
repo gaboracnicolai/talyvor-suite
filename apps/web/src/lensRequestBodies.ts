@@ -144,6 +144,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/distill-poolable", func',
     subject: 'lensDistillPoolableBody',
   },
+  // B13.3 — the plan a subscriber picks on /plans.
+  {
+    route: 'POST /v1/workspaces/{wsID}/billing/subscribe',
+    file: 'apps/bff/billing.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"plan": in.Plan})',
+    upstreamFile: 'cmd/lens/main.go',
+    upstreamAnchor: 'subs.post(authed, "/v1/workspaces/{wsID}/billing/subscribe", func',
+    subject: 'lensSubscribeBody',
+  },
 ]
 
 /**

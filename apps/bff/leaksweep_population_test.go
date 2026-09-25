@@ -270,9 +270,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	//
 	// THE SEVENTEENTH, /api/features/distill-poolable (B11.2), IS THE SAME KIND: the shared-
 	// conversions consent, read back through GET /api/features as distill_poolable.
-	if len(methodOnly) > 17 {
+	//
+	// THE EIGHTEENTH, /api/billing/subscribe (B13.3), IS /api/lxc/checkout'S KIND: it starts a
+	// Stripe Checkout, so a GET would open a payable session on a prefetch. Its answer is the
+	// session URL and nothing the BFF holds.
+	if len(methodOnly) > 18 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 17 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 18 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

@@ -55,6 +55,7 @@ type SettingWrite =
   | { distill_policy: ReducerPolicy }
   | { cost_optimize_routing: boolean }
   | { distill_poolable: boolean }
+  | { cache_poolable: boolean }
 
 async function post(path: string, body: SettingWrite): Promise<void> {
   const res = await fetch(path, {
@@ -472,11 +473,28 @@ export function Features() {
                     )),
                   )
             }
-            state={stateOf(f?.cache_poolable == null ? UNREAD : f.cache_poolable ? 'On' : 'Off — turn it on in Settings')}
+            state={stateOf(
+              f?.cache_poolable == null
+                ? UNREAD
+                : f.cache_poolable
+                  ? 'On — your answers earn when someone else is served one'
+                  : 'Off — nothing of yours is shared, and your answers earn nothing. Switch it on here',
+            )}
             control={
-              <Link className="text-caption text-ink underline underline-offset-2" to="/settings">
-                Change in Settings
-              </Link>
+              readable && f?.cache_poolable != null ? (
+                // B13.3 — the same write as the signup consent and Settings (POST /api/pooling); the
+                // session's cached choice is re-read too, so Plans' earnings card follows it.
+                <SettingSwitch
+                  name="Answer sharing"
+                  checked={f.cache_poolable}
+                  write={(on) => post('/api/pooling', { cache_poolable: on })}
+                  alsoInvalidate={['auth-me']}
+                />
+              ) : (
+                <Link className="text-caption text-ink underline underline-offset-2" to="/settings">
+                  Change in Settings
+                </Link>
+              )
             }
           />
           <Feature

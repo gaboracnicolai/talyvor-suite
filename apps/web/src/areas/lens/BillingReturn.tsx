@@ -6,6 +6,7 @@ import { api } from '../../lib/api'
 import { Region, RegionScreen } from '../../components/Region'
 import { formatUSD } from './format'
 import { clearPendingTopUp, formatCents, readPendingTopUp } from './topupApi'
+import { clearPendingPlan, planApi, readPendingPlan, type PlanOffer } from './planApi'
 import { isSessionExpired } from '../../lib/productState'
 
 // /billing/success and /billing/cancel — the URLs Lens ALREADY redirects Stripe
@@ -96,13 +97,82 @@ function Actions() {
   )
 }
 
-export function BillingSuccess({
-  pollIntervalMs = DEFAULT_POLL_MS,
-  timeoutMs = DEFAULT_TIMEOUT_MS,
-}: {
+interface ReturnTiming {
   pollIntervalMs?: number
   timeoutMs?: number
-} = {}) {
+}
+
+/**
+ * B13.3 — the return from a PLAN checkout. Stripe sends a subscription to the same success URL as
+ * a top-up, so the plan picked on /plans is remembered across the round trip and this waits for
+ * Lens to grant the period (the webhook's work), exactly as the top-up waits for its credit.
+ */
+function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & Required<ReturnTiming>) {
+  const [timedOut, setTimedOut] = useState(false)
+  const read = useQuery({
+    queryKey: ['plan-allowance'],
+    queryFn: planApi.allowance,
+    retry: false,
+    refetchInterval: (q) => {
+      const d = q.state.data
+      if (timedOut || q.state.error || (d?.enabled && d.data.allowance)) return false
+      return pollIntervalMs
+    },
+  })
+  useEffect(() => {
+    const t = setTimeout(() => setTimedOut(true), timeoutMs)
+    return () => clearTimeout(t)
+  }, [timeoutMs])
+  const active = !!(read.data?.enabled && read.data.data.allowance)
+  useEffect(() => {
+    if (active) clearPendingPlan()
+  }, [active])
+
+  return (
+    <RegionScreen>
+      <Region
+        index="00"
+        label="Plans"
+        heading={active ? `You’re on ${plan.name}.` : timedOut || read.isError ? 'Your payment is recorded at Stripe.' : `Confirming your ${plan.name} plan.`}
+        sectionClassName="pb-10 pt-4 wide:pb-12"
+        className="max-w-2xl"
+      >
+        <p className="text-body text-muted">
+          {active
+            ? 'This month’s included usage is ready, and chat draws it first.'
+            : timedOut || read.isError
+              ? 'The plan starts when a webhook from Stripe reaches Lens. It usually takes seconds; check Plans again in a few minutes.'
+              : 'The payment succeeded at Stripe. Waiting for Lens to start your plan — this usually takes a few seconds.'}
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button asChild variant="primary">
+            <Link to="/plans">See your plan</Link>
+          </Button>
+          <Button asChild>
+            <Link to="/chat">Open chat</Link>
+          </Button>
+        </div>
+      </Region>
+    </RegionScreen>
+  )
+}
+
+export function BillingSuccess({ pollIntervalMs = DEFAULT_POLL_MS, timeoutMs = DEFAULT_TIMEOUT_MS }: ReturnTiming = {}) {
+  // Whichever checkout was started LAST is the one Stripe is returning from — a plan checkout
+  // abandoned earlier must not answer for a top-up paid since, nor the other way round.
+  const plan = useMemo(() => {
+    const p = readPendingPlan()
+    const t = readPendingTopUp()
+    return p && (!t || p.at > t.at) ? p.plan : null
+  }, [])
+  return plan ? (
+    <PlanSuccess plan={plan} pollIntervalMs={pollIntervalMs} timeoutMs={timeoutMs} />
+  ) : (
+    <TopUpSuccess pollIntervalMs={pollIntervalMs} timeoutMs={timeoutMs} />
+  )
+}
+
+function TopUpSuccess({ pollIntervalMs, timeoutMs }: Required<ReturnTiming>) {
   const [params] = useSearchParams()
   const sessionId = params.get('session_id')
 

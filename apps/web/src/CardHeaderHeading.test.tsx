@@ -126,6 +126,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   // built from Region and renders no Card at all; its three regions carry their own headings.
   '/earnings': 0,
   '/billing': 3,
+  // B13.3 — the usage meter and the earnings card; the populated fixture is a subscriber.
+  '/plans': 2,
   // 0 → 1 at W1.1.17b: the return screen draws a card, and the old census was reading its
   // pre-query state.
   '/billing/success': 1,

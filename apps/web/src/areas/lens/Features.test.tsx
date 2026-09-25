@@ -11,6 +11,7 @@ function mockBff(
 ) {
   let tare = 'disabled'
   let distillPoolable = false
+  let cachePoolable = true
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -28,6 +29,12 @@ function mockBff(
       posts.push({ url, body })
       distillPoolable = body.distill_poolable
       return json({ distill_poolable: distillPoolable })
+    }
+    if (url === '/api/pooling' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { cache_poolable: boolean }
+      posts.push({ url, body })
+      cachePoolable = body.cache_poolable
+      return json({ cache_poolable: cachePoolable })
     }
     if (url === '/api/features/tare-savings')
       return json({ requests: tareRequests, tokens_before: 10000, tokens_after: 3800, cost_saved_usd: 0.0155 })
@@ -49,7 +56,7 @@ function mockBff(
         distill_policy: 'always',
         compression_policy: 'disabled',
         logging_policy: 'metadata',
-        cache_poolable: true,
+        cache_poolable: cachePoolable,
         distill_poolable: distillPoolable,
         cost_optimize_routing: false,
         guardrails: { injection: true, pii: false },
@@ -146,6 +153,18 @@ describe('the Features screen', () => {
         /7 answers served from the shared pool in the last 30 days, and 2\.5 LENS earned from answers others reused \(measured\)/,
       ),
     )
+  })
+
+  it('answer sharing has a switch: off writes the consent, and the row then says nothing earns', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts)
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Answer sharing')
+    await waitFor(() => expect(within(r()).getByRole('switch')).toBeInTheDocument())
+    fireEvent.click(within(r()).getByRole('switch'))
+    await waitFor(() => expect(within(r()).getByTestId('state-Answer sharing')).toHaveTextContent(/your answers earn nothing/))
+    expect(posts).toEqual([{ url: '/api/pooling', body: { cache_poolable: false } }])
   })
 
   it('shared document conversions has a switch that writes Lens’s own consent', async () => {

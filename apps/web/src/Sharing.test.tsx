@@ -109,7 +109,7 @@ describe('sharing consent', () => {
     mockBff(true, true)
     render(<App />)
     await waitFor(() => {
-      expect(screen.getByText(/Your answers are being shared/i)).toBeInTheDocument()
+      expect(screen.getByText(/Share your answers, and earn from them/i)).toBeInTheDocument()
     })
     // The app shell must NOT be behind it. If any nav landmark renders, the disclosure is an
     // overlay someone can navigate past rather than a gate.
