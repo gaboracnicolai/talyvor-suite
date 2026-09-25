@@ -52,14 +52,16 @@ type streamUpstream struct {
 	// disconnect test observes that the cancellation actually propagated.
 	upstreamCtxDone chan struct{}
 
-	gotProxyAuth string
-	gotMintAuth  string
-	gotProxyPath string
-	gotAccept    string
-	gotDistill   string
-	mintCalls    int
-	proxyCalls   int
-	chunkGap     time.Duration
+	gotProxyAuth  string
+	gotMintAuth   string
+	gotProxyPath  string
+	gotAccept     string
+	gotDistill    string
+	gotCache      string
+	answerHeaders map[string]string // set on the proxied answer, as Lens does on a cache serve
+	mintCalls     int
+	proxyCalls    int
+	chunkGap      time.Duration
 	// noBlock skips the release gate entirely. Tests that care about CREDENTIALS rather than
 	// pacing use it — the first version of the reuse test reassigned `release` between requests
 	// while the upstream goroutine was selecting on it, which is a data race in the TEST.
@@ -94,6 +96,10 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotProxyPath = r.URL.Path
 			u.gotAccept = r.Header.Get("Accept")
 			u.gotDistill = r.Header.Get("X-Talyvor-Distill")
+			u.gotCache = r.Header.Get("X-Talyvor-Cache")
+			for k, v := range u.answerHeaders {
+				w.Header().Set(k, v)
+			}
 			if u.gotDistill == "true" {
 				w.Header().Set("X-Talyvor-Distill", "applied") // as Lens does when it converted a document
 			}
@@ -808,5 +814,46 @@ func TestStream_DocumentConversionOptInReachesLensAndItsAnswerReachesTheChat(t *
 				t.Fatalf("the chat received X-Talyvor-Distill %q, want %q", got, tc.wantBack)
 			}
 		})
+	}
+}
+
+// B15.6 — Regenerate's bypass reaches Lens (and nothing else does), and the headers that say where an
+// answer came from reach the chat.
+func TestStream_RegenerateBypassReachesLensAndTheAnswerSourceReachesTheChat(t *testing.T) {
+	source := map[string]string{
+		"X-Talyvor-Cache-Replay":       "true",
+		"X-Talyvor-Pool-List-ULXC":     "2170",
+		"X-Talyvor-Pool-Charged-ULXC":  "1519",
+		"X-Talyvor-Pool-Saved-ULXC":    "651",
+		"X-Talyvor-Pool-Discount-Rate": "0.3",
+	}
+	for _, tc := range []struct{ sent, wantUp string }{{"bypass", "bypass"}, {"", ""}, {"refresh", ""}} {
+		up := newStreamUpstream(t)
+		up.noBlock = true
+		up.answerHeaders = source
+		a, sess := streamApp(t, up)
+		ts := httptest.NewServer(a)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+		req.AddCookie(sess)
+		req.Header.Set("Origin", "https://app.talyvor.com")
+		req.Header.Set("Content-Type", "application/json")
+		if tc.sent != "" {
+			req.Header.Set("X-Talyvor-Cache", tc.sent)
+		}
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		ts.Close()
+		if up.gotCache != tc.wantUp {
+			t.Errorf("sent %q: Lens received X-Talyvor-Cache %q, want %q", tc.sent, up.gotCache, tc.wantUp)
+		}
+		for k, v := range source {
+			if got := resp.Header.Get(k); got != v {
+				t.Errorf("the chat received %s %q, want %q", k, got, v)
+			}
+		}
 	}
 }

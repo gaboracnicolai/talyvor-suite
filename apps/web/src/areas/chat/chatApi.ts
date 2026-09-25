@@ -1,6 +1,6 @@
 import { ApiError } from '../../lib/api'
 import { type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
-import type { AnswerCost } from './price'
+import type { AnswerCost, AnswerSource } from './price'
 
 // chatApi.ts — the wire for W4.6.1 step 6.
 //
@@ -65,6 +65,8 @@ export interface ChatMessage {
   attachments?: ChatAttachment[]
   /** B10.3 — set once the answer arrives: whether Lens converted the attached documents to text. */
   converted?: boolean
+  /** B15.6 — set when the answer was not written by the model just now: replayed or shared. */
+  source?: AnswerSource
 }
 
 /** Reads the deployment's catalog. Errors are the shared ApiError so the app-wide bar sees them. */
@@ -202,7 +204,7 @@ export interface StreamHandlers {
   /** Called once when the stream ends. `unrecognised` is frames this parser could not read;
    *  `usage` and `model` are what the provider reported, when it did; `converted` is Lens saying it
    *  turned an attached document into text (X-Talyvor-Distill: applied). */
-  onDone: (info: { unrecognised: number; usage?: Usage; model?: string; converted: boolean }) => void
+  onDone: (info: { unrecognised: number; usage?: Usage; model?: string; converted: boolean; source?: AnswerSource }) => void
   /** A server-reported error inside the stream, or a transport failure. */
   onError: (message: string) => void
 }
@@ -225,6 +227,8 @@ export async function streamChat(
   messages: ChatMessage[],
   handlers: StreamHandlers,
   signal?: AbortSignal,
+  /** B15.6 — ask the model afresh rather than be served a cached answer (Regenerate). */
+  fresh = false,
 ): Promise<void> {
   const path = CHAT_PATH[provider]
   if (path === undefined) {
@@ -243,6 +247,7 @@ export async function streamChat(
         'Content-Type': 'application/json',
         // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
         ...(messages.some((m) => m.attachments?.some((a) => a.data !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
+        ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
       },
       body: JSON.stringify(requestBody(provider, model, messages)),
       signal,
@@ -266,6 +271,7 @@ export async function streamChat(
   }
 
   const converted = res.headers.get('X-Talyvor-Distill') === 'applied'
+  const source = answerSource(res.headers)
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -291,7 +297,7 @@ export async function streamChat(
         }
         for (const d of got.deltas) handlers.onDelta(d.text)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source })
           return
         }
       }
@@ -306,7 +312,19 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source })
+}
+
+/**
+ * B15.6 — where the answer came from. A pooled serve is replayed too, so the pool's headers are read
+ * first; an own-cache replay carries no price headers because it is free.
+ */
+function answerSource(h: Headers): AnswerSource | undefined {
+  const rate = Number(h.get('X-Talyvor-Pool-Discount-Rate') ?? NaN)
+  const charged = Number(h.get('X-Talyvor-Pool-Charged-ULXC') ?? NaN)
+  if (Number.isFinite(rate) && Number.isFinite(charged)) return { kind: 'pool', discount_rate: rate, charged_ulxc: charged }
+  if (h.get('X-Talyvor-Cache-Replay') === 'true') return { kind: 'cache' }
+  return undefined
 }
 
 /**

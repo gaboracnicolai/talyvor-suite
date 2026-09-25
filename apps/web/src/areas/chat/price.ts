@@ -82,6 +82,25 @@ export interface AnswerCost {
   usd: number
 }
 
+/**
+ * B15.6 — where an answer came from when the model did not write it just now, read from the headers
+ * Lens returned with it (the BFF relays them). Stored with the answer, so a reopened conversation
+ * still says it. Absent = the model answered, priced by its tokens.
+ */
+export type AnswerSource =
+  /** This workspace asked it before; Lens replayed that answer (X-Talyvor-Cache-Replay). Free. */
+  | { kind: 'cache' }
+  /** Another workspace's answer from the shared pool, at a discount (X-Talyvor-Pool-*). */
+  | { kind: 'pool'; discount_rate: number; charged_ulxc: number }
+
+/** The footer line for an answer that did not come from the model just now. */
+export function answerSourceLine(source: AnswerSource): string {
+  if (source.kind === 'cache') return 'from your earlier answer · 0 LXC'
+  // Lens charged credits (µLXC), so the figure is already credits: formatAnswerCost at a peg of 1.
+  const charged = formatAnswerCost(source.charged_ulxc / 1_000_000, 1)
+  return `shared answer · ${Math.round(source.discount_rate * 100)}% off · ${charged}`
+}
+
 /** USD for a token count at per-1M-token rates. Null when a count or rate is missing. */
 export function answerUsd(
   usage: { input_tokens?: number; output_tokens?: number } | undefined,

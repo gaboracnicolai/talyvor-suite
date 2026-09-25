@@ -27,7 +27,7 @@ import { Markdown } from './Markdown'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
-import { type AnswerCost, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
+import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
 import { topupApi } from '../lens/topupApi'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
@@ -205,7 +205,7 @@ export function Chat() {
 
   /** Streams an answer to `turn`, whose last message is the question. */
   const run = useCallback(
-    async (turn: ChatMessage[]) => {
+    async (turn: ChatMessage[], fresh = false) => {
       if (selected === undefined || pending) return
       const id = activeId ?? newConversationId()
       const model = selected.id
@@ -222,6 +222,7 @@ export function Chat() {
       abortRef.current = controller
       let answer = ''
       let cost: AnswerCost | undefined
+      let source: AnswerSource | undefined
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
       const asked = turn.length - 1
       const carriedDocs = turn[asked]?.attachments?.some((a) => a.data !== undefined) === true
@@ -247,19 +248,22 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
             }
             // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
-            const priced = pricedAnswer(usage, selected, servedBy)
-            if (priced !== undefined) {
+            // B15.6 — except one the model did not write just now: a replayed or shared answer is
+            // priced by where it came from, not by the tokens it once took.
+            const priced = from === undefined ? pricedAnswer(usage, selected, servedBy) : undefined
+            if (priced !== undefined || from !== undefined) {
               cost = priced
+              source = from
               setMessages((prev) => {
                 const next = [...prev]
                 const last = next[next.length - 1]
-                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced }
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from }
                 return next
               })
             }
@@ -272,9 +276,10 @@ export function Chat() {
           },
         },
         controller.signal,
+        fresh,
       )
       store((list) =>
-        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost }], Date.now()),
+        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source }], Date.now()),
       )
     },
     [activeId, pending, selected, store],
@@ -329,10 +334,11 @@ export function Chat() {
   )
 
   // Regenerate answers the last question again: the previous answer is dropped, not kept beside it.
+  // B15.6 — and it always asks the model: without the bypass Lens would replay the answer it has.
   const regenerate = useCallback(() => {
     const lastUser = messages.map((m) => m.role).lastIndexOf('user')
     if (lastUser < 0) return
-    void run(messages.slice(0, lastUser + 1))
+    void run(messages.slice(0, lastUser + 1), true)
   }, [messages, run])
 
   // B10.2 — Stop ends the answer where it is. streamChat returns silently on an aborted signal
@@ -825,13 +831,16 @@ function Reply({
               Regenerate
             </button>
           ) : null}
-          {/* B1.4 — every answer carries its price and model: one quiet line, figures on the face. */}
+          {/* B1.4 — every answer carries its price and model: one quiet line, figures on the face.
+              B15.6 — or, when the model did not write it just now, where it came from. */}
           <p className="ml-1 font-figure text-caption text-faint" data-testid="turn-cost">
-            {message.cost !== undefined
-              ? `${formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model} · ` +
-                `${message.cost.input_tokens.toLocaleString('en-US')} in / ` +
-                `${message.cost.output_tokens.toLocaleString('en-US')} out tokens`
-              : 'Price not known — the provider reported no token counts for this answer'}
+            {message.source !== undefined
+              ? answerSourceLine(message.source)
+              : message.cost !== undefined
+                ? `${formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model} · ` +
+                  `${message.cost.input_tokens.toLocaleString('en-US')} in / ` +
+                  `${message.cost.output_tokens.toLocaleString('en-US')} out tokens`
+                : 'Price not known — the provider reported no token counts for this answer'}
           </p>
         </div>
       ) : null}
