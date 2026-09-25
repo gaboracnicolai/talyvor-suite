@@ -313,11 +313,6 @@ const DEAD: Record<string, string> = {
   // next reader sees a measurement instead of assuming a caller exists.
   'apps/web/src/areas/track/format.ts#formatWhen':
     'no Track surface renders a timestamp; lens/format.ts#formatWhen is the one with call sites',
-  // Public API of @talyvor/ui, promoted out of areas/docs ("Promoted verbatim from areas/docs")
-  // — and the promotion left no caller behind: measured, the product renders no date-only value
-  // anywhere. Deleting a shared package's published export is a wider decision than this merge.
-  'packages/ui/src/lib/format.ts#formatDay':
-    'promoted to the design system out of areas/docs and the last caller went with the promotion; no surface renders a date-only value',
 }
 
 /**

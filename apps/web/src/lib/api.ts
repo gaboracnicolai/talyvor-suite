@@ -253,7 +253,7 @@ export { getJSON, getJSONArray }
 
 export type Capability<T> = { enabled: false } | { enabled: true; data: T }
 
-async function getCapability<T>(path: string): Promise<Capability<T>> {
+export async function getCapability<T>(path: string): Promise<Capability<T>> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new ApiError(res.status, path)
   const body = (await res.json()) as { enabled: boolean; data?: T }

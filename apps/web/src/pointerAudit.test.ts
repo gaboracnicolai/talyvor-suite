@@ -250,7 +250,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'error={ledger.error}',
     why: 'the CORRECT copy of the seam Spend.tsx had backwards — the whole positive control for that finding is that this line reads `ledger.error` while its guard is `ledger.isError`',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:312|apps/web/src/areas/lens/Overview.tsx:342': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:313|apps/web/src/areas/lens/Overview.tsx:342': {
     kind: 'LIVE',
     fragment: '<Failed what="the mint ledger" error={ledger.error} />',
     why: 'the same line quoted VERBATIM beside the must-stay-green control that asserts its wording, so the quote and the assertion cannot drift apart',
@@ -439,7 +439,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'ApiError, NOT a bare Error',
     why: 'the census quoting the one place the repo recorded the class, so its list of four is checkable',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:65|apps/web/src/areas/lens/TopUp.tsx:28': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:65|apps/web/src/areas/lens/TopUp.tsx:29': {
     kind: 'LIVE',
     fragment: 'The payment happens THERE',
     why: 'why "nothing was charged" is honest for a call that never completed — the charge happens after the redirect',
@@ -449,7 +449,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the BFF half of the same parenthesis — the sentence promises this line says the payment happens at Stripe AFTER the redirect',
   },
-  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:511': {
+  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:515': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'the first of the TWO independent clamps the page ceiling rests on, quoted verbatim by the sentence that cites it',
@@ -459,17 +459,17 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the example that paragraph gives of a citation checkable from here — now checked, which is what it asked for',
   },
-  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:511': {
+  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:515': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'its second example, pinned for the same reason',
   },
-  'apps/web/src/upstreamCitations.test.ts:62|apps/web/src/areas/lens/TopUp.tsx:28': {
+  'apps/web/src/upstreamCitations.test.ts:62|apps/web/src/areas/lens/TopUp.tsx:29': {
     kind: 'LIVE',
     fragment: 'The payment happens THERE',
     why: 'the citation that WAS pinned, named in the account of why its neighbour was not — so that account cannot rot either',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:176|apps/web/src/areas/lens/TopUp.tsx:316': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:176|apps/web/src/areas/lens/TopUp.tsx:317': {
     kind: 'LIVE',
     fragment: 'must not leave a pending marker behind',
     why: 'the rule the marker test asserts, quoted from the code that states it rather than restated',
@@ -502,7 +502,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'one configured workspace credential',
     why: 'the "cosmetic, not blocking" note that auth.go still describes the old one-workspace model — the only in-repo runbook pointer that was accurate',
   },
-  'apps/web/src/areas/docs/BFF-GAPS.md:14|apps/bff/lens.go:110': {
+  'apps/web/src/areas/docs/BFF-GAPS.md:14|apps/bff/lens.go:114': {
     kind: 'LIVE',
     fragment: '"/api/docs/spaces"',
     why: 'the Docs proxy mechanics are "same as the existing route"; it cited lens.go:74, which is /api/bonds — three more Docs routes were mounted above it',
@@ -516,7 +516,7 @@ const PINS: Record<string, Pin> = {
   // in THIS repository can move without touching the screen. That is exactly the rot this file
   // was written for: `billing.go:180` moved and the sentence explaining "nothing was charged"
   // ended up pointing at the one function that cannot charge.
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:745': {
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:767': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the screen marks YOUR row by comparing /auth/me\'s email to the roster; the claim that this header is the membership join key is the whole basis for that being a join rather than a guess',
@@ -551,7 +551,7 @@ const PINS: Record<string, Pin> = {
     fragment: 's.email',
     why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:745': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:767': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',

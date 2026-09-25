@@ -62,6 +62,25 @@ const BODIES: Record<string, unknown> = {
 
   '/api/lxc/topup-options': { allowed_usd_cents: [1000, 2500, 5000], billing_enabled: true },
 
+  '/api/billing/allowance': {
+    capability: 'subscriptions',
+    enabled: true,
+    data: {
+      allowance: {
+        period_start: '2026-08-01T00:00:00Z',
+        period_end: '2026-09-01T00:00:00Z',
+        granted_ulxc: 200_000_000,
+        consumed_ulxc: 50_000_000,
+        remaining_ulxc: 150_000_000,
+        fee_usd_cents: 2000,
+      },
+      earned_ulens: 9_000_000,
+      earned_held_ulens: 0,
+      earned_usd_cents: 600,
+      earned_back_usd_cents: 600,
+    },
+  },
+
   '/api/distill': { converted: 12, vision_ocr: 3, days: 30 },
 
   '/api/earnings': {
