@@ -45,6 +45,30 @@ export interface TopUpOptions {
    * than fall back to a number written here.
    */
   usd_per_lxc?: number
+  /**
+   * B5.1 — the bounds of a free amount, in USD cents ($10 and $10,000 today). Any whole-cent amount
+   * between them is accepted; `allowed_usd_cents` are one-click presets inside the range. Optional
+   * so the screen draws NO free field when a BFF does not state them, rather than one whose limits
+   * it would have to guess.
+   */
+  min_usd_cents?: number
+  max_usd_cents?: number
+}
+
+/**
+ * Typed dollars → whole USD cents, rounded UP (B5.1: "Charges CEIL, integer cents at the money
+ * boundary, never a float"). Parsed as a string so no binary fraction ever touches the amount:
+ * "2,500" → 250000, "12.345" → 1235, "$10." → 1000. Null for anything that is not a plain dollar
+ * figure, or too large to be an exact integer.
+ */
+export function dollarsToCents(text: string): number | null {
+  const m = /^\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)?(?:\.(\d*))?\s*$/.exec(text)
+  if (!m || (m[1] === undefined && !m[2])) return null
+  const whole = Number((m[1] ?? '0').replace(/,/g, ''))
+  const frac = m[2] ?? ''
+  const roundUp = /[1-9]/.test(frac.slice(2)) ? 1 : 0
+  const cents = whole * 100 + Number((frac + '00').slice(0, 2)) + roundUp
+  return Number.isSafeInteger(cents) ? cents : null
 }
 
 /**
@@ -246,7 +270,7 @@ export const topupApi = {
   },
 }
 
-/** Whole dollars from cents for a button label: 1000 → "$10", 1234 → "$12.34". */
+/** Whole dollars from cents for a button label: 1000 → "$10", 1234 → "$12.34", 250000 → "$2,500". */
 export function formatCents(cents: number): string {
   return (cents / 100).toLocaleString('en-US', {
     style: 'currency',

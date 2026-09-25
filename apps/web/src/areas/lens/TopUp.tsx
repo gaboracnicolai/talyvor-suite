@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, MuNumeral, Row } from '@talyvor/ui'
+import { Button, Card, CardHeader, Input, MuNumeral, Row } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { CapabilityOff } from './Capability'
 import { InlineFailure } from '../../components/SessionExpiredBar'
@@ -8,6 +9,7 @@ import { Region, RegionScreen } from '../../components/Region'
 import { formatUSD } from './format'
 import {
   CheckoutError,
+  dollarsToCents,
   formatCents,
   formatLXC,
   lxcForCents,
@@ -76,7 +78,7 @@ function failureText(kind: CheckoutFailureKind, detail: string): string {
         'its configured address and try again.'
       )
     case 'amount_refused':
-      return detail || 'That amount isn’t on offer. Pick one of the amounts above.'
+      return detail || 'That amount can’t be bought here — nothing was charged.'
     case 'upstream':
       // The BFF's own words: it distinguishes an unreachable Lens from an
       // allow-list drift, and both sentences already end with the fact that
@@ -200,6 +202,100 @@ function WaysToGetCredit({ canBuy }: { canBuy: boolean }) {
         </li>
       ))}
     </ol>
+  )
+}
+
+/**
+ * B5.1 — any amount, not just the three presets. A team spending five figures a month cannot top
+ * up $100 at a time. The field shows what it will CHARGE (typed dollars rounded UP to the cent —
+ * the same integer the BFF and Lens receive) and what that buys in credits BEFORE the click, and it
+ * says why there is a cap rather than just refusing past it.
+ */
+function OtherAmount({
+  min,
+  max,
+  usdPerLXC,
+  startingCents,
+  onBuy,
+}: {
+  min: number
+  max: number
+  usdPerLXC: number | undefined
+  /** The amount a checkout is being started for, if one is — every buy control waits on it. */
+  startingCents: number | undefined
+  onBuy: (usdCents: number) => void
+}) {
+  const [text, setText] = useState('')
+  const cents = dollarsToCents(text)
+  const inBounds = cents !== null && cents >= min && cents <= max
+  const bounds = `${formatCents(min)} to ${formatCents(max)}`
+
+  let note: React.ReactNode
+  if (text.trim() === '') {
+    note = `Any amount from ${bounds}. The cap is the most one disputed card payment can cost — for more, top up more than once.`
+  } else if (cents === null) {
+    note = 'Enter dollars, like 2500 or 2,500.00.'
+  } else if (!inBounds) {
+    note = `A top-up is ${bounds} — the cap is the most one disputed card payment can cost, so for more, top up more than once.`
+  } else {
+    note = (
+      <span className="font-figure">
+        {(() => {
+          const lxc = lxcForCents(cents, usdPerLXC)
+          const charged = `Charged ${formatCents(cents)}${cents % 100 === 0 ? '' : ' (rounded up to the cent)'}`
+          return lxc === null ? `${charged}.` : `${charged} — buys ${formatLXC(lxc)}.`
+        })()}
+      </span>
+    )
+  }
+
+  // Its own Row, in the card's idiom: what it is and what it will do on the left (the note wraps
+  // there), the control on the right. Row's control slot does not shrink, so nothing long lives in it.
+  return (
+    <Row
+      label={<label htmlFor="topup-amount">Other amount</label>}
+      hint={
+        <span id="topup-amount-note" aria-live="polite">
+          {note}
+        </span>
+      }
+    >
+      <form
+        className="flex items-center gap-2"
+        aria-label="Top up another amount"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (inBounds) onBuy(cents)
+        }}
+      >
+        <span aria-hidden="true" className="font-figure text-body text-muted">
+          $
+        </span>
+        {/* The width lives on a wrapper: Input carries w-full and cn() does not merge classes. */}
+        <div className="w-32">
+          <Input
+            id="topup-amount"
+            inputMode="decimal"
+            autoComplete="off"
+            placeholder="2,500"
+            aria-describedby="topup-amount-note"
+            aria-invalid={text.trim() !== '' && !inBounds}
+            className="font-figure"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
+        </div>
+        <Button type="submit" variant="primary" disabled={!inBounds || startingCents !== undefined}>
+          {inBounds && startingCents === cents ? (
+            'Starting…'
+          ) : inBounds ? (
+            <span className="font-figure">Top up {formatCents(cents)}</span>
+          ) : (
+            'Top up'
+          )}
+        </Button>
+      </form>
+    </Row>
   )
 }
 
@@ -360,6 +456,17 @@ export function TopUp({
               )}
             </Row>
           )}
+          {!billingOff &&
+          typeof options.data?.min_usd_cents === 'number' &&
+          typeof options.data?.max_usd_cents === 'number' ? (
+            <OtherAmount
+              min={options.data.min_usd_cents}
+              max={options.data.max_usd_cents}
+              usdPerLXC={options.data.usd_per_lxc}
+              startingCents={start.isPending ? start.variables : undefined}
+              onBuy={(cents) => start.mutate(cents)}
+            />
+          ) : null}
 
           {/* ⚠ GATED ON `isError`, NOT ON THE ERROR'S CLASS. This block used to render only when
               the error was a `CheckoutError`, which is every answer the BFF gives — but NOT the

@@ -16,6 +16,10 @@ package main
 //
 // ── THE ALLOW-LIST, AND WHY IT IS MIRRORED HERE ─────────────────────────────
 //
+// ⚠ B5.1 CHANGED THE PREMISE BELOW: Lens now accepts any whole-cent amount in bounds, the three
+// sizes are presets, and what is enforced here is minTopUpCents/maxTopUpCents. The mirroring
+// argument is unchanged — Lens serves the bounds on no endpoint either.
+//
 // Lens accepts only $10 / $50 / $100 (internal/billing/billing.go
 // `allowedTopUps`). It also has `AllowedTopUpCents()` — which is called by
 // NOTHING: the list is exposed on no HTTP endpoint, so the BFF genuinely cannot
@@ -78,7 +82,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 // allowedTopUpCents MIRRORS talyvor-lens internal/billing/billing.go
@@ -93,38 +96,49 @@ import (
 // ADDITIVE-ONLY, for the reason Lens states: async payment methods can settle
 // days after a session is created and the webhook re-checks the list, so
 // removing a size would mark a legitimately-paid purchase anomalous. Append only.
+//
+// B5.1: SINCE LENS a15222b THESE ARE PRESETS, NOT A LIST. Lens accepts ANY whole number of cents
+// in [minTopUpCents, maxTopUpCents] (its `topUpPresets` are the same three sizes, offered as
+// one-click buttons); the screen draws these as buttons beside a free amount field.
 var allowedTopUpCents = []int64{1000, 5000, 10000}
 
-// amountAllowed reports whether cents is an advertised top-up size.
+// The bounds Lens enforces (internal/billing/billing.go minTopUpCents / maxTopUpCents), mirrored
+// for the same reason as the presets: Lens serves them on no endpoint. Its reasons, restated so the
+// screen can give them: the $10.00 floor keeps Stripe's 2.9% + 30¢ under 6% of a face-value sale; the
+// $10,000.00 cap is the most one stolen or disputed card can cost, since credit spent before a
+// chargeback cannot be taken back. A team spending more tops up more than once.
+const (
+	minTopUpCents int64 = 1_000
+	maxTopUpCents int64 = 1_000_000
+)
+
+// amountAllowed reports whether cents is a top-up Lens will accept.
 func amountAllowed(cents int64) bool {
-	for _, c := range allowedTopUpCents {
-		if c == cents {
-			return true
-		}
-	}
-	return false
+	return cents >= minTopUpCents && cents <= maxTopUpCents
 }
 
 // formatUSDCents renders an integer cent amount the way the refusal messages
-// need to state it: "$10", "$50", "$100" — and "$12.34" for anything not whole.
+// need to state it: "$10", "$50", "$100" — and "$12.34" for anything not whole —
+// with thousands grouped by commas, since the cap is five figures.
 func formatUSDCents(cents int64) string {
-	if cents%100 == 0 {
-		return "$" + strconv.FormatInt(cents/100, 10)
-	}
 	whole, frac := cents/100, cents%100
-	if frac < 0 {
-		frac = -frac
+	sign := ""
+	if cents < 0 {
+		sign, whole, frac = "-", -whole, -frac
 	}
-	return "$" + strconv.FormatInt(whole, 10) + "." + strconv.FormatInt(frac/10, 10) + strconv.FormatInt(frac%10, 10)
+	digits := strconv.FormatInt(whole, 10)
+	for i := len(digits) - 3; i > 0; i -= 3 {
+		digits = digits[:i] + "," + digits[i:]
+	}
+	if frac == 0 {
+		return sign + "$" + digits
+	}
+	return sign + "$" + digits + "." + strconv.FormatInt(frac/10, 10) + strconv.FormatInt(frac%10, 10)
 }
 
-// allowedList renders the advertised amounts for a human-readable message.
-func allowedList() string {
-	parts := make([]string, 0, len(allowedTopUpCents))
-	for _, c := range allowedTopUpCents {
-		parts = append(parts, formatUSDCents(c))
-	}
-	return strings.Join(parts, ", ")
+// boundsText is the one sentence every refusal of an amount uses.
+func boundsText() string {
+	return formatUSDCents(minTopUpCents) + " to " + formatUSDCents(maxTopUpCents)
 }
 
 // handleTopUpOptions — GET /api/lxc/topup-options. Two facts the screen needs
@@ -149,6 +163,8 @@ func (a *app) handleTopUpOptions(w http.ResponseWriter, r *http.Request, t tenan
 	}
 	out := map[string]any{
 		"allowed_usd_cents": allowedTopUpCents,
+		"min_usd_cents":     minTopUpCents,
+		"max_usd_cents":     maxTopUpCents,
 		"billing_enabled":   a.probeBillingEnabled(r, t),
 	}
 	// The peg, when Lens will supply it. OMITTED — never zero, never a guess — when it will not,
@@ -291,14 +307,17 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant
 		return
 	}
 
-	// Refused HERE, before any dial: an off-list amount would make Lens create a
-	// Stripe customer mapping on its way to rejecting it, and the customer would
+	// Refused HERE, before any dial: an out-of-bounds amount would make Lens create
+	// a Stripe customer mapping on its way to rejecting it, and the customer would
 	// wait on a round trip to learn something this side already knows. The reply
-	// carries the allowed amounts so the screen can say what IS on offer.
+	// carries the bounds so the screen can say what IS accepted.
 	if !amountAllowed(in.USDCents) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error":             "top-up amount not offered — choose one of " + allowedList(),
+			"error": "a top-up is " + boundsText() + " — the cap is the most one disputed card " +
+				"payment can cost, so for more, top up more than once. Nothing was charged.",
 			"allowed_usd_cents": allowedTopUpCents,
+			"min_usd_cents":     minTopUpCents,
+			"max_usd_cents":     maxTopUpCents,
 		})
 		return
 	}
@@ -360,10 +379,10 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant
 		// from Lens means the two lists have DRIFTED. That is an operator-facing
 		// version mismatch between two repos, not a customer input error — say so,
 		// and name what this app offers so the gap is diagnosable from the message.
-		log.Printf("bff: lxc checkout: Lens refused an advertised amount (%d) — allow-list drift", in.USDCents)
+		log.Printf("bff: lxc checkout: Lens refused an in-bounds amount (%d) — top-up bounds drift", in.USDCents)
 		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"error": "this app offers " + allowedList() + ", but Lens refused that amount — " +
-				"the two are running different top-up allow-lists. Nothing was charged.",
+			"error": "this app accepts " + boundsText() + ", but Lens refused that amount — " +
+				"the two are running different top-up bounds. Nothing was charged.",
 		})
 
 	default:

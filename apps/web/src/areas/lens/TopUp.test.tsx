@@ -431,3 +431,67 @@ it('refuses a zero peg rather than dividing by it', async () => {
   expect(screen.queryByText(/Infinity/)).toBeNull()
   expect(screen.queryByRole('button', { name: /LXC/ })).toBeNull()
 })
+
+/* ── Any amount, not just the presets (B5.1) ─────────────────────────────── */
+
+// The BFF now accepts any whole-cent amount in [min_usd_cents, max_usd_cents] and serves the bounds.
+function mockBounded() {
+  const post = vi.fn()
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    if (url === '/api/lxc/checkout' && init?.method === 'POST') {
+      post(JSON.parse(init.body as string))
+      return json({ url: SESSION_URL })
+    }
+    if (url === '/api/lxc/topup-options')
+      return json({
+        allowed_usd_cents: [1000, 5000, 10000],
+        min_usd_cents: 1000,
+        max_usd_cents: 1_000_000,
+        usd_per_lxc: 0.1,
+      })
+    if (url === '/api/lxc/balance') return json(BALANCE)
+    return new Response('null', { status: 404 })
+  })
+  return { post }
+}
+
+describe('TopUp — any amount (B5.1)', () => {
+  it('tops up $2,500: shows what it buys before the click, then posts 250000 cents', async () => {
+    const { post } = mockBounded()
+    const redirect = vi.fn()
+    renderTopUp(redirect)
+
+    fireEvent.change(await screen.findByRole('textbox', { name: /other amount/i }), { target: { value: '2,500' } })
+    expect(screen.getByText('Charged $2,500 — buys 25,000 LXC.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Top up $2,500' }))
+
+    await waitFor(() => expect(redirect).toHaveBeenCalledWith(SESSION_URL))
+    expect(post).toHaveBeenCalledWith({ usd_cents: 250_000 })
+  })
+
+  it('rounds a fraction of a cent UP, and says so before charging it', async () => {
+    const { post } = mockBounded()
+    renderTopUp()
+
+    fireEvent.change(await screen.findByRole('textbox', { name: /other amount/i }), { target: { value: '12.341' } })
+    expect(screen.getByText(/Charged \$12\.35 \(rounded up to the cent\)/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Top up $12.35' }))
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith({ usd_cents: 1235 }))
+  })
+
+  it('refuses an amount past the cap before any request, and says why the cap exists', async () => {
+    const { post } = mockBounded()
+    renderTopUp()
+
+    fireEvent.change(await screen.findByRole('textbox', { name: /other amount/i }), { target: { value: '10000.01' } })
+    expect(screen.getByText(/A top-up is \$10 to \$10,000 — the cap is the most one disputed card/)).toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Top up' })
+    expect(button).toBeDisabled()
+    fireEvent.click(button)
+    expect(post).not.toHaveBeenCalled()
+  })
+})
