@@ -82,6 +82,11 @@ const SIDEBAR_DESTINATIONS = [
   // nobody can find answers a question nobody gets to ask — the same defect Members.tsx was
   // rebuilt for, one level up.
   '/earnings',
+  // B8.1 — every screen the console mounts, grouped by product.
+  '/chat',
+  '/track/cycles',
+  '/track/projects',
+  '/pricing',
   '/billing',
   '/setup',
   '/keys',

@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react'
-import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryCache, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import {
   BrowserRouter,
   Link,
@@ -28,6 +28,7 @@ import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { Chat } from './areas/chat/Chat'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
+import { docsApi } from './areas/docs/api'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
 import { Privacy } from './routes/Privacy'
@@ -162,29 +163,49 @@ function NavDestination({
   to,
   label,
   wildcard = false,
+  active,
+  className,
 }: {
   to: string
   label: string
   wildcard?: boolean
+  /** Overrides the exact/prefix rule where a row shares its prefix with a sibling row. */
+  active?: boolean
+  className?: string
 }) {
   const { pathname } = useLocation()
   const href = useHref(to)
   const onClick = useLinkClickHandler<HTMLAnchorElement>(to)
   return (
     <NavItem
-      active={wildcard ? pathname.startsWith(to) : pathname === to}
+      active={active ?? (wildcard ? pathname.startsWith(to) : pathname === to)}
       href={href}
       onClick={onClick}
+      className={className}
     >
       {label}
     </NavItem>
   )
 }
 
+/** How many of the workspace's Docs spaces the sidebar lists by name; the rest are one click away
+ * on "All spaces". */
+const SIDEBAR_SPACES = 5
+
 function Sidebar() {
-  const item = (to: string, label: string, wildcard = false) => (
-    <NavDestination to={to} label={label} wildcard={wildcard} />
+  const { pathname } = useLocation()
+  const item = (to: string, label: string, wildcard = false, active?: boolean) => (
+    <NavDestination to={to} label={label} wildcard={wildcard} active={active} />
   )
+  // B8.1 — the Docs editor lives on a page inside a space, so "Docs → a space → a page" was three
+  // clicks from anywhere. Naming the spaces here makes a page two. Same query key as the space
+  // list, so opening /docs after this costs no second fetch. No spaces (or Docs unreachable) leaves
+  // "All spaces", which still says what to do.
+  const spaces = useQuery({ queryKey: ['docs-spaces'], queryFn: docsApi.spaces })
+  const listedSpaces = (spaces.data ?? []).slice(0, SIDEBAR_SPACES)
+  const inSpace = (id: string) => pathname.startsWith(`/docs/spaces/${encodeURIComponent(id)}`)
+  const onTrackIssues = pathname === '/track' || pathname.startsWith('/track/issues')
+  const onDocsIndex = pathname.startsWith('/docs') && !listedSpaces.some((s) => inSpace(s.id))
   return (
     <nav className="flex flex-col gap-4 pb-2" aria-label="Sections">
       {/* The corner carries a MARK, not only text: the hold indicator abstracted
@@ -197,29 +218,53 @@ function Sidebar() {
           <div className="text-caption font-normal leading-tight text-faint">Suite</div>
         </div>
       </div>
-      <Group label="Workspace">
+      {/* B8.1 — GROUPED BY PRODUCT, and every screen the console mounts has a row. /chat was
+          mounted with no row at all, and Track's cycles and projects were a second level down. */}
+      <Group label="Lens">
         {item('/', 'Overview')}
         {item('/ledger', 'Ledger')}
         {item('/earnings', 'Earnings')}
-        {/* Buying LXC has to be findable, not a URL you have to be told. The
-            wildcard keeps it highlighted on the Stripe return pages too. */}
-        {item('/billing', 'Billing', true)}
+        {item('/spend', 'Spend & routing')}
         {/* Setup sits beside Keys because minting a key and being told what to do with it
             are one task; a trial user who finds only Keys is stuck holding a credential. */}
         {item('/setup', 'Setup')}
         {item('/keys', 'API keys')}
-        {item('/spend', 'Spend & routing')}
+      </Group>
+      <Group label="Chat">
+        {item('/chat', 'Conversations')}
+      </Group>
+      <Group label="Track">
+        {item('/track', 'Issues', false, onTrackIssues)}
+        {item('/track/cycles', 'Cycles')}
+        {item('/track/projects', 'Projects')}
+      </Group>
+      {/* Docs is BACK. It left the nav because it served one PINNED workspace shared by every
+          signed-in person; it now takes the SESSION's workspace, the same way Track does, so the
+          condition written into the removal comment has been met rather than waived. See
+          apps/bff docsWorkspaceFor and the Track↔Docs enumeration that broke the cold-start
+          deadlock (talyvor-track bf60842, talyvor-docs c970329). */}
+      <Group label="Docs">
+        {item('/docs', 'All spaces', false, onDocsIndex)}
+        {listedSpaces.map((s) => (
+          <NavDestination
+            key={s.id}
+            to={`/docs/spaces/${encodeURIComponent(s.id)}`}
+            label={s.name}
+            active={inSpace(s.id)}
+            className="pl-6"
+          />
+        ))}
+      </Group>
+      <Group label="Billing">
+        {/* Buying LXC has to be findable, not a URL you have to be told. The
+            wildcard keeps it highlighted on the Stripe return pages too. */}
+        {item('/billing', 'Plan & top up', true)}
+        {/* The public price list (B5.2). It opens outside the console, as a buyer sees it. */}
+        {item('/pricing', 'Pricing')}
+      </Group>
+      <Group label="Workspace">
         {item('/members', 'Members')}
         {item('/settings', 'Settings')}
-      </Group>
-      <Group label="Products">
-        {item('/track', 'Track', true)}
-        {/* Docs is BACK. It left the nav because it served one PINNED workspace shared by every
-            signed-in person; it now takes the SESSION's workspace, the same way Track does, so the
-            condition written into the removal comment has been met rather than waived. See
-            apps/bff docsWorkspaceFor and the Track↔Docs enumeration that broke the cold-start
-            deadlock (talyvor-track bf60842, talyvor-docs c970329). */}
-        {item('/docs', 'Docs', true)}
       </Group>
       {/* The "Operator" group held one item, /admin, and is gone with it: an operator
           console whose five screens were entirely fabricated (invented node ids, IPs,
