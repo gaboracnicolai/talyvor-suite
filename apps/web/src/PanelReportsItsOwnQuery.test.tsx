@@ -145,17 +145,18 @@ function mockBff(refusals: Array<[string, number]> = []) {
  */
 const ADDRESS_ROUTES: Record<string, string[]> = {
   '/': ['/api/bonds', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/history', '/api/spend/month', '/api/tokens/balance', '/api/tokens/history', '/api/track/workspaces', '/api/usage'],
-  '/ledger': ['/api/docs/spaces', '/api/lxc/history'],
-  '/billing': ['/api/billing/allowance', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/topup-options'],
-  '/keys': ['/api/docs/spaces', '/api/keys'],
-  '/setup': ['/api/context', '/api/docs/spaces', '/api/keys'],
-  '/spend': ['/api/docs/spaces', '/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
-  '/members': ['/api/docs/spaces', '/api/members'],
-  '/settings': ['/api/distill', '/api/docs/spaces'],
-  // B8.1: every gated address now asks for /api/docs/spaces — the sidebar names the workspace's
-  // Docs spaces, so a page is two clicks from anywhere.
+  '/ledger': ['/api/lxc/history'],
+  '/billing': ['/api/billing/allowance', '/api/lxc/balance', '/api/lxc/topup-options'],
+  '/keys': ['/api/keys'],
+  '/setup': ['/api/context', '/api/keys'],
+  '/spend': ['/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
+  '/members': ['/api/members'],
+  '/settings': ['/api/distill'],
+  // B8.1 made every gated address ask for /api/docs/spaces, for the sidebar's list of spaces. B10.6
+  // replaced that list with the pages this browser pinned or opened, which needs no read — so only
+  // Overview (its product status) and /docs itself still ask for it.
   // B4.2 added /api/track/projects — the issue list's Project filter.
-  '/track': ['/api/docs/spaces', '/api/members', '/api/track/issues', '/api/track/projects', '/api/track/workspaces'],
+  '/track': ['/api/members', '/api/track/issues', '/api/track/projects', '/api/track/workspaces'],
   '/docs': ['/api/docs/spaces'],
 }
 
@@ -228,8 +229,9 @@ describe('the swept set', () => {
     // The number the sweep below actually runs. Pinned so that a table someone trims — or a
     // fixture that stops reaching the app — shows up as a smaller sweep rather than as a
     // quieter one.
+    // 36 → 28 at B10.6: the eight sidebar reads of /api/docs/spaces are gone (see the table).
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(36)
+    expect(pairs).toBe(28)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {
