@@ -112,6 +112,8 @@ const PINNED: Readonly<Record<string, string>> = {
   '/members': 'Members',
   '/settings': 'Settings',
   '/features': 'Features',
+  '/features/try/tare': 'Try Tare',
+  '/features/try/conversion': 'Try document conversion',
   '/track/*': 'Track',
   '/docs/*': 'Docs',
 }

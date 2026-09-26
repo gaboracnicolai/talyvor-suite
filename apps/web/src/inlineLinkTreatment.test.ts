@@ -108,7 +108,9 @@ const SHAPES: Record<string, { count: number; why: string }> = {
     // the chat" — the majority answer again.
     // 56 → 58 at B13.3: the plans screen's "Billing" (where plans are not sold) and "Turn it on in
     // Features" (a subscriber with sharing off) — the majority answer again.
-    count: 58,
+    // 58 → 59 at B11.3: the Try-it pages' "Features" link back to the screen that links to them —
+    // the majority answer again.
+    count: 59,
     why:
       'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
       'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +

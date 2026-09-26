@@ -274,9 +274,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE EIGHTEENTH, /api/billing/subscribe (B13.3), IS /api/lxc/checkout'S KIND: it starts a
 	// Stripe Checkout, so a GET would open a payable session on a prefetch. Its answer is the
 	// session URL and nothing the BFF holds.
-	if len(methodOnly) > 18 {
+	//
+	// THE NINETEENTH AND TWENTIETH, /api/features/tare/preview and /api/features/conversion/preview
+	// (B11.3), ARE POST-ONLY BECAUSE THEIR INPUT IS THE BODY: a pasted tool output or an uploaded
+	// document, which a GET would put in a query string. Each relays Lens's preview answer verbatim
+	// (or its 4xx reason) and adds nothing the BFF holds.
+	if len(methodOnly) > 20 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 18 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 20 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
