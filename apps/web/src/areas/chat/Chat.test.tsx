@@ -530,6 +530,22 @@ describe('what each answer cost', () => {
     )
   })
 
+  it('names and prices the model Lens routed the answer to, not the one asked (B15.3b)', async () => {
+    const routed = OPENAI_PRICED.replaceAll('gpt-4o-2024-08-06', 'gpt-4o-mini-2024-07-18')
+    const mini = { id: 'gpt-4o-mini', provider: 'openai', display_name: 'GPT-4o mini', input_per_1m: 0.15, output_per_1m: 0.6 }
+    mockChat({ body: routed, usdPerLXC: 0.1, catalog: [...CATALOG, mini] })
+    renderChat()
+    // Not chooseModel('GPT-4o'): its /^GPT-4o\b/ also matches GPT-4o mini.
+    fireEvent.click(await screen.findByRole('button', { name: /^Model: / }))
+    fireEvent.click(await screen.findByRole('option', { name: /^GPT-4o(?! mini)/ }))
+    await screen.findByRole('button', { name: 'Model: GPT-4o' })
+    await ask('Capital of France?')
+    // (2000 × $0.15 + 1000 × $0.60) / 1M = $0.0009 = 0.009 LXC — not GPT-4o's 0.15.
+    expect((await screen.findByTestId('turn-cost')).textContent).toBe(
+      '≈ 0.009 LXC · GPT-4o mini · 2,000 in / 1,000 out tokens',
+    )
+  })
+
   it('prices an Anthropic answer from message_start input and the LAST message_delta output', async () => {
     mockChat({
       usdPerLXC: 0.1,

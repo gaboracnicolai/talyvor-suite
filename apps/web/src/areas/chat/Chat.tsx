@@ -256,7 +256,7 @@ export function Chat() {
             // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
             // B15.6 — except one the model did not write just now: a replayed or shared answer is
             // priced by where it came from, not by the tokens it once took.
-            const priced = from === undefined ? pricedAnswer(usage, selected, servedBy) : undefined
+            const priced = from === undefined ? pricedAnswer(usage, selected, servedBy, catalog.data ?? []) : undefined
             if (priced !== undefined || from !== undefined) {
               cost = priced
               source = from
@@ -282,7 +282,7 @@ export function Chat() {
         upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source }], Date.now()),
       )
     },
-    [activeId, pending, selected, store],
+    [activeId, catalog.data, pending, selected, store],
   )
 
   const send = useCallback(
