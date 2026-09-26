@@ -113,20 +113,47 @@ export function answerUsd(
   return (tin * rates.input_per_1m + tout * rates.output_per_1m) / 1_000_000
 }
 
+/** A catalog entry as pricing reads it. */
+interface PricedModel {
+  id: string
+  display_name: string
+  input_per_1m: number
+  output_per_1m: number
+}
+
+/**
+ * The catalog entry a provider-reported model id names: the id itself, or a dated variant of it
+ * (`gpt-4o-2024-08-06` is gpt-4o, `gpt-4o-mini-2024-07-18` is gpt-4o-mini). A variant's suffix
+ * starts with a digit and the LONGEST matching id wins — gpt-4o-mini also starts with "gpt-4o", and
+ * B15.3b is Lens routing gpt-4o → gpt-4o-mini while the footer still said GPT-4o.
+ */
+function catalogModelFor<M extends PricedModel>(servedBy: string, catalog: readonly M[]): M | undefined {
+  let found: M | undefined
+  for (const m of catalog) {
+    const variant = servedBy.startsWith(`${m.id}-`) && /\d/.test(servedBy.charAt(m.id.length + 1))
+    if (servedBy !== m.id && !variant) continue
+    if (found === undefined || m.id.length > found.id.length) found = m
+  }
+  return found
+}
+
 /**
  * The answer's price record, or undefined when the stream reported no complete token counts.
- * Priced at the rate of the model that was ASKED; named by the one the provider says ANSWERED,
- * except that a dated variant of the asked-for id (`gpt-4o-2024-08-06`) keeps the catalog's name.
+ * Named and priced by the model the provider says ANSWERED — which is not the one asked when Lens
+ * routed the request to a cheaper model (B15.3b) — found in the catalog. A served id the catalog
+ * does not know keeps its own name and the asked model's rate.
  */
 export function pricedAnswer(
   usage: { input_tokens?: number; output_tokens?: number } | undefined,
-  asked: { id: string; display_name: string; input_per_1m: number; output_per_1m: number },
+  asked: PricedModel,
   servedBy: string | undefined,
+  catalog: readonly PricedModel[],
 ): AnswerCost | undefined {
-  const usd = answerUsd(usage, asked)
+  const served = servedBy === undefined ? asked : catalogModelFor(servedBy, [asked, ...catalog])
+  const usd = answerUsd(usage, served ?? asked)
   if (usd === null) return undefined
   return {
-    model: servedBy !== undefined && !servedBy.startsWith(asked.id) ? servedBy : asked.display_name,
+    model: served?.display_name ?? servedBy ?? asked.display_name,
     input_tokens: usage?.input_tokens ?? 0,
     output_tokens: usage?.output_tokens ?? 0,
     usd,
