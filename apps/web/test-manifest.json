@@ -24,7 +24,7 @@
   "src/areas/lens/convertRefusal.test.tsx": 11,
   "src/areas/lens/Documents.test.tsx": 12,
   "src/areas/lens/Earnings.test.tsx": 10,
-  "src/areas/lens/Features.test.tsx": 10,
+  "src/areas/lens/Features.test.tsx": 11,
   "src/areas/lens/featureSpend.test.ts": 7,
   "src/areas/lens/featureSpendCard.test.tsx": 9,
   "src/areas/lens/format.test.ts": 8,

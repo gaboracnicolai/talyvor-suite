@@ -11,6 +11,7 @@ function mockBff(
     disabledGates = [] as string[],
     tareRequests = 4,
     waiting = [] as Array<{ provider: string; id: string; first_seen_at: string }>,
+    pii = false,
   } = {},
 ) {
   let tare = 'disabled'
@@ -64,7 +65,7 @@ function mockBff(
         cache_poolable: cachePoolable,
         distill_poolable: distillPoolable,
         cost_optimize_routing: false,
-        guardrails: { injection: true, pii: false },
+        guardrails: { injection: true, pii },
       })
     return new Response('null', { status: 404 })
   })
@@ -188,6 +189,29 @@ describe('the Features screen', () => {
     await waitFor(() =>
       expect(screen.getByTestId('evidence-Answer sharing').textContent).toMatch(
         /7 answers served from the shared pool in the last 30 days, and 2\.5 LENS earned from answers others reused \(measured\)/,
+      ),
+    )
+  })
+
+  it('answer sharing reads Paused while personal-data detection is off, and On once it is back on (B15.7)', async () => {
+    mockBff([], { pii: false })
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    await waitFor(() =>
+      expect(within(row('Answer sharing')).getByTestId('state-Answer sharing')).toHaveTextContent(
+        /Paused — personal-data detection is off, so nothing of yours is shared/,
+      ),
+    )
+    expect(within(row('Answer sharing')).getByRole('switch')).toBeChecked()
+
+    cleanup()
+    queryClient.clear()
+    vi.restoreAllMocks()
+    mockBff([], { pii: true })
+    render(<App />)
+    await waitFor(() =>
+      expect(within(row('Answer sharing')).getByTestId('state-Answer sharing')).toHaveTextContent(
+        'On — your answers earn when someone else is served one',
       ),
     )
   })
