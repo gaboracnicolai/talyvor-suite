@@ -267,7 +267,8 @@ export function Features() {
             where={
               <>
                 Requests through the gateway with an API key, streamed or not — large tool output and code.
-                A short typed question has nothing to reduce. <To to="/setup">Set up a tool</To>
+                A short typed question has nothing to reduce. <To to="/setup">Set up a tool</To> ·{' '}
+                <To to="/features/try/tare">Try it on your own content</To>
               </>
             }
             evidence={reading(tare, () =>
@@ -298,7 +299,8 @@ export function Features() {
             does="Converts an attached PDF, Word, Excel, CSV, HTML, JSON, XML or text file to plain text before the model reads it, so you are charged for the words rather than the file."
             where={
               <>
-                Documents attached to a chat question or to an API request. <To to="/chat">Attach one in Chat</To>
+                Documents attached to a chat question or to an API request. <To to="/chat">Attach one in Chat</To> ·{' '}
+                <To to="/features/try/conversion">Try it on a document</To>
               </>
             }
             evidence={reading(distill, () =>

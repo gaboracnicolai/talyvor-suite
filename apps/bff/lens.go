@@ -279,6 +279,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B11.2 — the shared-conversions switch Lens had and nothing called, and Tare's recorded savings.
 	a.mux.HandleFunc("/api/features/distill-poolable", a.requireTenant(a.handleFeatureDistillPoolable))
 	a.mux.HandleFunc("/api/features/tare-savings", a.requireTenant(a.handleFeatureTareSavings))
+	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
+	// previews, with no model call and no charge. See tryit.go.
+	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))
+	a.mux.HandleFunc("/api/features/conversion/preview", a.requireTenant(a.handleTryConversion))
 
 	// LXC top-up (this PR) — the BFF's SECOND write path, and the front door for
 	// the only way a customer can buy LXC. GET serves the allowed amounts (so the

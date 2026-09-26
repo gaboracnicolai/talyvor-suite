@@ -73,6 +73,11 @@ const unboundedBodies: Record<string, string> = {
     'areas/docs/api.ts#send(path, method, body: unknown) is the shared Docs writer — the path AND ' +
     'the method are parameters, so this site names no route. The Docs page-write field contract ' +
     'is pinned separately and by name in docsPageWriteRegister.test.ts.',
+  'src/areas/lens/TryIt.tsx body':
+    'TryIt.tsx#previewPost(path, body: BodyInit, contentType) sends both Try-it previews (B11.3): the ' +
+    'Tare paste as JSON {content, kind, model}, and the chosen document File as raw bytes. The BFF ' +
+    '(apps/bff/tryit.go) decodes only `content` to refuse an empty paste and forwards the bytes to ' +
+    'Lens POST /v1/workspaces/{ws}/tare/preview and /distill/preview, which own the contract.',
 }
 
 describe('the fields this app sends to its own BFF', () => {

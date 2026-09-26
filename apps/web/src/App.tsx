@@ -24,6 +24,7 @@ import { Spend } from './areas/lens/Spend'
 import { Members } from './areas/lens/Members'
 import { Settings } from './areas/lens/Sharing'
 import { Features } from './areas/lens/Features'
+import { TryConversion, TryTare } from './areas/lens/TryIt'
 import { TopUp } from './areas/lens/TopUp'
 import { Plans } from './areas/lens/Plans'
 import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
@@ -137,6 +138,9 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/settings', title: 'Settings', element: <Settings /> },
   // B8.2 — every capability, what it does and costs, whether it is on, and its switch.
   { path: '/features', title: 'Features', element: <Features /> },
+  // B11.3 — run Tare or document conversion on your own input: no model call, no charge.
+  { path: '/features/try/tare', title: 'Try Tare', element: <TryTare /> },
+  { path: '/features/try/conversion', title: 'Try document conversion', element: <TryConversion /> },
   { path: '/track/*', title: 'Track', element: <TrackArea /> },
   { path: '/docs/*', title: 'Docs', element: <DocsArea /> },
 ]

@@ -143,6 +143,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/members': 1,
   '/settings': 2,
   '/features': 0,
+  '/features/try/tare': 0,
+  '/features/try/conversion': 0,
   '/track': 2,
   // ⚠ 0 → 2 AT W1.1.17b, AND THIS ROW IS WHY THAT ITEM EXISTS. It read 0 because AskAI and
   // SearchDocs are gated on the spaces read SUCCEEDING (`q.isSuccess`), and this file's fixture
