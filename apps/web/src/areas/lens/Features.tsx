@@ -173,6 +173,42 @@ function Feature({
   )
 }
 
+/** B10.5 — a model a provider lists that Lens cannot price yet (Lens GET /v1/catalog/discovered). */
+interface WaitingModel {
+  provider: string
+  id: string
+  first_seen_at: string
+}
+
+function WaitingModels({ read }: { read: { isPending: boolean; isError: boolean; data?: WaitingModel[] } }) {
+  if (read.isPending) return <>Reading…</>
+  if (read.isError || read.data === undefined) return <>Could not be read just now.</>
+  const models = read.data
+  const count = models.length.toLocaleString('en-US')
+  if (models.length === 0)
+    return (
+      <>
+        No model is waiting for a price: everything the providers list is priced, in <To to="/chat">the chat’s model picker</To>.
+      </>
+    )
+  return (
+    <>
+      {models.length === 1 ? <>One model is</> : <>{count} models are</>} waiting for a price — not offered, and never
+      charged at zero, until one is confirmed.{' '}
+      <details className="mt-1">
+        <summary className="cursor-pointer text-ink">Show {models.length === 1 ? <>it</> : <>all {count}</>}</summary>
+        <ul className="mt-1 max-h-60 overflow-y-auto font-figure text-caption" data-testid="models-waiting">
+          {models.map((m) => (
+            <li key={`${m.provider}/${m.id}`}>
+              {m.provider} · {m.id} · first seen {m.first_seen_at.slice(0, 10)}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </>
+  )
+}
+
 function To({ to, children }: { to: string; children: React.ReactNode }) {
   return (
     <Link className="text-ink underline underline-offset-2" to={to}>
@@ -187,6 +223,7 @@ export function Features() {
   const distill = useQuery({ queryKey: ['distill'], queryFn: () => getJSON<DistillReading>('/api/distill') })
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
   const earnings = useQuery({ queryKey: ['earnings'], queryFn: api.earnings })
+  const waiting = useQuery({ queryKey: ['models-waiting'], queryFn: () => getJSON<WaitingModel[]>('/api/models/waiting') })
   const f = q.data
 
   // While loading, or when the workspace could not be read, every state says so rather than
@@ -383,6 +420,13 @@ export function Features() {
             // ⚠ NOT "On": whether Lens will mint the chat's session credential is a deployment switch
             // this app cannot read (LENS_SESSION_KEYS_ENABLED); a refused send says so in the chat.
             state="In the app; answering needs Lens’s chat credential switched on"
+          />
+          <Feature
+            name="New models"
+            does="Every hour Lens asks each provider for its model list. A model a provider adds waits here until its price is confirmed from the provider’s own pricing page, then appears in the chat’s model picker; a model the provider stops listing leaves the picker."
+            where={<To to="/chat">Chat’s model picker</To>}
+            evidence={<WaitingModels read={waiting} />}
+            state="On"
           />
         </ul>
       </Region>
