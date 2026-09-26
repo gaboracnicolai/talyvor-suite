@@ -248,6 +248,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	// subset would make the deployment's real catalog unreadable from here, and the next surface
 	// that wants it (pricing, tiers) would inherit a filter it never asked for.
 	a.mux.HandleFunc("/api/models", a.proxyFixed("/v1/catalog/models"))
+	// B10.5 — the models a provider lists that Lens cannot price yet: never offered, never free,
+	// shown on Features until a person confirms the price.
+	a.mux.HandleFunc("/api/models/waiting", a.proxyFixed("/v1/catalog/discovered"))
 
 	a.mux.HandleFunc("/api/keys", a.requireTenant(a.handleKeys))
 	// Revoke. A separate id-route rather than a DELETE on the collection: the collection has no

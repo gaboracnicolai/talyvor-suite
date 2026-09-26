@@ -7,7 +7,11 @@ import { App, queryClient } from '../../App'
 
 function mockBff(
   posts: Array<{ url: string; body: unknown }>,
-  { disabledGates = [] as string[], tareRequests = 4 } = {},
+  {
+    disabledGates = [] as string[],
+    tareRequests = 4,
+    waiting = [] as Array<{ provider: string; id: string; first_seen_at: string }>,
+  } = {},
 ) {
   let tare = 'disabled'
   let distillPoolable = false
@@ -38,6 +42,7 @@ function mockBff(
     }
     if (url === '/api/features/tare-savings')
       return json({ requests: tareRequests, tokens_before: 10000, tokens_after: 3800, cost_saved_usd: 0.0155 })
+    if (url === '/api/models/waiting') return json(waiting)
     if (url === '/api/distill') return json({ distill_policy: 'always', converted: 12, vision_ocr: 1, days: 30 })
     if (url === '/api/usage?days=30')
       return json({
@@ -112,6 +117,38 @@ describe('the Features screen', () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Tare', level: 3 })
     expect(screen.queryByRole('heading', { name: 'Prompt rewriter' })).toBeNull()
+  })
+
+  // B10.5 — the models a provider lists that Lens cannot price yet, until a person confirms a price.
+  it('New models lists every model waiting for a price, and says when none is', async () => {
+    mockBff([], {
+      waiting: [
+        { provider: 'anthropic', id: 'claude-nova-6', first_seen_at: '2026-09-26T01:00:00Z' },
+        { provider: 'openai', id: 'gpt-6-nova', first_seen_at: '2026-09-25T09:00:00Z' },
+      ],
+    })
+    window.history.pushState({}, '', '/features')
+    const { unmount } = render(<App />)
+    await waitFor(() =>
+      expect(screen.getByTestId('evidence-New models').textContent).toContain(
+        'See it working: 2 models are waiting for a price — not offered, and never charged at zero, until one is confirmed.',
+      ),
+    )
+    expect(Array.from(within(screen.getByTestId('models-waiting')).getAllByRole('listitem')).map((li) => li.textContent)).toEqual([
+      'anthropic · claude-nova-6 · first seen 2026-09-26',
+      'openai · gpt-6-nova · first seen 2026-09-25',
+    ])
+    unmount()
+    queryClient.clear()
+    vi.restoreAllMocks()
+
+    mockBff([])
+    render(<App />)
+    await waitFor(() =>
+      expect(screen.getByTestId('evidence-New models').textContent).toBe(
+        'See it working: No model is waiting for a price: everything the providers list is priced, in the chat’s model picker.',
+      ),
+    )
   })
 
   it('every row says where it works and what shows it working', async () => {
