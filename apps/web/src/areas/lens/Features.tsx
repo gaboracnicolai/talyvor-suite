@@ -520,9 +520,13 @@ export function Features() {
             state={stateOf(
               f?.cache_poolable == null
                 ? UNREAD
-                : f.cache_poolable
-                  ? 'On — your answers earn when someone else is served one'
-                  : 'Off — nothing of yours is shared, and your answers earn nothing. Switch it on here',
+                : !f.cache_poolable
+                  ? 'Off — nothing of yours is shared, and your answers earn nothing. Switch it on here'
+                  : // B15.7 — Lens shares nothing from a workspace whose prompts are not checked for
+                    // personal data, whatever this consent says. Unread guardrails keep today's reading.
+                    f.guardrails?.pii === false
+                    ? 'Paused — personal-data detection is off, so nothing of yours is shared. Turn it back on (Lens’s guardrail settings) and sharing resumes with your next answer'
+                    : 'On — your answers earn when someone else is served one',
             )}
             control={
               readable && f?.cache_poolable != null ? (
