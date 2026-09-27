@@ -610,7 +610,9 @@ describe('the reading column (B10.3)', () => {
     renderChat()
     await ask('show me')
     const turn = await screen.findByTestId('turn-assistant')
-    await waitFor(() => expect(turn.querySelector('h4')?.textContent).toBe('Steps'))
+    // B16.3 — the answer is revealed over a few frames; its actions appear once all of it is shown.
+    await screen.findByRole('button', { name: 'Regenerate' })
+    expect(turn.querySelector('h4')?.textContent).toBe('Steps')
     expect(Array.from(turn.querySelectorAll('li')).map((li) => li.textContent)).toEqual(['one', 'two'])
     expect(turn.querySelector('strong')?.textContent).toBe('two')
     expect(Array.from(turn.querySelectorAll('td')).map((td) => td.textContent)).toEqual(['x', 'y'])

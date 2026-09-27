@@ -27,6 +27,7 @@ import { Markdown } from './Markdown'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
+import { useRevealedText } from './reveal'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
 import { topupApi } from '../lens/topupApi'
 
@@ -354,12 +355,13 @@ export function Chat() {
   // The newest turn stays in view as it streams, unless the reader has scrolled up to read.
   const endRef = useRef<HTMLDivElement | null>(null)
   const lastContent = messages[messages.length - 1]?.content
-  useEffect(() => {
+  const follow = useCallback(() => {
     const el = endRef.current
     if (el === null || typeof el.scrollIntoView !== 'function') return
     const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 160
     if (nearBottom) el.scrollIntoView({ block: 'end' })
-  }, [messages.length, lastContent])
+  }, [])
+  useEffect(follow, [messages.length, lastContent, follow])
 
   const rail = (
     <ChatRail
@@ -520,6 +522,7 @@ export function Chat() {
                         answering={pending && i === messages.length - 1}
                         canRegenerate={!pending && i === messages.length - 1}
                         onRegenerate={regenerate}
+                        onReveal={i === messages.length - 1 ? follow : undefined}
                         usdPerLXC={usdPerLXC}
                         fallbackModel={selected?.display_name}
                       />
@@ -798,6 +801,7 @@ function Reply({
   answering,
   canRegenerate,
   onRegenerate,
+  onReveal,
   usdPerLXC,
   fallbackModel,
 }: {
@@ -805,18 +809,24 @@ function Reply({
   answering: boolean
   canRegenerate: boolean
   onRegenerate: () => void
+  /** Called as the answer grows on screen, so the view can follow it. */
+  onReveal?: () => void
   usdPerLXC: number | undefined
   fallbackModel: string | undefined
 }) {
+  // B16.3 — the answer grows at a steady pace however it arrives: bursts are spread out, and a
+  // cached answer (which Lens sends in one piece) is revealed rather than dropped in as a block.
+  const shown = useRevealedText(message.content, answering)
+  useEffect(() => onReveal?.(), [shown.text, onReveal])
   return (
     <div>
       <span className="sr-only">{message.cost?.model ?? fallbackModel ?? 'Assistant'}: </span>
       {message.content === '' && answering ? (
         <p className="text-body text-muted">Answering…</p>
       ) : (
-        <Markdown source={message.content} />
+        <Markdown source={shown.text} />
       )}
-      {message.content !== '' && !answering ? (
+      {message.content !== '' && !answering && !shown.revealing ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           <CopyButton text={message.content} label="Copy" className="-ml-2" />
           {canRegenerate ? (
