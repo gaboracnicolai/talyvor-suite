@@ -1,5 +1,5 @@
 import { Link, Route, Routes, useInRouterContext } from 'react-router-dom'
-import { Card, CardHeader } from '@talyvor/ui'
+import { Card, CardHeader, inlineLink } from '@talyvor/ui'
 import { SpaceList } from './SpaceList'
 import { SpaceView } from './SpaceView'
 import { PageView } from './PageView'
@@ -44,7 +44,7 @@ export function DocsArea() {
                 <CardHeader>Docs</CardHeader>
                 <p className="px-gutter py-3 text-body text-muted">
                   Nothing at this address.{' '}
-                  <Link to="/docs" className="underline underline-offset-2">
+                  <Link to="/docs" className={inlineLink}>
                     Back to spaces
                   </Link>
                   .

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Card, CardHeader, Row } from '@talyvor/ui'
+import { Card, CardHeader, Row, inlineLink } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 import { readFeatureSpend } from './featureSpend'
@@ -68,7 +68,7 @@ export function FeatureSpendCard({ days }: { days: 7 | 30 }) {
               reader and it makes a by-name query resolve to whichever came first. */}
           Nothing went through Lens in this window, so there is nothing to break down yet. Tags
           appear once calls do —{' '}
-          <Link className="underline" to="/setup">
+          <Link className={inlineLink} to="/setup">
             connect a tool in Setup
           </Link>
           .

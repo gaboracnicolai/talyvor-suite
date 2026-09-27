@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, inlineLink } from '@talyvor/ui'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -99,7 +99,7 @@ export function Cycles() {
           watch it fill in as they close.
         </p>
         <p className="mt-4">
-          <Link className="text-body underline" to="/track">
+          <Link className={`text-body ${inlineLink}`} to="/track">
             Back to all issues
           </Link>
         </p>
@@ -315,7 +315,7 @@ function CycleCard({ cycle }: { cycle: TrackCycle }) {
                 {asList(inCycle.data).map((i) => (
                   <li key={i.id} className="flex items-center gap-2">
                     <StatusPill status={i.status} />
-                    <Link className="text-body text-ink underline" to={`/track/issues/${encodeURIComponent(i.id)}`}>
+                    <Link className={`text-body text-ink ${inlineLink}`} to={`/track/issues/${encodeURIComponent(i.id)}`}>
                       {i.title}
                     </Link>
                   </li>
@@ -332,7 +332,7 @@ function CycleCard({ cycle }: { cycle: TrackCycle }) {
             ) : unplanned.length === 0 ? (
               <p className="mt-2 text-caption text-muted">
                 Every open issue in this team is already in a cycle.{' '}
-                <Link className="underline" to="/track">
+                <Link className={inlineLink} to="/track">
                   File a new issue
                 </Link>{' '}
                 to plan more.

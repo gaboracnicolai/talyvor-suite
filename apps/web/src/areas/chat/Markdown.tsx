@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 
 import { CopyButton } from './CopyButton'
+import { inlineLink } from '@talyvor/ui'
 
 // B10.3 — a reply renders as Markdown: headings, lists, tables, quotes and code blocks with a Copy
 // button.
@@ -230,14 +231,14 @@ function renderInline(text: string, key: string): ReactNode[] {
         href === null ? (
           <Fragment key={k}>{m[7]}</Fragment>
         ) : (
-          <a key={k} href={href} target="_blank" rel="noopener noreferrer" className="underline">
+          <a key={k} href={href} target="_blank" rel="noopener noreferrer" className={inlineLink}>
             {renderInline(m[7], k)}
           </a>
         ),
       )
     } else if (m[9] !== undefined) {
       out.push(
-        <a key={k} href={m[9]} target="_blank" rel="noopener noreferrer" className="underline">
+        <a key={k} href={m[9]} target="_blank" rel="noopener noreferrer" className={inlineLink}>
           {m[9]}
         </a>,
       )

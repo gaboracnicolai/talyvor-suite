@@ -1,4 +1,4 @@
-import { Button, ThemeToggle, focusRing } from '@talyvor/ui'
+import { Button, ThemeToggle, focusRing, inlineLink } from '@talyvor/ui'
 import { useDocumentTitle } from '../../documentTitle'
 import { formatCents, formatLXC, lxcForCents } from '../lens/topupApi'
 import { Figure, SectionLabel } from './Landing'
@@ -55,7 +55,7 @@ function RateCard({ state }: { state: PricingState }) {
       </div>
       <p className="border-t border-rule px-gutter py-3 text-caption text-faint">
         Served live, not typed into this page. Check it yourself:{' '}
-        <a href={PRICING_PATH} className={`font-mono underline ${focusRing}`}>
+        <a href={PRICING_PATH} className={`font-mono ${inlineLink}`}>
           GET {PRICING_PATH}
         </a>
       </p>
@@ -198,7 +198,7 @@ export function Pricing() {
               <p className="text-body text-muted">
                 An answer served from the shared pool costs less than list, because nobody paid to
                 generate it a second time.{' '}
-                <a href="/marketing#economics" className={`text-ink underline ${focusRing}`}>
+                <a href="/marketing#economics" className={`text-ink ${inlineLink}`}>
                   See one pooled answer, as the ledger recorded it
                 </a>
                 .
@@ -248,11 +248,11 @@ export function Pricing() {
             Talyvor Ltd · self-hosted AI development
           </div>
           <div className="text-caption text-faint">
-            <a href="/privacy" className="underline">
+            <a href="/privacy" className={inlineLink}>
               Privacy
             </a>
             {' · '}
-            <a href="/terms" className="underline">
+            <a href="/terms" className={inlineLink}>
               Terms
             </a>
           </div>

@@ -13,7 +13,7 @@
 //
 // buildTree/countNodes stay in ./tree.ts, unit-tested, for when this list becomes a tree.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, focusRing } from '@talyvor/ui'
+import { Button, focusRing, inlineLink } from '@talyvor/ui'
 import { useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Region, RegionScreen } from '../../components/Region'
@@ -204,7 +204,7 @@ export function SpaceView() {
             {rows.map((pg) => (
               <li key={pg.id} className="flex items-center justify-between gap-3 border-t border-rule py-2 first:border-t-0">
                 <Link
-                  className="text-body text-ink underline underline-offset-2"
+                  className={`text-body text-ink ${inlineLink}`}
                   to={`/docs/spaces/${spaceId}/pages/${pg.id}`}
                 >
                   {pg.title}

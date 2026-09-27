@@ -31,7 +31,7 @@
 // says where the charge lands and shows no number. A per-answer figure here would be invented.
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
+import { Button, Card, CardHeader, focusRing, inlineLink } from '@talyvor/ui'
 import { docsApi, type AskSource } from './api'
 import { MeteredNote } from './components'
 import { aiNotConfiguredCopy, isAIUnavailable, isSessionExpired } from '../../lib/productState'
@@ -141,7 +141,7 @@ function Sources({ sources }: { sources: AskSource[] }) {
           return (
             <li key={`${s.url}-${i}`} className="text-body text-ink">
               {href ? (
-                <a href={href} className={`underline underline-offset-2 ${focusRing}`}>
+                <a href={href} className={inlineLink}>
                   {s.title}
                 </a>
               ) : (

@@ -190,7 +190,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'NOTHING HERE CLAIMS THE CONVERSATION IS BILLED',
     why: 'the measurement that keeps areas/chat out of the population entirely, so an absent area reads as decided rather than forgotten',
   },
-  'apps/web/src/eyebrowAudit.ts:25|apps/web/src/areas/lens/Overview.tsx:226': {
+  'apps/web/src/eyebrowAudit.ts:25|apps/web/src/areas/lens/Overview.tsx:228': {
     kind: 'LIVE',
     fragment: 'text-eyebrow uppercase',
     why: "the console's densest eyebrow, the surface `319335c` dropped `uppercase` from to prove 678 tests could not see it",
@@ -245,12 +245,12 @@ const PINS: Record<string, Pin> = {
     fragment: '<SearchIssues />',
     why: 'the census says the surface it was written for is MOUNTED, not merely exported — "reachable only by curl" is what W1.7 opened on, so a metered card that shipped nowhere would be a different finding entirely',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:342': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:344': {
     kind: 'LIVE',
     fragment: 'error={ledger.error}',
     why: 'the CORRECT copy of the seam Spend.tsx had backwards — the whole positive control for that finding is that this line reads `ledger.error` while its guard is `ledger.isError`',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:317|apps/web/src/areas/lens/Overview.tsx:342': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:317|apps/web/src/areas/lens/Overview.tsx:344': {
     kind: 'LIVE',
     fragment: '<Failed what="the mint ledger" error={ledger.error} />',
     why: 'the same line quoted VERBATIM beside the must-stay-green control that asserts its wording, so the quote and the assertion cannot drift apart',
@@ -271,7 +271,7 @@ const PINS: Record<string, Pin> = {
     why: 'a DEVELOPER-FACING FAILURE MESSAGE naming the shape to copy — read exactly when somebody is already confused',
   },
 
-  'apps/web/src/areas/lens/Overview.tsx:356|apps/web/src/areas/marketing/Landing.tsx:267': {
+  'apps/web/src/areas/lens/Overview.tsx:358|apps/web/src/areas/marketing/Landing.tsx:267': {
     kind: 'LIVE',
     fragment: 'transition-colors duration-200',
     why: "the SITE's motion shape, quoted where the console copies it — W1.1.0's rule is that a console link moves the way the public page moves, so the call site names the line it is imitating rather than inventing a fifth hover shape",
@@ -306,7 +306,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-display-3',
     why: 'the console surface that reached for display type AS AT `c71ca9c`, quoted with that SHA',
   },
-  'apps/web/src/areas/track/IssueDetail.tsx:261|apps/web/src/areas/track/IssueList.tsx:331': {
+  'apps/web/src/areas/track/IssueDetail.tsx:262|apps/web/src/areas/track/IssueList.tsx:332': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the sentence this write path is the fifth instance of — quoted so the two Track write paths cannot state the rule differently',
@@ -396,17 +396,17 @@ const PINS: Record<string, Pin> = {
   // FIRST wrote the hazard down, at its third site; the fourth is what that merge fixed. The pin
   // is what stops the citation from decaying into a sentence nobody can check — the exact rot this
   // file was built for, and the reason a line citation is allowed here at all.
-  'apps/web/src/areas/lens/convertApi.ts:51|apps/web/src/areas/track/IssueList.tsx:331': {
+  'apps/web/src/areas/lens/convertApi.ts:51|apps/web/src/areas/track/IssueList.tsx:332': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the comment that names the hand-rolled-error-type hazard, quoted by the fix for its fourth occurrence',
   },
-  'apps/web/src/areas/lens/convertRefusal.test.tsx:37|apps/web/src/areas/track/IssueList.tsx:331': {
+  'apps/web/src/areas/lens/convertRefusal.test.tsx:37|apps/web/src/areas/track/IssueList.tsx:332': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the same line quoted by the guard, so the finding and its evidence cite one checked place rather than two drifting ones',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:429': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:430': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the surface #141 fixed, quoted so the two findings are visibly the same shape one area over',
@@ -429,12 +429,12 @@ const PINS: Record<string, Pin> = {
   // The two pointers the error-type CENSUS writes. Both name the line where this repo first wrote
   // the hazard down, at its third site — the same line convertApi.ts and convertRefusal.test.tsx
   // already cite for the fourth. Four citations of one sentence, all checkable, none drifting.
-  'apps/web/src/areas/lens/topupApi.ts:128|apps/web/src/areas/track/IssueList.tsx:331': {
+  'apps/web/src/areas/lens/topupApi.ts:128|apps/web/src/areas/track/IssueList.tsx:332': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the hazard named at the site of its FIFTH occurrence, on the path that takes money',
   },
-  'apps/web/src/errorTypes.test.ts:19|apps/web/src/areas/track/IssueList.tsx:331': {
+  'apps/web/src/errorTypes.test.ts:19|apps/web/src/areas/track/IssueList.tsx:332': {
     kind: 'LIVE',
     fragment: 'ApiError, NOT a bare Error',
     why: 'the census quoting the one place the repo recorded the class, so its list of four is checkable',

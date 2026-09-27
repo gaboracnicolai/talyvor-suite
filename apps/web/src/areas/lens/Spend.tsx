@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Row } from '@talyvor/ui'
+import { Button, Card, CardHeader, Row, inlineLink } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { CacheCard } from './CacheCard'
 import { FeatureSpendCard } from './FeatureSpendCard'
@@ -124,7 +124,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
                 {windowRows.length} ledger row{windowRows.length === 1 ? '' : 's'} landed in this
                 window, and none of them records which model it came from — so there is nothing to
                 split by model. The rows themselves are on the{' '}
-                <Link className="underline" to="/ledger">
+                <Link className={inlineLink} to="/ledger">
                   ledger
                 </Link>
                 .
@@ -138,7 +138,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
                 No ledger rows in this window. A row appears when your traffic answers a question
                 another company later asks
                 {days === 7 ? ', so try the 30-day window above first' : ''} —{' '}
-                <Link className="underline" to="/setup">
+                <Link className={inlineLink} to="/setup">
                   point a tool at Lens
                 </Link>{' '}
                 if nothing has run yet.

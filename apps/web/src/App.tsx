@@ -11,7 +11,7 @@ import {
   useLocation,
   useNavigationType,
 } from 'react-router-dom'
-import { Mark, NavItem, Shell, ThemeToggle } from '@talyvor/ui'
+import { Mark, NavItem, Shell, ThemeToggle, inlineLink } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { useDocumentTitle } from './documentTitle'
 import { ApiError } from './lib/api'
@@ -324,11 +324,11 @@ function Sidebar() {
           Link, not <a href>: same-tab client-side navigation, and it keeps a real href so the
           link is a link to assistive tech and to a middle-click. */}
       <div className="mt-auto border-t border-rule px-3 pt-3 text-caption text-faint">
-        <Link className="underline transition-colors duration-200 hover:text-muted" to="/privacy">
+        <Link className={inlineLink} to="/privacy">
           Privacy
         </Link>
         {' · '}
-        <Link className="underline transition-colors duration-200 hover:text-muted" to="/terms">
+        <Link className={inlineLink} to="/terms">
           Terms
         </Link>
       </div>
@@ -389,7 +389,7 @@ function AppShell() {
           element={
             <div className="mx-auto max-w-3xl px-gutter py-4 text-body text-muted">
               Nothing at this address — pick a section from the sidebar.{' '}
-              <Link className="text-ink underline underline-offset-2" to="/">
+              <Link className={`text-ink ${inlineLink}`} to="/">
                 Go to Overview
               </Link>
             </div>

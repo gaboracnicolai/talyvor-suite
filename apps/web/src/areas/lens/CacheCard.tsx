@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Card, CardHeader, Row } from '@talyvor/ui'
+import { Card, CardHeader, Row, inlineLink } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 
@@ -60,7 +60,7 @@ export function CacheCard({ days }: { days: number }) {
               BOTH /overview and /spend, so the affordance lands on both; that is one component
               having one answer, not a second change smuggled in. W1.1.0's proof screen renders
               this card in region 04, and its empty state is a link a new workspace always sees. */}
-          <Link className="underline transition-colors duration-200 hover:text-ink" to="/setup">
+          <Link className={inlineLink} to="/setup">
             send a request through it
           </Link>{' '}
           and check back.

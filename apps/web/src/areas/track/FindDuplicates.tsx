@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
+import { Button, Card, CardHeader, inlineLink } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { isSessionExpired, isUnconfigured, notConfiguredCopy } from '../../lib/productState'
 import { readDuplicates, type DuplicateRow } from './duplicates'
@@ -196,7 +196,7 @@ function Candidate({ row }: { row: DuplicateRow }) {
       ) : null}
       <Link
         to={`/track/issues/${encodeURIComponent(row.id)}`}
-        className={`min-w-0 flex-1 truncate text-body text-ink underline underline-offset-2 ${focusRing}`}
+        className={`min-w-0 flex-1 truncate text-body text-ink ${inlineLink}`}
       >
         {row.title}
       </Link>

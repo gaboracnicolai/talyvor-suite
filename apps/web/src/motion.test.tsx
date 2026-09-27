@@ -677,19 +677,19 @@ describe('a state change has a transition at all — the half of the lock that w
   it('the utility→property map reads real declarations off real rules', async () => {
     const byClass = propertiesByClass(await shippedCss())
     expect(byClass.size, 'no classes were read out of the sheet').toBeGreaterThan(100)
-    expect([...(byClass.get('hover:text-muted') ?? [])]).toEqual(['color'])
+    expect([...(byClass.get('hover:text-ink') ?? [])]).toEqual(['color'])
     expect([...(byClass.get('active:scale-98') ?? [])]).toContain('transform')
     // a custom property alone must not count as a change worth tweening
-    expect([...(byClass.get('hover:text-muted') ?? [])].some((p) => p.startsWith('--'))).toBe(false)
+    expect([...(byClass.get('hover:text-ink') ?? [])].some((p) => p.startsWith('--'))).toBe(false)
   })
 
   it('the scanner tells a snap from a tween', async () => {
     const css = await shippedCss()
-    const snap = stateChangesWithoutTransition([{ path: 'f.tsx', text: '<a className="underline hover:text-muted" />' }], css)
+    const snap = stateChangesWithoutTransition([{ path: 'f.tsx', text: '<a className="underline hover:text-ink" />' }], css)
     expect(snap).toHaveLength(1)
     expect(snap[0].prop).toBe('color')
     const tween = stateChangesWithoutTransition(
-      [{ path: 'f.tsx', text: '<a className="underline transition-colors duration-200 hover:text-muted" />' }], css)
+      [{ path: 'f.tsx', text: '<a className="underline transition-colors duration-200 hover:text-ink" />' }], css)
     expect(tween).toEqual([])
   })
 

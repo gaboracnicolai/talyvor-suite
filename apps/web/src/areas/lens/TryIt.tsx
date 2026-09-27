@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Input, focusRing } from '@talyvor/ui'
+import { Button, Input, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { fetchModels } from '../chat/chatApi'
 import { ApiError } from '../../lib/api'
@@ -50,7 +50,7 @@ async function previewPost<T>(path: string, body: BodyInit, contentType: string)
 function Back() {
   return (
     <p className="text-caption text-muted">
-      <Link className="text-ink underline underline-offset-2" to="/features">
+      <Link className={`text-ink ${inlineLink}`} to="/features">
         Features
       </Link>{' '}
       · Nothing here is sent to a model or charged.

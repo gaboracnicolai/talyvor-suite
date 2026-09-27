@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, formatDay, Row } from '@talyvor/ui'
+import { Button, Card, CardHeader, Row, formatDay, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { api } from '../../lib/api'
 import { useAuthMeReader } from '../../lib/authMe'
@@ -120,7 +120,7 @@ function EarningsCard({ summary, sharing, pooled }: { summary: PlanSummary; shar
         {sharing === false ? (
           <p className="text-body text-ink">
             Answer sharing is off, so your answers earn nothing.{' '}
-            <Link to="/features" className="underline underline-offset-2">
+            <Link to="/features" className={inlineLink}>
               Turn it on in Features
             </Link>
             .
@@ -196,7 +196,7 @@ export function Plans({
         {plan.isSuccess && !forSale ? (
           <p className="mt-2 max-w-2xl text-body text-ink">
             Plans aren’t on sale on this deployment yet. Prepaid credits on{' '}
-            <Link to="/billing" className="underline underline-offset-2">
+            <Link to="/billing" className={inlineLink}>
               Billing
             </Link>{' '}
             run every request in the meantime.

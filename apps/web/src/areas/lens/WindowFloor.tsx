@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { MuNumeral } from '@talyvor/ui'
+import { MuNumeral, inlineLink } from '@talyvor/ui'
 
 // A THIRD DRESSING FOR A NUMBER, because this product already had exactly two and neither
 // is true here.
@@ -51,7 +51,7 @@ export function WindowIncomplete({ days, pageSize, testId }: { days: number; pag
       The last {days} days hold more than {pageSize} ledger rows, and {pageSize} is the most one
       read can return — so the figures above count the most recent {pageSize} and are floors, not
       totals. The{' '}
-      <Link className="underline" to="/ledger">
+      <Link className={inlineLink} to="/ledger">
         ledger
       </Link>{' '}
       pages through all of them.
