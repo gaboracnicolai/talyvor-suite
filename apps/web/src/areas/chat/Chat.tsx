@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Button, Input, cn, focusRing } from '@talyvor/ui'
+import { Button, Input, cn, focusRing, inlineLink } from '@talyvor/ui'
 
 import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
@@ -535,7 +535,7 @@ export function Chat() {
             {failure !== null ? (
               <p className="mb-4 text-body text-ink" role="alert">
                 {failure}{' '}
-                {failure.includes('Top up') ? <Link className="underline" to="/billing">Billing</Link> : null}
+                {failure.includes('Top up') ? <Link className={inlineLink} to="/billing">Billing</Link> : null}
               </p>
             ) : null}
 
@@ -698,7 +698,7 @@ function ChatRail({
         ) : null}
       </div>
       <div className="mt-2 space-y-1 border-t border-rule px-2 pt-3">
-        <Link className={cn('block text-caption text-ink underline', focusRing)} to="/chat/help">
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/help">
           How to use Talyvor Chat
         </Link>
         <p className="text-caption text-faint">Kept in this browser only.</p>

@@ -54,7 +54,7 @@
 // surfaces that makes "a card that spends says so" a rule rather than four coincidences.
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
+import { Button, Card, CardHeader, focusRing, inlineLink } from '@talyvor/ui'
 import { readerHref } from './AskAI'
 import { docsApi } from './api'
 import { readSearch, type SearchRow, type SearchView } from './search'
@@ -286,7 +286,7 @@ function Hit({ row }: { row: SearchRow }) {
     <li className="flex flex-col gap-0.5">
       <span className="text-body text-ink">
         {href ? (
-          <a href={href} className={`underline underline-offset-2 ${focusRing}`}>
+          <a href={href} className={inlineLink}>
             {row.title}
           </a>
         ) : (

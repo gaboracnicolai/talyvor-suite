@@ -1,7 +1,7 @@
 // Area-local bits. Nothing here is shared — if one of these earns a second area,
 // promotion into packages/ui is a separate PR (see the ownership contract).
 import { Link, useNavigate } from 'react-router-dom'
-import { Button } from '@talyvor/ui'
+import { Button, inlineLink } from '@talyvor/ui'
 
 /** Neutral chip: hairline border, muted caption, NO dot and NO hue — for states that
  *  are facts, not lifecycle (fixture, private, locked, doc_status). Distinct from
@@ -222,7 +222,7 @@ export function Crumbs({ trail }: { trail: Array<{ label: string; to?: string }>
             // was there. Worse, `hover:underline` is the one affordance a touch device cannot
             // produce at all — on a phone the control had no visible state ever. It was reported as
             // "there is no way back", and the links were working the whole time.
-            <Link to={c.to} className="underline underline-offset-2 transition-colors duration-200 hover:text-ink">
+            <Link to={c.to} className={inlineLink}>
               {c.label}
             </Link>
           ) : (

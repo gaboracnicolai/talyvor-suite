@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, RevealOnce } from '@talyvor/ui'
+import { Button, Card, CardHeader, RevealOnce, inlineLink } from '@talyvor/ui'
 
 import { api } from '../../lib/api'
 import { Region, RegionScreen } from '../../components/Region'
@@ -263,7 +263,7 @@ export function Setup() {
                   : sharing === false
                     ? 'Nothing generated here is reachable by another company.'
                     : 'We could not read the recorded value, so we will not guess at it.'}{' '}
-                <Link className="underline" to="/settings">
+                <Link className={inlineLink} to="/settings">
                   {sharing === undefined ? 'See the setting' : 'Change it'}
                 </Link>
                 .
@@ -328,7 +328,7 @@ export function Setup() {
                   it cannot stop any of them either. What is removed is the PRODUCT'S OWN INVITATION to
                   leave. You cannot stop someone walking out; you can stop holding the door open. */}
               {!unstoredSecret ? (
-                <Link className="text-caption text-muted underline" to="/keys">
+                <Link className={`text-caption text-muted ${inlineLink}`} to="/keys">
                   Manage keys
                 </Link>
               ) : null}
@@ -433,7 +433,7 @@ export function Setup() {
               </li>
               <li>
                 <strong>Open the{' '}
-                <Link className="underline" to="/ledger">
+                <Link className={inlineLink} to="/ledger">
                   ledger
                 </Link>
                 .</strong>{' '}

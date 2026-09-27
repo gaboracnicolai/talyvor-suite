@@ -1,3 +1,5 @@
+import { inlineLink } from '@talyvor/ui'
+
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Button, Card, CardHeader, MuNumeral, Pill, Row } from "@talyvor/ui";
@@ -358,7 +360,7 @@ function SpendCard({ now }: { now: Date }) {
               on the two links this screen writes itself. Both classes are NAMED steps — 200ms is
               Tailwind's own `duration-200`, so `local/no-arbitrary-value` has nothing to refuse
               and nothing here escapes the scale. */}
-          <Link className="underline transition-colors duration-200 hover:text-ink" to="/ledger">
+          <Link className={inlineLink} to="/ledger">
             ledger
           </Link>
           .
@@ -561,7 +563,7 @@ function RecentActivity() {
           {/* ⚠ Same class as the earnings empty state above. It now names the one action that
               creates the first entry, and points at it. */}
           No activity yet. The first entry appears the moment a request goes through Lens —{' '}
-          <Link className="underline transition-colors duration-200 hover:text-ink" to="/setup">
+          <Link className={inlineLink} to="/setup">
             point a tool at it
           </Link>{' '}
           and refresh.

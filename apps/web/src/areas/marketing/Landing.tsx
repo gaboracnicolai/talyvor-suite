@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, CaseSafe, ThemeToggle, focusRing } from '@talyvor/ui'
+import { Button, CaseSafe, ThemeToggle, focusRing, inlineLink } from '@talyvor/ui'
 import { useSignupProbe } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
 import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, billAt, micro, savedAt } from './economics'
@@ -380,7 +380,7 @@ export function Landing() {
             <div className="text-caption font-normal text-faint">Suite</div>
           </div>
           <div className="flex items-center gap-3">
-            <a href="/pricing" className={`text-body text-muted underline ${focusRing}`}>
+            <a href="/pricing" className={`text-body text-muted ${inlineLink}`}>
               Pricing
             </a>
             <ThemeToggle />
@@ -447,11 +447,11 @@ export function Landing() {
               </div>
             </div>
             <p className="mt-4 text-caption text-faint">
-              <a href="/privacy" className="underline">
+              <a href="/privacy" className={inlineLink}>
                 Privacy
               </a>
               {' · '}
-              <a href="/terms" className="underline">
+              <a href="/terms" className={inlineLink}>
                 Terms
               </a>
             </p>
@@ -708,19 +708,19 @@ export function Landing() {
             Talyvor Ltd · self-hosted AI development
           </div>
           <div className="text-caption text-faint">
-            <a href="/privacy" className="underline">
+            <a href="/privacy" className={inlineLink}>
               Privacy
             </a>
             {' · '}
-            <a href="/terms" className="underline">
+            <a href="/terms" className={inlineLink}>
               Terms
             </a>
             {' · '}
-            <a href="/pricing" className="underline">
+            <a href="/pricing" className={inlineLink}>
               Pricing
             </a>
             {' · '}
-            <a href="#suite" className="underline">
+            <a href="#suite" className={inlineLink}>
               See the suite
             </a>
           </div>

@@ -1,4 +1,4 @@
-import { Button, Card, Mark, ThemeToggle } from '@talyvor/ui'
+import { Button, Card, Mark, ThemeToggle, inlineLink } from '@talyvor/ui'
 import { useSignupProbe, type SignupState } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
 
@@ -171,13 +171,13 @@ export function SignUp() {
               entry surface — the one where a stranger is deciding whether to create an
               account at all. It had the claim without the link. */}
           <p className="text-caption text-faint">
-            <a href="/privacy" className="underline">Privacy</a>
+            <a href="/privacy" className={inlineLink}>Privacy</a>
             {' · '}
-            <a href="/terms" className="underline">Terms</a>
+            <a href="/terms" className={inlineLink}>Terms</a>
           </p>
           <p className="text-caption text-faint">
             Already have a workspace?{' '}
-            <a href="/signin" className="underline">
+            <a href="/signin" className={inlineLink}>
               Sign in
             </a>
           </p>
@@ -223,9 +223,9 @@ export function SignInCard({ returnTo }: { returnTo?: string }) {
           account must be able to read what the service does with their data BEFORE they do. Both
           routes are public for that reason. */}
       <p className="text-caption text-faint">
-        <a href="/privacy" className="underline">Privacy</a>
+        <a href="/privacy" className={inlineLink}>Privacy</a>
         {' · '}
-        <a href="/terms" className="underline">Terms</a>
+        <a href="/terms" className={inlineLink}>Terms</a>
       </p>
       <p className="text-body text-muted">
         Use the same account you signed up with. You’ll be taken there to confirm it’s you, and
@@ -236,7 +236,7 @@ export function SignInCard({ returnTo }: { returnTo?: string }) {
       </Button>
       <p className="text-caption text-faint">
         New to Talyvor?{' '}
-        <a href="/signup" className="underline">
+        <a href="/signup" className={inlineLink}>
           Create a workspace
         </a>
       </p>

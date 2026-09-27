@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
   focusRing,
+  inlineLink,
 } from '@talyvor/ui'
 import { useRef, useState } from 'react'
 import { Region, RegionScreen } from '../../components/Region'
@@ -634,7 +635,7 @@ export function IssueList() {
                       <td className="py-2 pr-3 font-mono text-caption text-muted">{it.identifier}</td>
                       <td className="py-2 pr-3 text-ink">
                         <Link
-                          className={`underline underline-offset-2 transition-colors duration-200 hover:text-accent ${focusRing}`}
+                          className={inlineLink}
                           to={`/track/issues/${it.id}`}
                           data-issue-link={it.id} // issueKeys.ts ISSUE_LINK_ATTR — what j/k step through
                         >

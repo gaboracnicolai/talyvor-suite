@@ -1,4 +1,5 @@
 import { type MarkSpec, type NodeSpec, Schema } from 'prosemirror-model'
+import { inlineLink } from '@talyvor/ui'
 
 // THE DOCS DOCUMENT SCHEMA — B2.1. Ported node-for-node from talyvor-docs
 // `frontend/src/components/editor/schema.ts` (the discarded Docs frontend, read at `e0cf605`).
@@ -271,7 +272,7 @@ const marks: Record<string, MarkSpec> = {
         title: mark.attrs.title,
         rel: 'noopener noreferrer',
         target: '_blank',
-        class: 'underline decoration-rule-strong underline-offset-2',
+        class: inlineLink,
       },
       0,
     ],

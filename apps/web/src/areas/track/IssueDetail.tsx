@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
   focusRing,
+  inlineLink,
 } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, getJSON, getJSONArray } from '../../lib/api'
@@ -258,7 +259,7 @@ export function IssueDetail() {
       })
       // ⚠ ApiError, NOT `new Error(String(res.status))`. Every shared mechanism in this app keys on
       // `instanceof ApiError`, so a bare Error carrying the status in its MESSAGE is invisible to
-      // all of them — the fifth instance of the repair recorded at IssueList.tsx:331, and the one
+      // all of them — the fifth instance of the repair recorded at IssueList.tsx:332, and the one
       // `errorTypes.test.ts` says up front it cannot see, because that rule matches class
       // declarations and this shape declares nothing.
       if (!res.ok) throw new ApiError(res.status, path)
@@ -302,7 +303,7 @@ export function IssueDetail() {
    * names of a place, and this is the only exit the screen has in three of its four states.
    */
   const wayBack = (
-    <Link className="text-body text-accent underline underline-offset-2" to="/track">
+    <Link className={`text-body text-accent ${inlineLink}`} to="/track">
       All issues
     </Link>
   )
@@ -528,7 +529,7 @@ export function IssueDetail() {
                   ))}
               </SelectContent>
             </Select>
-            <Link className="text-caption underline" to="/track/projects">
+            <Link className={`text-caption ${inlineLink}`} to="/track/projects">
               Start a project
             </Link>
           </div>

@@ -1,3 +1,5 @@
+import { inlineLink } from '@talyvor/ui'
+
 // Read-only renderer for the stored page content: ProseMirror doc JSON → React.
 // The node/mark set mirrors the discarded frontend's schema EXACTLY
 // (talyvor-docs frontend/src/components/editor/schema.ts @ e0cf605): nodes
@@ -56,7 +58,7 @@ function MarkedText({ node }: { node: PMNode }) {
             title={typeof mark.attrs?.title === 'string' ? mark.attrs.title : undefined}
             target={external ? '_blank' : undefined}
             rel={external ? 'noreferrer' : undefined}
-            className="underline decoration-rule-strong underline-offset-2 transition-colors duration-200 hover:decoration-accent"
+            className={inlineLink}
           >
             {out}
           </a>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
+import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, inlineLink } from '@talyvor/ui'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -66,7 +66,7 @@ export function Projects() {
           an issue&rsquo;s page, and open it to see just its issues.
         </p>
         <p className="mt-4">
-          <Link className="text-body underline" to="/track">
+          <Link className={`text-body ${inlineLink}`} to="/track">
             Back to all issues
           </Link>
         </p>
@@ -170,7 +170,7 @@ export function Projects() {
                     {teamIdentifier(teams.data ?? [], p.team_id)} · {p.status}
                   </p>
                 </div>
-                <Link className="text-body underline" to={`/track?project=${encodeURIComponent(p.id)}`}>
+                <Link className={`text-body ${inlineLink}`} to={`/track?project=${encodeURIComponent(p.id)}`}>
                   Its issues
                 </Link>
               </li>

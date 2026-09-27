@@ -1,4 +1,5 @@
 import { LegalHeader, LawyerReview, Section } from './legalParts'
+import { inlineLink } from '@talyvor/ui'
 
 // Terms — what the service actually is and is not, written from the code.
 //
@@ -110,7 +111,7 @@ export function Terms() {
         </p>
         <p className="mt-3 text-body text-muted">
           The converted text is what everything downstream treats as your prompt, so what{' '}
-          <a className="underline" href="/privacy">Privacy</a> says about prompts applies to your
+          <a className={inlineLink} href="/privacy">Privacy</a> says about prompts applies to your
           documents' contents too. You can turn conversion off in settings.
         </p>
       </Section>
@@ -119,7 +120,7 @@ export function Terms() {
         <p className="text-body">
           Answers generated for your workspace may be served to other companies, and theirs to you.
           This is on by default, disclosed before you first reach the app, and one click to turn
-          off. The full account is in <a className="underline" href="/privacy">Privacy</a>; the
+          off. The full account is in <a className={inlineLink} href="/privacy">Privacy</a>; the
           short version is that <strong>the content of your answers can leave your workspace</strong>,
           and you should not put anything into a prompt whose answer you would not want shared until
           you have turned sharing off.

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { MuNumeral } from '@talyvor/ui'
+import { MuNumeral, inlineLink } from '@talyvor/ui'
 import type { SplitShortfall as Shortfall } from './spendMath'
 
 /**
@@ -37,7 +37,7 @@ export function SplitShortfall({
           <MuNumeral micros={unattributed} unit="lxc" className="align-baseline" /> of the total
           above is in no row of this split: those charges record no model, and a bucket named
           &ldquo;unknown&rdquo; would present absence of provenance as one. The{' '}
-          <Link className="underline" to="/ledger">
+          <Link className={inlineLink} to="/ledger">
             ledger
           </Link>{' '}
           has the rows.
@@ -48,7 +48,7 @@ export function SplitShortfall({
           {floor ? 'At least ' : ''}
           <MuNumeral micros={notShown} unit="lxc" className="align-baseline" /> more is attributed
           to models outside the {shownCount} shown here. The{' '}
-          <Link className="underline" to="/ledger">
+          <Link className={inlineLink} to="/ledger">
             ledger
           </Link>{' '}
           has every row.

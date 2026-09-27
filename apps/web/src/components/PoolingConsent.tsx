@@ -1,4 +1,4 @@
-import { Card, CardHeader } from '@talyvor/ui'
+import { Card, CardHeader, inlineLink } from '@talyvor/ui'
 import { SharingChoice, SharingFacts } from '../areas/lens/Sharing'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from '../areas/lens/unpaidNotice'
 import { useDocumentTitle } from '../documentTitle'
@@ -81,8 +81,8 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
               of what is stored and what leaves the workspace is the context for this choice. */}
           <p className="text-caption text-faint">
             The full account is in{' '}
-            <a href="/privacy" className="underline">Privacy</a> and{' '}
-            <a href="/terms" className="underline">Terms</a>.
+            <a href="/privacy" className={inlineLink}>Privacy</a> and{' '}
+            <a href="/terms" className={inlineLink}>Terms</a>.
           </p>
         </div>
       </Card>

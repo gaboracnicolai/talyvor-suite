@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useAuthMeReader } from '../lib/authMe'
 import { useDocumentTitle } from '../documentTitle'
+import { inlineLink } from '@talyvor/ui'
 
 // legalParts — the shared furniture for /privacy and /terms.
 //
@@ -46,7 +47,7 @@ function ReturnLink() {
   return (
     <Link
       to={signedOut ? '/marketing' : '/'}
-      className="text-caption text-faint underline transition-colors duration-200 hover:text-muted"
+      className={`text-caption text-faint ${inlineLink}`}
     >
       ‹ Back to Talyvor
     </Link>
@@ -66,7 +67,7 @@ export function LegalHeader({ title }: { title: string }) {
       <h1 className="mt-2 text-title text-ink">{title}</h1>
       <p className="mt-3 text-body text-muted">
         Last updated 28 July 2026. Written from the code, for a closed trial.{' '}
-        <Link className="underline" to={title === 'Privacy' ? '/terms' : '/privacy'}>
+        <Link className={inlineLink} to={title === 'Privacy' ? '/terms' : '/privacy'}>
           {title === 'Privacy' ? 'Terms' : 'Privacy'}
         </Link>
       </p>

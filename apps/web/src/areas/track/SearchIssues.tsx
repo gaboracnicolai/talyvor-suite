@@ -45,7 +45,7 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, focusRing } from '@talyvor/ui'
+import { Button, Card, CardHeader, focusRing, inlineLink } from '@talyvor/ui'
 import { StatusPill } from './StatusPill'
 import { priorityLabel } from './format'
 import { readIssueSearch, type IssueSearchRow } from './issueSearch'
@@ -212,7 +212,7 @@ function Hit({ row }: { row: IssueSearchRow }) {
       ) : null}
       <Link
         to={`/track/issues/${encodeURIComponent(row.id)}`}
-        className={`min-w-0 flex-1 truncate text-body text-ink underline underline-offset-2 ${focusRing}`}
+        className={`min-w-0 flex-1 truncate text-body text-ink ${inlineLink}`}
       >
         {row.title}
       </Link>

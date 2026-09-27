@@ -3,40 +3,20 @@ import { join, relative } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-// THE INLINE LINK HAS NO ONE ANSWER, AND THE DIVERGENCE IS GROWING — W1.1.16, MEASURED.
+import { focusRing, inlineLink } from '@talyvor/ui'
+
+// EVERY INLINE LINK TAKES ONE SHAPE — `inlineLink` in @talyvor/ui (B18.26, from W1.1.16).
 //
-// W1.1.16 asks for one treatment applied to every underlined link, plus "the sweep that keeps it".
-// ⚠ THE SWEEP IS HERE. THE ONE TREATMENT IS NOT, AND THIS FILE IS WHY: the item says
-// "DECIDE FIRST, DO NOT GUESS: `hover:text-ink` vs `hover:text-muted` is a real choice … Measure
-// what the site does" — and the site, measured, does NEITHER.
+// W1.1.16 measured five treatments shipping at once — no hover (the majority, and what the front
+// page did), or a hover to ink, to muted, to accent, or of the underline alone — and this file
+// pinned that census rather than pick one, because both obvious answers moved the console away from
+// the front door. The answer taken is the third it recorded: give the front page's links the hover
+// too, so "match the site" and "every state change moves" become the same shape.
 //
-// ⚠⚠ THE ITEM'S EVIDENCE IS A BUTTON. It cites one line of `Landing.tsx` for "on the site every
-// state change moves". That element is the STEPPER TAB — a `<button>` — and the second moving
-// element on that page is the stepper's own progress rule. The site's own inline LINKS, all of
-// them, carry a bare `underline` and no hover state at all. So the tiebreaker the item names
-// declines to break the tie, and both halves of the choice would move the console AWAY from the
-// front door rather than toward it, which is W1.1's whole purpose.
-//
-// ⚠ THAT CLAIM IS CITED BY SHAPE, NOT BY LINE, AND DELIBERATELY. Writing this file with the line
-// number in it made `pointerAudit` red — a new citing file is a new pointer, not a new registry
-// entry to add quietly — and a line number pointing into the front page would rot the next time
-// anyone edits it. The second test below checks the claim against the source instead, which is
-// what a pointer was standing in for.
-//
-// ⚠ AND THE CHOICE IS WIDER THAN THE ITEM KNEW. It recorded "5 carry one, in FOUR different
-// shapes". Measured at `24979ab` there are NINE across FOUR hover shapes, including two the item
-// does not mention (`hover:text-accent`, `hover:decoration-accent`). The set is diverging, not
-// converging: every screen rebuild adds links, and each picks whatever its neighbour did.
-//
-// ⚠ `@talyvor/ui` SHIPS A COMPONENT FOR EVERY CONTROL EXCEPT THIS ONE. Button, Input, Select,
-// Switch, Row, Pill, NavItem, Card, TierDot, ThemeToggle — and no Link. The most-rendered
-// interactive element in the product is the one with no component and no rule, which is exactly
-// how it ends up in four shapes.
-//
-// ⚠⚠ SO THIS FILE PINS THE FACTS AND REFUSES TO INVENT THE RULE. It fails when a FIFTH shape
-// appears, when the counts move, or — the load-bearing one — when the SITE's links acquire a hover
-// state, because that is the day the decision becomes measurable and the item can be finished
-// without a product call.
+// That shape is one exported class, not a copied string: the underline and its offset, a 200ms
+// colour move to ink on hover, and the accent focus ring. Where a link sits still decides its
+// colour and size. `@talyvor/ui` had a component for every control except this one, which is how
+// each new screen ended up copying its neighbour.
 
 const WEB = join(__dirname)
 const UI = join(__dirname, '../../../packages/ui/src')
@@ -60,167 +40,80 @@ function sources(root: string): string[] {
   return out
 }
 
-/** Every `className` in the product that carries the `underline` class, with its file. */
-function underlinedClassLists(): Array<{ file: string; cls: string }> {
-  const out: Array<{ file: string; cls: string }> = []
+interface Site {
+  file: string
+  tag: string
+  cls: string
+}
+
+/** Every className in the product — a string, a template literal, or a `cn(…)` call — with its element. */
+function classNames(): Site[] {
+  const out: Site[] = []
   for (const root of [WEB, UI]) {
     for (const file of sources(root)) {
       const src = readFileSync(file, 'utf8')
-      // Both spellings the product uses: a plain string, and a template literal (the shape that
-      // interpolates `focusRing`). A rule that read only one of them would under-report by a third.
-      for (const m of src.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
-        const cls = m[1] ?? m[2] ?? ''
-        if (!/\bunderline\b/.test(cls)) continue
-        out.push({ file: relative(join(__dirname, '../../..'), file), cls })
+      for (const m of src.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\}|\{(cn\([^)]*\)|inlineLink)\})/g)) {
+        const at = src.lastIndexOf('<', m.index)
+        out.push({
+          file: relative(join(__dirname, '../../..'), file),
+          tag: /^<\s*([A-Za-z][\w.]*)/.exec(src.slice(at))?.[1] ?? '',
+          cls: m[1] ?? m[2] ?? m[3] ?? '',
+        })
       }
     }
   }
   return out
 }
 
-/** The hover/motion tokens of one class list, normalised so order cannot make two shapes look like three. */
-function treatment(cls: string): string {
-  const toks = cls
-    .split(/\s+/)
-    .filter((t) => t.startsWith('hover:') || t.startsWith('transition') || t.startsWith('duration'))
-    .sort()
-  return toks.length === 0 ? '(none)' : toks.join(' ')
+const isLink = (s: Site) => s.tag === 'a' || s.tag === 'Link'
+const usesInlineLink = (s: Site) => /\binlineLink\b/.test(s.cls)
+
+/** Underlines that are not links, each with what it is. Nothing else may carry `underline` itself. */
+const NOT_LINKS: Record<string, string> = {
+  'apps/web/src/areas/docs/pm.tsx': 'the Docs renderer’s underline MARK — text a writer underlined, not a link',
+  'packages/ui/src/components/MuNumeral.tsx': 'the µ-tail of a numeral, underlined to set it apart from the whole units',
 }
 
-/**
- * THE PINNED CENSUS. Every entry carries the reason it is what it is. Do not delete a row to make
- * this pass — a row disappearing is either the migration W1.1.16 asks for (in which case update the
- * table and say so) or a link that lost its affordance.
- */
-const SHAPES: Record<string, { count: number; why: string }> = {
-  '(none)': {
-    // 36 → 41 at B4.1: the Track area's All issues / Cycles links and the Cycles screen's three
-    // (back to issues, an issue in a cycle, file a new issue) took the majority answer.
-    // 41 → 45 at B4.2: the Projects nav link, the Projects screen's two (back to issues, a
-    // project's issues) and the issue page's "Start a project" — the majority answer again.
-    // 45 → 51 at B5.2: Landing's two Pricing links (header, footer) and /pricing's four (the
-    // GET /api/pricing check, the pooled-answer link, Privacy, Terms) — copied from Landing's own.
-    // 51 → 52 at B3.4: the catch-all's "Go to Overview" (App.tsx), so a mistyped address is not a
-    // dead end — the majority answer again.
-    // 52 → 54 at B8.2: the Features screen's "Change in Settings" (answer sharing's control lives
-    // there) and "Open the ledger" (the audit trail) — the majority answer again.
-    // 54 → 56 at B10.3: the chat rail's "How to use Talyvor Chat" and the how-to page's "Back to
-    // the chat" — the majority answer again.
-    // 56 → 58 at B13.3: the plans screen's "Billing" (where plans are not sold) and "Turn it on in
-    // Features" (a subscriber with sharing off) — the majority answer again.
-    // 58 → 59 at B11.3: the Try-it pages' "Features" link back to the screen that links to them —
-    // the majority answer again.
-    count: 59,
-    why:
-      'the majority, and the shape the SITE ITSELF uses for all five of its inline links. It is not ' +
-      'a bug by default — it is the front door\'s answer — which is precisely why "give them all a ' +
-      'hover" is a decision rather than a repair.',
-  },
-  'duration-200 hover:text-ink transition-colors': {
-    count: 4,
-    why:
-      'docs/components.tsx (the breadcrumb, the one site with a recorded argument, and it argues ' +
-      'about the RESTING underline rather than this colour), Overview ×2 and CacheCard — the three ' +
-      "W1.1.0 shipped as `/`'s motion proof. W1.1.17a's census reads those three as the whole of " +
-      "that screen's motion, so removing them would take `/` to zero.",
-  },
-  'duration-200 hover:text-muted transition-colors': {
-    count: 3,
-    why:
-      'the legal footer, twice in App.tsx and once in legalParts.tsx. It DIMS on hover where the ' +
-      'set above BRIGHTENS, which is the two candidate answers shipping side by side in one product.',
-  },
-  'duration-200 hover:text-accent transition-colors': {
-    count: 1,
-    why: 'track/IssueList.tsx — a third answer the item did not know existed.',
-  },
-  'duration-200 hover:decoration-accent transition-colors': {
-    count: 1,
-    why:
-      'docs/pm.tsx — a fourth, and the only one that moves the RULE rather than the text. It is ' +
-      'rendered inside user content, which is an argument for it being different; nothing records ' +
-      'that argument.',
-  },
-}
+describe('every inline link in the product takes the one shape', () => {
+  const all = classNames()
+  const links = all.filter(isLink)
 
-describe('the inline link has no one answer, and this file is the census that says so', () => {
-  const found = underlinedClassLists()
-
-  // NON-VACUITY. A collector that finds nothing passes every assertion below. This repo has shipped
-  // that three times, so the floor is first and it sits under the real number rather than on it.
-  it('the collector actually finds the links', () => {
-    expect(found.length).toBeGreaterThanOrEqual(40)
+  // NON-VACUITY. A collector that finds nothing passes every assertion below.
+  it('the collector finds the links, and they use inlineLink', () => {
+    expect(links.filter(usesInlineLink).length).toBeGreaterThanOrEqual(65)
   })
 
-  it('reads BOTH className spellings — a rule that read only strings would miss a third of them', () => {
-    // The template-literal shape is what interpolates `focusRing`, and it is where docs and track
-    // write their links. Measured: at least four such lists exist.
-    const templated = found.filter((f) => /focusRing|\$\{/.test(f.cls))
-    expect(templated.length).toBeGreaterThanOrEqual(3)
-  })
-
-  it('the shape SET is exactly the pinned one, in both directions', () => {
-    const measured = new Set(found.map((f) => treatment(f.cls)))
-    const pinned = new Set(Object.keys(SHAPES))
-    const appeared = [...measured].filter((s) => !pinned.has(s))
-    const vanished = [...pinned].filter((s) => !measured.has(s))
+  it('no link writes its own underline or hover — it takes inlineLink', () => {
+    const own = links
+      .filter((s) => !usesInlineLink(s) && /\b(underline|hover:\S+)/.test(s.cls))
+      .map((s) => `${s.file}: <${s.tag} className="${s.cls}">`)
     expect(
-      { appeared, vanished },
-      'A FIFTH inline-link treatment appeared, or a pinned one is gone.\n' +
-        'W1.1.16 exists because this set has more than one member; it is not allowed to grow while ' +
-        'the item is open. If this IS the migration the item asks for, update SHAPES and say which ' +
-        'answer was chosen and by whom — the choice is a product decision, not a repair.',
-    ).toEqual({ appeared: [], vanished: [] })
-  })
-
-  it('each shape has the pinned number of sites', () => {
-    const counted: Record<string, number> = {}
-    for (const f of found) counted[treatment(f.cls)] = (counted[treatment(f.cls)] ?? 0) + 1
-    const drift = Object.entries(SHAPES)
-      .filter(([shape, { count }]) => (counted[shape] ?? 0) !== count)
-      .map(([shape, { count }]) => `${shape}: pinned ${count}, measured ${counted[shape] ?? 0}`)
-    expect(
-      drift,
-      'The inline-link census moved. A new link picked one of the four existing answers (or none), ' +
-        'which is the drift W1.1.16 is about — every screen rebuild adds links and each copies its ' +
-        'neighbour. Update the number here WITH the reason, the way caseCallSites.test.ts does.',
-    ).toEqual([])
-  })
-})
-
-describe('the premise W1.1.16 rests on, pinned so it cannot rot silently', () => {
-  it('THE SITE\'S OWN INLINE LINKS CARRY NO HOVER STATE — so "measure what the site does" answers "nothing"', () => {
-    const landing = readFileSync(join(WEB, 'areas/marketing/Landing.tsx'), 'utf8')
-    const links = [...landing.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
-      .map((m) => m[1] ?? m[2] ?? '')
-      .filter((cls) => /\bunderline\b/.test(cls))
-
-    // Two-sided: the front page must still HAVE inline links, or "none of them moves" would be a
-    // statement about the search rather than about the site.
-    expect(links.length).toBeGreaterThanOrEqual(5)
-
-    const moving = links.filter((cls) => treatment(cls) !== '(none)')
-    expect(
-      moving,
-      'The site\'s own inline links now carry a hover treatment.\n' +
-        '⚠ THAT IS GOOD NEWS FOR W1.1.16: the tiebreaker it names has started answering. Take the ' +
-        'site\'s answer, apply it to every link in the console, update SHAPES to a single entry, and ' +
-        'close the item. Until then this test is what records that the site declined to choose.',
+      own,
+      'these links write their own underline or hover. Five treatments shipped at once because ' +
+        'each screen copied its neighbour; use `inlineLink` from @talyvor/ui (context classes such ' +
+        'as colour and size go beside it).',
     ).toEqual([])
   })
 
-  it('the item\'s cited evidence is a BUTTON, not a link — which is why it could not settle the choice', () => {
-    const landing = readFileSync(join(WEB, 'areas/marketing/Landing.tsx'), 'utf8')
-    // Every element on the front page that DOES carry a colour transition, and whether any is a link.
-    const movingLists = [...landing.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
-      .map((m) => m[1] ?? m[2] ?? '')
-      .filter((cls) => /transition-colors/.test(cls))
-    expect(movingLists.length).toBeGreaterThanOrEqual(2) // the stepper tab and its progress rule
-    // None of them is underlined — i.e. none is a link in prose.
-    expect(
-      movingLists.filter((cls) => /\bunderline\b/.test(cls)),
-      'A moving element on the front page is now an underlined link. If the site has started ' +
-        'animating its links, W1.1.16 is decidable — see the test above.',
-    ).toEqual([])
+  it('an underline that is not a link is one of the two named ones', () => {
+    const others = all
+      .filter((s) => !isLink(s) && !usesInlineLink(s) && /\bunderline\b/.test(s.cls))
+      .map((s) => s.file)
+    expect([...new Set(others)].sort()).toEqual(Object.keys(NOT_LINKS).sort())
+  })
+
+  it('the front page’s inline links take it too — the shape is the site’s, not only the console’s', () => {
+    // (Its contact address is an <a> dressed as a Button — a control, not a link in prose.)
+    const landing = links.filter((s) => s.file.endsWith('areas/marketing/Landing.tsx'))
+    expect(landing.filter(usesInlineLink).length).toBeGreaterThanOrEqual(5)
+    expect(landing.filter((s) => !usesInlineLink(s) && /\bunderline\b/.test(s.cls)).map((s) => s.cls)).toEqual([])
+  })
+
+  it('the shape is an underline, a 200ms colour move to ink on hover, and the accent focus ring', () => {
+    const toks = inlineLink.split(/\s+/)
+    for (const t of ['underline', 'underline-offset-2', 'transition-colors', 'duration-200', 'hover:text-ink']) {
+      expect(toks).toContain(t)
+    }
+    expect(inlineLink).toContain(focusRing)
   })
 })

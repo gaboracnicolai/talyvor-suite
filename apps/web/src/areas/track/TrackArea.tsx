@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
-import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@talyvor/ui'
+import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, inlineLink } from '@talyvor/ui'
 import { Cycles } from './Cycles'
 import { Projects } from './Projects'
 import { IssueDetail } from './IssueDetail'
@@ -114,13 +114,13 @@ export function TrackArea() {
           claim about the half that served it. */}
       <SearchIssues />
       <nav aria-label="Track" className="flex gap-4 px-gutter text-body">
-        <Link className="underline" to="/track">
+        <Link className={inlineLink} to="/track">
           All issues
         </Link>
-        <Link className="underline" to="/track/cycles">
+        <Link className={inlineLink} to="/track/cycles">
           Cycles
         </Link>
-        <Link className="underline" to="/track/projects">
+        <Link className={inlineLink} to="/track/projects">
           Projects
         </Link>
       </nav>

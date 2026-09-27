@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Input, Switch, focusRing } from '@talyvor/ui'
+import { Button, Input, Switch, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, api, getJSON } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
@@ -344,7 +344,7 @@ function WaitingModels({ read }: { read: { isPending: boolean; isError: boolean;
 
 function To({ to, children }: { to: string; children: React.ReactNode }) {
   return (
-    <Link className="text-ink underline underline-offset-2" to={to}>
+    <Link className={`text-ink ${inlineLink}`} to={to}>
       {children}
     </Link>
   )
@@ -720,7 +720,7 @@ export function Features() {
                   alsoInvalidate={['auth-me']}
                 />
               ) : (
-                <Link className="text-caption text-ink underline underline-offset-2" to="/settings">
+                <Link className={`text-caption text-ink ${inlineLink}`} to="/settings">
                   Change in Settings
                 </Link>
               )

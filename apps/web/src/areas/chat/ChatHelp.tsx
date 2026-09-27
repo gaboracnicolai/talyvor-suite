@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 
-import { cn, focusRing } from '@talyvor/ui'
+import { inlineLink } from '@talyvor/ui'
 
 // B10.3 — "How to use Talyvor Chat". The chat screen carries no instructions; this page is where
 // the explanations live, linked from the chat's rail. Every sentence here is a statement about the
@@ -57,7 +57,7 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
           Lens converts an attached document to plain text before the model reads it, so the model is
           billed for the words rather than the file. The question then says &ldquo;Converted to text
           before the model read it.&rdquo; Whether conversion runs is a workspace setting in{' '}
-          <Link className={cn('underline', focusRing)} to="/settings">
+          <Link className={inlineLink} to="/settings">
             Settings
           </Link>
           ; when it is off, the question says the original file was sent instead.
@@ -128,7 +128,7 @@ export function ChatHelp() {
   return (
     <div className="mx-auto max-w-2xl space-y-8 py-6">
       {/* The page's name is the console banner's <h1> (CONSOLE_ROUTES' title), so no second one here. */}
-      <Link className={cn('text-body text-ink underline', focusRing)} to="/chat">
+      <Link className={`text-body text-ink ${inlineLink}`} to="/chat">
         Back to the chat
       </Link>
       {SECTIONS.map((s) => (

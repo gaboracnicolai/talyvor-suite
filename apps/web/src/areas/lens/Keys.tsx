@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Input, RevealOnce, Row } from '@talyvor/ui'
+import { Button, Card, CardHeader, Input, RevealOnce, Row, inlineLink } from '@talyvor/ui'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
 import { formatWhen } from './format'
 import { ApiError } from '../../lib/api'
@@ -259,7 +259,7 @@ export function Keys() {
         {!empty && !minted ? (
           <p className="mt-4 text-caption font-normal text-muted">
             Got a key and not sure what to do with it?{' '}
-            <Link className="underline" to="/setup">
+            <Link className={inlineLink} to="/setup">
               Setup
             </Link>{' '}
             has the two lines for Claude Code, Cursor, and anything on the OpenAI SDK.
