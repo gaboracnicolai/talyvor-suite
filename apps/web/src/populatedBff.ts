@@ -221,6 +221,8 @@ const ARRAYS: Record<string, unknown[]> = {
   '/api/track/projects': [
     { id: 'pr-1', team_id: 'team-1', name: 'Importer', identifier: 'IMP', description: '', status: 'active' },
   ],
+  // B18.27 — the sidebar's pinned Docs pages, kept by Docs.
+  '/api/docs/pins': [],
   '/api/docs/spaces': [
     {
       id: 'sp-eng',

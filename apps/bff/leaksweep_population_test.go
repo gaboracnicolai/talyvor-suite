@@ -288,9 +288,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// /api/track/workspaces/{id}/restore (B18.53), ARE WRITES WHOSE STATE IS READ BACK THROUGH GETs
 	// THE SWEEP ALREADY REACHES — /api/track/workspaces and /api/track/workspaces/deleted. Each relays
 	// Track's own answer (the workspace, or its refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 24 {
+	//
+	// THE TWENTY-FIFTH, /api/docs/spaces/{spaceID}/pages/{pageID}/pin (B18.27), IS PUT AND DELETE ONLY:
+	// a pin's state is read back through GET /api/docs/pins, which the sweep reaches. It relays Docs'
+	// answer ({"pinned": bool}) and adds nothing the BFF holds.
+	if len(methodOnly) > 25 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 24 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 25 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

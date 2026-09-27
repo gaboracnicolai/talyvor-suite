@@ -1,13 +1,19 @@
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
+import { ApiError, getJSONArray } from '../../lib/api'
 import { useAuthMeReader } from '../../lib/authMe'
 
 // B10.6 — the Docs pages a person pinned, and the ones they opened last, for the sidebar.
 //
-// ⚠ KEPT IN THIS BROWSER, PER SIGNED-IN ACCOUNT. Docs stores no favourites or pins (talyvor-docs has
-// none) and the BFF holds no storage, so a pin lives in localStorage — it survives a reload, and it
-// does not follow the person to another browser (recorded in FOUND.md). Scoped the way chat history
-// is (areas/chat/history.ts), so two accounts on one browser never see each other's pins.
+// PINS ARE KEPT BY DOCS (B18.27, on talyvor-docs' B18.41), so a page pinned in one browser is pinned
+// in every other one after sign-in: GET /api/docs/pins, and PUT/DELETE on a page's /pin. Docs lists
+// only pages the person can still open. A pin this browser still holds from before is sent to Docs
+// once and then dropped here, so nobody loses a pin to the move.
+//
+// RECENT PAGES STAY IN THIS BROWSER, per signed-in account, scoped the way chat history is
+// (areas/chat/history.ts): Docs' own recent-pages list is built from page views, and this app does
+// not record page views in Docs.
 
 export interface DocRef {
   spaceId: string
@@ -79,44 +85,94 @@ function subscribe(onChange: () => void): () => void {
   }
 }
 
+/** A pin as Docs lists it (GET /v1/workspaces/{ws}/pins), newest first. */
+interface ServerPin {
+  page_id: string
+  space_id: string
+  title: string
+  at: string
+}
+
+const PINS_KEY = ['docs', 'pins']
+
+const toRef = (p: ServerPin): DocRef => ({ spaceId: p.space_id, pageId: p.page_id, title: p.title })
+
+function isServerPin(v: unknown): v is ServerPin {
+  const p = v as ServerPin
+  return typeof p?.page_id === 'string' && typeof p.space_id === 'string' && typeof p.title === 'string'
+}
+
+/** Docs' list, kept to well-formed entries: the sidebar is on every screen, so a reply that is not a
+ *  list must leave it without pins rather than take the page down. */
+async function readPins(): Promise<ServerPin[]> {
+  const v: unknown = await getJSONArray<ServerPin>('/api/docs/pins')
+  return Array.isArray(v) ? v.filter(isServerPin) : []
+}
+
+async function sendPin(ref: Pick<DocRef, 'spaceId' | 'pageId'>, on: boolean): Promise<void> {
+  const path = `/api/docs/spaces/${encodeURIComponent(ref.spaceId)}/pages/${encodeURIComponent(ref.pageId)}/pin`
+  const res = await fetch(path, { method: on ? 'PUT' : 'DELETE', headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new ApiError(res.status, path)
+}
+
 /** Pinned pages, the last pages opened, and the two things that change them. */
 export function useDocsNav() {
   const me = useAuthMeReader()
+  const qc = useQueryClient()
   const scope =
     me.data?.user?.sub ?? me.data?.workspace_id ?? (me.data?.mode === 'disabled' ? 'local' : null)
   const raw = useSyncExternalStore(subscribe, () => (scope === null ? null : readRaw(scope)))
   const stored = useMemo(() => parse(raw), [raw])
+  const pins = useQuery({
+    queryKey: PINS_KEY,
+    queryFn: readPins,
+    enabled: scope !== null,
+    staleTime: 60_000,
+  })
+  const pinned = useMemo(() => (pins.data ?? []).map(toRef), [pins.data])
+
+  // A pin this browser kept before pins moved to Docs goes to Docs once, then leaves this browser.
+  useEffect(() => {
+    if (scope === null || !pins.isSuccess || stored.pinned.length === 0) return
+    const local = stored.pinned
+    write(scope, { ...parse(readRaw(scope)), pinned: [] })
+    void Promise.allSettled(local.map((ref) => sendPin(ref, true))).then(() =>
+      qc.invalidateQueries({ queryKey: PINS_KEY }),
+    )
+  }, [scope, pins.isSuccess, stored.pinned, qc])
 
   const opened = useCallback(
     (ref: DocRef) => {
       if (scope === null) return
       const cur = parse(readRaw(scope))
-      write(scope, {
-        pinned: cur.pinned.map((p) => (same(p, ref) ? ref : p)),
-        recent: [ref, ...cur.recent.filter((r) => !same(r, ref))].slice(0, RECENT_KEPT),
-      })
+      write(scope, { ...cur, recent: [ref, ...cur.recent.filter((r) => !same(r, ref))].slice(0, RECENT_KEPT) })
     },
     [scope],
   )
 
   const setPinned = useCallback(
     (ref: DocRef, on: boolean) => {
-      if (scope === null) return
-      const cur = parse(readRaw(scope))
-      const rest = cur.pinned.filter((p) => !same(p, ref))
-      write(scope, { ...cur, pinned: on ? [...rest, ref] : rest })
+      // Shown at once; then Docs is told, and its list read back — a refused pin disappears again.
+      qc.setQueryData<ServerPin[]>(PINS_KEY, (cur = []) => {
+        const rest = cur.filter((p) => !(p.space_id === ref.spaceId && p.page_id === ref.pageId))
+        const mine = { page_id: ref.pageId, space_id: ref.spaceId, title: ref.title, at: new Date().toISOString() }
+        return on ? [mine, ...rest] : rest
+      })
+      void sendPin(ref, on)
+        .catch(() => undefined)
+        .then(() => qc.invalidateQueries({ queryKey: PINS_KEY }))
     },
-    [scope],
+    [qc],
   )
 
   return {
     /** False until the browser knows who is signed in — nothing can be pinned before then. */
     ready: scope !== null,
-    pinned: stored.pinned,
+    pinned,
     /** The last pages opened that are not pinned, newest first — never more than RECENT_SHOWN. */
-    recent: stored.recent.filter((r) => !stored.pinned.some((p) => same(p, r))).slice(0, RECENT_SHOWN),
+    recent: stored.recent.filter((r) => !pinned.some((p) => same(p, r))).slice(0, RECENT_SHOWN),
     isPinned: (ref: Pick<DocRef, 'spaceId' | 'pageId'>) =>
-      stored.pinned.some((p) => p.spaceId === ref.spaceId && p.pageId === ref.pageId),
+      pinned.some((p) => p.spaceId === ref.spaceId && p.pageId === ref.pageId),
     opened,
     setPinned,
   }
