@@ -764,3 +764,42 @@ describe('the sidebar hides and comes back (B15.5)', () => {
     expect(await screen.findByRole('button', { name: 'Hide sidebar' })).toBeInTheDocument()
   })
 })
+
+// B16.4 — measured 27 Sep: "what is 2+2?" cost 76 input tokens as a chat's first question and 14
+// elsewhere. Counted on claude-opus-5, 76 is that question with three earlier exchanges in front of
+// it; alone it is 13. Every question carries its own conversation. A new chat must carry nothing.
+describe('a new chat carries nothing from another (B16.4)', () => {
+  it('every way to start a new chat sends the first question alone, byte-identical to the first chat', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"London"}}]}\n\ndata: [DONE]\n\n' })
+    renderChat()
+    const answered = async (n: number) => {
+      await waitFor(() => expect(posted).toHaveBeenCalledTimes(n))
+      await screen.findByRole('button', { name: 'Regenerate' })
+    }
+    await ask('what is the capital of the UK?')
+    await answered(1)
+    await ask('and of France?')
+    await answered(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'New chat' }))
+    await ask('what is the capital of the UK?')
+    await answered(3)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    const slim = screen.getByRole('complementary', { name: 'Conversations' })
+    fireEvent.click(within(slim).getByRole('button', { name: 'New chat' }))
+    await ask('what is the capital of the UK?')
+    await answered(4)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete conversation' }))
+    await ask('what is the capital of the UK?')
+    await answered(5)
+
+    const bodies = posted.mock.calls.map((c) => String(c[0].init.body))
+    // The control: a follow-up does carry its own conversation.
+    expect(JSON.parse(bodies[1]).messages.map((m: { content: string }) => m.content)).toEqual(['what is the capital of the UK?', 'London', 'and of France?'])
+    expect(JSON.parse(bodies[0]).messages).toEqual([{ role: 'user', content: 'what is the capital of the UK?' }])
+    expect([bodies[2], bodies[3], bodies[4]]).toEqual([bodies[0], bodies[0], bodies[0]])
+  })
+})
