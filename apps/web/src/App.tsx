@@ -358,7 +358,7 @@ function AppShell() {
               `h1,…,h6{font-size:inherit;font-weight:inherit}` and `…,h1,…{margin:0}`, and
               `.text-head` supplies 17px/600 either way. ConsoleHeading.test.tsx pins the name at
               every address. */}
-          <h1 className="min-w-0 truncate text-head text-ink">{page}</h1>
+          <h1 className="min-w-0 flex-1 truncate text-head text-ink">{page}</h1>
           <div className="flex min-w-0 items-center gap-3">
             <SessionChip />
             <ThemeToggle />

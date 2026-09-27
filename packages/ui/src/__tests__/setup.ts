@@ -18,7 +18,7 @@
  * ⚠ AND THE TWO COMPONENTS THE REACH TABLE CALLED UNRENDERED ARE BOTH RENDERED IN THIS PROJECT.
  * `apps/web/scripts/check-audit-reach.mjs` classifies `packages/ui#HoldBar` and
  * `packages/ui#FixtureNotice` as reached by no test, and its own failure text reads "is exported
- * and NO test renders it". components.test.tsx:46 renders HoldBar with a real hold window and
+ * and NO test renders it". components.test.tsx:47 renders HoldBar with a real hold window and
  * promotions.test.tsx:34 renders FixtureNotice. The classification's CONCLUSION was right — no
  * audit had seen either — but its stated reason was false, and being false is what hid the fact
  * that the fixture the entry says nobody would write already existed.

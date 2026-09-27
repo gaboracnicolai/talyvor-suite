@@ -68,7 +68,7 @@ async function at(path: string) {
  *  landmark, so this reads the element assistive tech announces, not a class name. */
 function headerTitle(): string {
   const banner = screen.getByRole('banner')
-  const title = banner.firstElementChild
+  const title = banner.querySelector('h1')
   if (!title) throw new Error('the banner rendered no title element')
   return title.textContent ?? ''
 }

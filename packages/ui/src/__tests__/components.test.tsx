@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { Button, HoldBar, MuNumeral, Pill, Switch, TierDot } from '../components'
+import { Button, HoldBar, MuNumeral, Pill, Shell, Switch, TierDot } from '../components'
+import { focusRing } from '../lib/focus'
 
 describe('components render + carry accessible semantics', () => {
   it('Button (primary) renders as a button with a type', () => {
@@ -52,5 +53,38 @@ describe('components render + carry accessible semantics', () => {
   it('TierDot carries an accessible label (two categories, no numeral)', () => {
     render(<TierDot tier="capable" />)
     expect(screen.getByRole('img', { name: 'capable' })).toBeInTheDocument()
+  })
+
+  it('Shell: below 840px the sidebar is a drawer — Menu opens it; a link, Escape or the backdrop closes it', () => {
+    render(
+      <Shell sidebar={<a href="#issues" className={focusRing}>Issues</a>} nav={<h1>Overview</h1>}>
+        page
+      </Shell>,
+    )
+    const menu = screen.getByRole('button', { name: 'Menu' })
+    const aside = document.querySelector('aside')!
+    // closed: invisible (so nothing in it takes focus) until the phone asks for it; always shown from `wide` up
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+    expect(menu).toHaveAttribute('aria-controls', aside.id)
+    expect(aside.className.split(' ')).toEqual(expect.arrayContaining(['invisible', 'wide:visible', 'wide:static']))
+
+    fireEvent.click(menu)
+    expect(menu).toHaveAttribute('aria-expanded', 'true')
+    expect(aside.className.split(' ')).toContain('visible')
+    expect(aside.className.split(' ')).not.toContain('invisible')
+    expect(screen.getByRole('link', { name: 'Issues' })).toHaveFocus()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Issues' }))
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+    expect(menu).toHaveFocus()
+
+    fireEvent.click(menu)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(menu)
+    fireEvent.click(screen.getByRole('button', { name: 'Close navigation' }))
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: 'Close navigation' })).toBeNull()
   })
 })
