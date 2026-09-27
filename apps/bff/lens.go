@@ -279,6 +279,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B11.2 — the shared-conversions switch Lens had and nothing called, and Tare's recorded savings.
 	a.mux.HandleFunc("/api/features/distill-poolable", a.requireTenant(a.handleFeatureDistillPoolable))
 	a.mux.HandleFunc("/api/features/tare-savings", a.requireTenant(a.handleFeatureTareSavings))
+	// B18.22 — the switches Lens had and the screen lacked: detection, request logging, a spending limit.
+	a.mux.HandleFunc("/api/features/guardrails", a.requireTenant(a.handleFeatureGuardrails))
+	a.mux.HandleFunc("/api/features/logging", a.requireTenant(a.handleFeatureLogging))
+	a.mux.HandleFunc("/api/features/budget", a.requireTenant(a.handleFeatureBudget))
 	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
 	// previews, with no model call and no charge. See tryit.go.
 	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))

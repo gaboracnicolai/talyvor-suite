@@ -89,6 +89,11 @@ func sameOriginAppRecording(t *testing.T) (*app, string, *originUpstream) {
 		}
 		rec.record(r.Method, r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/budgets") {
+			// B18.22: the budget write reads the workspace's budgets first — a list, and here none.
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	t.Cleanup(up.Close)
@@ -179,6 +184,9 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/features/tare", body: `{"tare_policy":"disabled"}`},
 		{method: http.MethodPost, path: "/api/features/cost-optimize-routing", body: `{"cost_optimize_routing":false}`},
 		{method: http.MethodPost, path: "/api/features/distill-poolable", body: `{"distill_poolable":false}`},
+		{method: http.MethodPost, path: "/api/features/guardrails", body: `{"injection":false}`},
+		{method: http.MethodPost, path: "/api/features/logging", body: `{"logging_policy":"metadata"}`},
+		{method: http.MethodPost, path: "/api/features/budget", body: `{"limit_usd":50,"enforcement":"hard_block"}`},
 		{method: http.MethodPost, path: "/api/features/tare/preview", body: `{"content":"{\"a\":1}","kind":"json"}`},
 		{method: http.MethodPost, path: "/api/features/conversion/preview", body: `<p>hi</p>`},
 		{method: http.MethodPost, path: "/api/keys", body: `{"name":"k","scopes":["proxy"]}`},

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 )
 
 // features.go — B8.2: the Features screen's read, and the two switches it adds.
@@ -14,6 +16,10 @@ import (
 //	GET  /api/features                       every capability setting on the session's workspace
 //	POST /api/features/tare                  → PUT /v1/workspaces/{ws}/tare
 //	POST /api/features/cost-optimize-routing → PUT /v1/workspaces/{ws}/cost-optimize-routing
+//	POST /api/features/guardrails            → POST /v1/workspaces/{ws}/guardrails   (B18.22)
+//	POST /api/features/logging               → PUT /v1/workspaces/{ws}/logging        (B18.22)
+//	GET  /api/features/budget                the workspace's own spending limit       (B18.22)
+//	POST /api/features/budget                → POST or PATCH /v1/workspaces/{ws}/budgets (B18.22)
 //
 // Same posture as /api/distill: session-gated, same-Origin on the write (ServeHTTP), key attached
 // server-side, and a write answers with what Lens RECORDED, never an echo of the request.
@@ -238,8 +244,14 @@ func (a *app) handleFeatureTareSavings(w http.ResponseWriter, r *http.Request, t
 }
 
 func (a *app) lensPutWorkspace(ctx context.Context, t tenant, suffix string, body []byte) ([]byte, error) {
+	return a.lensSendWorkspace(ctx, t, http.MethodPut, suffix, body, http.StatusOK)
+}
+
+// lensSendWorkspace sends body to a workspace-scoped Lens route with method, and returns Lens's
+// reply when it answers with want.
+func (a *app) lensSendWorkspace(ctx context.Context, t tenant, method, suffix string, body []byte, want int) ([]byte, error) {
 	path := lensWorkspacePath(t, suffix)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, a.cfg.lensBaseURL+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, a.cfg.lensBaseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -251,8 +263,218 @@ func (a *app) lensPutWorkspace(ctx context.Context, t tenant, suffix string, bod
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode != http.StatusOK {
-		return nil, &lensStatusError{path: "PUT " + path, status: resp.StatusCode}
+	if resp.StatusCode != want {
+		return nil, &lensStatusError{path: method + " " + path, status: resp.StatusCode}
 	}
 	return raw, nil
+}
+
+// handleFeatureGuardrails — B18.22: POST /api/features/guardrails {"injection": bool} or {"pii": bool}
+// switches prompt-injection or personal-data detection and answers the two flags Lens recorded.
+//
+// ⚠ LENS'S POST REPLACES THE WHOLE POLICY — blocked topics and words, custom rules, the actions and
+// the output checks. A body carrying one flag would reset every other rule to its zero value, so the
+// current policy is read and written back with only the one flag changed.
+func (a *app) handleFeatureGuardrails(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		Injection *bool `json:"injection"`
+		PII       *bool `json:"pii"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || (in.Injection == nil) == (in.PII == nil) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "exactly one of injection or pii (boolean) required"})
+		return
+	}
+	key, on := "enable_injection", in.Injection
+	if in.PII != nil {
+		key, on = "enable_pii", in.PII
+	}
+	var policy map[string]json.RawMessage
+	raw, err := a.lensGet(r.Context(), t, lensWorkspacePath(t, "/guardrails"))
+	if err == nil {
+		err = json.Unmarshal(raw, &policy)
+	}
+	if err == nil && policy == nil {
+		err = fmt.Errorf("guardrails: no policy in the reply")
+	}
+	if err == nil {
+		policy[key] = json.RawMessage(strconv.FormatBool(*on))
+		body, _ := json.Marshal(policy)
+		raw, err = a.lensSendWorkspace(r.Context(), t, http.MethodPost, "/guardrails", body, http.StatusOK)
+	}
+	var out struct {
+		EnableInjection *bool `json:"enable_injection"`
+		EnablePII       *bool `json:"enable_pii"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err == nil && (out.EnableInjection == nil || out.EnablePII == nil) {
+		err = fmt.Errorf("guardrails: the reply does not state both flags")
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not record the choice"})
+		return
+	}
+	writeJSON(w, http.StatusOK, featuresGuardrails{Injection: *out.EnableInjection, PII: *out.EnablePII})
+}
+
+// handleFeatureLogging — B18.22: POST /api/features/logging {"logging_policy": "full"|"metadata"|"none"}
+// writes Lens's PUT /v1/workspaces/{ws}/logging and answers the policy Lens recorded.
+func (a *app) handleFeatureLogging(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		LoggingPolicy *string `json:"logging_policy"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.LoggingPolicy == nil ||
+		!loggingPolicies[*in.LoggingPolicy] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "logging_policy must be full, metadata or none"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensLoggingBody: none
+	body, _ := json.Marshal(map[string]string{"logging_policy": *in.LoggingPolicy})
+	raw, err := a.lensPutWorkspace(r.Context(), t, "/logging", body)
+	var out struct {
+		LoggingPolicy *string `json:"logging_policy"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err == nil && knownOrNil(out.LoggingPolicy, loggingPolicies) == nil {
+		err = fmt.Errorf("logging: the reply does not state a known policy")
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not record the choice"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"logging_policy": *out.LoggingPolicy})
+}
+
+// budgetEnforcements is Lens's budgets.Enforcement vocabulary.
+var budgetEnforcements = map[string]bool{"off": true, "alert": true, "hard_block": true}
+
+// lensBudget is the part of a Lens budget this screen reads and writes back.
+type lensBudget struct {
+	ID              string          `json:"id"`
+	Scope           string          `json:"scope"`
+	Period          string          `json:"period"`
+	LimitUSD        float64         `json:"limit_usd"`
+	SpentUSD        float64         `json:"spent_usd"`
+	AlertThresholds []float64       `json:"alert_thresholds"`
+	Enforcement     string          `json:"enforcement"`
+	EndsAt          json.RawMessage `json:"ends_at,omitempty"`
+}
+
+// featuresBudget is the workspace's own spending limit as the Features screen shows it. Several means
+// more than one workspace-wide limit was set through Lens's API, which this screen does not choose
+// between.
+type featuresBudget struct {
+	Budget  *featuresBudgetLimit `json:"budget"`
+	Several bool                 `json:"several"`
+}
+
+type featuresBudgetLimit struct {
+	Period      string  `json:"period"`
+	LimitUSD    float64 `json:"limit_usd"`
+	SpentUSD    float64 `json:"spent_usd"`
+	Enforcement string  `json:"enforcement"`
+}
+
+func projectBudget(b lensBudget) *featuresBudgetLimit {
+	return &featuresBudgetLimit{Period: b.Period, LimitUSD: b.LimitUSD, SpentUSD: b.SpentUSD, Enforcement: b.Enforcement}
+}
+
+// workspaceBudgets lists the workspace-wide budgets (team and sprint budgets are not this screen's).
+func (a *app) workspaceBudgets(ctx context.Context, t tenant) ([]lensBudget, error) {
+	raw, err := a.lensGet(ctx, t, lensWorkspacePath(t, "/budgets"))
+	if err != nil {
+		return nil, err
+	}
+	var all []lensBudget
+	if err := json.Unmarshal(raw, &all); err != nil {
+		return nil, fmt.Errorf("budgets: unreadable list: %w", err)
+	}
+	var out []lensBudget
+	for _, b := range all {
+		if b.Scope == "workspace" {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+// handleFeatureBudget — B18.22. GET answers the workspace's spending limit (none, one, or several).
+// POST {"limit_usd": n, "enforcement": "hard_block"|"alert"|"off"} sets it: Lens's POST creates a
+// monthly one when there is none, and its PATCH changes the one there is.
+//
+// ⚠ LENS'S PATCH REPLACES limit, thresholds, enforcement, period and end date together, so the
+// existing budget's period, thresholds and end date are sent back unchanged beside the new values.
+func (a *app) handleFeatureBudget(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+		return
+	}
+	var in struct {
+		LimitUSD    *float64 `json:"limit_usd"`
+		Enforcement *string  `json:"enforcement"`
+	}
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.LimitUSD == nil ||
+			*in.LimitUSD <= 0 || in.Enforcement == nil || !budgetEnforcements[*in.Enforcement] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{
+				"error": "limit_usd (above 0) and enforcement (hard_block, alert or off) required"})
+			return
+		}
+	}
+	list, err := a.workspaceBudgets(r.Context(), t)
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not read this workspace's spending limit"})
+		return
+	}
+	if len(list) > 1 {
+		if r.Method == http.MethodPost {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "this workspace has several spending limits; change them through Lens"})
+			return
+		}
+		writeJSON(w, http.StatusOK, featuresBudget{Budget: nil, Several: true})
+		return
+	}
+	if r.Method == http.MethodGet {
+		var limit *featuresBudgetLimit
+		if len(list) == 1 {
+			limit = projectBudget(list[0])
+		}
+		writeJSON(w, http.StatusOK, featuresBudget{Budget: limit, Several: false})
+		return
+	}
+
+	var raw []byte
+	if len(list) == 0 {
+		// UPSTREAM-BINDS-ONLY lensBudgetCreateBody: id, workspace_id, scope_id, spent_usd, alert_thresholds, starts_at, ends_at, created_at, updated_at
+		body, _ := json.Marshal(map[string]any{"scope": "workspace", "period": "monthly", "limit_usd": *in.LimitUSD, "enforcement": *in.Enforcement})
+		raw, err = a.lensSendWorkspace(r.Context(), t, http.MethodPost, "/budgets", body, http.StatusCreated)
+	} else {
+		b := list[0]
+		// UPSTREAM-BINDS-ONLY lensBudgetUpdateBody: id, workspace_id, scope, scope_id, spent_usd, starts_at, created_at, updated_at
+		body, _ := json.Marshal(map[string]any{"period": b.Period, "limit_usd": *in.LimitUSD, "alert_thresholds": b.AlertThresholds, "enforcement": *in.Enforcement, "ends_at": b.EndsAt})
+		raw, err = a.lensSendWorkspace(r.Context(), t, http.MethodPatch, "/budgets/"+url.PathEscape(b.ID), body, http.StatusOK)
+	}
+	var out lensBudget
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err == nil && (out.Scope != "workspace" || !budgetEnforcements[out.Enforcement]) {
+		err = fmt.Errorf("budgets: the reply is not a workspace budget")
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not record the limit"})
+		return
+	}
+	writeJSON(w, http.StatusOK, featuresBudget{Budget: projectBudget(out), Several: false})
 }
