@@ -144,6 +144,34 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/distill-poolable", func',
     subject: 'lensDistillPoolableBody',
   },
+  // B18.22 — request logging, and the workspace's spending limit (created, then changed).
+  {
+    route: 'PUT /v1/workspaces/{wsID}/logging',
+    file: 'apps/bff/features.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"logging_policy": *in.LoggingPolicy})',
+    upstreamFile: 'cmd/lens/main.go',
+    upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/logging", func',
+    subject: 'lensLoggingBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/budgets',
+    file: 'apps/bff/features.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]any{"scope": "workspace", "period": "monthly"',
+    upstreamFile: 'internal/budgets/budgets.go',
+    upstreamAnchor: 'authed.Post("/v1/workspaces/{wsID}/budgets", func',
+    subject: 'lensBudgetCreateBody',
+  },
+  {
+    route: 'PATCH /v1/workspaces/{wsID}/budgets/{id}',
+    file: 'apps/bff/features.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]any{"period": b.Period',
+    upstreamFile: 'internal/budgets/budgets.go',
+    upstreamAnchor: 'authed.Patch("/v1/workspaces/{wsID}/budgets/{id}", func',
+    subject: 'lensBudgetUpdateBody',
+  },
   // B13.3 — the plan a subscriber picks on /plans.
   {
     route: 'POST /v1/workspaces/{wsID}/billing/subscribe',
@@ -195,6 +223,11 @@ export const NON_LENS_ANON_SITES = [
       'docsSpaceCreateBody re-marshals the browser’s own object with workspace_id pinned — the claim is the talyvor-docs key `workspace_id`, and the rest of the object is authored by the browser. ' +
       'ASKED BY THE `DocsSpace` MIRROR ENTRY, WHICH WAS NOT WRITTEN FOR IT: that entry pins model.Space’s tag set, and Docs’ space Create DECODES INTO model.Space — so the response mirror happens to cover a request key on an AUTHZ path. ' +
       'THAT PREMISE IS NOW PINNED IN ITS OWN RIGHT (deploy/decision-expiry.sh, "space CREATE binds model.Space"), because a create handler that bound its own request struct would move the authz key with the mirror still green — and every key that is not `workspace_id` is forwarded VERBATIM, so the browser’s value under a new name is already on the wire.',
+  },
+  {
+    file: 'features.go',
+    what:
+      'handleFeatureGuardrails (B18.22) re-marshals talyvor-lens’s OWN guardrail policy, read from GET /v1/workspaces/{ws}/guardrails, with one flag changed — because Lens’s POST replaces the whole policy. The key set is whatever Lens answered, echoed back, so there is no key set of this repo’s to ask about and this site is exempt; the two flag names it sets, enable_injection and enable_pii, are the ones readFeatures already reads off the same policy.',
   },
 ] as const
 

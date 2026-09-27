@@ -17,6 +17,9 @@ function mockBff(
   let tare = 'disabled'
   let distillPoolable = false
   let cachePoolable = true
+  let guardrails = { injection: true, pii }
+  let logging = 'metadata'
+  let budget: { period: string; limit_usd: number; spent_usd: number; enforcement: string } | null = null
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -41,6 +44,25 @@ function mockBff(
       cachePoolable = body.cache_poolable
       return json({ cache_poolable: cachePoolable })
     }
+    if (url === '/api/features/guardrails' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { injection?: boolean; pii?: boolean }
+      posts.push({ url, body })
+      guardrails = { ...guardrails, ...body }
+      return json(guardrails)
+    }
+    if (url === '/api/features/logging' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { logging_policy: string }
+      posts.push({ url, body })
+      logging = body.logging_policy
+      return json({ logging_policy: logging })
+    }
+    if (url === '/api/features/budget' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { limit_usd: number; enforcement: string }
+      posts.push({ url, body })
+      budget = { period: 'monthly', spent_usd: budget?.spent_usd ?? 12.5, ...body }
+      return json({ budget, several: false })
+    }
+    if (url === '/api/features/budget') return json({ budget, several: false })
     if (url === '/api/features/tare-savings')
       return json({ requests: tareRequests, tokens_before: 10000, tokens_after: 3800, cost_saved_usd: 0.0155 })
     if (url === '/api/models/waiting') return json(waiting)
@@ -61,11 +83,11 @@ function mockBff(
         tare_policy: tare,
         distill_policy: 'always',
         compression_policy: 'disabled',
-        logging_policy: 'metadata',
+        logging_policy: logging,
         cache_poolable: cachePoolable,
         distill_poolable: distillPoolable,
         cost_optimize_routing: false,
-        guardrails: { injection: true, pii },
+        guardrails,
       })
     return new Response('null', { status: 404 })
   })
@@ -106,9 +128,7 @@ describe('the Features screen', () => {
     await waitFor(() =>
       expect(within(row('Prompt-injection detection')).getByText('On')).toBeInTheDocument(),
     )
-    for (const name of ['Answer cache', 'Prompt-injection detection', 'Request logging']) {
-      expect(within(row(name)).queryByRole('switch'), name).toBeNull()
-    }
+    expect(within(row('Answer cache')).queryByRole('switch')).toBeNull()
   })
 
   // B11.2
@@ -250,5 +270,61 @@ describe('the Features screen', () => {
       ),
     )
     expect(within(row('Shared document conversions')).queryByRole('switch')).toBeNull()
+  })
+
+  // B18.22
+  it('prompt-injection and personal-data detection each have a switch, read back from Lens', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts, { pii: true })
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Prompt-injection detection')
+    await waitFor(() => expect(within(r()).getByRole('switch')).toBeChecked())
+    fireEvent.click(within(r()).getByRole('switch'))
+    await waitFor(() => expect(within(r()).getByTestId('state-Prompt-injection detection')).toHaveTextContent('Off'))
+    fireEvent.click(within(row('Personal-data detection')).getByRole('switch'))
+    await waitFor(() =>
+      expect(within(row('Personal-data detection')).getByTestId('state-Personal-data detection')).toHaveTextContent('Off'),
+    )
+    expect(posts).toEqual([
+      { url: '/api/features/guardrails', body: { injection: false } },
+      { url: '/api/features/guardrails', body: { pii: false } },
+    ])
+  })
+
+  it('request logging is one of Lens’s three policies, and the row reads back the one chosen', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts)
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Request logging')
+    await waitFor(() => expect(within(r()).getByRole('combobox', { name: 'Request logging' })).toHaveValue('metadata'))
+    fireEvent.change(within(r()).getByRole('combobox', { name: 'Request logging' }), { target: { value: 'none' } })
+    await waitFor(() => expect(within(r()).getByTestId('state-Request logging')).toHaveTextContent('Nothing is recorded'))
+    expect(posts).toEqual([{ url: '/api/features/logging', body: { logging_policy: 'none' } }])
+  })
+
+  it('a spending limit is set, then switched off, each read back from Lens', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts)
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Spending limit')
+    await waitFor(() => expect(within(r()).getByTestId('state-Spending limit')).toHaveTextContent('No limit'))
+    fireEvent.change(within(r()).getByRole('textbox', { name: /Limit in dollars/ }), { target: { value: '50' } })
+    fireEvent.click(within(r()).getByRole('button', { name: 'Set' }))
+    await waitFor(() =>
+      expect(within(r()).getByTestId('state-Spending limit')).toHaveTextContent('On — $50.00 a month; requests past it are refused'),
+    )
+    expect(within(r()).getByTestId('evidence-Spending limit')).toHaveTextContent('$12.50 spent of $50.00 a month')
+
+    fireEvent.click(within(r()).getByRole('switch'))
+    await waitFor(() =>
+      expect(within(r()).getByTestId('state-Spending limit')).toHaveTextContent('Off — the limit of $50.00 a month is kept'),
+    )
+    expect(posts).toEqual([
+      { url: '/api/features/budget', body: { limit_usd: 50, enforcement: 'hard_block' } },
+      { url: '/api/features/budget', body: { limit_usd: 50, enforcement: 'off' } },
+    ])
   })
 })

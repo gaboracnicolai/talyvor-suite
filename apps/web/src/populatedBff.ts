@@ -125,6 +125,11 @@ const BY_PATH: Record<string, unknown> = {
   },
   // B11.2 — Tare's savings, summed by the BFF from Lens's per-work-item rows.
   '/api/features/tare-savings': { requests: 14, tokens_before: 52_000, tokens_after: 18_500, cost_saved_usd: 0.084 },
+  // B18.22 — the workspace's spending limit, as GET /api/features/budget projects Lens's budget.
+  '/api/features/budget': {
+    budget: { period: 'monthly', limit_usd: 200, spent_usd: 48.3, enforcement: 'hard_block' },
+    several: false,
+  },
   '/api/usage': {
     period_days: 7,
     models: [

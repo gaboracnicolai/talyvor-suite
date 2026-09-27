@@ -279,9 +279,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// (B11.3), ARE POST-ONLY BECAUSE THEIR INPUT IS THE BODY: a pasted tool output or an uploaded
 	// document, which a GET would put in a query string. Each relays Lens's preview answer verbatim
 	// (or its 4xx reason) and adds nothing the BFF holds.
-	if len(methodOnly) > 20 {
+	//
+	// THE TWENTY-FIRST AND TWENTY-SECOND, /api/features/guardrails and /api/features/logging (B18.22),
+	// ARE /api/features/tare'S KIND: a switch whose state is read back through GET /api/features
+	// (guardrails, logging_policy); each answers only what Lens recorded.
+	if len(methodOnly) > 22 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 20 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 22 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

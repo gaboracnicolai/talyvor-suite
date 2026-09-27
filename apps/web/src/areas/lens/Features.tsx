@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Switch } from '@talyvor/ui'
+import { Button, Input, Switch, focusRing } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, api, getJSON } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
@@ -21,6 +21,17 @@ import { isSessionExpired } from '../../lib/productState'
 // it saved nothing, altered prompts, and Tare replaces it.
 
 type ReducerPolicy = 'disabled' | 'opt_in' | 'always'
+
+type LoggingPolicy = 'full' | 'metadata' | 'none'
+type Enforcement = 'hard_block' | 'alert' | 'off'
+
+/** GET /api/features/budget — the workspace-wide spending limit Lens holds: none, one, or several. */
+interface BudgetReading {
+  budget: { period: 'monthly' | 'weekly' | 'total'; limit_usd: number; spent_usd: number; enforcement: Enforcement } | null
+  several: boolean
+}
+
+const BUDGET_KEY = ['budget']
 
 export interface FeaturesState {
   tare_policy: ReducerPolicy | null
@@ -56,6 +67,10 @@ type SettingWrite =
   | { cost_optimize_routing: boolean }
   | { distill_poolable: boolean }
   | { cache_poolable: boolean }
+  | { injection: boolean }
+  | { pii: boolean }
+  | { logging_policy: LoggingPolicy }
+  | { limit_usd: number; enforcement: Enforcement }
 
 async function post(path: string, body: SettingWrite): Promise<void> {
   const res = await fetch(path, {
@@ -79,7 +94,7 @@ function switchable(v: boolean | null | undefined): string {
   return v == null ? UNREAD : v ? 'On' : 'Off — switch it on here'
 }
 
-const LOGGING: Record<'full' | 'metadata' | 'none', string> = {
+const LOGGING: Record<LoggingPolicy, string> = {
   full: 'Full — the prompt text is kept',
   metadata: 'Cost, tokens and model only — never the prompt text',
   none: 'Nothing is recorded',
@@ -87,6 +102,124 @@ const LOGGING: Record<'full' | 'metadata' | 'none', string> = {
 
 const count = (n: number) => <span className="font-figure">{n.toLocaleString('en-US')}</span>
 const usd = (n: number) => <span className="font-figure">${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}</span>
+
+/** Writes one setting, then re-reads what Lens recorded; says so when the write did not land. */
+function useSettingWrite(alsoInvalidate?: string[]) {
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState<unknown>(null)
+  const run = async (write: () => Promise<void>) => {
+    setBusy(true)
+    setFailed(null)
+    try {
+      await write()
+    } catch (err) {
+      setFailed(err)
+    } finally {
+      await qc.invalidateQueries({ queryKey: FEATURES_KEY })
+      if (alsoInvalidate) await qc.invalidateQueries({ queryKey: alsoInvalidate })
+      setBusy(false)
+    }
+  }
+  const note = busy ? (
+    <span className="text-caption text-muted">Saving…</span>
+  ) : failed ? (
+    <span role="status" className="text-caption text-muted">
+      {isSessionExpired(failed) ? 'Not saved — sign in again.' : 'Not saved. You can try again.'}
+    </span>
+  ) : null
+  return { busy, run, note }
+}
+
+const fieldClass = `rounded-control border border-rule bg-surface text-body text-ink transition-colors duration-200 hover:border-rule-strong ${focusRing}`
+
+/** One of several values, written the way a switch is: Lens's recorded value is what shows. */
+function SettingChoice<T extends string>({
+  name,
+  value,
+  options,
+  write,
+}: {
+  name: string
+  value: T
+  options: Record<T, string>
+  write: (v: T) => Promise<void>
+}) {
+  const { busy, run, note } = useSettingWrite()
+  return (
+    <div className="flex w-full flex-col items-end gap-1">
+      <select
+        aria-label={name}
+        className={`${fieldClass} h-8 w-full px-2`}
+        value={value}
+        disabled={busy}
+        onChange={(e) => void run(() => write(e.target.value as T))}
+      >
+        {(Object.keys(options) as T[]).map((v) => (
+          <option key={v} value={v}>
+            {options[v]}
+          </option>
+        ))}
+      </select>
+      {note}
+    </div>
+  )
+}
+
+const PERIOD: Record<'monthly' | 'weekly' | 'total', string> = { monthly: 'a month', weekly: 'a week', total: 'in total' }
+const dollars = (n: number) => `$${n.toFixed(2)}`
+
+function budgetState(r: { isPending: boolean; isError: boolean; data?: BudgetReading }): string {
+  if (r.isPending) return 'Checking…'
+  if (r.isError || !r.data) return UNREAD
+  if (r.data.several) return 'Several limits are set through Lens’s API — change them there'
+  const b = r.data.budget
+  if (b == null) return 'No limit — set one here'
+  const limit = `${dollars(b.limit_usd)} ${PERIOD[b.period]}`
+  if (b.enforcement === 'off') return `Off — the limit of ${limit} is kept but not applied`
+  if (b.enforcement === 'alert') return `On — ${limit}; past it you are alerted, nothing is refused`
+  return `On — ${limit}; requests past it are refused`
+}
+
+/** The workspace's spending limit: an amount to save, and a switch that applies it or not. */
+function BudgetControl({ budget }: { budget: BudgetReading['budget'] }) {
+  const { busy, run, note } = useSettingWrite(BUDGET_KEY)
+  const [amount, setAmount] = useState(budget ? String(budget.limit_usd) : '')
+  const limit = Number(amount)
+  const valid = amount.trim() !== '' && Number.isFinite(limit) && limit > 0
+  const write = (body: { limit_usd: number; enforcement: Enforcement }) => run(() => post('/api/features/budget', body))
+  return (
+    <div className="flex w-full flex-col items-end gap-1">
+      {budget ? (
+        <Switch
+          checked={budget.enforcement !== 'off'}
+          disabled={busy}
+          onCheckedChange={(on) => void write({ limit_usd: budget.limit_usd, enforcement: on ? 'hard_block' : 'off' })}
+          aria-label={`Spending limit: turn ${budget.enforcement !== 'off' ? 'off' : 'on'}`}
+        />
+      ) : null}
+      <form
+        className="flex w-full items-center justify-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (valid) void write({ limit_usd: limit, enforcement: budget?.enforcement ?? 'hard_block' })
+        }}
+      >
+        <Input
+          aria-label={`Limit in dollars, ${PERIOD[budget?.period ?? 'monthly']}`}
+          inputMode="decimal"
+          className="w-20 font-figure"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+        <Button type="submit" disabled={busy || !valid}>
+          {budget ? 'Save' : 'Set'}
+        </Button>
+      </form>
+      {note}
+    </div>
+  )
+}
 
 /** A switch that writes one setting and then re-reads what Lens recorded. */
 function SettingSwitch({
@@ -224,6 +357,7 @@ export function Features() {
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
   const earnings = useQuery({ queryKey: ['earnings'], queryFn: api.earnings })
   const waiting = useQuery({ queryKey: ['models-waiting'], queryFn: () => getJSON<WaitingModel[]>('/api/models/waiting') })
+  const budget = useQuery({ queryKey: BUDGET_KEY, queryFn: () => getJSON<BudgetReading>('/api/features/budget') })
   const f = q.data
 
   // While loading, or when the workspace could not be read, every state says so rather than
@@ -363,18 +497,32 @@ export function Features() {
             does="Checks each prompt for an attempt to override the model’s instructions, before the model is called."
             where="Every request, before the cache and before the model."
             evidence="A blocked request is refused with the reason; the app has no counter of blocks yet."
-            state={stateOf(
-              f?.guardrails == null ? UNREAD : f.guardrails.injection ? 'On' : 'Off — changed through Lens’s guardrail settings',
-            )}
+            state={stateOf(switchable(f?.guardrails?.injection))}
+            control={
+              readable && f?.guardrails != null ? (
+                <SettingSwitch
+                  name="Prompt-injection detection"
+                  checked={f.guardrails.injection}
+                  write={(on) => post('/api/features/guardrails', { injection: on })}
+                />
+              ) : undefined
+            }
           />
           <Feature
             name="Personal-data detection"
             does="Finds personal data in a prompt, keeps it out of the cache and out of stored records."
             where="Every request, before the cache and before the model."
             evidence="A request with personal data is never served from or saved to the cache; the app has no counter yet."
-            state={stateOf(
-              f?.guardrails == null ? UNREAD : f.guardrails.pii ? 'On' : 'Off — changed through Lens’s guardrail settings',
-            )}
+            state={stateOf(switchable(f?.guardrails?.pii))}
+            control={
+              readable && f?.guardrails != null ? (
+                <SettingSwitch
+                  name="Personal-data detection"
+                  checked={f.guardrails.pii}
+                  write={(on) => post('/api/features/guardrails', { pii: on })}
+                />
+              ) : undefined
+            }
           />
           <Feature
             name="Request logging"
@@ -386,6 +534,37 @@ export function Features() {
               </>
             }
             state={stateOf(f?.logging_policy == null ? UNREAD : LOGGING[f.logging_policy])}
+            control={
+              readable && f?.logging_policy != null ? (
+                <SettingChoice
+                  name="Request logging"
+                  value={f.logging_policy}
+                  options={{ full: 'Full', metadata: 'Cost and tokens only', none: 'Nothing' }}
+                  write={(v) => post('/api/features/logging', { logging_policy: v })}
+                />
+              ) : undefined
+            }
+          />
+          <Feature
+            name="Spending limit"
+            does="A limit on what this workspace’s requests may cost. While it is on, a request that would take the spend past it is refused."
+            where="Every request through the gateway and the chat."
+            evidence={reading(budget, () =>
+              budget.data?.budget ? (
+                <>
+                  {usd(budget.data.budget.spent_usd)} spent of {usd(budget.data.budget.limit_usd)} {PERIOD[budget.data.budget.period]}{' '}
+                  (measured by Lens).
+                </>
+              ) : (
+                'Once a limit is set, what has been spent against it shows here.'
+              ),
+            )}
+            state={budgetState(budget)}
+            control={
+              budget.isSuccess && !budget.data.several ? (
+                <BudgetControl key={JSON.stringify(budget.data.budget)} budget={budget.data.budget} />
+              ) : undefined
+            }
           />
           <Feature
             name="Attribution"
