@@ -269,13 +269,27 @@ function tags(src: string): Tag[] {
     if (j >= src.length) break
     const text = src.slice(i, j + 1)
     const closing = text.startsWith('</')
+    const tagName = (text.match(/^<\/?\s*([A-Za-z][A-Za-z0-9_.]*)/) ?? [, ''])[1] ?? ''
+    // B18.23 — a `<` straight after an identifier character (`useRef<HTMLTextAreaElement | null>`)
+    // is a TypeScript type-argument list unless the element it would open is self-closing or is
+    // closed later: valid JSX always does one or the other, a generic does neither. So a real tag
+    // written after text (`items<br />`, `a<b>x</b>`) is still read, and no real site is hidden.
+    if (
+      !closing &&
+      !text.endsWith('/>') &&
+      i > 0 &&
+      /[A-Za-z0-9_$]/.test(src[i - 1]) &&
+      !src.includes(`</${tagName}>`, j)
+    ) {
+      continue
+    }
     out.push({
       start: i,
       end: j,
       text,
       closing,
       selfClosing: text.endsWith('/>'),
-      name: (text.match(/^<\/?\s*([A-Za-z][A-Za-z0-9_.]*)/) ?? [, ''])[1] ?? '',
+      name: tagName,
     })
     i = j
   }
@@ -581,54 +595,24 @@ describe('a money NAME is a segment, not a substring (W1.1.18)', () => {
   })
 })
 
-describe('the fake-JSX-wrapper reader is a KNOWN limit, pinned rather than fixed (W1.1.18)', () => {
-  // ⚠ THIS IS BLINDNESS (2) FROM W1.1.18, AND IT IS PINNED HERE ON PURPOSE RATHER THAN REPAIRED.
-  //
-  // `tags()` looks for `<` followed by [A-Za-z/], so a TypeScript type-argument list —
-  // `useRef<HTMLTextAreaElement | null>(null)` — opens a "tag" that never closes, and every
-  // statement after it in the function body is scored as RENDERED, wrapped by that fake element.
-  //
-  // WHY IT IS NOT FIXED HERE. The direction is what decides it: a fake wrapper carries no
-  // `font-figure`, so a site under it lands in offFace and the sweep FAILS LOUDLY. It can only ever
-  // ADD sites, never hide one. The obvious repair — "a `<` preceded by an identifier character is a
-  // generic, not JSX" — would skip a real opening tag written straight after text (`items<br />`),
-  // and REMOVING sites from a guard is the wrong direction to trade into. So the limit is recorded,
-  // with the shape that triggers it, and a future repair has this test to disagree with.
-  it('reads a TS generic as an unclosed tag, so a call OUTSIDE JSX is scored as rendered', () => {
-    // ⚠ THIS IS W1.1.8's FAILURE LINE REPRODUCED: "setFocusDraft() inside <HTMLTextAreaElement |
-    // null>". The call was not inside any JSX at all — the generic opened a tag that never closed,
-    // so `wrappingTag` handed back the fake element instead of the `null` that means "not rendered".
-    //
-    // ⚠ MY FIRST VERSION OF THIS CONTROL ASSERTED THE WRONG MECHANISM and this file caught it: I
-    // put the money call inside a real <span className="font-figure"> and expected the fake tag to
-    // win. It does not — the span opens later and is nested, so it is the top of the stack and the
-    // site scores correctly ON the face. The fake wrapper only matters where there is no real one.
+describe('a TypeScript generic is not read as a JSX wrapper (W1.1.18, repaired in B18.23)', () => {
+  // W1.1.18 pinned this as a known limit: `tags()` read `useRef<HTMLTextAreaElement | null>(null)`
+  // as an opening tag that never closed, so every statement after it was scored as RENDERED. It is
+  // repaired — an identifier-adjacent `<` whose element neither self-closes nor closes is skipped —
+  // and this pins the repair in both directions.
+  it('a call outside JSX after a generic is not scored as rendered', () => {
     const withGeneric =
       'function F() { const r = useRef<HTMLTextAreaElement | null>(null); const c = formatUSD(x); return null }'
-    const withoutGeneric =
-      'function F() { const r = useRef(null); const c = formatUSD(x); return null }'
+    expect(tags(withGeneric).find((t) => t.text.startsWith('<HTMLTextAreaElement'))).toBeUndefined()
+    const sites = figureSites([{ path: 'f.tsx', text: withGeneric }], isMoneyName)
+    expect(sites.onFace.length + sites.offFace.length).toBe(0)
+  })
 
-    const fake = tags(withGeneric).find((t) => t.text.startsWith('<HTMLTextAreaElement'))
-    expect(
-      fake,
-      'the generic no longer opens a fake tag — if that is a deliberate repair, replace this test with one that pins the repair',
-    ).toBeTruthy()
-
-    const bad = figureSites([{ path: 'f.tsx', text: withGeneric }], isMoneyName)
-    const good = figureSites([{ path: 'f.tsx', text: withoutGeneric }], isMoneyName)
-
-    // ⚠ BOTH DIRECTIONS. The second half is what makes the first mean anything: the identical call,
-    // with only the generic removed, is correctly skipped as "not inside JSX".
-    expect(
-      bad.onFace.length + bad.offFace.length,
-      'the generic should have put a non-rendered call in scope — this limit is what the test pins',
-    ).toBe(1)
-    expect(
-      good.onFace.length + good.offFace.length,
-      'without the generic the same call must be skipped entirely, or the comparison above says nothing',
-    ).toBe(0)
-    // and the direction: it ADDS a (false) off-face site, it never hides a real one.
-    expect(bad.offFace.length).toBe(1)
+  it('a real tag written straight after text is still read', () => {
+    expect(tags('<p>items<br />more</p>').map((t) => t.name)).toEqual(['p', 'br', 'p'])
+    expect(tags('<p>a<b>{formatUSD(x)}</b></p>').map((t) => t.name)).toEqual(['p', 'b', 'b', 'p'])
+    const sites = figureSites([{ path: 'f.tsx', text: 'const e = <p>a<b>{formatUSD(x)}</b></p>' }], isMoneyName)
+    expect(sites.offFace.length).toBe(1)
   })
 })
 

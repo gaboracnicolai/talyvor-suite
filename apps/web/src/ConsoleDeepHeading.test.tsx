@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { blankComments } from '../../../packages/ui/src/lib/sourceText'
@@ -275,9 +275,10 @@ describe('the addresses below the console still have exactly one top-level headi
         'and the issue is a thing inside it, so the outline must read h1 → h2',
     ).toBe('H2')
 
-    const levels = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) =>
-      Number(h.tagName.slice(1)),
-    )
+    // B18.23: the three AI cards render after the issue title, so the outline is read once it has
+    // settled — reading it the moment the title appeared was the flake.
+    const levels = () =>
+      Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) => Number(h.tagName.slice(1)))
     // ⚠ SIX, AND IT WAS NINE UNTIL W1.1.8 REBUILT THIS SCREEN. MEASURED, not derived:
     //
     //     H1 Track · H2 Search issues · H2 <issue title> · H2 AI summary ·
@@ -313,11 +314,13 @@ describe('the addresses below the console still have exactly one top-level headi
     // the way past — see the ⚠ at the end of CardHeaderHeading.test.tsx. The literal below is the
     // outline as measured, so the day somebody does make that decision this line is what tells
     // them it moved.
-    expect(
-      levels,
-      'the heading outline at /track/issues/<id> moved — a level was skipped, dropped or ' +
-        'duplicated, or a card header stopped being one',
-    ).toEqual([1, 2, 2, 2, 2, 2])
+    await waitFor(() =>
+      expect(
+        levels(),
+        'the heading outline at /track/issues/<id> moved — a level was skipped, dropped or ' +
+          'duplicated, or a card header stopped being one',
+      ).toEqual([1, 2, 2, 2, 2, 2]),
+    )
   })
 })
 

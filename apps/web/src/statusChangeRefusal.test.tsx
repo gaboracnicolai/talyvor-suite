@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from './App'
 
 // statusChangeRefusal.test.tsx — THE WRITE THAT FAILED AND SAID NOTHING.
@@ -145,7 +145,13 @@ afterEach(() => {
   window.history.pushState({}, '', '/')
 })
 
-describe('a status change refused on the issue list says so', () => {
+// B18.23 — every test renders the whole App and waits for Track's reads to arrive. Under a full
+// parallel run on a loaded machine that outlasted Testing Library's 1s wait and vitest's 5s test
+// limit, so both have headroom here; a passing wait still returns the moment it is satisfied.
+beforeAll(() => configure({ asyncUtilTimeout: 5_000 }))
+afterAll(() => configure({ asyncUtilTimeout: 1_000 }))
+
+describe('a status change refused on the issue list says so', { timeout: 30_000 }, () => {
   it('401: states the outcome, and does not tell the reader to retry a request that cannot succeed', async () => {
     const select = await listWithOneIssue()
     refuseWrites = 401

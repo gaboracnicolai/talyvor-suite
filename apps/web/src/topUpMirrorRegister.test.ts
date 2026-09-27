@@ -217,7 +217,7 @@ function cannotCalls(shell: string): string[][] {
 const GO_SOURCE = readFileSync(BILLING_GO, 'utf8')
 const DECLARED = declaredTopUps(GO_SOURCE)
 const TOPUP_CALLS = cannotCalls(readFileSync(REGISTER, 'utf8')).filter(
-  (a) => a[2].includes(LENS_SUBJECT) && a[2].includes('allowedTopUps'),
+  (a) => a[2].includes(LENS_SUBJECT) && a[2].includes('topUpPresets'),
 )
 const TOPUP_ENTRIES = TOPUP_CALLS.map((a) => a[2])
 
@@ -265,7 +265,7 @@ describe('both sides of the top-up allow-list premise are still readable', () =>
     expect(
       TOPUP_ENTRIES.length,
       'no `cannot` entry in deploy/decision-expiry.sh names both ' +
-        `\`${LENS_SUBJECT}\` and \`allowedTopUps\`. The BFF copies Lens's money allow-list and ` +
+        `\`${LENS_SUBJECT}\` and \`topUpPresets\` (B5.1's name for Lens's sizes). The BFF copies Lens's money allow-list and ` +
         'cannot read it at runtime, so that entry is the ONLY thing that asks a deployer whether ' +
         'the copy is still true. Without it the copy is guarded by a test that restates it in the ' +
         'same file — which is the defect this guard was written for, arriving back.',
@@ -331,6 +331,26 @@ describe('every sentence that spells the allow-list spells the one that is enfor
             '($250.00) so it is not read as one.',
         ).toEqual(Array.from({ length: restatements.length }, () => declared))
       })
+    })
+  }
+})
+
+/** A `minTopUpCents` / `maxTopUpCents` constant's value, as Go writes it (`1_000`), or null. */
+function bound(text: string, name: 'minTopUpCents' | 'maxTopUpCents'): string | null {
+  return new RegExp(`${name} int64 = ([0-9_]+)`).exec(text)?.[1] ?? null
+}
+
+describe('the deployer is told to check the bounds this BFF actually enforces (B18.23)', () => {
+  for (const name of ['minTopUpCents', 'maxTopUpCents'] as const) {
+    it(`the settle command names the same ${name} as apps/bff/billing.go`, () => {
+      const declared = bound(GO_SOURCE, name)
+      expect(declared, `apps/bff/billing.go declares no \`${name} int64 = …\``).not.toBeNull()
+      expect(
+        bound(TOPUP_ENTRIES[0] ?? '', name),
+        `apps/bff/billing.go refuses a top-up outside ${name} = ${declared} and the settle command ` +
+          'asks talyvor-lens about a different bound, or none — a deployer would get a yes about a ' +
+          'range this BFF does not enforce.',
+      ).toBe(declared)
     })
   }
 })

@@ -80,7 +80,9 @@ const unboundedBodies: Record<string, string> = {
     'Lens POST /v1/workspaces/{ws}/tare/preview and /distill/preview, which own the contract.',
 }
 
-describe('the fields this app sends to its own BFF', () => {
+// B18.23 — each test re-scans every source file (about 1s on a quiet machine). Under a full parallel
+// run on a loaded machine that crossed vitest's 5s default and timed out, so the file has headroom.
+describe('the fields this app sends to its own BFF', { timeout: 30_000 }, () => {
   it('the scan sees the app at all', () => {
     const sites = webRequestSites()
     const withBody = sites.filter((s) => s.bodyFields !== null)
