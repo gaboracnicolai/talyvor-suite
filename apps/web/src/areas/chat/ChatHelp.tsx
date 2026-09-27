@@ -87,6 +87,32 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    // B16.4 — measured 27 Sep: a question's input tokens grow with its conversation, and nothing else
+    // is added. Chat.test.tsx proves a new chat sends its first question alone.
+    heading: 'What each question sends',
+    body: (
+      <>
+        <p>
+          Each question is sent with every earlier question and answer in its conversation — that is
+          how the model knows what a follow-up like &ldquo;and of France?&rdquo; refers to. Nothing from
+          any other conversation goes with it, and nothing is added to it.
+        </p>
+        <p>
+          So a follow-up reads more tokens than the same question asked in a new chat. Measured on
+          Claude Opus 5: &ldquo;what is <span className="font-figure">2+2</span>?&rdquo; on its own is{' '}
+          <span className="font-figure">13</span> input tokens; as the fourth question of a conversation
+          it was <span className="font-figure">76</span>, because the three earlier questions and answers
+          went with it.
+        </p>
+        <p>
+          Coming back to Chat — after a reload, or from another page — reopens your most recent
+          conversation, and a question asked there continues it. New chat starts one with nothing
+          before it.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'Where conversations are kept',
     body: (
       <p>
