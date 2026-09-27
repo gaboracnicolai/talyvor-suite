@@ -325,7 +325,7 @@ const PINS: Record<string, Pin> = {
   // The four pointers packages/ui's setup writes when it explains why the audits are installed
   // there. The first two are the evidence that check-audit-reach.mjs's "NO test renders it" was
   // a claim about ONE of two projects; the second two are the precedent for importing upward.
-  'packages/ui/src/__tests__/setup.ts:21|packages/ui/src/__tests__/components.test.tsx:46': {
+  'packages/ui/src/__tests__/setup.ts:21|packages/ui/src/__tests__/components.test.tsx:47': {
     kind: 'LIVE',
     fragment: '<HoldBar elapsed={3} total={4}',
     why: "the hold-window fixture the reach table said nobody would write — HoldBar's only render anywhere",
