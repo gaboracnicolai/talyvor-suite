@@ -430,9 +430,9 @@ cannot "a page's own AI cost is a LOWER BOUND — Docs DOES attribute AI spend p
 # apps/web/src/topUpMirrorRegister.test.ts keeps the amounts in this command equal to the amounts
 # apps/bff/billing.go enforces. Without it a deployer can get a confident yes about a list this
 # BFF does not use — a pass for the wrong question, which is worse than no entry at all.
-cannot "Lens still accepts exactly \$10 / \$50 / \$100 (the BFF copies this list into allowedTopUpCents and refuses anything else before it dials Lens)" \
+cannot "Lens still offers \$10 / \$50 / \$100 as its one-click sizes and accepts any whole number of cents from \$10.00 to \$10,000.00 (the BFF copies the sizes into allowedTopUpCents and the bounds into minTopUpCents / maxTopUpCents, and refuses anything outside them before it dials Lens)" \
     "talyvor-lens internal/billing/billing.go" \
-    "[ \"\$(grep -c '^var allowedTopUps = \[\]int64{1000, 5000, 10000}\$' internal/billing/billing.go)\" = 1 ]   # in a talyvor-lens checkout; the WHOLE declaration line, so an APPENDED fourth size fails it — and a count of 0, which is also what an absent file produces, is the failure grep -c's own exit status cannot see"
+    "[ \"\$(grep -c '^var topUpPresets = \[\]int64{1000, 5000, 10000}\$' internal/billing/billing.go)\" = 1 ] && [ \"\$(grep -cE '^[[:space:]]+minTopUpCents int64 = 1_000\$' internal/billing/billing.go)\" = 1 ] && [ \"\$(grep -cE '^[[:space:]]+maxTopUpCents int64 = 1_000_000\$' internal/billing/billing.go)\" = 1 ]   # in a talyvor-lens checkout; the WHOLE declaration lines, so an APPENDED fourth size or a moved bound fails it — and a count of 0, which is also what an absent file produces, is the failure grep -c's own exit status cannot see. B5.1 replaced Lens's allowedTopUps with these three declarations."
 
 # ── W1.1's premise, and it is not in ANY repository ──────────────────────────
 # DECISION: the console's dark theme IS the public site's palette — canvas/surface/ink/muted/
