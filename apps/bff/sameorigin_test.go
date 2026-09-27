@@ -200,6 +200,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc_amount_ulxc":100000}`},
 		{method: http.MethodPost, path: "/api/track/issues", body: `{"title":"t"}`},
 		{method: http.MethodPost, path: "/api/track/projects", body: `{"team_id":"t","name":"n","identifier":"N"}`},
+		{method: http.MethodDelete, path: "/api/track/workspaces/x1", body: `{"confirm":"acme"}`},
+		{method: http.MethodPost, path: "/api/track/workspaces/x1/restore", body: ``},
 		{method: http.MethodPost, path: "/api/track/teams/x1/cycles", body: `{"name":"c","start_date":"2026-10-01T00:00:00Z","end_date":"2026-10-15T00:00:00Z"}`},
 		{method: http.MethodPatch, path: "/api/track/issues/i1", body: `{"status":"todo"}`},
 		{method: http.MethodPost, path: "/api/track/issues/i1/comments", body: `{"body":"c"}`},

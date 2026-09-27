@@ -283,9 +283,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE TWENTY-FIRST AND TWENTY-SECOND, /api/features/guardrails and /api/features/logging (B18.22),
 	// ARE /api/features/tare'S KIND: a switch whose state is read back through GET /api/features
 	// (guardrails, logging_policy); each answers only what Lens recorded.
-	if len(methodOnly) > 22 {
+	//
+	// THE TWENTY-THIRD AND TWENTY-FOURTH, DELETE /api/track/workspaces/{id} and POST
+	// /api/track/workspaces/{id}/restore (B18.53), ARE WRITES WHOSE STATE IS READ BACK THROUGH GETs
+	// THE SWEEP ALREADY REACHES — /api/track/workspaces and /api/track/workspaces/deleted. Each relays
+	// Track's own answer (the workspace, or its refusal) and adds nothing the BFF holds.
+	if len(methodOnly) > 24 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 22 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 24 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

@@ -3,6 +3,7 @@ import { Link, Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, inlineLink } from '@talyvor/ui'
 import { Cycles } from './Cycles'
 import { Projects } from './Projects'
+import { WorkspaceSettings } from './WorkspaceSettings'
 import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
 import { SearchIssues } from './SearchIssues'
@@ -123,6 +124,9 @@ export function TrackArea() {
         <Link className={inlineLink} to="/track/projects">
           Projects
         </Link>
+        <Link className={inlineLink} to="/track/settings">
+          Workspace settings
+        </Link>
       </nav>
       <Routes>
         <Route index element={<IssueList />} />
@@ -133,6 +137,8 @@ export function TrackArea() {
         <Route path="cycles" element={<Cycles />} />
         {/* B4.2 — projects. */}
         <Route path="projects" element={<Projects />} />
+        {/* B18.53 — delete and restore a workspace. */}
+        <Route path="settings" element={<WorkspaceSettings />} />
         {/* Anything else under /track/* is this area's to answer: fall back to the list, so an
             old or mistyped link lands somewhere real rather than on a dead end. */}
         <Route path="*" element={<IssueList />} />

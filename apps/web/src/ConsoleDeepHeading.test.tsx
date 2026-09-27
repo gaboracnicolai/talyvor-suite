@@ -179,6 +179,11 @@ function mockBff() {
       ])
     if (path === '/api/track/teams')
       return json([{ id: 'team-1', identifier: 'ENG', name: 'Engineering' }])
+    // B18.53 — the Track area's workspace strip reads this. Unserved, its read failed after about a
+    // second of retries and a "Couldn’t load workspaces" card added an h2 — which is what made the
+    // issue page's outline read 6 on a fast machine and 7 on a slow one.
+    if (path === '/api/track/workspaces')
+      return json([{ id: 'w', name: 'Acme', slug: 'acme', logo_url: '', plan: 'free', created_at: '', updated_at: '' }])
     if (path.endsWith('/comments')) return json([])
     if (path === '/api/track/issues/iss-1') return json(ISSUE)
     if (path.startsWith('/api/track/issues')) return json([ISSUE])
@@ -276,7 +281,7 @@ describe('the addresses below the console still have exactly one top-level headi
     ).toBe('H2')
 
     // B18.23: the three AI cards render after the issue title, so the outline is read once it has
-    // settled — reading it the moment the title appeared was the flake.
+    // settled. (The flake itself was the unserved workspace strip — see mockBff.)
     const levels = () =>
       Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).map((h) => Number(h.tagName.slice(1)))
     // ⚠ SIX, AND IT WAS NINE UNTIL W1.1.8 REBUILT THIS SCREEN. MEASURED, not derived:

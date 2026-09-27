@@ -29,6 +29,10 @@ export interface TrackWorkspace {
   plan: string
   created_at: string
   updated_at: string
+  /** Set only on a deleted workspace (GET /v1/workspaces?deleted=true, and the delete/restore answers). */
+  deleted_at?: string
+  /** The day a deleted workspace is removed for good; until then its owner can restore it. */
+  restorable_until?: string
 }
 
 /** model.IssueStatus — a FIXED six-value enum (upstream `model.go`, `type IssueStatus`), not the per-team
