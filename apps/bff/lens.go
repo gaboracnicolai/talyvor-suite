@@ -120,6 +120,11 @@ func newApp(cfg config, auth *authenticator) *app {
 	// so this cannot be turned into an open proxy — same rule as the Lens routes.
 	a.mux.HandleFunc("/api/track/workspaces", a.requireSession(a.proxyProduct(
 		"track", cfg.trackBaseURL, cfg.trackGatewaySecret, "/v1/workspaces")))
+	// B18.53 — an owner deletes a Track workspace (confirmed by its slug), sees it among the
+	// deleted ones with the day it goes for good, and restores it. See track_workspaces.go.
+	a.mux.HandleFunc("/api/track/workspaces/deleted", a.trackDeletedWorkspaces())
+	a.mux.HandleFunc("/api/track/workspaces/{id}", a.trackDeleteWorkspace())
+	a.mux.HandleFunc("/api/track/workspaces/{id}/restore", a.trackRestoreWorkspace())
 	a.mux.HandleFunc("/api/docs/spaces", a.requireSession(a.docsSpaces()))
 
 	// Docs Tier-1 id-routes: space detail, page list, page detail. These take ids

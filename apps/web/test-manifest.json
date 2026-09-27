@@ -74,6 +74,7 @@
   "src/areas/track/TrackArea.test.tsx": 4,
   "src/areas/track/triage.test.ts": 13,
   "src/areas/track/triageIssue.test.tsx": 14,
+  "src/areas/track/WorkspaceSettings.test.tsx": 1,
   "src/AuthGate.test.tsx": 3,
   "src/authProbeLoop.test.tsx": 10,
   "src/bffRequestFieldRegister.test.ts": 6,
