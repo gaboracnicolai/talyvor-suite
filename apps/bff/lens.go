@@ -202,6 +202,9 @@ func newApp(cfg config, auth *authenticator) *app {
 		}
 		a.docsPageList()(w, r)
 	}))
+	// B18.27 — pinned pages, kept by Docs so they follow the person. See docs_pins.go.
+	a.mux.HandleFunc("/api/docs/pins", a.docsPins())
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/pin", a.docsPagePin())
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			a.docsUpdatePage()(w, r)
