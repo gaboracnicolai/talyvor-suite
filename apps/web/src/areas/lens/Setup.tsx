@@ -231,8 +231,11 @@ export function Setup() {
             <ul className="list-disc space-y-1 pl-5">
               <li>
                 <strong>What is stored.</strong> To serve a repeat request from cache, Lens stores a
-                hash of the prompt, an embedding of it, and the answer that came back. That happens
-                whether or not request logging is on — it is what the cache is.
+                hash of the prompt, an embedding of it, and the answer that came back — unless request
+                logging is set to <em>none</em>. Then nothing of your prompts or answers is stored
+                anywhere, so this workspace&rsquo;s own cache is off: a repeated question goes to the
+                model and is paid for again. Answers other companies chose to share can still be
+                served.
               </li>
               {/* ⚠ THIS SAID LOGGING WAS "who called what, when, and what it cost" AND STOPPED —
                   which describes the DEFAULT setting and reads as though prompt text is never
@@ -246,9 +249,8 @@ export function Setup() {
                 audit trail is metadata — who called what, when, and what it cost — and your prompt
                 text is not kept. There is a <em>full</em> setting that does keep prompt text, and
                 also sends the prompt and the answer to a 30-day stream. Nothing in this app turns
-                it on, but an operator can, and you would not be able to tell from here. Turning
-                logging off does not turn off the cache, and we would rather say so than let you
-                find out.
+                it on, but an operator can, and you would not be able to tell from here. The{' '}
+                <em>none</em> setting keeps nothing: not in the log, and not in the cache.
               </li>
               <li>
                 <strong>

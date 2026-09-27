@@ -300,8 +300,12 @@ describe('the Features screen', () => {
     const r = () => row('Request logging')
     await waitFor(() => expect(within(r()).getByRole('combobox', { name: 'Request logging' })).toHaveValue('metadata'))
     fireEvent.change(within(r()).getByRole('combobox', { name: 'Request logging' }), { target: { value: 'none' } })
-    await waitFor(() => expect(within(r()).getByTestId('state-Request logging')).toHaveTextContent('Nothing is recorded'))
+    await waitFor(() => expect(within(r()).getByTestId('state-Request logging')).toHaveTextContent('Nothing is kept'))
     expect(posts).toEqual([{ url: '/api/features/logging', body: { logging_policy: 'none' } }])
+    // B18.57 — under none Lens keeps no cached copy, so the workspace's own cache is paused.
+    expect(within(row('Answer cache')).getByTestId('state-Answer cache')).toHaveTextContent(
+      'Paused — request logging is none, so nothing is kept to answer from',
+    )
   })
 
   it('a spending limit is set, then switched off, each read back from Lens', async () => {

@@ -97,7 +97,7 @@ function switchable(v: boolean | null | undefined): string {
 const LOGGING: Record<LoggingPolicy, string> = {
   full: 'Full — the prompt text is kept',
   metadata: 'Cost, tokens and model only — never the prompt text',
-  none: 'Nothing is recorded',
+  none: 'Nothing is kept — not even for the cache',
 }
 
 const count = (n: number) => <span className="font-figure">{n.toLocaleString('en-US')}</span>
@@ -462,7 +462,7 @@ export function Features() {
           <Feature
             name="Answer cache"
             does="An identical question, or a nearly identical one, is answered from this workspace’s earlier answer instead of calling the model again — instantly, and without paying for the model twice."
-            where="Every chat request in this workspace. Always on."
+            where="Every chat request in this workspace, unless request logging is set to none."
             evidence={reading(usage, () => (
               <>
                 {count(usage.data!.cache.cache_hits)} of {count(usage.data!.cache.total_requests)} requests in the last{' '}
@@ -470,7 +470,11 @@ export function Features() {
                 <To to="/spend">Spend &amp; routing</To>
               </>
             ))}
-            state="On"
+            state={stateOf(
+              f?.logging_policy === 'none'
+                ? 'Paused — request logging is none, so nothing is kept to answer from'
+                : 'On',
+            )}
           />
           <Feature
             name="Cost-optimised routing"
@@ -526,7 +530,7 @@ export function Features() {
           />
           <Feature
             name="Request logging"
-            does="How much Lens keeps about each request. Security checks run whatever this is set to."
+            does="How much Lens keeps about each request. Set to none, nothing of a request is kept — not the prompt, not the answer, and not a cached copy — so this workspace’s repeats go to the model again. Security checks run whatever this is set to."
             where="Every request."
             evidence={
               <>

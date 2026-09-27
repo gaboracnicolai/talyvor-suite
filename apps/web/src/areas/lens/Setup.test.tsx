@@ -136,6 +136,20 @@ describe('Setup — the two lines', () => {
   })
 })
 
+describe('Setup — what is stored', () => {
+  // B18.57 — Lens (B18.4) keeps nothing of a request under logging "none", the cache included.
+  it('says that logging "none" keeps nothing, the cache included, and what that costs', async () => {
+    mockBff()
+    renderSetup()
+    const card = (await screen.findByText('What Talyvor does with your traffic')).closest('div')?.parentElement
+    const text = (card?.textContent ?? '').replace(/\s+/g, ' ')
+    expect(text).toContain('Then nothing of your prompts or answers is stored anywhere')
+    expect(text).toContain('a repeated question goes to the model and is paid for again')
+    expect(text).toContain('The none setting keeps nothing: not in the log, and not in the cache.')
+    expect(text).not.toContain('does not turn off the cache')
+  })
+})
+
 describe('Setup — honest states', () => {
   it('says a key is needed, and does NOT invent one, before any key exists', async () => {
     mockBff({ existingKeys: [] })
