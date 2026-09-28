@@ -59,6 +59,7 @@ const BODIES: Record<string, unknown> = {
   },
 
   '/api/spend/month': { current_month_usd: 12.34 },
+  '/api/ai/providers': { unconfigured: [] },
 
   '/api/lxc/topup-options': { allowed_usd_cents: [1000, 2500, 5000], billing_enabled: true },
 
@@ -181,7 +182,6 @@ const ARRAYS: Record<string, unknown[]> = {
     { id: 'claude-sonnet-4', provider: 'anthropic', display_name: 'Claude Sonnet 4', input_per_1m: 3, output_per_1m: 15 },
     { id: 'gpt-4o-mini', provider: 'openai', display_name: 'GPT-4o mini', input_per_1m: 0.15, output_per_1m: 0.6 },
   ],
-  '/api/ai/providers': { unconfigured: [] },
   '/api/models/waiting': [
     { provider: 'openai', id: 'gpt-6-nova', first_seen_at: '2026-09-26T01:00:00Z', needs_price: true },
   ],
