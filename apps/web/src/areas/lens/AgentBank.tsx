@@ -506,6 +506,7 @@ function AgentList({ agents, selected, onSelect }: { agents: Agent[]; selected: 
         >
           <div className="flex items-center gap-3">
             {a.paused_at ? <Pill status="parked">Paused</Pill> : null}
+            {a.owner_user_id === '' ? <Pill status="held">No owner</Pill> : a.verified ? <Pill status="settled">Verified</Pill> : null}
             <span className="font-figure text-body text-ink" data-testid={`agent-balance-${a.id}`}>
               {formatULXC(a.balance_ulxc)}
             </span>
@@ -533,7 +534,31 @@ function Money({ agent, book }: { agent: Agent; book: AgentBook }) {
         qc.invalidateQueries({ queryKey: statementKey(agent.id) }),
       ]),
   })
+  // B19.23 — Lens B19.11 gives an agent with no owner no balance, so it is claimed before it is funded.
+  const claim = useMutation({
+    mutationFn: () => agentBankApi.claim(agent.id),
+    onSettled: () => qc.invalidateQueries({ queryKey: BOOK_KEY }),
+  })
   const busy = move.isPending || micros === null
+  if (agent.owner_user_id === '') {
+    return (
+      <Card>
+        <CardHeader>Money</CardHeader>
+        <div className="flex flex-col gap-2 px-gutter py-3">
+          <p className="text-body text-ink" data-testid="agent-ownerless">
+            {agent.name} has no owner, so it cannot be funded: Lens gives an agent a balance, a top-up or a payment
+            only once a person of this workspace owns it. Claim it to become its owner.
+          </p>
+          <div>
+            <Button variant="primary" disabled={claim.isPending} onClick={() => claim.mutate()}>
+              Claim {agent.name}
+            </Button>
+          </div>
+          {claim.isError ? <Note ok={false}>{refusalText(claim.error)}</Note> : null}
+        </div>
+      </Card>
+    )
+  }
   return (
     <Card>
       <CardHeader>Money</CardHeader>
@@ -541,6 +566,7 @@ function Money({ agent, book }: { agent: Agent; book: AgentBook }) {
         <p className="text-body text-ink">
           {agent.name} holds {lxc(agent.balance_ulxc)}. The workspace has {lxc(book.unallocated_ulxc)} free to fund it.
         </p>
+        {claim.isSuccess && claim.data.agent_id === agent.id ? <Note ok>You own {agent.name} now. Fund it here.</Note> : null}
         <div className="flex items-center gap-2">
           <Input
             aria-label={`Amount in LXC for ${agent.name}`}
@@ -566,6 +592,39 @@ function Money({ agent, book }: { agent: Agent; book: AgentBook }) {
         {move.isError ? <Note ok={false}>{refusalText(move.error)}</Note> : null}
       </div>
     </Card>
+  )
+}
+
+/**
+ * B19.23 — whether the agent's owner is verified (Lens B19.11). Lens knows a person only as their
+ * workspace, so the badge is this workspace's verification: a completed card purchase, or Talyvor's vouch.
+ */
+function Ownership({ agent }: { agent: Agent }) {
+  if (agent.owner_user_id === undefined) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="agent-ownership">
+      {agent.owner_user_id === '' ? (
+        <>
+          <Pill status="held">No owner</Pill>
+          <span className="text-caption text-muted">Nobody owns {agent.name} yet — claim it under Money.</span>
+        </>
+      ) : agent.verified ? (
+        <>
+          <Pill status="settled">Verified</Pill>
+          <span className="text-caption text-muted">
+            Its owner is verified: this workspace has bought LXC with a card, or Talyvor vouches for it.
+          </span>
+        </>
+      ) : (
+        <>
+          <Pill status="idle">Not verified</Pill>
+          <span className="text-caption text-muted">
+            {agent.name} has an owner who is not verified yet. Buying LXC with a card on Billing verifies this
+            workspace, and every agent in it with an owner.
+          </span>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -1310,6 +1369,7 @@ export function AgentBank() {
           <p className="text-head text-ink" data-testid="agent-open">
             {agent.name}
           </p>
+          <Ownership agent={agent} />
           <PauseAgent agent={agent} />
           <Money agent={agent} book={book.data} />
           <Rules key={`rules-${agent.id}`} agent={agent} />

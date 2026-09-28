@@ -19,6 +19,13 @@ export interface Agent {
   /** B19.6 — set while the agent is paused on its own: every movement is refused until it is resumed. */
   paused_at?: string
   paused_reason?: string
+  /**
+   * B19.11 — the person who owns the agent; "" when it has none, and Lens then refuses to give it a
+   * balance until someone claims it. Absent only from a Lens older than B19.11, which refuses nothing.
+   */
+  owner_user_id?: string
+  /** B19.11 — its owner's workspace is verified: a completed card purchase, or Talyvor's vouch. */
+  verified?: boolean
 }
 
 /** Lens economy.AgentBook: workspace = allocated + unallocated; spent is what the agents spent. */
@@ -209,6 +216,8 @@ export const agentBankApi = {
   setRules: (id: string, rules: AgentRules) => send<AgentRules>('PUT', `/api/agents/${e(id)}/rules`, rules),
   statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`),
   statementFile,
+  /** B19.23 — the signed-in person becomes the owner of an agent that has none. */
+  claim: (id: string) => send<{ agent_id: string; owner_user_id: string }>('POST', `/api/agents/${e(id)}/claim`),
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>
     send<AgentPayment>('POST', `/api/agents/${e(id)}/pay`, { to_agent_id, amount_ulxc, memo }),
   approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals'),
