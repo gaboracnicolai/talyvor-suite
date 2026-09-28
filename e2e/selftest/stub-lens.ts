@@ -25,6 +25,8 @@ const CATALOG = [
   { id: 'claude-sonnet-5', provider: 'anthropic', display_name: 'Claude Sonnet 5', input_per_1m: 3, output_per_1m: 15 },
   { id: 'gpt-6-luna', provider: 'openai', display_name: 'GPT-6 Luna', input_per_1m: 0.1, output_per_1m: 0.4 },
   { id: 'gemini-flash-lite', provider: 'google', display_name: 'Gemini Flash-Lite', input_per_1m: 0.1, output_per_1m: 0.4 },
+  // Not a chat model, as in production: every-model must not try it.
+  { id: 'text-embedding-3-large', provider: 'openai', display_name: 'Embedding 3 large', input_per_1m: 0.13, output_per_1m: 0 },
 ]
 const CONFIGURED = new Set(['anthropic', 'openai'])
 

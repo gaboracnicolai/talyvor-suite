@@ -108,7 +108,7 @@ export class AppUser {
     }
     const app = new AppUser(user, context, page, opts.appURL, opts.cap, opts.catalog, opts.modelName, opts.book, opts.usdPerLXC)
     await app.openChat()
-    await app.chooseModel(opts.modelName)
+    if (!(await app.chooseModel(opts.modelName))) throw new Error(`the model picker does not offer "${opts.modelName}"`)
     return app
   }
 
@@ -121,8 +121,8 @@ export class AppUser {
     await this.page.locator('#chat-message').waitFor({ state: 'visible' })
   }
 
-  /** Picks a model in the picker by the name it shows. */
-  async chooseModel(displayName: string): Promise<void> {
+  /** Picks a model in the picker by the name it shows; false, with the picker closed, if it is not offered. */
+  async chooseModel(displayName: string): Promise<boolean> {
     const trigger = this.page.locator('button[aria-label^="Model: "], button[aria-label="Choose a model"]').first()
     await trigger.waitFor({ state: 'visible' })
     if ((await trigger.getAttribute('aria-label')) !== `Model: ${displayName}`) {
@@ -130,10 +130,18 @@ export class AppUser {
       await this.page.getByRole('combobox', { name: 'Search models' }).or(this.page.getByLabel('Search models')).first().fill(displayName)
       // An option is named by the model and then its price ("Claude Haiku 4.5 $1.00 / $5.00").
       const name = new RegExp(`^${displayName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( \\(selected\\))? \\$`)
-      await this.page.getByRole('option', { name }).first().click()
+      const option = this.page.getByRole('option', { name }).first()
+      try {
+        await option.waitFor({ state: 'visible', timeout: 5_000 })
+      } catch {
+        await this.page.keyboard.press('Escape')
+        return false
+      }
+      await option.click()
       await this.page.locator(`button[aria-label="Model: ${displayName}"]`).waitFor({ state: 'visible' })
     }
     this.modelName = displayName
+    return true
   }
 
   async newChat(): Promise<void> {

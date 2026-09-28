@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { expectedFigure, judgeVerdict, listPriceUSD, namesWord, parseFooter, statesNumber } from '../src/oracles.ts'
+import { chatModels, expectedFigure, judgeVerdict, listPriceUSD, namesWord, parseFooter, statesNumber } from '../src/oracles.ts'
 
 describe('parseFooter reads every line the Chat screen writes under an answer', () => {
   it('a priced answer, in LXC or dollars', () => {
@@ -22,6 +22,17 @@ describe('the catalog price oracle', () => {
     expect(listPriceUSD(haiku, 14, 9)).toBeCloseTo(0.000059)
     expect(expectedFigure(listPriceUSD(haiku, 14, 9), 0.1)).toBe('≈ 0.00059 LXC')
     expect(expectedFigure(listPriceUSD(haiku, 14, 9), undefined)).toBe('≈ $0.000059')
+  })
+})
+
+describe('chatModels', () => {
+  it('keeps what the chat picker offers: an embedding (no output price) and a deprecated model are left out', () => {
+    const catalog = [
+      { id: 'gpt-4o', output_per_1m: 10 },
+      { id: 'text-embedding-3-large', output_per_1m: 0 },
+      { id: 'gpt-3.5-turbo', output_per_1m: 1.5, deprecated: true },
+    ]
+    expect(chatModels(catalog).map((m) => m.id)).toEqual(['gpt-4o'])
   })
 })
 
