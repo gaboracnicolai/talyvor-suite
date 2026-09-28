@@ -36,3 +36,6 @@ bff-*-*
 # meaning something; a REAL uncommitted edit and an unexpected untracked artifact must both still
 # stamp "-dirty", and ~/talyvor-queue/w11-pycachestamp-controls-5e8a.py holds that to P1 and P4.
 __pycache__/
+
+# B17.3 harness results (run-<time>.json); the kept report is docs/e2e (B17.4).
+e2e/out/

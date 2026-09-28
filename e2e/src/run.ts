@@ -1,0 +1,186 @@
+// B17.3 — THE RUN. N synthetic users (default 100) each sign in to the real web app in a headless
+// browser and run their journey through Chat, several at a time, under a hard spend cap (default $5).
+// Then every user's ledger is read back. The results land in <out>/run-<time>.json.
+//
+//   LENS_SYNTHETIC_KEY=… node --experimental-strip-types src/run.ts \
+//     --app https://app.talyvor.com --lens https://lens.talyvor.com [--users 100] [--cap-usd 5]
+//
+// Exit status: 0 when nothing failed, 1 when a scenario FAILED or ERRORED, 2 when the run could not start.
+
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { chromium } from 'playwright'
+import { AppUser, ChargeBook } from './app.ts'
+import { CapReached, SpendCap } from './budget.ts'
+import { type RunConfig, parseConfig } from './config.ts'
+import { LensClient, type SyntheticUser } from './lens.ts'
+import { type Evidence, type RunEnv, checkLedger, journeyFor } from './scenarios.ts'
+
+/** The providers whose stream the web app reads (apps/web/src/areas/chat/chatApi.ts STREAMABLE_PROVIDERS). */
+const STREAMABLE = ['openai', 'anthropic', 'google', 'mistral', 'groq', 'bedrock', 'vllm'] as const
+
+export type Status = 'PASS' | 'FAIL' | 'SKIP' | 'ERROR'
+
+export interface Outcome {
+  scenario: string
+  title: string
+  user: number
+  workspace: string
+  status: Status
+  detail: string
+  evidence: Evidence[]
+  seconds: number
+}
+
+export interface RunResult {
+  started_at: string
+  finished_at: string
+  app: string
+  lens: string
+  users: number
+  model: string
+  cap_usd: number
+  spent_usd: number
+  stopped_at_cap: boolean
+  counts: Record<Status, number>
+  outcomes: Outcome[]
+}
+
+async function pool<T>(items: T[], width: number, work: (item: T) => Promise<void>): Promise<void> {
+  let next = 0
+  const lanes = Array.from({ length: Math.min(width, items.length) }, async () => {
+    while (next < items.length) await work(items[next++])
+  })
+  await Promise.all(lanes)
+}
+
+export async function run(cfg: RunConfig): Promise<RunResult> {
+  const started = new Date()
+  const lens = new LensClient(cfg.lensURL, cfg.syntheticKey)
+  const cap = new SpendCap(cfg.capUSD)
+  const book = new ChargeBook()
+
+  const reset = await lens.reset()
+  console.log(`reset ${reset} synthetic workspace(s): stored answers cleared, credits restored`)
+  const users = await lens.createUsers(cfg.users)
+  console.log(`created ${users.length} synthetic users`)
+  const catalog = await lens.catalog(users[0])
+  const usdPerLXC = await lens.usdPerLXC()
+  if (!catalog.some((m) => m.display_name === cfg.model)) throw new Error(`the catalog has no model named "${cfg.model}"`)
+
+  const browser = await chromium.launch({ headless: !cfg.headed })
+  const signIn = (user: SyntheticUser) =>
+    AppUser.signIn(browser, user, { appURL: cfg.appURL, syntheticKey: cfg.syntheticKey, cap, catalog, modelName: cfg.model, book, usdPerLXC })
+  const env: RunEnv = {
+    lens, cap, catalog, usdPerLXC, book,
+    judgeProvider: cfg.judgeProvider,
+    judgeModel: cfg.judgeModel,
+    signInUser: (index) => signIn(users[index]),
+    userCount: users.length,
+  }
+
+  const outcomes: Outcome[] = []
+  try {
+    await pool(users, cfg.concurrency, async (user) => {
+      const journey = journeyFor(user.index, users.length, STREAMABLE)
+      const base = { user: user.index, workspace: user.workspaceID }
+      if (cap.reached) {
+        for (const s of journey) outcomes.push({ ...base, scenario: s.id, title: s.title, status: 'SKIP', detail: 'spend cap reached', evidence: [], seconds: 0 })
+        return
+      }
+      let app: AppUser
+      try {
+        app = await signIn(user)
+      } catch (e) {
+        for (const s of journey) outcomes.push({ ...base, scenario: s.id, title: s.title, status: 'ERROR', detail: `sign-in: ${String(e)}`, evidence: [], seconds: 0 })
+        return
+      }
+      try {
+        for (const s of journey) {
+          const t0 = Date.now()
+          const evidence: Evidence[] = []
+          let status: Status
+          let detail: string
+          try {
+            await app.newChat() // every scenario starts from an empty conversation
+            const v = await s.run({ app, env, evidence })
+            status = v.pass ? 'PASS' : 'FAIL'
+            detail = v.detail
+          } catch (e) {
+            status = e instanceof CapReached ? 'SKIP' : 'ERROR'
+            detail = e instanceof Error ? e.message : String(e)
+            if (status === 'ERROR') await app.openChat().catch(() => undefined)
+          }
+          outcomes.push({ ...base, scenario: s.id, title: s.title, status, detail, evidence, seconds: (Date.now() - t0) / 1000 })
+          console.log(`${status.padEnd(5)} user ${String(user.index).padStart(3)} ${s.id}: ${detail}`)
+        }
+      } finally {
+        await app.close()
+      }
+    })
+  } finally {
+    await browser.close()
+  }
+
+  // THE LEDGER, once nothing is in flight: a cross-account scenario charges its partner too.
+  await pool(users, 10, async (user) => {
+    const t0 = Date.now()
+    let o: Outcome
+    try {
+      const v = await checkLedger(env, user)
+      o = { user: user.index, workspace: user.workspaceID, scenario: 'ledger-matches-answers',
+        title: 'every charged answer is one spend row on the ledger; a free replay is none',
+        status: v.pass ? 'PASS' : 'FAIL', detail: v.detail, evidence: v.evidence, seconds: (Date.now() - t0) / 1000 }
+    } catch (e) {
+      o = { user: user.index, workspace: user.workspaceID, scenario: 'ledger-matches-answers', title: 'ledger read-back',
+        status: 'ERROR', detail: String(e), evidence: [], seconds: (Date.now() - t0) / 1000 }
+    }
+    outcomes.push(o)
+  })
+
+  outcomes.sort((a, b) => a.user - b.user)
+  const counts: Record<Status, number> = { PASS: 0, FAIL: 0, SKIP: 0, ERROR: 0 }
+  for (const o of outcomes) counts[o.status]++
+  return {
+    started_at: started.toISOString(),
+    finished_at: new Date().toISOString(),
+    app: cfg.appURL,
+    lens: cfg.lensURL,
+    users: users.length,
+    model: cfg.model,
+    cap_usd: cfg.capUSD,
+    spent_usd: Number(cap.spentUSD.toFixed(6)),
+    stopped_at_cap: cap.reached,
+    counts,
+    outcomes,
+  }
+}
+
+async function main(): Promise<number> {
+  let cfg: RunConfig
+  try {
+    cfg = parseConfig(process.argv.slice(2), process.env)
+  } catch (e) {
+    console.error(`e2e: ${e instanceof Error ? e.message : String(e)}`)
+    return 2
+  }
+  let result: RunResult
+  try {
+    result = await run(cfg)
+  } catch (e) {
+    console.error(`e2e: the run could not complete: ${e instanceof Error ? e.message : String(e)}`)
+    return 2
+  }
+  await mkdir(cfg.outDir, { recursive: true })
+  const file = join(cfg.outDir, `run-${result.started_at.replace(/[:.]/g, '-')}.json`)
+  await writeFile(file, JSON.stringify(result, null, 2) + '\n')
+  const c = result.counts
+  console.log(`\n${c.PASS} passed, ${c.FAIL} failed, ${c.ERROR} errored, ${c.SKIP} skipped — ` +
+    `spent ≈ $${result.spent_usd.toFixed(4)} of a $${result.cap_usd.toFixed(2)} cap` +
+    `${result.stopped_at_cap ? ' (STOPPED AT THE CAP)' : ''}\nresults: ${file}`)
+  return c.FAIL + c.ERROR > 0 ? 1 : 0
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  process.exitCode = await main()
+}
