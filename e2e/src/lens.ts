@@ -30,6 +30,95 @@ export interface JudgeReply {
   pooledULXC: number | undefined
 }
 
+/** B17.6 — an answer Lens may refuse: what it answered, or its status and sentence. */
+export type Answered<T> = { ok: true; status: number; value: T } | { ok: false; status: number; error: string }
+
+/** Lens economy.Agent, as much of it as the bank scenarios read. */
+export interface Agent {
+  id: string
+  name: string
+  balance_ulxc: number
+  spent_ulxc: number
+  owner_user_id?: string
+}
+
+/** Lens economy.AgentBook: workspace = allocated + unallocated. */
+export interface AgentBook {
+  workspace_balance_ulxc: number
+  allocated_ulxc: number
+  unallocated_ulxc: number
+  spent_ulxc: number
+  agents: Agent[]
+  all_paused_at?: string
+}
+
+/** Lens economy.AgentApproval. */
+export interface AgentApproval {
+  id: string
+  agent_id: string
+  amount_ulxc: number
+  status: 'pending' | 'approved' | 'denied' | 'used'
+}
+
+/** Lens economy.AgentStatementLine: one posting on an agent's account. */
+export interface AgentLine {
+  entry_id: string
+  kind: string
+  amount_ulxc: number
+  counterparty: string
+  balance_after_ulxc: number
+}
+
+/** Lens economy.AgentPayment. `via` is "marketplace" for a payment to another company's agent (B19.15). */
+export interface AgentPayment {
+  entry_id: string
+  amount_ulxc: number
+  from_balance_ulxc: number
+  to_balance_ulxc: number
+  to_workspace_id?: string
+  via?: string
+}
+
+/** Lens market.BillLine. */
+export interface BillLine {
+  use_id: string
+  listing_id: string
+  title: string
+  agent_id?: string
+  price_ulxc: number
+  cleared_at?: string
+  payee_agent_id?: string
+}
+
+/** Lens market.Bill: a buyer's billed uses in one month. */
+export interface MarketBill {
+  month: string
+  total_ulxc: number
+  lines: BillLine[] | null
+}
+
+/** Lens market.Earnings, in µUSD. */
+export interface MarketEarnings {
+  pending_uses: number
+  pending_usd_micros: number
+  payable_usd_micros: number
+  in_holdback_usd_micros: number
+  available_usd_micros: number
+  lifetime_gross_usd_micros: number
+}
+
+/** Lens's sentence in a refusal body — {"error": "…"} or {"error": {"message": "…"}} — or the body itself. */
+function refusalOf(raw: string): string {
+  try {
+    const e = (JSON.parse(raw) as { error?: string | { message?: string } }).error
+    if (typeof e === 'string') return e
+    if (e?.message !== undefined) return e.message
+  } catch {
+    // not JSON: the body is the sentence
+  }
+  return raw.slice(0, 300)
+}
+
 const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
 
 export class LensClient {
@@ -118,6 +207,75 @@ export class LensClient {
       replayed: res.headers.get('X-Talyvor-Cache-Replay') === 'true',
       pooledULXC: res.headers.has('X-Talyvor-Pool-Charged-ULXC') ? Number(res.headers.get('X-Talyvor-Pool-Charged-ULXC')) : undefined,
     }
+  }
+
+  /**
+   * B17.6 — one question on an agent's own key, as the agent sends it: the reply, or Lens's refusal
+   * (its status and sentence) — a refusal is what the bank scenarios look for, so it is not thrown.
+   */
+  async askAsAgent(key: string, provider: string, model: string, prompt: string, maxTokens: number): Promise<Answered<JudgeReply>> {
+    const res = await fetch(`${this.baseURL}/v1/proxy/${provider}/v1/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+    })
+    const raw = await res.text()
+    if (!res.ok) return { ok: false, status: res.status, error: refusalOf(raw) }
+    const body = JSON.parse(raw) as { content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }
+    return {
+      ok: true,
+      status: res.status,
+      value: {
+        text: (body.content ?? []).map((c) => c.text ?? '').join(''),
+        inputTokens: body.usage?.input_tokens ?? 0,
+        outputTokens: body.usage?.output_tokens ?? 0,
+        replayed: res.headers.get('X-Talyvor-Cache-Replay') === 'true',
+        pooledULXC: res.headers.has('X-Talyvor-Pool-Charged-ULXC') ? Number(res.headers.get('X-Talyvor-Pool-Charged-ULXC')) : undefined,
+      },
+    }
+  }
+
+  /** B17.6 — the workspace's agents and their balances, reconciled with the workspace (Lens B19.1). */
+  async agentBook(user: SyntheticUser): Promise<AgentBook> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents`, this.bearer(user.token))) as AgentBook
+  }
+
+  /** B17.6 — creates an agent as the workspace's owner: another company's agent, for a payment to reach. */
+  async createAgent(user: SyntheticUser, name: string): Promise<{ id: string; name: string }> {
+    return (await this.call('POST', `/v1/workspaces/${user.workspaceID}/agents`, this.bearer(user.token), { name })) as { id: string; name: string }
+  }
+
+  /** B17.6 — the agents' approvals, newest first. */
+  async agentApprovals(user: SyntheticUser): Promise<AgentApproval[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/approvals`, this.bearer(user.token))) as { approvals?: AgentApproval[] | null }
+    return body.approvals ?? []
+  }
+
+  /** B17.6 — one agent's account, newest first (Lens B19.3). */
+  async agentLines(user: SyntheticUser, agentID: string): Promise<AgentLine[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/statement`, this.bearer(user.token))) as { lines?: AgentLine[] | null }
+    return body.lines ?? []
+  }
+
+  /** B17.6 — an agent pays another agent with its own key; Lens's answer or its refusal. */
+  async payAsAgent(key: string, workspaceID: string, fromAgentID: string, toAgentID: string, amountULXC: number, memo: string): Promise<Answered<AgentPayment>> {
+    const res = await fetch(`${this.baseURL}/v1/workspaces/${workspaceID}/agents/${fromAgentID}/pay`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ to_agent_id: toAgentID, amount_ulxc: amountULXC, memo }),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) as AgentPayment } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B17.6 — the buyer's marketplace bill for this month (Lens B20.2). */
+  async marketBill(user: SyntheticUser): Promise<MarketBill> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/bill`, this.bearer(user.token))) as MarketBill
+  }
+
+  /** B17.6 — the seller's earnings: pending, payable, in holdback, available (µUSD). */
+  async marketEarnings(user: SyntheticUser): Promise<MarketEarnings> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/earnings`, this.bearer(user.token))) as MarketEarnings
   }
 
   private sessionKey(user: SyntheticUser): Promise<string> {

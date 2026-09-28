@@ -21,9 +21,14 @@
 //   budget      — a spending limit is recorded but never refuses
 //   setting     — cost-optimised routing is answered as recorded but not kept
 //   logging     — request logging "none" still answers a repeat from a kept copy
+//   agent-limit — an agent's limit per request is recorded but never refuses (B17.6, stub-bank.ts)
+//
+// B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
+// requests through the proxy are judged by their rules and spent from their own balance.
 
 import { randomBytes } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
+import { Bank } from './stub-bank.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -194,12 +199,27 @@ async function read(req: IncomingMessage): Promise<string> {
   return s
 }
 
+/** A question asked outside the proxy — a marketplace use — answered and charged as the proxy would. */
+function runModel(on: { id: string }, modelID: string, question: string): { answer: string } | { error: string } {
+  const ws = workspaces.get(on.id)
+  const model = CATALOG.find((c) => c.id === modelID)
+  if (ws === undefined || model === undefined || !CONFIGURED.has(model.provider)) return { error: `the model ${modelID} cannot be run here` }
+  const answer = think([{ role: 'user', content: question }])
+  const charge = Math.ceil((((tokens(question) + 8) * model.input_per_1m + tokens(answer) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
+  book(ws, -charge, 'spend', `${model.id} answer (marketplace use)`)
+  return { answer }
+}
+
+const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read })
+
 async function proxy(req: IncomingMessage, res: ServerResponse, provider: string, path: string): Promise<void> {
-  const ws = bySessionKey.get((req.headers.authorization ?? '').replace(/^Bearer /, ''))
+  const credential = (req.headers.authorization ?? '').replace(/^Bearer /, '')
+  const agentCall = bank.agentOfKey(credential)
+  const ws = bySessionKey.get(credential) ?? (agentCall === undefined ? undefined : workspaces.get(agentCall.ws.id))
   if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
   const raw = await read(req)
   if (!CONFIGURED.has(provider)) return json(res, 503, { error: `provider ${provider} not configured` })
-  const body = JSON.parse(raw || '{}') as { model?: string; stream?: boolean; messages?: Msg[] }
+  const body = JSON.parse(raw || '{}') as { model?: string; stream?: boolean; max_tokens?: number; messages?: Msg[] }
   const model = CATALOG.find((c) => c.id === body.model)
   if (model === undefined || (provider === 'anthropic') !== (path === 'v1/messages')) return json(res, 400, { error: 'bad request' })
   const messages = body.messages ?? []
@@ -213,6 +233,12 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       { 'X-Talyvor-Guardrail-Blocked': 'true' })
   }
   const personal = ws.guardrails.enable_pii && BREAK !== 'pii' && PERSONAL.test(said)
+  // An agent's key: its rules judge the request's worst case before anything is answered (B19.2).
+  if (agentCall !== undefined) {
+    const worst = Math.ceil((((tokens(messages.map(text).join(' ')) + 8) * model.input_per_1m + (body.max_tokens ?? 4096) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
+    const refused = bank.admit(agentCall.agent, worst, model.id, said)
+    if (refused !== undefined) return json(res, refused.status, { error: refused.error })
+  }
   if (BREAK !== 'budget' && ws.budgets.some((b) => b.enforcement === 'hard_block' && b.spent_usd >= b.limit_usd)) {
     return json(res, 402, { error: 'budget exceeded for workspace/team/sprint' })
   }
@@ -267,6 +293,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     if (keep) ws.answers.set(key, answer)
     if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
   }
+  if (agentCall !== undefined) bank.spent(agentCall.agent, charge)
   const outTok = tokens(answer)
   const shownIn = BREAK === 'price' ? inTok * 2 : inTok
 
@@ -341,9 +368,12 @@ createServer(async (req, res) => {
     const proxied = /^\/v1\/proxy\/([a-z]+)\/(.+)$/.exec(p)
     if (proxied !== null) return await proxy(req, res, proxied[1], proxied[2])
 
-    const ws = byToken.get(bearer)
+    if (await bank.agentPay(req, res, bearer, p)) return
+    // The BFF runs a marketplace use on the session key the chat streams on (B20.3).
+    const ws = byToken.get(bearer) ?? bySessionKey.get(bearer)
     if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
     if (p === '/v1/catalog/models') return json(res, 200, CATALOG)
+    if (bank.publicRoute(res, p, url, ws.id)) return
     if (p === '/v1/catalog/discovered') return json(res, 200, [])
     if (p === '/v1/api/usage') {
       const u = ws.usage
@@ -361,6 +391,7 @@ createServer(async (req, res) => {
       if (scoped[1] !== ws.id) return json(res, 403, { error: 'forbidden' })
       const rest = scoped[2] ?? ''
       if (rest === '') return json(res, 200, { id: ws.id, name: 'Synthetic user', active: true, synthetic: true, ...ws.settings })
+      if (await bank.workspaceRoute(req, res, ws, rest, url)) return
       const setting = SETTINGS[rest]
       if (setting !== undefined && req.method === 'PUT') {
         const v = (JSON.parse((await read(req)) || '{}') as Record<string, unknown>)[setting]

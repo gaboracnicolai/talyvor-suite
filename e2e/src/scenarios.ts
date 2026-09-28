@@ -17,6 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, tryConversion, tryTare } from './screens.ts'
+import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles } from './bank.ts'
 
 export interface Evidence {
   note?: string
@@ -42,6 +43,8 @@ export interface RunEnv {
   book: ChargeBook
   /** Signs another synthetic user in, in its own browser context — for scenarios across accounts. */
   signInUser: (index: number) => Promise<AppUser>
+  /** Another synthetic user, as Lens made it: its workspace and token (B17.6 — another company). */
+  userAt: (index: number) => SyntheticUser
   userCount: number
 }
 
@@ -886,6 +889,17 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 7: list.push(trackExport(i)); break
     case 8: if (i + 1 < users) list.push(personalDataNotPooled(i, i + 1)); break
     case 9: list.push(tryTarePage(i)); break
+  }
+  // Catalog v3 (B17.6), the Agent Bank and the marketplace, one in ten again. The other company is a
+  // user no other scenario reads the earnings of: 9, 19, … take a payment, 8, 18, … sell.
+  switch (i % 10) {
+    case 0: list.push(agentOpenFund(i)); break
+    case 1: list.push(agentLimit(i)); break
+    case 2: list.push(agentPauseAll(i)); break
+    case 3: list.push(agentApproval(i)); break
+    case 4: if (i + 5 < users) list.push(companyPayment(i, i + 5)); break
+    case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3)); break
+    case 6: list.push(statementReconciles(i)); break
   }
   return list
 }

@@ -115,6 +115,26 @@ Docs and Track call Lens on their own account, so their AI actions never reach t
 one holds its worst case against the cap — the product's model, the whole input, its most output —
 and is counted at that, since its real cost cannot be read.
 
+## Catalog v3 — the Agent Bank and the marketplace (B17.6)
+
+One user in ten again, after catalog v2. A person works Agent Wallets (`/agents`) and the marketplace
+screens; each agent acts with its own key, straight to Lens, as an agent does. Every oracle is read back
+from Lens: the agents' book and postings, the approvals, the marketplace bill and the seller's earnings.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `agent-open-fund` | 1 in 10 | an agent created and funded on the screen holds exactly that; the workspace's balance is unchanged and = with agents + free |
+| `agent-limit` | 1 in 10 | a limit per request of 0.000001 LXC refuses the agent's request (403, the limit named) with its balance and the ledger unmoved; raised to 1 LXC, the same request is served once from the agent's balance |
+| `agent-pause-all` | 1 in 10 | Pause every agent refuses both agents (403, every agent paused) with nothing charged; started again, one is served |
+| `agent-approval` | 1 in 10 | a 1 LXC payment above a 0.5 LXC approval amount waits in Approvals with nothing moved; Approve pays it once (one pay line, the approval used) |
+| `company-payment` | 1 in 10 | an agent pays another company's agent with its own key: one line on the payer's marketplace bill (and on Your bill); the payee's pending earnings rise by exactly the amount, and nothing is payable or available before that bill is paid and the 14-day holdback passes |
+| `marketplace-sale` | 1 in 10 | another company publishes a prompt at 0.5 LXC on Publish; this user uses it on its page: the right answer, one line on their bill, one spend row for the model it called, and the seller's pending earnings up by exactly their share |
+| `statement-reconciles` | 1 in 10 | after funding, a payment, a take-back and a request, the statement downloaded from Agent Wallets: each account's opening + in − out = closing, every entry sums to zero, each agent closes at its balance, and spend = the ledger's spend row |
+
+The other company is a user no other scenario reads the earnings of: 9, 19, … take a payment, 8, 18, …
+sell. A synthetic company's bill is never paid, so a sale or a payment stays pending: the scenarios check
+it is pending, exactly, and not yet payable — the holdback itself is Lens's own test (B20.2, B20.5).
+
 Not yet in the catalog: "plans on Stripe test cards" and "a pooled serve pays the contributor's royalty" —
 B17.1 refuses a synthetic checkout and funds no synthetic royalty, so they wait on a decision.
 
@@ -125,5 +145,6 @@ B17.1 refuses a synthetic checkout and funds no synthetic royalty, so they wait 
 Track and Docs are stood in for by `selftest/stub-products.ts`.
 `STUB_BREAK=<name>` plants a defect, which must make the matching scenario FAIL: `price`,
 `cross-replay`, and for catalog v2 `pii`, `injection`, `distill`, `tare`, `conversion`, `budget`,
-`setting`, `logging` (stub-lens.ts) and `docs-ai`, `track-ai`, `export` (stub-products.ts), each file
-saying what each breaks.
+`setting`, `logging` (stub-lens.ts), `docs-ai`, `track-ai`, `export` (stub-products.ts) and, for
+catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace), each file saying what
+each breaks.
