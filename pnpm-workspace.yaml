@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - apps/*
+  - e2e
 # pnpm 11 gates dependency postinstall build scripts. `allowBuilds` is the record that
 # `pnpm approve-builds` writes and that `pnpm install --frozen-lockfile` reads — so CI needs
 # no build-permitting flag. It is SCOPED per-package: esbuild (its native binary, required
