@@ -46,4 +46,5 @@ LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/../
   --app "http://localhost:$bff_port" --lens "http://127.0.0.1:$stub_port" \
   --users "${E2E_USERS:-10}" --concurrency "${E2E_CONCURRENCY:-5}" --cap-usd "${E2E_CAP_USD:-1}" \
   --out "${E2E_OUT:-$here/../out}" --report-dir "${E2E_REPORT_DIR:-${E2E_OUT:-$here/../out}}" \
-  --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}"
+  --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}" \
+  --explorers "${E2E_EXPLORERS:-2}" --explore-minutes "${E2E_EXPLORE_MINUTES:-1}"

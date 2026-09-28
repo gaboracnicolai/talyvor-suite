@@ -22,6 +22,9 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--out` | `E2E_OUT` | `out` | where `run-<time>.json` is written |
 | `--report-dir` | `E2E_REPORT_DIR` | `docs/e2e` | where the day's report is appended |
 | `--build-md` | `E2E_BUILD_MD` | `~/talyvor-queue/BUILD.md` | the queue each new FAIL is filed in; `none` files nothing, a missing file files nothing |
+| `--explorers` | `E2E_EXPLORERS` | 0 | AI explorers after the scenarios (at most 10) |
+| `--explore-minutes` | `E2E_EXPLORE_MINUTES` | 30 | how long each explorer may use the app |
+| `--explorer-model` | `E2E_EXPLORER_MODEL` | claude-haiku-4-5 | the model choosing each explorer's next move |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -49,6 +52,30 @@ it on either side, Lens's synthetic routes or `/auth/synthetic` answer 404.
 4,096 output tokens at list price. When the answer arrives, the reservation is settled with the real
 cost. A question whose worst case would take committed spend plus in-flight reservations past the cap
 is never sent. From then on the run sends nothing new and every remaining scenario SKIPs.
+
+## Every night, and the explorers (B17.5)
+
+`scripts/e2e-nightly.sh` is started once, like `~/talyvor-queue/deploy.sh`, and left running:
+
+```sh
+nohup scripts/e2e-nightly.sh >/dev/null 2>&1 &      # each night at E2E_NIGHTLY_AT (default 03:00)
+scripts/e2e-nightly.sh --now                         # one run now
+```
+
+Before each run it reads `~/.config/talyvor/e2e.env` (`E2E_ENV_FILE`), which holds `LENS_SYNTHETIC_KEY`,
+`E2E_APP_URL`, `E2E_LENS_URL` and any other `E2E_*` setting. It then brings the checkout up to main, if the
+checkout is on main, and runs the harness with 10 explorers for 30 minutes each by default. Everything
+runs under the one cap. It logs to `e2e/out/nightly.log`. A second start exits and leaves the first
+running. It never deploys, pushes or commits.
+
+**Explorers.** After the scenarios, each explorer signs in as a synthetic user of its own. A cheap model,
+asked through Lens on that user's account, chooses its next move: click, type, press a key, open a path
+of the app, note a finding, or stop. The model reads the screen's text and its numbered controls. Every
+step reserves its worst case against the same cap, so the explorers stop at the cap with everything
+else. Findings go into the report under "Explorers — findings to check": what the explorer noted, plus
+each page error and 5xx its browser saw, with the moves that led there. Findings are never filed as
+build items, because an explorer can be mistaken. The self-test runs two scripted explorers against the
+stub.
 
 ## Catalog v1, and each scenario's oracle
 
