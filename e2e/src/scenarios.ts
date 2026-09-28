@@ -4,10 +4,11 @@
 
 import { type AppUser, type ChargeBook, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
-import { worstInputTokens } from './budget.ts'
+import { CapReached, worstInputTokens } from './budget.ts'
 import type { LensClient, SyntheticUser } from './lens.ts'
 import {
   type CatalogModel,
+  chatModels,
   expectedFigure,
   judgeVerdict,
   listPriceUSD,
@@ -182,7 +183,9 @@ export function repeatInNewChat(seed: number): Scenario {
 }
 
 export function oneDigitTrap(seed: number): Scenario {
-  const x = 40 + (seed % 50)
+  // Unique to each user in a run: a number another user already asked about is rightly served from the
+  // shared pool, and would read here as the trap springing.
+  const x = 40 + seed
   const setup = `Let x = ${x}. Reply with OK.`
   return {
     id: 'one-digit-trap',
@@ -321,23 +324,32 @@ export function everyModelAnswers(streamable: readonly string[]): Scenario {
       const { app, env } = ctx
       const res = await app.page.request.get(new URL('/api/ai/providers', app.page.url()).toString())
       const unconfigured = res.ok() ? (((await res.json()) as { unconfigured?: string[] }).unconfigured ?? []) : []
-      const models = env.catalog.filter((m) => !m.deprecated && streamable.includes(m.provider) && !unconfigured.includes(m.provider))
+      const models = chatModels(env.catalog).filter((m) => streamable.includes(m.provider) && !unconfigured.includes(m.provider))
       ctx.evidence.push({ note: `${models.length} models offered; providers without a key: ${unconfigured.join(', ') || 'none'}` })
       const failures: string[] = []
       const start = app.modelNameInUse
       for (const m of models) {
-        await app.chooseModel(m.display_name)
-        await app.newChat()
-        const t = await ask(ctx, 'Reply with the single word: ok', m.display_name)
-        if (t.footer.kind !== 'priced') {
-          failures.push(`${m.display_name}: ${priced(t) ?? `not priced (${t.footer.kind})`}`)
-          continue
+        // One model's failure is that model's FAIL; the rest are still checked.
+        try {
+          if (!(await app.chooseModel(m.display_name))) {
+            failures.push(`${m.display_name}: not in the model picker`)
+            continue
+          }
+          await app.newChat()
+          const t = await ask(ctx, 'Reply with the single word: ok', m.display_name)
+          if (t.footer.kind !== 'priced') {
+            failures.push(`${m.display_name}: ${priced(t) ?? `not priced (${t.footer.kind})`}`)
+            continue
+          }
+          if (t.answer.trim() === '') failures.push(`${m.display_name}: empty answer`)
+          if (t.footer.model !== m.display_name) failures.push(`${m.display_name}: answered as "${t.footer.model}"`)
+          const want = expectedFigure(listPriceUSD(m, t.footer.inputTokens, t.footer.outputTokens),
+            t.footer.unit === 'LXC' ? env.usdPerLXC : undefined)
+          if (!t.footerText.startsWith(want + ' · ')) failures.push(`${m.display_name}: shows "${t.footerText}", catalog says ${want}`)
+        } catch (e) {
+          if (e instanceof CapReached) throw e
+          failures.push(`${m.display_name}: ${(e instanceof Error ? e.message : String(e)).split('\n')[0]}`)
         }
-        if (t.answer.trim() === '') failures.push(`${m.display_name}: empty answer`)
-        if (t.footer.model !== m.display_name) failures.push(`${m.display_name}: answered as "${t.footer.model}"`)
-        const want = expectedFigure(listPriceUSD(m, t.footer.inputTokens, t.footer.outputTokens),
-          t.footer.unit === 'LXC' ? env.usdPerLXC : undefined)
-        if (!t.footerText.startsWith(want + ' · ')) failures.push(`${m.display_name}: shows "${t.footerText}", catalog says ${want}`)
       }
       await app.chooseModel(start)
       await app.newChat()

@@ -46,6 +46,15 @@ function num(s: string): number {
   return Number(s.replace(/,/g, ''))
 }
 
+/**
+ * The catalog models the chat picker offers: priced for output and not deprecated. Embeddings publish a
+ * zero output rate (talyvor-lens catalog/resolve.go), which is how the picker leaves them out
+ * (apps/web/src/areas/chat/chatApi.ts) — written from that rule, not imported, like every oracle here.
+ */
+export function chatModels<M extends Pick<CatalogModel, 'output_per_1m' | 'deprecated'>>(catalog: readonly M[]): M[] {
+  return catalog.filter((m) => !m.deprecated && m.output_per_1m > 0)
+}
+
 /** US dollars for a token count at a model's list price. */
 export function listPriceUSD(m: Pick<CatalogModel, 'input_per_1m' | 'output_per_1m'>, inputTokens: number, outputTokens: number): number {
   return (inputTokens * m.input_per_1m + outputTokens * m.output_per_1m) / 1_000_000
