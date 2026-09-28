@@ -25,7 +25,7 @@ import {
   refusalText,
 } from './agentBankApi'
 
-// AgentBank.tsx — B19.4: the Agent Bank. Each AI agent a workspace runs has an account of its own on
+// AgentBank.tsx — B19.4: Agent Wallets (named so by B21.6). Each AI agent a workspace runs has a wallet of its own on
 // Lens's double-entry ledger (B19.1): the workspace funds it and takes funds back, the agent spends
 // only what it holds, and its statement is every posting against it. Its rules (B19.2) — limits per
 // request, day and month, models, providers, active hours, and an amount above which a person must
@@ -122,7 +122,7 @@ function PauseEveryAgent({ book }: { book: AgentBook }) {
 function PauseAgent({ agent }: { agent: Agent }) {
   const qc = useQueryClient()
   const change = useMutation({
-    mutationFn: (pause: boolean) => (pause ? agentBankApi.pause(agent.id, 'paused from the Agent Bank') : agentBankApi.resume(agent.id)),
+    mutationFn: (pause: boolean) => (pause ? agentBankApi.pause(agent.id, 'paused from Agent Wallets') : agentBankApi.resume(agent.id)),
     onSettled: () => qc.invalidateQueries({ queryKey: BOOK_KEY }),
   })
   return (
@@ -958,7 +958,7 @@ function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string) => st
       ) : st.isPending ? (
         <p className="px-gutter py-3 text-body text-muted">Reading…</p>
       ) : lines.length === 0 ? (
-        <p className="px-gutter py-3 text-body text-muted">Nothing has moved on this account yet. Fund it under Money to start.</p>
+        <p className="px-gutter py-3 text-body text-muted">Nothing has moved in this wallet yet. Fund it under Money to start.</p>
       ) : (
         <table className="w-full text-body" data-testid="agent-statement">
           <thead>
@@ -1023,7 +1023,7 @@ function saveFile(name: string, blob: Blob) {
 
 /**
  * B19.22 — a statement for any period as a file an auditor can open: one agent's account, or with no
- * agent every account in the bank. Lens builds it (B19.5): each account's opening balance, every line
+ * agent every wallet in the workspace. Lens builds it (B19.5): each account's opening balance, every line
  * naming its posting and entry, and each account's closing balance. Days are whole UTC days, the last
  * one included.
  */
@@ -1034,7 +1034,7 @@ function StatementDownload({ agent }: { agent: Agent | null }) {
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(period.from) && /^\d{4}-\d{2}-\d{2}$/.test(period.through) && period.from <= period.through
   const get = useMutation({
     mutationFn: async () => {
-      const stem = agent ? agent.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent' : 'agent-bank'
+      const stem = agent ? agent.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent' : 'agent-wallets'
       const name = `${stem}-statement-${period.from}-to-${period.through}.${format}`
       saveFile(name, await agentBankApi.statementFile(agent?.id ?? null, period.from, dayAfter(period.through), format))
       return name
@@ -1309,13 +1309,13 @@ export function AgentBank() {
     <RegionScreen>
       <Region
         index="00"
-        label="Agent Bank"
+        label="Agent Wallets"
         heading="Each agent spends its own money, inside its own rules"
         sectionClassName="pb-10 pt-4 wide:pb-12"
         className="flex max-w-2xl flex-col gap-3"
       >
         <p className="text-body text-muted">
-          Give every AI agent an account of its own. Fund it from the workspace, set what it may spend and when a
+          Give every AI agent a wallet of its own. Fund it from the workspace, set what it may spend and when a
           person must approve, and read every movement on its statement. Lens checks the rules before a provider is
           called or a payment moves.
         </p>

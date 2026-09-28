@@ -100,7 +100,7 @@ describe('downloading a statement for a period on the Agent Bank', () => {
     const form = await screen.findByTestId('bank-statement-download')
     fireEvent.click(within(form).getByRole('button', { name: 'Download' }))
 
-    await waitFor(() => expect(saved[0]?.name).toBe('agent-bank-statement-2026-08-01-to-2026-08-31.csv'))
+    await waitFor(() => expect(saved[0]?.name).toBe('agent-wallets-statement-2026-08-01-to-2026-08-31.csv'))
     expect(asked).toEqual(['/api/agents/statement?from=2026-08-01&to=2026-09-01&format=csv'])
     const text = await saved[0].text
     expect(text).toContain('workspace,opening')

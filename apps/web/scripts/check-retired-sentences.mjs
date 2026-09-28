@@ -1,4 +1,5 @@
 // check-retired-sentences.mjs — B21.4. Run by scripts/build-release.sh against the BUILT bundle.
+// B21.6 added the bank words: the product is Talyvor Agent Wallets, and "bank" is a restricted word.
 //
 // Fails when a sentence B21.4 replaced is still shipped, or when the four that replaced them are
 // not (which also proves this read the right files: an empty or misplaced dist cannot pass).
@@ -17,6 +18,10 @@ const RETIRED = [
   'never persisted',
   'stored under every setting',
   'your prompt text is not kept',
+  // B21.6 — never "bank" or "banking" for the agents' money. "Bank account", where a seller is paid, stays.
+  'Agent Bank',
+  'agent bank',
+  'banking',
 ]
 
 // The four facts (components/StoredAnswersFacts.tsx), by an ASCII fragment of each.
@@ -25,6 +30,8 @@ const REQUIRED = [
   'Stored answers are kept until you delete them; they do not expire.',
   'so that two questions can be compared',
   'nothing of a question or answer is stored',
+  // B21.6 — the /agents screen's title and label.
+  'Agent Wallets',
 ]
 
 function files(dir) {
@@ -49,4 +56,4 @@ for (const s of REQUIRED) {
   }
 }
 if (failed) process.exit(1)
-console.log(`    ok  no retired sentence in ${shipped.length} bundle files; the four stored-answer facts are there`)
+console.log(`    ok  no retired sentence in ${shipped.length} bundle files; the stored-answer facts and Agent Wallets are there`)

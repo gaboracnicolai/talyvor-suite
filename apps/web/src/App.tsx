@@ -134,8 +134,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/billing/success', title: 'Billing', element: <BillingSuccess /> },
   { path: '/billing/cancel', title: 'Billing', element: <BillingCancel /> },
   { path: '/keys', title: 'API keys', element: <Keys /> },
-  // B19.4 — each AI agent's own account: balance, rules, statement, payments and approvals.
-  { path: '/agents', title: 'Agent Bank', element: <AgentBank /> },
+  // B19.4 — each AI agent's own wallet: balance, rules, statement, payments and approvals. B21.6: Agent Wallets.
+  { path: '/agents', title: 'Agent Wallets', element: <AgentBank /> },
   // B20.3 — browse, use and publish agents, prompts, skills, evaluations and pipelines; what they earned.
   { path: '/marketplace/*', title: 'Marketplace', element: <MarketplaceArea /> },
   { path: '/setup', title: 'Setup', element: <Setup /> },
@@ -251,7 +251,7 @@ function Sidebar() {
             are one task; a trial user who finds only Keys is stuck holding a credential. */}
         {item('/setup', 'Setup')}
         {item('/keys', 'API keys')}
-        {item('/agents', 'Agent Bank')}
+        {item('/agents', 'Wallets')}
       </Group>
       <Group label="Marketplace">
         {item('/marketplace', 'Browse', false, pathname === '/marketplace' || pathname.startsWith('/marketplace/listings'))}

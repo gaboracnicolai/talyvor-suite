@@ -93,7 +93,7 @@ const SIDEBAR_DESTINATIONS = [
   '/plans',
   '/setup',
   '/keys',
-  // B19.4 — the Agent Bank, beside the keys an agent spends through.
+  // B19.4 — Agent Wallets (B21.6), beside the keys an agent spends through.
   '/agents',
   // B20.3 — the marketplace: browse, publish, and what your listings earned.
   '/marketplace',
@@ -255,6 +255,11 @@ describe('the capability, not the tag: activation is what the reader gets', () =
     }
     return link
   }
+
+  it('B21.6 — the agents destination is called Wallets, and it opens Agent Wallets', async () => {
+    const link = await sidebarLink('/agents')
+    expect(link.textContent?.trim()).toBe('Wallets')
+  })
 
   it('a plain click navigates, and does it inside the app rather than reloading', async () => {
     const link = await sidebarLink('/ledger')
