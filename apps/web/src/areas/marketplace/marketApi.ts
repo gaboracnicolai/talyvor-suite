@@ -121,6 +121,25 @@ export interface Earnings {
   earnings: Earning[] | null
 }
 
+/** Lens market.BillLine — one paid use on the buyer's bill. */
+export interface BillLine {
+  use_id: string
+  listing_id: string
+  title: string
+  agent_id?: string
+  price_ulxc: number
+  used_at: string
+  cleared_at?: string
+}
+
+/** Lens market.Bill — the buyer's billed uses in one month (UTC). */
+export interface MarketBill {
+  month: string
+  total_ulxc: number
+  total_usd_micros: number
+  lines: BillLine[] | null
+}
+
 /** A refusal, with the sentence Lens gave for it. */
 export class MarketError extends ApiError {
   constructor(
@@ -158,6 +177,7 @@ export const marketApi = {
   listing: (id: string) => getJSON<Listing>(`/api/marketplace/listings/${e(id)}`),
   mine: async () => (await getJSON<{ listings: Listing[] | null }>('/api/marketplace/mine')).listings ?? [],
   earnings: () => getJSON<Earnings>('/api/marketplace/earnings'),
+  bill: (month: string) => getJSON<MarketBill>(`/api/marketplace/bill?month=${e(month)}`),
   publish: (draft: ListingDraft) => post<Listing>('/api/marketplace/listings', draft),
   use: (id: string, req: UseRequest) => post<ListingUse>(`/api/marketplace/listings/${e(id)}/use`, req),
 }
@@ -197,3 +217,18 @@ export function refusalText(err: unknown): string {
 export function variablesIn(template: string): string[] {
   return [...new Set([...template.matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)].map((m) => m[1]))]
 }
+
+/** The twelve months up to `now`, newest first, as Lens reads them: `2026-09`, in UTC. */
+export function recentMonths(now: Date): string[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+  })
+}
+
+/** `2026-09` → `September 2026`. */
+export function monthName(month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+}
+

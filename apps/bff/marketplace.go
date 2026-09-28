@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"time"
 )
 
@@ -21,6 +22,7 @@ import (
 //	POST /api/marketplace/listings/{id}/use        {version, model, input, variables}
 //	GET  /api/marketplace/mine                     this workspace's own listings, whatever their visibility
 //	GET  /api/marketplace/earnings                 the seller's pending, payable, in holdback and available
+//	GET  /api/marketplace/bill?month=YYYY-MM       the buyer's billed uses in a month (B20.10), this month by default
 //
 // Reads and publishing go on the session's workspace token, as the Agent Bank's do. A USE does not:
 // Lens runs the listing by calling its own proxy with the caller's credential, and every /v1/proxy/*
@@ -204,4 +206,25 @@ func (a *app) handleMarketEarnings(w http.ResponseWriter, r *http.Request, t ten
 		return
 	}
 	a.marketRelay(w, r, a.client, t.token, http.MethodGet, lensWorkspacePath(t, "/marketplace/earnings"), nil, "")
+}
+
+// billMonth is the one shape Lens reads ?month= in.
+var billMonth = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
+
+// handleMarketBill — GET /api/marketplace/bill?month=YYYY-MM: the paid listings this workspace used in
+// a month, billed on its card — never on its credits. No month is this month, in Lens's clock.
+func (a *app) handleMarketBill(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	path := lensWorkspacePath(t, "/marketplace/bill")
+	if month := r.URL.Query().Get("month"); month != "" {
+		if !billMonth.MatchString(month) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "month must be YYYY-MM"})
+			return
+		}
+		path += "?month=" + month
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
 }
