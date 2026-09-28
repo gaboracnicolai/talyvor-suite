@@ -216,6 +216,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/claim", body: `{}`},
+		// B19.24 — issuing an agent its test-mode card.
+		{method: http.MethodPost, path: "/api/agents/x1/card", body: `{"first_name":"a","last_name":"b","line1":"c","city":"d","postal_code":"e"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/connect", body: `{"country":"GB"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/credits", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/challenge", body: `{}`},

@@ -7,6 +7,7 @@ import { formatWhen } from './format'
 import { kindLabel, marketApi, priceText } from '../marketplace/marketApi'
 import { CATALOG_KEY } from '../marketplace/parts'
 import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
+import { AgentCardPanel } from './AgentCardPanel'
 import {
   type Agent,
   type AgentApproval,
@@ -1390,6 +1391,7 @@ export function AgentBank() {
           <Schedules key={`schedules-${agent.id}`} agent={agent} agents={agents} nameOf={nameOf} />
           <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
           <IssueKey key={`key-${agent.id}`} agent={agent} />
+          <AgentCardPanel key={`card-${agent.id}`} agent={agent} />
           <Statement agent={agent} nameOf={nameOf} />
         </Region>
       ) : null}

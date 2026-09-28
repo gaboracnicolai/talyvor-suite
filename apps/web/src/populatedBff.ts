@@ -171,6 +171,14 @@ const BY_PATH: Record<string, unknown> = {
     schedules: [{ id: 'sch_1', from_agent_id: 'agt_research', to_agent_id: 'agt_writer', amount_ulxc: 1_000_000, memo: 'drafts', every: 'week', next_run_at: '2026-10-05T09:00:00Z', active: true, created_at: '2026-09-28T09:00:00Z' }],
   },
   '/api/agents/agt_research/topup': { agent_id: 'agt_research', below_ulxc: 5_000_000, to_ulxc: 8_000_000 },
+  // B19.24 — the researcher's test-mode card: one purchase approved within its rules, one declined above them.
+  '/api/agents/agt_research/card': {
+    card: { id: 'ic_research', agent_id: 'agt_research', last4: '4242', exp_month: 9, exp_year: 2029, currency: 'gbp', livemode: false, created_at: '2026-09-28T09:00:00Z' },
+    authorizations: [
+      { id: 'cauth_2', authorization_id: 'iauth_2', approved: false, reason: "the agent's spending rules refuse this request: this payment would cost up to 27.943501 LXC; the agent's limit per request is 20 LXC", amount_minor: 200, currency: 'gbp', merchant_name: 'Compute shop', merchant_category: 'computer_software_stores', rate_date: '2026-09-25T00:00:00Z', ecb_usd_per_eur: '1.1672', ecb_currency_per_eur: '0.8354', created_at: '2026-09-28T10:05:00Z' },
+      { id: 'cauth_1', authorization_id: 'iauth_1', approved: true, reason: "within the agent's rules and balance", amount_minor: 100, currency: 'gbp', merchant_name: 'Compute shop', merchant_category: 'computer_software_stores', rate_date: '2026-09-25T00:00:00Z', ecb_usd_per_eur: '1.1672', ecb_currency_per_eur: '0.8354', amount_usd_micros: 1_397_176, amount_ulxc: 13_971_751, created_at: '2026-09-28T10:00:00Z' },
+    ],
+  },
   // B19.20 — this month's forecast, and one unusual-spend alert that paused an agent.
   '/api/agents/forecast': {
     at: '2026-09-15T00:00:00Z',

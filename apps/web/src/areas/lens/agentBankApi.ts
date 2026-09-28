@@ -153,6 +153,54 @@ export interface AgentKey {
   prefix: string
 }
 
+/** Lens economy.AgentCard (B19.12): an agent's virtual card, Stripe Issuing in test mode. The number stays at Stripe. */
+export interface AgentCard {
+  id: string
+  agent_id: string
+  last4: string
+  exp_month: number
+  exp_year: number
+  /** lower-case ISO code — gbp: Talyvor is a UK platform */
+  currency: string
+  livemode: boolean
+  created_at: string
+}
+
+/** Lens economy.CardAuthorizationRecord: one purchase on the card, approved or declined by the agent's rules. */
+export interface CardAuthorization {
+  id: string
+  authorization_id: string
+  approved: boolean
+  /** Lens's sentence: why it was declined, or what approved it */
+  reason: string
+  approval_id?: string
+  /** in the card's currency, minor units (pence) */
+  amount_minor: number
+  currency: string
+  merchant_name: string
+  merchant_category: string
+  /** the ECB reference day it was converted at, and the two figures the ECB published that day */
+  rate_date?: string
+  ecb_usd_per_eur?: string
+  ecb_currency_per_eur?: string
+  amount_usd_micros?: number
+  amount_ulxc?: number
+  created_at: string
+}
+
+/** Lens agentcard.Cardholder: the person the card is issued to, and the billing address a merchant may ask for. */
+export interface Cardholder {
+  first_name: string
+  last_name: string
+  email: string
+  line1: string
+  line2: string
+  city: string
+  postal_code: string
+  /** ISO 3166-1 alpha-2; Lens takes GB when empty */
+  country: string
+}
+
 /** A refusal, with the sentence Lens gave for it. */
 export class AgentBankError extends ApiError {
   constructor(
@@ -216,6 +264,16 @@ export const agentBankApi = {
   setRules: (id: string, rules: AgentRules) => send<AgentRules>('PUT', `/api/agents/${e(id)}/rules`, rules),
   statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`),
   statementFile,
+  /** B19.24 — the agent's test-mode card and every purchase on it; null when it has none (Lens answers 404). */
+  card: async (id: string): Promise<{ card: AgentCard; authorizations: CardAuthorization[] | null } | null> => {
+    try {
+      return await getJSON<{ card: AgentCard; authorizations: CardAuthorization[] | null }>(`/api/agents/${e(id)}/card`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  issueCard: (id: string, holder: Cardholder) => send<AgentCard>('POST', `/api/agents/${e(id)}/card`, holder),
   /** B19.23 — the signed-in person becomes the owner of an agent that has none. */
   claim: (id: string) => send<{ agent_id: string; owner_user_id: string }>('POST', `/api/agents/${e(id)}/claim`),
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>

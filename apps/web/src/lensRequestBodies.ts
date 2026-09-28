@@ -249,6 +249,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/pay", func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentPayBody',
   },
+  // B19.24 — issuing an agent its test-mode card: the cardholder's name, email and billing address.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/card',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentCard(',
+    anchor: 'var in struct {',
+    upstreamFile: 'internal/agentcard/agentcard.go',
+    upstreamAnchor: 'type Cardholder struct {',
+    subject: 'lensAgentCardBody',
+  },
   // B19.20 — pausing every agent, and one, with the reason.
   {
     route: 'POST /v1/workspaces/{wsID}/agents/pause-all',
