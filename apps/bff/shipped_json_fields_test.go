@@ -81,6 +81,7 @@ var decodedFromUpstream = map[string]string{
 	"trackBootstrapResult":   "Track's POST /v1/bootstrap reply, decoded in bootstrapTrackWorkspace()",
 	"trackProjectCreateBody": "request body this service POSTs to Track's project create (B4.2), built from four chosen fields",
 	"trackCycleCreateBody":   "request body this service POSTs to Track's cycle create (B4.1), built from three chosen fields",
+	"lensWorkspaceRecord":    "Lens's GET /v1/workspaces/{id} reply, decoded in lensWorkspace() (B17.2)",
 }
 
 // filledByAssignment names fields that are NOT set in a composite literal but

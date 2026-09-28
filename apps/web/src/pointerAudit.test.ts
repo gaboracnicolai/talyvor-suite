@@ -449,7 +449,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the BFF half of the same parenthesis — the sentence promises this line says the payment happens at Stripe AFTER the redirect',
   },
-  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:559': {
+  'apps/web/src/areas/lens/spendWindowCeiling.test.tsx:16|apps/bff/lens.go:562': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'the first of the TWO independent clamps the page ceiling rests on, quoted verbatim by the sentence that cites it',
@@ -459,7 +459,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'happens at Stripe',
     why: 'the example that paragraph gives of a citation checkable from here — now checked, which is what it asked for',
   },
-  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:559': {
+  'apps/web/src/upstreamCitations.test.ts:55|apps/bff/lens.go:562': {
     kind: 'LIVE',
     fragment: 'clampInt(r.URL.Query().Get("limit"), 20, 1, 200)',
     why: 'its second example, pinned for the same reason',
@@ -479,17 +479,17 @@ const PINS: Record<string, Pin> = {
   // A deployer following one of these is mid-deploy and checking a refusal before they trip it.
   // The fragment is the REFUSAL ITSELF: a claim that the BFF stops for a variable is worth
   // exactly the line that stops it, so deleting the refusal reds the runbook that promises it.
-  'deploy/README.md:385|apps/bff/main.go:117': {
+  'deploy/README.md:385|apps/bff/main.go:122': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID must not be set',
     why: 'the ~~TRACK_WORKSPACE_ID~~ row promises "the BFF now REFUSES TO START if this is set"; it cited 112, which is a closing brace',
   },
-  'deploy/FULL-STACK-DEPLOY.md:39|apps/bff/main.go:111': {
+  'deploy/FULL-STACK-DEPLOY.md:39|apps/bff/main.go:116': {
     kind: 'LIVE',
     fragment: 'LENS_PROVISION_SECRET is required',
     why: '"BFF requires LENS_PROVISION_SECRET … Refuses to start, names itself" — it cited 94, a comment line naming a test',
   },
-  'deploy/FULL-STACK-DEPLOY.md:40|apps/bff/main.go:120': {
+  'deploy/FULL-STACK-DEPLOY.md:40|apps/bff/main.go:125': {
     kind: 'LIVE',
     fragment: 'LENS_API_KEY must not be set',
     why: '"BFF refuses to boot if LENS_API_KEY is set" — it cited 96, the docsGatewaySecret field',
@@ -502,7 +502,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'one configured workspace credential',
     why: 'the "cosmetic, not blocking" note that auth.go still describes the old one-workspace model — the only in-repo runbook pointer that was accurate',
   },
-  'apps/web/src/areas/docs/BFF-GAPS.md:14|apps/bff/lens.go:128': {
+  'apps/web/src/areas/docs/BFF-GAPS.md:14|apps/bff/lens.go:131': {
     kind: 'LIVE',
     fragment: '"/api/docs/spaces"',
     why: 'the Docs proxy mechanics are "same as the existing route"; it cited lens.go:74, which is /api/bonds — three more Docs routes were mounted above it',
@@ -516,17 +516,17 @@ const PINS: Record<string, Pin> = {
   // in THIS repository can move without touching the screen. That is exactly the rot this file
   // was written for: `billing.go:180` moved and the sentence explaining "nothing was charged"
   // ended up pointing at the one function that cannot charge.
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:811': {
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:814': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the screen marks YOUR row by comparing /auth/me\'s email to the roster; the claim that this header is the membership join key is the whole basis for that being a join rather than a guess',
   },
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/auth.go:664': {
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/auth.go:681': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'the other half of the same argument — the browser may only mark a row if /auth/me serves the SAME value the BFF forwards upstream',
   },
-  'apps/web/src/areas/lens/Members.tsx:46|apps/bff/main.go:116': {
+  'apps/web/src/areas/lens/Members.tsx:46|apps/bff/main.go:121': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID',
     why: 'the provenance line used to say the workspace is "pinned server-side"; this is the line that refuses to boot into that design, and it is why the sentence changed',
@@ -536,27 +536,27 @@ const PINS: Record<string, Pin> = {
     fragment: 'workspace_id=SOMEBODY-ELSE',
     why: 'the positive half — the screen says a browser-named workspace is ignored, and this is the test that drives one',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:43|apps/bff/main.go:236': {
+  'apps/web/src/areas/lens/Members.test.tsx:43|apps/bff/main.go:241': {
     kind: 'LIVE',
     fragment: 'TRACK_BASE_URL',
     why: 'the 503 state names the two variables as the next action; they are read from here, not remembered',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:259|apps/bff/main.go:236': {
+  'apps/web/src/areas/lens/Members.test.tsx:259|apps/bff/main.go:241': {
     kind: 'LIVE',
     fragment: 'TRACK_BASE_URL',
     why: 'the same claim at the case that asserts it, so the case and the header cannot drift apart',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:50|apps/bff/auth.go:664': {
+  'apps/web/src/areas/lens/Members.test.tsx:50|apps/bff/auth.go:681': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:811': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:814': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/auth.go:664': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/auth.go:681': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'same sentence, the /auth/me half',
@@ -566,7 +566,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'http.MethodGet',
     why: 'the screen renders no control at all because this BFF proxies a GET and nothing else; this is the method test that makes that true',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:369|apps/bff/main.go:116': {
+  'apps/web/src/areas/lens/Members.test.tsx:369|apps/bff/main.go:121': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID',
     why: 'the case that forbids the word "pinned" in the provenance line cites the refusal that makes pinning impossible',

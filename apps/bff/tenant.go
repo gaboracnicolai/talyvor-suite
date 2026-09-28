@@ -211,6 +211,12 @@ const workspaceTokenSkew = 60 * time.Second
 // fail upstream as it would have anyway. Turning a refresh blip into a hard failure would make
 // this change strictly worse than the bug it fixes.
 func (a *app) refreshWorkspaceToken(ctx context.Context, sid string, s session) session {
+	// A SYNTHETIC SESSION IS NEVER RE-PROVISIONED. Its workspace came from Lens's synthetic routes;
+	// provisioning its sub would create a REAL workspace and move the session into it. Its token
+	// lives as long as the session (synthetic.go caps one by the other).
+	if s.synthetic {
+		return s
+	}
 	// UNKNOWN IS NOT EXPIRED. parseExpiry yields the zero time when Lens sends an unparseable or
 	// absent expires_at; reading that as "expired in 1 AD" would re-provision on EVERY request
 	// forever — an upstream formatting quirk turned into a self-inflicted load spike that looks

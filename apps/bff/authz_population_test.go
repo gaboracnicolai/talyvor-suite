@@ -108,6 +108,9 @@ var publicReadRoutes = map[string]string{
 		"locked from the inside (503 here only because this fixture configures no IdP)",
 	"/auth/callback": "the IdP redirect target — the browser arrives here BEFORE any session " +
 		"exists (503 here only because this fixture configures no IdP)",
+	"/auth/synthetic": "B17.2 — the synthetic sign-in, which by definition runs before any session " +
+		"exists. It needs the operator key instead (401 without it) and answers 404 while " +
+		"LENS_SYNTHETIC_KEY is unset, as here; synthetic_test.go owns both refusals",
 	"/": "the SPA shell. It has to load before anyone can sign in; spa_fallback_test.go owns " +
 		"what it serves and spa_cache_test.go how it is cached. 404 in tests — no bundle is built",
 }
@@ -249,6 +252,9 @@ func TestRouteMountsLiveInLensGoAlone(t *testing.T) {
 var publicWriteRoutes = map[string]string{
 	"/": "the SPA fallback. There is no handler behind an unsafe method here — the router " +
 		"answers 404 and nothing is reached, so there is no session to require",
+	"/auth/synthetic": "B17.2 — the synthetic sign-in, which by definition runs before any session " +
+		"exists. It needs the operator key instead (401 without it) and answers 404 while " +
+		"LENS_SYNTHETIC_KEY is unset, as here; synthetic_test.go owns both refusals",
 	"/auth/logout": "session teardown, which cannot require the session it is tearing down. " +
 		"503 here only because this fixture configures no IdP (a.auth is nil); " +
 		"logout_test.go owns what it does when one exists",

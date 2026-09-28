@@ -63,6 +63,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/auth/callback", a.handleCallback)
 	a.mux.HandleFunc("/auth/logout", a.handleLogout)
 	a.mux.HandleFunc("/auth/me", a.handleMe)
+	// B17.2 — a synthetic test user signs in with the operator key; 404 unless LENS_SYNTHETIC_KEY
+	// is set. See synthetic.go.
+	a.mux.HandleFunc("/auth/synthetic", a.handleSyntheticSignIn)
 
 	// /api/version is one of the TWO /api/ routes with no session gate. It reports which commit this
 	// binary was built from and which bundle it is serving, and it is deliberately readable
