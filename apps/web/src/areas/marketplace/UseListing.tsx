@@ -60,10 +60,16 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
   const { models, runnable } = useRunnableModels()
   const [model, setModel] = useState('')
   const [input, setInput] = useState('')
-  // The owner sees the template, so its variables are known up front; anyone else learns them from
-  // Lens's refusal of a use without them — which runs nothing and charges nothing.
-  const template = listing.versions?.find((v) => v.version === listing.latest_version)?.artifact?.template
-  const [vars, setVars] = useState<string[]>(() => (typeof template === 'string' ? variablesIn(template) : []))
+  // B20.8: Lens says what a use of the latest version needs — its input, a prompt's variables, the model
+  // it runs on — to everyone who may use it. A Lens that does not say leaves the owner reading the
+  // template and anyone else learning the variables from Lens's refusal of a use without them, which
+  // runs nothing and charges nothing.
+  const latest = listing.versions?.find((v) => v.version === listing.latest_version)
+  const needs = latest?.needs
+  const template = latest?.artifact?.template
+  const [vars, setVars] = useState<string[]>(() =>
+    needs ? (needs.variables ?? []) : typeof template === 'string' ? variablesIn(template) : [],
+  )
   const [values, setValues] = useState<Record<string, string>>({})
   const use = useMutation({
     mutationFn: () => marketApi.use(listing.id, { model, input, variables: values }),
@@ -75,7 +81,9 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
   if (listing.kind === 'pipeline') {
     return <p className="text-body text-muted">Pipelines can be published and found here, but not used yet.</p>
   }
-  const needsInput = listing.kind === 'agent' || listing.kind === 'skill'
+  const needsInput = needs ? needs.input : listing.kind === 'agent' || listing.kind === 'skill'
+  // With no model of its own, the person must name one: Lens refuses a use that runs on nothing.
+  const needsModel = needs !== undefined && needs.model === '' && model === ''
   const paid = listing.price_per_use_ulxc > 0 && !own
   return (
     <div className="flex flex-col gap-3">
@@ -108,7 +116,12 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
             />
           </label>
         ) : null}
-        {listing.kind === 'prompt' && !(vars.length > 0) ? (
+        {listing.kind === 'evaluation' && needs?.cases ? (
+          <p className="text-caption text-muted">
+            Runs its <span className="font-figure">{needs.cases}</span> cases on the model below and shows which pass.
+          </p>
+        ) : null}
+        {listing.kind === 'prompt' && !needs && !(vars.length > 0) ? (
           <p className="text-caption text-muted">
             If this prompt needs values filled in, Lens names them the first time you use it — nothing runs or is
             charged until they are there.
@@ -124,7 +137,9 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
           <label className="text-caption text-muted">
             Model
             <select className={selectClass} value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="">The listing’s own model</option>
+              <option value="">
+                {needs?.model ? `Its own: ${needs.model}` : needs ? 'Choose a model' : 'The listing’s own model'}
+              </option>
               {runnable.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.display_name}
@@ -132,7 +147,7 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
               ))}
             </select>
           </label>
-          <Button type="submit" variant="primary" disabled={use.isPending || (needsInput && input.trim() === '')}>
+          <Button type="submit" variant="primary" disabled={use.isPending || needsModel || (needsInput && input.trim() === '')}>
             {use.isPending ? (
               'Running…'
             ) : listing.kind === 'evaluation' ? (

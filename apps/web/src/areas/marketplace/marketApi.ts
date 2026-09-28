@@ -22,12 +22,25 @@ export const KINDS: readonly { kind: ListingKind; label: string; plural: string 
 
 export const kindLabel = (k: string) => KINDS.find((x) => x.kind === k)?.label ?? k
 
+/** Lens market.Needs (B20.8) — what a use of a version asks for, shown to everyone who may use it. */
+export interface ListingNeeds {
+  /** an agent or a skill takes the person's message */
+  input: boolean
+  /** a prompt's {{variables}}, by name */
+  variables: string[] | null
+  /** the model it runs on unless the person names another; "" when it names none */
+  model: string
+  /** an evaluation's case count */
+  cases?: number
+}
+
 /** Lens market.Version. `artifact` is present only for the listing's owner. */
 export interface ListingVersion {
   version: number
   artifact_sha256: string
   changelog?: string
   created_at: string
+  needs?: ListingNeeds
   artifact?: Record<string, unknown>
 }
 
