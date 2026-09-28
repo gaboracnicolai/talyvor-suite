@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
 
 // B20.3 — the marketplace, walked the way its DONE line reads: publish a prompt from one workspace,
-// find it and use it from another, and see the earnings on the first. The mock BFF plays Lens's
+// find it and use it from another — whose monthly bill then carries the use (B20.10) — and see the
+// earnings on the first. The mock BFF plays Lens's
 // B20.1–B20.2 routes for two workspaces — `as` says which one is signed in — and does what Lens does:
 // a publish carrying a secret is refused with its sentence, every viewer is told what a use needs but
 // only the owner sees the template (B20.8, used by B20.9), a prompt used without its variables is
@@ -13,7 +14,7 @@ import { App, queryClient } from '../../App'
 function mockBff() {
   const state = { as: 'ws_seller' }
   const listings: Array<Record<string, unknown>> = []
-  const uses: Array<{ seller: string; price: number }> = []
+  const uses: Array<{ seller: string; buyer: string; listing: string; title: string; price: number }> = []
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -69,6 +70,15 @@ function mockBff() {
         earnings: null,
       })
     }
+    if (url.startsWith('/api/marketplace/bill?month=')) {
+      const mine = uses.filter((u) => u.buyer === state.as)
+      return json({
+        month: url.slice(-7),
+        total_ulxc: mine.reduce((s, u) => s + u.price, 0),
+        total_usd_micros: mine.reduce((s, u) => s + u.price / 10, 0),
+        lines: mine.map((u, i) => ({ use_id: `use_${i}`, listing_id: u.listing, title: u.title, price_ulxc: u.price, used_at: '2026-09-28T10:00:00Z' })),
+      })
+    }
     const use = /^\/api\/marketplace\/listings\/([^/]+)\/use$/.exec(url)
     const one = /^\/api\/marketplace\/listings\/([^/]+)$/.exec(url)
     const l = listings.find((x) => x.id === (use ?? one)?.[1])
@@ -80,7 +90,7 @@ function mockBff() {
     if (missing.length > 0)
       return json({ error: `market: invalid listing: the prompt needs the variables ${missing.join(', ')}` }, 400)
     const own = l.workspace_id === state.as
-    if (!own) uses.push({ seller: String(l.workspace_id), price: Number(l.price_per_use_ulxc) })
+    if (!own) uses.push({ seller: String(l.workspace_id), buyer: state.as, listing: String(l.id), title: String(l.title), price: Number(l.price_per_use_ulxc) })
     return json({
       id: 'use_1', listing_id: l.id, version: 1, kind: 'prompt', model: body.model || 'gpt-4o',
       charge: own ? 'own' : 'billed', price_ulxc: own ? 0 : l.price_per_use_ulxc,
@@ -131,6 +141,11 @@ describe('the marketplace', () => {
     const result = await screen.findByTestId('market-use-result')
     expect(within(result).getByText('Bonjour — Hello')).toBeTruthy()
     expect(result.textContent).toContain('0.5 LXC is on your marketplace bill for this month.')
+
+    // B20.10 — the buyer's bill for this month carries that use, its price and the total.
+    await at('/marketplace/bill')
+    await waitFor(() => expect(screen.getByTestId('market-bill-total').textContent).toBe('0.5 LXC · $0.05'))
+    expect(screen.getByRole('link', { name: 'Translate to French' })).toBeTruthy()
 
     state.as = 'ws_seller'
     await at('/marketplace/selling')

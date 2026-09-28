@@ -3,9 +3,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Route, Routes, useNavigate } from 'react-router-dom'
 import { Button, Card, CardHeader, Input, Row, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
-import { formatUSD } from '../lens/format'
+import { formatULXC } from '../lens/agentBankApi'
+import { formatUSD, formatWhen } from '../lens/format'
 import { ListingPage } from './ListingPage'
-import { type ListingKind, KINDS, marketApi, parsePrice, refusalText, variablesIn } from './marketApi'
+import {
+  type ListingKind,
+  KINDS,
+  marketApi,
+  monthName,
+  parsePrice,
+  recentMonths,
+  refusalText,
+  variablesIn,
+} from './marketApi'
 import { CATALOG_KEY, EARNINGS_KEY, ListingRow, MINE_KEY, Note, readFailure, selectClass, useRunnableModels } from './parts'
 
 // Marketplace.tsx — B20.3: the marketplace. Browse and search what other teams published (agents,
@@ -355,6 +365,74 @@ function Selling() {
   )
 }
 
+// ── The buyer's bill: the paid listings this workspace used, month by month ───────────────────────
+
+function Bill() {
+  const months = recentMonths(new Date())
+  const [month, setMonth] = useState(months[0])
+  const bill = useQuery({ queryKey: ['market-bill', month], queryFn: () => marketApi.bill(month) })
+  const lines = bill.data?.lines ?? []
+  return (
+    <Region
+      index="00"
+      label="Your bill"
+      heading="What your workspace used in the marketplace"
+      sectionClassName="pb-10 pt-4 wide:pb-12"
+      className="flex max-w-2xl flex-col gap-3"
+    >
+      <p className="text-body text-muted">
+        Every paid listing your workspace or its agents used, billed on your card each month — never taken from your
+        credits. The models a listing calls are on your usual bill, not here.
+      </p>
+      <label className="text-caption text-muted">
+        Month
+        <select className={`${selectClass} w-56`} value={month} onChange={(e) => setMonth(e.target.value)}>
+          {months.map((m) => (
+            <option key={m} value={m}>
+              {monthName(m)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {bill.isError ? (
+        <p className="text-body text-muted">{readFailure(bill.error, 'Your bill')}</p>
+      ) : bill.isPending ? (
+        <p className="text-body text-muted">Reading…</p>
+      ) : (
+        <Card>
+          <CardHeader>{monthName(bill.data.month || month)}</CardHeader>
+          {lines.map((l) => (
+            <Row
+              key={l.use_id}
+              label={
+                <Link className={`text-ink ${inlineLink}`} to={`/marketplace/listings/${encodeURIComponent(l.listing_id)}`}>
+                  {l.title || l.listing_id}
+                </Link>
+              }
+              hint={
+                <>
+                  <span className="font-figure">{formatWhen(l.used_at)}</span>
+                  {l.agent_id ? ' · by an agent' : ''} · {l.cleared_at ? 'paid' : 'not yet paid'}
+                </>
+              }
+            >
+              <span className="font-figure text-body text-ink">{formatULXC(l.price_ulxc)}</span>
+            </Row>
+          ))}
+          <Row
+            label="Total"
+            hint={lines.length > 0 ? 'Billed on your card for this month' : 'No paid listing was used this month'}
+          >
+            <span className="font-figure text-body text-ink" data-testid="market-bill-total">
+              {formatULXC(bill.data.total_ulxc)} · {formatUSD(bill.data.total_usd_micros)}
+            </span>
+          </Row>
+        </Card>
+      )}
+    </Region>
+  )
+}
+
 export function MarketplaceArea() {
   return (
     <RegionScreen>
@@ -363,6 +441,7 @@ export function MarketplaceArea() {
         <Route path="listings/:id" element={<ListingPage />} />
         <Route path="publish" element={<Publish />} />
         <Route path="selling" element={<Selling />} />
+        <Route path="bill" element={<Bill />} />
         {/* Anything else under /marketplace/* lands on the catalog rather than a dead end. */}
         <Route path="*" element={<Browse />} />
       </Routes>

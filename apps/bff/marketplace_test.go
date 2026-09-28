@@ -49,6 +49,8 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
 		case strings.HasSuffix(r.URL.Path, "/use"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "use_1", "charge": "billed", "price_ulxc": 500000, "output": "Bonjour"})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/bill"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"month": r.URL.Query().Get("month"), "total_ulxc": 500000, "total_usd_micros": 50000, "lines": []any{}})
 		case r.URL.Path == "/v1/marketplace/listings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"listings": []any{}})
 		default:
@@ -112,5 +114,21 @@ func TestMarketplaceUseGoesOnTheSessionKey(t *testing.T) {
 	rec = doJSON(a, http.MethodPost, "/api/marketplace/listings/lst_paid/use", `{"input":"Hello"}`)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "no marketplace bill") {
 		t.Fatalf("a paid use with no bill = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// B20.10 — the buyer's bill is read for the month asked, on the session's workspace; a month Lens could
+// not read is refused before Lens is asked.
+func TestMarketplaceBillReadsTheMonthAsked(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	rec := doJSON(a, http.MethodGet, "/api/marketplace/bill?month=2026-09", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"total_ulxc":500000`) {
+		t.Fatalf("bill = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodGet, "/api/marketplace/bill?month=2026-9&x=1", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a malformed month = %d, want 400", rec.Code)
+	}
+	if len(f.got) != 1 || !strings.Contains(f.got[0], "/marketplace/bill?month=2026-09 ") || !strings.HasPrefix(f.got[0], "GET /v1/workspaces/") {
+		t.Fatalf("Lens received %q, want one read of the September bill on the session's workspace", f.got)
 	}
 }

@@ -257,6 +257,7 @@ function Sidebar() {
         {item('/marketplace', 'Browse', false, pathname === '/marketplace' || pathname.startsWith('/marketplace/listings'))}
         {item('/marketplace/publish', 'Publish')}
         {item('/marketplace/selling', 'Your listings & earnings')}
+        {item('/marketplace/bill', 'Your bill')}
       </Group>
       <Group label="Chat">
         {item('/chat', 'Conversations')}
