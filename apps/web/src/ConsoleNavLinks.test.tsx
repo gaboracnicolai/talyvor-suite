@@ -95,6 +95,10 @@ const SIDEBAR_DESTINATIONS = [
   '/keys',
   // B19.4 — the Agent Bank, beside the keys an agent spends through.
   '/agents',
+  // B20.3 — the marketplace: browse, publish, and what your listings earned.
+  '/marketplace',
+  '/marketplace/publish',
+  '/marketplace/selling',
   '/spend',
   '/members',
   '/settings',

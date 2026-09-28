@@ -141,6 +141,13 @@ const BY_PATH: Record<string, unknown> = {
   },
   '/api/features/deletion-requests': { requests: [{ id: 1, status: 'requested', requested_at: '2026-09-27T12:00:00Z' }] },
   // B19.4 — the Agent Bank: two agents, one funded with rules, one payment waiting for a person.
+  // B20.3 — the marketplace catalog: a paid prompt and a free agent another workspace published.
+  '/api/marketplace/listings': {
+    listings: [
+      { id: 'lst_translate', workspace_id: 'ws-seller', kind: 'prompt', title: 'Translate to French', description: 'Idiomatic French for any English text.', price_per_use_ulxc: 500_000, visibility: 'public', latest_version: 2, created_at: '2026-09-27T09:00:00Z', updated_at: '2026-09-27T10:00:00Z' },
+      { id: 'lst_review', workspace_id: 'ws-seller', kind: 'agent', title: 'Code reviewer', description: 'Reviews a diff for correctness.', price_per_use_ulxc: 0, visibility: 'public', latest_version: 1, created_at: '2026-09-27T11:00:00Z', updated_at: '2026-09-27T11:00:00Z' },
+    ],
+  },
   '/api/agents': {
     workspace_balance_ulxc: 100_000_000,
     allocated_ulxc: 12_500_000,

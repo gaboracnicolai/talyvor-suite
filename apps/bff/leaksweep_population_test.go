@@ -308,9 +308,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// twice) and /api/agents/push/subscriptions (POST and DELETE). What they change is read back through
 	// GET /api/agents/passkeys and /api/agents/approvals, which the sweep reaches; a subscription is
 	// never read back at all. Each relays Lens's answer (or its refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 35 {
+	//
+	// THE THIRTY-SIXTH IS B20.3'S /api/marketplace/listings/{id}/use, POST only: a use runs a listing and
+	// answers its output once. What it bills is read back through GET /api/marketplace/earnings on the
+	// seller's side, which the sweep reaches. It relays Lens's answer (or its refusal) and adds nothing
+	// the BFF holds.
+	if len(methodOnly) > 36 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 35 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 36 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
