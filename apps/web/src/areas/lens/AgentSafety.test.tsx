@@ -23,7 +23,7 @@ function mockBff() {
         ...(allPaused ? { all_paused_at: allPaused.at, all_paused_reason: allPaused.reason } : {}),
         agents: [{
           id: 'agt_1', name: 'Researcher', balance_ulxc: 0, spent_ulxc: 0, keys: [], created_at: '2026-09-28T09:00:00Z',
-          ...(researcherPaused ? { paused_at: '2026-09-28T10:00:00Z', paused_reason: 'paused from the Agent Bank' } : {}),
+          ...(researcherPaused ? { paused_at: '2026-09-28T10:00:00Z', paused_reason: 'paused from Agent Wallets' } : {}),
         }],
       })
     if (url === '/api/agents/pause-all') { allPaused = { at: '2026-09-28T10:00:00Z', reason: 'audit' }; return json({ all_paused: true }) }
@@ -67,13 +67,13 @@ describe('the Agent Bank stops every agent or one, and shows what they are spend
     await screen.findByRole('button', { name: 'Pause every agent' })
 
     fireEvent.click(await screen.findByRole('button', { name: 'Pause Researcher' }))
-    expect((await screen.findByTestId('agent-paused')).textContent).toBe('Researcher is paused — paused from the Agent Bank.')
+    expect((await screen.findByTestId('agent-paused')).textContent).toBe('Researcher is paused — paused from Agent Wallets.')
     expect(screen.getByText('Paused')).toBeTruthy()
 
     expect(posts.map((p) => [p.url, p.body])).toEqual([
       ['/api/agents/pause-all', { reason: 'audit' }],
       ['/api/agents/resume-all', {}],
-      ['/api/agents/agt_1/pause', { reason: 'paused from the Agent Bank' }],
+      ['/api/agents/agt_1/pause', { reason: 'paused from Agent Wallets' }],
     ])
   })
 })

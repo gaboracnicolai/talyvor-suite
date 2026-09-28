@@ -1,5 +1,5 @@
 // sw.js — B19.10: shows the push Lens sends when an agent's request or payment waits for approval,
-// and opens the Agent Bank when it is tapped. The payload is decrypted by the browser (RFC 8291).
+// and opens Agent Wallets when it is tapped. The payload is decrypted by the browser (RFC 8291).
 self.addEventListener('push', (event) => {
   let d = {}
   try {
@@ -11,7 +11,7 @@ self.addEventListener('push', (event) => {
   const amount = d.amount_lxc ? `${d.amount_lxc} LXC` : 'a payment'
   event.waitUntil(
     self.registration.showNotification(`${who} asks you to approve ${amount}`, {
-      body: d.reason || 'Open the Agent Bank to approve or deny it.',
+      body: d.reason || 'Open Agent Wallets to approve or deny it.',
       tag: d.approval_id || 'agent-approval',
       data: { url: '/agents#approvals' },
     }),

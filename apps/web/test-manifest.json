@@ -99,7 +99,7 @@
   "src/ClaimsAudit.test.tsx": 38,
   "src/ConsoleDeepHeading.test.tsx": 11,
   "src/ConsoleHeading.test.tsx": 22,
-  "src/ConsoleNavLinks.test.tsx": 29,
+  "src/ConsoleNavLinks.test.tsx": 30,
   "src/ConsoleTitle.test.tsx": 37,
   "src/controlParity.test.ts": 10,
   "src/copyFailure.test.tsx": 12,

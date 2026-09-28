@@ -109,7 +109,7 @@ if [ "${target}" = "all" ] || [ "${target}" = "web" ]; then
         exit 1
     fi
 
-    echo "==> asserting the bundle no longer says what B21.4 replaced"
+    echo "==> asserting the bundle no longer says what B21.4 and B21.6 replaced"
     node apps/web/scripts/check-retired-sentences.mjs apps/web/dist
 fi
 
