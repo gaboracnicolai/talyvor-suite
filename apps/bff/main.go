@@ -94,6 +94,10 @@ type config struct {
 	// TestConfigCarriesNoStartupWorkspaceIdentity.
 	docsBaseURL       string // e.g. http://127.0.0.1:8082
 	docsGatewaySecret string // Docs' GATEWAY_AUTH_SECRET — held here, never emitted
+
+	// syntheticKey is Lens's LENS_SYNTHETIC_KEY, the same value under the same name. Set, it opens
+	// POST /auth/synthetic for Lens's synthetic workspaces only (synthetic.go); unset, that 404s.
+	syntheticKey string
 }
 
 func loadConfig() (config, error) {
@@ -104,6 +108,7 @@ func loadConfig() (config, error) {
 		provisionSecret:   os.Getenv("LENS_PROVISION_SECRET"),
 		webDist:           envOr("WEB_DIST", "../web/dist"),
 		authMode:          os.Getenv("BFF_AUTH_MODE"),
+		syntheticKey:      os.Getenv("LENS_SYNTHETIC_KEY"),
 	}
 	// Per-tenant provisioning replaces the single shared workspace key. Refuse to start without
 	// it: silently falling back to one shared workspace is exactly the state this replaced.

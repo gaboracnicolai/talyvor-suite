@@ -71,6 +71,10 @@ type session struct {
 	// must not fail login, and the emptiness must not be trusted for the session's lifetime —
 	// trackWorkspaceFor re-asks. See track_tenant.go for both rules.
 	trackWorkspaceID string
+
+	// synthetic marks a B17.2 test user's session (synthetic.go). Its workspace came from Lens's
+	// synthetic routes, not from provisioning, so it is never re-provisioned (tenant.go).
+	synthetic bool
 }
 
 func (s session) expiresAt() time.Time { return s.expires }
@@ -446,11 +450,6 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if old, err := r.Cookie(sessionCookieName); err == nil {
 		a.auth.sessions.delete(old.Value)
 	}
-	sid, err := randomToken()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "entropy unavailable"})
-		return
-	}
 	// PROVISION: turn this identity into a tenant before the session exists. The workspace id is
 	// derived by LENS from the identity we present — the BFF never names a workspace, so no bug
 	// here can aim at another tenant. A provisioning failure is a hard stop: falling back to a
@@ -487,7 +486,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	a.auth.sessions.put(sid, session{
+	if err := a.startSession(w, r, session{
 		sub:     idt.Subject,
 		email:   strings.ToLower(claims.Email),
 		expires: time.Now().Add(a.cfg.sessionTTL),
@@ -501,10 +500,28 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		cachePoolable: prov.CachePoolable,
 		// Ask the pooling question exactly once: on the login that CREATED the workspace.
 		needsPoolingChoice: prov.Created,
-	})
-	setCookie(w, sessionCookieName, sid, int(a.cfg.sessionTTL.Seconds()))
+	}, int(a.cfg.sessionTTL.Seconds())); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "entropy unavailable"})
+		return
+	}
 	log.Printf("bff: session created for sub=%s", idt.Subject)
 	http.Redirect(w, r, p.returnTo, http.StatusFound)
+}
+
+// startSession stores a new session and hands the browser its id. It is the one place a whole
+// session is stored (session_clobber_test.go): the OIDC callback and the synthetic sign-in
+// (synthetic.go) both create theirs here. Any session this browser already held dies with it.
+func (a *app) startSession(w http.ResponseWriter, r *http.Request, s session, maxAge int) error {
+	if old, err := r.Cookie(sessionCookieName); err == nil {
+		a.auth.sessions.delete(old.Value)
+	}
+	sid, err := randomToken()
+	if err != nil {
+		return err
+	}
+	a.auth.sessions.put(sid, s)
+	setCookie(w, sessionCookieName, sid, maxAge)
+	return nil
 }
 
 // deniedPageTmpl is the ENTIRE first impression for an authenticated-but-unauthorised identity —

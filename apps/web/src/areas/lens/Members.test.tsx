@@ -40,14 +40,14 @@ import { Members } from './Members'
 //
 // ⚠ THE STATE A NEW SIGNUP ACTUALLY SEES FIRST ON THIS DEPLOYMENT IS THE 503, and that is where
 // the "name the next action" half of W1.1.6 lands: the two variables, measured from
-// apps/bff/main.go:236-256, not remembered.
+// apps/bff/main.go:241-256, not remembered.
 
 const ROSTER = [
   { id: 'mem-owner', name: 'Ada Owner', email: 'ada@corp.example', role: 'owner', avatar_url: '' },
   { id: 'mem-1', name: 'Bo Member', email: 'bo@corp.example', role: 'member', avatar_url: '' },
 ]
 
-/** The signed-in identity, in the exact shape /auth/me serves it (apps/bff/auth.go:664). */
+/** The signed-in identity, in the exact shape /auth/me serves it (apps/bff/auth.go:681). */
 function meBody(email: string | null) {
   return email === null
     ? { mode: 'disabled', authenticated: false, user: null }
@@ -182,7 +182,7 @@ describe('the screen has a shape a reader can move through', () => {
 
 describe('which row is YOU — the same key the roster was joined on', () => {
   // The BFF forwards `X-User-Email: sess.email` as "the workspace-membership join key"
-  // (apps/bff/lens.go:811) and /auth/me serves that SAME `s.email` (apps/bff/auth.go:664). Track
+  // (apps/bff/lens.go:814) and /auth/me serves that SAME `s.email` (apps/bff/auth.go:681). Track
   // authorizes with `WHERE email = $1` — an exact SQL comparison — so the marking uses an exact
   // comparison too. Lower-casing here would be a DIFFERENT rule from the one that produced the
   // row, and would claim a match the upstream did not make.
@@ -256,7 +256,7 @@ describe('an unconfigured Track upstream is DETECTED, never asserted', () => {
 
   // W1.1.6: "the empty state names the absence without naming the next action". On THIS deployment
   // the 503 is the state a new signup meets first, so the next action lands here. Both names are
-  // measured from apps/bff/main.go:236-256, and the all-or-none rule with them: setting one alone
+  // measured from apps/bff/main.go:241-256, and the all-or-none rule with them: setting one alone
   // makes the BFF refuse to boot.
   it('names the next action — the two variables that wire Track, and that they go together', async () => {
     mockBff({ status: 503, body: { error: 'track upstream not configured on this BFF' } })
@@ -366,7 +366,7 @@ describe('the screen offers no control this product does not have', () => {
 describe('the provenance line states the mechanism this deployment actually uses', () => {
   // ⚠ THE OLD LINE SAID "the workspace is pinned server-side", AND THIS PRODUCT REFUSES TO BOOT
   // INTO THAT DESIGN. `TRACK_WORKSPACE_ID` — the variable that pinned one workspace at startup —
-  // is gone, and apps/bff/main.go:116 refuses the boot if it is set, with the reason spelled out:
+  // is gone, and apps/bff/main.go:121 refuses the boot if it is set, with the reason spelled out:
   // "Track is per-session … this variable is not read. Remove it; leaving it set would state a
   // pinning that does not happen". The screen was stating exactly that pinning.
   //

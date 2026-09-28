@@ -80,6 +80,7 @@ without.
 | `TRACK_GATEWAY_SECRET` | — | must equal Track's `GATEWAY_AUTH_SECRET` |
 | `DOCS_BASE_URL` | — | optional pair; unset ⇒ `/api/docs/*` answers 503 |
 | `DOCS_GATEWAY_SECRET` | — | must equal Docs' `GATEWAY_AUTH_SECRET` |
+| `LENS_SYNTHETIC_KEY` | — | same value as Lens's; set ⇒ `POST /auth/synthetic` signs in Lens's synthetic test workspaces (B17.2), unset ⇒ 404 |
 
 That is the whole surface, and it is held to the binary from both sides:
 `TestEveryEnvVarTheBinaryReadsIsDocumented` fails if a variable is read and missing here,
