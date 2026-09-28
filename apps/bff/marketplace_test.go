@@ -49,6 +49,14 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
 		case strings.HasSuffix(r.URL.Path, "/use"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "use_1", "charge": "billed", "price_ulxc": 500000, "output": "Bonjour"})
+		case strings.HasSuffix(r.URL.Path, "/reports"):
+			if !strings.Contains(string(raw), `"reason":"secret"`) {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "market: invalid listing: reason must be malicious, injection, secret, personal_data, infringing, misleading or other"})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "rpt_1", "listing_id": "lst_1", "reason": "secret"})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/bill"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"month": r.URL.Query().Get("month"), "total_ulxc": 500000, "total_usd_micros": 50000, "lines": []any{}})
 		case r.URL.Path == "/v1/marketplace/listings":
@@ -130,5 +138,21 @@ func TestMarketplaceBillReadsTheMonthAsked(t *testing.T) {
 	}
 	if len(f.got) != 1 || !strings.Contains(f.got[0], "/marketplace/bill?month=2026-09 ") || !strings.HasPrefix(f.got[0], "GET /v1/workspaces/") {
 		t.Fatalf("Lens received %q, want one read of the September bill on the session's workspace", f.got)
+	}
+}
+
+// B20.11 — a report reaches Lens with only its reason and details, on the session's credential; a reason
+// Lens does not know comes back with its sentence.
+func TestMarketplaceReportForwardsReasonAndDetails(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	rec := doJSON(a, http.MethodPost, "/api/marketplace/listings/lst_1/reports", `{"reason":"secret","details":"an API key in the template","workspace_id":"x"}`)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"id":"rpt_1"`) {
+		t.Fatalf("report = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodPost, "/api/marketplace/listings/lst_1/reports", `{"reason":"boring"}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "reason must be") {
+		t.Fatalf("an unknown reason = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.HasPrefix(f.got[0], "POST /v1/marketplace/listings/lst_1/reports Bearer ") || !strings.HasSuffix(f.got[0], ` {"reason":"secret","details":"an API key in the template"}`) || strings.Contains(f.got[0], testSessionKey) {
+		t.Fatalf("Lens received %q, want the report on the workspace token with only reason and details", f.got[0])
 	}
 }

@@ -209,6 +209,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/schedules/x1/stop", body: `{}`},
 		{method: http.MethodPut, path: "/api/agents/x1/topup", body: `{"below_ulxc":1,"to_ulxc":2}`},
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
+		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys", body: `{"credential_id":"c","name":"n","public_key":"p","client_data_json":"j","authenticator_data":"a"}`},

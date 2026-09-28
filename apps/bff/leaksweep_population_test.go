@@ -328,9 +328,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// /api/agents/schedules/{sid}/stop, POST only. What they change is read back through GET
 	// /api/agents/schedules and /api/agents/schedules/{sid}/runs, which the sweep reaches. Each relays
 	// Lens's answer (or its refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 44 {
+	//
+	// THE FORTY-FIFTH IS B20.11'S /api/marketplace/listings/{id}/reports, POST only: a report goes to
+	// Talyvor's review and is read back only by an admin, through Lens, never through this BFF. It relays
+	// Lens's answer (or its refusal) and adds nothing the BFF holds.
+	if len(methodOnly) > 45 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 44 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 45 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

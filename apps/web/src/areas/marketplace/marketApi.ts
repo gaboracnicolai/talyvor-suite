@@ -57,6 +57,30 @@ export interface Listing {
   created_at: string
   updated_at: string
   versions?: ListingVersion[]
+  /** B20.4 — held at review (only its seller sees it), or taken down; approved otherwise. */
+  review_status?: 'approved' | 'held' | 'taken_down'
+  review_reason?: string
+}
+
+/** The reasons Lens takes a report for (B20.4), as a person would say them. */
+export const REPORT_REASONS: readonly [string, string][] = [
+  ['malicious', 'It does something harmful'],
+  ['injection', 'It tries to take over the model (prompt injection)'],
+  ['secret', 'It exposes a password, key or other secret'],
+  ['personal_data', 'It exposes someone’s personal data'],
+  ['infringing', 'It copies someone else’s work'],
+  ['misleading', 'It does not do what it says'],
+  ['other', 'Something else'],
+]
+
+/** Lens market.Report. */
+export interface ListingReport {
+  id: string
+  listing_id: string
+  reason: string
+  details?: string
+  created_at: string
+  already_reported?: boolean
 }
 
 /** Lens market.Draft — what a publish carries. */
@@ -180,6 +204,8 @@ export const marketApi = {
   bill: (month: string) => getJSON<MarketBill>(`/api/marketplace/bill?month=${e(month)}`),
   publish: (draft: ListingDraft) => post<Listing>('/api/marketplace/listings', draft),
   use: (id: string, req: UseRequest) => post<ListingUse>(`/api/marketplace/listings/${e(id)}/use`, req),
+  report: (id: string, reason: string, details: string) =>
+    post<ListingReport>(`/api/marketplace/listings/${e(id)}/reports`, { reason, details }),
 }
 
 /** A listing's price, in words. */
