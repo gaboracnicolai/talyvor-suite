@@ -119,7 +119,7 @@ function EarningsCard({ summary, sharing, pooled }: { summary: PlanSummary; shar
       <div className="flex flex-col gap-2 border-b border-rule px-gutter py-4">
         {sharing === false ? (
           <p className="text-body text-ink">
-            Answer sharing is off, so your answers earn nothing.{' '}
+            Answer sharing is off, so new answers earn nothing.{' '}
             <Link to="/features" className={inlineLink}>
               Turn it on in Features
             </Link>

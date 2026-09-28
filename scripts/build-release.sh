@@ -108,6 +108,9 @@ if [ "${target}" = "all" ] || [ "${target}" = "web" ]; then
         echo "FAIL the built bundle reports the unstamped placeholder as a commit" >&2
         exit 1
     fi
+
+    echo "==> asserting the bundle no longer says what B21.4 replaced"
+    node apps/web/scripts/check-retired-sentences.mjs apps/web/dist
 fi
 
 # ── bff ──────────────────────────────────────────────────────────────────────

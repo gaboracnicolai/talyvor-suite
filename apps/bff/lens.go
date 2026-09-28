@@ -293,6 +293,11 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/features/guardrails", a.requireTenant(a.handleFeatureGuardrails))
 	a.mux.HandleFunc("/api/features/logging", a.requireTenant(a.handleFeatureLogging))
 	a.mux.HandleFunc("/api/features/budget", a.requireTenant(a.handleFeatureBudget))
+	// B21.4 — what the workspace has stored, deleting it, and asking Talyvor to delete everything.
+	// See stored_answers.go.
+	a.mux.HandleFunc("/api/features/stored-answers", a.requireTenant(a.handleStoredAnswers))
+	a.mux.HandleFunc("/api/features/stored-answers/delete", a.requireTenant(a.handleStoredAnswersDelete))
+	a.mux.HandleFunc("/api/features/deletion-requests", a.requireTenant(a.handleDeletionRequests))
 	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
 	// previews, with no model call and no charge. See tryit.go.
 	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))

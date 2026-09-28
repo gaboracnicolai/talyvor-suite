@@ -5,6 +5,7 @@ import { Button, Input, Switch, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, api, getJSON } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
+import { StoredAnswers } from './StoredAnswers'
 
 // Features.tsx — B8.2, rebuilt at B11.2 from docs/features-inventory.md: every capability, grouped
 // by product, each saying what it does, where it works (with a link to that screen), and the
@@ -706,11 +707,11 @@ export function Features() {
               f?.cache_poolable == null
                 ? UNREAD
                 : !f.cache_poolable
-                  ? 'Off — nothing of yours is shared, and your answers earn nothing. Switch it on here'
+                  ? 'Off — no new answer of yours is shared. Answers shared before stay available, and keep earning, until you delete them below. Switch it on here'
                   : // B15.7 — Lens shares nothing from a workspace whose prompts are not checked for
                     // personal data, whatever this consent says. Unread guardrails keep today's reading.
                     f.guardrails?.pii === false
-                    ? 'Paused — personal-data detection is off, so nothing of yours is shared. Turn it back on (Lens’s guardrail settings) and sharing resumes with your next answer'
+                    ? 'Paused — personal-data detection is off, so no new answer of yours is shared. Turn it back on (Lens’s guardrail settings) and sharing resumes with your next answer'
                     : 'On — your answers earn when someone else is served one',
             )}
             control={
@@ -765,6 +766,8 @@ export function Features() {
           />
         </ul>
       </Region>
+
+      <StoredAnswers />
     </RegionScreen>
   )
 }

@@ -6,6 +6,7 @@ import { Button, Card, CardHeader, RevealOnce, inlineLink } from '@talyvor/ui'
 import { api } from '../../lib/api'
 import { Region, RegionScreen } from '../../components/Region'
 import { PanelFailure } from '../../components/SessionExpiredBar'
+import { StoredAnswersFacts } from '../../components/StoredAnswersFacts'
 import { useAuthMeReader } from '../../lib/authMe'
 import { keysApi, type MintResult, type WorkspaceAPIKey } from './keysApi'
 import { KEY_PLACEHOLDER, MECHANISM_CAVEATS, toolsFor, type Tool } from './setupSnippets'
@@ -230,11 +231,11 @@ export function Setup() {
             </p>
             <ul className="list-disc space-y-1 pl-5">
               <li>
-                <strong>What is stored.</strong> To serve a repeat request from cache, Lens stores a
-                hash of the prompt, an embedding of it, and the answer that came back — unless request
-                logging is set to <em>none</em>. Then nothing of your prompts or answers is stored
-                anywhere, so this workspace&rsquo;s own cache is off: a repeated question goes to the
-                model and is paid for again. Answers other companies chose to share can still be
+                <strong>What is stored.</strong> To serve a repeat request from cache, Lens stores the
+                answer that came back, with the question it answered.
+                <StoredAnswersFacts className="mt-1 text-body text-ink" />
+                Under <em>none</em> this workspace&rsquo;s own cache is off: a repeated question goes to
+                the model and is paid for again. Answers other companies chose to share can still be
                 served.
               </li>
               {/* ⚠ THIS SAID LOGGING WAS "who called what, when, and what it cost" AND STOPPED —
@@ -246,8 +247,8 @@ export function Setup() {
                   reads BEFORE pasting a key said the reassuring part only. */}
               <li>
                 <strong>Logging is separate and configurable.</strong> On the default setting the
-                audit trail is metadata — who called what, when, and what it cost — and your prompt
-                text is not kept. There is a <em>full</em> setting that does keep prompt text, and
+                audit trail is metadata — who called what, when, and what it cost — and the log does
+                not keep the prompt text. There is a <em>full</em> setting that does keep prompt text, and
                 also sends the prompt and the answer to a 30-day stream. Nothing in this app turns
                 it on, but an operator can, and you would not be able to tell from here. The{' '}
                 <em>none</em> setting keeps nothing: not in the log, and not in the cache.
@@ -263,7 +264,7 @@ export function Setup() {
                 {sharing === true
                   ? 'Answers generated here may be served to other companies. One click turns it off.'
                   : sharing === false
-                    ? 'Nothing generated here is reachable by another company.'
+                    ? 'Nothing new generated here is shared. Answers shared before stay available to others, and keep earning, until you delete them in Features.'
                     : 'We could not read the recorded value, so we will not guess at it.'}{' '}
                 <Link className={inlineLink} to="/settings">
                   {sharing === undefined ? 'See the setting' : 'Change it'}

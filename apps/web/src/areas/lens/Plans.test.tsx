@@ -82,10 +82,10 @@ describe('Plans (B13.3)', () => {
     expect(screen.queryByRole('button', { name: /^Choose/ })).not.toBeInTheDocument()
   })
 
-  it('says a subscriber with sharing off earns nothing, and where to switch it on', async () => {
+  it('says a subscriber with sharing off earns nothing on new answers, and where to switch it on', async () => {
     serve({ capability: 'subscriptions', enabled: true, data: SUBSCRIBED }, { sharing: false })
     renderIn(<Plans />)
-    expect(await screen.findByText(/Answer sharing is off, so your answers earn nothing/)).toBeInTheDocument()
+    expect(await screen.findByText(/Answer sharing is off, so new answers earn nothing/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Turn it on in Features' }).getAttribute('href')).toBe('/features')
   })
 

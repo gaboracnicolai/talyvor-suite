@@ -182,6 +182,25 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'subs.post(authed, "/v1/workspaces/{wsID}/billing/subscribe", func',
     subject: 'lensSubscribeBody',
   },
+  // B21.4 — Features' Stored answers: deleting them, and asking Talyvor to delete everything.
+  {
+    route: 'DELETE /v1/workspaces/{wsID}/stored-answers',
+    file: 'apps/bff/stored_answers.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"scope": in.Scope, "confirm": in.Confirm})',
+    upstreamFile: 'internal/storedanswers/http.go',
+    upstreamAnchor: 'func DeleteHandler(store Deleter, wsm WorkspaceLookup) http.HandlerFunc {',
+    subject: 'lensStoredAnswersDeleteBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/deletion-requests',
+    file: 'apps/bff/stored_answers.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"note": "Asked from Features"})',
+    upstreamFile: 'internal/storedanswers/http.go',
+    upstreamAnchor: 'func FileRequestHandler(store Deleter) http.HandlerFunc {',
+    subject: 'lensDeletionRequestBody',
+  },
 ]
 
 /**

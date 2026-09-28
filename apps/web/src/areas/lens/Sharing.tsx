@@ -4,6 +4,7 @@ import { Button, Card, CardHeader } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { useAuthMeReader } from '../../lib/authMe'
 import { DocumentFacts, DistillChoice } from './Documents'
+import { StoredAnswersFacts } from '../../components/StoredAnswersFacts'
 
 // Sharing.tsx — cross-tenant answer sharing: the explanation, and the control.
 //
@@ -46,17 +47,17 @@ export function SharingFacts() {
         <div className="flex-1">
           <p className="text-body text-ink">If sharing is off</p>
           <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-body text-muted">
-            <li>Nothing produced here is served to anyone else.</li>
+            <li>Nothing new produced here is shared.</li>
             <li>You are never served another company&rsquo;s answers.</li>
-            <li>You earn nothing from reuse, and pay full price for repeated questions.</li>
+            <li>New answers earn nothing from reuse, and you pay full price for repeated questions.</li>
           </ul>
         </div>
       </div>
 
       <p className="text-body text-muted">
-        Your API keys, your balance and your ledger are never shared, in either setting. Changing
-        this applies from that moment on — it does not reach back to answers already shared.
+        Your API keys, your balance and your ledger are never shared, in either setting.
       </p>
+      <StoredAnswersFacts />
     </div>
   )
 }
