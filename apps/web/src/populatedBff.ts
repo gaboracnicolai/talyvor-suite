@@ -140,6 +140,40 @@ const BY_PATH: Record<string, unknown> = {
     confirm_with: 'ws_populated',
   },
   '/api/features/deletion-requests': { requests: [{ id: 1, status: 'requested', requested_at: '2026-09-27T12:00:00Z' }] },
+  // B19.4 — the Agent Bank: two agents, one funded with rules, one payment waiting for a person.
+  '/api/agents': {
+    workspace_balance_ulxc: 100_000_000,
+    allocated_ulxc: 12_500_000,
+    unallocated_ulxc: 87_500_000,
+    spent_ulxc: 1_250_000,
+    agents: [
+      { id: 'agt_research', name: 'Researcher', balance_ulxc: 10_000_000, spent_ulxc: 1_250_000, keys: ['key_1'], created_at: '2026-09-27T09:00:00Z' },
+      { id: 'agt_writer', name: 'Writer', balance_ulxc: 2_500_000, spent_ulxc: 0, keys: [], created_at: '2026-09-27T09:05:00Z' },
+    ],
+  },
+  '/api/agents/approvals': {
+    approvals: [
+      { id: 'apr_1', agent_id: 'agt_research', amount_ulxc: 3_000_000, model: '', status: 'pending', created_at: '2026-09-27T12:30:00Z' },
+    ],
+  },
+  '/api/agents/agt_research/rules': {
+    max_per_request_ulxc: 0,
+    daily_limit_ulxc: 5_000_000,
+    monthly_limit_ulxc: 0,
+    approval_above_ulxc: 2_000_000,
+    allowed_models: null,
+    allowed_providers: null,
+    active_from: '',
+    active_until: '',
+    timezone: '',
+  },
+  '/api/agents/agt_research/statement': {
+    agent_id: 'agt_research',
+    lines: [
+      { entry_id: 'e2', kind: 'spend', amount_ulxc: -1_250_000, counterparty: 'spend', balance_after_ulxc: 10_000_000, at: '2026-09-27T11:00:00Z' },
+      { entry_id: 'e1', kind: 'fund', amount_ulxc: 11_250_000, counterparty: 'workspace', balance_after_ulxc: 11_250_000, at: '2026-09-27T10:00:00Z' },
+    ],
+  },
   '/api/usage': {
     period_days: 7,
     models: [

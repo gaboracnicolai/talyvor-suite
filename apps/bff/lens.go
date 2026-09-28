@@ -301,6 +301,18 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/features/stored-answers", a.requireTenant(a.handleStoredAnswers))
 	a.mux.HandleFunc("/api/features/stored-answers/delete", a.requireTenant(a.handleStoredAnswersDelete))
 	a.mux.HandleFunc("/api/features/deletion-requests", a.requireTenant(a.handleDeletionRequests))
+	// B19.4 — the Agent Bank: agents, their balances and rules, payments between them, and the
+	// approvals inbox. See agent_bank.go.
+	a.mux.HandleFunc("/api/agents", a.requireTenant(a.handleAgents))
+	a.mux.HandleFunc("/api/agents/approvals", a.requireTenant(a.handleAgentApprovals))
+	a.mux.HandleFunc("/api/agents/approvals/{id}/approve", a.requireTenant(a.handleAgentDecision("approve")))
+	a.mux.HandleFunc("/api/agents/approvals/{id}/deny", a.requireTenant(a.handleAgentDecision("deny")))
+	a.mux.HandleFunc("/api/agents/{id}/fund", a.requireTenant(a.handleAgentMove("fund")))
+	a.mux.HandleFunc("/api/agents/{id}/withdraw", a.requireTenant(a.handleAgentMove("withdraw")))
+	a.mux.HandleFunc("/api/agents/{id}/keys", a.requireTenant(a.handleAgentKeys))
+	a.mux.HandleFunc("/api/agents/{id}/rules", a.requireTenant(a.handleAgentRules))
+	a.mux.HandleFunc("/api/agents/{id}/statement", a.requireTenant(a.handleAgentStatement))
+	a.mux.HandleFunc("/api/agents/{id}/pay", a.requireTenant(a.handleAgentPay))
 	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
 	// previews, with no model call and no charge. See tryit.go.
 	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))

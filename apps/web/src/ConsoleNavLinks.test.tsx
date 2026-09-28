@@ -93,6 +93,8 @@ const SIDEBAR_DESTINATIONS = [
   '/plans',
   '/setup',
   '/keys',
+  // B19.4 — the Agent Bank, beside the keys an agent spends through.
+  '/agents',
   '/spend',
   '/members',
   '/settings',

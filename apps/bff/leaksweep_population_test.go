@@ -296,9 +296,15 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE TWENTY-SIXTH, /api/features/stored-answers/delete (B21.4), IS POST ONLY: what is left is read
 	// back through GET /api/features/stored-answers, which the sweep reaches. It relays Lens's counts of
 	// what it deleted (or its refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 26 {
+	//
+	// THE TWENTY-SEVENTH TO THIRTY-SECOND ARE THE AGENT BANK'S SIX WRITES (B19.4): /api/agents/{id}/fund,
+	// /withdraw, /keys and /pay, and /api/agents/approvals/{id}/approve and /deny, all POST only. What
+	// they change is read back through GET /api/agents, /api/agents/{id}/statement and
+	// /api/agents/approvals, which the sweep reaches. Each relays Lens's answer (or its refusal) and
+	// adds nothing the BFF holds.
+	if len(methodOnly) > 32 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 26 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 32 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
