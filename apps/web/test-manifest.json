@@ -21,6 +21,7 @@
   "src/areas/docs/tree.test.ts": 4,
   "src/areas/lens/AgentBank.test.tsx": 1,
   "src/areas/lens/AgentBankFaceID.test.tsx": 1,
+  "src/areas/lens/AgentListings.test.tsx": 1,
   "src/areas/lens/BillingReturn.test.tsx": 15,
   "src/areas/lens/billingTimingContract.test.ts": 3,
   "src/areas/lens/Convert.test.tsx": 12,

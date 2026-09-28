@@ -35,9 +35,13 @@ export interface AgentRules {
   approval_above_ulxc: number
   allowed_models: string[] | null
   allowed_providers: string[] | null
+  /** B19.14 — the marketplace listings it may use; empty or null allows any. */
+  allowed_listings?: string[] | null
   active_from: string
   active_until: string
   timezone: string
+  /** B19.6 — pause the agent on an unusual-spend alert. Carried back unchanged on a save. */
+  pause_on_unusual_spend?: boolean
 }
 
 /** Lens economy.AgentApproval. `model` is empty for a payment to another agent. */

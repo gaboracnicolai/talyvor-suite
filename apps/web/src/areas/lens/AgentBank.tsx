@@ -4,6 +4,8 @@ import { Button, Card, CardHeader, Input, Pill, RevealOnce, Row, type PillStatus
 import { Region, RegionScreen } from '../../components/Region'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
+import { kindLabel, marketApi, priceText } from '../marketplace/marketApi'
+import { CATALOG_KEY } from '../marketplace/parts'
 import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
 import {
   type Agent,
@@ -202,6 +204,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
   }))
   const [models, setModels] = useState((rules.allowed_models ?? []).join(', '))
   const [providers, setProviders] = useState((rules.allowed_providers ?? []).join(', '))
+  const [listings, setListings] = useState<string[]>(rules.allowed_listings ?? [])
   const [from, setFrom] = useState(rules.active_from)
   const [until, setUntil] = useState(rules.active_until)
   const [timezone, setTimezone] = useState(rules.timezone)
@@ -216,9 +219,11 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         approval_above_ulxc: parseLXC(limits.approval_above_ulxc) ?? 0,
         allowed_models: list(models),
         allowed_providers: list(providers),
+        allowed_listings: listings,
         active_from: from.trim(),
         active_until: until.trim(),
         timezone: timezone.trim(),
+        pause_on_unusual_spend: rules.pause_on_unusual_spend ?? false,
       }),
     onSuccess: (saved) => qc.setQueryData(rulesKey(agent.id), saved),
   })
@@ -254,6 +259,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
       ))}
       {text('Allowed models', models, setModels, 'Any model')}
       {text('Allowed providers', providers, setProviders, 'Any provider')}
+      <ListingsPicker agent={agent} chosen={listings} onChange={setListings} />
       {text('Active from', from, setFrom, 'HH:MM — any time')}
       {text('Active until', until, setUntil, 'HH:MM')}
       {text('Time zone', timezone, setTimezone, 'UTC')}
@@ -268,6 +274,48 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         {save.isError ? <Note ok={false}>{refusalText(save.error)}</Note> : null}
       </div>
     </form>
+  )
+}
+
+/**
+ * B19.19 — the marketplace listings an agent may use (Lens B19.14). None chosen allows any; once one
+ * is, Lens refuses the agent's use of every other listing before a model is called. The choices are
+ * the public catalog, plus any listing the rules already name that the catalog does not show (unlisted,
+ * private, or withdrawn) — kept, by its id, so saving the other rules never drops it.
+ */
+function ListingsPicker({ agent, chosen, onChange }: { agent: Agent; chosen: string[]; onChange: (ids: string[]) => void }) {
+  const catalog = useQuery({ queryKey: [...CATALOG_KEY, ''], queryFn: () => marketApi.catalog('') })
+  const listed = (catalog.data ?? []).map((l) => ({ id: l.id, title: l.title, hint: `${kindLabel(l.kind)} · ${priceText(l.price_per_use_ulxc)}` }))
+  const named = chosen
+    .filter((id) => !listed.some((l) => l.id === id))
+    .map((id) => ({ id, title: id, hint: 'Not in the public catalog' }))
+  const toggle = (id: string, on: boolean) => onChange(on ? [...chosen, id] : chosen.filter((x) => x !== id))
+  return (
+    <>
+      <Row
+        label="Marketplace listings"
+        hint={
+          catalog.isError
+            ? 'The marketplace could not be read just now; the listings already chosen are kept.'
+            : chosen.length > 0
+              ? 'Only the listings marked Allowed — Lens refuses any other.'
+              : 'Any listing. Mark some Allowed to allow only those.'
+        }
+      />
+      {[...listed, ...named].map((l) => (
+        <Row key={l.id} label={l.title} hint={l.hint} className="pl-8">
+          <Button
+            type="button"
+            aria-label={`${agent.name} may use ${l.title}`}
+            aria-pressed={chosen.includes(l.id)}
+            variant={chosen.includes(l.id) ? 'primary' : undefined}
+            onClick={() => toggle(l.id, !chosen.includes(l.id))}
+          >
+            Allowed
+          </Button>
+        </Row>
+      ))}
+    </>
   )
 }
 

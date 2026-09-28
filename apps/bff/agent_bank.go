@@ -178,9 +178,14 @@ func (a *app) handleAgentRules(w http.ResponseWriter, r *http.Request, t tenant)
 		ApprovalAboveULXC int64    `json:"approval_above_ulxc"`
 		AllowedModels     []string `json:"allowed_models"`
 		AllowedProviders  []string `json:"allowed_providers"`
-		ActiveFrom        string   `json:"active_from"`
-		ActiveUntil       string   `json:"active_until"`
-		Timezone          string   `json:"timezone"`
+		// B19.19 — the marketplace listings the agent may use; empty allows any. Absent (null) keeps
+		// what Lens holds, so a client that does not send it cannot clear it.
+		AllowedListings []string `json:"allowed_listings"`
+		ActiveFrom      string   `json:"active_from"`
+		ActiveUntil     string   `json:"active_until"`
+		Timezone        string   `json:"timezone"`
+		// B19.6 — Lens replaces every other rule on a save, so this is carried back as it was read.
+		PauseOnUnusualSpend bool `json:"pause_on_unusual_spend"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
