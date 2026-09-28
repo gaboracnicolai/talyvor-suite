@@ -4,8 +4,9 @@ import type { AnswerCost, AnswerSource } from './price'
 
 // chatApi.ts — the wire for W4.6.1 step 6.
 //
-// Two reads and one write, all through the BFF:
+// Three reads and one write, all through the BFF:
 //   GET  /api/models                      the deployment's catalog (Lens /v1/catalog/models)
+//   GET  /api/ai/providers                the providers Lens holds no key for (B18.58)
 //   POST /api/ai/stream/{provider}/{path} the flushing SSE relay built in step 3
 //
 // ⚠ THE BROWSER NEVER HOLDS A WORKSPACE KEY. The relay mints and leases a {proxy}-scoped Lens
@@ -23,25 +24,23 @@ export interface ChatModel {
 }
 
 /**
- * STREAMABLE_PROVIDERS — the providers whose STREAM this client can honestly read.
+ * STREAMABLE_PROVIDERS — the providers whose STREAM this client can read: every provider Lens
+ * proxies (the BFF relay's allowlist), in the order the picker lists them.
  *
- * ⚠ MEASURED IN talyvor-lens, NOT CHOSEN. Its streaming dispatch is
- * `if cfg.ProviderName() == "openai" { ServeOpenAI } else { ServeAnthropic }` — there are exactly
- * TWO SSE writers. The BFF's relay allowlist is wider (openai, anthropic, google, bedrock, mistral,
- * groq, vllm), and that width is correct for the RELAY, which is shape-agnostic and just copies
- * bytes. It is not correct for a PARSER.
- *
- * ⚠ SO THE PICKER IS NARROWER THAN THE CATALOG ON PURPOSE, AND THE SCREEN SAYS SO. The item asks
- * for "every frontier model"; the measured truth today is two provider families, and offering a
- * third would put a model in front of a person that this parser would render as an empty answer.
- * Widening this set is a change in Lens — a third SSE writer — not a change here.
+ * ⚠ MEASURED IN talyvor-lens (B18.7, b9f3301): each provider streams through its own upstream and
+ * key, and the client receives Anthropic's events for Anthropic and OpenAI chat.completion.chunk
+ * events for every other provider — Google and Bedrock translated. chatStream.ts reads both.
  */
-export const STREAMABLE_PROVIDERS: readonly string[] = ['openai', 'anthropic']
+export const STREAMABLE_PROVIDERS: readonly string[] = ['openai', 'anthropic', 'google', 'mistral', 'groq', 'bedrock', 'vllm']
 
-/** The upstream path each provider's chat endpoint lives at, under Lens's /v1/proxy/{provider}/. */
-const CHAT_PATH: Record<string, string> = {
-  openai: 'v1/chat/completions',
-  anthropic: 'v1/messages',
+/**
+ * The upstream path each provider's chat endpoint lives at, under Lens's /v1/proxy/{provider}/.
+ * Every provider but Anthropic takes the OpenAI request shape (Lens translates Google's and
+ * Bedrock's).
+ */
+function chatPath(provider: string): string | undefined {
+  if (!STREAMABLE_PROVIDERS.includes(provider)) return undefined
+  return provider === 'anthropic' ? 'v1/messages' : 'v1/chat/completions'
 }
 
 /**
@@ -75,6 +74,21 @@ export async function fetchModels(): Promise<ChatModel[]> {
   if (!res.ok) throw new ApiError(res.status, '/api/models')
   const body: unknown = await res.json()
   return Array.isArray(body) ? (body as ChatModel[]) : []
+}
+
+/**
+ * B18.58 — the providers this deployment's Lens holds no key for; their models are not offered.
+ *
+ * ⚠ A FAILED READ HIDES NOTHING. The BFF names only what Lens refused (503 "not configured"), and a
+ * read that fails leaves every provider listed: a question sent to an unconfigured one gets Lens's
+ * own refusal, which is better than a working provider silently missing from the picker.
+ */
+export async function fetchUnconfiguredProviders(): Promise<string[]> {
+  const res = await fetch('/api/ai/providers', { credentials: 'same-origin' })
+  if (!res.ok) return []
+  const body: unknown = await res.json()
+  const list = (body as { unconfigured?: unknown } | null)?.unconfigured
+  return Array.isArray(list) ? list.filter((p): p is string => typeof p === 'string') : []
 }
 
 /** How a provider is named in the picker. Presentation only — which providers exist is the catalog's. */
@@ -121,6 +135,8 @@ export interface PickerCatalog {
   offered: ChatModel[]
   /** Catalog entries that are not chat models (no output price, e.g. embeddings) or are retired. */
   omitted: number
+  /** B18.58 — chat models on providers this deployment's Lens holds no key for: not listed. */
+  unconfigured: number
   /** The newest flagship among the offered models — the default, chosen from data, never a name. */
   defaultModel: ChatModel | undefined
 }
@@ -133,9 +149,12 @@ export interface PickerCatalog {
  * picker shows everything the deployment prices and a model becomes usable the day Lens streams its
  * provider. ⚠ A CATALOG ENTRY WITH NO OUTPUT PRICE IS NOT A CHAT MODEL (embeddings), and a
  * deprecated one is retired at the provider; both are counted rather than silently dropped.
+ * ⚠ A MODEL ON A PROVIDER LENS HOLDS NO KEY FOR IS NOT LISTED (Lens answers 503 for it), and it is
+ * counted too.
  */
-export function pickerCatalog(all: ChatModel[]): PickerCatalog {
-  const chat = all.filter((m) => !m.deprecated && m.output_per_1m > 0)
+export function pickerCatalog(all: ChatModel[], unconfiguredProviders: readonly string[] = []): PickerCatalog {
+  const priced = all.filter((m) => !m.deprecated && m.output_per_1m > 0)
+  const chat = priced.filter((m) => !unconfiguredProviders.includes(m.provider))
   const byProvider = new Map<string, ChatModel[]>()
   for (const m of chat) byProvider.set(m.provider, [...(byProvider.get(m.provider) ?? []), m])
   const groups: CatalogGroup[] = [...byProvider.entries()]
@@ -155,7 +174,8 @@ export function pickerCatalog(all: ChatModel[]): PickerCatalog {
   return {
     groups,
     offered,
-    omitted: all.length - chat.length,
+    omitted: all.length - priced.length,
+    unconfigured: priced.length - chat.length,
     defaultModel: [...offered].sort(newestFirst)[0],
   }
 }
@@ -165,6 +185,8 @@ export function pickerCatalog(all: ChatModel[]): PickerCatalog {
  *
  * ⚠ ANTHROPIC REQUIRES max_tokens AND OPENAI DOES NOT. Omitting it is a 400 from Anthropic, which
  * would arrive as a dead stream with no frames — the hardest failure to read from a chat screen.
+ * Bedrock serves Anthropic's models and Lens fills in 1024 when it is absent, which cuts long
+ * answers short, so it is sent there too.
  */
 function requestBody(provider: string, model: string, turns: ChatMessage[]): unknown {
   // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
@@ -192,7 +214,7 @@ function requestBody(provider: string, model: string, turns: ChatMessage[]): unk
       ],
     }
   })
-  if (provider === 'anthropic') {
+  if (provider === 'anthropic' || provider === 'bedrock') {
     return { model, max_tokens: 4096, stream: true, messages }
   }
   return { model, stream: true, messages }
@@ -230,10 +252,10 @@ export async function streamChat(
   /** B15.6 — ask the model afresh rather than be served a cached answer (Regenerate). */
   fresh = false,
 ): Promise<void> {
-  const path = CHAT_PATH[provider]
+  const path = chatPath(provider)
   if (path === undefined) {
     // Unreachable from the picker, which only offers STREAMABLE_PROVIDERS. Stated rather than
-    // assumed: a caller that grows a third provider gets a refusal, not an empty reply.
+    // assumed: a caller that names another provider gets a refusal, not an empty reply.
     handlers.onError(`No chat path is known for provider "${provider}".`)
     return
   }

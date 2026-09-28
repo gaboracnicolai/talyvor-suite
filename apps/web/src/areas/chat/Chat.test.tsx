@@ -19,9 +19,7 @@ import { type Conversation, historyKey, loadConversations } from './history'
 const CATALOG = [
   { id: 'gpt-4o', provider: 'openai', display_name: 'GPT-4o', input_per_1m: 2.5, output_per_1m: 10 },
   { id: 'claude-opus-5', provider: 'anthropic', display_name: 'Claude Opus 5', input_per_1m: 5, output_per_1m: 25 },
-  // ⚠ NOT OFFERED, AND DELIBERATELY IN THE FIXTURE. Lens streams every non-openai provider through
-  // ServeAnthropic, so a Google model would be parsed with the wrong wire format. If the picker
-  // ever offers it, a test here reds rather than a person meeting an empty answer.
+  // B18.58 — offered: Lens streams Google through its own upstream and sends OpenAI chunks.
   { id: 'gemini-2-pro', provider: 'google', display_name: 'Gemini 2 Pro', input_per_1m: 1, output_per_1m: 4 },
   // Deprecated: in the catalog, retired at the provider.
   { id: 'gpt-4-old', provider: 'openai', display_name: 'GPT-4 (old)', input_per_1m: 30, output_per_1m: 60, deprecated: true },
@@ -58,6 +56,7 @@ function mockChat({
   usdPerLXC,
   converts = false,
   answerHeaders = {},
+  unconfigured = [],
 }: {
   catalog?: unknown
   catalogStatus?: number
@@ -71,6 +70,8 @@ function mockChat({
   converts?: boolean
   /** Headers Lens sends with the answer, e.g. X-Talyvor-Cache-Replay on a cached one (B15.6). */
   answerHeaders?: Record<string, string>
+  /** B18.58 — the providers /api/ai/providers says Lens holds no key for. */
+  unconfigured?: string[]
 } = {}) {
   const posted = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -83,6 +84,12 @@ function mockChat({
     }
     if (url === '/api/lxc/topup-options' && usdPerLXC !== undefined) {
       return new Response(JSON.stringify({ amounts_cents: [1000], usd_per_lxc: usdPerLXC }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+    if (url === '/api/ai/providers') {
+      return new Response(JSON.stringify({ unconfigured }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -145,6 +152,8 @@ describe('the model picker reads the deployment, not this file', () => {
         { id: 'gpt-5', provider: 'openai', display_name: 'GPT-5', input_per_1m: 1.25, output_per_1m: 10 },
         // Not a chat model: an embedding has no output price.
         { id: 'text-embedding-3-small', provider: 'openai', display_name: 'Embedding 3 small', input_per_1m: 0.02, output_per_1m: 0 },
+        // A provider Lens has no proxy route for.
+        { id: 'command-r', provider: 'cohere', display_name: 'Command R', input_per_1m: 0.5, output_per_1m: 1.5 },
       ],
     })
     renderChat()
@@ -155,14 +164,24 @@ describe('the model picker reads the deployment, not this file', () => {
     expect(listed).toEqual([
       ['OpenAI', ['GPT-5', 'GPT-4o']],
       ['Anthropic', ['Claude Opus 5']],
-      // ⚠ LISTED, NOT OFFERED. Lens streams every non-openai provider through ServeAnthropic, so a
-      // Google model would be parsed with the wrong wire format; it is shown disabled, with the reason.
       ['Google', ['Gemini 2 Pro']],
+      // ⚠ LISTED, NOT OFFERED: Lens has no route to stream it through; shown disabled, with the reason.
+      ['cohere', ['Command R']],
     ])
-    expect(screen.getByRole('option', { name: /^Gemini 2 Pro/ }).getAttribute('aria-disabled')).toBe('true')
-    expect(screen.getByText(/Lens streams OpenAI and Anthropic formats only/)).toBeTruthy()
+    expect(screen.getByRole('option', { name: /^Gemini 2 Pro/ }).getAttribute('aria-disabled')).toBe('false')
+    expect(screen.getByRole('option', { name: /^Command R/ }).getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText(/Lens has no streaming route for this provider/)).toBeTruthy()
     // The retired model and the embedding are COUNTED, never silently dropped.
     expect(screen.getByText(/retired or non-chat catalog entr/).textContent).toContain('2')
+  })
+
+  it('lists only the providers this deployment’s Lens holds a key for, and counts the models it hid (B18.58)', async () => {
+    mockChat({ unconfigured: ['google', 'bedrock'] })
+    renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: /^Model: / }))
+    expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual(['OpenAI', 'Anthropic'])
+    expect(screen.queryByRole('option', { name: /^Gemini 2 Pro/ })).toBeNull()
+    expect(screen.getByText(/on providers without a key not listed/).textContent).toContain('1 model on')
   })
 
   it('defaults to the newest flagship in the catalog, and a model added to Lens appears — and leads — with no change here', async () => {
@@ -239,7 +258,13 @@ describe('the model picker reads the deployment, not this file', () => {
     unmount()
 
     vi.restoreAllMocks()
-    mockChat({ catalog: [CATALOG[2]] }) // google only — in the catalog, not streamable here
+    mockChat({ catalog: [CATALOG[2]], unconfigured: ['google'] }) // google only, and Lens has no Google key
+    const second = renderChat()
+    expect(await screen.findByText(/Lens holds no provider key for any of them/i)).toBeTruthy()
+    second.unmount()
+
+    vi.restoreAllMocks()
+    mockChat({ catalog: [{ id: 'command-r', provider: 'cohere', display_name: 'Command R', input_per_1m: 0.5, output_per_1m: 1.5 }] })
     renderChat()
     expect(await screen.findByText(/none of them is on a provider/i)).toBeTruthy()
   })
@@ -528,6 +553,49 @@ describe('what each answer cost', () => {
     expect((await screen.findByTestId('turn-cost')).textContent).toBe(
       '≈ 0.15 LXC · GPT-4o · 2,000 in / 1,000 out tokens',
     )
+  })
+
+  it('streams a Google and a Mistral answer through each provider’s own path, and prices the Mistral one (B18.58)', async () => {
+    const mistral = { id: 'mistral-large-latest', provider: 'mistral', display_name: 'Mistral Large', input_per_1m: 2, output_per_1m: 6 }
+    // Exactly what Lens sends the client for Google (talyvor-lens stream_providers.go openAIChunk):
+    // text chunks, a finish chunk, [DONE] — and no usage frame yet (B18.59).
+    const google =
+      'data: {"object":"chat.completion.chunk","model":"gemini-2-pro","choices":[{"index":0,"delta":{"content":"Bonjour."},"finish_reason":null}]}\n\n' +
+      'data: {"object":"chat.completion.chunk","model":"gemini-2-pro","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n' +
+      'data: [DONE]\n\n'
+    const first = mockChat({ catalog: [...CATALOG, mistral], body: google, usdPerLXC: 0.1 })
+    const view = renderChat()
+    await chooseModel('Gemini 2 Pro')
+    await ask('Say hello in French')
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('Bonjour.'))
+    const g = first.posted.mock.calls[0][0]
+    expect(g.url).toBe('/api/ai/stream/google/v1/chat/completions')
+    expect(JSON.parse(String(g.init.body))).toEqual({
+      model: 'gemini-2-pro',
+      stream: true,
+      messages: [{ role: 'user', content: 'Say hello in French' }],
+    })
+    view.unmount()
+
+    vi.restoreAllMocks()
+    window.localStorage.clear()
+    // Mistral's own OpenAI-compatible stream; Lens asks it for the usage frame (include_usage).
+    const second = mockChat({
+      catalog: [...CATALOG, mistral],
+      body:
+        'data: {"model":"mistral-large-latest","choices":[{"delta":{"content":"Bonjour."}}]}\n\n' +
+        'data: {"model":"mistral-large-latest","choices":[],"usage":{"prompt_tokens":2000,"completion_tokens":1000}}\n\n' +
+        'data: [DONE]\n\n',
+      usdPerLXC: 0.1,
+    })
+    renderChat()
+    await chooseModel('Mistral Large')
+    await ask('Say hello in French')
+    // (2000 × $2 + 1000 × $6) / 1M = $0.01 = 0.1 LXC at $0.10.
+    expect((await screen.findByTestId('turn-cost')).textContent).toBe(
+      '≈ 0.1 LXC · Mistral Large · 2,000 in / 1,000 out tokens',
+    )
+    expect(second.posted.mock.calls[0][0].url).toBe('/api/ai/stream/mistral/v1/chat/completions')
   })
 
   it('names and prices the model Lens routed the answer to, not the one asked (B15.3b)', async () => {

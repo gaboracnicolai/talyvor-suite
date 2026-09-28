@@ -239,6 +239,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	// runs on a client whose 10s whole-exchange Timeout truncates body reads. {provider} is a
 	// closed allowlist checked before any upstream call.
 	a.mux.HandleFunc("/api/ai/stream/{provider}/{rest...}", a.handleAIStream())
+	// B18.58 — which of those providers this deployment's Lens holds a key for (providers.go).
+	a.mux.HandleFunc("/api/ai/providers", a.handleAIProviders())
 
 	// W4.6.1 step 6 — THE MODEL CATALOG, so the chat screen can offer what this DEPLOYMENT serves
 	// rather than a list someone typed into the front end.

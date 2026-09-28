@@ -12,6 +12,7 @@ import {
   type ChatModel,
   type PickerCatalog,
   fetchModels,
+  fetchUnconfiguredProviders,
   pickerCatalog,
   streamChat,
 } from './chatApi'
@@ -40,11 +41,10 @@ import { topupApi } from '../lens/topupApi'
 //
 // ── WHAT THIS SCREEN CLAIMS, AND WHAT IT REFUSES TO CLAIM ────────────────────
 //
-// ⚠ "EVERY FRONTIER MODEL" IS THE ITEM'S PHRASE AND IT IS NOT YET TRUE, SO THE SCREEN DOES NOT SAY
-// IT. Lens's streaming dispatch is `if provider == "openai" { ServeOpenAI } else { ServeAnthropic }`
-// — TWO SSE writers. A Google or Mistral model streamed through the Anthropic parser renders as an
-// empty answer, so the picker offers the two provider families whose wire format this client can
-// actually read, and STATES how many catalog entries that hid. A count a reader can see is the
+// ⚠ EVERY PROVIDER LENS STREAMS, AND ONLY THE ONES THIS DEPLOYMENT HOLDS A KEY FOR (B18.58). Lens
+// streams each provider through its own upstream (B18.7), so the picker offers every provider it
+// proxies — minus those Lens answers 503 "not configured" for, which the BFF's /api/ai/providers
+// names. The picker STATES how many catalog entries that hid. A count a reader can see is the
 // difference between a narrowed list and a false one.
 //
 // ⚠ THE LIST COMES FROM THE DEPLOYMENT, NOT FROM THIS FILE. `/api/models` proxies Lens's
@@ -118,6 +118,13 @@ export const EXAMPLE_PROMPTS: readonly string[] = [
 
 export function Chat() {
   const catalog = useQuery({ queryKey: ['chat-models'], queryFn: fetchModels, retry: false })
+  // B18.58 — the providers Lens holds no key for. Their models are not offered.
+  const providers = useQuery({
+    queryKey: ['chat-unconfigured-providers'],
+    queryFn: fetchUnconfiguredProviders,
+    retry: false,
+    staleTime: 5 * 60_000,
+  })
   // The credit peg, from the deployment. Absent ⇒ answers are priced in dollars, never at a guess.
   const peg = useQuery({ queryKey: ['topup-options'], queryFn: topupApi.options, retry: false })
   const usdPerLXC = peg.data?.usd_per_lxc
@@ -199,7 +206,7 @@ export function Chat() {
 
   // B10.4 — the default is the newest flagship the catalog offers, chosen from its data, never a
   // model name typed into this file.
-  const picker = pickerCatalog(catalog.data ?? [])
+  const picker = pickerCatalog(catalog.data ?? [], providers.data ?? [])
   const models = picker.offered
   const selected: ChatModel | undefined =
     models.find((m) => m.id === modelId) ?? picker.defaultModel
@@ -481,7 +488,7 @@ export function Chat() {
 
         <div className="flex flex-1 flex-col px-gutter">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-            {catalog.isPending ? (
+            {catalog.isPending || providers.isPending ? (
               <p className="mt-10 text-body text-muted">Reading the model catalog…</p>
             ) : catalog.isError ? (
               // ⚠ A FAILED READ IS NOT AN EMPTY CATALOG, AND AN EMPTY CONVERSATION IS NOT A FAILED
@@ -495,7 +502,7 @@ export function Chat() {
                 </p>
               </div>
             ) : models.length === 0 ? (
-              <NoStreamableModels total={catalog.data?.length ?? 0} />
+              <NoStreamableModels total={catalog.data?.length ?? 0} unconfigured={picker.unconfigured} />
             ) : messages.length === 0 ? (
               <Greeting disabled={pending} onAsk={(prompt) => send(prompt)} />
             ) : (
@@ -1084,11 +1091,11 @@ function ConversationTitle({
 }
 
 /**
- * ⚠ THE TWO WAYS TO HAVE NO PICKER ARE DIFFERENT STATES WITH DIFFERENT NEXT ACTIONS, so they are
- * not one apologetic sentence: a catalog that is empty (nothing is configured) and a catalog that
- * is full of models this client cannot stream (a Lens change, not an operator one).
+ * ⚠ THE WAYS TO HAVE NO PICKER ARE DIFFERENT STATES WITH DIFFERENT NEXT ACTIONS, so they are not one
+ * apologetic sentence: a catalog that is empty, one whose providers Lens holds no key for (an
+ * operator change), and one full of models this client cannot stream (a Lens change).
  */
-function NoStreamableModels({ total }: { total: number }) {
+function NoStreamableModels({ total, unconfigured }: { total: number; unconfigured: number }) {
   if (total === 0) {
     return (
       <p className="mt-10 text-body text-muted">
@@ -1096,11 +1103,18 @@ function NoStreamableModels({ total }: { total: number }) {
       </p>
     )
   }
+  if (unconfigured > 0) {
+    return (
+      <p className="mt-10 text-body text-muted">
+        This deployment&rsquo;s catalog lists <span className="font-figure">{unconfigured}</span> chat model(s), and
+        Lens holds no provider key for any of them, so there is nothing to chat with yet.
+      </p>
+    )
+  }
   return (
     <p className="mt-10 text-body text-muted">
       This deployment serves <span className="font-figure">{total}</span> model(s), and none of them is on a provider
-      whose stream this console can read yet. Chat reads two wire formats — OpenAI&rsquo;s and
-      Anthropic&rsquo;s — because those are the two Lens streams.
+      whose stream this console can read yet.
     </p>
   )
 }
