@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, Route, Routes, useNavigate } from 'react-router-dom'
-import { Button, Card, CardHeader, Input, Row, focusRing, inlineLink } from '@talyvor/ui'
+import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
+import { Button, Card, CardHeader, Input, Pill, Row, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { formatULXC } from '../lens/agentBankApi'
 import { formatUSD, formatWhen } from '../lens/format'
@@ -323,6 +323,202 @@ function EarningsCard() {
   )
 }
 
+const PAYOUTS_KEY = ['market-payouts']
+
+/** Where a seller is paid, asked before Stripe asks the rest: Stripe fixes an account's country when it is made. */
+const COUNTRIES: readonly [string, string][] = [
+  ['GB', 'United Kingdom'],
+  ['US', 'United States'],
+  ['IE', 'Ireland'],
+  ['DE', 'Germany'],
+  ['FR', 'France'],
+  ['NL', 'Netherlands'],
+  ['ES', 'Spain'],
+  ['IT', 'Italy'],
+  ['SE', 'Sweden'],
+  ['CA', 'Canada'],
+  ['AU', 'Australia'],
+]
+
+/** Stripe's requirement names, e.g. `individual.verification.document`, in words. */
+const requirement = (field: string) => field.replace(/[._]/g, ' ')
+
+/**
+ * B20.6 — the seller is paid (Lens B20.5): connect a Stripe account and see whether Stripe can pay it, the
+ * balance and what the next payout comes to after Stripe's fees at cost, every payout, and the choice to
+ * take the available balance as Talyvor credits instead. Stripe's onboarding comes back here with ?payouts=.
+ */
+export function PayoutsCard({
+  redirect = (url: string) => window.location.assign(url),
+}: {
+  /** Leaves for Stripe's onboarding; a prop so a test can see where it would go. */
+  redirect?: (url: string) => void
+}) {
+  const qc = useQueryClient()
+  const [params] = useSearchParams()
+  const [country, setCountry] = useState('GB')
+  const payouts = useQuery({ queryKey: PAYOUTS_KEY, queryFn: marketApi.payouts })
+  const connect = useMutation({
+    mutationFn: (c: string) => marketApi.connectPayouts(c),
+    onSuccess: (r) => redirect(r.url),
+  })
+  const credits = useMutation({
+    mutationFn: marketApi.takeAsCredits,
+    onSettled: () =>
+      Promise.all([qc.invalidateQueries({ queryKey: PAYOUTS_KEY }), qc.invalidateQueries({ queryKey: EARNINGS_KEY })]),
+  })
+  if (payouts.isError) return <p className="text-body text-muted">{readFailure(payouts.error, 'Your payouts')}</p>
+  if (payouts.isPending) return <p className="text-body text-muted">Reading…</p>
+  const p = payouts.data
+  const acct = p.account
+  const due = acct?.currently_due ?? []
+  const history = p.payouts ?? []
+  const fees = p.quote.account_fee_usd_micros + p.quote.payout_fee_usd_micros
+  return (
+    <Card>
+      <CardHeader>Payouts</CardHeader>
+      {params.get('payouts') === 'connected' || params.get('payouts') === 'expired' ? (
+        <div className="px-gutter pt-3">
+          {params.get('payouts') === 'connected' ? (
+            <Note ok>Back from Stripe. Below is what Stripe has told Talyvor about your account.</Note>
+          ) : (
+            <Note ok={false}>That Stripe link expired. Continue with Stripe for a new one.</Note>
+          )}
+        </div>
+      ) : null}
+      {acct === null ? (
+        <div className="flex flex-col gap-2 px-gutter py-3" data-testid="payouts-connect">
+          <p className="text-body text-ink">
+            Connect a Stripe account to be paid your earnings in money. Stripe asks who you are and where to send the
+            money; Talyvor never sees your bank details.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="w-56 text-caption text-muted">
+              Where you are paid
+              <select className={selectClass} value={country} onChange={(e) => setCountry(e.target.value)}>
+                {COUNTRIES.map(([code, name]) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="primary" disabled={connect.isPending} onClick={() => connect.mutate(country)}>
+              {connect.isPending ? 'Opening Stripe…' : 'Connect with Stripe'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Row
+          label="Stripe account"
+          hint={
+            acct.payouts_enabled
+              ? `Stripe can pay this account (${acct.country}).`
+              : due.length > 0
+                ? `Stripe still needs: ${due.map(requirement).join(', ')}.`
+                : acct.details_submitted
+                  ? 'Stripe is checking the details you gave it.'
+                  : 'Stripe still needs your details.'
+          }
+        >
+          <div className="flex items-center gap-3" data-testid="payouts-account">
+            {acct.payouts_enabled ? (
+              <Pill status="settled">Verified</Pill>
+            ) : (
+              <>
+                <Pill status="held">Not verified yet</Pill>
+                <Button disabled={connect.isPending} onClick={() => connect.mutate(acct.country)}>
+                  Continue with Stripe
+                </Button>
+              </>
+            )}
+          </div>
+        </Row>
+      )}
+      {connect.isError ? (
+        <div className="px-gutter pb-3">
+          <Note ok={false}>{refusalText(connect.error)}</Note>
+        </div>
+      ) : null}
+      <Row label="In the holdback" hint="Held for refunds for 14 days after the buyer pays">
+        <span className="font-figure text-body text-ink">{formatUSD(p.in_holdback_usd_micros)}</span>
+      </Row>
+      <Row label="Available to pay out" hint="Past the holdback and not yet paid">
+        <span className="font-figure text-body text-ink" data-testid="payouts-available">
+          {formatUSD(p.available_usd_micros)}
+        </span>
+      </Row>
+      <Row
+        label="Next payout"
+        hint={
+          p.paid_this_month
+            ? 'You were paid this month; the next payout is next month.'
+            : p.available_usd_micros >= p.minimum_usd_micros
+              ? `${formatUSD(p.quote.gross_usd_micros)} less Stripe’s fees of ${formatUSD(fees)}, at cost. ${acct?.payouts_enabled ? 'Paid once a month to your Stripe account.' : 'Paid once Stripe can pay your account.'}`
+              : `Paid once a month, once your available balance reaches ${formatUSD(p.minimum_usd_micros)}.`
+        }
+      >
+        <span className="font-figure text-body text-ink">
+          {!p.paid_this_month && p.available_usd_micros >= p.minimum_usd_micros ? formatUSD(p.quote.net_usd_micros) : '—'}
+        </span>
+      </Row>
+      <Row label="Paid out" hint="In money and as credits, since you started selling">
+        <span className="font-figure text-body text-ink">{formatUSD(p.paid_out_usd_micros)}</span>
+      </Row>
+      {p.owed_usd_micros > 0 ? (
+        <Row label="Owed" hint="Refunds after you were paid, recovered from your next earnings">
+          <span className="font-figure text-body text-ink">{formatUSD(p.owed_usd_micros)}</span>
+        </Row>
+      ) : null}
+      <div className="flex flex-col gap-2 border-t border-rule px-gutter py-3">
+        <p className="text-caption text-muted">
+          Or take what is available now as Talyvor credits, with no Stripe fees and no minimum.
+        </p>
+        <div>
+          <Button disabled={p.available_usd_micros <= 0 || credits.isPending} onClick={() => credits.mutate()}>
+            Take <span className="font-figure">{formatUSD(p.available_usd_micros)}</span> as credits
+          </Button>
+        </div>
+        {credits.isSuccess ? (
+          <Note ok>
+            <span className="font-figure">{formatUSD(credits.data.gross_usd_micros)}</span> is now{' '}
+            <span className="font-figure">{formatULXC(credits.data.credits_ulxc ?? 0)}</span> in your workspace’s credits.
+          </Note>
+        ) : null}
+        {credits.isError ? <Note ok={false}>{refusalText(credits.error)}</Note> : null}
+      </div>
+      {history.length > 0 ? (
+        <table className="w-full border-t border-rule text-body" data-testid="payouts-history">
+          <thead>
+            <tr className="text-left text-caption text-muted">
+              <th className="px-gutter py-2 font-normal">Paid</th>
+              <th className="py-2 font-normal">How</th>
+              <th className="py-2 text-right font-normal">Earnings</th>
+              <th className="px-gutter py-2 text-right font-normal">You got</th>
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((h) => (
+              <tr key={h.id} className="border-t border-rule text-ink">
+                <td className="px-gutter py-2 font-figure text-caption text-muted">
+                  {h.paid_at ? formatWhen(h.paid_at) : h.last_error ? 'Stripe refused — retrying' : 'Sending'}
+                </td>
+                <td className="py-2">{h.method === 'credits' ? 'As credits' : 'To your Stripe account'}</td>
+                <td className="py-2 text-right font-figure">{formatUSD(h.gross_usd_micros)}</td>
+                <td className="px-gutter py-2 text-right font-figure">
+                  {h.method === 'credits' ? formatULXC(h.credits_ulxc ?? 0) : formatUSD(h.net_usd_micros)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="border-t border-rule px-gutter py-3 text-body text-muted">No payouts yet.</p>
+      )}
+    </Card>
+  )
+}
+
 function Selling() {
   const mine = useQuery({ queryKey: MINE_KEY, queryFn: marketApi.mine })
   return (
@@ -339,6 +535,7 @@ function Selling() {
           million dollars in sales. Your own uses, and uses by a workspace linked to yours, earn nothing.
         </p>
         <EarningsCard />
+        <PayoutsCard />
       </Region>
       <Region index="01" label="Your listings" className="flex max-w-2xl flex-col gap-3">
         {mine.isError ? (

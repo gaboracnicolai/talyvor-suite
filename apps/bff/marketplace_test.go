@@ -57,6 +57,14 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 			}
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "rpt_1", "listing_id": "lst_1", "reason": "secret"})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/payouts/connect"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"url": "https://connect.stripe.com/setup/e/acct_1/x", "account": map[string]any{"stripe_account_id": "acct_1", "country": "GB"}})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/payouts/credits"):
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "market: no earnings are available yet — they become available 14 days after the buyer's payment clears"})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/payouts"):
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/bill"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"month": r.URL.Query().Get("month"), "total_ulxc": 500000, "total_usd_micros": 50000, "lines": []any{}})
 		case r.URL.Path == "/v1/marketplace/listings":
@@ -154,5 +162,32 @@ func TestMarketplaceReportForwardsReasonAndDetails(t *testing.T) {
 	}
 	if !strings.HasPrefix(f.got[0], "POST /v1/marketplace/listings/lst_1/reports Bearer ") || !strings.HasSuffix(f.got[0], ` {"reason":"secret","details":"an API key in the template"}`) || strings.Contains(f.got[0], testSessionKey) {
 		t.Fatalf("Lens received %q, want the report on the workspace token with only reason and details", f.got[0])
+	}
+}
+
+// B20.6 — connecting for payouts reaches Lens with only the country, on the session's workspace, and
+// answers Stripe's onboarding link; taking credits with nothing available relays Lens's sentence; a
+// deployment with no Stripe says payouts are off rather than "Lens could not answer".
+func TestMarketplacePayoutsConnectAndCredits(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	rec := doJSON(a, http.MethodPost, "/api/marketplace/payouts/connect", `{"country":"GB","workspace_id":"ws_other"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "https://connect.stripe.com/") {
+		t.Fatalf("connect = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodPost, "/api/marketplace/payouts/connect", `{"country":"gb"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a lower-case country = %d, want 400", rec.Code)
+	}
+	rec = doJSON(a, http.MethodPost, "/api/marketplace/payouts/credits", `{}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "14 days after the buyer") {
+		t.Fatalf("credits = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(a, http.MethodGet, "/api/marketplace/payouts", "")
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Stripe billing is off") {
+		t.Fatalf("payouts off = %d %s", rec.Code, rec.Body.String())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.got) != 3 || !strings.HasPrefix(f.got[0], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[0], `{"country":"GB"}`) {
+		t.Fatalf("Lens received %q", f.got)
 	}
 }

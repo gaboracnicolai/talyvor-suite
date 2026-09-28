@@ -145,6 +145,46 @@ export interface Earnings {
   earnings: Earning[] | null
 }
 
+/** Lens billing.ConnectAccount — the seller's Stripe account, as Stripe last described it (B20.5). */
+export interface ConnectAccount {
+  stripe_account_id: string
+  country: string
+  details_submitted: boolean
+  payouts_enabled: boolean
+  currently_due: string[] | null
+  disabled_reason?: string
+}
+
+/** Lens market.Payout — one payout: money through Stripe, or the balance taken as credits. */
+export interface Payout {
+  id: string
+  method: 'stripe' | 'credits'
+  month: string
+  gross_usd_micros: number
+  account_fee_usd_micros: number
+  payout_fee_usd_micros: number
+  net_usd_micros: number
+  credits_ulxc?: number
+  stripe_transfer_id?: string
+  paid_at?: string
+  last_error?: string
+  created_at: string
+}
+
+/** Lens market.Payouts (B20.5) — a seller's payout page. account is null until they connect. */
+export interface Payouts {
+  account: ConnectAccount | null
+  in_holdback_usd_micros: number
+  available_usd_micros: number
+  owed_usd_micros: number
+  paid_out_usd_micros: number
+  minimum_usd_micros: number
+  paid_this_month: boolean
+  /** Paying the available balance out in money now, with Stripe's fees at cost. */
+  quote: { gross_usd_micros: number; account_fee_usd_micros: number; payout_fee_usd_micros: number; net_usd_micros: number }
+  payouts: Payout[] | null
+}
+
 /** Lens market.BillLine — one paid use on the buyer's bill. */
 export interface BillLine {
   use_id: string
@@ -206,6 +246,10 @@ export const marketApi = {
   use: (id: string, req: UseRequest) => post<ListingUse>(`/api/marketplace/listings/${e(id)}/use`, req),
   report: (id: string, reason: string, details: string) =>
     post<ListingReport>(`/api/marketplace/listings/${e(id)}/reports`, { reason, details }),
+  // B20.6 — the seller's payouts (Lens B20.5).
+  payouts: () => getJSON<Payouts>('/api/marketplace/payouts'),
+  connectPayouts: (country: string) => post<{ url: string; account: ConnectAccount }>('/api/marketplace/payouts/connect', { country }),
+  takeAsCredits: () => post<Payout>('/api/marketplace/payouts/credits', {}),
 }
 
 /** A listing's price, in words. */
