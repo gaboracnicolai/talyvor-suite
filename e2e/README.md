@@ -69,6 +69,13 @@ open in a second tab, so the Chat tab keeps its conversation. A switch a scenari
 | `try-conversion` | 1 in 10 | Try it on a document: the HTML memo becomes Markdown with its heading and its fact, and Download as Markdown saves what is shown |
 | `personal-data-not-pooled` | 1 in 10 | with Personal-data detection on, a question carrying an email and a phone number is asked again in a new chat and by another account, never served |
 | `try-tare` | 1 in 10 | Try Tare: 40 same-shaped JSON rows shrink to fewer tokens, the figures add up, and every field name survives |
+| `docs-ai` | 1 in 10 | a space and a page written in Docs: Summarise and Translate (French) keep the page's access code, and Ask answers it and cites the page |
+| `track-ai` | 1 in 10 | an issue with a ten-comment thread about one cause: the summary names it (tax calls), Look for duplicates names its near-twin, and triage suggests a priority |
+| `track-export` | 1 in 10 | Export JSON and CSV: both hold every issue, the counts agree with the screen, and a title that starts with `=` is defused (`'`) and quoted |
+
+Docs and Track call Lens on their own account, so their AI actions never reach the user's ledger. Each
+one holds its worst case against the cap — the product's model, the whole input, its most output —
+and is counted at that, since its real cost cannot be read.
 
 Not yet in the catalog: "plans on Stripe test cards" and "a pooled serve pays the contributor's royalty" —
 B17.1 refuses a synthetic checkout and funds no synthetic royalty, so they wait on a decision.
@@ -77,6 +84,8 @@ B17.1 refuses a synthetic checkout and funds no synthetic royalty, so they wait 
 
 `pnpm --filter @talyvor/e2e selftest` runs the whole harness on this machine. It uses a stand-in Lens
 (`selftest/stub-lens.ts`), the real BFF built from this checkout, and the real web bundle.
+Track and Docs are stood in for by `selftest/stub-products.ts`.
 `STUB_BREAK=<name>` plants a defect, which must make the matching scenario FAIL: `price`,
 `cross-replay`, and for catalog v2 `pii`, `injection`, `distill`, `tare`, `conversion`, `budget`,
-`setting` and `logging` (stub-lens.ts says what each breaks).
+`setting`, `logging` (stub-lens.ts) and `docs-ai`, `track-ai`, `export` (stub-products.ts), each file
+saying what each breaks.

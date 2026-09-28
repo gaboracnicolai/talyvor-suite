@@ -1,6 +1,7 @@
 #!/bin/sh
 # B17.3 SELF-TEST — the whole harness, end to end, on this machine: the stub Lens (selftest/stub-lens.ts),
-# the REAL BFF built from this checkout, the REAL web bundle, and a headless Chromium.
+# stub Track and Docs (selftest/stub-products.ts, B17.8), the REAL BFF built from this checkout, the REAL
+# web bundle, and a headless Chromium.
 #
 #   pnpm --filter @talyvor/e2e selftest                   # 10 users
 #   E2E_USERS=30 STUB_BREAK=price pnpm --filter @talyvor/e2e selftest   # a planted defect must FAIL
@@ -10,8 +11,11 @@ set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 stub_port=${STUB_PORT:-9911}
+track_port=$((stub_port + 100))
+docs_port=$((stub_port + 200))
 bff_port=${BFF_PORT:-8797}
 key=selftest-key
+gateway=selftest-gateway
 tmp=$(mktemp -d)
 
 (cd "$root/apps/bff" && go build -o "$tmp/bff" .)
@@ -19,14 +23,18 @@ tmp=$(mktemp -d)
 
 STUB_PORT=$stub_port LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/stub-lens.ts" &
 stub=$!
+TRACK_PORT=$track_port DOCS_PORT=$docs_port GATEWAY_SECRET=$gateway node --experimental-strip-types --no-warnings "$here/stub-products.ts" &
+products=$!
 sleep 1
 env -i PATH="$PATH" HOME="$HOME" \
   BFF_AUTH_MODE=oidc BFF_ADDR="127.0.0.1:$bff_port" BFF_PUBLIC_BASE_URL="http://localhost:$bff_port" \
   OIDC_ISSUER="http://127.0.0.1:$stub_port" OIDC_CLIENT_ID=selftest OIDC_CLIENT_SECRET=selftest OIDC_ALLOWED_EMAILS='*' \
   LENS_BASE_URL="http://127.0.0.1:$stub_port" LENS_PROVISION_SECRET=selftest LENS_SYNTHETIC_KEY=$key \
+  TRACK_BASE_URL="http://127.0.0.1:$track_port" TRACK_GATEWAY_SECRET=$gateway \
+  DOCS_BASE_URL="http://127.0.0.1:$docs_port" DOCS_GATEWAY_SECRET=$gateway \
   WEB_DIST="$root/apps/web/dist" "$tmp/bff" >"$tmp/bff.log" 2>&1 &
 bff=$!
-trap 'kill $stub $bff 2>/dev/null; true' EXIT
+trap 'kill $stub $products $bff 2>/dev/null; true' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   curl -fs -o /dev/null "http://localhost:$bff_port/auth/me" && break
   sleep 0.5
