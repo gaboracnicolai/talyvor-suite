@@ -293,6 +293,9 @@ export interface AuthMe {
    *  Absent (older BFF) is UNKNOWN, not false: see lib/signupOpen.ts for why that is its own
    *  state rather than a boolean default. */
   signup_open?: boolean
+  /** B20.12 — whether THIS person is on the BFF's OPERATOR_SUBS: the sidebar offers the marketplace
+   *  review queue only to someone it will admit. The BFF's requireOperator still decides. */
+  operator?: boolean
 }
 
 /** GET /api/spend/month — Lens spend/current-month. A float upstream, so the

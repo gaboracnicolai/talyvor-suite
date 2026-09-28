@@ -321,6 +321,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/marketplace/listings/{listingID}/reports", func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensMarketReportBody',
   },
+  // B20.12 — the operator takes a listing down, with a reason.
+  {
+    route: 'POST /v1/admin/marketplace/listings/{listingID}/takedown',
+    file: 'apps/bff/market_review.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleMarketTakedown(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/market_handler.go',
+    upstreamAnchor: 'func newMarketTakedownHandler(store *market.Store, refunder market.Refunder) http.Handler {',
+    subject: 'lensMarketTakedownBody',
+  },
   // B20.6 — a seller connects a Stripe account to be paid.
   {
     route: 'POST /v1/workspaces/{wsID}/marketplace/payouts/connect',

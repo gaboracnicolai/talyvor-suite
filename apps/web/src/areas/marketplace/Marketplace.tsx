@@ -6,6 +6,7 @@ import { Region, RegionScreen } from '../../components/Region'
 import { formatULXC } from '../lens/agentBankApi'
 import { formatUSD, formatWhen } from '../lens/format'
 import { ListingPage } from './ListingPage'
+import { ReviewQueue } from './Review'
 import {
   type ListingKind,
   KINDS,
@@ -639,6 +640,7 @@ export function MarketplaceArea() {
         <Route path="publish" element={<Publish />} />
         <Route path="selling" element={<Selling />} />
         <Route path="bill" element={<Bill />} />
+        <Route path="review" element={<ReviewQueue />} />
         {/* Anything else under /marketplace/* lands on the catalog rather than a dead end. */}
         <Route path="*" element={<Browse />} />
       </Routes>

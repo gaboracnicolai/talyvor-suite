@@ -109,6 +109,10 @@ const SIDEBAR_DESTINATIONS = [
   '/terms',
 ] as const
 
+/** B20.12 — offered only when /auth/me says this person is an operator, so absent from every render
+ *  below (they sign in as nobody). Review.test.tsx renders it as a link for an operator. */
+const OPERATOR_DESTINATIONS = ['/marketplace/review'] as const
+
 /**
  * A destination affordance is anything in the sections nav a keyboard reaches. If it is focusable
  * and it is in the navigation, it is offered as a way to go somewhere.
@@ -204,7 +208,7 @@ describe('every destination in the console navigation is a link', () => {
       [...new Set(declared)].sort(),
       'App.tsx offers a sidebar destination this file does not pin (or no longer offers one it ' +
         'does) — a thirteenth destination could otherwise be added as a button and never be swept',
-    ).toEqual([...SIDEBAR_DESTINATIONS].sort())
+    ).toEqual([...SIDEBAR_DESTINATIONS, ...OPERATOR_DESTINATIONS].sort())
   })
 
   for (const route of CONSOLE_ROUTES) {

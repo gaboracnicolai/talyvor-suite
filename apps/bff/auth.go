@@ -685,6 +685,9 @@ func (a *app) handleMe(w http.ResponseWriter, r *http.Request) {
 			// signup_open is documented at length below, on the UNAUTHENTICATED answer — the one
 			// that matters. It is served here too so a signed-in operator reads the same bit.
 			"signup_open": signupIsOpen(a.cfg.allowedEmails),
+			// B20.12 — whether THIS person is on OPERATOR_SUBS, so the sidebar offers the review
+			// queue only to someone it will admit. About the asker alone; requireOperator still decides.
+			"operator": a.isOperator(s),
 		})
 		return
 	}

@@ -69,6 +69,7 @@ func installedSecrets(cfg config) map[string]string {
 		"trackGatewaySecret": cfg.trackGatewaySecret,
 		"docsGatewaySecret":  cfg.docsGatewaySecret,
 		"oidcClientSecret":   cfg.oidcClientSecret,
+		"moderatorKey":       cfg.moderatorKey,
 	}
 	out := map[string]string{}
 	for name, v := range all {
