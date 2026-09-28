@@ -30,6 +30,15 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 		f.mu.Lock()
 		f.got = append(f.got, r.Method+" "+r.URL.Path+" "+string(raw))
 		f.mu.Unlock()
+		if strings.HasSuffix(r.URL.Path, "/statement") && r.URL.Query().Get("format") == "csv" {
+			f.mu.Lock()
+			f.got[len(f.got)-1] += "?" + r.URL.RawQuery
+			f.mu.Unlock()
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="agent-statement-2026-08-01-2026-09-01.csv"`)
+			_, _ = io.WriteString(w, "posting_id,entry_id,at,account,kind,amount_ulxc,counterparty,ref,balance_after_ulxc\n,,2026-08-01T00:00:00Z,agent:agt_1,opening,,,,0\n")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/pay"):
@@ -179,5 +188,23 @@ func TestAgentSchedulesAndTopUpReachLens(t *testing.T) {
 	}
 	if ws == "" || strings.Join(f.got, "|") != strings.Join(want, "|") {
 		t.Fatalf("Lens received %q, want %q", f.got, want)
+	}
+}
+
+// B19.22 — a statement download reaches Lens with only the period and the format, and comes back as the
+// file Lens wrote, with its name; a period that is not a date is refused before Lens is asked.
+func TestAgentStatementDownloadIsLensFile(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	rec := doJSON(a, http.MethodGet, "/api/agents/agt_1/statement/download?from=2026-08-01&to=2026-09-01&format=csv&x=1", "")
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/csv") ||
+		rec.Header().Get("Content-Disposition") != `attachment; filename="agent-statement-2026-08-01-2026-09-01.csv"` ||
+		!strings.Contains(rec.Body.String(), "agent:agt_1,opening") {
+		t.Fatalf("download = %d %v %q", rec.Code, rec.Header(), rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodGet, "/api/agents/statement/download?from=last-month&format=csv", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a period that is not a date = %d, want 400", rec.Code)
+	}
+	if len(f.got) != 1 || !strings.HasSuffix(f.got[0], "/agents/agt_1/statement ?format=csv&from=2026-08-01&to=2026-09-01") {
+		t.Fatalf("Lens received %q, want one read with only the period and format", f.got)
 	}
 }

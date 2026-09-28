@@ -337,6 +337,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/schedules/{sid}/runs", a.requireTenant(a.handleAgentScheduleRuns))
 	a.mux.HandleFunc("/api/agents/schedules/{sid}/stop", a.requireTenant(a.handleAgentScheduleStop))
 	a.mux.HandleFunc("/api/agents/{id}/topup", a.requireTenant(a.handleAgentTopUp))
+	// B19.22 — the auditable statement for any period, as a CSV or JSON download.
+	a.mux.HandleFunc("/api/agents/statement/download", a.requireTenant(a.handleBankStatementDownload))
+	a.mux.HandleFunc("/api/agents/{id}/statement/download", a.requireTenant(a.handleAgentStatementDownload))
 	// B20.3 — the marketplace: browse, publish, use a listing, and what the seller earned. See marketplace.go.
 	a.mux.HandleFunc("/api/marketplace/listings", a.requireTenant(a.handleMarketListings))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}", a.requireTenant(a.handleMarketListing))

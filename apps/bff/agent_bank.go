@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strings"
 )
 
 // agent_bank.go — B19.4: the Agent Bank screen. Lens's agent accounts (B19.1), their spending rules
@@ -569,5 +571,92 @@ func (a *app) handleAgentTopUp(w http.ResponseWriter, r *http.Request, t tenant)
 		a.agentBankRelay(w, r, t, http.MethodPut, suffix, body)
 	default:
 		methodNotAllowed(w, http.MethodGet+", "+http.MethodPut+", "+http.MethodDelete)
+	}
+}
+
+// B19.22 — the auditable statement (Lens B19.5) for any period, downloaded as CSV or JSON: opening, in,
+// out, closing, and every line naming the posting and entry it came from.
+//
+//	GET /api/agents/statement/download?from=&to=&format=csv|json        every account in the bank
+//	GET /api/agents/{id}/statement/download?from=&to=&format=csv|json   one agent
+//
+// from and to are YYYY-MM-DD (Lens also takes RFC 3339); empty is this month so far, as Lens reads it.
+
+// statementDate is the one shape this screen sends a period in.
+var statementDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+
+// handleBankStatementDownload — GET /api/agents/statement/download.
+func (a *app) handleBankStatementDownload(w http.ResponseWriter, r *http.Request, t tenant) {
+	a.statementDownload(w, r, t, "/agents/statement")
+}
+
+// handleAgentStatementDownload — GET /api/agents/{id}/statement/download.
+func (a *app) handleAgentStatementDownload(w http.ResponseWriter, r *http.Request, t tenant) {
+	if suffix, ok := agentSuffix(w, r, "statement"); ok {
+		a.statementDownload(w, r, t, suffix)
+	}
+}
+
+// statementDownload relays a period statement as the file Lens writes: CSV with Lens's own filename, or
+// JSON as an attachment. Only from, to and format reach Lens.
+func (a *app) statementDownload(w http.ResponseWriter, r *http.Request, t tenant, suffix string) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	in := r.URL.Query()
+	q := url.Values{}
+	for _, k := range []string{"from", "to"} {
+		if v := in.Get(k); v != "" {
+			if !statementDate.MatchString(v) {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": k + " must be a YYYY-MM-DD date"})
+				return
+			}
+			q.Set(k, v)
+		}
+	}
+	format := in.Get("format")
+	if format != "csv" && format != "json" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "format must be csv or json"})
+		return
+	}
+	q.Set("format", format)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, a.cfg.lensBaseURL+lensWorkspacePath(t, suffix)+"?"+q.Encode(), nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+t.token) // the SESSION's workspace token, server-side only
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("bff: agent statement download: %v", err)
+		writeUpstreamFailure(w, "lens", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	switch {
+	case resp.StatusCode == http.StatusOK && format == "csv" && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/csv"):
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		if cd := resp.Header.Get("Content-Disposition"); strings.HasPrefix(cd, "attachment;") {
+			w.Header().Set("Content-Disposition", cd)
+		} else {
+			w.Header().Set("Content-Disposition", `attachment; filename="agent-statement.csv"`)
+		}
+		_, _ = w.Write(raw)
+	case resp.StatusCode == http.StatusOK && format == "json" && json.Valid(raw):
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", `attachment; filename="agent-statement.json"`)
+		_, _ = w.Write(raw)
+	case resp.StatusCode >= 400 && resp.StatusCode < 500:
+		var refusal struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &refusal) != nil || refusal.Error == "" {
+			refusal.Error = "Lens refused this"
+		}
+		writeJSON(w, resp.StatusCode, map[string]string{"error": refusal.Error})
+	default:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Lens could not answer just now"})
 	}
 }

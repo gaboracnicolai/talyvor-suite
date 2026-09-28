@@ -888,12 +888,67 @@ function lineText(l: StatementLine, nameOf: (id: string) => string): string {
   }
 }
 
+/** Last month, as the first days of it and of this month (UTC): the default statement period. */
+function lastMonth(now: Date = new Date()): { from: string; to: string } {
+  const day = (m: number) => new Date(Date.UTC(now.getUTCFullYear(), m, 1)).toISOString().slice(0, 10)
+  return { from: day(now.getUTCMonth() - 1), to: day(now.getUTCMonth()) }
+}
+
+/**
+ * B19.22 — an auditable statement for any period (Lens B19.5), as the file Lens writes: opening, in, out,
+ * closing, and every line naming the posting and entry it came from. A plain download link, so the
+ * browser saves it with the session it already has.
+ */
+function StatementDownload({ path, what }: { path: string; what: string }) {
+  const [period, setPeriod] = useState(lastMonth)
+  const href = (format: 'csv' | 'json') => `${path}?${new URLSearchParams({ from: period.from, to: period.to, format })}`
+  const ok = period.from !== '' && period.to !== '' && period.from < period.to
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Input
+        type="date"
+        aria-label={`${what} statement from`}
+        className="w-40 font-figure"
+        value={period.from}
+        onChange={(e) => setPeriod((p) => ({ ...p, from: e.target.value }))}
+      />
+      <span className="text-caption text-muted">up to</span>
+      <Input
+        type="date"
+        aria-label={`${what} statement up to`}
+        className="w-40 font-figure"
+        value={period.to}
+        onChange={(e) => setPeriod((p) => ({ ...p, to: e.target.value }))}
+      />
+      {ok ? (
+        <>
+          <Button asChild variant="primary">
+            <a href={href('csv')} download>
+              Download CSV
+            </a>
+          </Button>
+          <Button asChild>
+            <a href={href('json')} download>
+              JSON
+            </a>
+          </Button>
+        </>
+      ) : (
+        <span className="text-caption text-muted">The period starts before it ends.</span>
+      )}
+    </div>
+  )
+}
+
 function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string) => string }) {
   const st = useQuery({ queryKey: statementKey(agent.id), queryFn: () => agentBankApi.statement(agent.id) })
   const lines = st.data?.lines ?? []
   return (
     <Card>
       <CardHeader>Statement</CardHeader>
+      <div className="px-gutter py-3">
+        <StatementDownload path={`/api/agents/${encodeURIComponent(agent.id)}/statement/download`} what={`${agent.name}’s`} />
+      </div>
       {st.isError ? (
         <p className="px-gutter py-3 text-body text-muted">{readFailure(st.error, 'This agent’s statement')}</p>
       ) : st.isPending ? (
@@ -1172,6 +1227,12 @@ export function AgentBank() {
           <p className="text-body text-muted">No agents yet. Create one, then fund it and set its rules.</p>
         ) : agents.length > 0 ? (
           <AgentList agents={agents} selected={agent?.id ?? null} onSelect={setChosen} />
+        ) : null}
+        {agents.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-muted">Every account in the bank, for a period — an auditable file:</p>
+            <StatementDownload path="/api/agents/statement/download" what="The whole bank’s" />
+          </div>
         ) : null}
       </Region>
 
