@@ -87,6 +87,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     judgeProvider: cfg.judgeProvider,
     judgeModel: cfg.judgeModel,
     signInUser: (index) => signIn(users[index]),
+    userAt: (index) => users[index],
     userCount: users.length,
   }
 
