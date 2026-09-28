@@ -113,7 +113,7 @@ const TELLS_YOU_WHAT_TO_DO =
 // limit of a text-shape heuristic, recorded rather than tuned away: narrowing the pattern until
 // these disappear is how a detector stops finding the real ones too.
 const NOT_AN_EMPTY_STATE: Record<string, string> = {
-  'Nothing produced here is served to anyone else.':
+  'Nothing new produced here is shared.':
     'A bullet in Sharing’s “If sharing is off” list — it describes the consequence of a setting, not an absent collection. It opens with “Nothing”, which is the shape the detector keys on.',
 }
 

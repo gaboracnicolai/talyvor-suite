@@ -210,16 +210,17 @@ describe('the privacy page states the things most likely to be softened', () => 
     ).toBeInTheDocument()
   })
 
-  it('says the retention clock resets on use', async () => {
+  // B21.4 — a stored answer does not expire, and its question is stored with it.
+  it('says stored answers are kept until you delete them', async () => {
     mockBff()
     at('/privacy')
-    expect(await screen.findByText(/clock resets every time the entry is used/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Stored answers are kept until you delete them; they do not expire/)).toBeInTheDocument()
   })
 
-  it('says prompt text is not persisted by default', async () => {
+  it('says the latest question is stored with each reusable answer', async () => {
     mockBff()
     at('/privacy')
-    expect(await screen.findByText(/By default, no/i)).toBeInTheDocument()
+    expect(await screen.findByText(/The latest question is stored with each reusable answer/)).toBeInTheDocument()
   })
 })
 

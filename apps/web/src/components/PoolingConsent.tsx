@@ -55,7 +55,7 @@ export function PoolingConsent({ onDone }: { onDone: () => void }) {
             When someone else asks a question this workspace has already paid to answer, they can
             be served your answer, and you earn half of what they were charged. On a plan, what
             you earn counts against your plan&rsquo;s price. You can turn sharing off below, or any
-            time in Features — one click, and then nothing of yours is shared and you earn nothing.
+            time in Features — one click. What switching it off does, and does not do, is below.
           </p>
           <SharingFacts />
           {/* ⚠ THE UNPAID-CONTRIBUTION NOTICE, and it sits ABOVE the choice deliberately: a tester

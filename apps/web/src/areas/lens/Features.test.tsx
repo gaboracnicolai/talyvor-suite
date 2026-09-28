@@ -219,7 +219,7 @@ describe('the Features screen', () => {
     render(<App />)
     await waitFor(() =>
       expect(within(row('Answer sharing')).getByTestId('state-Answer sharing')).toHaveTextContent(
-        /Paused — personal-data detection is off, so nothing of yours is shared/,
+        /Paused — personal-data detection is off, so no new answer of yours is shared/,
       ),
     )
     expect(within(row('Answer sharing')).getByRole('switch')).toBeChecked()
@@ -236,7 +236,7 @@ describe('the Features screen', () => {
     )
   })
 
-  it('answer sharing has a switch: off writes the consent, and the row then says nothing earns', async () => {
+  it('answer sharing has a switch: off writes the consent, and the row then says no new answer is shared', async () => {
     const posts: Array<{ url: string; body: unknown }> = []
     mockBff(posts)
     window.history.pushState({}, '', '/features')
@@ -244,7 +244,7 @@ describe('the Features screen', () => {
     const r = () => row('Answer sharing')
     await waitFor(() => expect(within(r()).getByRole('switch')).toBeInTheDocument())
     fireEvent.click(within(r()).getByRole('switch'))
-    await waitFor(() => expect(within(r()).getByTestId('state-Answer sharing')).toHaveTextContent(/your answers earn nothing/))
+    await waitFor(() => expect(within(r()).getByTestId('state-Answer sharing')).toHaveTextContent(/no new answer of yours is shared/))
     expect(posts).toEqual([{ url: '/api/pooling', body: { cache_poolable: false } }])
   })
 

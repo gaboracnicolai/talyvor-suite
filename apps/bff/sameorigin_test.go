@@ -187,6 +187,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/features/guardrails", body: `{"injection":false}`},
 		{method: http.MethodPost, path: "/api/features/logging", body: `{"logging_policy":"metadata"}`},
 		{method: http.MethodPost, path: "/api/features/budget", body: `{"limit_usd":50,"enforcement":"hard_block"}`},
+		{method: http.MethodPost, path: "/api/features/stored-answers/delete", body: `{"scope":"shared","confirm":"ws"}`},
+		{method: http.MethodPost, path: "/api/features/deletion-requests", body: `{}`},
 		{method: http.MethodPost, path: "/api/features/tare/preview", body: `{"content":"{\"a\":1}","kind":"json"}`},
 		{method: http.MethodPost, path: "/api/features/conversion/preview", body: `<p>hi</p>`},
 		{method: http.MethodPost, path: "/api/keys", body: `{"name":"k","scopes":["proxy"]}`},

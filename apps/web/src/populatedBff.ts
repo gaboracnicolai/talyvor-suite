@@ -131,6 +131,15 @@ const BY_PATH: Record<string, unknown> = {
     budget: { period: 'monthly', limit_usd: 200, spent_usd: 48.3, enforcement: 'hard_block' },
     several: false,
   },
+  // B21.4 — what the workspace has stored, and its requests to delete everything.
+  '/api/features/stored-answers': {
+    shared_answers: 12,
+    private_answers: 30,
+    shared_conversions: 2,
+    private_conversions: 5,
+    confirm_with: 'ws_populated',
+  },
+  '/api/features/deletion-requests': { requests: [{ id: 1, status: 'requested', requested_at: '2026-09-27T12:00:00Z' }] },
   '/api/usage': {
     period_days: 7,
     models: [

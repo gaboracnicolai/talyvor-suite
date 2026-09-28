@@ -1,4 +1,10 @@
 import { LegalHeader, LawyerReview, Section } from './legalParts'
+import {
+  KEPT_UNTIL_DELETED_FACT,
+  LOGGING_NONE_FACT,
+  QUESTION_STORED_FACT,
+  SHARING_OFF_FACT,
+} from '../components/StoredAnswersFacts'
 
 // Privacy — a factual account of what this system stores, read from the code, not a template.
 //
@@ -66,9 +72,12 @@ export function Privacy() {
 
       <Section title="Whether your prompt text is kept">
         <p className="text-body">
-          <strong>By default, no.</strong> Each workspace has a logging setting, and an
-          unconfigured workspace gets <code>metadata</code>, under which the prompt text is written
-          as an empty string and never persisted.
+          <strong>With each reusable answer, yes.</strong> {QUESTION_STORED_FACT}
+        </p>
+        <p className="mt-3 text-body text-muted">
+          Separately, each workspace has a logging setting for its request log. An unconfigured
+          workspace gets <code>metadata</code>, under which the log records the prompt text as an
+          empty string.
         </p>
         <p className="mt-3 text-body text-muted">
           There is a <code>full</code> setting that <em>does</em> persist prompt text, so that
@@ -77,10 +86,7 @@ export function Privacy() {
           have no way to tell from the product that this had happened. We are stating that plainly
           because it is the kind of thing a policy usually omits.
         </p>
-        <p className="mt-3 text-body text-muted">
-          The hash and the embedding are stored under every setting, including{' '}
-          <code>none</code>. They are not prompt text, but they are derived from it.
-        </p>
+        <p className="mt-3 text-body text-muted">{LOGGING_NONE_FACT}</p>
       </Section>
 
       <Section title="⚠ Documents you attach become the prompt">
@@ -130,9 +136,8 @@ export function Privacy() {
         </p>
         <p className="mt-3 text-body text-muted">
           Sharing is <strong>on</strong> for a new workspace and one click turns it off, on the
-          screen shown before you first reach the app and in Settings at any time. Turning it off
-          applies from that moment on; it does not reach back to answers already shared. Your API
-          keys, balance and ledger are never shared under either setting.
+          screen shown before you first reach the app and in Settings at any time.{' '}
+          {SHARING_OFF_FACT} Your API keys, balance and ledger are never shared under either setting.
         </p>
         <p className="mt-3 text-body text-muted">
           Sharing is additionally gated deployment-wide by the operator. On a deployment where that
@@ -146,17 +151,13 @@ export function Privacy() {
           ledger, and a balance you cannot audit is not a balance.
         </p>
         <p className="mt-3 text-body">
-          Cached answers expire after a configured period of disuse.{' '}
-          <strong>
-            That clock resets every time the entry is used, so an answer that stays popular is kept
-            indefinitely.
-          </strong>{' '}
-          This is a real consequence and it is not obvious: a question your team asks every week is
-          an answer we hold for as long as you keep asking it. It applies identically to shared and
-          unshared entries.
+          <strong>{KEPT_UNTIL_DELETED_FACT}</strong> This applies identically to shared and unshared
+          answers. In Features you can delete the answers this workspace shared, or everything it has
+          stored, or ask Talyvor to delete all of your data. Answers already given to other users stay
+          in their conversations.
         </p>
         <LawyerReview compact>
-          A retention period that resets on access is a design decision with regulatory
+          Keeping stored answers until the customer deletes them is a design decision with regulatory
           consequences. It needs review against any maximum-retention obligation.
         </LawyerReview>
       </Section>

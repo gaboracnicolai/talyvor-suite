@@ -1092,6 +1092,14 @@ cannot "[POST /v1/workspaces/{wsID}/billing/subscribe] apps/bff/billing.go sends
     "talyvor-lens cmd/lens/main.go" \
     "[ \"\$(grep -A12 -F 'subs.post(authed, \"/v1/workspaces/{wsID}/billing/subscribe\", func' cmd/lens/main.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"plan\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line so a short struct cannot borrow the next handler's tags, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main 412658b before this merge: it settles."
 
+cannot "[DELETE /v1/workspaces/{wsID}/stored-answers] apps/bff/stored_answers.go sends {scope, confirm} from Features' Stored answers (B21.4), and Lens refuses an unknown scope and a confirm that is not the workspace's name, so a renamed key is a 400 the person sees and nothing is deleted — loud, but the only delete a customer can run on their own data" \
+    "talyvor-lens internal/storedanswers/http.go" \
+    "[ \"\$(grep -A12 -F 'func DeleteHandler(store Deleter, wsm WorkspaceLookup) http.HandlerFunc {' internal/storedanswers/http.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"confirm scope\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main 1812c09 before this merge: it settles."
+
+cannot "[POST /v1/workspaces/{wsID}/deletion-requests] apps/bff/stored_answers.go sends {note} when Features asks Talyvor to delete everything (B21.4); Lens reads a renamed key as an empty note and still records the request, so only the note's words are lost" \
+    "talyvor-lens internal/storedanswers/http.go" \
+    "[ \"\$(grep -A12 -F 'func FileRequestHandler(store Deleter) http.HandlerFunc {' internal/storedanswers/http.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"note\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main 1812c09 before this merge: it settles."
+
 # ── THE METERED-SURFACE UPSTREAM COLUMN (W1.7.1, tab-p9r4) ───────────────────
 # Both metered censuses carry an `upstream` field per surface — the call site in the other repo
 # that makes that surface cost money — and both headers present it as holding the STALE

@@ -143,7 +143,7 @@ describe('Setup — what is stored', () => {
     renderSetup()
     const card = (await screen.findByText('What Talyvor does with your traffic')).closest('div')?.parentElement
     const text = (card?.textContent ?? '').replace(/\s+/g, ' ')
-    expect(text).toContain('Then nothing of your prompts or answers is stored anywhere')
+    expect(text).toContain('Under logging “none”, nothing of a question or answer is stored.')
     expect(text).toContain('a repeated question goes to the model and is paid for again')
     expect(text).toContain('The none setting keeps nothing: not in the log, and not in the cache.')
     expect(text).not.toContain('does not turn off the cache')
