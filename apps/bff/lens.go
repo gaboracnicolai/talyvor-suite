@@ -307,6 +307,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/approvals", a.requireTenant(a.handleAgentApprovals))
 	a.mux.HandleFunc("/api/agents/approvals/{id}/approve", a.requireTenant(a.handleAgentDecision("approve")))
 	a.mux.HandleFunc("/api/agents/approvals/{id}/deny", a.requireTenant(a.handleAgentDecision("deny")))
+	// B19.10 — approvals with Face ID and a push on the phone (Lens B19.16 keeps the passkeys and subscriptions).
+	a.mux.HandleFunc("/api/agents/approvals/{id}/challenge", a.requireTenant(a.handleApprovalChallenge))
+	a.mux.HandleFunc("/api/agents/passkeys", a.requireTenant(a.handlePasskeys))
+	a.mux.HandleFunc("/api/agents/passkeys/challenge", a.requireTenant(a.handlePasskeyChallenge))
+	a.mux.HandleFunc("/api/agents/push/public-key", a.requireTenant(a.handlePushPublicKey))
+	a.mux.HandleFunc("/api/agents/push/subscriptions", a.requireTenant(a.handlePushSubscriptions))
 	a.mux.HandleFunc("/api/agents/{id}/fund", a.requireTenant(a.handleAgentMove("fund")))
 	a.mux.HandleFunc("/api/agents/{id}/withdraw", a.requireTenant(a.handleAgentMove("withdraw")))
 	a.mux.HandleFunc("/api/agents/{id}/keys", a.requireTenant(a.handleAgentKeys))
@@ -1034,7 +1040,9 @@ func stripPageContentList(body []byte) ([]byte, error) {
 // version.go already make explicitly on every response that must not be stale — including
 // /api/version, which carries the SAME FACT as version.json from the other half of this binary.
 // See spa_cache_test.go for the measured rows.
-var unhashedBundleNames = map[string]bool{"index.html": true, "version.json": true}
+// sw.js and manifest.webmanifest (B19.10) sit at fixed paths too, and a stale service worker is worse than
+// a stale page: it keeps handling pushes with the old code until the browser asks again.
+var unhashedBundleNames = map[string]bool{"index.html": true, "version.json": true, "sw.js": true, "manifest.webmanifest": true}
 
 func isUnhashedBundleFile(cleanPath string) bool {
 	return unhashedBundleNames[filepath.Base(cleanPath)]
@@ -1079,7 +1087,7 @@ const bundleAssetsDir = "assets"
 // buildOwnedFiles are bundle files the build emits at a stable path — not content-hashed, so
 // they are not under assetsDir, and not client routes either. A request for one of these is a
 // request for a FILE, and the honest answer when it is absent is that it is absent.
-var buildOwnedFiles = map[string]bool{"/version.json": true}
+var buildOwnedFiles = map[string]bool{"/version.json": true, "/sw.js": true, "/manifest.webmanifest": true}
 
 func isBuildOwnedPath(cleanPath string) bool {
 	if cleanPath == "/"+bundleAssetsDir || strings.HasPrefix(cleanPath, "/"+bundleAssetsDir+"/") {

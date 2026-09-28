@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- B19.10: installable, so an iPhone can take approval pushes once it is on the Home Screen. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Talyvor Suite</title>
     <!-- No-flash theme: set data-theme before first paint, respecting a stored
          choice then prefers-color-scheme. The theme store reads this back.
