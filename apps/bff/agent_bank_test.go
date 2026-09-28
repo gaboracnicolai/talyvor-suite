@@ -97,3 +97,20 @@ func TestAgentBankRelaysLensRefusalSentence(t *testing.T) {
 		t.Fatalf("a Lens 500 = %d %s, want a 502 of the BFF's own", rec.Code, rec.Body.String())
 	}
 }
+
+// B19.19 — the listings an agent may use reach Lens with its other rules; a save that does not name them
+// sends null, which Lens reads as "keep the listings it holds", never as "allow any".
+func TestAgentRulesCarryTheAllowedListings(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"daily_limit_ulxc":5000000,"allowed_listings":["lst_1"],"pause_on_unusual_spend":true}`)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"daily_limit_ulxc":5000000}`)
+	if len(f.got) != 2 {
+		t.Fatalf("Lens received %d requests, want 2: %q", len(f.got), f.got)
+	}
+	if !strings.Contains(f.got[0], `"allowed_listings":["lst_1"]`) || !strings.Contains(f.got[0], `"pause_on_unusual_spend":true`) {
+		t.Fatalf("Lens received %q, want the listing and the pause switch", f.got[0])
+	}
+	if !strings.Contains(f.got[1], `"allowed_listings":null`) {
+		t.Fatalf("Lens received %q, want allowed_listings null when the save does not name them", f.got[1])
+	}
+}
