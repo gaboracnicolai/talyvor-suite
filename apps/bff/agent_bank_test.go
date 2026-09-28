@@ -39,6 +39,12 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "balance_ulxc": 10_000_000})
 		case strings.HasSuffix(r.URL.Path, "/agents/pause-all"), strings.HasSuffix(r.URL.Path, "/agents/resume-all"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"all_paused": strings.HasSuffix(r.URL.Path, "pause-all")})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/card") && r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "economy: this agent has no card"})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/card"):
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "ic_1", "agent_id": "agt_1", "last4": "4242", "livemode": false})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/claim"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "owner_user_id": "ws_1"})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/pause"):
@@ -239,5 +245,32 @@ func TestAgentClaimReachesLens(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.got) != 1 || !strings.HasSuffix(f.got[0], "/agents/agt_1/claim ") || !strings.HasPrefix(f.got[0], "POST ") {
 		t.Fatalf("Lens got %q", f.got)
+	}
+}
+
+// B19.24 — an agent's card: issuing it sends Lens the cardholder and nothing else a browser adds, and a
+// card-less agent's 404 comes back with Lens's sentence, which the screen reads as "no card yet".
+func TestAgentCardReachesLensWithOnlyTheCardholder(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/card",
+		`{"first_name":"Ada","last_name":"Lovelace","email":"ada@example.com","line1":"1 High St","city":"London","postal_code":"N1 1AA","country":"GB","workspace_id":"ws_other"}`)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"last4":"4242"`) {
+		t.Fatalf("issue = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodGet, "/api/agents/agt_1/card", ``); rec.Code != http.StatusNotFound ||
+		!strings.Contains(rec.Body.String(), "has no card") {
+		t.Fatalf("read = %d %s", rec.Code, rec.Body.String())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.got) != 2 || !strings.HasPrefix(f.got[0], "POST ") || !strings.Contains(f.got[0], "/agents/agt_1/card ") {
+		t.Fatalf("Lens got %q", f.got)
+	}
+	var sent map[string]string
+	if err := json.Unmarshal([]byte(f.got[0][strings.Index(f.got[0], "{"):]), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := sent["workspace_id"]; leaked || sent["first_name"] != "Ada" || sent["postal_code"] != "N1 1AA" || len(sent) != 8 {
+		t.Fatalf("Lens was sent %v; want exactly the eight cardholder fields", sent)
 	}
 }

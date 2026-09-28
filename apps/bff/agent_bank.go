@@ -23,6 +23,8 @@ import (
 //	GET  /api/agents/{id}/statement?from=&to=&format=json|csv   B19.22: its statement for a period, to download
 //	GET  /api/agents/statement?from=&to=&format=json|csv        B19.22: every account in the bank, for a period
 //	POST /api/agents/{id}/claim                        B19.23: the signed-in person becomes an ownerless agent's owner
+//	GET  /api/agents/{id}/card                         B19.24: its test-mode card and every purchase on it (404: none)
+//	POST /api/agents/{id}/card          {cardholder}   B19.24: issue it one, the cardholder's name and billing address
 //	POST /api/agents/{id}/pay           {"to_agent_id", "amount_ulxc", "memo"}   pay another of this workspace's agents
 //	GET  /api/agents/approvals                         what the agents' rules sent to a person, newest first
 //	POST /api/agents/approvals/{id}/approve, …/deny    decide one
@@ -298,6 +300,43 @@ func (a *app) handleAgentClaim(w http.ResponseWriter, r *http.Request, t tenant)
 	if suffix, ok := agentSuffix(w, r, "claim"); ok {
 		a.agentBankRelay(w, r, t, http.MethodPost, suffix, nil)
 	}
+}
+
+// handleAgentCard — GET and POST /api/agents/{id}/card (B19.24): Lens B19.12's virtual card, Stripe
+// Issuing in test mode. GET is the card and every authorisation on it, approved or declined with Lens's
+// reason and the ECB rate it was converted at; Lens answers 404 when the agent has none. POST issues one:
+// Stripe needs a cardholder — the person, and the billing address a merchant may ask for.
+func (a *app) handleAgentCard(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+		return
+	}
+	suffix, ok := agentSuffix(w, r, "card")
+	if !ok {
+		return
+	}
+	if r.Method == http.MethodGet {
+		a.agentBankRelay(w, r, t, http.MethodGet, suffix, nil)
+		return
+	}
+	// Lens agentcard.Cardholder.
+	var in struct {
+		FirstName  string `json:"first_name"`
+		LastName   string `json:"last_name"`
+		Email      string `json:"email"`
+		Line1      string `json:"line1"`
+		Line2      string `json:"line2"`
+		City       string `json:"city"`
+		PostalCode string `json:"postal_code"`
+		Country    string `json:"country"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensAgentCardBody: none
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
 }
 
 // handleAgentPay — POST /api/agents/{id}/pay: the agent pays another of this workspace's agents,
