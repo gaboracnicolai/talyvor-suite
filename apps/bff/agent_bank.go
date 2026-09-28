@@ -20,6 +20,8 @@ import (
 //	POST /api/agents/{id}/keys          {"name"}       issue the agent a proxy key of its own, shown once
 //	GET  /api/agents/{id}/rules, PUT {rules}           the agent's spending rules
 //	GET  /api/agents/{id}/statement                    the agent's account, newest first
+//	GET  /api/agents/{id}/statement?from=&to=&format=json|csv   B19.22: its statement for a period, to download
+//	GET  /api/agents/statement?from=&to=&format=json|csv        B19.22: every account in the bank, for a period
 //	POST /api/agents/{id}/pay           {"to_agent_id", "amount_ulxc", "memo"}   pay another of this workspace's agents
 //	GET  /api/agents/approvals                         what the agents' rules sent to a person, newest first
 //	POST /api/agents/approvals/{id}/approve, …/deny    decide one
@@ -196,14 +198,92 @@ func (a *app) handleAgentRules(w http.ResponseWriter, r *http.Request, t tenant)
 	a.agentBankRelay(w, r, t, http.MethodPut, suffix, body)
 }
 
-// handleAgentStatement — GET /api/agents/{id}/statement: the agent's last 100 lines.
+// handleAgentStatement — GET /api/agents/{id}/statement: the agent's last 100 lines. With ?from=, ?to=
+// or ?format= (B19.22) it is the agent's statement for that period instead, as JSON or a CSV file.
 func (a *app) handleAgentStatement(w http.ResponseWriter, r *http.Request, t tenant) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
 		return
 	}
-	if suffix, ok := agentSuffix(w, r, "statement"); ok {
-		a.agentBankRelay(w, r, t, http.MethodGet, suffix, nil)
+	suffix, ok := agentSuffix(w, r, "statement")
+	if !ok {
+		return
+	}
+	if q := r.URL.Query(); q.Has("from") || q.Has("to") || q.Has("format") {
+		a.agentStatementRelay(w, r, t, suffix)
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodGet, suffix, nil)
+}
+
+// handleBankStatement — GET /api/agents/statement?from=&to=&format=: B19.22, every account in the
+// workspace's agent bank for the period.
+func (a *app) handleBankStatement(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.agentStatementRelay(w, r, t, "/agents/statement")
+}
+
+// maxStatementBytes bounds a period statement the BFF passes on; a longer one asks for a shorter period.
+const maxStatementBytes = 32 << 20
+
+// agentStatementRelay asks Lens for a period statement (Lens B19.5) and answers with it: JSON, or the
+// CSV file with Lens's filename. Only from, to and format are sent up; Lens reads the dates (a
+// YYYY-MM-DD date is midnight UTC, the period is [from, to)) and its sentence on a bad one is relayed.
+func (a *app) agentStatementRelay(w http.ResponseWriter, r *http.Request, t tenant, suffix string) {
+	in, up := r.URL.Query(), url.Values{}
+	for _, k := range []string{"from", "to", "format"} {
+		if v := in.Get(k); v != "" {
+			up.Set(k, v)
+		}
+	}
+	target := a.cfg.lensBaseURL + lensWorkspacePath(t, suffix)
+	if len(up) > 0 {
+		target += "?" + up.Encode()
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+t.token) // the SESSION's workspace token, server-side only
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("bff: agent statement %s: %v", suffix, err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxStatementBytes+1))
+	asCSV := up.Get("format") == "csv"
+	switch {
+	case err != nil:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Lens could not answer just now"})
+	case resp.StatusCode >= 200 && resp.StatusCode < 300 && len(raw) > maxStatementBytes:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "This statement is too long to download at once — choose a shorter period."})
+	case resp.StatusCode >= 200 && resp.StatusCode < 300 && asCSV:
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+			w.Header().Set("Content-Disposition", cd)
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(raw)
+	case resp.StatusCode >= 200 && resp.StatusCode < 300 && json.Valid(raw):
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		_, _ = w.Write(raw)
+	case resp.StatusCode >= 400 && resp.StatusCode < 500:
+		var refusal struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &refusal) != nil || refusal.Error == "" {
+			refusal.Error = "Lens refused this"
+		}
+		writeJSON(w, resp.StatusCode, map[string]string{"error": refusal.Error})
+	default:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Lens could not answer just now"})
 	}
 }
 

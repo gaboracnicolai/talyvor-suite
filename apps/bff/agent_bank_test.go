@@ -181,3 +181,46 @@ func TestAgentSchedulesAndTopUpReachLens(t *testing.T) {
 		t.Fatalf("Lens received %q, want %q", f.got, want)
 	}
 }
+
+// B19.22 — a period statement, for one agent or the whole bank, reaches Lens with only from, to and
+// format, and comes back as Lens wrote it: the CSV file with its name, or Lens's sentence on a bad date.
+func TestAgentStatementDownloadsForAPeriod(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		got = append(got, r.URL.Path+"?"+r.URL.RawQuery)
+		if r.URL.Query().Get("from") == "2026-09-31" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"from must be an RFC 3339 time or a YYYY-MM-DD date"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="agent-statement-2026-08-01-2026-09-01.csv"`)
+		_, _ = w.Write([]byte("posting_id,entry_id,at,account,kind,amount_ulxc,counterparty,ref,balance_after_ulxc\n" +
+			",,2026-08-01T00:00:00Z,agent:agt_1,opening,,,,0\n" +
+			",,2026-09-01T00:00:00Z,agent:agt_1,closing,,,,5000000\n"))
+	}))
+	t.Cleanup(srv.Close)
+	a := newApp(config{addr: "127.0.0.1:0", lensBaseURL: srv.URL, provisionSecret: testProvisionSecret, webDist: t.TempDir(), authMode: authModeDisabled}, nil)
+
+	for _, path := range []string{"/api/agents/agt_1/statement", "/api/agents/statement"} {
+		rec := doJSON(a, http.MethodGet, path+"?from=2026-08-01&to=2026-09-01&format=csv&workspace_id=ws_other", "")
+		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/csv") ||
+			!strings.Contains(rec.Header().Get("Content-Disposition"), "agent-statement-2026-08-01-2026-09-01.csv") ||
+			!strings.Contains(rec.Body.String(), "opening") || !strings.Contains(rec.Body.String(), "closing,,,,5000000") {
+			t.Fatalf("%s = %d %v %s", path, rec.Code, rec.Header(), rec.Body.String())
+		}
+	}
+	rec := doJSON(a, http.MethodGet, "/api/agents/statement?from=2026-09-31", "")
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "YYYY-MM-DD") {
+		t.Fatalf("bad date = %d %s", rec.Code, rec.Body.String())
+	}
+	if len(got) != 3 || !strings.HasSuffix(got[0], "/agents/agt_1/statement?format=csv&from=2026-08-01&to=2026-09-01") ||
+		!strings.HasSuffix(got[1], "/agents/statement?format=csv&from=2026-08-01&to=2026-09-01") {
+		t.Fatalf("Lens got %v", got)
+	}
+}

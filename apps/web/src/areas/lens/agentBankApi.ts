@@ -177,6 +177,26 @@ async function send<T>(method: string, path: string, body: object = {}): Promise
 
 const e = encodeURIComponent
 
+/**
+ * B19.22 — a statement for the period [from, to) (YYYY-MM-DD, midnight UTC) as the file Lens writes:
+ * one agent's account, or with no agent every account in the bank. A refusal carries Lens's sentence.
+ */
+async function statementFile(agentID: string | null, from: string, to: string, format: 'csv' | 'json'): Promise<Blob> {
+  const query = new URLSearchParams({ from, to, format })
+  const path = agentID ? `/api/agents/${e(agentID)}/statement?${query}` : `/api/agents/statement?${query}`
+  const res = await fetch(path, { headers: { Accept: format === 'csv' ? 'text/csv' : 'application/json' } })
+  if (!res.ok) {
+    let sentence = ''
+    try {
+      sentence = ((await res.json()) as { error?: string }).error ?? ''
+    } catch {
+      // a body that is not JSON carries no sentence
+    }
+    throw new AgentBankError(res.status, path, sentence)
+  }
+  return res.blob()
+}
+
 export const agentBankApi = {
   book: () => getJSON<AgentBook>('/api/agents'),
   create: (name: string) => send<Agent>('POST', '/api/agents', { name }),
@@ -188,6 +208,7 @@ export const agentBankApi = {
   rules: (id: string) => getJSON<AgentRules>(`/api/agents/${e(id)}/rules`),
   setRules: (id: string, rules: AgentRules) => send<AgentRules>('PUT', `/api/agents/${e(id)}/rules`, rules),
   statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`),
+  statementFile,
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>
     send<AgentPayment>('POST', `/api/agents/${e(id)}/pay`, { to_agent_id, amount_ulxc, memo }),
   approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals'),

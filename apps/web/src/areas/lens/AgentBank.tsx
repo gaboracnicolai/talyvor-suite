@@ -925,7 +925,127 @@ function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string) => st
           </tbody>
         </table>
       )}
+      <div className="border-t border-rule">
+        <StatementDownload key={`statement-${agent.id}`} agent={agent} />
+      </div>
     </Card>
+  )
+}
+
+/** A UTC day as YYYY-MM-DD, the form Lens reads a statement's dates in. */
+const utcDay = (d: Date) => d.toISOString().slice(0, 10)
+
+/** Last month, or this month so far, as its first and last UTC day. */
+function monthPeriod(which: 'last' | 'this', now = new Date()): { from: string; through: string } {
+  const y = now.getUTCFullYear()
+  const m = now.getUTCMonth()
+  return which === 'last'
+    ? { from: utcDay(new Date(Date.UTC(y, m - 1, 1))), through: utcDay(new Date(Date.UTC(y, m, 0))) }
+    : { from: utcDay(new Date(Date.UTC(y, m, 1))), through: utcDay(now) }
+}
+
+/** The day after a YYYY-MM-DD day: Lens's period ends before `to`, and the screen names the last day it covers. */
+function dayAfter(d: string): string {
+  const t = new Date(`${d}T00:00:00Z`)
+  t.setUTCDate(t.getUTCDate() + 1)
+  return utcDay(t)
+}
+
+function saveFile(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+/**
+ * B19.22 — a statement for any period as a file an auditor can open: one agent's account, or with no
+ * agent every account in the bank. Lens builds it (B19.5): each account's opening balance, every line
+ * naming its posting and entry, and each account's closing balance. Days are whole UTC days, the last
+ * one included.
+ */
+function StatementDownload({ agent }: { agent: Agent | null }) {
+  const [period, setPeriod] = useState(() => monthPeriod('last'))
+  const [format, setFormat] = useState<'csv' | 'json'>('csv')
+  const who = agent ? `${agent.name}’s` : 'every agent’s'
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(period.from) && /^\d{4}-\d{2}-\d{2}$/.test(period.through) && period.from <= period.through
+  const get = useMutation({
+    mutationFn: async () => {
+      const stem = agent ? agent.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'agent' : 'agent-bank'
+      const name = `${stem}-statement-${period.from}-to-${period.through}.${format}`
+      saveFile(name, await agentBankApi.statementFile(agent?.id ?? null, period.from, dayAfter(period.through), format))
+      return name
+    },
+  })
+  return (
+    <form
+      className="flex flex-col gap-2 px-gutter py-3"
+      data-testid={agent ? 'agent-statement-download' : 'bank-statement-download'}
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (valid && !get.isPending) get.mutate()
+      }}
+    >
+      <p className="text-caption text-muted">
+        Download {who} statement for a period: the opening balance, every movement with its posting and entry, and the
+        closing balance. Days are UTC; the last day is included.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" onClick={() => setPeriod(monthPeriod('last'))}>
+          Last month
+        </Button>
+        <Button type="button" onClick={() => setPeriod(monthPeriod('this'))}>
+          This month
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Input is w-full, and cn() does not merge classes: the box sets its width. */}
+        <div className="w-40">
+          <Input
+            type="date"
+            aria-label={`First day of ${who} statement`}
+            className="font-figure"
+            value={period.from}
+            onChange={(e) => setPeriod((p) => ({ ...p, from: e.target.value }))}
+          />
+        </div>
+        <span className="text-caption text-muted">to</span>
+        <div className="w-40">
+          <Input
+            type="date"
+            aria-label={`Last day of ${who} statement`}
+            className="font-figure"
+            value={period.through}
+            onChange={(e) => setPeriod((p) => ({ ...p, through: e.target.value }))}
+          />
+        </div>
+        <select
+          aria-label={`File type of ${who} statement`}
+          className={`${scheduleSelect} w-24`}
+          value={format}
+          onChange={(e) => setFormat(e.target.value as 'csv' | 'json')}
+        >
+          <option value="csv">CSV</option>
+          <option value="json">JSON</option>
+        </select>
+        <Button type="submit" variant="primary" disabled={!valid || get.isPending}>
+          {get.isPending ? 'Preparing…' : 'Download'}
+        </Button>
+      </div>
+      {!valid ? <Note ok={false}>Choose a first day on or before the last day.</Note> : null}
+      {get.isSuccess ? <Note ok>Saved {get.data}.</Note> : null}
+      {get.isError ? (
+        <Note ok={false}>
+          {get.error instanceof AgentBankError && get.error.status < 500
+            ? refusalText(get.error)
+            : readFailure(get.error, 'The statement')}
+        </Note>
+      ) : null}
+    </form>
   )
 }
 
@@ -1144,6 +1264,12 @@ export function AgentBank() {
           <>
             <Totals book={book.data} />
             <PauseEveryAgent book={book.data} />
+            {book.data.agents.length > 0 ? (
+              <Card>
+                <CardHeader>Statement for every agent</CardHeader>
+                <StatementDownload agent={null} />
+              </Card>
+            ) : null}
           </>
         ) : (
           <p className="text-body text-muted">{book.isError ? readFailure(book.error, 'The agents') : 'Reading…'}</p>
