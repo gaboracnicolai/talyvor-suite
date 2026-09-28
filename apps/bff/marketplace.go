@@ -24,6 +24,9 @@ import (
 //	GET  /api/marketplace/earnings                 the seller's pending, payable, in holdback and available
 //	GET  /api/marketplace/bill?month=YYYY-MM       the buyer's billed uses in a month (B20.10), this month by default
 //	POST /api/marketplace/listings/{id}/reports    {reason, details}: report a listing to Talyvor's review (B20.11)
+//	GET  /api/marketplace/payouts                  B20.6: the seller's Stripe account, balance, next payout and payouts
+//	POST /api/marketplace/payouts/connect          B20.6: {country} a link to Stripe's onboarding
+//	POST /api/marketplace/payouts/credits          B20.6: take the available balance as Talyvor credits
 //
 // Reads and publishing go on the session's workspace token, as the Agent Bank's do. A USE does not:
 // Lens runs the listing by calling its own proxy with the caller's credential, and every /v1/proxy/*
@@ -253,4 +256,56 @@ func (a *app) handleMarketReport(w http.ResponseWriter, r *http.Request, t tenan
 	// UPSTREAM-BINDS-ONLY lensMarketReportBody: none
 	body, _ := json.Marshal(in)
 	a.marketRelay(w, r, a.client, t.token, http.MethodPost, "/v1/marketplace/listings/"+url.PathEscape(id)+"/reports", body, "")
+}
+
+// payoutsOff is what the seller reads when Lens has no Stripe to pay through (it answers 503).
+const payoutsOff = "Payouts are not switched on here yet: Stripe billing is off."
+
+// handleMarketPayouts — GET /api/marketplace/payouts (B20.6, Lens B20.5): the seller's connected Stripe
+// account and whether Stripe can pay it, the balance (in the holdback, available, owed, paid out), what
+// paying the available balance now would come to with Stripe's fees, and every payout.
+func (a *app) handleMarketPayouts(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, lensWorkspacePath(t, "/marketplace/payouts"), nil, payoutsOff)
+}
+
+// payoutCountry is the one shape Lens reads a seller's country in: two letters, or none for Lens's default.
+var payoutCountry = regexp.MustCompile(`^([A-Z]{2})?$`)
+
+// handleMarketPayoutsConnect — POST /api/marketplace/payouts/connect {country}: Lens creates the seller's
+// Stripe account the first time and answers a link to Stripe's onboarding, which returns to
+// /marketplace/selling. The workspace's owner or an admin only; Lens says so otherwise.
+func (a *app) handleMarketPayoutsConnect(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		Country string `json:"country"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if !payoutCountry.MatchString(in.Country) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "country must be two capital letters, such as GB"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensMarketPayoutConnectBody: none
+	body, _ := json.Marshal(in)
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/marketplace/payouts/connect"), body, payoutsOff)
+}
+
+// handleMarketPayoutsCredits — POST /api/marketplace/payouts/credits: the seller takes the whole available
+// balance as Talyvor credits, 1:1, instead of waiting for the monthly money payout. Lens writes the payout
+// and the credit together, and refuses with a sentence when nothing is available yet.
+func (a *app) handleMarketPayoutsCredits(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/marketplace/payouts/credits"), nil, "")
 }

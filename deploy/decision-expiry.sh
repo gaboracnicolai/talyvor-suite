@@ -1164,6 +1164,10 @@ cannot "[POST /v1/marketplace/listings/{listingID}/reports] apps/bff/marketplace
     "talyvor-lens cmd/lens/market_handler.go" \
     "[ \"\$(grep -A12 -F 'r.Post(\"/v1/marketplace/listings/{listingID}/reports\", func(w http.ResponseWriter, req *http.Request) {' cmd/lens/market_handler.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"details reason\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main 5ebd674 before this merge: it settles."
 
+cannot "[POST /v1/workspaces/{wsID}/marketplace/payouts/connect] apps/bff/marketplace.go sends {country} when a seller connects a Stripe account for payouts (B20.6); a renamed country is dropped SILENTLY and Stripe makes the account in Lens's default country, which Stripe then will not change" \
+    "talyvor-lens cmd/lens/market_payout_handler.go" \
+    "[ \"\$(grep -A12 -F 'r.Post(\"/v1/workspaces/{wsID}/marketplace/payouts/connect\", marketOwnerOnly(func(w http.ResponseWriter, req *http.Request) {' cmd/lens/market_payout_handler.go | sed '/NewDecoder/q' | grep -oE 'json:\"[a-z_]+' | sed 's/json:\"//' | sort -u | tr '\\n' ' ' | sed 's/ \$//')\" = \"country\" ]   # in a talyvor-lens checkout; the window is BOUNDED at the decoder line, and a missing anchor yields the EMPTY set — which fails this comparison rather than passing it. Run against lens main e99e042 before this merge: it settles."
+
 # ── THE METERED-SURFACE UPSTREAM COLUMN (W1.7.1, tab-p9r4) ───────────────────
 # Both metered censuses carry an `upstream` field per surface — the call site in the other repo
 # that makes that surface cost money — and both headers present it as holding the STALE

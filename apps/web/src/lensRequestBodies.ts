@@ -321,6 +321,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/marketplace/listings/{listingID}/reports", func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensMarketReportBody',
   },
+  // B20.6 — a seller connects a Stripe account to be paid.
+  {
+    route: 'POST /v1/workspaces/{wsID}/marketplace/payouts/connect',
+    file: 'apps/bff/marketplace.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleMarketPayoutsConnect(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/market_payout_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/marketplace/payouts/connect", marketOwnerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensMarketPayoutConnectBody',
+  },
   // B19.10 — approvals with Face ID and pushes on the phone (Lens B19.16 keeps passkeys and subscriptions).
   {
     route: 'POST /v1/workspaces/{wsID}/agents/passkeys',
