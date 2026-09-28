@@ -380,3 +380,91 @@ func (a *app) handlePushSubscriptions(w http.ResponseWriter, r *http.Request, t 
 	body, _ := json.Marshal(in)
 	a.agentBankRelay(w, r, t, http.MethodPost, "/agents/push/subscriptions", body)
 }
+
+// B19.20 — the bank's safety controls: one switch that stops every agent (Lens B19.7), pausing one agent,
+// the unusual-spend alerts and the month-end forecast (Lens B19.6).
+//
+//	GET  /api/agents/alerts                      unusual-spend alerts, newest first, and the rule that raises them
+//	GET  /api/agents/forecast                    each agent's and the workspace's month-end spend
+//	POST /api/agents/pause-all   {"reason"}      every agent, those created later included
+//	POST /api/agents/resume-all                  lifts it; an agent paused on its own stays paused
+//	POST /api/agents/{id}/pause  {"reason"}      one agent
+//	POST /api/agents/{id}/resume
+
+// handleAgentAlerts — GET /api/agents/alerts.
+func (a *app) handleAgentAlerts(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodGet, "/agents/alerts", nil)
+}
+
+// handleAgentForecast — GET /api/agents/forecast, as of now.
+func (a *app) handleAgentForecast(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodGet, "/agents/forecast", nil)
+}
+
+// handleAgentsPauseAll — POST /api/agents/pause-all {"reason"} and /api/agents/resume-all.
+func (a *app) handleAgentsPauseAll(pause bool) func(http.ResponseWriter, *http.Request, tenant) {
+	return func(w http.ResponseWriter, r *http.Request, t tenant) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		if !pause {
+			a.agentBankRelay(w, r, t, http.MethodPost, "/agents/resume-all", nil)
+			return
+		}
+		var in struct {
+			Reason string `json:"reason"`
+		}
+		if r.ContentLength != 0 {
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil && err != io.EOF {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+				return
+			}
+		}
+		// UPSTREAM-BINDS-ONLY lensAgentPauseAllBody: none
+		body, _ := json.Marshal(map[string]string{"reason": in.Reason})
+		a.agentBankRelay(w, r, t, http.MethodPost, "/agents/pause-all", body)
+	}
+}
+
+// handleAgentPause — POST /api/agents/{id}/pause {"reason"} and /api/agents/{id}/resume.
+func (a *app) handleAgentPause(pause bool) func(http.ResponseWriter, *http.Request, tenant) {
+	return func(w http.ResponseWriter, r *http.Request, t tenant) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		action := "resume"
+		if pause {
+			action = "pause"
+		}
+		suffix, ok := agentSuffix(w, r, action)
+		if !ok {
+			return
+		}
+		if !pause {
+			a.agentBankRelay(w, r, t, http.MethodPost, suffix, nil)
+			return
+		}
+		var why struct {
+			Reason string `json:"reason"`
+		}
+		if r.ContentLength != 0 {
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&why); err != nil && err != io.EOF {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+				return
+			}
+		}
+		// UPSTREAM-BINDS-ONLY lensAgentPauseBody: none
+		body, _ := json.Marshal(map[string]string{"reason": why.Reason})
+		a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
+	}
+}

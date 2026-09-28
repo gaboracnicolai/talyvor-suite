@@ -37,6 +37,10 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "economy: the agent's spending rules refuse this request: the agent has spent 0 LXC of its daily limit of 5 LXC, and this payment would cost up to 6 LXC"})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/fund"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "balance_ulxc": 10_000_000})
+		case strings.HasSuffix(r.URL.Path, "/agents/pause-all"), strings.HasSuffix(r.URL.Path, "/agents/resume-all"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"all_paused": strings.HasSuffix(r.URL.Path, "pause-all")})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/pause"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "paused": true})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules"):
 			_, _ = w.Write(raw)
 		case strings.HasSuffix(r.URL.Path, "/agents/approvals"):
@@ -112,5 +116,29 @@ func TestAgentRulesCarryTheAllowedListings(t *testing.T) {
 	}
 	if !strings.Contains(f.got[1], `"allowed_listings":null`) {
 		t.Fatalf("Lens received %q, want allowed_listings null when the save does not name them", f.got[1])
+	}
+}
+
+// B19.20 — pausing every agent, and one, reaches Lens on the session's workspace with only the reason;
+// resuming every agent sends nothing but the request.
+func TestAgentPauseSendsOnlyTheReason(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	if rec := doJSON(a, http.MethodPost, "/api/agents/pause-all", `{"reason":"audit","workspace_id":"ws_other"}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"all_paused":true`) {
+		t.Fatalf("pause-all = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/agents/resume-all", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"all_paused":false`) {
+		t.Fatalf("resume-all = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/pause", `{"reason":"odd spend"}`); rec.Code != http.StatusOK {
+		t.Fatalf("pause = %d %s", rec.Code, rec.Body.String())
+	}
+	ws := strings.Split(strings.TrimPrefix(strings.Fields(f.got[0])[1], "/v1/workspaces/"), "/")[0]
+	want := []string{
+		"POST /v1/workspaces/" + ws + `/agents/pause-all {"reason":"audit"}`,
+		"POST /v1/workspaces/" + ws + "/agents/resume-all ",
+		"POST /v1/workspaces/" + ws + `/agents/agt_1/pause {"reason":"odd spend"}`,
+	}
+	if ws == "" || ws == "ws_other" || strings.Join(f.got, "|") != strings.Join(want, "|") {
+		t.Fatalf("Lens received %q, want %q", f.got, want)
 	}
 }

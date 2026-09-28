@@ -70,6 +70,142 @@ function Totals({ book }: { book: AgentBook }) {
   )
 }
 
+/**
+ * B19.20 — one switch that stops every agent (Lens B19.7): the next request, payment or hold of each is
+ * refused before a provider is called, agents created later included. Starting them again leaves an
+ * agent paused on its own still paused.
+ */
+function PauseEveryAgent({ book }: { book: AgentBook }) {
+  const qc = useQueryClient()
+  const [reason, setReason] = useState('')
+  const change = useMutation({
+    mutationFn: (pause: boolean) => (pause ? agentBankApi.pauseAll(reason.trim()) : agentBankApi.resumeAll()),
+    onSuccess: () => setReason(''),
+    onSettled: () => qc.invalidateQueries({ queryKey: BOOK_KEY }),
+  })
+  return (
+    <div className="flex flex-col gap-2">
+      {book.all_paused_at ? (
+        <>
+          <p role="status" className="text-body text-ink" data-testid="agents-all-paused">
+            Every agent is paused{book.all_paused_reason ? ` — ${book.all_paused_reason}` : ''}. Lens refuses each one’s
+            next request or payment until you start them again.
+          </p>
+          <div>
+            <Button variant="primary" disabled={change.isPending} onClick={() => change.mutate(false)}>
+              Start every agent again
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            aria-label="Why every agent is paused"
+            placeholder="Reason (optional)"
+            className="w-56"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <Button disabled={change.isPending} onClick={() => change.mutate(true)}>
+            Pause every agent
+          </Button>
+        </div>
+      )}
+      {change.isError ? <Note ok={false}>{refusalText(change.error)}</Note> : null}
+    </div>
+  )
+}
+
+/** B19.20 — pausing one agent (Lens B19.6): its every movement is refused until it is resumed. */
+function PauseAgent({ agent }: { agent: Agent }) {
+  const qc = useQueryClient()
+  const change = useMutation({
+    mutationFn: (pause: boolean) => (pause ? agentBankApi.pause(agent.id, 'paused from the Agent Bank') : agentBankApi.resume(agent.id)),
+    onSettled: () => qc.invalidateQueries({ queryKey: BOOK_KEY }),
+  })
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-3">
+        {agent.paused_at ? (
+          <>
+            <p className="text-body text-ink" data-testid="agent-paused">
+              {agent.name} is paused{agent.paused_reason ? ` — ${agent.paused_reason}` : ''}.
+            </p>
+            <Button variant="primary" disabled={change.isPending} onClick={() => change.mutate(false)}>
+              Resume {agent.name}
+            </Button>
+          </>
+        ) : (
+          <Button disabled={change.isPending} onClick={() => change.mutate(true)}>
+            Pause {agent.name}
+          </Button>
+        )}
+      </div>
+      {change.isError ? <Note ok={false}>{refusalText(change.error)}</Note> : null}
+    </div>
+  )
+}
+
+/** B19.20 — this month's spend run on to its end (Lens B19.6), and the unusual-spend alerts. */
+function Spending({ nameOf }: { nameOf: (id: string) => string }) {
+  const forecast = useQuery({ queryKey: ['agent-forecast'], queryFn: agentBankApi.forecast })
+  const alerts = useQuery({ queryKey: ['agent-alerts'], queryFn: agentBankApi.alerts })
+  const list = alerts.data?.alerts ?? []
+  return (
+    <div className="flex flex-col gap-3">
+      <Card>
+        <CardHeader>Month-end forecast</CardHeader>
+        {forecast.isError ? (
+          <p className="px-gutter py-3 text-body text-muted">{readFailure(forecast.error, 'The forecast')}</p>
+        ) : forecast.isPending ? (
+          <p className="px-gutter py-3 text-body text-muted">Reading…</p>
+        ) : (
+          <>
+            {(forecast.data.agents ?? []).map((f) => (
+              <Row key={f.agent_id} label={f.name} hint={<>Spent {lxc(f.spent_ulxc)} so far this month</>}>
+                <span className="font-figure text-body text-ink">{formatULXC(f.forecast_ulxc)}</span>
+              </Row>
+            ))}
+            <Row label="Every agent" hint={<>Spent {lxc(forecast.data.spent_ulxc)} so far; the pace so far, run to the month’s end</>}>
+              <span className="font-figure text-body text-ink" data-testid="agents-forecast">
+                {formatULXC(forecast.data.forecast_ulxc)}
+              </span>
+            </Row>
+          </>
+        )}
+      </Card>
+      <Card>
+        <CardHeader>Unusual spend</CardHeader>
+        {alerts.isError ? (
+          <p className="px-gutter py-3 text-body text-muted">{readFailure(alerts.error, 'The alerts')}</p>
+        ) : alerts.isPending ? (
+          <p className="px-gutter py-3 text-body text-muted">Reading…</p>
+        ) : list.length > 0 ? (
+          list.slice(0, 10).map((a) => (
+            <Row
+              key={a.id}
+              label={
+                <>
+                  {nameOf(a.agent_id)} spent {lxc(a.last_hour_ulxc)} in an hour
+                </>
+              }
+              hint={
+                <>
+                  Usually {lxc(a.usual_per_hour_ulxc)} an hour · <span className="font-figure">{formatWhen(a.created_at)}</span>
+                </>
+              }
+            >
+              {a.paused ? <Pill status="parked">Paused it</Pill> : null}
+            </Row>
+          ))
+        ) : (
+          <p className="px-gutter py-3 text-body text-muted">No unusual spend. {alerts.data.rule}</p>
+        )}
+      </Card>
+    </div>
+  )
+}
+
 function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
@@ -122,6 +258,7 @@ function AgentList({ agents, selected, onSelect }: { agents: Agent[]; selected: 
           }
         >
           <div className="flex items-center gap-3">
+            {a.paused_at ? <Pill status="parked">Paused</Pill> : null}
             <span className="font-figure text-body text-ink" data-testid={`agent-balance-${a.id}`}>
               {formatULXC(a.balance_ulxc)}
             </span>
@@ -205,6 +342,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
   const [models, setModels] = useState((rules.allowed_models ?? []).join(', '))
   const [providers, setProviders] = useState((rules.allowed_providers ?? []).join(', '))
   const [listings, setListings] = useState<string[]>(rules.allowed_listings ?? [])
+  const [pauseOnUnusual, setPauseOnUnusual] = useState(rules.pause_on_unusual_spend ?? false)
   const [from, setFrom] = useState(rules.active_from)
   const [until, setUntil] = useState(rules.active_until)
   const [timezone, setTimezone] = useState(rules.timezone)
@@ -223,7 +361,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         active_from: from.trim(),
         active_until: until.trim(),
         timezone: timezone.trim(),
-        pause_on_unusual_spend: rules.pause_on_unusual_spend ?? false,
+        pause_on_unusual_spend: pauseOnUnusual,
       }),
     onSuccess: (saved) => qc.setQueryData(rulesKey(agent.id), saved),
   })
@@ -260,6 +398,17 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
       {text('Allowed models', models, setModels, 'Any model')}
       {text('Allowed providers', providers, setProviders, 'Any provider')}
       <ListingsPicker agent={agent} chosen={listings} onChange={setListings} />
+      <Row label="Pause on unusual spend" hint="An unusual-spend alert also pauses this agent until you resume it">
+        <Button
+          type="button"
+          aria-label={`Pause ${agent.name} on unusual spend`}
+          aria-pressed={pauseOnUnusual}
+          variant={pauseOnUnusual ? 'primary' : undefined}
+          onClick={() => setPauseOnUnusual((on) => !on)}
+        >
+          {pauseOnUnusual ? 'On' : 'Off'}
+        </Button>
+      </Row>
       {text('Active from', from, setFrom, 'HH:MM — any time')}
       {text('Active until', until, setUntil, 'HH:MM')}
       {text('Time zone', timezone, setTimezone, 'UTC')}
@@ -745,7 +894,10 @@ export function AgentBank() {
           called or a payment moves.
         </p>
         {book.isSuccess ? (
-          <Totals book={book.data} />
+          <>
+            <Totals book={book.data} />
+            <PauseEveryAgent book={book.data} />
+          </>
         ) : (
           <p className="text-body text-muted">{book.isError ? readFailure(book.error, 'The agents') : 'Reading…'}</p>
         )}
@@ -776,11 +928,16 @@ export function AgentBank() {
         ) : null}
       </Region>
 
+      <Region index="03" label="Spending">
+        <Spending nameOf={nameOf} />
+      </Region>
+
       {agent && book.data ? (
-        <Region index="03" label="Agent" className="flex flex-col gap-gutter">
+        <Region index="04" label="Agent" className="flex flex-col gap-gutter">
           <p className="text-head text-ink" data-testid="agent-open">
             {agent.name}
           </p>
+          <PauseAgent agent={agent} />
           <Money agent={agent} book={book.data} />
           <Rules key={`rules-${agent.id}`} agent={agent} />
           {agents.length > 1 ? (
