@@ -468,3 +468,106 @@ func (a *app) handleAgentPause(pause bool) func(http.ResponseWriter, *http.Reque
 		a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
 	}
 }
+
+// B19.21 — scheduled payments and automatic top-ups (Lens B19.8; a schedule that pays a marketplace
+// listing, B19.17). Lens runs both every minute and pays each tick once.
+//
+//	GET  /api/agents/schedules                     every schedule in the workspace
+//	POST /api/agents/{id}/schedules                {to_agent_id | to_listing_id, amount_ulxc, memo, every, first_run_at}
+//	GET  /api/agents/schedules/{sid}/runs          each tick: paid, or refused and why
+//	POST /api/agents/schedules/{sid}/stop          stops it (Lens: DELETE …/agents/schedules/{sid})
+//	GET, PUT, DELETE /api/agents/{id}/topup        {below_ulxc, to_ulxc}; GET is Lens's 404 when there is none
+
+// handleAgentSchedules — GET /api/agents/schedules.
+func (a *app) handleAgentSchedules(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodGet, "/agents/schedules", nil)
+}
+
+// handleAgentSchedule — POST /api/agents/{id}/schedules: the agent pays another agent, or a listing, every
+// hour, day, week or month.
+func (a *app) handleAgentSchedule(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	suffix, ok := agentSuffix(w, r, "schedules")
+	if !ok {
+		return
+	}
+	var in struct {
+		ToAgentID   string  `json:"to_agent_id"`
+		ToListingID string  `json:"to_listing_id"`
+		AmountULXC  int64   `json:"amount_ulxc"`
+		Memo        string  `json:"memo"`
+		Every       string  `json:"every"`
+		FirstRunAt  *string `json:"first_run_at"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensAgentScheduleBody: none
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
+}
+
+// scheduleSuffix is the Lens suffix for one of this workspace's schedules, or false having answered 400.
+func scheduleSuffix(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id, ok := pathID(w, "schedule id", r.PathValue("sid"))
+	if !ok {
+		return "", false
+	}
+	return "/agents/schedules/" + url.PathEscape(id), true
+}
+
+// handleAgentScheduleRuns — GET /api/agents/schedules/{sid}/runs.
+func (a *app) handleAgentScheduleRuns(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	if suffix, ok := scheduleSuffix(w, r); ok {
+		a.agentBankRelay(w, r, t, http.MethodGet, suffix+"/runs", nil)
+	}
+}
+
+// handleAgentScheduleStop — POST /api/agents/schedules/{sid}/stop.
+func (a *app) handleAgentScheduleStop(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	if suffix, ok := scheduleSuffix(w, r); ok {
+		a.agentBankRelay(w, r, t, http.MethodDelete, suffix, nil)
+	}
+}
+
+// handleAgentTopUp — GET, PUT and DELETE /api/agents/{id}/topup.
+func (a *app) handleAgentTopUp(w http.ResponseWriter, r *http.Request, t tenant) {
+	suffix, ok := agentSuffix(w, r, "topup")
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodDelete:
+		a.agentBankRelay(w, r, t, r.Method, suffix, nil)
+	case http.MethodPut:
+		var in struct {
+			BelowULXC int64 `json:"below_ulxc"`
+			ToULXC    int64 `json:"to_ulxc"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+			return
+		}
+		// UPSTREAM-BINDS-ONLY lensAgentTopUpBody: none
+		body, _ := json.Marshal(in)
+		a.agentBankRelay(w, r, t, http.MethodPut, suffix, body)
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPut+", "+http.MethodDelete)
+	}
+}

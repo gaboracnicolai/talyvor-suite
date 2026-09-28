@@ -331,6 +331,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/resume-all", a.requireTenant(a.handleAgentsPauseAll(false)))
 	a.mux.HandleFunc("/api/agents/{id}/pause", a.requireTenant(a.handleAgentPause(true)))
 	a.mux.HandleFunc("/api/agents/{id}/resume", a.requireTenant(a.handleAgentPause(false)))
+	// B19.21 — scheduled payments and automatic top-ups.
+	a.mux.HandleFunc("/api/agents/schedules", a.requireTenant(a.handleAgentSchedules))
+	a.mux.HandleFunc("/api/agents/{id}/schedules", a.requireTenant(a.handleAgentSchedule))
+	a.mux.HandleFunc("/api/agents/schedules/{sid}/runs", a.requireTenant(a.handleAgentScheduleRuns))
+	a.mux.HandleFunc("/api/agents/schedules/{sid}/stop", a.requireTenant(a.handleAgentScheduleStop))
+	a.mux.HandleFunc("/api/agents/{id}/topup", a.requireTenant(a.handleAgentTopUp))
 	// B20.3 — the marketplace: browse, publish, use a listing, and what the seller earned. See marketplace.go.
 	a.mux.HandleFunc("/api/marketplace/listings", a.requireTenant(a.handleMarketListings))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}", a.requireTenant(a.handleMarketListing))

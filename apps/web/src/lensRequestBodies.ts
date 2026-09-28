@@ -268,6 +268,27 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/pause", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentPauseBody',
   },
+  // B19.21 — a scheduled payment, and an automatic top-up.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/schedules',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentSchedule(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/schedules", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentScheduleBody',
+  },
+  {
+    route: 'PUT /v1/workspaces/{wsID}/agents/{agentID}/topup',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentTopUp(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Put("/v1/workspaces/{wsID}/agents/{agentID}/topup", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentTopUpBody',
+  },
   // B20.3 — the marketplace: publishing a listing, and using one.
   {
     route: 'POST /v1/workspaces/{wsID}/marketplace/listings',

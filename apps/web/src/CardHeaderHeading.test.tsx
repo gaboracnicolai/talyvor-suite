@@ -134,7 +134,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/billing/cancel': 0,
   '/keys': 2,
   // B19.4 — Waiting for a person, Agents, and the open agent's Money, Rules, Pay, Key and Statement.
-  '/agents': 10, // B19.10 added "Face ID and notifications"; B19.20 "Month-end forecast" and "Unusual spend"
+  '/agents': 12, // B19.10 added "Face ID and notifications"; B19.20 "Month-end forecast" and "Unusual spend"; B19.21 "Scheduled payments" and "Automatic top-up"
   // B20.3 — the catalog's Listings card.
   '/marketplace': 1,
   // 5 → 8 at W1.1.17b. THREE OF SETUP'S CARDS ARE GATED ON DATA and the census had never seen
