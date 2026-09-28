@@ -204,6 +204,39 @@ export interface MarketBill {
   lines: BillLine[] | null
 }
 
+/** Lens market.QueueItem (B20.4) — a listing waiting for Talyvor's review: held, reported, or both. */
+export interface QueueItem {
+  listing: Listing
+  open_reports: number
+  /** the open reports' reasons, most frequent first */
+  report_reasons: string[] | null
+  /** the latest open reports' details, newest first */
+  report_details: string[] | null
+}
+
+/** Lens market.Refund — one refunded use, a market_refunds row. */
+export interface Refund {
+  use_id: string
+  listing_id: string
+  buyer_workspace_id: string
+  seller_workspace_id: string
+  price_ulxc: number
+  gross_usd_micros: number
+  reversed_share_usd_micros: number
+  reason: string
+  refunded_at: string
+  stripe_credit_id?: string
+  credited_at?: string
+}
+
+/** Lens market.Takedown — the listing taken down and the refunds that wrote. */
+export interface Takedown {
+  listing: Listing
+  refunds: Refund[] | null
+  /** a buyer's credit Stripe did not accept yet; Lens retries it */
+  credit_error?: string
+}
+
 /** A refusal, with the sentence Lens gave for it. */
 export class MarketError extends ApiError {
   constructor(
@@ -216,11 +249,20 @@ export class MarketError extends ApiError {
 }
 
 async function post<T>(path: string, body: object): Promise<T> {
-  const res = await fetch(path, {
+  return send<T>(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+/** A read whose refusal carries a sentence the screen shows (the review queue's 403 and 501). */
+async function read<T>(path: string): Promise<T> {
+  return send<T>(path, { headers: { Accept: 'application/json' } })
+}
+
+async function send<T>(path: string, init: RequestInit): Promise<T> {
+  const res = await fetch(path, init)
   if (!res.ok) {
     let sentence = ''
     try {
@@ -250,6 +292,10 @@ export const marketApi = {
   payouts: () => getJSON<Payouts>('/api/marketplace/payouts'),
   connectPayouts: (country: string) => post<{ url: string; account: ConnectAccount }>('/api/marketplace/payouts/connect', { country }),
   takeAsCredits: () => post<Payout>('/api/marketplace/payouts/credits', {}),
+  // B20.12 — Talyvor's review queue, for operators (apps/bff/market_review.go).
+  reviewQueue: async () => (await read<{ listings: QueueItem[] | null }>('/api/admin/marketplace/review')).listings ?? [],
+  approve: (id: string) => post<Listing>(`/api/admin/marketplace/listings/${e(id)}/approve`, {}),
+  takedown: (id: string, reason: string) => post<Takedown>(`/api/admin/marketplace/listings/${e(id)}/takedown`, { reason }),
 }
 
 /** A listing's price, in words. */

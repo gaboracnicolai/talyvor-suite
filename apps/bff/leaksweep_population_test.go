@@ -342,9 +342,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// /api/marketplace/payouts (the account, the balance and every payout), which the sweep reaches.
 	// Each relays Lens's answer (Stripe's onboarding link, or the credits payout) or its refusal, and
 	// adds nothing the BFF holds.
-	if len(methodOnly) > 48 {
+	//
+	// THE FORTY-NINTH AND FIFTIETH ARE B20.12'S /api/admin/marketplace/listings/{id}/approve and
+	// …/takedown, POST only and operator only. What they change is read back through GET
+	// /api/admin/marketplace/review, which the operator fixture reaches; each relays Lens's answer (the
+	// listing, and for a takedown the refunds it wrote) or its refusal, and adds nothing the BFF holds.
+	if len(methodOnly) > 50 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 48 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 50 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

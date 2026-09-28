@@ -103,6 +103,8 @@ func sameOriginAppRecording(t *testing.T) (*app, string, *originUpstream) {
 		docsBaseURL: up.URL, docsGatewaySecret: "s3cret-gateway-value-long",
 		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
 		publicBaseURL: testPublicOrigin, sessionTTL: time.Hour,
+		// B20.12: an operator holding a moderator key, so the review queue's writes reach Lens here too.
+		operatorSubs: []string{"u1"}, moderatorKey: "tlv_mod_sameorigin_fixture",
 	}
 	auth := newSessionOnlyAuthenticator(cfg)
 	seedProvisionedSession(auth, "so-sid", "u1", "ng@example.com", "u-test-workspace")
@@ -208,6 +210,9 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/x1/schedules", body: `{"to_agent_id":"agt_2","amount_ulxc":1,"every":"day"}`},
 		{method: http.MethodPost, path: "/api/agents/schedules/x1/stop", body: `{}`},
 		{method: http.MethodPut, path: "/api/agents/x1/topup", body: `{"below_ulxc":1,"to_ulxc":2}`},
+		// B20.12 — the operator's review queue. This fixture's session is an operator (see sameOriginAppRecording).
+		{method: http.MethodPost, path: "/api/admin/marketplace/listings/x1/approve", body: `{}`},
+		{method: http.MethodPost, path: "/api/admin/marketplace/listings/x1/takedown", body: `{"reason":"r"}`},
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/claim", body: `{}`},

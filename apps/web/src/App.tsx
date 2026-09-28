@@ -41,6 +41,7 @@ import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
 import { SessionExpiredBar } from './components/SessionExpiredBar'
 import { type DocRef, pageHref, useDocsNav } from './areas/docs/docsNav'
+import { useAuthMeReader } from './lib/authMe'
 
 // App.tsx is a SHARED file (see README §Directory ownership): it owns routing
 // and the nav for every area. Area work happens inside src/areas/<area>/ —
@@ -209,6 +210,7 @@ function NavDestination({
 
 function Sidebar() {
   const { pathname } = useLocation()
+  const me = useAuthMeReader()
   const item = (to: string, label: string, wildcard = false, active?: boolean) => (
     <NavDestination to={to} label={label} wildcard={wildcard} active={active} />
   )
@@ -258,6 +260,8 @@ function Sidebar() {
         {item('/marketplace/publish', 'Publish')}
         {item('/marketplace/selling', 'Your listings & earnings')}
         {item('/marketplace/bill', 'Your bill')}
+        {/* B20.12 — offered only to someone the BFF's operator gate will admit. */}
+        {me.data?.operator ? item('/marketplace/review', 'Review queue') : null}
       </Group>
       <Group label="Chat">
         {item('/chat', 'Conversations')}

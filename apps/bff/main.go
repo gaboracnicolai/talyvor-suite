@@ -98,6 +98,10 @@ type config struct {
 	// syntheticKey is Lens's LENS_SYNTHETIC_KEY, the same value under the same name. Set, it opens
 	// POST /auth/synthetic for Lens's synthetic workspaces only (synthetic.go); unset, that 404s.
 	syntheticKey string
+
+	// moderatorKey is Lens's marketplace moderator key (B20.13): the review queue's three routes and
+	// nothing else. Set, /api/admin/marketplace/* reach Lens; unset, they answer 501 (market_review.go).
+	moderatorKey string
 }
 
 func loadConfig() (config, error) {
@@ -109,6 +113,7 @@ func loadConfig() (config, error) {
 		webDist:           envOr("WEB_DIST", "../web/dist"),
 		authMode:          os.Getenv("BFF_AUTH_MODE"),
 		syntheticKey:      os.Getenv("LENS_SYNTHETIC_KEY"),
+		moderatorKey:      os.Getenv("LENS_MODERATOR_KEY"),
 	}
 	// Per-tenant provisioning replaces the single shared workspace key. Refuse to start without
 	// it: silently falling back to one shared workspace is exactly the state this replaced.
