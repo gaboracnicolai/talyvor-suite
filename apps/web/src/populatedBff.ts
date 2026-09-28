@@ -63,6 +63,12 @@ const BODIES: Record<string, unknown> = {
 
   '/api/lxc/topup-options': { allowed_usd_cents: [1000, 2500, 5000], billing_enabled: true },
 
+  // B18.61 — the subscriber's plan renews at the end of the period.
+  '/api/billing/subscription': {
+    capability: 'subscriptions',
+    enabled: true,
+    data: { subscribed: true, status: 'active', current_period_end: '2026-09-01T00:00:00Z', cancel_at_period_end: false, livemode: false },
+  },
   '/api/billing/allowance': {
     capability: 'subscriptions',
     enabled: true,

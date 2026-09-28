@@ -108,6 +108,11 @@ func newApp(cfg config, auth *authenticator) *app {
 	// the team's answers earned back (Lens caps that at the fee). Lens registers the route only
 	// where subscriptions are sold, so absent reads as {enabled:false}, never as a fault.
 	a.mux.HandleFunc("/api/billing/allowance", a.requireSession(a.wsProxyGated("/billing/allowance", "subscriptions")))
+	// B18.61 — the subscription itself (renews or ends, and when), and cancelling it at the end of the
+	// period or resuming it before then. Same gate as the allowance. See billing.go.
+	a.mux.HandleFunc("/api/billing/subscription", a.requireSession(a.wsProxyGated("/billing/subscription", "subscriptions")))
+	a.mux.HandleFunc("/api/billing/subscription/cancel", a.requireTenant(a.handleSubscriptionChange("cancel")))
+	a.mux.HandleFunc("/api/billing/subscription/resume", a.requireTenant(a.handleSubscriptionChange("resume")))
 	// B13.3 — start a Stripe Checkout for one of the three plans. Session-gated, same-Origin,
 	// the workspace from the SESSION and the plan from a fixed list. See billing.go.
 	a.mux.HandleFunc("/api/billing/subscribe", a.requireTenant(a.handleSubscribe))

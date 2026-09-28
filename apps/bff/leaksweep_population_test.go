@@ -313,9 +313,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// answers its output once. What it bills is read back through GET /api/marketplace/earnings on the
 	// seller's side, which the sweep reaches. It relays Lens's answer (or its refusal) and adds nothing
 	// the BFF holds.
-	if len(methodOnly) > 36 {
+	//
+	// THE THIRTY-SEVENTH AND THIRTY-EIGHTH ARE B18.61'S /api/billing/subscription/cancel and /resume,
+	// POST only. What they change is read back through GET /api/billing/subscription, which the sweep
+	// reaches. Each relays Lens's answer (Stripe's state after the change, or its refusal) and adds
+	// nothing the BFF holds.
+	if len(methodOnly) > 38 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 36 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 38 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

@@ -30,8 +30,40 @@ export interface PlanSummary {
   earned_back_usd_cents: number
 }
 
+/** Lens billing.SubscriptionStatus — is the workspace paying, and does it renew or end, and when. */
+export interface SubscriptionStatus {
+  subscribed: boolean
+  status?: string
+  current_period_end?: string
+  /** Cancelled at the end of the period already paid for: it will not renew. */
+  cancel_at_period_end: boolean
+  livemode: boolean
+}
+
+/** A cancel or resume Lens refused, with the sentence it gave. */
+export class SubscriptionChangeError extends ApiError {
+  constructor(
+    status: number,
+    path: string,
+    readonly sentence: string,
+  ) {
+    super(status, path)
+  }
+}
+
+async function changeSubscription(path: string): Promise<SubscriptionStatus> {
+  const res = await fetch(path, { method: 'POST', headers: { Accept: 'application/json' } })
+  const body = (await res.json().catch(() => ({}))) as SubscriptionStatus & { error?: string }
+  if (!res.ok) throw new SubscriptionChangeError(res.status, path, res.status < 500 ? (body.error ?? '') : '')
+  return body
+}
+
 export const planApi = {
   allowance: (): Promise<Capability<PlanSummary>> => getCapability<PlanSummary>('/api/billing/allowance'),
+  // B18.61 — the subscription itself, and cancelling it at period end or resuming it (Lens B1.5).
+  subscription: (): Promise<Capability<SubscriptionStatus>> => getCapability<SubscriptionStatus>('/api/billing/subscription'),
+  cancel: () => changeSubscription('/api/billing/subscription/cancel'),
+  resume: () => changeSubscription('/api/billing/subscription/resume'),
 }
 
 /* ── B13.3 — the three plans, and starting one ─────────────────────────────── */
