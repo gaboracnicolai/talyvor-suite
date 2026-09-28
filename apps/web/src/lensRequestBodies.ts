@@ -249,6 +249,27 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/pay", func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentPayBody',
   },
+  // B20.3 — the marketplace: publishing a listing, and using one.
+  {
+    route: 'POST /v1/workspaces/{wsID}/marketplace/listings',
+    file: 'apps/bff/marketplace.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleMarketListings(',
+    anchor: 'var in struct {',
+    upstreamFile: 'internal/market/market.go',
+    upstreamAnchor: 'type Draft struct {',
+    subject: 'lensMarketPublishBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/marketplace/listings/{listingID}/use',
+    file: 'apps/bff/marketplace.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleMarketUse(',
+    anchor: 'var in struct {',
+    upstreamFile: 'internal/market/use.go',
+    upstreamAnchor: 'type UseRequest struct {',
+    subject: 'lensMarketUseBody',
+  },
   // B19.10 — approvals with Face ID and pushes on the phone (Lens B19.16 keeps passkeys and subscriptions).
   {
     route: 'POST /v1/workspaces/{wsID}/agents/passkeys',

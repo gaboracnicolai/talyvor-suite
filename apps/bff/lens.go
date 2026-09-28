@@ -319,6 +319,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/{id}/rules", a.requireTenant(a.handleAgentRules))
 	a.mux.HandleFunc("/api/agents/{id}/statement", a.requireTenant(a.handleAgentStatement))
 	a.mux.HandleFunc("/api/agents/{id}/pay", a.requireTenant(a.handleAgentPay))
+	// B20.3 — the marketplace: browse, publish, use a listing, and what the seller earned. See marketplace.go.
+	a.mux.HandleFunc("/api/marketplace/listings", a.requireTenant(a.handleMarketListings))
+	a.mux.HandleFunc("/api/marketplace/listings/{id}", a.requireTenant(a.handleMarketListing))
+	a.mux.HandleFunc("/api/marketplace/listings/{id}/use", a.requireTenant(a.handleMarketUse))
+	a.mux.HandleFunc("/api/marketplace/mine", a.requireTenant(a.handleMarketMine))
+	a.mux.HandleFunc("/api/marketplace/earnings", a.requireTenant(a.handleMarketEarnings))
 	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
 	// previews, with no model call and no charge. See tryit.go.
 	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))

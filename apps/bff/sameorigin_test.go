@@ -197,6 +197,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/x1/pay", body: `{"to_agent_id":"agt_2","amount_ulxc":1}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/approve", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/deny", body: `{}`},
+		{method: http.MethodPost, path: "/api/marketplace/listings", body: `{"kind":"prompt","title":"t","artifact":{"template":"x"}}`},
+		{method: http.MethodPost, path: "/api/marketplace/listings/x1/use", body: `{"input":"x"}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys", body: `{"credential_id":"c","name":"n","public_key":"p","client_data_json":"j","authenticator_data":"a"}`},
