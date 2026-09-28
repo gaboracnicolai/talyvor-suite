@@ -41,6 +41,16 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"all_paused": strings.HasSuffix(r.URL.Path, "pause-all")})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/pause"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "paused": true})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/schedules"):
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write(raw)
+		case strings.HasSuffix(r.URL.Path, "/agents/schedules/sch_1"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"schedule_id": "sch_1", "active": false})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/topup") && r.Method == http.MethodGet:
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "the agent has no automatic top-up"})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/topup"):
+			_, _ = w.Write(raw)
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules"):
 			_, _ = w.Write(raw)
 		case strings.HasSuffix(r.URL.Path, "/agents/approvals"):
@@ -139,6 +149,35 @@ func TestAgentPauseSendsOnlyTheReason(t *testing.T) {
 		"POST /v1/workspaces/" + ws + `/agents/agt_1/pause {"reason":"odd spend"}`,
 	}
 	if ws == "" || ws == "ws_other" || strings.Join(f.got, "|") != strings.Join(want, "|") {
+		t.Fatalf("Lens received %q, want %q", f.got, want)
+	}
+}
+
+// B19.21 — a schedule and a top-up reach Lens on the session's workspace with only the fields Lens reads;
+// stopping a schedule is Lens's DELETE; an agent with no top-up is Lens's 404 and its sentence.
+func TestAgentSchedulesAndTopUpReachLens(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/schedules", `{"to_agent_id":"agt_2","amount_ulxc":1000000,"every":"week","memo":"rent","x":1}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("schedule = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodPost, "/api/agents/schedules/sch_1/stop", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"active":false`) {
+		t.Fatalf("stop = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodGet, "/api/agents/agt_1/topup", ""); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "no automatic top-up") {
+		t.Fatalf("no top-up = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodPut, "/api/agents/agt_1/topup", `{"below_ulxc":5000000,"to_ulxc":8000000}`); rec.Code != http.StatusOK {
+		t.Fatalf("top-up = %d %s", rec.Code, rec.Body.String())
+	}
+	ws := strings.Split(strings.TrimPrefix(strings.Fields(f.got[0])[1], "/v1/workspaces/"), "/")[0]
+	want := []string{
+		"POST /v1/workspaces/" + ws + `/agents/agt_1/schedules {"to_agent_id":"agt_2","to_listing_id":"","amount_ulxc":1000000,"memo":"rent","every":"week","first_run_at":null}`,
+		"DELETE /v1/workspaces/" + ws + "/agents/schedules/sch_1 ",
+		"GET /v1/workspaces/" + ws + "/agents/agt_1/topup ",
+		"PUT /v1/workspaces/" + ws + `/agents/agt_1/topup {"below_ulxc":5000000,"to_ulxc":8000000}`,
+	}
+	if ws == "" || strings.Join(f.got, "|") != strings.Join(want, "|") {
 		t.Fatalf("Lens received %q, want %q", f.got, want)
 	}
 }

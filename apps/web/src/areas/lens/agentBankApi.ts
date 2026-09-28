@@ -33,6 +33,38 @@ export interface AgentBook {
   all_paused_reason?: string
 }
 
+/** Lens economy.AgentSchedule (B19.8): pays another agent, or a marketplace listing (B19.17), every period. */
+export interface AgentSchedule {
+  id: string
+  from_agent_id: string
+  to_agent_id: string
+  to_listing_id?: string
+  /** to a listing: the most a tick pays, 0 for its price at the time */
+  amount_ulxc: number
+  memo?: string
+  every: 'hour' | 'day' | 'week' | 'month'
+  next_run_at: string
+  active: boolean
+  created_at: string
+}
+
+/** Lens economy.AgentScheduleRun: one tick, paid or refused (and why). */
+export interface AgentScheduleRun {
+  tick_at: string
+  outcome: 'paid' | 'refused'
+  entry_id?: string
+  use_id?: string
+  detail?: string
+  created_at: string
+}
+
+/** Lens economy.AgentTopUp: below below_ulxc, the workspace tops the agent back up to to_ulxc. */
+export interface AgentTopUp {
+  agent_id: string
+  below_ulxc: number
+  to_ulxc: number
+}
+
 /** Lens economy.AgentSpendAlert (B19.6). */
 export interface AgentSpendAlert {
   id: string
@@ -159,6 +191,24 @@ export const agentBankApi = {
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>
     send<AgentPayment>('POST', `/api/agents/${e(id)}/pay`, { to_agent_id, amount_ulxc, memo }),
   approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals'),
+  // B19.21 — scheduled payments and automatic top-ups.
+  schedules: () => getJSON<{ schedules: AgentSchedule[] | null }>('/api/agents/schedules'),
+  schedule: (id: string, body: { to_agent_id: string; to_listing_id: string; amount_ulxc: number; memo: string; every: AgentSchedule['every'] }) =>
+    send<AgentSchedule>('POST', `/api/agents/${e(id)}/schedules`, body),
+  scheduleRuns: (sid: string) => getJSON<{ runs: AgentScheduleRun[] | null }>(`/api/agents/schedules/${e(sid)}/runs`),
+  stopSchedule: (sid: string) => send<{ active: boolean }>('POST', `/api/agents/schedules/${e(sid)}/stop`),
+  /** Null when the agent has none (Lens answers 404). */
+  topUp: async (id: string): Promise<AgentTopUp | null> => {
+    try {
+      return await getJSON<AgentTopUp>(`/api/agents/${e(id)}/topup`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  setTopUp: (id: string, below_ulxc: number, to_ulxc: number) =>
+    send<AgentTopUp>('PUT', `/api/agents/${e(id)}/topup`, { below_ulxc, to_ulxc }),
+  removeTopUp: (id: string) => send<unknown>('DELETE', `/api/agents/${e(id)}/topup`),
   // B19.20 — stop every agent or one, and what they are spending.
   alerts: () => getJSON<{ alerts: AgentSpendAlert[] | null; rule: string }>('/api/agents/alerts'),
   forecast: () => getJSON<SpendForecast>('/api/agents/forecast'),

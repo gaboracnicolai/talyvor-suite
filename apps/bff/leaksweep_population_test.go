@@ -323,9 +323,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// /api/agents/{id}/pause and /resume, all POST only. What they change is read back through GET
 	// /api/agents (all_paused_at, and each agent's paused_at), which the sweep reaches. Each relays
 	// Lens's answer (or its refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 42 {
+	//
+	// THE FORTY-THIRD AND FORTY-FOURTH ARE B19.21'S /api/agents/{id}/schedules and
+	// /api/agents/schedules/{sid}/stop, POST only. What they change is read back through GET
+	// /api/agents/schedules and /api/agents/schedules/{sid}/runs, which the sweep reaches. Each relays
+	// Lens's answer (or its refusal) and adds nothing the BFF holds.
+	if len(methodOnly) > 44 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 42 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 44 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

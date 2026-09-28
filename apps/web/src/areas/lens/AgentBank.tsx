@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Input, Pill, RevealOnce, Row, type PillStatus } from '@talyvor/ui'
+import { Button, Card, CardHeader, Input, Pill, RevealOnce, Row, focusRing, type PillStatus } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
@@ -13,6 +13,8 @@ import {
   type AgentBook,
   type AgentKey,
   type AgentRules,
+  type AgentSchedule,
+  type AgentTopUp as AgentTopUpValue,
   type StatementLine,
   AgentBankError,
   agentBankApi,
@@ -199,10 +201,255 @@ function Spending({ nameOf }: { nameOf: (id: string) => string }) {
             </Row>
           ))
         ) : (
-          <p className="px-gutter py-3 text-body text-muted">No unusual spend. {alerts.data.rule}</p>
+          <p className="px-gutter py-3 text-body text-muted">
+            No unusual spend. An alert appears here when Lens raises one. {alerts.data.rule}
+          </p>
         )}
       </Card>
     </div>
+  )
+}
+
+const SCHEDULES_KEY = ['agent-schedules']
+const scheduleSelect = `h-8 rounded-control border border-rule bg-surface px-2 text-body text-ink transition-colors duration-200 hover:border-rule-strong ${focusRing}`
+const EVERY: readonly [AgentSchedule['every'], string][] = [
+  ['hour', 'every hour'],
+  ['day', 'every day'],
+  ['week', 'every week'],
+  ['month', 'every month'],
+]
+const everyText = (e: AgentSchedule['every']) => EVERY.find(([v]) => v === e)?.[1] ?? e
+
+/** B19.21 — one schedule's ticks, newest first: paid, or refused and why. */
+function ScheduleRuns({ sid }: { sid: string }) {
+  const runs = useQuery({ queryKey: ['agent-schedule-runs', sid], queryFn: () => agentBankApi.scheduleRuns(sid) })
+  if (runs.isError) return <p className="px-gutter py-2 text-caption text-muted">{readFailure(runs.error, 'Its runs')}</p>
+  if (runs.isPending) return <p className="px-gutter py-2 text-caption text-muted">Reading…</p>
+  const list = runs.data.runs ?? []
+  return list.length > 0 ? (
+    <>
+      {list.slice(0, 10).map((r) => (
+        <Row key={r.tick_at} className="pl-8" label={<span className="font-figure">{formatWhen(r.tick_at)}</span>} hint={r.detail || undefined}>
+          <Pill status={r.outcome === 'paid' ? 'settled' : 'slashed'}>{r.outcome === 'paid' ? 'Paid' : 'Refused'}</Pill>
+        </Row>
+      ))}
+    </>
+  ) : (
+    <p className="px-gutter py-2 pl-8 text-caption text-muted">It has not run yet.</p>
+  )
+}
+
+/**
+ * B19.21 — the agent pays another agent, or a marketplace listing, every hour, day, week or month
+ * (Lens B19.8, B19.17). Lens runs each tick once, judged by the payer's rules; a refused tick is kept
+ * with its reason.
+ */
+function Schedules({ agent, agents, nameOf }: { agent: Agent; agents: Agent[]; nameOf: (id: string) => string }) {
+  const qc = useQueryClient()
+  const list = useQuery({ queryKey: SCHEDULES_KEY, queryFn: agentBankApi.schedules })
+  const catalog = useQuery({ queryKey: [...CATALOG_KEY, ''], queryFn: () => marketApi.catalog('') })
+  const others = agents.filter((a) => a.id !== agent.id)
+  const listings = catalog.data ?? []
+  const [payee, setPayee] = useState('')
+  const [amount, setAmount] = useState('')
+  const [every, setEvery] = useState<AgentSchedule['every']>('week')
+  const [memo, setMemo] = useState('')
+  const [shown, setShown] = useState<string | null>(null)
+  const toListing = payee.startsWith('listing:')
+  // To a listing an amount is the most a tick pays, and empty means its price at the time.
+  const micros = toListing && amount.trim() === '' ? 0 : parseLXC(amount)
+  const invalidate = () => qc.invalidateQueries({ queryKey: SCHEDULES_KEY })
+  const create = useMutation({
+    mutationFn: () =>
+      agentBankApi.schedule(agent.id, {
+        to_agent_id: toListing ? '' : payee.slice('agent:'.length),
+        to_listing_id: toListing ? payee.slice('listing:'.length) : '',
+        amount_ulxc: micros ?? 0,
+        memo: memo.trim(),
+        every,
+      }),
+    onSuccess: () => {
+      setAmount('')
+      setMemo('')
+    },
+    onSettled: invalidate,
+  })
+  const stop = useMutation({ mutationFn: (sid: string) => agentBankApi.stopSchedule(sid), onSettled: invalidate })
+  const mine = (list.data?.schedules ?? []).filter((sc) => sc.from_agent_id === agent.id && sc.active)
+  const payeeOf = (sc: AgentSchedule) =>
+    sc.to_listing_id ? (listings.find((l) => l.id === sc.to_listing_id)?.title ?? 'a marketplace listing') : nameOf(sc.to_agent_id)
+  return (
+    <Card>
+      <CardHeader>Scheduled payments</CardHeader>
+      {list.isError ? (
+        <p className="px-gutter py-3 text-body text-muted">{readFailure(list.error, 'Its schedules')}</p>
+      ) : list.isPending ? (
+        <p className="px-gutter py-3 text-body text-muted">Reading…</p>
+      ) : mine.length > 0 ? (
+        mine.map((sc) => (
+          <div key={sc.id}>
+            <Row
+              label={
+                <>
+                  Pays {payeeOf(sc)} {sc.to_listing_id && sc.amount_ulxc === 0 ? 'its price' : lxc(sc.amount_ulxc)} {everyText(sc.every)}
+                </>
+              }
+              hint={
+                <>
+                  Next <span className="font-figure">{formatWhen(sc.next_run_at)}</span>
+                  {sc.memo ? ` · ${sc.memo}` : ''}
+                </>
+              }
+            >
+              <Button aria-pressed={shown === sc.id} onClick={() => setShown(shown === sc.id ? null : sc.id)}>
+                Runs
+              </Button>
+              <Button disabled={stop.isPending} onClick={() => stop.mutate(sc.id)}>
+                Stop
+              </Button>
+            </Row>
+            {shown === sc.id ? <ScheduleRuns sid={sc.id} /> : null}
+          </div>
+        ))
+      ) : (
+        <p className="px-gutter py-3 text-body text-muted">{agent.name} pays nothing on a schedule.</p>
+      )}
+      <form
+        className="flex flex-col gap-2 px-gutter py-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (payee !== '' && micros !== null && !create.isPending) create.mutate()
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label={`Who ${agent.name} pays on a schedule`}
+            className={`${scheduleSelect} w-56`}
+            value={payee}
+            onChange={(e) => setPayee(e.target.value)}
+          >
+            <option value="">Pay…</option>
+            {others.map((a) => (
+              <option key={a.id} value={`agent:${a.id}`}>
+                {a.name}
+              </option>
+            ))}
+            {listings.map((l) => (
+              <option key={l.id} value={`listing:${l.id}`}>
+                {l.title} (marketplace)
+              </option>
+            ))}
+          </select>
+          <Input
+            aria-label={`Scheduled amount in LXC for ${agent.name}`}
+            inputMode="decimal"
+            placeholder={toListing ? 'At most — its price' : 'LXC'}
+            className="w-32 font-figure"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <select
+            aria-label={`How often ${agent.name} pays`}
+            className={`${scheduleSelect} w-36`}
+            value={every}
+            onChange={(e) => setEvery(e.target.value as AgentSchedule['every'])}
+          >
+            {EVERY.map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <Input
+            aria-label={`Memo for ${agent.name}’s scheduled payment`}
+            placeholder="Memo"
+            className="w-40"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+          />
+          <Button type="submit" variant="primary" disabled={payee === '' || micros === null || create.isPending}>
+            Schedule
+          </Button>
+        </div>
+        {create.isError ? <Note ok={false}>{refusalText(create.error)}</Note> : null}
+        {stop.isError ? <Note ok={false}>{refusalText(stop.error)}</Note> : null}
+      </form>
+    </Card>
+  )
+}
+
+/** B19.21 — below one balance, the workspace tops the agent back up to another (Lens B19.8), once per dip. */
+function AgentTopUpCard({ agent }: { agent: Agent }) {
+  const topUp = useQuery({ queryKey: ['agent-topup', agent.id], queryFn: () => agentBankApi.topUp(agent.id) })
+  return (
+    <Card>
+      <CardHeader>Automatic top-up</CardHeader>
+      {topUp.isError ? (
+        <p className="px-gutter py-3 text-body text-muted">{readFailure(topUp.error, 'Its top-up')}</p>
+      ) : topUp.isPending ? (
+        <p className="px-gutter py-3 text-body text-muted">Reading…</p>
+      ) : (
+        <TopUpForm key={topUp.dataUpdatedAt} agent={agent} current={topUp.data} />
+      )}
+    </Card>
+  )
+}
+
+function TopUpForm({ agent, current }: { agent: Agent; current: AgentTopUpValue | null }) {
+  const qc = useQueryClient()
+  const [below, setBelow] = useState(current ? limitText(current.below_ulxc) : '')
+  const [to, setTo] = useState(current ? limitText(current.to_ulxc) : '')
+  const belowMicros = parseLXC(below)
+  const toMicros = parseLXC(to)
+  const refresh = () => qc.invalidateQueries({ queryKey: ['agent-topup', agent.id] })
+  const save = useMutation({ mutationFn: () => agentBankApi.setTopUp(agent.id, belowMicros ?? 0, toMicros ?? 0), onSettled: refresh })
+  const remove = useMutation({ mutationFn: () => agentBankApi.removeTopUp(agent.id), onSettled: refresh })
+  return (
+    <form
+      className="flex flex-col gap-2 px-gutter py-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (belowMicros !== null && toMicros !== null && !save.isPending) save.mutate()
+      }}
+    >
+      <p className="text-body text-ink" data-testid="agent-topup">
+        {current ? (
+          <>
+            When {agent.name} holds less than {lxc(current.below_ulxc)}, the workspace tops it up to {lxc(current.to_ulxc)}.
+          </>
+        ) : (
+          `${agent.name} is not topped up automatically.`
+        )}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          aria-label={`Top ${agent.name} up below, in LXC`}
+          inputMode="decimal"
+          placeholder="Below LXC"
+          className="w-28 font-figure"
+          value={below}
+          onChange={(e) => setBelow(e.target.value)}
+        />
+        <Input
+          aria-label={`Top ${agent.name} up to, in LXC`}
+          inputMode="decimal"
+          placeholder="Up to LXC"
+          className="w-28 font-figure"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
+        <Button type="submit" variant="primary" disabled={belowMicros === null || toMicros === null || save.isPending}>
+          {current ? 'Change top-up' : 'Set top-up'}
+        </Button>
+        {current ? (
+          <Button type="button" disabled={remove.isPending} onClick={() => remove.mutate()}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
+      {save.isError ? <Note ok={false}>{refusalText(save.error)}</Note> : null}
+      {remove.isError ? <Note ok={false}>{refusalText(remove.error)}</Note> : null}
+    </form>
   )
 }
 
@@ -954,6 +1201,8 @@ export function AgentBank() {
               <p className="px-gutter py-3 text-body text-muted">Create a second agent to pay it from this one.</p>
             </Card>
           )}
+          <Schedules key={`schedules-${agent.id}`} agent={agent} agents={agents} nameOf={nameOf} />
+          <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
           <IssueKey key={`key-${agent.id}`} agent={agent} />
           <Statement agent={agent} nameOf={nameOf} />
         </Region>
