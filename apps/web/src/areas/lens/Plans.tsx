@@ -1,8 +1,9 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Button, Card, CardHeader, Row, formatDay, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { api } from '../../lib/api'
+import { isSessionExpired } from '../../lib/productState'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
   PLANS,
@@ -11,6 +12,7 @@ import {
   recordPendingPlan,
   subscribe,
   SubscribeError,
+  SubscriptionChangeError,
   usedPercent,
   type PlanId,
   type PlanOffer,
@@ -157,6 +159,72 @@ function EarningsCard({ summary, sharing, pooled }: { summary: PlanSummary; shar
   )
 }
 
+const SUBSCRIPTION_KEY = ['plan-subscription']
+
+function changeFailure(err: unknown): string {
+  if (isSessionExpired(err)) return 'Nothing changed — sign in again.'
+  if (err instanceof SubscriptionChangeError && err.sentence) {
+    const s = err.sentence.replace(/^billing: /, '')
+    return `${s.charAt(0).toUpperCase()}${s.slice(1)}${s.endsWith('.') ? '' : '.'}`
+  }
+  return 'Nothing changed. You can try again.'
+}
+
+/**
+ * B18.61 — whether the plan renews or ends, and when; cancelling it at the end of the period already
+ * paid for, or resuming it before then (Lens B1.5). Lens answers Stripe's state after a change and
+ * that is shown at once: Lens's own read catches up when Stripe's webhook arrives.
+ */
+function Renewal() {
+  const qc = useQueryClient()
+  const sub = useQuery({ queryKey: SUBSCRIPTION_KEY, queryFn: planApi.subscription, retry: false })
+  const change = useMutation({
+    mutationFn: (action: 'cancel' | 'resume') => (action === 'cancel' ? planApi.cancel() : planApi.resume()),
+    onSuccess: (st) => qc.setQueryData(SUBSCRIPTION_KEY, { enabled: true, data: st }),
+  })
+  if (sub.isError) {
+    return <p className="mt-2 max-w-2xl text-body text-muted">Whether your plan renews could not be read just now.</p>
+  }
+  const st = sub.data?.enabled ? sub.data.data : null
+  if (!st?.subscribed) return null
+  const end = st.current_period_end ? (
+    <span className="font-figure">{formatDay(st.current_period_end)}</span>
+  ) : null
+  return (
+    <div className="mt-3 flex max-w-2xl flex-col gap-2">
+      <p className="text-body text-ink" data-testid="plan-renewal">
+        {st.cancel_at_period_end ? (
+          end ? (
+            <>Your plan is cancelled. It ends on {end}, and you keep everything it includes until then.</>
+          ) : (
+            'Your plan is cancelled. It ends at the end of this period, and you keep everything it includes until then.'
+          )
+        ) : end ? (
+          <>Your plan renews on {end}.</>
+        ) : (
+          'Your plan renews each month.'
+        )}
+      </p>
+      <div>
+        {st.cancel_at_period_end ? (
+          <Button variant="primary" disabled={change.isPending} onClick={() => change.mutate('resume')}>
+            {change.isPending ? 'Resuming…' : 'Resume my plan'}
+          </Button>
+        ) : (
+          <Button disabled={change.isPending} onClick={() => change.mutate('cancel')}>
+            {change.isPending ? 'Cancelling…' : 'Cancel at the end of this period'}
+          </Button>
+        )}
+      </div>
+      {change.isError ? (
+        <p role="alert" className="text-body text-ink">
+          {changeFailure(change.error)}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 export function Plans({
   /** Injected so tests can observe the navigation; production sends the browser to Stripe. */
   redirect = (url: string) => window.location.assign(url),
@@ -211,6 +279,7 @@ export function Plans({
         {subscribed ? (
           <p className="mt-2 max-w-2xl text-caption text-muted">Changing plan isn’t available here yet.</p>
         ) : null}
+        {subscribed ? <Renewal /> : null}
         {failure ? (
           <p role="status" className="mt-3 border-l-2 border-l-slashed pl-2 text-body text-ink">
             {SUBSCRIBE_FAILURE[failure.kind]}

@@ -474,3 +474,19 @@ func (a *app) handleSubscribe(w http.ResponseWriter, r *http.Request, t tenant) 
 			"error": "Lens couldn’t start the subscription — nothing was charged"})
 	}
 }
+
+// handleSubscriptionChange — POST /api/billing/subscription/cancel and /resume (B18.61), relayed to
+// Lens B1.5 on the session's workspace. Cancel is AT PERIOD END: the workspace keeps the period it paid
+// for, and resume before then undoes it. Lens answers Stripe's own state after the change — renews or
+// ends, and when — so the screen can say so before the webhook that follows updates Lens's read.
+// Lens's 409 (no live subscription to change) is relayed with its sentence; a 501 (no plan price here)
+// is Lens's to redact and reaches the screen as a 502.
+func (a *app) handleSubscriptionChange(action string) func(http.ResponseWriter, *http.Request, tenant) {
+	return func(w http.ResponseWriter, r *http.Request, t tenant) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/billing/subscription/"+action), nil, "")
+	}
+}
