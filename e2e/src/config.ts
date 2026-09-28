@@ -24,6 +24,12 @@ export interface RunConfig {
   reportDir: string | undefined
   /** The build queue each new FAIL is filed in (B17.4), or 'none' to file nothing. */
   buildMd: string
+  /** AI explorers after the scenarios (B17.5), each its own synthetic user; 0 runs none. */
+  explorers: number
+  /** How long each explorer may use the app. */
+  exploreMinutes: number
+  /** The model choosing each explorer's next move, by catalog id, asked through judgeProvider. */
+  explorerModel: string
   headed: boolean
 }
 
@@ -35,6 +41,8 @@ export const DEFAULTS = {
   judgeModel: 'claude-haiku-4-5',
   judgeProvider: 'anthropic',
   outDir: 'out',
+  exploreMinutes: 30,
+  explorerModel: 'claude-haiku-4-5',
 } as const
 
 export function parseConfig(argv: string[], env: Record<string, string | undefined>): RunConfig {
@@ -52,11 +60,11 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     flags.set(k, v)
   }
   const pick = (flag: string, name: string): string | undefined => flags.get(flag) ?? env[name]
-  const num = (flag: string, name: string, fallback: number): number => {
+  const num = (flag: string, name: string, fallback: number, zero = false): number => {
     const raw = pick(flag, name)
     if (raw === undefined) return fallback
     const n = Number(raw)
-    if (!Number.isFinite(n) || n <= 0) throw new Error(`--${flag} must be a positive number, got ${raw}`)
+    if (!Number.isFinite(n) || n < 0 || (n === 0 && !zero)) throw new Error(`--${flag} must be a positive number, got ${raw}`)
     return n
   }
 
@@ -83,6 +91,9 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     outDir: pick('out', 'E2E_OUT') ?? DEFAULTS.outDir,
     reportDir: pick('report-dir', 'E2E_REPORT_DIR'),
     buildMd: pick('build-md', 'E2E_BUILD_MD') ?? `${env.HOME ?? ''}/talyvor-queue/BUILD.md`,
+    explorers: Math.min(10, Math.floor(num('explorers', 'E2E_EXPLORERS', 0, true))),
+    exploreMinutes: num('explore-minutes', 'E2E_EXPLORE_MINUTES', DEFAULTS.exploreMinutes),
+    explorerModel: pick('explorer-model', 'E2E_EXPLORER_MODEL') ?? DEFAULTS.explorerModel,
     headed: flags.get('headed') === 'true',
   }
 }

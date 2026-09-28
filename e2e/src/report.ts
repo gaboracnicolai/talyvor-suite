@@ -4,6 +4,7 @@
 
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ExplorerSummary, Finding } from './explore.ts'
 import type { Evidence } from './scenarios.ts'
 
 /** The parts of a run's result the report reads (run.ts RunResult). */
@@ -27,6 +28,8 @@ export interface ReportedRun {
     detail: string
     evidence: Evidence[]
   }[]
+  explorers?: ExplorerSummary[]
+  findings?: Finding[]
 }
 
 /** A Markdown table cell: one line, pipes escaped. */
@@ -81,12 +84,42 @@ export function renderRun(run: ReportedRun): string {
     lines.push(`**${o.status} \`${o.scenario}\`** — user ${o.user} (${o.workspace}): ${cell(o.detail)}`, '', ...evidenceLines(o.evidence), '')
   }
 
+  lines.push(...explorerSection(run))
+
   lines.push('', '### Every verdict', '')
   for (const o of run.outcomes) {
     lines.push(`<details><summary>${o.status} ${o.scenario} — user ${o.user}: ${escapeHTML(o.detail)}</summary>`, '')
     lines.push(...(o.evidence.length > 0 ? evidenceLines(o.evidence) : ['- no evidence recorded']), '', '</details>')
   }
   return lines.join('\n') + '\n'
+}
+
+/** B17.5 — what the explorers found. Leads to check, never build items: an explorer can be mistaken. */
+function explorerSection(run: ReportedRun): string[] {
+  const explorers = run.explorers ?? []
+  if (explorers.length === 0) return []
+  const findings = run.findings ?? []
+  const lines = ['', `### Explorers — ${findings.length} finding(s) to check`, '',
+    'Each finding is a lead for a person to check, not a verified defect, and none is filed as a build item.', '',
+    '| Explorer | Steps | Stopped | |', '|---:|---:|---|---|',
+    ...explorers.map((e) => `| ${e.explorer} | ${e.steps} | ${e.stopped} | ${cell(e.detail)} |`), '']
+  if (explorers.some((e) => e.stopped === 'cap')) lines.push('The explorers stopped at the spend cap.', '')
+  // The same note on the same screen is one lead, however often and by however many it was seen.
+  const leads = new Map<string, { f: Finding; times: number; who: Set<number> }>()
+  for (const f of findings) {
+    const key = `${f.source}|${f.where}|${f.note}`
+    const l = leads.get(key) ?? { f, times: 0, who: new Set<number>() }
+    l.times++
+    l.who.add(f.explorer)
+    leads.set(key, l)
+  }
+  for (const { f, times, who } of leads.values()) {
+    const by = `explorer${who.size > 1 ? 's' : ''} ${[...who].sort((a, b) => a - b).join(', ')}`
+    lines.push(`- **${f.severity}** ${f.source === 'browser' ? `the browser of ${by}` : by} on ` +
+      `\`${f.where}\`${times > 1 ? ` (${times} times)` : ''}: ${cell(f.note)}`)
+    if (f.trail.length > 0) lines.push(`  - after: ${cell(f.trail.join(' → '))}`)
+  }
+  return lines
 }
 
 const escapeHTML = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

@@ -94,14 +94,22 @@ export class LensClient {
    * same ledger the harness reads back.
    */
   async judge(user: SyntheticUser, provider: string, model: string, prompt: string): Promise<JudgeReply> {
+    return this.complete(user, provider, model, prompt, 5, 'judge')
+  }
+
+  /**
+   * One question to a model through Lens's proxy on this user's account (the Messages API), answered
+   * with the text and what Lens charged for it. The judge and the explorers (B17.5) both ask this way.
+   */
+  async complete(user: SyntheticUser, provider: string, model: string, prompt: string, maxTokens: number, who = 'model'): Promise<JudgeReply> {
     const key = await this.sessionKey(user)
     const res = await fetch(`${this.baseURL}/v1/proxy/${provider}/v1/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model, max_tokens: 5, messages: [{ role: 'user', content: prompt }] }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
     })
     const raw = await res.text()
-    if (!res.ok) throw new Error(`judge: Lens answered ${res.status}: ${raw.slice(0, 200)}`)
+    if (!res.ok) throw new Error(`${who}: Lens answered ${res.status}: ${raw.slice(0, 200)}`)
     const body = JSON.parse(raw) as { content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }
     return {
       text: (body.content ?? []).map((c) => c.text ?? '').join(''),

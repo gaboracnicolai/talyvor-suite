@@ -151,6 +151,17 @@ function think(messages: Msg[]): string {
   const q = text(messages[messages.length - 1])
   const all = messages.map(text).join('\n')
   let m
+  // An explorer (B17.5), scripted: open Chat, type a question, send it, note a finding, stop.
+  if ((m = /^You are an explorer testing Talyvor[\s\S]*?\nStep (\d+) of/.exec(q))) {
+    const box = /\[(\d+)\] textarea/.exec(q)?.[1]
+    switch (Number(m[1])) {
+      case 1: return '{"action":"goto","path":"/chat"}'
+      case 2: return box === undefined ? '{"action":"done"}' : `{"action":"fill","target":${box},"text":"What is 2 + 2?"}`
+      case 3: return '{"action":"press","key":"Enter"}'
+      case 4: return '{"action":"finding","note":"(stub explorer) nothing is wrong; this lead is here to be read","severity":"low"}'
+      default: return '{"action":"done"}'
+    }
+  }
   if ((m = /Answer A: ([\s\S]*?)\n\nAnswer B: ([\s\S]*?)\n\n/.exec(q))) {
     const pick = (s: string) => (/\d[\d,]*/.exec(s)?.[0] ?? s.trim().toLowerCase()).replace(/,/g, '')
     return pick(m[1]) === pick(m[2]) ? 'YES' : 'NO'

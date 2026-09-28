@@ -14,6 +14,7 @@ import { chromium } from 'playwright'
 import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
+import { type ExplorerSummary, type Finding, explore } from './explore.ts'
 import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser } from './lens.ts'
 import { writeReport } from './report.ts'
@@ -47,9 +48,13 @@ export interface RunResult {
   model: string
   cap_usd: number
   spent_usd: number
+  /** The scenarios reached the cap: everything after it was skipped. */
   stopped_at_cap: boolean
   counts: Record<Status, number>
   outcomes: Outcome[]
+  /** B17.5 — each explorer's session, and what they (or their browsers) found, to check. */
+  explorers: ExplorerSummary[]
+  findings: Finding[]
 }
 
 async function pool<T>(items: T[], width: number, work: (item: T) => Promise<void>): Promise<void> {
@@ -147,6 +152,36 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
   outcomes.sort((a, b) => a.user - b.user)
   const counts: Record<Status, number> = { PASS: 0, FAIL: 0, SKIP: 0, ERROR: 0 }
   for (const o of outcomes) counts[o.status]++
+  const stoppedAtCap = cap.reached
+
+  // B17.5 — THE EXPLORERS, after the scenarios, under the same cap: whatever the scenarios left.
+  const summaries: ExplorerSummary[] = []
+  const findings: Finding[] = []
+  if (cfg.explorers > 0 && !cap.reached) {
+    const explorers = await lens.createUsers(cfg.explorers)
+    console.log(`${explorers.length} explorers, up to ${cfg.exploreMinutes} minutes each, with $${(cfg.capUSD - cap.spentUSD).toFixed(2)} of the cap left`)
+    const again = await chromium.launch({ headless: !cfg.headed })
+    try {
+      await Promise.all(explorers.map(async (user, n) => {
+        let s: ExplorerSummary
+        try {
+          const app = await AppUser.signIn(again, user, { appURL: cfg.appURL, syntheticKey: cfg.syntheticKey, cap, catalog, modelName: cfg.model, book, usdPerLXC })
+          try {
+            s = await explore(n, app, { lens, cap, catalog, usdPerLXC, provider: cfg.judgeProvider, model: cfg.explorerModel, minutes: cfg.exploreMinutes }, findings)
+          } finally {
+            await app.close()
+          }
+        } catch (e) {
+          s = { explorer: n, steps: 0, stopped: 'error', detail: e instanceof Error ? e.message : String(e) }
+        }
+        summaries.push(s)
+        console.log(`explorer ${n}: ${s.steps} steps, stopped (${s.stopped}): ${s.detail}`)
+      }))
+    } finally {
+      await again.close()
+    }
+    summaries.sort((a, b) => a.explorer - b.explorer)
+  }
   return {
     started_at: started.toISOString(),
     finished_at: new Date().toISOString(),
@@ -156,9 +191,11 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     model: cfg.model,
     cap_usd: cfg.capUSD,
     spent_usd: Number(cap.spentUSD.toFixed(6)),
-    stopped_at_cap: cap.reached,
+    stopped_at_cap: stoppedAtCap,
     counts,
     outcomes,
+    explorers: summaries,
+    findings,
   }
 }
 
@@ -183,7 +220,9 @@ async function main(): Promise<number> {
   const c = result.counts
   console.log(`\n${c.PASS} passed, ${c.FAIL} failed, ${c.ERROR} errored, ${c.SKIP} skipped — ` +
     `spent ≈ $${result.spent_usd.toFixed(4)} of a $${result.cap_usd.toFixed(2)} cap` +
-    `${result.stopped_at_cap ? ' (STOPPED AT THE CAP)' : ''}\nresults: ${file}`)
+    `${result.stopped_at_cap ? ' (STOPPED AT THE CAP)' : ''}` +
+    (result.explorers.length > 0 ? `\n${result.explorers.length} explorers: ${result.findings.length} findings to check` : '') +
+    `\nresults: ${file}`)
 
   // B17.4 — the day's report, then a build item for each scenario that FAILED and is not covered yet.
   const report = await writeReport(cfg.reportDir ?? join(REPO, 'docs/e2e'), result)
