@@ -16,6 +16,9 @@ export interface Agent {
   spent_ulxc: number
   keys: string[]
   created_at: string
+  /** B19.6 — set while the agent is paused on its own: every movement is refused until it is resumed. */
+  paused_at?: string
+  paused_reason?: string
 }
 
 /** Lens economy.AgentBook: workspace = allocated + unallocated; spent is what the agents spent. */
@@ -25,6 +28,30 @@ export interface AgentBook {
   unallocated_ulxc: number
   spent_ulxc: number
   agents: Agent[]
+  /** B19.7 — set while every agent in the workspace is paused. */
+  all_paused_at?: string
+  all_paused_reason?: string
+}
+
+/** Lens economy.AgentSpendAlert (B19.6). */
+export interface AgentSpendAlert {
+  id: string
+  agent_id: string
+  last_hour_ulxc: number
+  usual_per_hour_ulxc: number
+  /** the alert paused the agent */
+  paused: boolean
+  created_at: string
+}
+
+/** Lens economy.SpendForecast (B19.6): this UTC month so far, run on to its end. */
+export interface SpendForecast {
+  at: string
+  month_start: string
+  month_end: string
+  spent_ulxc: number
+  forecast_ulxc: number
+  agents: { agent_id: string; name: string; spent_ulxc: number; forecast_ulxc: number }[] | null
 }
 
 /** Lens economy.AgentRules. A zero limit and an empty list are "no rule". */
@@ -132,6 +159,13 @@ export const agentBankApi = {
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>
     send<AgentPayment>('POST', `/api/agents/${e(id)}/pay`, { to_agent_id, amount_ulxc, memo }),
   approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals'),
+  // B19.20 — stop every agent or one, and what they are spending.
+  alerts: () => getJSON<{ alerts: AgentSpendAlert[] | null; rule: string }>('/api/agents/alerts'),
+  forecast: () => getJSON<SpendForecast>('/api/agents/forecast'),
+  pauseAll: (reason: string) => send<{ all_paused: boolean }>('POST', '/api/agents/pause-all', { reason }),
+  resumeAll: () => send<{ all_paused: boolean }>('POST', '/api/agents/resume-all'),
+  pause: (id: string, reason: string) => send<{ paused: boolean }>('POST', `/api/agents/${e(id)}/pause`, { reason }),
+  resume: (id: string) => send<{ paused: boolean }>('POST', `/api/agents/${e(id)}/resume`),
   /** B19.10: once the workspace has a passkey, a decision carries an assertion over the approval's challenge. */
   decide: (approvalID: string, decision: 'approve' | 'deny', assertion?: PasskeyAssertion) =>
     decision === 'approve'

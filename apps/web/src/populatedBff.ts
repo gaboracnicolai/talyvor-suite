@@ -166,6 +166,19 @@ const BY_PATH: Record<string, unknown> = {
   },
   // B19.10 — no passkey yet, so approvals are sent unsigned, as B19.4 sends them.
   '/api/agents/passkeys': { passkeys: [] },
+  // B19.20 — this month's forecast, and one unusual-spend alert that paused an agent.
+  '/api/agents/forecast': {
+    at: '2026-09-15T00:00:00Z',
+    month_start: '2026-09-01T00:00:00Z',
+    month_end: '2026-10-01T00:00:00Z',
+    spent_ulxc: 1_250_000,
+    forecast_ulxc: 2_500_000,
+    agents: [{ agent_id: 'agt_research', name: 'Researcher', spent_ulxc: 1_250_000, forecast_ulxc: 2_500_000 }],
+  },
+  '/api/agents/alerts': {
+    alerts: [{ id: 'al_1', agent_id: 'agt_research', last_hour_ulxc: 600_000, usual_per_hour_ulxc: 100_000, paused: true, created_at: '2026-09-27T12:00:00Z' }],
+    rule: 'An alert is raised when an agent spends five times its usual hourly rate.',
+  },
   '/api/agents/approvals': {
     approvals: [
       { id: 'apr_1', agent_id: 'agt_research', amount_ulxc: 3_000_000, model: '', status: 'pending', created_at: '2026-09-27T12:30:00Z' },

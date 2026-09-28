@@ -324,6 +324,13 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/{id}/rules", a.requireTenant(a.handleAgentRules))
 	a.mux.HandleFunc("/api/agents/{id}/statement", a.requireTenant(a.handleAgentStatement))
 	a.mux.HandleFunc("/api/agents/{id}/pay", a.requireTenant(a.handleAgentPay))
+	// B19.20 — pause every agent or one, unusual-spend alerts and the month-end forecast.
+	a.mux.HandleFunc("/api/agents/alerts", a.requireTenant(a.handleAgentAlerts))
+	a.mux.HandleFunc("/api/agents/forecast", a.requireTenant(a.handleAgentForecast))
+	a.mux.HandleFunc("/api/agents/pause-all", a.requireTenant(a.handleAgentsPauseAll(true)))
+	a.mux.HandleFunc("/api/agents/resume-all", a.requireTenant(a.handleAgentsPauseAll(false)))
+	a.mux.HandleFunc("/api/agents/{id}/pause", a.requireTenant(a.handleAgentPause(true)))
+	a.mux.HandleFunc("/api/agents/{id}/resume", a.requireTenant(a.handleAgentPause(false)))
 	// B20.3 — the marketplace: browse, publish, use a listing, and what the seller earned. See marketplace.go.
 	a.mux.HandleFunc("/api/marketplace/listings", a.requireTenant(a.handleMarketListings))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}", a.requireTenant(a.handleMarketListing))

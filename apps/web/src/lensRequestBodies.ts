@@ -249,6 +249,25 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/pay", func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentPayBody',
   },
+  // B19.20 — pausing every agent, and one, with the reason.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/pause-all',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"reason": in.Reason})',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/pause-all", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentPauseAllBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/pause',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"reason": why.Reason})',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/pause", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentPauseBody',
+  },
   // B20.3 — the marketplace: publishing a listing, and using one.
   {
     route: 'POST /v1/workspaces/{wsID}/marketplace/listings',
