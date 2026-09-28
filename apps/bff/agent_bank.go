@@ -22,6 +22,7 @@ import (
 //	GET  /api/agents/{id}/statement                    the agent's account, newest first
 //	GET  /api/agents/{id}/statement?from=&to=&format=json|csv   B19.22: its statement for a period, to download
 //	GET  /api/agents/statement?from=&to=&format=json|csv        B19.22: every account in the bank, for a period
+//	POST /api/agents/{id}/claim                        B19.23: the signed-in person becomes an ownerless agent's owner
 //	POST /api/agents/{id}/pay           {"to_agent_id", "amount_ulxc", "memo"}   pay another of this workspace's agents
 //	GET  /api/agents/approvals                         what the agents' rules sent to a person, newest first
 //	POST /api/agents/approvals/{id}/approve, …/deny    decide one
@@ -284,6 +285,18 @@ func (a *app) agentStatementRelay(w http.ResponseWriter, r *http.Request, t tena
 		writeJSON(w, resp.StatusCode, map[string]string{"error": refusal.Error})
 	default:
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Lens could not answer just now"})
+	}
+}
+
+// handleAgentClaim — POST /api/agents/{id}/claim (B19.23): Lens B19.11 gives an agent with no owner no
+// balance until a person claims it; the owner is whoever the session's credential names. No body.
+func (a *app) handleAgentClaim(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	if suffix, ok := agentSuffix(w, r, "claim"); ok {
+		a.agentBankRelay(w, r, t, http.MethodPost, suffix, nil)
 	}
 }
 

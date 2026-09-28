@@ -39,6 +39,8 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "balance_ulxc": 10_000_000})
 		case strings.HasSuffix(r.URL.Path, "/agents/pause-all"), strings.HasSuffix(r.URL.Path, "/agents/resume-all"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"all_paused": strings.HasSuffix(r.URL.Path, "pause-all")})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/claim"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "owner_user_id": "ws_1"})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/pause"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "paused": true})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/schedules"):
@@ -222,5 +224,20 @@ func TestAgentStatementDownloadsForAPeriod(t *testing.T) {
 	if len(got) != 3 || !strings.HasSuffix(got[0], "/agents/agt_1/statement?format=csv&from=2026-08-01&to=2026-09-01") ||
 		!strings.HasSuffix(got[1], "/agents/statement?format=csv&from=2026-08-01&to=2026-09-01") {
 		t.Fatalf("Lens got %v", got)
+	}
+}
+
+// B19.23 — claiming an ownerless agent reaches Lens as a POST with no body: Lens names the owner from
+// the session's credential, so nothing a browser sends can name someone else.
+func TestAgentClaimReachesLens(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/claim", `{"owner_user_id":"someone_else"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"owner_user_id":"ws_1"`) {
+		t.Fatalf("claim = %d %s", rec.Code, rec.Body.String())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.got) != 1 || !strings.HasSuffix(f.got[0], "/agents/agt_1/claim ") || !strings.HasPrefix(f.got[0], "POST ") {
+		t.Fatalf("Lens got %q", f.got)
 	}
 }

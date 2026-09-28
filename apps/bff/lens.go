@@ -325,6 +325,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/{id}/statement", a.requireTenant(a.handleAgentStatement))
 	a.mux.HandleFunc("/api/agents/statement", a.requireTenant(a.handleBankStatement)) // B19.22
 	a.mux.HandleFunc("/api/agents/{id}/pay", a.requireTenant(a.handleAgentPay))
+	a.mux.HandleFunc("/api/agents/{id}/claim", a.requireTenant(a.handleAgentClaim)) // B19.23
 	// B19.20 — pause every agent or one, unusual-spend alerts and the month-end forecast.
 	a.mux.HandleFunc("/api/agents/alerts", a.requireTenant(a.handleAgentAlerts))
 	a.mux.HandleFunc("/api/agents/forecast", a.requireTenant(a.handleAgentForecast))
