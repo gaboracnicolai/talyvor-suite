@@ -19,12 +19,16 @@ function mockBff() {
   vi.setSystemTime(new Date('2026-09-28T12:00:00Z'))
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   URL.createObjectURL = vi.fn((b: Blob) => {
-    // jsdom's Blob has no .text(); FileReader is how it reads one.
-    const text = new Promise<string>((resolve) => {
-      const fr = new FileReader()
-      fr.onload = () => resolve(String(fr.result))
-      fr.readAsText(b)
-    })
+    // Which Blob fetch hands back depends on the Node version: its own has .text(), jsdom's is read
+    // with FileReader (which refuses Node's).
+    const text =
+      typeof b.text === 'function'
+        ? b.text()
+        : new Promise<string>((resolve) => {
+            const fr = new FileReader()
+            fr.onload = () => resolve(String(fr.result))
+            fr.readAsText(b)
+          })
     saved.push({ name: '', text })
     return 'blob:statement'
   }) as typeof URL.createObjectURL
