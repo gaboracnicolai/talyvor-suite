@@ -6,9 +6,21 @@
 // streaming proxy with Lens's replay and pool headers. The "model" is arithmetic and a table of
 // capitals — enough for every oracle to have something true to check.
 //
+// B17.8 adds what the Features page and the Try-it pages read and write: the workspace's settings,
+// its guardrails and spending limits, Tare and document-conversion previews, and a document attached
+// in Chat converted on the proxy.
+//
 // STUB_BREAK=<name> plants one defect, so a harness change can be seen to FAIL on it:
 //   price       — answers report twice the tokens they were charged for
 //   cross-replay — another account's identical question is replayed as "your earlier answer"
+//   pii         — a question with personal data is cached and shared like any other
+//   injection   — prompt-injection detection is on but lets everything through
+//   distill     — a document attached in Chat is passed on unconverted
+//   tare        — Tare's preview drops a field from the rows it keeps
+//   conversion  — the conversion preview drops the document's paragraphs
+//   budget      — a spending limit is recorded but never refuses
+//   setting     — cost-optimised routing is answered as recorded but not kept
+//   logging     — request logging "none" still answers a repeat from a kept copy
 
 import { randomBytes } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
@@ -38,7 +50,41 @@ const CAPITALS: Record<string, string> = {
 }
 
 interface Row { id: string; workspace_id: string; amount_ulxc: number; balance_after_ulxc: number; type: string; description: string; metadata: object; created_at: string }
-interface Workspace { id: string; token: string; balance: number; ledger: Row[]; answers: Map<string, string> }
+interface Settings {
+  tare_policy: string
+  distill_policy: string
+  compression_policy: string
+  logging_policy: string
+  cache_poolable: boolean
+  distill_poolable: boolean
+  cost_optimize_routing: boolean
+}
+interface Budget {
+  id: string; scope: string; period: string; limit_usd: number; spent_usd: number; alert_thresholds: number[]
+  enforcement: string; ends_at: string | null
+}
+interface Workspace {
+  id: string; token: string; balance: number; ledger: Row[]; answers: Map<string, string>
+  settings: Settings
+  guardrails: Record<string, unknown> & { enable_injection: boolean; enable_pii: boolean }
+  budgets: Budget[]
+  usage: { total: number; hits: number; pooled: number; converted: number }
+}
+
+function newWorkspace(id: string, token: string): Workspace {
+  return {
+    id, token, balance: 0, ledger: [], answers: new Map(),
+    settings: { tare_policy: 'disabled', distill_policy: 'always', compression_policy: 'disabled', logging_policy: 'full',
+      cache_poolable: true, distill_poolable: false, cost_optimize_routing: false },
+    guardrails: { enable_injection: true, enable_pii: true, blocked_topics: [], custom_rules: [] },
+    budgets: [],
+    usage: { total: 0, hits: 0, pooled: 0, converted: 0 },
+  }
+}
+
+// Lens's guardrails, reduced to what the scenarios send.
+const INJECTION = /ignore (all )?(previous|prior) instructions/i
+const PERSONAL = /[\w.+-]+@[\w-]+\.[\w.]+|\+?\d[\d ()-]{8,}\d/
 
 const workspaces = new Map<string, Workspace>()
 const byToken = new Map<string, Workspace>()
@@ -47,13 +93,58 @@ const bySessionKey = new Map<string, Workspace>()
 const pool = new Map<string, { owner: string; answer: string }>()
 
 function book(ws: Workspace, amount: number, type: string, description: string): void {
+  if (type === 'spend') for (const b of ws.budgets) b.spent_usd += (-amount / 1e6) * USD_PER_LXC
   ws.balance += amount
   ws.ledger.unshift({ id: randomBytes(8).toString('hex'), workspace_id: ws.id, amount_ulxc: amount, balance_after_ulxc: ws.balance,
     type, description, metadata: {}, created_at: new Date().toISOString() })
 }
 
-type Msg = { role: string; content: string | { type: string; text?: string }[] }
+type Block = { type: string; text?: string; source?: { data?: string; media_type?: string }; file?: { file_data?: string } }
+type Msg = { role: string; content: string | Block[] }
 const text = (m: Msg): string => (typeof m.content === 'string' ? m.content : m.content.map((c) => c.text ?? '').join(''))
+
+/** HTML (or anything else, as it is) to the Markdown Lens's conversion produces. */
+function toMarkdown(raw: string, mediaType: string): string {
+  if (!/html/.test(mediaType)) return raw.trim()
+  return raw
+    .replace(/<(script|style|title)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, n: string, t: string) => `\n${'#'.repeat(Number(n))} ${t.trim()}\n`)
+    .replace(/<\/t[dh]>/gi, ' | ')
+    .replace(/<\/(p|tr|table|div)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** A document block (Anthropic's, or OpenAI's file part) as its media type and bytes. */
+function documentOf(c: Block): { mediaType: string; bytes: Buffer } | undefined {
+  if (c.type === 'document' && c.source?.data !== undefined) return { mediaType: c.source.media_type ?? '', bytes: Buffer.from(c.source.data, 'base64') }
+  const m = c.type === 'file' ? /^data:([^;]*);base64,(.*)$/s.exec(c.file?.file_data ?? '') : null
+  return m === null ? undefined : { mediaType: m[1], bytes: Buffer.from(m[2], 'base64') }
+}
+
+/** Tare on JSON: an array of same-shaped objects keeps one row per shape. */
+function shrink(v: unknown): unknown {
+  if (Array.isArray(v)) {
+    const seen = new Set<string>()
+    const kept = v.filter((x) => {
+      const shape = x !== null && typeof x === 'object' ? Object.keys(x).sort().join(',') : typeof x
+      if (seen.has(shape)) return false
+      seen.add(shape)
+      return true
+    })
+    return kept.map((x) => {
+      const row = shrink(x)
+      if (BREAK === 'tare' && row !== null && typeof row === 'object' && !Array.isArray(row)) {
+        const keys = Object.keys(row)
+        delete (row as Record<string, unknown>)[keys[keys.length - 1]]
+      }
+      return row
+    })
+  }
+  if (v !== null && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, shrink(x)]))
+  return v
+}
 
 /** The stand-in model: arithmetic, capitals, and the harness's own fixed prompts. */
 function think(messages: Msg[]): string {
@@ -74,6 +165,7 @@ function think(messages: Msg[]): string {
   }
   if ((m = /capital of ([A-Za-z ]+)\?/.exec(q))) return CAPITALS[m[1].trim().toLowerCase()] ?? 'I do not know.'
   if (/single word: ok/.test(q)) return 'ok'
+  if (/code word in the attached document/.test(q)) return /code word is (\w+)/.exec(all)?.[1] ?? 'I cannot see any document.'
   if ((m = /from 1 to (\d+)/.exec(q))) return Array.from({ length: Number(m[1]) }, (_, i) => i + 1).join(' ')
   return 'I can only do arithmetic and capitals.'
 }
@@ -100,20 +192,54 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const model = CATALOG.find((c) => c.id === body.model)
   if (model === undefined || (provider === 'anthropic') !== (path === 'v1/messages')) return json(res, 400, { error: 'bad request' })
   const messages = body.messages ?? []
+  const headers: Record<string, string> = {}
+
+  // The guardrails first: an injection is refused before the budget, the cache and the model; personal
+  // data keeps the request out of the cache and the pool.
+  const said = messages.map(text).join('\n')
+  if (ws.guardrails.enable_injection && BREAK !== 'injection' && INJECTION.test(said)) {
+    return json(res, 400, { error: 'guardrail violation', violations: [{ type: 'injection', action: 'block' }], risk_score: 1 },
+      { 'X-Talyvor-Guardrail-Blocked': 'true' })
+  }
+  const personal = ws.guardrails.enable_pii && BREAK !== 'pii' && PERSONAL.test(said)
+  if (BREAK !== 'budget' && ws.budgets.some((b) => b.enforcement === 'hard_block' && b.spent_usd >= b.limit_usd)) {
+    return json(res, 402, { error: 'budget exceeded for workspace/team/sprint' })
+  }
+  // Document conversion: asked for by the app, applied unless the workspace switched it off.
+  if (req.headers['x-talyvor-distill'] === 'true' && ws.settings.distill_policy !== 'disabled' && BREAK !== 'distill') {
+    let converted = 0
+    for (const m of messages) {
+      if (typeof m.content === 'string') continue
+      m.content = m.content.map((c) => {
+        const doc = documentOf(c)
+        if (doc === undefined) return c
+        converted++
+        return { type: 'text', text: toMarkdown(doc.bytes.toString('utf8'), doc.mediaType) }
+      })
+    }
+    if (converted > 0) {
+      headers['X-Talyvor-Distill'] = 'applied'
+      ws.usage.converted += converted
+    }
+  }
+  // Request logging "none" keeps nothing, so nothing is answered from a kept copy.
+  const keep = !personal && (ws.settings.logging_policy !== 'none' || BREAK === 'logging')
+  ws.usage.total++
 
   const key = JSON.stringify([model.id, messages.map((m) => [m.role, text(m)])])
   const bypass = req.headers['x-talyvor-cache'] === 'bypass'
   let answer: string
-  const headers: Record<string, string> = {}
   let charge = 0
-  const own = ws.answers.get(key)
-  const shared = messages.length === 1 ? pool.get(key) : undefined
+  const own = keep ? ws.answers.get(key) : undefined
+  const shared = messages.length === 1 && !personal ? pool.get(key) : undefined
   const inTok = tokens(messages.map(text).join(' ')) + 8
   if (!bypass && own !== undefined) {
     answer = own
     headers['X-Talyvor-Cache-Replay'] = 'true'
+    ws.usage.hits++
   } else if (!bypass && shared !== undefined && shared.owner !== ws.id) {
     answer = shared.answer
+    ws.usage.pooled++
     if (BREAK === 'cross-replay') {
       headers['X-Talyvor-Cache-Replay'] = 'true'
     } else {
@@ -127,8 +253,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     const outTok = tokens(answer)
     charge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
     book(ws, -charge, 'spend', `${model.id} answer`)
-    ws.answers.set(key, answer)
-    if (messages.length === 1) pool.set(key, { owner: ws.id, answer })
+    if (keep) ws.answers.set(key, answer)
+    if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
   }
   const outTok = tokens(answer)
   const shownIn = BREAK === 'price' ? inTok * 2 : inTok
@@ -158,6 +284,16 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   res.end()
 }
 
+/** The Features page's switches: Lens's route for each, and the field it records. */
+const SETTINGS: Record<string, keyof Settings> = {
+  '/tare': 'tare_policy',
+  '/distill': 'distill_policy',
+  '/cost-optimize-routing': 'cost_optimize_routing',
+  '/distill-poolable': 'distill_poolable',
+  '/logging': 'logging_policy',
+  '/cache-poolable': 'cache_poolable',
+}
+
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', BASE)
   const p = url.pathname
@@ -182,7 +318,7 @@ createServer(async (req, res) => {
       const out = []
       for (let i = 0; i < count; i++) {
         const id = 's' + randomBytes(20).toString('hex').slice(0, 26)
-        const ws: Workspace = { id, token: 'tok-' + randomBytes(16).toString('hex'), balance: 0, ledger: [], answers: new Map() }
+        const ws = newWorkspace(id, 'tok-' + randomBytes(16).toString('hex'))
         book(ws, GRANT_ULXC, 'admin_grant', 'synthetic test credits')
         workspaces.set(id, ws)
         byToken.set(ws.token, ws)
@@ -197,6 +333,13 @@ createServer(async (req, res) => {
     const ws = byToken.get(bearer)
     if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
     if (p === '/v1/catalog/models') return json(res, 200, CATALOG)
+    if (p === '/v1/catalog/discovered') return json(res, 200, [])
+    if (p === '/v1/api/usage') {
+      const u = ws.usage
+      return json(res, 200, { period_days: Number(url.searchParams.get('days') ?? 30), models: [], cache: { total_requests: u.total,
+        cache_hits: u.hits + u.pooled, misses: u.total - u.hits - u.pooled, hit_rate: u.total === 0 ? 0 : (u.hits + u.pooled) / u.total,
+        by_source: { cache_hit_exact: u.hits, cache_hit_pooled: u.pooled } } })
+    }
     if (p === '/v1/auth/session-keys' && req.method === 'POST') {
       const key = 'tlv_sk_' + randomBytes(24).toString('hex')
       bySessionKey.set(key, ws)
@@ -206,7 +349,62 @@ createServer(async (req, res) => {
     if (scoped !== null) {
       if (scoped[1] !== ws.id) return json(res, 403, { error: 'forbidden' })
       const rest = scoped[2] ?? ''
-      if (rest === '') return json(res, 200, { id: ws.id, name: 'Synthetic user', active: true, cache_poolable: true, synthetic: true })
+      if (rest === '') return json(res, 200, { id: ws.id, name: 'Synthetic user', active: true, synthetic: true, ...ws.settings })
+      const setting = SETTINGS[rest]
+      if (setting !== undefined && req.method === 'PUT') {
+        const v = (JSON.parse((await read(req)) || '{}') as Record<string, unknown>)[setting]
+        if (v === undefined) return json(res, 400, { error: `${setting} required` })
+        if (!(BREAK === 'setting' && setting === 'cost_optimize_routing')) (ws.settings as unknown as Record<string, unknown>)[setting] = v
+        return json(res, 200, { [setting]: BREAK === 'setting' && setting === 'cost_optimize_routing' ? v : ws.settings[setting] })
+      }
+      if (rest === '/guardrails') {
+        if (req.method === 'POST') ws.guardrails = JSON.parse((await read(req)) || '{}') as Workspace['guardrails']
+        return json(res, 200, ws.guardrails)
+      }
+      if (rest === '/budgets' && req.method === 'POST') {
+        const b = JSON.parse((await read(req)) || '{}') as Partial<Budget>
+        const budget: Budget = { id: randomBytes(8).toString('hex'), scope: b.scope ?? 'workspace', period: b.period ?? 'monthly',
+          limit_usd: b.limit_usd ?? 0, spent_usd: 0, alert_thresholds: [], enforcement: b.enforcement ?? 'hard_block', ends_at: null }
+        ws.budgets.push(budget)
+        return json(res, 201, budget)
+      }
+      if (rest === '/budgets') return json(res, 200, ws.budgets)
+      const budget = /^\/budgets\/([^/]+)$/.exec(rest)
+      if (budget !== null && req.method === 'PATCH') {
+        const b = ws.budgets.find((x) => x.id === budget[1])
+        if (b === undefined) return json(res, 404, { error: 'no such budget' })
+        Object.assign(b, JSON.parse((await read(req)) || '{}'), { id: b.id, scope: b.scope, spent_usd: b.spent_usd })
+        return json(res, 200, b)
+      }
+      if (rest === '/tare/savings') return json(res, 200, { by_work_item: [] })
+      if (rest === '/distill/usage') return json(res, 200, { converted: ws.usage.converted, vision_ocr: 0, days: 30 })
+      if (rest === '/earnings') return json(res, 200, { disabled_gates: [], by_type: [] })
+      if (rest === '/tare/preview' && req.method === 'POST') {
+        const { content = '', kind = '' } = JSON.parse((await read(req)) || '{}') as { content?: string; kind?: string }
+        let reduced: string | undefined
+        try {
+          reduced = JSON.stringify(shrink(JSON.parse(content)))
+        } catch {
+          // not JSON: sent unchanged
+        }
+        const tin = tokens(content)
+        if (reduced === undefined || tokens(reduced) >= tin) {
+          return json(res, 200, { reduced: content, kind: kind || 'unknown', refused: true, refusal_reasons: ['nothing this preview can shrink safely'],
+            tokens_in_estimated: tin, tokens_out_estimated: tin, tokens_saved_estimated: 0 })
+        }
+        const tout = tokens(reduced)
+        return json(res, 200, { reduced, kind: 'json', refused: false, refusal_reasons: null,
+          tokens_in_estimated: tin, tokens_out_estimated: tout, tokens_saved_estimated: tin - tout })
+      }
+      if (rest === '/distill/preview' && req.method === 'POST') {
+        const mediaType = String(req.headers['content-type'] ?? '')
+        let raw = await read(req)
+        if (BREAK === 'conversion') raw = raw.replace(/<p[^>]*>[\s\S]*?<\/p>/gi, '')
+        const markdown = toMarkdown(raw, mediaType)
+        const [tin, tout] = [tokens(raw), tokens(markdown)]
+        return json(res, 200, { markdown, format: /html/.test(mediaType) ? 'html' : 'txt', needs_vision: false,
+          savings: { input_bytes: raw.length, output_bytes: markdown.length, input_tokens_raw: tin, input_tokens_distilled: tout, tokens_saved: tin - tout } })
+      }
       if (rest === '/lxc/balance') return json(res, 200, { workspace_id: ws.id, balance_ulxc: ws.balance })
       if (rest === '/lxc/history') {
         const limit = Number(url.searchParams.get('limit') ?? 20)

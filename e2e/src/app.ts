@@ -23,6 +23,13 @@ export interface Turn {
 
 export class SignInRefused extends Error {}
 
+/** A file a person picks with Attach (Playwright's setInputFiles payload). */
+export interface Attachment {
+  name: string
+  mimeType: string
+  buffer: Buffer
+}
+
 export interface Charged {
   /** Answers charged for: the spend rows the ledger must hold. */
   count: number
@@ -121,6 +128,17 @@ export class AppUser {
     await this.page.locator('#chat-message').waitFor({ state: 'visible' })
   }
 
+  /**
+   * Opens another screen of the app in a second tab of the same browser, signed in as the same user.
+   * The Chat tab stays where it is: going back to /chat reopens the latest conversation, which would
+   * put the next question into it.
+   */
+  async tab(path: string): Promise<Page> {
+    const page = await this.context.newPage()
+    await page.goto(this.appURL + path)
+    return page
+  }
+
   /** Picks a model in the picker by the name it shows; false, with the picker closed, if it is not offered. */
   async chooseModel(displayName: string): Promise<boolean> {
     const trigger = this.page.locator('button[aria-label^="Model: "], button[aria-label="Choose a model"]').first()
@@ -154,11 +172,17 @@ export class AppUser {
 
   /**
    * Asks `question` in the open conversation and waits for the whole answer and its footer. With
-   * `lengths`, the answer's visible length is sampled every 40 ms while it arrives.
+   * `lengths`, the answer's visible length is sampled every 40 ms while it arrives; with `files`, they
+   * are attached first, as Attach does.
    */
-  async ask(question: string, lengths?: number[]): Promise<Turn> {
-    const hold = this.reserve(question.length)
+  async ask(question: string, lengths?: number[], files: Attachment[] = []): Promise<Turn> {
+    // A document is read as input: its whole size counts toward the worst case.
+    const hold = this.reserve(question.length + files.reduce((n, f) => n + f.buffer.length, 0))
     const before = await this.page.locator('[data-testid="turn-assistant"]').count()
+    if (files.length > 0) {
+      await this.page.locator('#chat-attach').setInputFiles(files)
+      await this.page.getByRole('list', { name: 'Attached documents' }).waitFor({ state: 'visible' })
+    }
     await this.page.locator('#chat-message').fill(question)
     await this.page.locator('#chat-message').press('Enter')
     const turn = this.page.locator('[data-testid="turn-assistant"]').nth(before)

@@ -55,9 +55,28 @@ is never sent. From then on the run sends nothing new and every remaining scenar
 | `streaming` | 1 in 10 | a fresh answer shows at least three partial states before it finishes |
 | `ledger-matches-answers` | everyone, last | one `spend` row per charged answer (judge calls included), none for a replay; together they debit what the screen's token counts cost at list price (µLXC, rounded up per row) |
 
+## Catalog v2 (B17.8)
+
+Each also goes to one user in ten, after that user's catalog v1 scenario. Features and the Try-it pages
+open in a second tab, so the Chat tab keeps its conversation. A switch a scenario changes is put back.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `features-switches` | 1 in 10 | every Features switch (Tare, Document conversion, Cost-optimised routing, Prompt-injection detection, Personal-data detection, Answer sharing, Shared document conversions) changes what its row says, is still changed after a reload, shows its evidence, and switches back; Request logging set to Nothing pauses the Answer cache and an exact repeat is asked again |
+| `injection-blocked` | 1 in 10 | with Prompt-injection detection on, an injection is refused (4xx) and the ledger gains no spend row; off, it is answered |
+| `document-in-chat` | 1 in 10 | an HTML memo attached in Chat is "Converted to text before the model read it", and the answer is the code word only the memo states |
+| `spending-limit` | 1 in 10 | a limit below what was spent refuses a request ("cannot cover") with no spend row; switched off, the next is answered |
+| `try-conversion` | 1 in 10 | Try it on a document: the HTML memo becomes Markdown with its heading and its fact, and Download as Markdown saves what is shown |
+| `personal-data-not-pooled` | 1 in 10 | with Personal-data detection on, a question carrying an email and a phone number is asked again in a new chat and by another account, never served |
+| `try-tare` | 1 in 10 | Try Tare: 40 same-shaped JSON rows shrink to fewer tokens, the figures add up, and every field name survives |
+
+Not yet in the catalog: "plans on Stripe test cards" and "a pooled serve pays the contributor's royalty" —
+B17.1 refuses a synthetic checkout and funds no synthetic royalty, so they wait on a decision.
+
 ## Self-test
 
 `pnpm --filter @talyvor/e2e selftest` runs the whole harness on this machine. It uses a stand-in Lens
 (`selftest/stub-lens.ts`), the real BFF built from this checkout, and the real web bundle.
-`STUB_BREAK=price` or `STUB_BREAK=cross-replay` plants a defect, which must make the matching
-scenario FAIL.
+`STUB_BREAK=<name>` plants a defect, which must make the matching scenario FAIL: `price`,
+`cross-replay`, and for catalog v2 `pii`, `injection`, `distill`, `tare`, `conversion`, `budget`,
+`setting` and `logging` (stub-lens.ts says what each breaks).
