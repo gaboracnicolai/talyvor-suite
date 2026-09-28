@@ -8,13 +8,19 @@
 // Exit status: 0 when nothing failed, 1 when a scenario FAILED or ERRORED, 2 when the run could not start.
 
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
 import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
+import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser } from './lens.ts'
+import { writeReport } from './report.ts'
 import { type Evidence, type RunEnv, checkLedger, journeyFor } from './scenarios.ts'
+
+/** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 
 /** The providers whose stream the web app reads (apps/web/src/areas/chat/chatApi.ts STREAMABLE_PROVIDERS). */
 const STREAMABLE = ['openai', 'anthropic', 'google', 'mistral', 'groq', 'bedrock', 'vllm'] as const
@@ -178,6 +184,21 @@ async function main(): Promise<number> {
   console.log(`\n${c.PASS} passed, ${c.FAIL} failed, ${c.ERROR} errored, ${c.SKIP} skipped — ` +
     `spent ≈ $${result.spent_usd.toFixed(4)} of a $${result.cap_usd.toFixed(2)} cap` +
     `${result.stopped_at_cap ? ' (STOPPED AT THE CAP)' : ''}\nresults: ${file}`)
+
+  // B17.4 — the day's report, then a build item for each scenario that FAILED and is not covered yet.
+  const report = await writeReport(cfg.reportDir ?? join(REPO, 'docs/e2e'), result)
+  const shown = report.startsWith(REPO + '/') ? relative(REPO, report) : report
+  console.log(`report: ${report}`)
+  if (cfg.buildMd !== 'none') {
+    const f = await fileItems(cfg.buildMd, result, shown)
+    if (f === undefined) {
+      console.log(`build items: no queue at ${cfg.buildMd}, so nothing was filed`)
+    } else {
+      console.log(`build items in ${cfg.buildMd}: ` +
+        (f.filed.map((x) => `${x.id} (${x.scenario}, ${x.repo})`).join(', ') || 'none new') +
+        (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
+    }
+  }
   return c.FAIL + c.ERROR > 0 ? 1 : 0
 }
 

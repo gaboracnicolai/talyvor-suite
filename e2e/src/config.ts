@@ -20,6 +20,10 @@ export interface RunConfig {
   judgeModel: string
   judgeProvider: string
   outDir: string
+  /** Where the day's Markdown report is appended (B17.4); undefined means the repo's docs/e2e. */
+  reportDir: string | undefined
+  /** The build queue each new FAIL is filed in (B17.4), or 'none' to file nothing. */
+  buildMd: string
   headed: boolean
 }
 
@@ -77,6 +81,8 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     judgeModel: pick('judge-model', 'E2E_JUDGE_MODEL') ?? DEFAULTS.judgeModel,
     judgeProvider: pick('judge-provider', 'E2E_JUDGE_PROVIDER') ?? DEFAULTS.judgeProvider,
     outDir: pick('out', 'E2E_OUT') ?? DEFAULTS.outDir,
+    reportDir: pick('report-dir', 'E2E_REPORT_DIR'),
+    buildMd: pick('build-md', 'E2E_BUILD_MD') ?? `${env.HOME ?? ''}/talyvor-queue/BUILD.md`,
     headed: flags.get('headed') === 'true',
   }
 }

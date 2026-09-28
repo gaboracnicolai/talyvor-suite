@@ -6,6 +6,8 @@
 #   pnpm --filter @talyvor/e2e selftest                   # 10 users
 #   E2E_USERS=30 STUB_BREAK=price pnpm --filter @talyvor/e2e selftest   # a planted defect must FAIL
 #
+# The report goes beside the results, and build items only to E2E_BUILD_MD — never to the real queue.
+#
 # Needs Go, and Chromium for Playwright (`pnpm --filter @talyvor/e2e exec playwright install chromium`).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
@@ -43,4 +45,5 @@ done
 LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/../src/run.ts" \
   --app "http://localhost:$bff_port" --lens "http://127.0.0.1:$stub_port" \
   --users "${E2E_USERS:-10}" --concurrency "${E2E_CONCURRENCY:-5}" --cap-usd "${E2E_CAP_USD:-1}" \
-  --out "${E2E_OUT:-$here/../out}"
+  --out "${E2E_OUT:-$here/../out}" --report-dir "${E2E_REPORT_DIR:-${E2E_OUT:-$here/../out}}" \
+  --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}"

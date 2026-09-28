@@ -20,6 +20,8 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--model` | `E2E_MODEL` | Claude Haiku 4.5 | the cheap model journeys use (picker name) |
 | `--judge-model` | `E2E_JUDGE_MODEL` | claude-haiku-4-5 | the judge, by catalog id |
 | `--out` | `E2E_OUT` | `out` | where `run-<time>.json` is written |
+| `--report-dir` | `E2E_REPORT_DIR` | `docs/e2e` | where the day's report is appended |
+| `--build-md` | `E2E_BUILD_MD` | `~/talyvor-queue/BUILD.md` | the queue each new FAIL is filed in; `none` files nothing, a missing file files nothing |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -33,6 +35,15 @@ it on either side, Lens's synthetic routes or `/auth/synthetic` answer 404.
 3. After every journey has finished, it reads back each user's ledger.
 4. It writes `out/run-<time>.json`: each scenario's PASS, FAIL, SKIP or ERROR, with the question, the
    answer, the line under it, and ledger rows. It exits 1 if anything failed.
+5. It appends the run to the day's report, `docs/e2e/report-YYYY-MM-DD.md` (B17.4): the summary and
+   cost, a table of every scenario's verdicts, each FAIL and ERROR with its evidence, and every verdict
+   with its evidence folded underneath. A second run that day goes below the first; a report is never
+   overwritten.
+6. Each scenario that FAILED becomes one build item in `~/talyvor-queue/BUILD.md` — numbered next in
+   the B17 series, `repo:` the repo it is looked for in first, `status: OPEN` — unless an item that is
+   not DONE already carries its `e2e-scenario: <id>` line. So a second run files nothing new for the
+   same failure, and a failure that returns after its item is DONE is filed again. An ERROR (the
+   harness could not reach a verdict) is in the report but files nothing.
 
 **The cap is hard.** Every question reserves its worst case before it is sent: its whole input plus
 4,096 output tokens at list price. When the answer arrives, the reservation is settled with the real
