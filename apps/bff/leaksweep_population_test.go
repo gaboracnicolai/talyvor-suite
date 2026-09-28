@@ -302,9 +302,15 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// they change is read back through GET /api/agents, /api/agents/{id}/statement and
 	// /api/agents/approvals, which the sweep reaches. Each relays Lens's answer (or its refusal) and
 	// adds nothing the BFF holds.
-	if len(methodOnly) > 32 {
+	//
+	// THE THIRTY-THIRD TO THIRTY-FIFTH ARE B19.10'S FACE ID AND PUSH WRITES: /api/agents/passkeys/challenge
+	// and /api/agents/approvals/{id}/challenge (POST only — a fresh single-use challenge, useless read
+	// twice) and /api/agents/push/subscriptions (POST and DELETE). What they change is read back through
+	// GET /api/agents/passkeys and /api/agents/approvals, which the sweep reaches; a subscription is
+	// never read back at all. Each relays Lens's answer (or its refusal) and adds nothing the BFF holds.
+	if len(methodOnly) > 35 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 32 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 35 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

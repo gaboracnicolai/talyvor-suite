@@ -248,6 +248,130 @@ func (a *app) handleAgentDecision(decision string) func(http.ResponseWriter, *ht
 		if !ok {
 			return
 		}
-		a.agentBankRelay(w, r, t, http.MethodPost, "/agents/approvals/"+url.PathEscape(id)+"/"+decision, nil)
+		// B19.10: once the workspace has a passkey, Lens takes the decision only with an assertion over
+		// this approval's challenge. A decision without one is sent as before — Lens says whether it may.
+		var in struct {
+			Assertion *passkeyAssertion `json:"assertion"`
+		}
+		if r.ContentLength != 0 {
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil && err != io.EOF {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+				return
+			}
+		}
+		var body []byte
+		if in.Assertion != nil {
+			// UPSTREAM-BINDS-ONLY lensApprovalDecisionBody: none
+			body, _ = json.Marshal(map[string]*passkeyAssertion{"assertion": in.Assertion})
+		}
+		a.agentBankRelay(w, r, t, http.MethodPost, "/agents/approvals/"+url.PathEscape(id)+"/"+decision, body)
 	}
+}
+
+// B19.10 — approvals with Face ID, on the phone. Lens (B19.16) keeps the owner's passkeys, the challenge
+// each approval is signed over, and each device's push subscription, because the BFF keeps nothing
+// across a restart; these relay the browser's ceremony and subscription to it, rebuilt field by field.
+//
+//	POST   /api/agents/passkeys/challenge          a registration challenge and the RP ID
+//	GET    /api/agents/passkeys                    the workspace's passkeys
+//	POST   /api/agents/passkeys                    {credential_id, name, public_key, client_data_json, authenticator_data}
+//	POST   /api/agents/approvals/{id}/challenge    the challenge approving or denying one approval is signed over
+//	GET    /api/agents/push/public-key             the key a browser subscribes to pushes with
+//	POST   /api/agents/push/subscriptions          {endpoint, keys: {p256dh, auth}}
+//	DELETE /api/agents/push/subscriptions          {endpoint}
+//
+// Approve and deny (handleAgentDecision) carry {"assertion": {…}} once the workspace has a passkey.
+
+// passkeyAssertion is a passkey's signature over an approval's challenge, all base64url.
+type passkeyAssertion struct {
+	CredentialID      string `json:"credential_id"`
+	ClientDataJSON    string `json:"client_data_json"`
+	AuthenticatorData string `json:"authenticator_data"`
+	Signature         string `json:"signature"`
+}
+
+// handlePasskeyChallenge — POST /api/agents/passkeys/challenge.
+func (a *app) handlePasskeyChallenge(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodPost, "/agents/passkeys/challenge", nil)
+}
+
+// handlePasskeys — GET /api/agents/passkeys lists them; POST registers one.
+func (a *app) handlePasskeys(w http.ResponseWriter, r *http.Request, t tenant) {
+	switch r.Method {
+	case http.MethodGet:
+		a.agentBankRelay(w, r, t, http.MethodGet, "/agents/passkeys", nil)
+	case http.MethodPost:
+		var in struct {
+			CredentialID      string `json:"credential_id"`
+			Name              string `json:"name"`
+			PublicKey         string `json:"public_key"`
+			ClientDataJSON    string `json:"client_data_json"`
+			AuthenticatorData string `json:"authenticator_data"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+			return
+		}
+		// UPSTREAM-BINDS-ONLY lensPasskeyRegisterBody: none
+		body, _ := json.Marshal(in)
+		a.agentBankRelay(w, r, t, http.MethodPost, "/agents/passkeys", body)
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+	}
+}
+
+// handleApprovalChallenge — POST /api/agents/approvals/{id}/challenge.
+func (a *app) handleApprovalChallenge(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	id, ok := pathID(w, "approval id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodPost, "/agents/approvals/"+url.PathEscape(id)+"/challenge", nil)
+}
+
+// handlePushPublicKey — GET /api/agents/push/public-key.
+func (a *app) handlePushPublicKey(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodGet, "/agents/push/public-key", nil)
+}
+
+// handlePushSubscriptions — POST /api/agents/push/subscriptions subscribes this device; DELETE forgets it.
+func (a *app) handlePushSubscriptions(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		methodNotAllowed(w, http.MethodPost+", "+http.MethodDelete)
+		return
+	}
+	var in struct {
+		Endpoint string `json:"endpoint"`
+		Keys     struct {
+			P256dh string `json:"p256dh"`
+			Auth   string `json:"auth"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.Endpoint == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a push subscription needs its endpoint"})
+		return
+	}
+	if r.Method == http.MethodDelete {
+		// UPSTREAM-BINDS-ONLY lensPushUnsubscribeBody: none
+		body, _ := json.Marshal(map[string]string{"endpoint": in.Endpoint})
+		a.agentBankRelay(w, r, t, http.MethodDelete, "/agents/push/subscriptions", body)
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensPushSubscribeBody: keys
+	// ("keys" IS sent: it is the object p256dh and auth travel in. The register reads leaf json tags,
+	// so the container is declared here instead of read.)
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPost, "/agents/push/subscriptions", body)
 }

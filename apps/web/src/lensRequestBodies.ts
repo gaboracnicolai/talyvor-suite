@@ -249,6 +249,45 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/pay", func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentPayBody',
   },
+  // B19.10 — approvals with Face ID and pushes on the phone (Lens B19.16 keeps passkeys and subscriptions).
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/passkeys',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handlePasskeys(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/passkeys", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensPasskeyRegisterBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/approvals/{approvalID}/approve',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]*passkeyAssertion{"assertion": in.Assertion})',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'decide := func(approve bool) http.HandlerFunc {',
+    subject: 'lensApprovalDecisionBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/push/subscriptions',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handlePushSubscriptions(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/push/subscriptions", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensPushSubscribeBody',
+  },
+  {
+    route: 'DELETE /v1/workspaces/{wsID}/agents/push/subscriptions',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"endpoint": in.Endpoint})',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Delete("/v1/workspaces/{wsID}/agents/push/subscriptions", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensPushUnsubscribeBody',
+  },
 ]
 
 /**

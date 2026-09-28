@@ -4,6 +4,7 @@ import { Button, Card, CardHeader, Input, Pill, RevealOnce, Row, type PillStatus
 import { Region, RegionScreen } from '../../components/Region'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
+import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
 import {
   type Agent,
   type AgentApproval,
@@ -11,6 +12,7 @@ import {
   type AgentKey,
   type AgentRules,
   type StatementLine,
+  AgentBankError,
   agentBankApi,
   approvalNamedIn,
   formatULXC,
@@ -490,6 +492,67 @@ const DECIDED: Record<AgentApproval['status'], { status: PillStatus; label: stri
   denied: { status: 'slashed', label: 'Denied' },
 }
 
+const PASSKEYS_KEY = ['agent-passkeys']
+
+/** What went wrong on this device, in words: Lens's sentence, a cancelled prompt, or our own message. */
+function deviceText(err: unknown, fallback: string): string {
+  if (err instanceof AgentBankError) return refusalText(err)
+  if (err instanceof DOMException && err.name === 'NotAllowedError') return 'Cancelled — nothing changed.'
+  if (err instanceof DOMException && err.name === 'NotSupportedError') return fallback
+  return err instanceof Error && err.message ? err.message : fallback
+}
+
+/**
+ * B19.10 — the phone half: a passkey made here signs every approval from now on, and this device can
+ * be told when one is filed. Lens keeps both (B19.16); nothing is kept in the browser but the passkey.
+ */
+function FaceID({ signed, passkeyCount }: { signed: boolean; passkeyCount: number }) {
+  const qc = useQueryClient()
+  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
+  const register = useMutation({
+    mutationFn: () => registerThisDevice(navigator.userAgent.includes('iPhone') ? 'iPhone' : 'This device'),
+    onSuccess: () => setSaid({ ok: true, text: 'This device now signs approvals. Face ID asks each time you approve or deny.' }),
+    onError: (err) => setSaid({ ok: false, text: deviceText(err, 'No passkey was made.') }),
+    onSettled: () => qc.invalidateQueries({ queryKey: PASSKEYS_KEY }),
+  })
+  const notify = useMutation({
+    mutationFn: notifyThisDevice,
+    onSuccess: () => setSaid({ ok: true, text: 'This device is told when an agent asks for approval.' }),
+    onError: (err) => setSaid({ ok: false, text: deviceText(err, 'Notifications could not be turned on.') }),
+  })
+  return (
+    <Card>
+      <CardHeader>Face ID and notifications</CardHeader>
+      <div className="flex flex-col gap-2 px-gutter py-3">
+        <p className="text-body text-muted">
+          {signed
+            ? `Approvals are signed with a passkey (${passkeyCount} registered). Nothing is approved without one.`
+            : 'Approvals are not signed yet. Make a passkey on your phone and every approval asks for Face ID.'}
+        </p>
+        {said ? <Note ok={said.ok}>{said.text}</Note> : null}
+        <div className="flex flex-col gap-2 wide:flex-row">
+          {passkeysSupported() ? (
+            <Button className="h-12 wide:h-8" disabled={register.isPending} onClick={() => register.mutate()}>
+              {signed ? 'Add this device' : 'Approve with Face ID from now on'}
+            </Button>
+          ) : (
+            <p className="text-caption text-muted">This browser cannot make a passkey.</p>
+          )}
+          {pushSupported() ? (
+            <Button className="h-12 wide:h-8" disabled={notify.isPending} onClick={() => notify.mutate()}>
+              Notify this device
+            </Button>
+          ) : (
+            <p className="text-caption text-muted">
+              To be told on an iPhone, add Talyvor to the Home Screen (Share, then Add to Home Screen) and open it from there.
+            </p>
+          )}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function Approvals({
   nameOf,
   held,
@@ -501,10 +564,14 @@ function Approvals({
 }) {
   const qc = useQueryClient()
   const list = useQuery({ queryKey: APPROVALS_KEY, queryFn: agentBankApi.approvals })
+  const keys = useQuery({ queryKey: PASSKEYS_KEY, queryFn: agentBankApi.passkeys })
+  const signed = (keys.data?.passkeys ?? []).length > 0
   const [outcome, setOutcome] = useState<{ ok: boolean; text: React.ReactNode } | null>(null)
   const decide = useMutation({
     mutationFn: async ({ a, decision }: { a: AgentApproval; decision: 'approve' | 'deny' }) => {
-      await agentBankApi.decide(a.id, decision)
+      // B19.10: once the workspace has a passkey, Lens takes a decision only signed with one — Face ID
+      // (or Touch ID, or the device's PIN) asks here, over a challenge naming this approval alone.
+      await agentBankApi.decide(a.id, decision, signed ? await signApproval(a.id) : undefined)
       const p = held[a.id]
       if (decision === 'deny') return { ok: true, text: <>Denied. {nameOf(a.agent_id)}’s request will be refused.</> }
       if (!p) {
@@ -537,9 +604,10 @@ function Approvals({
   const all = list.data?.approvals ?? []
   const pending = all.filter((a) => a.status === 'pending')
   const decided = all.filter((a) => a.status !== 'pending').slice(0, 5)
-  const what = (a: AgentApproval) => (a.model ? `a request to ${a.model}` : 'a payment')
+  const what = (a: AgentApproval) => (a.reason ? a.reason : a.model ? `a request to ${a.model}` : 'a payment')
   return (
     <div className="flex flex-col gap-3">
+      <FaceID signed={signed} passkeyCount={(keys.data?.passkeys ?? []).length} />
       {outcome ? <Note ok={outcome.ok}>{outcome.text}</Note> : null}
       {list.isError ? (
         <p className="text-body text-muted">{readFailure(list.error, 'The approvals')}</p>
@@ -550,7 +618,7 @@ function Approvals({
           <CardHeader>Waiting for a person</CardHeader>
           {pending.length === 0 ? (
             <p className="px-gutter py-3 text-body text-muted">
-              Nothing is waiting. A request or payment above an agent’s approval amount appears here.
+              Nothing is waiting. A request or payment appears here when it is above an agent’s approval amount.
             </p>
           ) : (
             pending.map((a) => (
@@ -567,11 +635,21 @@ function Approvals({
                   </>
                 }
               >
-                <div className="flex items-center gap-2">
-                  <Button variant="primary" disabled={decide.isPending} onClick={() => decide.mutate({ a, decision: 'approve' })}>
-                    Approve
+                {/* One-handed on a phone: two full-width buttons under the thumb; side by side on a wide screen. */}
+                <div className="flex w-full items-center gap-2 wide:w-auto">
+                  <Button
+                    variant="primary"
+                    className="h-12 flex-1 wide:h-8 wide:flex-none"
+                    disabled={decide.isPending}
+                    onClick={() => decide.mutate({ a, decision: 'approve' })}
+                  >
+                    {signed ? 'Approve with Face ID' : 'Approve'}
                   </Button>
-                  <Button disabled={decide.isPending} onClick={() => decide.mutate({ a, decision: 'deny' })}>
+                  <Button
+                    className="h-12 flex-1 wide:h-8 wide:flex-none"
+                    disabled={decide.isPending}
+                    onClick={() => decide.mutate({ a, decision: 'deny' })}
+                  >
                     Deny
                   </Button>
                 </div>

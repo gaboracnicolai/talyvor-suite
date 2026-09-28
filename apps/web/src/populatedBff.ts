@@ -151,6 +151,8 @@ const BY_PATH: Record<string, unknown> = {
       { id: 'agt_writer', name: 'Writer', balance_ulxc: 2_500_000, spent_ulxc: 0, keys: [], created_at: '2026-09-27T09:05:00Z' },
     ],
   },
+  // B19.10 — no passkey yet, so approvals are sent unsigned, as B19.4 sends them.
+  '/api/agents/passkeys': { passkeys: [] },
   '/api/agents/approvals': {
     approvals: [
       { id: 'apr_1', agent_id: 'agt_research', amount_ulxc: 3_000_000, model: '', status: 'pending', created_at: '2026-09-27T12:30:00Z' },

@@ -1,0 +1,9 @@
+{
+  "name": "Talyvor",
+  "short_name": "Talyvor",
+  "start_url": "/agents",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff"
+}

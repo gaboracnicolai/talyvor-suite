@@ -46,6 +46,8 @@ export interface AgentApproval {
   agent_id: string
   amount_ulxc: number
   model: string
+  /** Why the agent asked (B19.9), when it asked through its own tools. */
+  reason?: string
   status: 'pending' | 'approved' | 'denied' | 'used'
   created_at: string
   decided_at?: string
@@ -126,10 +128,50 @@ export const agentBankApi = {
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>
     send<AgentPayment>('POST', `/api/agents/${e(id)}/pay`, { to_agent_id, amount_ulxc, memo }),
   approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals'),
-  decide: (approvalID: string, decision: 'approve' | 'deny') =>
+  /** B19.10: once the workspace has a passkey, a decision carries an assertion over the approval's challenge. */
+  decide: (approvalID: string, decision: 'approve' | 'deny', assertion?: PasskeyAssertion) =>
     decision === 'approve'
-      ? send<AgentApproval>('POST', `/api/agents/approvals/${e(approvalID)}/approve`)
-      : send<AgentApproval>('POST', `/api/agents/approvals/${e(approvalID)}/deny`),
+      ? send<AgentApproval>('POST', `/api/agents/approvals/${e(approvalID)}/approve`, assertion ? { assertion } : {})
+      : send<AgentApproval>('POST', `/api/agents/approvals/${e(approvalID)}/deny`, assertion ? { assertion } : {}),
+  // B19.10 — passkeys and push, kept by Lens (B19.16).
+  passkeys: () => getJSON<{ passkeys: Passkey[] | null }>('/api/agents/passkeys'),
+  passkeyChallenge: () => send<{ challenge: string; rp_id: string }>('POST', '/api/agents/passkeys/challenge'),
+  registerPasskey: (body: PasskeyRegistration) => send<Passkey>('POST', '/api/agents/passkeys', body),
+  approvalChallenge: (approvalID: string) =>
+    send<{ challenge: string; allow_credentials: string[] | null }>('POST', `/api/agents/approvals/${e(approvalID)}/challenge`),
+  pushPublicKey: () => getJSON<{ public_key: string }>('/api/agents/push/public-key'),
+  subscribePush: (sub: PushSubscriptionBody) => send<{ endpoint: string }>('POST', '/api/agents/push/subscriptions', sub),
+}
+
+/** A passkey the workspace's owner registered (B19.16). */
+export interface Passkey {
+  credential_id: string
+  name: string
+  created_at: string
+  last_used_at?: string
+}
+
+/** A new passkey, as the browser's ceremony gives it — all base64url. */
+export interface PasskeyRegistration {
+  credential_id: string
+  name: string
+  public_key: string
+  client_data_json: string
+  authenticator_data: string
+}
+
+/** A passkey's signature over an approval's challenge — all base64url. */
+export interface PasskeyAssertion {
+  credential_id: string
+  client_data_json: string
+  authenticator_data: string
+  signature: string
+}
+
+/** A device's push subscription, as PushSubscription.toJSON() gives it. */
+export interface PushSubscriptionBody {
+  endpoint: string
+  keys: { p256dh: string; auth: string }
 }
 
 /** `12.5` → 12,500,000 µLXC. Null for anything that is not a positive amount with at most six decimals. */
