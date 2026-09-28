@@ -59,6 +59,7 @@ const BODIES: Record<string, unknown> = {
   },
 
   '/api/spend/month': { current_month_usd: 12.34 },
+  '/api/ai/providers': { unconfigured: [] },
 
   '/api/lxc/topup-options': { allowed_usd_cents: [1000, 2500, 5000], billing_enabled: true },
 

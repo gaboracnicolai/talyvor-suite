@@ -149,7 +149,7 @@ export function ModelPicker({
                   <p className="px-3 pb-1 pt-2 text-caption text-muted">{g.label}</p>
                   {g.streamable ? null : (
                     <p className="px-3 pb-1 text-caption text-faint">
-                      Not in chat yet: Lens streams OpenAI and Anthropic formats only.
+                      Not in chat yet: Lens has no streaming route for this provider.
                     </p>
                   )}
                   {g.models.map((m) => {
@@ -193,6 +193,13 @@ export function ModelPicker({
                 {' '}
                 <span className="font-figure">{catalog.omitted}</span> retired or non-chat catalog entr
                 {catalog.omitted === 1 ? 'y' : 'ies'} not listed.
+              </>
+            ) : null}
+            {catalog.unconfigured > 0 ? (
+              <>
+                {' '}
+                <span className="font-figure">{catalog.unconfigured}</span> model
+                {catalog.unconfigured === 1 ? '' : 's'} on providers without a key not listed.
               </>
             ) : null}
           </p>
