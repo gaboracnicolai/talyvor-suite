@@ -187,3 +187,153 @@ async function runConversion(page: Page, file: Attachment): Promise<ConversionRe
   const path = await download.path()
   return { kind: 'converted', summary, markdown, downloaded: { name: download.suggestedFilename(), text: await readFile(path, 'utf8') } }
 }
+
+const AI_TIMEOUT_MS = 120_000
+
+/** A card by its heading (packages/ui Card: the h2 sits in the header, the header in the card). */
+function card(page: Page, heading: string): Locator {
+  return page.getByRole('heading', { name: heading, exact: true }).locator('xpath=../..')
+}
+
+/**
+ * Presses a card's button and waits until the card has answered — no longer "Asking…" and no longer
+ * what it said before — then reads it.
+ */
+async function answerOf(page: Page, heading: string, button: string): Promise<string> {
+  const c = card(page, heading)
+  const before = await c.innerText()
+  await c.getByRole('button', { name: button, exact: true }).click()
+  const deadline = Date.now() + AI_TIMEOUT_MS
+  while (Date.now() < deadline) {
+    const now = await c.innerText()
+    if (now !== before && !/Asking (Track|Docs)?…|Summarising…|Translating…|Suggesting…/.test(now)) return now
+    await page.waitForTimeout(250)
+  }
+  throw new Error(`"${heading}" gave no answer within ${AI_TIMEOUT_MS / 1000} s`)
+}
+
+/** The model-written text a Docs or Track card shows, or undefined. */
+async function writtenIn(page: Page, heading: string): Promise<string | undefined> {
+  const p = card(page, heading).locator('p.whitespace-pre-wrap')
+  return (await p.count()) > 0 ? (await p.first().innerText()).trim() : undefined
+}
+
+/** A Docs page this user wrote through the app: a new space, a new page, the text typed and saved. */
+export class DocsPage {
+  readonly page: Page
+
+  private constructor(page: Page) {
+    this.page = page
+  }
+
+  static async write(app: AppUser, space: string, title: string, text: string): Promise<DocsPage> {
+    const page = await app.tab('/docs')
+    await page.getByLabel('Space name').fill(space)
+    await page.getByRole('button', { name: 'Create space' }).click()
+    await page.getByRole('link', { name: `Open space ${space}` }).click()
+    await page.getByLabel('Page title').fill(title)
+    await page.getByRole('button', { name: 'Create page' }).click()
+    await page.getByRole('link', { name: title, exact: true }).first().click()
+    await page.getByRole('textbox', { name: 'Content' }).click()
+    await page.keyboard.type(text)
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await page.getByRole('status').filter({ hasText: 'Saved.' }).waitFor()
+    await page.getByRole('button', { name: 'Summarise this page' }).waitFor()
+    return new DocsPage(page)
+  }
+
+  async summarise(): Promise<{ text?: string; shown: string }> {
+    const shown = await answerOf(this.page, 'Summary', 'Summarise this page')
+    return { text: await writtenIn(this.page, 'Summary'), shown }
+  }
+
+  async translate(language: string): Promise<{ text?: string; shown: string }> {
+    await this.page.locator('#translate-language').fill(language)
+    const shown = await answerOf(this.page, 'Translation', 'Translate this page')
+    return { text: await writtenIn(this.page, 'Translation'), shown }
+  }
+
+  /**
+   * Asks the documentation from this page's Ask card: the answer, and the titles it cites. The page is
+   * reloaded first, so a second ask is read from an empty card rather than the first one's answer.
+   */
+  async ask(question: string): Promise<{ text?: string; sources: string[]; shown: string }> {
+    await this.page.reload()
+    const c = card(this.page, 'Ask the documentation')
+    await c.getByLabel('Question').fill(question)
+    const shown = await answerOf(this.page, 'Ask the documentation', 'Ask')
+    const sources = /Sources/.test(shown) ? (await c.locator('ul li').allInnerTexts()).map((s) => s.trim()) : []
+    return { text: await writtenIn(this.page, 'Ask the documentation'), sources, shown }
+  }
+
+  async close(): Promise<void> {
+    await this.page.close()
+  }
+}
+
+/** Track's issue list, in a tab: create issues, open one, and export what is listed. */
+export class TrackScreen {
+  readonly page: Page
+
+  private constructor(page: Page) {
+    this.page = page
+  }
+
+  static async open(app: AppUser): Promise<TrackScreen> {
+    const page = await app.tab('/track')
+    await page.locator('#new-issue-title').waitFor()
+    return new TrackScreen(page)
+  }
+
+  async create(title: string): Promise<void> {
+    await this.page.locator('#new-issue-title').fill(title)
+    await this.page.getByRole('button', { name: 'Create issue' }).click()
+    await this.page.getByRole('link', { name: title, exact: true }).waitFor()
+  }
+
+  async openIssue(title: string): Promise<void> {
+    await this.page.getByRole('link', { name: title, exact: true }).click()
+    await this.page.locator('#new-comment').waitFor()
+  }
+
+  async comment(body: string): Promise<void> {
+    await this.page.locator('#new-comment').fill(body)
+    await this.page.getByRole('button', { name: 'Comment', exact: true }).click()
+    await this.page.locator('li p').filter({ hasText: body }).first().waitFor()
+  }
+
+  async summarise(): Promise<{ text?: string; shown: string }> {
+    const shown = await answerOf(this.page, 'AI summary', 'Summarise the thread')
+    return { text: await writtenIn(this.page, 'AI summary'), shown }
+  }
+
+  /** The candidates "Look for duplicates" lists, each as its row reads; reloaded first, as ask is. */
+  async duplicates(): Promise<{ rows: string[]; shown: string }> {
+    await this.page.reload()
+    await this.page.locator('#new-comment').waitFor()
+    const shown = await answerOf(this.page, 'Possible duplicates', 'Look for duplicates')
+    return { rows: (await card(this.page, 'Possible duplicates').locator('ul li').allInnerTexts()).map((s) => s.trim()), shown }
+  }
+
+  async triage(): Promise<{ priority?: string; shown: string }> {
+    const shown = await answerOf(this.page, 'Triage suggestion', 'Ask for a triage suggestion')
+    const dd = card(this.page, 'Triage suggestion').locator('dt:text-is("Suggested priority") + dd')
+    return { priority: (await dd.count()) > 0 ? (await dd.innerText()).trim() : undefined, shown }
+  }
+
+  /** Presses an export button on the list and reads the file it saved, and the line it wrote. */
+  async export(format: 'CSV' | 'JSON'): Promise<{ name: string; text: string; status: string }> {
+    await this.page.goto(new URL('/track', this.page.url()).toString())
+    const [download] = await Promise.all([
+      this.page.waitForEvent('download'),
+      this.page.getByRole('button', { name: format, exact: true }).click(),
+    ])
+    const status = this.page.getByRole('status').filter({ hasText: /^Exported|^Couldn’t/ })
+    await status.waitFor()
+    return { name: download.suggestedFilename(), text: await readFile(await download.path(), 'utf8'), status: (await status.innerText()).trim() }
+  }
+
+  async close(): Promise<void> {
+    await this.page.close()
+  }
+}

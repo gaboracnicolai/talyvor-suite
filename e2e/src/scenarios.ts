@@ -16,7 +16,7 @@ import {
   seeded,
   statesNumber,
 } from './oracles.ts'
-import { FeaturesScreen, type LoggingPolicy, tryConversion, tryTare } from './screens.ts'
+import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, tryConversion, tryTare } from './screens.ts'
 
 export interface Evidence {
   note?: string
@@ -661,6 +661,175 @@ async function everySwitch(ctx: ScenarioCtx, f: FeaturesScreen, r: () => number)
 }
 
 /**
+ * The most a Docs or Track AI action may produce, and the dearest model it may use: Docs asks up to
+ * claude-sonnet-4-6 for at most 2,048 tokens; Track asks a Haiku for at most 1,024, held here at the
+ * Sonnet's price to stay on the safe side (talyvor-docs and talyvor-track internal/ai/engine.go).
+ */
+const PRODUCT_AI = { docs: { model: 'claude-sonnet-4-6', maxOutput: 2048 }, track: { model: 'claude-sonnet-4-6', maxOutput: 1024 } }
+
+/**
+ * A Docs or Track AI action. Those products call Lens on their own account, so the charge never
+ * reaches this user's ledger or its footer: the cap holds the worst case — the product's model (the
+ * priciest chat model if the catalog lacks it), the whole input, its most output — and counts it,
+ * since what it really cost cannot be read.
+ */
+async function metered<T>(ctx: ScenarioCtx, product: keyof typeof PRODUCT_AI, inputChars: number, action: () => Promise<T>): Promise<T> {
+  const { model, maxOutput } = PRODUCT_AI[product]
+  const named = ctx.env.catalog.filter((m) => m.id === model)
+  const worst = Math.max(...(named.length > 0 ? named : chatModels(ctx.env.catalog)).map((m) =>
+    listPriceUSD(m, worstInputTokens(inputChars), maxOutput)))
+  const hold = ctx.env.cap.reserve(worst)
+  try {
+    return await action()
+  } finally {
+    ctx.env.cap.settle(hold, undefined)
+  }
+}
+
+/** Retries a lookup a product may answer only once it has indexed what was just written. */
+async function eventually<T>(ctx: ScenarioCtx, tries: number, action: () => Promise<T>, found: (t: T) => boolean): Promise<T> {
+  let t = await action()
+  for (let i = 1; i < tries && !found(t); i++) {
+    await ctx.app.page.waitForTimeout(10_000)
+    t = await action()
+  }
+  return t
+}
+
+export function docsAI(seed: number): Scenario {
+  const code = `QX-${4000 + seed}`
+  const title = `Launch memo ${seed}`
+  const text = `Project Juniper ships on 14 March. The access code for the launch is ${code}. Only the release team may use it.`
+  return {
+    id: 'docs-ai',
+    title: 'Docs: a page written in the app is summarised, translated and cited by Ask, and its facts survive each',
+    run: async (ctx) => {
+      const doc = await DocsPage.write(ctx.app, `Tester ${seed}`, title, text)
+      const failures: string[] = []
+      try {
+        const sum = await metered(ctx, 'docs', text.length, () => doc.summarise())
+        ctx.evidence.push({ note: 'Summarise this page', answer: sum.text ?? sum.shown })
+        if (sum.text === undefined) failures.push(`no summary: ${sum.shown}`)
+        else if (!sum.text.includes(code)) failures.push(`the summary lost the access code ${code}`)
+
+        const fr = await metered(ctx, 'docs', text.length, () => doc.translate('French'))
+        ctx.evidence.push({ note: 'Translate this page into French', answer: fr.text ?? fr.shown })
+        if (fr.text === undefined) failures.push(`no translation: ${fr.shown}`)
+        else if (!fr.text.includes(code)) failures.push(`the translation lost the access code ${code}`)
+        else if (fr.text.trim() === text) failures.push('the "translation" is the page unchanged')
+
+        const q = 'What is the access code for the Project Juniper launch?'
+        const a = await eventually(ctx, 3, () => metered(ctx, 'docs', text.length + q.length, () => doc.ask(q)),
+          (r) => r.sources.some((x) => x.includes(title)))
+        ctx.evidence.push({ note: `Ask: cited ${a.sources.join(', ') || 'nothing'}`, question: q, answer: a.text ?? a.shown })
+        if (a.text === undefined) failures.push(`no answer: ${a.shown}`)
+        else if (!a.text.includes(code)) failures.push(`Ask did not answer ${code}: "${a.text.slice(0, 120)}"`)
+        if (!a.sources.some((x) => x.includes(title))) failures.push(`Ask cited ${a.sources.length > 0 ? a.sources.join(', ') : 'no page'}, not "${title}"`)
+      } finally {
+        await doc.close()
+      }
+      return failures.length === 0
+        ? { pass: true, detail: `summary, French translation and Ask all kept ${code}; Ask cited "${title}"` }
+        : { pass: false, detail: failures.join('; ') }
+    },
+  }
+}
+
+/** A comment thread long enough for Track to summarise (it wants ten), about one cause. */
+const THREAD = [
+  'Reproduced on staging: the checkout request takes 31 seconds.',
+  'It only happens when the cart holds 50 or more items.',
+  'The tax service is called once for every item in the cart.',
+  'Each tax call takes about 600 milliseconds.',
+  'Smaller carts finish in under two seconds.',
+  'The gateway gives up after 30 seconds, so the customer sees a timeout.',
+  'No payment is taken when it times out.',
+  'Support has had four tickets about it this week.',
+  'The tax service accepts a list of items in one request.',
+  'Fix: batch the tax calls into one request per checkout.',
+]
+
+export function trackAI(seed: number): Scenario {
+  const issue = `Checkout times out for tester ${seed} when the cart holds 50 items`
+  const twin = `Checkout for tester ${seed} times out when the cart holds 50 items`
+  return {
+    id: 'track-ai',
+    title: 'Track: an issue thread is summarised, its near-twin is named as a duplicate, and triage suggests a priority',
+    run: async (ctx) => {
+      const track = await TrackScreen.open(ctx.app)
+      const failures: string[] = []
+      try {
+        await track.create(twin)
+        await track.create(issue)
+        await track.openIssue(issue)
+        for (const c of THREAD) await track.comment(c)
+        const chars = THREAD.join(' ').length + issue.length
+
+        const sum = await metered(ctx, 'track', chars, () => track.summarise())
+        ctx.evidence.push({ note: 'Summarise the thread', answer: sum.text ?? sum.shown })
+        if (sum.text === undefined) failures.push(`no summary: ${sum.shown.slice(0, 200)}`)
+        else if (!/\btax\b/i.test(sum.shown)) failures.push('the summary does not mention the tax calls the whole thread is about')
+
+        const dup = await eventually(ctx, 3, () => metered(ctx, 'track', issue.length * 20, () => track.duplicates()),
+          (d) => d.rows.some((r) => r.includes(twin)))
+        ctx.evidence.push({ note: `Look for duplicates: ${dup.rows.join(' | ') || dup.shown}` })
+        if (!dup.rows.some((r) => r.includes(twin))) failures.push(`"${twin}" was not named as a duplicate (${dup.rows.length} named)`)
+
+        const tri = await metered(ctx, 'track', chars, () => track.triage())
+        ctx.evidence.push({ note: `Triage: priority ${tri.priority ?? 'none'}`, answer: tri.shown.slice(0, 300) })
+        if (!['Urgent', 'High', 'Medium', 'Low'].includes(tri.priority ?? '')) failures.push(`no suggested priority: ${tri.shown.slice(0, 200)}`)
+      } finally {
+        await track.close()
+      }
+      return failures.length === 0
+        ? { pass: true, detail: 'summary about the tax calls; the twin named as a duplicate; a priority suggested' }
+        : { pass: false, detail: failures.join('; ') }
+    },
+  }
+}
+
+const CSV_HEADER = 'identifier,title,status,priority,assignee,team,project,ai_cost_usd,ai_tokens,created_at,updated_at,id'
+
+export function trackExport(seed: number): Scenario {
+  // A title a spreadsheet would run as a formula, with a comma and quotes: the CSV must defuse and quote it.
+  const risky = `=HYPERLINK("x") tester ${seed}, export check`
+  const plain = `Plain export row for tester ${seed}`
+  return {
+    id: 'track-export',
+    title: 'Track export: the JSON and the CSV each hold every issue listed, and a formula-looking title is defused',
+    run: async (ctx) => {
+      const track = await TrackScreen.open(ctx.app)
+      try {
+        await track.create(risky)
+        await track.create(plain)
+        const json = await track.export('JSON')
+        const csv = await track.export('CSV')
+        const rows = JSON.parse(json.text) as { identifier: string; title: string }[]
+        ctx.evidence.push({ note: `${json.name}: ${json.status}` }, { note: `${csv.name}: ${csv.status}`, answer: csv.text.slice(0, 500) })
+        const failures: string[] = []
+        if (!/^track-issues-\d{4}-\d{2}-\d{2}\.json$/.test(json.name) || !/^track-issues-\d{4}-\d{2}-\d{2}\.csv$/.test(csv.name)) {
+          failures.push(`file names ${json.name}, ${csv.name}`)
+        }
+        for (const t of [risky, plain]) if (!rows.some((r) => r.title === t)) failures.push(`the JSON lacks "${t}"`)
+        const n = Number(/^Exported (\d+) issue/.exec(json.status)?.[1] ?? NaN)
+        if (n !== rows.length) failures.push(`the screen says "${json.status}" for ${rows.length} rows in the file`)
+        const lines = csv.text.split('\r\n').filter((l) => l !== '')
+        if (lines[0] !== CSV_HEADER) failures.push(`the CSV header is "${lines[0]}"`)
+        if (lines.length - 1 !== rows.length) failures.push(`the CSV has ${lines.length - 1} rows, the JSON ${rows.length}`)
+        for (const r of rows) if (!lines.some((l) => l.startsWith(r.identifier + ','))) failures.push(`the CSV lacks ${r.identifier}`)
+        const defused = `"'=HYPERLINK(""x"") tester ${seed}, export check"`
+        if (!csv.text.includes(defused)) failures.push(`the formula-looking title is not written as ${defused}`)
+        return failures.length === 0
+          ? { pass: true, detail: `${rows.length} issues in both files; the formula title defused and quoted` }
+          : { pass: false, detail: failures.join('; ') }
+      } finally {
+        await track.close()
+      }
+    },
+  }
+}
+
+/**
  * The money oracle, read back from the ledger once every journey is over. Each answer a workspace was
  * charged for — in any browser signed in as it, and each judge call — is exactly one spend row, a free
  * replay is none, and together the rows debit what the screen's token counts cost at list price.
@@ -712,6 +881,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 2: list.push(documentInChat(i)); break
     case 3: list.push(spendingLimit(i)); break
     case 4: list.push(tryConversionPage(i)); break
+    case 5: list.push(docsAI(i)); break
+    case 6: list.push(trackAI(i)); break
+    case 7: list.push(trackExport(i)); break
     case 8: if (i + 1 < users) list.push(personalDataNotPooled(i, i + 1)); break
     case 9: list.push(tryTarePage(i)); break
   }
