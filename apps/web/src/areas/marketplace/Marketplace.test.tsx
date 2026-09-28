@@ -5,9 +5,10 @@ import { App, queryClient } from '../../App'
 // B20.3 — the marketplace, walked the way its DONE line reads: publish a prompt from one workspace,
 // find it and use it from another, and see the earnings on the first. The mock BFF plays Lens's
 // B20.1–B20.2 routes for two workspaces — `as` says which one is signed in — and does what Lens does:
-// a publish carrying a secret is refused with its sentence, a prompt used without its variables is
-// refused naming them (nothing runs, nothing is billed), and a billed use shows up as the seller's
-// pending earnings until the buyer's bill is paid.
+// a publish carrying a secret is refused with its sentence, every viewer is told what a use needs but
+// only the owner sees the template (B20.8, used by B20.9), a prompt used without its variables is
+// refused naming them, and a billed use shows up as the seller's pending earnings until the buyer's
+// bill is paid.
 
 function mockBff() {
   const state = { as: 'ws_seller' }
@@ -42,11 +43,14 @@ function mockBff() {
       listings.push(l)
       return json(l, 201)
     }
+    // B20.8: every viewer sees what a use needs — the prompt's variables and its model — never the template.
     const view = (l: Record<string, unknown>) => {
       const { artifact, ...rest } = l
+      const a = artifact as Record<string, string>
+      const needs = { input: false, variables: [...a.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]), model: a.model ?? '' }
       return {
         ...rest,
-        versions: [{ version: 1, artifact_sha256: 'abc', created_at: '2026-09-28T09:00:00Z', ...(l.workspace_id === state.as ? { artifact } : {}) }],
+        versions: [{ version: 1, artifact_sha256: 'abc', created_at: '2026-09-28T09:00:00Z', needs, ...(l.workspace_id === state.as ? { artifact } : {}) }],
       }
     }
     if (url.startsWith('/api/marketplace/listings?') || url === '/api/marketplace/listings')
@@ -109,6 +113,8 @@ describe('the marketplace', () => {
     fireEvent.change(screen.getByLabelText(/Price per use/), { target: { value: '0.5' } })
     fireEvent.change(screen.getByLabelText(/^Template/), { target: { value: 'Translate into French: {{text}}' } })
     expect(screen.getByText('Whoever uses it fills in: text.')).toBeTruthy()
+    await screen.findByRole('option', { name: 'GPT-4o' })
+    fireEvent.change(screen.getByLabelText('Model'), { target: { value: 'gpt-4o' } })
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
     expect(await screen.findByRole('heading', { name: 'Translate to French' })).toBeTruthy()
 
@@ -117,9 +123,10 @@ describe('the marketplace', () => {
     fireEvent.change(await screen.findByLabelText('Search listings'), { target: { value: 'french' } })
     fireEvent.click(await screen.findByRole('link', { name: 'Translate to French' }))
     expect(await screen.findByText(/Each use costs/)).toBeTruthy()
-    // The buyer cannot see the template: Lens names its variables on the first use, charging nothing.
-    fireEvent.click(screen.getByRole('button', { name: /Use it/ }))
-    fireEvent.change(await screen.findByLabelText('text'), { target: { value: 'Hello' } })
+    // B20.9: the buyer cannot see the template, but Lens says what a use needs — so the prompt's variable
+    // has its field and the model it runs on is named before anything is used.
+    expect(screen.getByRole('option', { name: 'Its own: gpt-4o' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('text'), { target: { value: 'Hello' } })
     fireEvent.click(screen.getByRole('button', { name: /Use it/ }))
     const result = await screen.findByTestId('market-use-result')
     expect(within(result).getByText('Bonjour — Hello')).toBeTruthy()
