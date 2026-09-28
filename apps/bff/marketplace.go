@@ -23,6 +23,7 @@ import (
 //	GET  /api/marketplace/mine                     this workspace's own listings, whatever their visibility
 //	GET  /api/marketplace/earnings                 the seller's pending, payable, in holdback and available
 //	GET  /api/marketplace/bill?month=YYYY-MM       the buyer's billed uses in a month (B20.10), this month by default
+//	POST /api/marketplace/listings/{id}/reports    {reason, details}: report a listing to Talyvor's review (B20.11)
 //
 // Reads and publishing go on the session's workspace token, as the Agent Bank's do. A USE does not:
 // Lens runs the listing by calling its own proxy with the caller's credential, and every /v1/proxy/*
@@ -227,4 +228,29 @@ func (a *app) handleMarketBill(w http.ResponseWriter, r *http.Request, t tenant)
 		path += "?month=" + month
 	}
 	a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+}
+
+// handleMarketReport — POST /api/marketplace/listings/{id}/reports {reason, details}: this workspace
+// reports a listing to Talyvor's review (Lens B20.4). Lens answers 201 for a new report and 200 with
+// already_reported for a repeat while the first is open, and refuses an unknown reason with a sentence.
+func (a *app) handleMarketReport(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	id, ok := pathID(w, "listing id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	var in struct {
+		Reason  string `json:"reason"`
+		Details string `json:"details"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensMarketReportBody: none
+	body, _ := json.Marshal(in)
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, "/v1/marketplace/listings/"+url.PathEscape(id)+"/reports", body, "")
 }

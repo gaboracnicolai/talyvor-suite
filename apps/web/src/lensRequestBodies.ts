@@ -310,6 +310,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'type UseRequest struct {',
     subject: 'lensMarketUseBody',
   },
+  // B20.11 — reporting a listing to Talyvor's review.
+  {
+    route: 'POST /v1/marketplace/listings/{listingID}/reports',
+    file: 'apps/bff/marketplace.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleMarketReport(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/market_handler.go',
+    upstreamAnchor: 'r.Post("/v1/marketplace/listings/{listingID}/reports", func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensMarketReportBody',
+  },
   // B19.10 — approvals with Face ID and pushes on the phone (Lens B19.16 keeps passkeys and subscriptions).
   {
     route: 'POST /v1/workspaces/{wsID}/agents/passkeys',

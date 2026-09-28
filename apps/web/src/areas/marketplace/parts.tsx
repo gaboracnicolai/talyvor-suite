@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Row, focusRing, inlineLink } from '@talyvor/ui'
+import { Pill, Row, focusRing, inlineLink } from '@talyvor/ui'
 import { isSessionExpired } from '../../lib/productState'
 import { fetchModels } from '../chat/chatApi'
 import { type Listing, kindLabel, priceText } from './marketApi'
@@ -46,6 +46,8 @@ export function ListingRow({ l }: { l: Listing }) {
       }
       hint={l.description ? `${kindLabel(l.kind)} · ${l.description}` : kindLabel(l.kind)}
     >
+      {l.review_status === 'held' ? <Pill status="held">Held for review</Pill> : null}
+      {l.review_status === 'taken_down' ? <Pill status="slashed">Taken down</Pill> : null}
       <span className="text-body text-ink">
         <Price micros={l.price_per_use_ulxc} />
       </span>
