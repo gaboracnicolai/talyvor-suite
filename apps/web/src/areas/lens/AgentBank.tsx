@@ -1,0 +1,680 @@
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, Card, CardHeader, Input, Pill, RevealOnce, Row, type PillStatus } from '@talyvor/ui'
+import { Region, RegionScreen } from '../../components/Region'
+import { isSessionExpired } from '../../lib/productState'
+import { formatWhen } from './format'
+import {
+  type Agent,
+  type AgentApproval,
+  type AgentBook,
+  type AgentKey,
+  type AgentRules,
+  type StatementLine,
+  agentBankApi,
+  approvalNamedIn,
+  formatULXC,
+  limitText,
+  parseLXC,
+  refusalText,
+} from './agentBankApi'
+
+// AgentBank.tsx — B19.4: the Agent Bank. Each AI agent a workspace runs has an account of its own on
+// Lens's double-entry ledger (B19.1): the workspace funds it and takes funds back, the agent spends
+// only what it holds, and its statement is every posting against it. Its rules (B19.2) — limits per
+// request, day and month, models, providers, active hours, and an amount above which a person must
+// approve — are judged by Lens before a provider is called or a payment moves. What needed approval
+// waits in the inbox here. Agents pay each other inside the workspace (B19.3).
+//
+// Lens decides everything: who may move money (the workspace's owner or an admin), whether a rule
+// refuses, and what anything holds. This screen shows Lens's figures and, on a refusal, Lens's own
+// sentence.
+
+const BOOK_KEY = ['agent-book']
+const APPROVALS_KEY = ['agent-approvals']
+const rulesKey = (id: string) => ['agent-rules', id]
+const statementKey = (id: string) => ['agent-statement', id]
+
+/** A payment this screen sent that is waiting for its approval — sent again, once, when approved. */
+interface HeldPayment {
+  from: string
+  to: string
+  amount: number
+  memo: string
+}
+
+const lxc = (micros: number) => <span className="font-figure">{formatULXC(micros)}</span>
+
+function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <p role={ok ? 'status' : 'alert'} className="text-caption text-ink">
+      {children}
+    </p>
+  )
+}
+
+function readFailure(err: unknown, what: string): string {
+  return isSessionExpired(err) ? `${what} can’t be read until you sign in again.` : `${what} could not be read just now.`
+}
+
+function Totals({ book }: { book: AgentBook }) {
+  return (
+    <p className="text-body text-ink" data-testid="agent-bank-totals">
+      The workspace holds {lxc(book.workspace_balance_ulxc)}: {lxc(book.allocated_ulxc)} with its agents and{' '}
+      {lxc(book.unallocated_ulxc)} free to fund them. Its agents have spent {lxc(book.spent_ulxc)}.
+    </p>
+  )
+}
+
+function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
+  const qc = useQueryClient()
+  const [name, setName] = useState('')
+  const create = useMutation({
+    mutationFn: () => agentBankApi.create(name.trim()),
+    onSuccess: (a) => {
+      setName('')
+      onCreated(a)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: BOOK_KEY }),
+  })
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (name.trim() !== '' && !create.isPending) create.mutate()
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <Input
+          aria-label="New agent name"
+          placeholder="Agent name"
+          className="w-56"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Button type="submit" variant="primary" disabled={name.trim() === '' || create.isPending}>
+          {create.isPending ? 'Creating…' : 'Create agent'}
+        </Button>
+      </div>
+      {create.isError ? <Note ok={false}>{refusalText(create.error)}</Note> : null}
+    </form>
+  )
+}
+
+function AgentList({ agents, selected, onSelect }: { agents: Agent[]; selected: string | null; onSelect: (id: string) => void }) {
+  return (
+    <Card>
+      <CardHeader>Agents</CardHeader>
+      {agents.map((a) => (
+        <Row
+          key={a.id}
+          label={a.name}
+          hint={
+            <>
+              Spent {lxc(a.spent_ulxc)} · <span className="font-figure">{a.keys.length}</span>{' '}
+              {a.keys.length === 1 ? 'key' : 'keys'}
+            </>
+          }
+        >
+          <div className="flex items-center gap-3">
+            <span className="font-figure text-body text-ink" data-testid={`agent-balance-${a.id}`}>
+              {formatULXC(a.balance_ulxc)}
+            </span>
+            <Button aria-pressed={selected === a.id} onClick={() => onSelect(a.id)}>
+              {selected === a.id ? 'Open' : 'Manage'}
+            </Button>
+          </div>
+        </Row>
+      ))}
+    </Card>
+  )
+}
+
+function Money({ agent, book }: { agent: Agent; book: AgentBook }) {
+  const qc = useQueryClient()
+  const [amount, setAmount] = useState('')
+  const micros = parseLXC(amount)
+  const move = useMutation({
+    mutationFn: (dir: 'fund' | 'withdraw') =>
+      dir === 'fund' ? agentBankApi.fund(agent.id, micros ?? 0) : agentBankApi.withdraw(agent.id, micros ?? 0),
+    onSuccess: () => setAmount(''),
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: BOOK_KEY }),
+        qc.invalidateQueries({ queryKey: statementKey(agent.id) }),
+      ]),
+  })
+  const busy = move.isPending || micros === null
+  return (
+    <Card>
+      <CardHeader>Money</CardHeader>
+      <div className="flex flex-col gap-2 px-gutter py-3">
+        <p className="text-body text-ink">
+          {agent.name} holds {lxc(agent.balance_ulxc)}. The workspace has {lxc(book.unallocated_ulxc)} free to fund it.
+        </p>
+        <div className="flex items-center gap-2">
+          <Input
+            aria-label={`Amount in LXC for ${agent.name}`}
+            inputMode="decimal"
+            placeholder="LXC"
+            className="w-28 font-figure"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <Button variant="primary" disabled={busy} onClick={() => move.mutate('fund')}>
+            Fund
+          </Button>
+          <Button disabled={busy} onClick={() => move.mutate('withdraw')}>
+            Take back
+          </Button>
+        </div>
+        {/* Said only while it is still true: a payment or a request moves the balance after it. */}
+        {move.isSuccess && move.data.balance_ulxc === agent.balance_ulxc ? (
+          <Note ok>
+            {agent.name} now holds {lxc(move.data.balance_ulxc)}.
+          </Note>
+        ) : null}
+        {move.isError ? <Note ok={false}>{refusalText(move.error)}</Note> : null}
+      </div>
+    </Card>
+  )
+}
+
+const LIMITS = [
+  ['max_per_request_ulxc', 'Limit per request'],
+  ['daily_limit_ulxc', 'Daily limit'],
+  ['monthly_limit_ulxc', 'Monthly limit'],
+  ['approval_above_ulxc', 'Ask a person above'],
+] as const
+
+type LimitField = (typeof LIMITS)[number][0]
+
+function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
+  const qc = useQueryClient()
+  const [limits, setLimits] = useState<Record<LimitField, string>>(() => ({
+    max_per_request_ulxc: limitText(rules.max_per_request_ulxc),
+    daily_limit_ulxc: limitText(rules.daily_limit_ulxc),
+    monthly_limit_ulxc: limitText(rules.monthly_limit_ulxc),
+    approval_above_ulxc: limitText(rules.approval_above_ulxc),
+  }))
+  const [models, setModels] = useState((rules.allowed_models ?? []).join(', '))
+  const [providers, setProviders] = useState((rules.allowed_providers ?? []).join(', '))
+  const [from, setFrom] = useState(rules.active_from)
+  const [until, setUntil] = useState(rules.active_until)
+  const [timezone, setTimezone] = useState(rules.timezone)
+  const bad = LIMITS.some(([f]) => limits[f].trim() !== '' && parseLXC(limits[f]) === null)
+  const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
+  const save = useMutation({
+    mutationFn: () =>
+      agentBankApi.setRules(agent.id, {
+        max_per_request_ulxc: parseLXC(limits.max_per_request_ulxc) ?? 0,
+        daily_limit_ulxc: parseLXC(limits.daily_limit_ulxc) ?? 0,
+        monthly_limit_ulxc: parseLXC(limits.monthly_limit_ulxc) ?? 0,
+        approval_above_ulxc: parseLXC(limits.approval_above_ulxc) ?? 0,
+        allowed_models: list(models),
+        allowed_providers: list(providers),
+        active_from: from.trim(),
+        active_until: until.trim(),
+        timezone: timezone.trim(),
+      }),
+    onSuccess: (saved) => qc.setQueryData(rulesKey(agent.id), saved),
+  })
+  const text = (label: string, value: string, set: (v: string) => void, placeholder: string) => (
+    <Row label={label}>
+      <Input
+        aria-label={`${label} for ${agent.name}`}
+        placeholder={placeholder}
+        className="w-56"
+        value={value}
+        onChange={(e) => set(e.target.value)}
+      />
+    </Row>
+  )
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!bad && !save.isPending) save.mutate()
+      }}
+    >
+      {LIMITS.map(([field, label]) => (
+        <Row key={field} label={label} hint="LXC; empty for no limit">
+          <Input
+            aria-label={`${label} for ${agent.name}, in LXC`}
+            inputMode="decimal"
+            placeholder="No limit"
+            className="w-28 font-figure"
+            value={limits[field]}
+            onChange={(e) => setLimits({ ...limits, [field]: e.target.value })}
+          />
+        </Row>
+      ))}
+      {text('Allowed models', models, setModels, 'Any model')}
+      {text('Allowed providers', providers, setProviders, 'Any provider')}
+      {text('Active from', from, setFrom, 'HH:MM — any time')}
+      {text('Active until', until, setUntil, 'HH:MM')}
+      {text('Time zone', timezone, setTimezone, 'UTC')}
+      <div className="flex flex-col gap-2 px-gutter py-3">
+        <div>
+          <Button type="submit" variant="primary" disabled={bad || save.isPending}>
+            {save.isPending ? 'Saving…' : 'Save rules'}
+          </Button>
+        </div>
+        {bad ? <Note ok={false}>A limit is an amount of LXC with at most six decimals, or empty.</Note> : null}
+        {save.isSuccess ? <Note ok>Saved. Lens applies these rules to the next request or payment.</Note> : null}
+        {save.isError ? <Note ok={false}>{refusalText(save.error)}</Note> : null}
+      </div>
+    </form>
+  )
+}
+
+function Rules({ agent }: { agent: Agent }) {
+  const rules = useQuery({ queryKey: rulesKey(agent.id), queryFn: () => agentBankApi.rules(agent.id) })
+  return (
+    <Card>
+      <CardHeader>Rules</CardHeader>
+      {rules.isSuccess ? (
+        <RulesForm key={agent.id} agent={agent} rules={rules.data} />
+      ) : (
+        <p className="px-gutter py-3 text-body text-muted">
+          {rules.isError ? readFailure(rules.error, 'This agent’s rules') : 'Reading…'}
+        </p>
+      )}
+    </Card>
+  )
+}
+
+function Pay({
+  agent,
+  agents,
+  waiting,
+  onHeld,
+}: {
+  agent: Agent
+  agents: Agent[]
+  waiting: Record<string, HeldPayment>
+  onHeld: (approvalID: string, p: HeldPayment) => void
+}) {
+  const qc = useQueryClient()
+  const others = agents.filter((a) => a.id !== agent.id)
+  const [to, setTo] = useState<string | null>(null)
+  const [amount, setAmount] = useState('')
+  const [memo, setMemo] = useState('')
+  const micros = parseLXC(amount)
+  const payee = others.find((a) => a.id === to) ?? null
+  const pay = useMutation({
+    mutationFn: () => agentBankApi.pay(agent.id, payee?.id ?? '', micros ?? 0, memo.trim()),
+    onSuccess: () => {
+      setAmount('')
+      setMemo('')
+    },
+    onError: (err) => {
+      const approval = approvalNamedIn(err)
+      if (approval && payee && micros !== null) onHeld(approval, { from: agent.id, to: payee.id, amount: micros, memo: memo.trim() })
+    },
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: BOOK_KEY }),
+        qc.invalidateQueries({ queryKey: APPROVALS_KEY }),
+        qc.invalidateQueries({ queryKey: statementKey(agent.id) }),
+      ]),
+  })
+  const held = approvalNamedIn(pay.error)
+  // Once its approval sent the payment, Approvals says so and this refusal is no longer true.
+  const settled = held !== null && !(held in waiting)
+  return (
+    <Card>
+      <CardHeader>Pay another agent</CardHeader>
+      <form
+        className="flex flex-col gap-2 px-gutter py-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (payee && micros !== null && !pay.isPending) pay.mutate()
+        }}
+      >
+        <p className="text-body text-muted">
+          Judged by {agent.name}’s rules, like any request it makes. It stays inside this workspace.
+        </p>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Pay to">
+          {others.map((a) => (
+            <Button key={a.id} aria-pressed={to === a.id} variant={to === a.id ? 'primary' : 'default'} onClick={() => setTo(a.id)}>
+              {a.name}
+            </Button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            aria-label={`Payment in LXC from ${agent.name}`}
+            inputMode="decimal"
+            placeholder="LXC"
+            className="w-28 font-figure"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          <Input
+            aria-label="What the payment is for"
+            placeholder="What it is for"
+            className="w-56"
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+          />
+          <Button type="submit" variant="primary" disabled={!payee || micros === null || pay.isPending}>
+            {pay.isPending ? 'Paying…' : 'Pay'}
+          </Button>
+        </div>
+        {pay.isSuccess ? (
+          <Note ok>
+            Paid {lxc(pay.data.amount_ulxc)} to {payee?.name ?? 'the agent'}. {agent.name} now holds{' '}
+            {lxc(pay.data.from_balance_ulxc)}.
+          </Note>
+        ) : null}
+        {pay.isError && !settled ? (
+          <Note ok={false}>
+            Refused. {refusalText(pay.error)}
+            {held ? ' It is waiting in Approvals; approve it there and this payment is sent.' : ''}
+          </Note>
+        ) : null}
+      </form>
+    </Card>
+  )
+}
+
+function IssueKey({ agent }: { agent: Agent }) {
+  const qc = useQueryClient()
+  const [issued, setIssued] = useState<AgentKey | null>(null)
+  const issue = useMutation({
+    mutationFn: () => agentBankApi.issueKey(agent.id, agent.name),
+    onSuccess: (k) => setIssued(k), // held in local state only; rendered once
+  })
+  if (issued) {
+    return (
+      <RevealOnce
+        title={`${agent.name}’s key — shown once`}
+        secret={issued.key}
+        copyLabel="Copy key"
+        identifier={issued.prefix}
+        identifierNote="Safe to share; this is how the key appears in lists."
+        onDone={() => {
+          setIssued(null)
+          issue.reset()
+          void qc.invalidateQueries({ queryKey: BOOK_KEY })
+        }}
+      />
+    )
+  }
+  return (
+    <Card>
+      <CardHeader>Key</CardHeader>
+      <Row label="Issue a key" hint="A proxy key that spends only this agent’s balance, under its rules; shown once">
+        <Button disabled={issue.isPending} onClick={() => issue.mutate()}>
+          {issue.isPending ? 'Issuing…' : 'Issue a key'}
+        </Button>
+      </Row>
+      {issue.isError ? (
+        <div className="px-gutter py-2">
+          <Note ok={false}>{refusalText(issue.error)}</Note>
+        </div>
+      ) : null}
+    </Card>
+  )
+}
+
+function lineText(l: StatementLine, nameOf: (id: string) => string): string {
+  switch (l.kind) {
+    case 'fund':
+      return 'Funded by the workspace'
+    case 'withdraw':
+      return 'Taken back by the workspace'
+    case 'pay': {
+      const other = l.counterparty.startsWith('agent:') ? nameOf(l.counterparty.slice(6)) : 'another agent'
+      const what = l.amount_ulxc < 0 ? `Paid ${other}` : `Received from ${other}`
+      return l.ref ? `${what} — ${l.ref}` : what
+    }
+    case 'hold':
+      return 'Held for a request'
+    case 'release':
+      return 'Released after a request'
+    case 'settle':
+      return 'Settled a request'
+    default:
+      return 'Spent on a request'
+  }
+}
+
+function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string) => string }) {
+  const st = useQuery({ queryKey: statementKey(agent.id), queryFn: () => agentBankApi.statement(agent.id) })
+  const lines = st.data?.lines ?? []
+  return (
+    <Card>
+      <CardHeader>Statement</CardHeader>
+      {st.isError ? (
+        <p className="px-gutter py-3 text-body text-muted">{readFailure(st.error, 'This agent’s statement')}</p>
+      ) : st.isPending ? (
+        <p className="px-gutter py-3 text-body text-muted">Reading…</p>
+      ) : lines.length === 0 ? (
+        <p className="px-gutter py-3 text-body text-muted">Nothing has moved on this account yet. Fund it under Money to start.</p>
+      ) : (
+        <table className="w-full text-body" data-testid="agent-statement">
+          <thead>
+            <tr className="text-left text-caption text-muted">
+              <th className="px-gutter py-2 font-normal">When</th>
+              <th className="py-2 font-normal">What</th>
+              <th className="py-2 text-right font-normal">Amount</th>
+              <th className="px-gutter py-2 text-right font-normal">Balance</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={`${l.entry_id}-${l.kind}`} className="border-t border-rule text-ink">
+                <td className="px-gutter py-2 font-figure text-caption text-muted">{formatWhen(l.at)}</td>
+                <td className="py-2">{lineText(l, nameOf)}</td>
+                <td className="py-2 text-right font-figure">
+                  {l.amount_ulxc > 0 ? '+' : '−'}
+                  {formatULXC(Math.abs(l.amount_ulxc))}
+                </td>
+                <td className="px-gutter py-2 text-right font-figure">{formatULXC(l.balance_after_ulxc)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  )
+}
+
+const DECIDED: Record<AgentApproval['status'], { status: PillStatus; label: string }> = {
+  pending: { status: 'held', label: 'Waiting' },
+  approved: { status: 'settled', label: 'Approved' },
+  used: { status: 'settled', label: 'Approved and used' },
+  denied: { status: 'slashed', label: 'Denied' },
+}
+
+function Approvals({
+  nameOf,
+  held,
+  onSent,
+}: {
+  nameOf: (id: string) => string
+  held: Record<string, HeldPayment>
+  onSent: (approvalID: string) => void
+}) {
+  const qc = useQueryClient()
+  const list = useQuery({ queryKey: APPROVALS_KEY, queryFn: agentBankApi.approvals })
+  const [outcome, setOutcome] = useState<{ ok: boolean; text: React.ReactNode } | null>(null)
+  const decide = useMutation({
+    mutationFn: async ({ a, decision }: { a: AgentApproval; decision: 'approve' | 'deny' }) => {
+      await agentBankApi.decide(a.id, decision)
+      const p = held[a.id]
+      if (decision === 'deny') return { ok: true, text: <>Denied. {nameOf(a.agent_id)}’s request will be refused.</> }
+      if (!p) {
+        return {
+          ok: true,
+          text: <>Approved. {nameOf(a.agent_id)}’s next identical request goes through, once.</>,
+        }
+      }
+      // The payment this screen sent, sent again: Lens lets it through once against this approval.
+      const paid = await agentBankApi.pay(p.from, p.to, p.amount, p.memo)
+      onSent(a.id)
+      return {
+        ok: true,
+        text: (
+          <>
+            Approved and paid {lxc(paid.amount_ulxc)} from {nameOf(p.from)} to {nameOf(p.to)}.
+          </>
+        ),
+      }
+    },
+    onSuccess: setOutcome,
+    onError: (err) => setOutcome({ ok: false, text: refusalText(err) }),
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: APPROVALS_KEY }),
+        qc.invalidateQueries({ queryKey: BOOK_KEY }),
+        qc.invalidateQueries({ queryKey: ['agent-statement'] }),
+      ]),
+  })
+  const all = list.data?.approvals ?? []
+  const pending = all.filter((a) => a.status === 'pending')
+  const decided = all.filter((a) => a.status !== 'pending').slice(0, 5)
+  const what = (a: AgentApproval) => (a.model ? `a request to ${a.model}` : 'a payment')
+  return (
+    <div className="flex flex-col gap-3">
+      {outcome ? <Note ok={outcome.ok}>{outcome.text}</Note> : null}
+      {list.isError ? (
+        <p className="text-body text-muted">{readFailure(list.error, 'The approvals')}</p>
+      ) : list.isPending ? (
+        <p className="text-body text-muted">Reading…</p>
+      ) : (
+        <Card>
+          <CardHeader>Waiting for a person</CardHeader>
+          {pending.length === 0 ? (
+            <p className="px-gutter py-3 text-body text-muted">
+              Nothing is waiting. A request or payment above an agent’s approval amount appears here.
+            </p>
+          ) : (
+            pending.map((a) => (
+              <Row
+                key={a.id}
+                label={
+                  <>
+                    {nameOf(a.agent_id)} · {lxc(a.amount_ulxc)}
+                  </>
+                }
+                hint={
+                  <>
+                    {what(a)}, asked <span className="font-figure">{formatWhen(a.created_at)}</span>
+                  </>
+                }
+              >
+                <div className="flex items-center gap-2">
+                  <Button variant="primary" disabled={decide.isPending} onClick={() => decide.mutate({ a, decision: 'approve' })}>
+                    Approve
+                  </Button>
+                  <Button disabled={decide.isPending} onClick={() => decide.mutate({ a, decision: 'deny' })}>
+                    Deny
+                  </Button>
+                </div>
+              </Row>
+            ))
+          )}
+          {decided.map((a) => (
+            <Row
+              key={a.id}
+              label={
+                <>
+                  {nameOf(a.agent_id)} · {lxc(a.amount_ulxc)}
+                </>
+              }
+              hint={what(a)}
+            >
+              <Pill status={DECIDED[a.status].status}>{DECIDED[a.status].label}</Pill>
+            </Row>
+          ))}
+        </Card>
+      )}
+    </div>
+  )
+}
+
+export function AgentBank() {
+  const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
+  const [chosen, setChosen] = useState<string | null>(null)
+  const [held, setHeld] = useState<Record<string, HeldPayment>>({})
+  const agents = book.data?.agents ?? []
+  const agent = agents.find((a) => a.id === chosen) ?? agents[0] ?? null
+  const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? 'an agent'
+  return (
+    <RegionScreen>
+      <Region
+        index="00"
+        label="Agent Bank"
+        heading="Each agent spends its own money, inside its own rules"
+        sectionClassName="pb-10 pt-4 wide:pb-12"
+        className="flex max-w-2xl flex-col gap-3"
+      >
+        <p className="text-body text-muted">
+          Give every AI agent an account of its own. Fund it from the workspace, set what it may spend and when a
+          person must approve, and read every movement on its statement. Lens checks the rules before a provider is
+          called or a payment moves.
+        </p>
+        {book.isSuccess ? (
+          <Totals book={book.data} />
+        ) : (
+          <p className="text-body text-muted">{book.isError ? readFailure(book.error, 'The agents') : 'Reading…'}</p>
+        )}
+      </Region>
+
+      <Region index="01" label="Approvals">
+        <Approvals
+          nameOf={nameOf}
+          held={held}
+          onSent={(id) =>
+            setHeld((h) => {
+              const next = { ...h }
+              delete next[id]
+              return next
+            })
+          }
+        />
+      </Region>
+
+      <Region index="02" label="Agents" className="flex flex-col gap-3">
+        <CreateAgent onCreated={(a) => setChosen(a.id)} />
+        {book.isError ? (
+          <p className="text-body text-muted">{readFailure(book.error, 'The agents')}</p>
+        ) : book.isSuccess && agents.length === 0 ? (
+          <p className="text-body text-muted">No agents yet. Create one, then fund it and set its rules.</p>
+        ) : agents.length > 0 ? (
+          <AgentList agents={agents} selected={agent?.id ?? null} onSelect={setChosen} />
+        ) : null}
+      </Region>
+
+      {agent && book.data ? (
+        <Region index="03" label="Agent" className="flex flex-col gap-gutter">
+          <p className="text-head text-ink" data-testid="agent-open">
+            {agent.name}
+          </p>
+          <Money agent={agent} book={book.data} />
+          <Rules key={`rules-${agent.id}`} agent={agent} />
+          {agents.length > 1 ? (
+            <Pay
+              key={`pay-${agent.id}`}
+              agent={agent}
+              agents={agents}
+              waiting={held}
+              onHeld={(id, p) => setHeld((h) => ({ ...h, [id]: p }))}
+            />
+          ) : (
+            <Card>
+              <CardHeader>Pay another agent</CardHeader>
+              <p className="px-gutter py-3 text-body text-muted">Create a second agent to pay it from this one.</p>
+            </Card>
+          )}
+          <IssueKey key={`key-${agent.id}`} agent={agent} />
+          <Statement agent={agent} nameOf={nameOf} />
+        </Region>
+      ) : null}
+    </RegionScreen>
+  )
+}

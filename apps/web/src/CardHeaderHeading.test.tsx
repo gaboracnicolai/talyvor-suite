@@ -133,6 +133,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/billing/success': 1,
   '/billing/cancel': 0,
   '/keys': 2,
+  // B19.4 — Waiting for a person, Agents, and the open agent's Money, Rules, Pay, Key and Statement.
+  '/agents': 7,
   // 5 → 8 at W1.1.17b. THREE OF SETUP'S CARDS ARE GATED ON DATA and the census had never seen
   // them: it awaited the sidebar and counted, so every screen was measured mid-load.
   '/setup': 8,

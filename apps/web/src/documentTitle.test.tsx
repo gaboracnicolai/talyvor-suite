@@ -135,6 +135,7 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/billing/success': 'Billing',
   '/billing/cancel': 'Billing',
   '/keys': 'API keys',
+  '/agents': 'Agent Bank',
   '/setup': 'Setup',
   '/spend': 'Spend & routing',
   '/members': 'Members',

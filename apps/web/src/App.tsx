@@ -24,6 +24,7 @@ import { Spend } from './areas/lens/Spend'
 import { Members } from './areas/lens/Members'
 import { Settings } from './areas/lens/Sharing'
 import { Features } from './areas/lens/Features'
+import { AgentBank } from './areas/lens/AgentBank'
 import { TryConversion, TryTare } from './areas/lens/TryIt'
 import { TopUp } from './areas/lens/TopUp'
 import { Plans } from './areas/lens/Plans'
@@ -132,6 +133,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/billing/success', title: 'Billing', element: <BillingSuccess /> },
   { path: '/billing/cancel', title: 'Billing', element: <BillingCancel /> },
   { path: '/keys', title: 'API keys', element: <Keys /> },
+  // B19.4 — each AI agent's own account: balance, rules, statement, payments and approvals.
+  { path: '/agents', title: 'Agent Bank', element: <AgentBank /> },
   { path: '/setup', title: 'Setup', element: <Setup /> },
   { path: '/spend', title: 'Spend & routing', element: <Spend /> },
   { path: '/members', title: 'Members', element: <Members /> },
@@ -245,6 +248,7 @@ function Sidebar() {
             are one task; a trial user who finds only Keys is stuck holding a credential. */}
         {item('/setup', 'Setup')}
         {item('/keys', 'API keys')}
+        {item('/agents', 'Agent Bank')}
       </Group>
       <Group label="Chat">
         {item('/chat', 'Conversations')}
