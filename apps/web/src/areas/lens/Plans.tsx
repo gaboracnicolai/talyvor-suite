@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Button, Card, CardHeader, Row, formatDay, inlineLink } from '@talyvor/ui'
@@ -27,6 +28,9 @@ import { formatCents } from './topupApi'
 // /api/billing/allowance), the meter is consumed ÷ granted from the same read, the earnings are
 // its earned_back (capped at the fee by Lens), and the pooled answers are /api/usage's
 // cache_hit_pooled. The three prices are the Stripe TEST prices of talyvor-lens #548.
+//
+// B18.20 — a subscriber switches plan from the other plans' cards (Lens B18.14, prorated by Stripe), and
+// the earnings card counts the people their answers helped (/api/earnings' helped_workspaces).
 
 const SUBSCRIBE_FAILURE: Record<SubscribeError['kind'], string> = {
   not_for_sale: 'Plans aren’t on sale on this deployment yet. Nothing was charged.',
@@ -35,18 +39,55 @@ const SUBSCRIBE_FAILURE: Record<SubscribeError['kind'], string> = {
   upstream: 'Lens couldn’t start the checkout just now. Nothing was charged — try again in a moment.',
 }
 
+/** A subscriber's move to another plan (B18.20): asked for, confirmed with what Stripe will charge, sent. */
+interface PlanSwitch {
+  /** The plan the workspace is on now, or null when its fee matches none of the three. */
+  from: PlanOffer | null
+  confirming: boolean
+  busy: boolean
+  onAsk: () => void
+  onConfirm: () => void
+  onKeep: () => void
+}
+
+function SwitchPlan({ plan, sw }: { plan: PlanOffer; sw: PlanSwitch }) {
+  if (!sw.confirming) {
+    return <Button onClick={sw.onAsk}>{`Switch to ${plan.name}`}</Button>
+  }
+  const from = sw.from ? sw.from.name : 'your current plan'
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-body text-ink">
+        Move to {plan.name} now? Stripe credits the unused part of this month on {from} and charges the rest of it
+        at {plan.name}’s price, on your next invoice.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" disabled={sw.busy} onClick={sw.onConfirm}>
+          {sw.busy ? 'Moving…' : `Move to ${plan.name}`}
+        </Button>
+        <Button disabled={sw.busy} onClick={sw.onKeep}>
+          {sw.from ? `Keep ${sw.from.name}` : 'Not now'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function PlanCard({
   plan,
   current,
   canChoose,
   busy,
   onChoose,
+  switching,
 }: {
   plan: PlanOffer
   current: boolean
   canChoose: boolean
   busy: boolean
   onChoose: (id: PlanId) => void
+  /** Set for a subscriber's other plans: the card offers a move to it instead of a checkout. */
+  switching?: PlanSwitch
 }) {
   return (
     <li
@@ -65,10 +106,12 @@ function PlanCard({
           <li>Past it, chat continues on prepaid credits — never an overage</li>
         </ul>
       </div>
-      {current || canChoose ? (
+      {current || canChoose || switching ? (
         <div className="border-t border-rule px-gutter py-3">
           {current ? (
             <p className="text-body text-ink">Your plan</p>
+          ) : switching ? (
+            <SwitchPlan plan={plan} sw={switching} />
           ) : (
             <Button variant="primary" disabled={busy} onClick={() => onChoose(plan.id)}>
               {busy ? 'Opening checkout…' : `Choose ${plan.name}`}
@@ -112,7 +155,18 @@ function UsageMeter({ summary }: { summary: PlanSummary }) {
   )
 }
 
-function EarningsCard({ summary, sharing, pooled }: { summary: PlanSummary; sharing: boolean | undefined; pooled: number | undefined }) {
+function EarningsCard({
+  summary,
+  sharing,
+  pooled,
+  helped,
+}: {
+  summary: PlanSummary
+  sharing: boolean | undefined
+  pooled: number | undefined
+  /** Lens's earnings summary counts (B18.14), absent until it answers. */
+  helped: { reuses: number; helped_workspaces: number } | undefined
+}) {
   const fee = summary.allowance!.fee_usd_cents
   const back = summary.earned_back_usd_cents
   return (
@@ -153,6 +207,16 @@ function EarningsCard({ summary, sharing, pooled }: { summary: PlanSummary; shar
           hint="Last 30 days. Each drew 70% of its usual price from your included usage, so it went further"
         >
           <span className="font-figure text-body text-ink">{pooled.toLocaleString('en-US')}</span>
+        </Row>
+      ) : null}
+      {helped ? (
+        <Row
+          label="People your answers helped"
+          hint={`Every other workspace that reused one of your answers or converted documents — ${helped.reuses.toLocaleString('en-US')} ${helped.reuses === 1 ? 'reuse' : 'reuses'} in all, so far. A count, never who`}
+        >
+          <span className="font-figure text-body text-ink" data-testid="plans-helped">
+            {helped.helped_workspaces.toLocaleString('en-US')}
+          </span>
         </Row>
       ) : null}
     </Card>
@@ -231,9 +295,33 @@ export function Plans({
 }: {
   redirect?: (url: string) => void
 } = {}) {
-  const plan = useQuery({ queryKey: ['plan-allowance'], queryFn: planApi.allowance, retry: false })
+  const qc = useQueryClient()
+  // B18.20 — the plan a switch moved to. Lens answers Stripe's state after the swap; the allowance's fee
+  // follows when Stripe's webhook reaches Lens, so until it does the allowance is re-read.
+  const [movedTo, setMovedTo] = useState<PlanOffer | null>(null)
+  const [confirming, setConfirming] = useState<PlanId | null>(null)
+  const plan = useQuery({
+    queryKey: ['plan-allowance'],
+    queryFn: planApi.allowance,
+    retry: false,
+    refetchInterval: (q) => {
+      const fee = q.state.data?.enabled ? q.state.data.data.allowance?.fee_usd_cents : undefined
+      return movedTo && fee !== movedTo.usd_cents && q.state.dataUpdateCount < 20 ? 3000 : false
+    },
+  })
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
+  const earnings = useQuery({ queryKey: ['earnings'], queryFn: () => api.earnings() })
   const me = useAuthMeReader()
+
+  const move = useMutation({
+    mutationFn: (p: PlanOffer) => planApi.changePlan(p.id),
+    onSuccess: (st, p) => {
+      setMovedTo(p)
+      setConfirming(null)
+      qc.setQueryData(SUBSCRIPTION_KEY, { enabled: true, data: st })
+      void qc.invalidateQueries({ queryKey: ['plan-allowance'] })
+    },
+  })
 
   const start = useMutation({
     mutationFn: subscribe,
@@ -246,7 +334,8 @@ export function Plans({
   const forSale = plan.data?.enabled === true
   const summary = plan.data?.enabled ? plan.data.data : null
   const subscribed = !!summary?.allowance
-  const current = subscribed ? planForFee(summary!.allowance!.fee_usd_cents) : null
+  const onFile = subscribed ? planForFee(summary!.allowance!.fee_usd_cents) : null
+  const current = subscribed ? (movedTo ?? onFile) : null
   const failure = start.error instanceof SubscribeError ? start.error : null
 
   return (
@@ -270,14 +359,23 @@ export function Plans({
             run every request in the meantime.
           </p>
         ) : null}
-        {subscribed && !current ? (
+        {subscribed && !onFile && !movedTo ? (
           <p className="mt-2 max-w-2xl text-body text-ink">
             This workspace has a plan at{' '}
             <span className="font-figure">{formatCents(summary!.allowance!.fee_usd_cents)}</span> a month.
           </p>
         ) : null}
-        {subscribed ? (
-          <p className="mt-2 max-w-2xl text-caption text-muted">Changing plan isn’t available here yet.</p>
+        {movedTo ? (
+          <p role="status" className="mt-2 max-w-2xl text-body text-ink" data-testid="plan-moved">
+            {movedTo.id === onFile?.id
+              ? `You moved to ${movedTo.name}, and this month’s included usage now follows it.`
+              : `You moved to ${movedTo.name}. The difference for the rest of this month is on your next invoice, and the included usage below follows as soon as Stripe confirms it.`}
+          </p>
+        ) : null}
+        {move.isError ? (
+          <p role="alert" className="mt-2 max-w-2xl text-body text-ink">
+            {changeFailure(move.error)}
+          </p>
         ) : null}
         {subscribed ? <Renewal /> : null}
         {failure ? (
@@ -294,6 +392,21 @@ export function Plans({
               canChoose={forSale && !subscribed}
               busy={start.isPending && start.variables === p.id}
               onChoose={(id) => start.mutate(id)}
+              switching={
+                subscribed && current?.id !== p.id
+                  ? {
+                      from: current,
+                      confirming: confirming === p.id,
+                      busy: move.isPending && move.variables?.id === p.id,
+                      onAsk: () => {
+                        move.reset()
+                        setConfirming(p.id)
+                      },
+                      onConfirm: () => move.mutate(p),
+                      onKeep: () => setConfirming(null),
+                    }
+                  : undefined
+              }
             />
           ))}
         </ul>
@@ -309,6 +422,7 @@ export function Plans({
               summary={summary!}
               sharing={me.data?.cache_poolable}
               pooled={usage.data?.cache.by_source?.cache_hit_pooled ?? (usage.isSuccess ? 0 : undefined)}
+              helped={typeof earnings.data?.helped_workspaces === 'number' ? earnings.data : undefined}
             />
           </Region>
         </>

@@ -52,7 +52,20 @@ export class SubscriptionChangeError extends ApiError {
 }
 
 async function changeSubscription(path: string): Promise<SubscriptionStatus> {
-  const res = await fetch(path, { method: 'POST', headers: { Accept: 'application/json' } })
+  return subscriptionAnswer(await fetch(path, { method: 'POST', headers: { Accept: 'application/json' } }), path)
+}
+
+/** B18.20 — move the live subscription to another plan, prorated by Stripe (Lens B18.14). */
+async function changePlan(plan: PlanId): Promise<SubscriptionStatus> {
+  const res = await fetch('/api/billing/subscription/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ plan }),
+  })
+  return subscriptionAnswer(res, '/api/billing/subscription/plan')
+}
+
+async function subscriptionAnswer(res: Response, path: string): Promise<SubscriptionStatus> {
   const body = (await res.json().catch(() => ({}))) as SubscriptionStatus & { error?: string }
   if (!res.ok) throw new SubscriptionChangeError(res.status, path, res.status < 500 ? (body.error ?? '') : '')
   return body
@@ -64,6 +77,7 @@ export const planApi = {
   subscription: (): Promise<Capability<SubscriptionStatus>> => getCapability<SubscriptionStatus>('/api/billing/subscription'),
   cancel: () => changeSubscription('/api/billing/subscription/cancel'),
   resume: () => changeSubscription('/api/billing/subscription/resume'),
+  changePlan,
 }
 
 /* ── B13.3 — the three plans, and starting one ─────────────────────────────── */

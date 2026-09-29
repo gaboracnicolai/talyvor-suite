@@ -114,6 +114,8 @@ const BODIES: Record<string, unknown> = {
       },
     ],
     unclassified_types: [],
+    reuses: 4,
+    helped_workspaces: 3,
   },
 }
 

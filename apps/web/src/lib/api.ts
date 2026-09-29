@@ -95,6 +95,11 @@ export interface EarningsSummary {
   /** Ledger types present for this workspace that Lens's vocabulary does not classify. Reported
    *  rather than dropped: a type nobody classified is otherwise silently worth zero. */
   unclassified_types: string[] | null
+  /** B18.14 — how many times another workspace reused one of this workspace's answers or converted
+   *  documents (revoked excepted), and how many different workspaces that was: the "helped N people"
+   *  count. All time, and a count only — never who. */
+  reuses: number
+  helped_workspaces: number
 }
 
 /** One ledger type's line in EarningsSummary.
