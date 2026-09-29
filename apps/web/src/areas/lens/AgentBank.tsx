@@ -9,6 +9,7 @@ import { CATALOG_KEY } from '../marketplace/parts'
 import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
 import { AgentCardPanel } from './AgentCardPanel'
 import { AgentAddress, AgentTransfers, CreditLinePanel, Loans, MoneyRequests, OfferLoan, RecurringTransfer, SendAndRequest } from './WalletMoney'
+import { CashOutCard, CashOuts, Escrows, PayIntoEscrow, Portfolios, Pots } from './WalletHoldings'
 import {
   type Agent,
   type AgentApproval,
@@ -1395,6 +1396,10 @@ export function AgentBank() {
           <Schedules key={`schedules-${agent.id}`} agent={agent} agents={agents} nameOf={nameOf} />
           <RecurringTransfer key={`recurring-${agent.id}`} agent={agent} />
           <OfferLoan key={`loan-${agent.id}`} agent={agent} />
+          <PayIntoEscrow key={`escrow-${agent.id}`} agent={agent} />
+          <Pots key={`pots-${agent.id}`} agent={agent} />
+          <Portfolios key={`portfolios-${agent.id}`} agent={agent} />
+          <CashOutCard key={`cash-out-${agent.id}`} agent={agent} />
           <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
           <IssueKey key={`key-${agent.id}`} agent={agent} />
           <AgentCardPanel key={`card-${agent.id}`} agent={agent} />
@@ -1407,6 +1412,13 @@ export function AgentBank() {
           <MoneyRequests agents={agents} />
           <CreditLinePanel />
           <Loans agents={agents} />
+        </Region>
+      ) : null}
+
+      {book.isSuccess ? (
+        <Region index="06" label="Held and cashed out" className="flex flex-col gap-gutter">
+          <Escrows agents={agents} />
+          <CashOuts agents={agents} />
         </Region>
       ) : null}
     </RegionScreen>
