@@ -284,6 +284,9 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// ARE /api/features/tare'S KIND: a switch whose state is read back through GET /api/features
 	// (guardrails, logging_policy); each answers only what Lens recorded.
 	//
+	// /api/features/pattern-mining (B18.55) IS THE SAME KIND: its state is read back through GET
+	// /api/features as pattern_mining; it answers only what Lens reads back.
+	//
 	// THE TWENTY-THIRD AND TWENTY-FOURTH, DELETE /api/track/workspaces/{id} and POST
 	// /api/track/workspaces/{id}/restore (B18.53), ARE WRITES WHOSE STATE IS READ BACK THROUGH GETs
 	// THE SWEEP ALREADY REACHES — /api/track/workspaces and /api/track/workspaces/deleted. Each relays
@@ -370,9 +373,9 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE SEVENTIETH IS B18.24'S DOCUMENT UPLOAD, write only: POST /api/documents. Lens has no read of an
 	// uploaded document but the chat that references it by id, and the BFF relays Lens's answer (the id,
 	// or its refusal) and holds nothing.
-	if len(methodOnly) > 70 {
+	if len(methodOnly) > 71 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 70 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 71 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

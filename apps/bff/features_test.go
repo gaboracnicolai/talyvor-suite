@@ -64,7 +64,8 @@ func TestFeaturesReadIsTheSettingsAndNothingElseAboutTheTenant(t *testing.T) {
 		"tare_policy": "disabled", "distill_policy": "always", "compression_policy": "disabled",
 		"logging_policy": nil, // "verbose" is not a Lens logging policy: unread, not a claim
 		"cache_poolable": true, "distill_poolable": false, "cost_optimize_routing": false,
-		"guardrails": map[string]any{"injection": true, "pii": false},
+		"guardrails":     map[string]any{"injection": true, "pii": false},
+		"pattern_mining": nil, // this Lens does not mount the opt-in read: unread, not "opted out"
 	}
 	if len(got) != len(want) {
 		t.Errorf("GET /api/features carried %d keys, want %d: %s", len(got), len(want), rec.Body.String())

@@ -18,6 +18,8 @@ type fakeLensSettings struct {
 	workspace map[string]any
 	policy    map[string]any
 	budgets   []map[string]any
+	// optedIn is workspace_pattern_optin; miningOff is LENS_PATTERN_MINING_ENABLED unset.
+	optedIn, miningOff bool
 }
 
 func newFakeLensSettings(t *testing.T) (*app, *fakeLensSettings) {
@@ -60,6 +62,19 @@ func newFakeLensSettings(t *testing.T) (*app, *fakeLensSettings) {
 				f.budgets[0][k] = in[k]
 			}
 			_ = json.NewEncoder(w).Encode(f.budgets[0])
+		case strings.HasSuffix(p, "/pattern-mining/opt-in") && r.Method == http.MethodPost:
+			if f.miningOff {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "pattern mining disabled"})
+				return
+			}
+			f.optedIn = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"opted_in": true})
+		case strings.HasSuffix(p, "/pattern-mining/opt-in") && r.Method == http.MethodDelete:
+			f.optedIn = false
+			_ = json.NewEncoder(w).Encode(map[string]any{"opted_in": false})
+		case strings.HasSuffix(p, "/pattern-mining/opt-in"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"opted_in": f.optedIn, "enabled": !f.miningOff})
 		default:
 			_ = json.NewEncoder(w).Encode(f.workspace)
 		}
@@ -141,5 +156,37 @@ func TestFeaturesBudgetIsCreatedThenChangedKeepingItsPeriodAndThresholds(t *test
 	want := `{"budget":{"period":"monthly","limit_usd":80,"spent_usd":12.5,"enforcement":"off"},"several":false}` + "\n"
 	if rec.Body.String() != want {
 		t.Fatalf("read back from Lens = %s, want %s", rec.Body.String(), want)
+	}
+}
+
+// B18.55 — opting in and out of pattern mining is what Lens then reads back; with mining off on the
+// deployment Lens refuses the opt-in and the read says so.
+func TestFeaturesPatternMiningSwitchIsReadBackFromLens(t *testing.T) {
+	a, f := newFakeLensSettings(t)
+	if pm := readFeaturesState(t, a).PatternMining; pm == nil || pm.OptedIn || !pm.Enabled {
+		t.Fatalf("before any choice: %+v", pm)
+	}
+	rec := doJSON(a, http.MethodPost, "/api/features/pattern-mining", `{"opted_in":true}`)
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"opted_in":true,"enabled":true}`+"\n" {
+		t.Fatalf("opt in = %d %s", rec.Code, rec.Body.String())
+	}
+	if pm := readFeaturesState(t, a).PatternMining; pm == nil || !pm.OptedIn || !f.optedIn {
+		t.Fatalf("read back after opting in: %+v (Lens holds %v)", pm, f.optedIn)
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/features/pattern-mining", `{"opted_in":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("opt out = %d %s", rec.Code, rec.Body.String())
+	}
+	if pm := readFeaturesState(t, a).PatternMining; pm == nil || pm.OptedIn || f.optedIn {
+		t.Fatalf("read back after opting out: %+v (Lens holds %v)", pm, f.optedIn)
+	}
+	f.miningOff = true
+	if rec := doJSON(a, http.MethodPost, "/api/features/pattern-mining", `{"opted_in":true}`); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("opt in with mining off = %d %s, want Lens's 503", rec.Code, rec.Body.String())
+	}
+	if pm := readFeaturesState(t, a).PatternMining; pm == nil || pm.Enabled || f.optedIn {
+		t.Fatalf("with mining off: %+v (Lens holds %v)", pm, f.optedIn)
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/features/pattern-mining", `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("no choice = %d, want 400", rec.Code)
 	}
 }

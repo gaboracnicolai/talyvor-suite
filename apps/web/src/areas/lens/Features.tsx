@@ -43,6 +43,8 @@ export interface FeaturesState {
   distill_poolable: boolean | null
   cost_optimize_routing: boolean | null
   guardrails: { injection: boolean; pii: boolean } | null
+  /** B18.55 — whether this workspace shares routing patterns, and whether the deployment mines them at all. */
+  pattern_mining: { opted_in: boolean; enabled: boolean } | null
 }
 
 /** GET /api/features/tare-savings — Lens's per-work-item rows, summed by the BFF. */
@@ -67,6 +69,7 @@ type SettingWrite =
   | { distill_policy: ReducerPolicy }
   | { cost_optimize_routing: boolean }
   | { distill_poolable: boolean }
+  | { opted_in: boolean }
   | { cache_poolable: boolean }
   | { injection: boolean }
   | { pii: boolean }
@@ -749,6 +752,38 @@ export function Features() {
                   name="Shared document conversions"
                   checked={f.distill_poolable}
                   write={(on) => post('/api/features/distill-poolable', { distill_poolable: on })}
+                />
+              ) : undefined
+            }
+          />
+          <Feature
+            name="Routing pattern sharing"
+            does="Shares the shape of this workspace’s requests — which kind of feature, model and provider, token and latency ranges, quality and cache hit rate — so rare patterns earn LENS. Never a prompt or an answer."
+            where="Requests routed through Lens after it is switched on. Switching it off stops new patterns being shared; ones already shared stay in the pool."
+            evidence={
+              f?.pattern_mining == null
+                ? 'Whether the deployment mines patterns could not be read just now.'
+                : f.pattern_mining.enabled
+                  ? 'On for the deployment (measured). Lens records each pattern this workspace shares.'
+                  : 'Switched off for the whole deployment by its operator (LENS_PATTERN_MINING_ENABLED); nothing is shared until it is on.'
+            }
+            state={stateOf(
+              f?.pattern_mining == null
+                ? UNREAD
+                : !f.pattern_mining.enabled
+                  ? f.pattern_mining.opted_in
+                    ? 'Opted in, but pattern mining is off for this deployment, so nothing is shared'
+                    : 'Off for this deployment — its operator has not switched pattern mining on'
+                  : f.pattern_mining.opted_in
+                    ? 'On — the shape of your requests is shared and earns LENS'
+                    : 'Off — switch it on here',
+            )}
+            control={
+              readable && f?.pattern_mining?.enabled ? (
+                <SettingSwitch
+                  name="Routing pattern sharing"
+                  checked={f.pattern_mining.opted_in}
+                  write={(on) => post('/api/features/pattern-mining', { opted_in: on })}
                 />
               ) : undefined
             }
