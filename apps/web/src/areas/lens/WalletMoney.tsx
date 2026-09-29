@@ -108,7 +108,7 @@ export function AgentAddress({ agent }: { agent: Agent }) {
           <Input
             aria-label={`Handle for ${agent.name}`}
             placeholder="handle"
-            className="w-48"
+            className="min-w-0 flex-1 wide:w-48 wide:flex-none"
             value={handle}
             onChange={(e) => setHandle(e.target.value)}
           />
@@ -177,7 +177,7 @@ export function SendAndRequest({ agent }: { agent: Agent }) {
           <Input
             aria-label={mode === 'send' ? 'Send to (wallet ID or @handle)' : 'Request from (wallet ID or @handle)'}
             placeholder="@handle or wallet ID"
-            className="w-56"
+            className="wide:w-56"
             value={who}
             onChange={(e) => setWho(e.target.value)}
           />
@@ -189,7 +189,7 @@ export function SendAndRequest({ agent }: { agent: Agent }) {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <Input aria-label="What it is for" placeholder="What it is for" className="w-56" value={memo} onChange={(e) => setMemo(e.target.value)} />
+          <Input aria-label="What it is for" placeholder="What it is for" className="wide:w-56" value={memo} onChange={(e) => setMemo(e.target.value)} />
           <Button type="submit" variant="primary" disabled={!who.trim() || micros === null || move.isPending}>
             {mode === 'send' ? 'Send credits' : 'Ask for credits'}
           </Button>
@@ -242,7 +242,7 @@ export function RecurringTransfer({ agent }: { agent: Agent }) {
           <Input
             aria-label="Pay every period to (wallet ID or @handle)"
             placeholder="@handle or wallet ID"
-            className="w-56"
+            className="wide:w-56"
             value={who}
             onChange={(e) => setWho(e.target.value)}
           />
@@ -261,7 +261,7 @@ export function RecurringTransfer({ agent }: { agent: Agent }) {
               </Button>
             ))}
           </div>
-          <Input aria-label="What the recurring transfer is for" placeholder="What it is for" className="w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
+          <Input aria-label="What the recurring transfer is for" placeholder="What it is for" className="wide:w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
           <Button type="submit" variant="primary" disabled={!who.trim() || micros === null || start.isPending}>
             Start
           </Button>
@@ -572,9 +572,9 @@ export function OfferLoan({ agent }: { agent: Agent }) {
         </p>
         <TestMoneyOnly capability="loans_between_companies" />
         <div className="flex flex-wrap items-center gap-2">
-          <Input aria-label="Lend to (wallet ID or @handle)" placeholder="@handle or wallet ID" className="w-48" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Input aria-label="Lend to (wallet ID or @handle)" placeholder="@handle or wallet ID" className="wide:w-48" value={to} onChange={(e) => setTo(e.target.value)} />
           <Input aria-label="Loan amount in LXC" inputMode="decimal" placeholder="LXC" className="w-24 font-figure" value={principal} onChange={(e) => setPrincipal(e.target.value)} />
-          <Input aria-label="Interest over the whole loan, in percent" inputMode="decimal" placeholder="% interest" className="w-24 font-figure" value={rate} onChange={(e) => setRate(e.target.value)} />
+          <Input aria-label="Interest over the whole loan, in percent" inputMode="decimal" placeholder="% interest" className="w-28 font-figure" value={rate} onChange={(e) => setRate(e.target.value)} />
           <Input aria-label="Number of instalments" inputMode="numeric" className="w-16 font-figure" value={instalments} onChange={(e) => setInstalments(e.target.value)} />
           <div className="flex items-center gap-1" role="group" aria-label="Instalments every">
             {(['day', 'week', 'month'] as const).map((p) => (
@@ -584,7 +584,7 @@ export function OfferLoan({ agent }: { agent: Agent }) {
             ))}
           </div>
           <Input aria-label="Late fee in LXC" inputMode="decimal" placeholder="late fee" className="w-24 font-figure" value={fee} onChange={(e) => setFee(e.target.value)} />
-          <Input aria-label="What the loan is for" placeholder="What it is for" className="w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
+          <Input aria-label="What the loan is for" placeholder="What it is for" className="wide:w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
           <Button type="submit" variant="primary" disabled={!ready || offer.isPending}>
             Offer
           </Button>

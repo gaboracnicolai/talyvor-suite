@@ -204,7 +204,10 @@ const BY_PATH: Record<string, unknown> = {
   },
   '/api/agents/approvals': {
     approvals: [
-      { id: 'apr_1', agent_id: 'agt_research', amount_ulxc: 3_000_000, model: '', status: 'pending', created_at: '2026-09-27T12:30:00Z' },
+      {
+        id: 'apr_1', agent_id: 'agt_research', amount_ulxc: 3_000_000, model: '', status: 'pending', created_at: '2026-09-27T12:30:00Z',
+        payee: { kind: 'company', id: 'ws_acme', name: 'Acme Hosting' }, memo: 'October invoice',
+      },
     ],
   },
   '/api/agents/agt_research/rules': {
