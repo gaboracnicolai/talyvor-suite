@@ -857,3 +857,69 @@ func TestStream_RegenerateBypassReachesLensAndTheAnswerSourceReachesTheChat(t *t
 		}
 	}
 }
+
+// B23.9 — the server's 30s WriteTimeout runs from the moment the request was read, so a relay that
+// never extends it cuts every answer still streaming at 30 seconds off mid-sentence. Served through
+// newHTTPServer (the real bounds) on a real listener, with Lens streaming for 90 seconds.
+func TestStream_ANinetySecondAnswerArrivesWhole(t *testing.T) {
+	t.Parallel()
+	const answerFor, every = 90 * time.Second, 3 * time.Second
+
+	lens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == provisionPath:
+			serveFakeProvision(w, r)
+		case r.URL.Path == lensSessionKeyPath:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = fmt.Fprintf(w, `{"key":%q,"expires_at":%q}`,
+				testSessionKey, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
+		case strings.HasPrefix(r.URL.Path, "/v1/proxy/"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			for i, end := 0, time.Now().Add(answerFor); time.Now().Before(end); i++ {
+				_, _ = fmt.Fprintf(w, "data: chunk %d\n\n", i)
+				w.(http.Flusher).Flush()
+				select {
+				case <-time.After(every):
+				case <-r.Context().Done():
+					return
+				}
+			}
+			_, _ = io.WriteString(w, "data: [DONE]\n\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer lens.Close()
+
+	a, sess := streamApp(t, &streamUpstream{srv: lens})
+	bff := httptest.NewUnstartedServer(a)
+	bff.Config = newHTTPServer("", a)
+	bff.Start()
+	defer bff.Close()
+
+	req, err := http.NewRequest(http.MethodPost, bff.URL+"/api/ai/stream/anthropic/v1/messages",
+		strings.NewReader(`{"stream":true}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.AddCookie(sess)
+	req.Header.Set("Origin", "https://app.talyvor.com")
+	req.Header.Set("Content-Type", "application/json")
+	start := time.Now()
+	resp, err := bff.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	elapsed := time.Since(start)
+	if err != nil || !strings.Contains(string(body), "data: [DONE]") {
+		t.Fatalf("the answer was cut off after %v (read error %v); the browser got %d bytes ending %q",
+			elapsed.Round(time.Second), err, len(body), string(body[max(0, len(body)-40):]))
+	}
+	if elapsed < answerFor {
+		t.Fatalf("the answer arrived in %v, before Lens finished streaming it — the test is not "+
+			"exercising a long stream", elapsed)
+	}
+}
