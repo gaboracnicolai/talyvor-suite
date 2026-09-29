@@ -109,9 +109,9 @@ const SIDEBAR_DESTINATIONS = [
   '/terms',
 ] as const
 
-/** B20.12 — offered only when /auth/me says this person is an operator, so absent from every render
- *  below (they sign in as nobody). Review.test.tsx renders it as a link for an operator. */
-const OPERATOR_DESTINATIONS = ['/marketplace/review'] as const
+/** B20.12, B18.25 — offered only when /auth/me says this person is an operator, so absent from every render
+ *  below (they sign in as nobody). Review.test.tsx and OperatorWorkspaces.test.tsx render them as links for an operator. */
+const OPERATOR_DESTINATIONS = ['/marketplace/review', '/operator'] as const
 
 /**
  * A destination affordance is anything in the sections nav a keyboard reaches. If it is focusable

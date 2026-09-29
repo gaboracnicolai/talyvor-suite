@@ -156,6 +156,13 @@ const BY_PATH: Record<string, unknown> = {
       { id: 'lst_review', workspace_id: 'ws-seller', kind: 'agent', title: 'Code reviewer', description: 'Reviews a diff for correctness.', price_per_use_ulxc: 0, visibility: 'public', latest_version: 1, created_at: '2026-09-27T11:00:00Z', updated_at: '2026-09-27T11:00:00Z' },
     ],
   },
+  // B18.25 — the operator screen: one busy workspace and one that never made a request.
+  '/api/admin/workspaces': {
+    workspaces: [
+      { id: 'ws-acme', name: 'Acme', created_at: '2026-08-01T00:00:00Z', current_month_usd: 12.34, all_time_usd: 80.5, requests: 1_200, held_ulens: 822, last_request_at: '2026-09-27T09:00:00Z' },
+      { id: 'ws-quiet', name: 'Quiet', created_at: '2026-09-01T00:00:00Z', current_month_usd: 0, all_time_usd: 0, requests: 0, held_ulens: 0, last_request_at: null },
+    ],
+  },
   '/api/agents': {
     workspace_balance_ulxc: 100_000_000,
     allocated_ulxc: 12_500_000,

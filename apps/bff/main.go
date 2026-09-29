@@ -102,6 +102,11 @@ type config struct {
 	// moderatorKey is Lens's marketplace moderator key (B20.13): the review queue's three routes and
 	// nothing else. Set, /api/admin/marketplace/* reach Lens; unset, they answer 501 (market_review.go).
 	moderatorKey string
+
+	// operatorReadKey is Lens's LENS_OPERATOR_READ_KEY, the same value under the same name: GET on
+	// Lens's cross-tenant admin reads and nothing else. Set, the operator screen's
+	// /api/admin/workspaces reaches Lens; unset, it answers 501 (operator_workspaces.go).
+	operatorReadKey string
 }
 
 func loadConfig() (config, error) {
@@ -114,6 +119,7 @@ func loadConfig() (config, error) {
 		authMode:          os.Getenv("BFF_AUTH_MODE"),
 		syntheticKey:      os.Getenv("LENS_SYNTHETIC_KEY"),
 		moderatorKey:      os.Getenv("LENS_MODERATOR_KEY"),
+		operatorReadKey:   os.Getenv("LENS_OPERATOR_READ_KEY"),
 	}
 	// Per-tenant provisioning replaces the single shared workspace key. Refuse to start without
 	// it: silently falling back to one shared workspace is exactly the state this replaced.

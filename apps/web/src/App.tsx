@@ -34,6 +34,7 @@ import { Chat } from './areas/chat/Chat'
 import { ChatHelp } from './areas/chat/ChatHelp'
 import { TrackArea } from './areas/track/TrackArea'
 import { DocsArea } from './areas/docs/DocsArea'
+import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
 import { Privacy } from './routes/Privacy'
@@ -150,6 +151,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/features/try/conversion', title: 'Try document conversion', element: <TryConversion /> },
   { path: '/track/*', title: 'Track', element: <TrackArea /> },
   { path: '/docs/*', title: 'Docs', element: <DocsArea /> },
+  // B18.25 — every workspace's spend, held LENS and last activity; the BFF answers only OPERATOR_SUBS.
+  { path: '/operator', title: 'Operator', element: <OperatorWorkspaces /> },
 ]
 
 // Built once: matchRoutes only needs the paths, and rebuilding this per render would allocate
@@ -304,7 +307,9 @@ function Sidebar() {
         {item('/members', 'Members')}
         {item('/settings', 'Settings')}
       </Group>
-      {/* The "Operator" group held one item, /admin, and is gone with it: an operator
+      {/* B18.25 — offered only to someone the BFF's operator gate will admit. */}
+      {me.data?.operator ? <Group label="Operator">{item('/operator', 'Workspaces')}</Group> : null}
+      {/* The first "Operator" group held one item, /admin, and went with it: an operator
           console whose five screens were entirely fabricated (invented node ids, IPs,
           certificate fingerprints, a Let's Encrypt issuer string) with no BFF route and no
           path to real data in this deployment. A fixture badge cannot carry that content —
