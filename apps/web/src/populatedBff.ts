@@ -356,8 +356,8 @@ const ARRAYS: Record<string, unknown[]> = {
   ],
   '/api/bonds': [{ id: 'bond-1', kind: 'reputation' }],
   '/api/models': [
-    { id: 'claude-sonnet-4', provider: 'anthropic', display_name: 'Claude Sonnet 4', input_per_1m: 3, output_per_1m: 15 },
-    { id: 'gpt-4o-mini', provider: 'openai', display_name: 'GPT-4o mini', input_per_1m: 0.15, output_per_1m: 0.6 },
+    { id: 'claude-sonnet-4', provider: 'anthropic', display_name: 'Claude Sonnet 4', input_per_1m: 3, output_per_1m: 15, release_date: '2025-05-22', tier: 'balanced' },
+    { id: 'gpt-4o-mini', provider: 'openai', display_name: 'GPT-4o mini', input_per_1m: 0.15, output_per_1m: 0.6, release_date: '2024-07-18', tier: 'fast' },
   ],
   '/api/models/waiting': [
     { provider: 'openai', id: 'gpt-6-nova', first_seen_at: '2026-09-26T01:00:00Z', needs_price: true },

@@ -204,7 +204,7 @@ export function Chat() {
   // nobody will read. Navigating away from this screen must do that.
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  // B10.4 — the default is the newest flagship the catalog offers, chosen from its data, never a
+  // B18.60 — the default is the newest frontier model the catalog offers, from its data, never a
   // model name typed into this file.
   const picker = pickerCatalog(catalog.data ?? [], providers.data ?? [])
   const models = picker.offered
