@@ -393,6 +393,49 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Delete("/v1/workspaces/{wsID}/agents/push/subscriptions", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensPushUnsubscribeBody',
   },
+  // B22.10 — Agent Wallets' money between owners (Lens B22.3, B22.5).
+  {
+    route: 'PUT /v1/workspaces/{wsID}/agents/{agentID}/handle',
+    file: 'apps/bff/wallet_money.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentHandle(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_transfers_handler.go',
+    upstreamAnchor: 'r.Put("/v1/workspaces/{wsID}/agents/{agentID}/handle", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentHandleBody',
+  },
+  // Sending and requesting decode one shared struct upstream: each settle command pins its tags and
+  // that its own route decodes it.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/send',
+    file: 'apps/bff/wallet_money.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentSend(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_transfers_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/send", func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentSendBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/requests',
+    file: 'apps/bff/wallet_money.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentRequest(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_transfers_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/requests", func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentRequestBody',
+  },
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/loans',
+    file: 'apps/bff/wallet_money.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentLoan(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/company_loans_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/loans", func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentLoanBody',
+  },
 ]
 
 /**

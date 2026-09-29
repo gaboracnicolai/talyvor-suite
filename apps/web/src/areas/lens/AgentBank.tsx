@@ -8,6 +8,7 @@ import { kindLabel, marketApi, priceText } from '../marketplace/marketApi'
 import { CATALOG_KEY } from '../marketplace/parts'
 import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
 import { AgentCardPanel } from './AgentCardPanel'
+import { AgentAddress, AgentTransfers, CreditLinePanel, Loans, MoneyRequests, OfferLoan, RecurringTransfer, SendAndRequest } from './WalletMoney'
 import {
   type Agent,
   type AgentApproval,
@@ -1388,11 +1389,24 @@ export function AgentBank() {
               <p className="px-gutter py-3 text-body text-muted">Create a second agent to pay it from this one.</p>
             </Card>
           )}
+          <AgentAddress key={`address-${agent.id}`} agent={agent} />
+          <SendAndRequest key={`send-${agent.id}`} agent={agent} />
+          <AgentTransfers agent={agent} />
           <Schedules key={`schedules-${agent.id}`} agent={agent} agents={agents} nameOf={nameOf} />
+          <RecurringTransfer key={`recurring-${agent.id}`} agent={agent} />
+          <OfferLoan key={`loan-${agent.id}`} agent={agent} />
           <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
           <IssueKey key={`key-${agent.id}`} agent={agent} />
           <AgentCardPanel key={`card-${agent.id}`} agent={agent} />
           <Statement agent={agent} nameOf={nameOf} />
+        </Region>
+      ) : null}
+
+      {book.isSuccess ? (
+        <Region index="05" label="Between owners" className="flex flex-col gap-gutter">
+          <MoneyRequests agents={agents} />
+          <CreditLinePanel />
+          <Loans agents={agents} />
         </Region>
       ) : null}
     </RegionScreen>

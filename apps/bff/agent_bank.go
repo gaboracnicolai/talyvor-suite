@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // agent_bank.go — B19.4: the Agent Bank screen. Lens's agent accounts (B19.1), their spending rules
@@ -38,11 +39,17 @@ import (
 // agentBankRelay sends body (nil for none) to a workspace-scoped Lens agent route and answers what
 // Lens answered: its JSON on success, its status and sentence on a 4xx, a 502 otherwise.
 func (a *app) agentBankRelay(w http.ResponseWriter, r *http.Request, t tenant, method, suffix string, body []byte) {
+	a.agentBankRelayPath(w, r, t, method, lensWorkspacePath(t, suffix), body)
+}
+
+// agentBankRelayPath is agentBankRelay for any Lens path, still with the session's own token (B22.10:
+// /v1/wallets/… is not under the workspace).
+func (a *app) agentBankRelayPath(w http.ResponseWriter, r *http.Request, t tenant, method, path string, body []byte) {
 	var rd io.Reader
 	if body != nil {
 		rd = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(r.Context(), method, a.cfg.lensBaseURL+lensWorkspacePath(t, suffix), rd)
+	req, err := http.NewRequestWithContext(r.Context(), method, a.cfg.lensBaseURL+path, rd)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
 		return
@@ -54,7 +61,7 @@ func (a *app) agentBankRelay(w http.ResponseWriter, r *http.Request, t tenant, m
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		log.Printf("bff: agent bank %s %s: %v", method, suffix, err)
+		log.Printf("bff: agent bank %s %s: %v", method, strings.TrimPrefix(path, lensWorkspacePath(t, "")), err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream unreachable"})
 		return
 	}
