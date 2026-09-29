@@ -60,6 +60,7 @@ var builtByThisService = map[string]string{
 	"featuresBudgetLimit":  "the one workspace-wide limit, projected from Lens's budget in projectBudget",
 	"featuresState":        "the Features screen's settings, projected field by field in readFeatures",
 	"featuresGuardrails":   "the two guardrail switches readFeatures lifts off Lens's guardrail policy",
+	"patternMiningState":   "whether the workspace shares routing patterns and whether the deployment mines them, from Lens's GET …/pattern-mining/opt-in (B18.55)",
 	"lensBudget":           "a Lens budget as GET/POST/PATCH /v1/workspaces/{ws}/budgets answers it (B18.22)",
 	"tareSavingsTotal":     "Tare's savings for the Features screen: Lens's per-work-item rows summed, estimates labelled as such",
 	"storedAnswersCounts":  "what a workspace has stored, or what a deletion removed, as Lens's GET/DELETE /v1/workspaces/{ws}/stored-answers answers it (B21.4)",

@@ -12,6 +12,7 @@ function mockBff(
     tareRequests = 4,
     waiting = [] as Array<{ provider: string; id: string; first_seen_at: string }>,
     pii = false,
+    miningEnabled = true,
   } = {},
 ) {
   let tare = 'disabled'
@@ -19,6 +20,7 @@ function mockBff(
   let cachePoolable = true
   let guardrails = { injection: true, pii }
   let logging = 'metadata'
+  let patternOptedIn = false
   let budget: { period: string; limit_usd: number; spent_usd: number; enforcement: string } | null = null
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -49,6 +51,12 @@ function mockBff(
       posts.push({ url, body })
       guardrails = { ...guardrails, ...body }
       return json(guardrails)
+    }
+    if (url === '/api/features/pattern-mining' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { opted_in: boolean }
+      posts.push({ url, body })
+      patternOptedIn = body.opted_in
+      return json({ opted_in: patternOptedIn, enabled: miningEnabled })
     }
     if (url === '/api/features/logging' && init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as { logging_policy: string }
@@ -88,6 +96,7 @@ function mockBff(
         distill_poolable: distillPoolable,
         cost_optimize_routing: false,
         guardrails,
+        pattern_mining: { opted_in: patternOptedIn, enabled: miningEnabled },
       })
     return new Response('null', { status: 404 })
   })
@@ -270,6 +279,35 @@ describe('the Features screen', () => {
       ),
     )
     expect(within(row('Shared document conversions')).queryByRole('switch')).toBeNull()
+  })
+
+  // B18.55
+  it('routing pattern sharing has a switch, read back from Lens; with mining off for the deployment it says so and offers none', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts)
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Routing pattern sharing')
+    const state = () => within(r()).getByTestId('state-Routing pattern sharing')
+    await waitFor(() => expect(within(r()).getByRole('switch')).not.toBeChecked())
+    expect(state()).toHaveTextContent('Off — switch it on here')
+    fireEvent.click(within(r()).getByRole('switch'))
+    await waitFor(() => expect(state()).toHaveTextContent('On — the shape of your requests is shared'))
+    fireEvent.click(within(r()).getByRole('switch'))
+    await waitFor(() => expect(state()).toHaveTextContent('Off — switch it on here'))
+    expect(posts).toEqual([
+      { url: '/api/features/pattern-mining', body: { opted_in: true } },
+      { url: '/api/features/pattern-mining', body: { opted_in: false } },
+    ])
+
+    cleanup()
+    queryClient.clear()
+    vi.restoreAllMocks()
+    mockBff([], { miningEnabled: false })
+    render(<App />)
+    await waitFor(() => expect(state()).toHaveTextContent('Off for this deployment'))
+    expect(screen.getByTestId('evidence-Routing pattern sharing')).toHaveTextContent('(LENS_PATTERN_MINING_ENABLED)')
+    expect(within(r()).queryByRole('switch')).toBeNull()
   })
 
   // B18.22

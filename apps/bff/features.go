@@ -20,6 +20,7 @@ import (
 //	POST /api/features/logging               → PUT /v1/workspaces/{ws}/logging        (B18.22)
 //	GET  /api/features/budget                the workspace's own spending limit       (B18.22)
 //	POST /api/features/budget                → POST or PATCH /v1/workspaces/{ws}/budgets (B18.22)
+//	POST /api/features/pattern-mining        → POST or DELETE /v1/workspaces/{ws}/pattern-mining/opt-in (B18.55)
 //
 // Same posture as /api/distill: session-gated, same-Origin on the write (ServeHTTP), key attached
 // server-side, and a write answers with what Lens RECORDED, never an echo of the request.
@@ -43,6 +44,13 @@ type featuresGuardrails struct {
 	PII       bool `json:"pii"`
 }
 
+// patternMiningState is whether the workspace shares its routing patterns, and whether this
+// deployment mines patterns at all (when it does not, Lens refuses the opt-in).
+type patternMiningState struct {
+	OptedIn bool `json:"opted_in"`
+	Enabled bool `json:"enabled"`
+}
+
 type featuresState struct {
 	TarePolicy          *string             `json:"tare_policy"`
 	DistillPolicy       *string             `json:"distill_policy"`
@@ -52,6 +60,7 @@ type featuresState struct {
 	DistillPoolable     *bool               `json:"distill_poolable"`
 	CostOptimizeRouting *bool               `json:"cost_optimize_routing"`
 	Guardrails          *featuresGuardrails `json:"guardrails"`
+	PatternMining       *patternMiningState `json:"pattern_mining"`
 }
 
 func knownOrNil(v *string, vocab map[string]bool) *string {
@@ -101,7 +110,56 @@ func (a *app) readFeatures(ctx context.Context, t tenant) (featuresState, error)
 			st.Guardrails = &featuresGuardrails{Injection: *g.EnableInjection, PII: *g.EnablePII}
 		}
 	}
+	// Best-effort too: Lens mounts the opt-in only when its economy is on, so a 404 leaves it unread.
+	st.PatternMining, _ = a.readPatternMining(ctx, t)
 	return st, nil
+}
+
+// readPatternMining reads Lens's GET /v1/workspaces/{ws}/pattern-mining/opt-in (talyvor-lens B18.54).
+func (a *app) readPatternMining(ctx context.Context, t tenant) (*patternMiningState, error) {
+	raw, err := a.lensGet(ctx, t, lensWorkspacePath(t, "/pattern-mining/opt-in"))
+	if err != nil {
+		return nil, err
+	}
+	var p struct {
+		OptedIn *bool `json:"opted_in"`
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil || p.OptedIn == nil || p.Enabled == nil {
+		return nil, fmt.Errorf("pattern mining: the reply does not state opted_in and enabled")
+	}
+	return &patternMiningState{OptedIn: *p.OptedIn, Enabled: *p.Enabled}, nil
+}
+
+// handleFeaturePatternMining — B18.55: POST /api/features/pattern-mining {"opted_in": bool} opts the
+// workspace in (Lens's POST) or out (its DELETE) of sharing routing patterns, then answers what Lens
+// reads back. Lens refuses an opt-in with 503 when the deployment has pattern mining off.
+func (a *app) handleFeaturePatternMining(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		OptedIn *bool `json:"opted_in"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.OptedIn == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "opted_in (boolean) required"})
+		return
+	}
+	method := http.MethodDelete
+	if *in.OptedIn {
+		method = http.MethodPost
+	}
+	_, err := a.lensSendWorkspace(r.Context(), t, method, "/pattern-mining/opt-in", nil, http.StatusOK)
+	var out *patternMiningState
+	if err == nil {
+		out, err = a.readPatternMining(r.Context(), t)
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not record the choice"})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleFeatureTare records the workspace's Tare policy.
