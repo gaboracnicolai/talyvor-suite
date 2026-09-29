@@ -344,6 +344,23 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/schedules/{sid}/runs", a.requireTenant(a.handleAgentScheduleRuns))
 	a.mux.HandleFunc("/api/agents/schedules/{sid}/stop", a.requireTenant(a.handleAgentScheduleStop))
 	a.mux.HandleFunc("/api/agents/{id}/topup", a.requireTenant(a.handleAgentTopUp))
+	// B22.10 — money between owners: sending and requesting between any agents, the company credit line,
+	// loans between companies, and each capability's class. See wallet_money.go.
+	a.mux.HandleFunc("/api/wallets/capabilities", a.requireTenant(a.handleWalletCapabilities))
+	a.mux.HandleFunc("/api/wallets/address/{address}", a.requireTenant(a.handleWalletAddress))
+	a.mux.HandleFunc("/api/agents/{id}/handle", a.requireTenant(a.handleAgentHandle))
+	a.mux.HandleFunc("/api/agents/{id}/send", a.requireTenant(a.handleAgentSend))
+	a.mux.HandleFunc("/api/agents/{id}/requests", a.requireTenant(a.handleAgentRequest))
+	a.mux.HandleFunc("/api/agents/{id}/transfers", a.requireTenant(a.handleAgentTransfers))
+	a.mux.HandleFunc("/api/wallets/requests", a.requireTenant(a.handleMoneyRequests))
+	a.mux.HandleFunc("/api/wallets/requests/{rid}/accept", a.requireTenant(a.handleMoneyRequestAnswer("accept")))
+	a.mux.HandleFunc("/api/wallets/requests/{rid}/decline", a.requireTenant(a.handleMoneyRequestAnswer("decline")))
+	a.mux.HandleFunc("/api/wallets/credit-line", a.requireTenant(a.handleCreditLine))
+	a.mux.HandleFunc("/api/wallets/loans", a.requireTenant(a.handleLoans))
+	a.mux.HandleFunc("/api/agents/{id}/loans", a.requireTenant(a.handleAgentLoan))
+	a.mux.HandleFunc("/api/wallets/loans/{lid}/accept", a.requireTenant(a.handleLoanAction("accept")))
+	a.mux.HandleFunc("/api/wallets/loans/{lid}/decline", a.requireTenant(a.handleLoanAction("decline")))
+	a.mux.HandleFunc("/api/wallets/loans/{lid}/withdraw", a.requireTenant(a.handleLoanAction("withdraw")))
 	// B20.3 — the marketplace: browse, publish, use a listing, and what the seller earned. See marketplace.go.
 	a.mux.HandleFunc("/api/marketplace/listings", a.requireTenant(a.handleMarketListings))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}", a.requireTenant(a.handleMarketListing))

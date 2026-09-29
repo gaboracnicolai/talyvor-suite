@@ -26,6 +26,8 @@ export interface Agent {
   owner_user_id?: string
   /** B19.11 — its owner's workspace is verified: a completed card purchase, or Talyvor's vouch. */
   verified?: boolean
+  /** B22.3 — its address besides its id, once its owner picks one. */
+  handle?: string
 }
 
 /** Lens economy.AgentBook: workspace = allocated + unallocated; spent is what the agents spent. */
@@ -317,6 +319,140 @@ export const agentBankApi = {
     send<{ challenge: string; allow_credentials: string[] | null }>('POST', `/api/agents/approvals/${e(approvalID)}/challenge`),
   pushPublicKey: () => getJSON<{ public_key: string }>('/api/agents/push/public-key'),
   subscribePush: (sub: PushSubscriptionBody) => send<{ endpoint: string }>('POST', '/api/agents/push/subscriptions', sub),
+  // B22.10 — money between owners (Lens B22.1, B22.3, B22.4, B22.5).
+  capabilities: () => getJSON<{ capabilities: WalletCapability[] | null }>('/api/wallets/capabilities'),
+  address: (address: string) => getJSON<WalletAddress>(`/api/wallets/address/${e(address)}`),
+  setHandle: (id: string, handle: string) => send<WalletAddress>('PUT', `/api/agents/${e(id)}/handle`, { handle }),
+  send: (id: string, to: string, amount_ulxc: number, memo: string) =>
+    send<AgentTransfer>('POST', `/api/agents/${e(id)}/send`, { to, amount_ulxc, memo }),
+  request: (id: string, from: string, amount_ulxc: number, memo: string) =>
+    send<MoneyRequest>('POST', `/api/agents/${e(id)}/requests`, { from, amount_ulxc, memo }),
+  transfers: (id: string) => getJSON<{ transfers: AgentTransfer[] | null }>(`/api/agents/${e(id)}/transfers`),
+  moneyRequests: () => getJSON<{ requests: MoneyRequest[] | null }>('/api/wallets/requests'),
+  answerRequest: (rid: string, accept: boolean) =>
+    send<MoneyRequest>('POST', `/api/wallets/requests/${e(rid)}/${accept ? 'accept' : 'decline'}`),
+  creditLine: async (): Promise<CreditLine | null> => {
+    try {
+      return await getJSON<CreditLine>('/api/wallets/credit-line')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  loans: () => getJSON<{ loans: Loan[] | null }>('/api/wallets/loans'),
+  offerLoan: (id: string, body: LoanOffer) => send<Loan>('POST', `/api/agents/${e(id)}/loans`, body),
+  acceptLoan: (lid: string) => send<Loan>('POST', `/api/wallets/loans/${e(lid)}/accept`),
+  declineLoan: (lid: string) => send<Loan>('POST', `/api/wallets/loans/${e(lid)}/decline`),
+  withdrawLoan: (lid: string) => send<{ status: string }>('POST', `/api/wallets/loans/${e(lid)}/withdraw`),
+}
+
+/** Lens economy.CapabilityStatus (B22.1): what a wallet can do, its class, and whether it takes real money now. */
+export interface WalletCapability {
+  capability: string
+  name: string
+  class: 'GREEN' | 'AMBER' | 'RED'
+  real_money: boolean
+  clearance?: { by: string; reference: string; at: string }
+}
+
+/** Lens economy.WalletAddress (B22.3): what a wallet ID or @handle is. */
+export interface WalletAddress {
+  wallet_id: string
+  handle?: string
+  name: string
+}
+
+/** Lens economy.AgentTransfer (B22.3): credits moved between two agents, of one owner (GREEN) or two (AMBER). */
+export interface AgentTransfer {
+  id: string
+  from_workspace_id: string
+  from_agent_id: string
+  to_workspace_id: string
+  to_agent_id: string
+  amount_ulxc: number
+  memo?: string
+  class: 'GREEN' | 'AMBER'
+  test_funded_ulxc: number
+  request_id?: string
+  schedule_id?: string
+  refund_of?: string
+  loan_id?: string
+  created_at: string
+}
+
+/** Lens economy.MoneyRequest (B22.3): from_* asked to_* for credits. */
+export interface MoneyRequest {
+  id: string
+  from_workspace_id: string
+  from_agent_id: string
+  to_workspace_id: string
+  to_agent_id: string
+  amount_ulxc: number
+  memo?: string
+  status: 'pending' | 'accepted' | 'declined'
+  transfer_id?: string
+  created_at: string
+  decided_at?: string
+}
+
+/** Lens economy.CreditLine (B22.4): a company's credit line. */
+export interface CreditLine {
+  workspace_id: string
+  limit_ulxc: number
+  used_ulxc: number
+  available_ulxc: number
+  paused: boolean
+  paused_reason?: string
+  invoices: {
+    id: string
+    period_end: string
+    amount_ulxc: number
+    amount_cents: number
+    due_at: string
+    paid_at?: string
+    late: boolean
+  }[]
+}
+
+/** What a lender offers (Lens B22.5). interest_bps is on the principal over the whole term: 1000 is 10%. */
+export interface LoanOffer {
+  to: string
+  principal_ulxc: number
+  interest_bps: number
+  instalments: number
+  every: 'day' | 'week' | 'month'
+  late_fee_ulxc: number
+  memo: string
+}
+
+/** Lens economy.Loan (B22.5). */
+export interface Loan {
+  id: string
+  lender_workspace_id: string
+  lender_agent_id: string
+  borrower_workspace_id: string
+  borrower_agent_id: string
+  principal_ulxc: number
+  interest_bps: number
+  instalments: number
+  every: 'day' | 'week' | 'month'
+  late_fee_ulxc: number
+  memo?: string
+  status: 'offered' | 'declined' | 'withdrawn' | 'active' | 'late' | 'defaulted' | 'repaid'
+  paid_instalments: number
+  next_due_at?: string
+  offered_at: string
+  decided_at?: string
+  events: {
+    kind: 'payout' | 'instalment' | 'missed' | 'late' | 'defaulted'
+    instalment?: number
+    principal_ulxc?: number
+    interest_ulxc?: number
+    late_fee_ulxc?: number
+    transfer_id?: string
+    detail?: string
+    at: string
+  }[]
 }
 
 /** A passkey the workspace's owner registered (B19.16). */

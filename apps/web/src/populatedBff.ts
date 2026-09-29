@@ -208,6 +208,48 @@ const BY_PATH: Record<string, unknown> = {
     active_until: '',
     timezone: '',
   },
+  // B22.10 — money between owners: the classes, a transfer each way, an incoming request, a company credit line
+  // and a loan being repaid.
+  '/api/wallets/capabilities': {
+    capabilities: [
+      { capability: 'spend_on_talyvor', name: 'Spending on Talyvor', class: 'GREEN', real_money: true },
+      { capability: 'pay_another_owner', name: 'Sending and requesting money between different owners', class: 'AMBER', real_money: false },
+      { capability: 'company_credit_line', name: 'Talyvor’s credit line to companies, for Talyvor services', class: 'GREEN', real_money: true },
+      { capability: 'loans_between_companies', name: 'Loans between companies', class: 'AMBER', real_money: false },
+    ],
+  },
+  '/api/agents/agt_research/transfers': {
+    transfers: [
+      { id: 'xfer_2', from_workspace_id: 'ws-other', from_agent_id: 'agt_bea', to_workspace_id: 'ws-1', to_agent_id: 'agt_research', amount_ulxc: 2_000_000, memo: 'expenses', class: 'AMBER', test_funded_ulxc: 2_000_000, created_at: '2026-09-28T12:00:00Z' },
+      { id: 'xfer_1', from_workspace_id: 'ws-1', from_agent_id: 'agt_research', to_workspace_id: 'ws-other', to_agent_id: 'agt_bea', amount_ulxc: 5_000_000, memo: 'design work', class: 'AMBER', test_funded_ulxc: 5_000_000, created_at: '2026-09-28T11:00:00Z' },
+    ],
+  },
+  '/api/wallets/requests': {
+    requests: [
+      { id: 'mreq_1', from_workspace_id: 'ws-other', from_agent_id: 'agt_bea', to_workspace_id: 'ws-1', to_agent_id: 'agt_research', amount_ulxc: 1_000_000, memo: 'invoice 12', status: 'pending', created_at: '2026-09-28T13:00:00Z' },
+    ],
+  },
+  '/api/wallets/credit-line': {
+    workspace_id: 'ws-1',
+    limit_ulxc: 100_000_000,
+    used_ulxc: 30_000_000,
+    available_ulxc: 70_000_000,
+    paused: false,
+    invoices: [{ id: 'cli_1', period_end: '2026-09-01T00:00:00Z', amount_ulxc: 12_000_000, amount_cents: 120, due_at: '2026-09-15T00:00:00Z', paid_at: '2026-09-10T00:00:00Z', late: false }],
+  },
+  '/api/wallets/loans': {
+    loans: [
+      {
+        id: 'loan_1', lender_workspace_id: 'ws-1', lender_agent_id: 'agt_research', borrower_workspace_id: 'ws-other', borrower_agent_id: 'agt_co',
+        principal_ulxc: 50_000_000, interest_bps: 500, instalments: 5, every: 'month', late_fee_ulxc: 1_000_000, memo: 'working capital',
+        status: 'active', paid_instalments: 1, next_due_at: '2026-10-28T09:00:00Z', offered_at: '2026-08-27T09:00:00Z', decided_at: '2026-08-28T09:00:00Z',
+        events: [
+          { kind: 'payout', principal_ulxc: 50_000_000, transfer_id: 'xfer_p', at: '2026-08-28T09:00:00Z' },
+          { kind: 'instalment', instalment: 1, principal_ulxc: 10_000_000, interest_ulxc: 500_000, transfer_id: 'xfer_i1', at: '2026-09-28T09:00:00Z' },
+        ],
+      },
+    ],
+  },
   '/api/agents/agt_research/statement': {
     agent_id: 'agt_research',
     lines: [

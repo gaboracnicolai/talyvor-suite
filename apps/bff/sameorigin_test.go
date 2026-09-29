@@ -216,6 +216,16 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/claim", body: `{}`},
+		// B22.10 — money between owners.
+		{method: http.MethodPut, path: "/api/agents/x1/handle", body: `{"handle":"acme"}`},
+		{method: http.MethodPost, path: "/api/agents/x1/send", body: `{"to":"@bea","amount_ulxc":1,"memo":""}`},
+		{method: http.MethodPost, path: "/api/agents/x1/requests", body: `{"from":"@bea","amount_ulxc":1,"memo":""}`},
+		{method: http.MethodPost, path: "/api/wallets/requests/x1/accept", body: `{}`},
+		{method: http.MethodPost, path: "/api/wallets/requests/x1/decline", body: `{}`},
+		{method: http.MethodPost, path: "/api/agents/x1/loans", body: `{"to":"@co","principal_ulxc":1,"interest_bps":0,"instalments":1,"every":"day","late_fee_ulxc":0,"memo":""}`},
+		{method: http.MethodPost, path: "/api/wallets/loans/x1/accept", body: `{}`},
+		{method: http.MethodPost, path: "/api/wallets/loans/x1/decline", body: `{}`},
+		{method: http.MethodPost, path: "/api/wallets/loans/x1/withdraw", body: `{}`},
 		// B19.24 — issuing an agent its test-mode card.
 		{method: http.MethodPost, path: "/api/agents/x1/card", body: `{"first_name":"a","last_name":"b","line1":"c","city":"d","postal_code":"e"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/connect", body: `{"country":"GB"}`},
