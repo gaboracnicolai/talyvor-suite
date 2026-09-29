@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { Button } from '../components/Button'
+import { Input } from '../components/Input'
 import { Mark } from '../components/Mark'
 import { MuNumeral } from '../components/MuNumeral'
 import { NavItem } from '../components/NavItem'
@@ -110,6 +111,25 @@ describe('correction 3 — the accent appears on interaction (never on text)', (
     expect(screen.getByRole('button', { name: 'Risky' }).className).toContain('active:bg-accent-tint')
     render(<Button variant="primary">Go</Button>)
     expect(screen.getByRole('button', { name: 'Go' }).className).toContain('active:bg-accent-hover')
+  })
+})
+
+describe('input-width — a width passed to Input is the width it gets', () => {
+  // cn() is plain clsx, and w-full comes after w-28 in Tailwind's sheet, so a field given w-28
+  // beside the old hard-coded w-full rendered full width anyway: every Wallets form field (B23.10).
+  it('full width by default, the given width instead of it, and full width under a responsive one', () => {
+    render(
+      <>
+        <Input aria-label="plain" />
+        <Input aria-label="amount" className="w-28 font-figure" />
+        <Input aria-label="memo" className="wide:w-56" />
+      </>,
+    )
+    const cls = (name: string) => screen.getByRole('textbox', { name }).className.split(/\s+/)
+    expect(cls('plain')).toContain('w-full')
+    expect(cls('amount')).toContain('w-28')
+    expect(cls('amount')).not.toContain('w-full')
+    expect(cls('memo')).toEqual(expect.arrayContaining(['w-full', 'wide:w-56']))
   })
 })
 

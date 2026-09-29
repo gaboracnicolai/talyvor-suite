@@ -13,6 +13,7 @@ import { CashOutCard, CashOuts, Escrows, PayIntoEscrow, Portfolios, Pots } from 
 import {
   type Agent,
   type AgentApproval,
+  type ApprovalPayee,
   type AgentBook,
   type AgentKey,
   type AgentRules,
@@ -107,7 +108,7 @@ function PauseEveryAgent({ book }: { book: AgentBook }) {
           <Input
             aria-label="Why every agent is paused"
             placeholder="Reason (optional)"
-            className="w-56"
+            className="wide:w-56"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
@@ -366,7 +367,7 @@ function Schedules({ agent, agents, nameOf }: { agent: Agent; agents: Agent[]; n
           <Input
             aria-label={`Memo for ${agent.name}’s scheduled payment`}
             placeholder="Memo"
-            className="w-40"
+            className="wide:w-40"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
           />
@@ -479,7 +480,7 @@ function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
         <Input
           aria-label="New agent name"
           placeholder="Agent name"
-          className="w-56"
+          className="min-w-0 flex-1 wide:w-56 wide:flex-none"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
@@ -851,7 +852,7 @@ function Pay({
             </Button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             aria-label={`Payment in LXC from ${agent.name}`}
             inputMode="decimal"
@@ -863,7 +864,7 @@ function Pay({
           <Input
             aria-label="What the payment is for"
             placeholder="What it is for"
-            className="w-56"
+            className="wide:w-56"
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
           />
@@ -1065,26 +1066,21 @@ function StatementDownload({ agent }: { agent: Agent | null }) {
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {/* Input is w-full, and cn() does not merge classes: the box sets its width. */}
-        <div className="w-40">
-          <Input
-            type="date"
-            aria-label={`First day of ${who} statement`}
-            className="font-figure"
-            value={period.from}
-            onChange={(e) => setPeriod((p) => ({ ...p, from: e.target.value }))}
-          />
-        </div>
+        <Input
+          type="date"
+          aria-label={`First day of ${who} statement`}
+          className="w-40 font-figure"
+          value={period.from}
+          onChange={(e) => setPeriod((p) => ({ ...p, from: e.target.value }))}
+        />
         <span className="text-caption text-muted">to</span>
-        <div className="w-40">
-          <Input
-            type="date"
-            aria-label={`Last day of ${who} statement`}
-            className="font-figure"
-            value={period.through}
-            onChange={(e) => setPeriod((p) => ({ ...p, through: e.target.value }))}
-          />
-        </div>
+        <Input
+          type="date"
+          aria-label={`Last day of ${who} statement`}
+          className="w-40 font-figure"
+          value={period.through}
+          onChange={(e) => setPeriod((p) => ({ ...p, through: e.target.value }))}
+        />
         <select
           aria-label={`File type of ${who} statement`}
           className={`${scheduleSelect} w-24`}
@@ -1109,6 +1105,13 @@ function StatementDownload({ agent }: { agent: Agent | null }) {
       ) : null}
     </form>
   )
+}
+
+const PAYEE_KIND: Record<ApprovalPayee['kind'], string> = {
+  agent: 'an agent',
+  listing: 'a marketplace listing',
+  company: 'a company',
+  merchant: 'a card merchant',
 }
 
 const DECIDED: Record<AgentApproval['status'], { status: PillStatus; label: string }> = {
@@ -1230,7 +1233,21 @@ function Approvals({
   const all = list.data?.approvals ?? []
   const pending = all.filter((a) => a.status === 'pending')
   const decided = all.filter((a) => a.status !== 'pending').slice(0, 5)
-  const what = (a: AgentApproval) => (a.reason ? a.reason : a.model ? `a request to ${a.model}` : 'a payment')
+  const what = (a: AgentApproval) =>
+    a.reason ? a.reason : a.model ? `a request to ${a.model}` : a.payee ? `a payment to ${PAYEE_KIND[a.payee.kind] ?? 'an account'}` : 'a payment'
+  // B23.10: a payment names who it pays and why (Lens B23.5), so the person approving sees the payee. The
+  // sentence wraps where a Row label would clip: the payee and memo are what is being approved.
+  const asks = (a: AgentApproval) =>
+    a.payee ? (
+      <span className="whitespace-normal">
+        {nameOf(a.agent_id)} wants to pay {a.payee.name || a.payee.id} {lxc(a.amount_ulxc)}
+        {a.memo ? ` — ${a.memo}` : ''}
+      </span>
+    ) : (
+      <>
+        {nameOf(a.agent_id)} · {lxc(a.amount_ulxc)}
+      </>
+    )
   return (
     <div className="flex flex-col gap-3">
       <FaceID signed={signed} passkeyCount={(keys.data?.passkeys ?? []).length} />
@@ -1250,11 +1267,7 @@ function Approvals({
             pending.map((a) => (
               <Row
                 key={a.id}
-                label={
-                  <>
-                    {nameOf(a.agent_id)} · {lxc(a.amount_ulxc)}
-                  </>
-                }
+                label={asks(a)}
                 hint={
                   <>
                     {what(a)}, asked <span className="font-figure">{formatWhen(a.created_at)}</span>
@@ -1283,14 +1296,7 @@ function Approvals({
             ))
           )}
           {decided.map((a) => (
-            <Row
-              key={a.id}
-              label={
-                <>
-                  {nameOf(a.agent_id)} · {lxc(a.amount_ulxc)}
-                </>
-              }
-              hint={what(a)}
+            <Row key={a.id} label={asks(a)} hint={what(a)}
             >
               <Pill status={DECIDED[a.status].status}>{DECIDED[a.status].label}</Pill>
             </Row>

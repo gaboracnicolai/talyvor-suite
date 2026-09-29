@@ -13,7 +13,10 @@ const bytes = (s: string) => new TextEncoder().encode(s)
 
 function mockBff() {
   const approvals = [
-    { id: 'apr_1', agent_id: 'agt_1', amount_ulxc: 3 * M, model: '', reason: 'October hosting', status: 'pending', created_at: '2026-09-28T06:05:00Z' },
+    {
+      id: 'apr_1', agent_id: 'agt_1', amount_ulxc: 3 * M, model: '', reason: 'October hosting', status: 'pending', created_at: '2026-09-28T06:05:00Z',
+      payee: { kind: 'company', id: 'ws_acme', name: 'Acme Hosting' }, memo: 'October invoice',
+    },
     { id: 'apr_2', agent_id: 'agt_1', amount_ulxc: 1 * M, model: '', reason: 'A second invoice', status: 'pending', created_at: '2026-09-28T06:06:00Z' },
   ]
   const decisions: Array<{ id: string; decision: string; body: Record<string, unknown> }> = []
@@ -57,6 +60,14 @@ afterEach(() => {
 })
 
 describe('Agent Bank approvals with Face ID', () => {
+  it('says who a payment pays, how much and what for (B23.10)', async () => {
+    mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+    const asks = await screen.findByText(/wants to pay/)
+    expect(asks).toHaveTextContent(/^Researcher wants to pay Acme Hosting 3 LXC — October invoice$/)
+  })
+
   it('signs each approve and deny with the passkey over that approval’s challenge', async () => {
     const bff = mockBff()
     const get = vi.fn(async (opts: CredentialRequestOptions) => {

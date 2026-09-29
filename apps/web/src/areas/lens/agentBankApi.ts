@@ -112,6 +112,13 @@ export interface AgentRules {
   pause_on_unusual_spend?: boolean
 }
 
+/** Lens economy.Payee. `name` is empty when the payee no longer exists. */
+export interface ApprovalPayee {
+  kind: 'agent' | 'listing' | 'company' | 'merchant'
+  id: string
+  name: string
+}
+
 /** Lens economy.AgentApproval. `model` is empty for a payment to another agent. */
 export interface AgentApproval {
   id: string
@@ -120,6 +127,10 @@ export interface AgentApproval {
   model: string
   /** Why the agent asked (B19.9), when it asked through its own tools. */
   reason?: string
+  /** Who a payment goes to (Lens B23.5); none for a request to a model. */
+  payee?: ApprovalPayee
+  /** The payment's memo. */
+  memo?: string
   status: 'pending' | 'approved' | 'denied' | 'used'
   created_at: string
   decided_at?: string

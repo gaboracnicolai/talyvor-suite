@@ -156,7 +156,7 @@ export function Pots({ agent }: { agent: Agent }) {
         }}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <Input aria-label="New pot’s name" placeholder="Name" className="w-40" value={name} onChange={(e) => setName(e.target.value)} />
+          <Input aria-label="New pot’s name" placeholder="Name" className="wide:w-40" value={name} onChange={(e) => setName(e.target.value)} />
           <div className="flex items-center gap-1" role="group" aria-label="What the pot is for">
             {POT_KINDS.map(([k, label]) => (
               <Button key={k} aria-pressed={kind === k} variant={kind === k ? 'primary' : 'default'} onClick={() => setKind(k)}>
@@ -219,7 +219,7 @@ export function PayIntoEscrow({ agent }: { agent: Agent }) {
         </p>
         <TestMoneyOnly capability="escrow" />
         <div className="flex flex-wrap items-center gap-2">
-          <Input aria-label="Hold for (wallet ID or @handle)" placeholder="@handle or wallet ID" className="w-48" value={who} onChange={(e) => setWho(e.target.value)} />
+          <Input aria-label="Hold for (wallet ID or @handle)" placeholder="@handle or wallet ID" className="wide:w-48" value={who} onChange={(e) => setWho(e.target.value)} />
           <Input
             aria-label="Amount in LXC to hold"
             inputMode="decimal"
@@ -229,7 +229,7 @@ export function PayIntoEscrow({ agent }: { agent: Agent }) {
             onChange={(e) => setAmount(e.target.value)}
           />
           <Input type="date" aria-label="Release on" className="w-40 font-figure" value={release} onChange={(e) => setRelease(e.target.value)} />
-          <Input aria-label="What the escrow is for" placeholder="What it is for" className="w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
+          <Input aria-label="What the escrow is for" placeholder="What it is for" className="wide:w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
           <Button type="submit" variant="primary" disabled={!ready || pay.isPending}>
             Pay into escrow
           </Button>
@@ -306,7 +306,7 @@ function EscrowRow({ escrow, agents }: { escrow: Escrow; agents: Agent[] }) {
           <Button variant="primary" disabled={act.isPending} onClick={() => act.mutate('confirm')}>
             Confirm delivered
           </Button>
-          <Input aria-label="Why you dispute it" placeholder="Why you dispute it" className="w-56" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Input aria-label="Why you dispute it" placeholder="Why you dispute it" className="wide:w-56" value={reason} onChange={(e) => setReason(e.target.value)} />
           <Button disabled={!reason.trim() || act.isPending} onClick={() => act.mutate('dispute')}>
             Dispute
           </Button>
@@ -517,7 +517,7 @@ export function Portfolios({ agent }: { agent: Agent }) {
           if (name.trim() && cashMicros !== null && !open.isPending) open.mutate()
         }}
       >
-        <Input aria-label="New portfolio’s name" placeholder="Name" className="w-40" value={name} onChange={(e) => setName(e.target.value)} />
+        <Input aria-label="New portfolio’s name" placeholder="Name" className="wide:w-40" value={name} onChange={(e) => setName(e.target.value)} />
         <Input
           aria-label="Starting simulated US dollars"
           inputMode="decimal"
@@ -576,7 +576,7 @@ export function CashOutCard({ agent }: { agent: Agent }) {
           <Input
             aria-label="Pay to (a name for the account)"
             placeholder="Pay to"
-            className="w-56"
+            className="wide:w-56"
             value={destination}
             onChange={(e) => setDestination(e.target.value)}
           />
