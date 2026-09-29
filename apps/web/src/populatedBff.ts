@@ -216,6 +216,10 @@ const BY_PATH: Record<string, unknown> = {
       { capability: 'pay_another_owner', name: 'Sending and requesting money between different owners', class: 'AMBER', real_money: false },
       { capability: 'company_credit_line', name: 'Talyvor’s credit line to companies, for Talyvor services', class: 'GREEN', real_money: true },
       { capability: 'loans_between_companies', name: 'Loans between companies', class: 'AMBER', real_money: false },
+      { capability: 'rules_approvals_statements_pots', name: 'Rules, approvals, statements and pots', class: 'GREEN', real_money: true },
+      { capability: 'escrow', name: 'Escrow between agents', class: 'AMBER', real_money: false },
+      { capability: 'cash_out', name: 'Cashing credits out as money', class: 'RED', real_money: false },
+      { capability: 'invest_and_trade', name: 'Investing and trading real assets', class: 'RED', real_money: false },
     ],
   },
   '/api/agents/agt_research/transfers': {
@@ -248,6 +252,53 @@ const BY_PATH: Record<string, unknown> = {
           { kind: 'instalment', instalment: 1, principal_ulxc: 10_000_000, interest_ulxc: 500_000, transfer_id: 'xfer_i1', at: '2026-09-28T09:00:00Z' },
         ],
       },
+    ],
+  },
+  // B22.12 — escrow, pots, simulated investing and cash-out: an escrow held for another owner's agent, a locked
+  // pot, a portfolio holding euros with a filled and an open order, and a cash-out with the partner.
+  '/api/wallets/escrows': {
+    escrows: [
+      {
+        id: 'esc_1', payer_workspace_id: 'ws-1', payer_agent_id: 'agt_research', payee_workspace_id: 'ws-other', payee_agent_id: 'agt_bea',
+        amount_ulxc: 8_000_000, memo: 'logo design', class: 'AMBER', test_funded_ulxc: 8_000_000, release_at: '2026-10-12T00:00:00Z',
+        status: 'held', created_at: '2026-09-28T10:00:00Z', events: [{ kind: 'held', actor: 'payer', at: '2026-09-28T10:00:00Z' }],
+      },
+    ],
+  },
+  '/api/agents/agt_research/pots': {
+    pots: [
+      { id: 'pot_1', agent_id: 'agt_research', name: 'Conference', kind: 'goal', target_ulxc: 30_000_000, locked_until: '2026-12-01T00:00:00Z', balance_ulxc: 12_000_000, created_at: '2026-09-01T09:00:00Z' },
+    ],
+  },
+  '/api/wallets/quotes': {
+    simulated: true,
+    market_data: 'European Central Bank euro foreign exchange reference rates (source: ECB, free at www.ecb.europa.eu)',
+    rate_date: '2026-09-28',
+    quotes: [
+      { instrument: 'EUR', price_usd: '1.08000000', rate_date: '2026-09-28' },
+      { instrument: 'GBP', price_usd: '1.30000000', rate_date: '2026-09-28' },
+    ],
+  },
+  '/api/agents/agt_research/portfolios': {
+    notice: 'Simulated: executed by Talyvor’s simulator at the ECB reference rate. No order is ever sent to a market.',
+    portfolios: [
+      {
+        id: 'pf_1', agent_id: 'agt_research', name: 'FX test', simulated: true,
+        notice: 'Simulated: executed by Talyvor’s simulator at the ECB reference rate. No order is ever sent to a market.',
+        market_data: 'European Central Bank euro foreign exchange reference rates (source: ECB, free at www.ecb.europa.eu)',
+        rate_date: '2026-09-28', starting_cash_uusd: 10_000_000_000, cash_uusd: 8_920_000_000, value_uusd: 10_000_000_000,
+        positions: [{ instrument: 'EUR', quantity_micros: 1_000_000_000, price_usd: '1.08000000', value_uusd: 1_080_000_000 }],
+        orders: [
+          { id: 'ord_2', portfolio_id: 'pf_1', instrument: 'GBP', side: 'buy', type: 'limit', quantity_micros: 500_000_000, limit_price_usd: '1.25', status: 'open', cash_uusd: 0, simulated: true, created_at: '2026-09-28T11:00:00Z' },
+          { id: 'ord_1', portfolio_id: 'pf_1', instrument: 'EUR', side: 'buy', type: 'market', quantity_micros: 1_000_000_000, status: 'filled', fill_price_usd: '1.08000000', fill_rate_date: '2026-09-28', cash_uusd: -1_080_000_000, simulated: true, created_at: '2026-09-28T10:30:00Z' },
+        ],
+        created_at: '2026-09-28T10:00:00Z',
+      },
+    ],
+  },
+  '/api/wallets/cash-outs': {
+    cash_outs: [
+      { id: 'co_1', workspace_id: 'ws-1', agent_id: 'agt_research', amount_ulxc: 5_000_000, amount_uusd: 50_000, test_funded_ulxc: 5_000_000, destination: 'Operating account', partner: 'test', partner_ref: 'test_co_1', status: 'submitted', created_at: '2026-09-28T12:00:00Z' },
     ],
   },
   '/api/agents/agt_research/statement': {

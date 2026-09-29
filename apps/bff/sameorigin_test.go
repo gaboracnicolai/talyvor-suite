@@ -226,6 +226,18 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/wallets/loans/x1/accept", body: `{}`},
 		{method: http.MethodPost, path: "/api/wallets/loans/x1/decline", body: `{}`},
 		{method: http.MethodPost, path: "/api/wallets/loans/x1/withdraw", body: `{}`},
+		// B22.12 — escrow, pots, simulated orders and cash-out.
+		{method: http.MethodPost, path: "/api/agents/x1/escrows", body: `{"to":"@bea","amount_ulxc":1,"release_at":"2030-01-01T00:00:00Z","memo":""}`},
+		{method: http.MethodPost, path: "/api/wallets/escrows/x1/confirm", body: `{}`},
+		{method: http.MethodPost, path: "/api/wallets/escrows/x1/dispute", body: `{"reason":"late"}`},
+		{method: http.MethodPost, path: "/api/agents/x1/pots", body: `{"name":"a","kind":"goal","target_ulxc":0,"locked_until":null}`},
+		{method: http.MethodPost, path: "/api/agents/x1/pots/x1/in", body: `{"amount_ulxc":1}`},
+		{method: http.MethodPost, path: "/api/agents/x1/pots/x1/out", body: `{"amount_ulxc":1}`},
+		{method: http.MethodPut, path: "/api/agents/x1/pots/x1/lock", body: `{"locked_until":null}`},
+		{method: http.MethodPost, path: "/api/agents/x1/portfolios", body: `{"name":"a","cash_uusd":1}`},
+		{method: http.MethodPost, path: "/api/agents/x1/portfolios/x1/orders", body: `{"instrument":"EUR","side":"buy","type":"market","quantity_micros":1}`},
+		{method: http.MethodPost, path: "/api/agents/x1/portfolios/x1/orders/x1/cancel", body: `{}`},
+		{method: http.MethodPost, path: "/api/agents/x1/cash-outs", body: `{"amount_ulxc":1,"destination":"test"}`},
 		// B19.24 — issuing an agent its test-mode card.
 		{method: http.MethodPost, path: "/api/agents/x1/card", body: `{"first_name":"a","last_name":"b","line1":"c","city":"d","postal_code":"e"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/connect", body: `{"country":"GB"}`},

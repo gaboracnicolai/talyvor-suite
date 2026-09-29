@@ -34,7 +34,7 @@ const transfersKey = (id: string) => ['agent-transfers', id]
 
 const lxc = (micros: number) => <span className="font-figure">{formatULXC(micros)}</span>
 
-function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+export function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
     <p role={ok ? 'status' : 'alert'} className="text-caption text-ink">
       {children}
@@ -42,7 +42,7 @@ function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   )
 }
 
-function readFailure(err: unknown, what: string): string {
+export function readFailure(err: unknown, what: string): string {
   return isSessionExpired(err) ? `${what} can’t be read until you sign in again.` : `${what} could not be read just now.`
 }
 
@@ -59,17 +59,18 @@ function useCapabilities() {
 
 /**
  * "Test money only" beside an AMBER or RED capability Talyvor has not cleared, and why. Nothing for a
- * GREEN one or a cleared one, and nothing while the classes are unread.
+ * GREEN one or a cleared one, and nothing while the classes are unread. A capability that never touches
+ * credits here (B22.12's simulated investing) names what it uses instead, with label and why.
  */
-export function TestMoneyOnly({ capability }: { capability: string }) {
+export function TestMoneyOnly({ capability, label = 'Test money only', why }: { capability: string; label?: string; why?: string }) {
   const caps = useCapabilities()
   const c = caps.data?.capabilities?.find((x) => x.capability === capability)
   if (!c || c.real_money) return null
   return (
     <p className="flex flex-wrap items-center gap-2 text-caption text-ink" data-testid={`test-money-only-${capability}`}>
-      <Pill status="held">Test money only</Pill>
+      <Pill status="held">{label}</Pill>
       <span>
-        {c.name}: {WHY[c.class]}
+        {c.name}: {why ?? WHY[c.class]}
       </span>
     </p>
   )

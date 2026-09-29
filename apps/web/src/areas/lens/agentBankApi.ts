@@ -344,6 +344,124 @@ export const agentBankApi = {
   acceptLoan: (lid: string) => send<Loan>('POST', `/api/wallets/loans/${e(lid)}/accept`),
   declineLoan: (lid: string) => send<Loan>('POST', `/api/wallets/loans/${e(lid)}/decline`),
   withdrawLoan: (lid: string) => send<{ status: string }>('POST', `/api/wallets/loans/${e(lid)}/withdraw`),
+  // B22.12 — escrow, pots, simulated investing and cash-out (Lens B22.6, B22.7, B22.8, B22.9).
+  escrows: () => getJSON<{ escrows: Escrow[] | null }>('/api/wallets/escrows'),
+  payIntoEscrow: (id: string, body: { to: string; amount_ulxc: number; release_at: string; memo: string }) =>
+    send<Escrow>('POST', `/api/agents/${e(id)}/escrows`, body),
+  confirmEscrow: (eid: string) => send<Escrow>('POST', `/api/wallets/escrows/${e(eid)}/confirm`),
+  disputeEscrow: (eid: string, reason: string) => send<Escrow>('POST', `/api/wallets/escrows/${e(eid)}/dispute`, { reason }),
+  pots: (id: string) => getJSON<{ pots: Pot[] | null }>(`/api/agents/${e(id)}/pots`),
+  createPot: (id: string, body: { name: string; kind: Pot['kind']; target_ulxc: number; locked_until: string | null }) =>
+    send<Pot>('POST', `/api/agents/${e(id)}/pots`, body),
+  movePot: (id: string, pid: string, dir: 'in' | 'out', amount_ulxc: number) =>
+    dir === 'in'
+      ? send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/in`, { amount_ulxc })
+      : send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/out`, { amount_ulxc }),
+  lockPot: (id: string, pid: string, locked_until: string | null) => send<Pot>('PUT', `/api/agents/${e(id)}/pots/${e(pid)}/lock`, { locked_until }),
+  quotes: () => getJSON<SimQuotes>('/api/wallets/quotes'),
+  portfolios: (id: string) => getJSON<{ portfolios: Portfolio[] | null; notice: string }>(`/api/agents/${e(id)}/portfolios`),
+  openPortfolio: (id: string, name: string, cash_uusd: number) => send<Portfolio>('POST', `/api/agents/${e(id)}/portfolios`, { name, cash_uusd }),
+  placeOrder: (id: string, pfid: string, body: SimOrderInput) => send<SimOrder>('POST', `/api/agents/${e(id)}/portfolios/${e(pfid)}/orders`, body),
+  cancelOrder: (id: string, pfid: string, oid: string) =>
+    send<SimOrder>('POST', `/api/agents/${e(id)}/portfolios/${e(pfid)}/orders/${e(oid)}/cancel`),
+  cashOuts: () => getJSON<{ cash_outs: CashOut[] | null }>('/api/wallets/cash-outs'),
+  requestCashOut: (id: string, amount_ulxc: number, destination: string) =>
+    send<CashOut>('POST', `/api/agents/${e(id)}/cash-outs`, { amount_ulxc, destination }),
+}
+
+/** Lens economy.Escrow (B22.6): credits held between a paying and a paid agent. */
+export interface Escrow {
+  id: string
+  payer_workspace_id: string
+  payer_agent_id: string
+  payee_workspace_id: string
+  payee_agent_id: string
+  amount_ulxc: number
+  memo?: string
+  class: 'GREEN' | 'AMBER'
+  test_funded_ulxc: number
+  release_at: string
+  status: 'held' | 'disputed' | 'released' | 'returned'
+  created_at: string
+  decided_at?: string
+  events: { kind: 'held' | 'disputed' | 'released' | 'returned'; actor: 'payer' | 'deadline' | 'operator'; operator?: string; detail?: string; at: string }[]
+}
+
+/** Lens economy.Pot (B22.7): credits an agent set aside. */
+export interface Pot {
+  id: string
+  agent_id: string
+  name: string
+  kind: 'goal' | 'budget' | 'reserve'
+  target_ulxc?: number
+  locked_until?: string
+  balance_ulxc: number
+  created_at: string
+}
+
+/** Lens economy.Quotes (B22.8): every instrument the simulator trades, in US dollars per unit. */
+export interface SimQuotes {
+  simulated: boolean
+  market_data: string
+  rate_date?: string
+  quotes: { instrument: string; price_usd: string; rate_date: string }[] | null
+}
+
+/** What an order asks for (Lens economy.SimOrderInput). Never a mode: every order here is simulated. */
+export interface SimOrderInput {
+  instrument: string
+  side: 'buy' | 'sell'
+  type: 'market' | 'limit'
+  quantity_micros: number
+  limit_price_usd?: string
+}
+
+/** Lens economy.SimOrder (B22.8). */
+export interface SimOrder extends SimOrderInput {
+  id: string
+  portfolio_id: string
+  status: 'open' | 'filled' | 'cancelled' | 'rejected'
+  fill_price_usd?: string
+  fill_rate_date?: string
+  cash_uusd: number
+  reason?: string
+  simulated: boolean
+  created_at: string
+  decided_at?: string
+}
+
+/** Lens economy.Portfolio (B22.8): simulated US dollars and positions, valued at the quotes. */
+export interface Portfolio {
+  id: string
+  agent_id: string
+  name: string
+  simulated: boolean
+  notice: string
+  market_data: string
+  rate_date?: string
+  starting_cash_uusd: number
+  cash_uusd: number
+  positions: { instrument: string; quantity_micros: number; price_usd: string; value_uusd: number }[] | null
+  value_uusd: number
+  orders: SimOrder[] | null
+  created_at: string
+}
+
+/** Lens economy.CashOut (B22.9): credits turned into money through a partner. */
+export interface CashOut {
+  id: string
+  workspace_id: string
+  agent_id: string
+  amount_ulxc: number
+  amount_uusd: number
+  test_funded_ulxc: number
+  destination: string
+  partner: string
+  partner_ref?: string
+  status: 'held' | 'submitted' | 'paid' | 'failed'
+  detail?: string
+  created_at: string
+  decided_at?: string
 }
 
 /** Lens economy.CapabilityStatus (B22.1): what a wallet can do, its class, and whether it takes real money now. */

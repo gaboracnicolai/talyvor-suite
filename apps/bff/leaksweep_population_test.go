@@ -354,9 +354,17 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// …/withdraw. What they change is read back through GET /api/agents (the handle), GET
 	// /api/agents/{id}/transfers, GET /api/wallets/requests and GET /api/wallets/loans, which the sweep
 	// reaches. Each relays Lens's answer (or its refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 59 {
+	//
+	// THE SIXTIETH TO SIXTY-EIGHTH ARE B22.12'S ESCROW, POTS, ORDERS AND CASH-OUT, each write only: POST
+	// /api/agents/{id}/escrows and …/cash-outs, POST /api/wallets/escrows/{eid}/confirm and …/dispute, POST
+	// /api/agents/{id}/pots/{pid}/in and …/out, PUT …/pots/{pid}/lock, and POST
+	// /api/agents/{id}/portfolios/{pfid}/orders and …/orders/{oid}/cancel. What they change is read back
+	// through GET /api/wallets/escrows, /api/wallets/cash-outs, /api/agents/{id}/pots and
+	// /api/agents/{id}/portfolios, which the sweep reaches. Each relays Lens's answer (or its refusal) and
+	// adds nothing the BFF holds.
+	if len(methodOnly) > 68 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 59 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 68 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
