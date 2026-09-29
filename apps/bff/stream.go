@@ -274,6 +274,10 @@ func (a *app) handleAIStream() http.HandlerFunc {
 				w.Header().Set(h, v)
 			}
 		}
+		// B23.12 — which request this answer was, so a thumbs-down on it can name it (feedback.go).
+		if v := resp.Header.Get(requestIDHeader); v != "" {
+			w.Header().Set(requestIDHeader, v)
+		}
 		// A stream must not be cached or buffered by anything between here and the browser.
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Accel-Buffering", "no")

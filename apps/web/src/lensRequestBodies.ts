@@ -530,6 +530,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/cash-outs", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentCashOutBody',
   },
+  // B23.12 — the chat's thumbs-down: Lens removes the stored answer the request was served.
+  {
+    route: 'POST /v1/feedback',
+    file: 'apps/bff/feedback.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"request_id": in.RequestID, "signal": in.Signal})',
+    upstreamFile: 'internal/proxy/answer_feedback.go',
+    upstreamAnchor: 'func AnswerFeedbackHandler(',
+    subject: 'lensFeedbackBody',
+  },
 ]
 
 /**

@@ -81,6 +81,11 @@ export interface ChatMessage {
   source?: AnswerSource
   /** B18.24 — on an answer: what converting the question's documents saved. */
   saved?: DistillSaved
+  /** B23.12 — on an answer: Lens's id for the request that produced it (X-Talyvor-Request-ID), which a
+   *  thumbs-down names it by. */
+  request_id?: string
+  /** B23.12 — this answer was marked wrong, and Lens removed it so it is not served again. */
+  marked_wrong?: boolean
 }
 
 /** An upload Lens refused or could not take, with the sentence to show. */
@@ -287,6 +292,8 @@ export interface StreamHandlers {
     source?: AnswerSource
     /** B18.24 — what the conversion saved, when Lens said. */
     saved?: DistillSaved
+    /** B23.12 — Lens's id for this request, when it said. */
+    requestId?: string
   }) => void
   /** A server-reported error inside the stream, or a transport failure. */
   onError: (message: string) => void
@@ -356,6 +363,7 @@ export async function streamChat(
   const converted = res.headers.get('X-Talyvor-Distill') === 'applied'
   const saved = converted ? distillSaved(res.headers) : undefined
   const source = answerSource(res.headers)
+  const requestId = res.headers.get('X-Talyvor-Request-ID') ?? undefined
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -381,7 +389,7 @@ export async function streamChat(
         }
         for (const d of got.deltas) handlers.onDelta(d.text)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId })
           return
         }
       }
@@ -396,7 +404,21 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId })
+}
+
+/**
+ * B23.12 — marks an answer wrong: Lens removes the stored answer that request was served, from this
+ * workspace's cache and the shared pool, so nobody is served it again. Throws when that did not happen.
+ */
+export async function markAnswerWrong(requestId: string): Promise<void> {
+  const res = await fetch('/api/ai/feedback', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ request_id: requestId, signal: 'negative' }),
+  })
+  if (!res.ok) throw new ApiError(res.status, '/api/ai/feedback')
 }
 
 /**
