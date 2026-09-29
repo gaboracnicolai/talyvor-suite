@@ -14,6 +14,7 @@ import {
   type PickerCatalog,
   fetchModels,
   fetchUnconfiguredProviders,
+  markAnswerWrong,
   pickerCatalog,
   streamChat,
   uploadDocument,
@@ -242,6 +243,7 @@ export function Chat() {
       let cost: AnswerCost | undefined
       let source: AnswerSource | undefined
       let saved: DistillSaved | undefined
+      let requestId: string | undefined
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
       const asked = turn.length - 1
       const carriedDocs = turn[asked]?.attachments?.some((a) => a.file_id !== undefined) === true
@@ -267,7 +269,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -296,6 +298,16 @@ export function Chat() {
                 return next
               })
             }
+            // B23.12 — the id a thumbs-down names this answer by.
+            if (rid !== undefined) {
+              requestId = rid
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, request_id: rid }
+                return next
+              })
+            }
             setPending(false)
             setUnreadable(unrecognised)
           },
@@ -308,7 +320,7 @@ export function Chat() {
         fresh,
       )
       store((list) =>
-        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved }], Date.now()),
+        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId }], Date.now()),
       )
     },
     [activeId, catalog.data, pending, selected, store],
@@ -369,6 +381,18 @@ export function Chat() {
     if (lastUser < 0) return
     void run(messages.slice(0, lastUser + 1), true)
   }, [messages, run])
+
+  // B23.12 — a thumbs-down: Lens removes the stored answer so nobody is served it again, and the answer
+  // says so — in the saved conversation too, so it still says so when reopened.
+  const markWrong = useCallback(
+    async (requestId: string) => {
+      await markAnswerWrong(requestId)
+      const mark = (list: ChatMessage[]) => list.map((m) => (m.request_id === requestId ? { ...m, marked_wrong: true } : m))
+      setMessages(mark)
+      if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, messages: mark(c.messages) } : c)))
+    },
+    [activeId, store],
+  )
 
   // B10.2 — Stop ends the answer where it is. streamChat returns silently on an aborted signal
   // (neither onDone nor onError), so the screen leaves the answering state here; run() then keeps
@@ -550,6 +574,7 @@ export function Chat() {
                         answering={pending && i === messages.length - 1}
                         canRegenerate={!pending && i === messages.length - 1}
                         onRegenerate={regenerate}
+                        onMarkWrong={m.request_id !== undefined ? () => markWrong(m.request_id!) : undefined}
                         onReveal={i === messages.length - 1 ? follow : undefined}
                         usdPerLXC={usdPerLXC}
                         fallbackModel={selected?.display_name}
@@ -830,6 +855,7 @@ function Reply({
   answering,
   canRegenerate,
   onRegenerate,
+  onMarkWrong,
   onReveal,
   usdPerLXC,
   fallbackModel,
@@ -838,6 +864,8 @@ function Reply({
   answering: boolean
   canRegenerate: boolean
   onRegenerate: () => void
+  /** B23.12 — marks the answer wrong; absent when Lens gave no id to name it by. */
+  onMarkWrong?: () => Promise<void>
   /** Called as the answer grows on screen, so the view can follow it. */
   onReveal?: () => void
   usdPerLXC: number | undefined
@@ -847,6 +875,17 @@ function Reply({
   // cached answer (which Lens sends in one piece) is revealed rather than dropped in as a block.
   const shown = useRevealedText(message.content, answering)
   useEffect(() => onReveal?.(), [shown.text, onReveal])
+  const [marking, setMarking] = useState<'idle' | 'busy' | 'failed'>('idle')
+  const markWrong = async () => {
+    if (onMarkWrong === undefined) return
+    setMarking('busy')
+    try {
+      await onMarkWrong()
+      setMarking('idle')
+    } catch {
+      setMarking('failed')
+    }
+  }
   return (
     <div>
       <span className="sr-only">{message.cost?.model ?? fallbackModel ?? 'Assistant'}: </span>
@@ -870,6 +909,19 @@ function Reply({
               Regenerate
             </button>
           ) : null}
+          {onMarkWrong !== undefined && !message.marked_wrong ? (
+            <button
+              type="button"
+              onClick={() => void markWrong()}
+              disabled={marking === 'busy'}
+              className={cn(
+                'rounded-control px-2 py-1 text-caption text-muted transition-colors duration-200 hover:text-ink',
+                focusRing,
+              )}
+            >
+              {marking === 'busy' ? 'Marking…' : 'Wrong answer'}
+            </button>
+          ) : null}
           {/* B1.4 — every answer carries its price and model: one quiet line, figures on the face.
               B15.6 — or, when the model did not write it just now, where it came from. */}
           <p className="ml-1 font-figure text-caption text-faint" data-testid="turn-cost">
@@ -881,6 +933,15 @@ function Reply({
                   `${message.cost.output_tokens.toLocaleString('en-US')} out tokens`
                 : 'Price not known — the provider reported no token counts for this answer'}
           </p>
+          {message.marked_wrong ? (
+            <p className="ml-1 w-full text-caption text-muted" data-testid="turn-marked">
+              Marked wrong — this answer won’t be served again{canRegenerate ? '. Regenerate asks the model afresh.' : '.'}
+            </p>
+          ) : marking === 'failed' ? (
+            <p role="status" className="ml-1 w-full text-caption text-muted">
+              Couldn’t mark it wrong just now. Try again.
+            </p>
+          ) : null}
           {savedLine(message.saved) !== undefined ? (
             <p className="ml-1 w-full font-figure text-caption text-faint" data-testid="turn-saved">
               {savedLine(message.saved)}

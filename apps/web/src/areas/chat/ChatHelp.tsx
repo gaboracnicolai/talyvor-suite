@@ -19,7 +19,8 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
         </p>
         <p>
           Under each answer, Copy puts the answer on your clipboard as Markdown, and Regenerate asks
-          the last question again and replaces the answer. Code blocks have their own Copy button.
+          the last question again and replaces the answer. Wrong answer removes a stored answer so it
+          is never served again, to you or anyone. Code blocks have their own Copy button.
         </p>
       </>
     ),

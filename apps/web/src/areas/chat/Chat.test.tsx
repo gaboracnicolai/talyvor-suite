@@ -75,8 +75,17 @@ function mockChat({
 } = {}) {
   const posted = vi.fn()
   const uploaded = vi.fn()
+  const feedback = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
+    // B23.12 — a thumbs-down: Lens removes the stored answer and says what went.
+    if (url === '/api/ai/feedback' && init?.method === 'POST') {
+      feedback(JSON.parse(String(init.body)))
+      return new Response(JSON.stringify({ stored: true, served_from: 'pool', answers_removed: 1, exact_copies_removed: 2 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     // B18.24 — Lens stores an attached document and answers the id a question references.
     if (url.startsWith('/api/documents?') && init?.method === 'POST') {
       uploaded({ url, init })
@@ -125,7 +134,7 @@ function mockChat({
     }
     return new Response('null', { status: 404 })
   })
-  return { posted, uploaded }
+  return { posted, uploaded, feedback }
 }
 
 function renderChat() {
@@ -737,6 +746,30 @@ describe('the reading column (B10.3)', () => {
     renderChat()
     await ask('what is the capital of the UK?')
     expect((await screen.findByTestId('turn-cost')).textContent).toBe('shared answer · 30% off · ≈ 0.0015 LXC')
+  })
+
+  // B23.12
+  it('Wrong answer on a shared answer tells Lens which request it was; the answer then says it won’t be served again and offers Regenerate', async () => {
+    const { feedback } = mockChat({
+      body: 'data: {"choices":[{"delta":{"content":"Paris."}}]}\n\ndata: [DONE]\n\n',
+      answerHeaders: {
+        'X-Talyvor-Cache-Replay': 'true',
+        'X-Talyvor-Pool-Charged-ULXC': '1519',
+        'X-Talyvor-Pool-Discount-Rate': '0.3',
+        'X-Talyvor-Request-ID': 'req-42',
+      },
+    })
+    renderChat()
+    await ask('what is the capital of the UK?')
+    fireEvent.click(await screen.findByRole('button', { name: 'Wrong answer' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('turn-marked').textContent).toBe(
+        'Marked wrong — this answer won’t be served again. Regenerate asks the model afresh.',
+      ),
+    )
+    expect(feedback).toHaveBeenCalledWith({ request_id: 'req-42', signal: 'negative' })
+    expect(screen.queryByRole('button', { name: 'Wrong answer' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy()
   })
 
   it('Regenerate asks Lens to bypass its cache; a question asked normally does not', async () => {

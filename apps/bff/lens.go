@@ -257,6 +257,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/ai/providers", a.handleAIProviders())
 	// B18.24 — a document the chat attaches, up to 25 MB, stored in Lens for the chat to reference by id.
 	a.mux.HandleFunc("/api/documents", a.requireTenant(a.handleDocumentUpload))
+	// B23.12 — the chat's thumbs-down: Lens removes the answer marked wrong. See feedback.go.
+	a.mux.HandleFunc("/api/ai/feedback", a.requireTenant(a.handleAIFeedback))
 
 	// W4.6.1 step 6 — THE MODEL CATALOG, so the chat screen can offer what this DEPLOYMENT serves
 	// rather than a list someone typed into the front end.
