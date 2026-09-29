@@ -21,6 +21,10 @@ export interface ChatModel {
   input_per_1m: number
   output_per_1m: number
   deprecated?: boolean
+  /** B18.60 — when the provider released it (YYYY-MM-DD), from Lens's catalog (B18.12). */
+  release_date?: string
+  /** B18.60 — its place in the provider's line-up: frontier | balanced | fast | embedding. */
+  tier?: string
 }
 
 /**
@@ -102,23 +106,21 @@ const PROVIDER_LABEL: Record<string, string> = {
   vllm: 'vLLM',
 }
 
-/**
- * B10.4 — a model's generation, read from the number in its name: GPT-5.6 → 5.6, Claude Opus 4.5 →
- * 4.5, Llama 3.3 70B → 3.3. A model with no number sorts last.
- *
- * ⚠ AN INFERENCE, BECAUSE THE CATALOG CARRIES NO RELEASE DATE. Lens's catalog.Model has prices,
- * capabilities and limits, and nothing that says when a model came out or which is a provider's
- * flagship. Providers number their generations, so the number in the name is the closest fact the
- * catalog does hold. A `released` field in Lens would replace this (recorded in FOUND.md).
- */
-export function generation(m: ChatModel): number {
-  const match = /(\d+(?:\.\d+)?)/.exec(m.display_name)
-  return match === null ? -1 : Number(match[1])
-}
+/** B18.60 — within one release date, the most capable first. */
+const TIER_RANK: Record<string, number> = { frontier: 3, balanced: 2, fast: 1 }
 
-/** Newest generation first; within one, the flagship (highest output price) first. */
+/**
+ * B18.60 — newest release first, from the catalog's release_date (Lens B18.12), never a number parsed
+ * from a name; within one day the higher tier, then the higher output price. A model without a date
+ * sorts last.
+ */
 function newestFirst(a: ChatModel, b: ChatModel): number {
-  return generation(b) - generation(a) || b.output_per_1m - a.output_per_1m || a.display_name.localeCompare(b.display_name)
+  return (
+    (b.release_date ?? '').localeCompare(a.release_date ?? '') ||
+    (TIER_RANK[b.tier ?? ''] ?? 0) - (TIER_RANK[a.tier ?? ''] ?? 0) ||
+    b.output_per_1m - a.output_per_1m ||
+    a.display_name.localeCompare(b.display_name)
+  )
 }
 
 export interface CatalogGroup {
@@ -137,7 +139,7 @@ export interface PickerCatalog {
   omitted: number
   /** B18.58 — chat models on providers this deployment's Lens holds no key for: not listed. */
   unconfigured: number
-  /** The newest flagship among the offered models — the default, chosen from data, never a name. */
+  /** The newest frontier model among the offered ones (else the newest) — the default, from the catalog's fields. */
   defaultModel: ChatModel | undefined
 }
 
@@ -176,7 +178,7 @@ export function pickerCatalog(all: ChatModel[], unconfiguredProviders: readonly 
     offered,
     omitted: all.length - priced.length,
     unconfigured: priced.length - chat.length,
-    defaultModel: [...offered].sort(newestFirst)[0],
+    defaultModel: [...offered].filter((m) => m.tier === 'frontier').sort(newestFirst)[0] ?? [...offered].sort(newestFirst)[0],
   }
 }
 

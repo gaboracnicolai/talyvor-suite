@@ -17,10 +17,10 @@ import { type Conversation, historyKey, loadConversations } from './history'
 // assertion in this file would pass against a client that awaited `res.text()`.
 
 const CATALOG = [
-  { id: 'gpt-4o', provider: 'openai', display_name: 'GPT-4o', input_per_1m: 2.5, output_per_1m: 10 },
-  { id: 'claude-opus-5', provider: 'anthropic', display_name: 'Claude Opus 5', input_per_1m: 5, output_per_1m: 25 },
+  { id: 'gpt-4o', provider: 'openai', display_name: 'GPT-4o', input_per_1m: 2.5, output_per_1m: 10, release_date: '2024-05-13', tier: 'balanced' },
+  { id: 'claude-opus-5', provider: 'anthropic', display_name: 'Claude Opus 5', input_per_1m: 5, output_per_1m: 25, release_date: '2026-07-24', tier: 'frontier' },
   // B18.58 — offered: Lens streams Google through its own upstream and sends OpenAI chunks.
-  { id: 'gemini-2-pro', provider: 'google', display_name: 'Gemini 2 Pro', input_per_1m: 1, output_per_1m: 4 },
+  { id: 'gemini-2-pro', provider: 'google', display_name: 'Gemini 2 Pro', input_per_1m: 1, output_per_1m: 4, release_date: '2025-06-17', tier: 'frontier' },
   // Deprecated: in the catalog, retired at the provider.
   { id: 'gpt-4-old', provider: 'openai', display_name: 'GPT-4 (old)', input_per_1m: 30, output_per_1m: 60, deprecated: true },
 ]
@@ -145,11 +145,14 @@ async function ask(text: string) {
 }
 
 describe('the model picker reads the deployment, not this file', () => {
-  it('lists every priced chat model by provider, newest first — one it cannot stream is shown, not offered', async () => {
+  it('lists every priced chat model by provider, newest release first — one it cannot stream is shown, not offered', async () => {
     mockChat({
       catalog: [
         ...CATALOG,
-        { id: 'gpt-5', provider: 'openai', display_name: 'GPT-5', input_per_1m: 1.25, output_per_1m: 10 },
+        { id: 'gpt-5', provider: 'openai', display_name: 'GPT-5', input_per_1m: 1.25, output_per_1m: 10, release_date: '2025-08-07', tier: 'frontier' },
+        // B18.60 — ordered by release date, not the number in the name: GPT-4.1 came out after GPT-4.5.
+        { id: 'gpt-4.5', provider: 'openai', display_name: 'GPT-4.5', input_per_1m: 75, output_per_1m: 150, release_date: '2025-02-27', tier: 'frontier' },
+        { id: 'gpt-4.1', provider: 'openai', display_name: 'GPT-4.1', input_per_1m: 2, output_per_1m: 8, release_date: '2025-04-14', tier: 'balanced' },
         // Not a chat model: an embedding has no output price.
         { id: 'text-embedding-3-small', provider: 'openai', display_name: 'Embedding 3 small', input_per_1m: 0.02, output_per_1m: 0 },
         // A provider Lens has no proxy route for.
@@ -162,7 +165,7 @@ describe('the model picker reads the deployment, not this file', () => {
       .getAllByRole('group')
       .map((g) => [g.getAttribute('aria-label'), within(g).getAllByRole('option').map((o) => o.querySelector('span')?.firstChild?.textContent)])
     expect(listed).toEqual([
-      ['OpenAI', ['GPT-5', 'GPT-4o']],
+      ['OpenAI', ['GPT-5', 'GPT-4.1', 'GPT-4.5', 'GPT-4o']],
       ['Anthropic', ['Claude Opus 5']],
       ['Google', ['Gemini 2 Pro']],
       // ⚠ LISTED, NOT OFFERED: Lens has no route to stream it through; shown disabled, with the reason.
@@ -184,15 +187,16 @@ describe('the model picker reads the deployment, not this file', () => {
     expect(screen.getByText(/on providers without a key not listed/).textContent).toContain('1 model on')
   })
 
-  it('defaults to the newest flagship in the catalog, and a model added to Lens appears — and leads — with no change here', async () => {
-    mockChat()
+  it('defaults to the newest frontier model in the catalog, and a model added to Lens appears — and leads — with no change here', async () => {
+    // B18.60 — a newer model that is not frontier does not become the default.
+    mockChat({ catalog: [...CATALOG, { id: 'claude-haiku-6', provider: 'anthropic', display_name: 'Claude Haiku 6', input_per_1m: 1, output_per_1m: 5, release_date: '2026-09-01', tier: 'fast' }] })
     const { unmount } = renderChat()
-    // Claude Opus 5 is the fixture's newest generation.
+    // Claude Opus 5 is the fixture's newest frontier model.
     expect(await screen.findByRole('button', { name: 'Model: Claude Opus 5' })).toBeTruthy()
     unmount()
 
     vi.restoreAllMocks()
-    mockChat({ catalog: [...CATALOG, { id: 'gpt-6', provider: 'openai', display_name: 'GPT-6', input_per_1m: 3, output_per_1m: 20 }] })
+    mockChat({ catalog: [...CATALOG, { id: 'gpt-6', provider: 'openai', display_name: 'GPT-6', input_per_1m: 3, output_per_1m: 20, release_date: '2026-09-22', tier: 'frontier' }] })
     renderChat()
     expect(await screen.findByRole('button', { name: 'Model: GPT-6' })).toBeTruthy()
   })

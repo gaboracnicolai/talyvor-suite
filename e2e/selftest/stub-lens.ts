@@ -38,12 +38,12 @@ const USD_PER_LXC = 0.1
 const GRANT_ULXC = 1_000_000_000
 
 const CATALOG = [
-  { id: 'claude-haiku-4-5', provider: 'anthropic', display_name: 'Claude Haiku 4.5', input_per_1m: 1, output_per_1m: 5 },
-  { id: 'claude-sonnet-5', provider: 'anthropic', display_name: 'Claude Sonnet 5', input_per_1m: 3, output_per_1m: 15 },
-  { id: 'gpt-6-luna', provider: 'openai', display_name: 'GPT-6 Luna', input_per_1m: 0.1, output_per_1m: 0.4 },
-  { id: 'gemini-flash-lite', provider: 'google', display_name: 'Gemini Flash-Lite', input_per_1m: 0.1, output_per_1m: 0.4 },
+  { id: 'claude-haiku-4-5', provider: 'anthropic', display_name: 'Claude Haiku 4.5', input_per_1m: 1, output_per_1m: 5, release_date: '2025-10-15', tier: 'fast' },
+  { id: 'claude-sonnet-5', provider: 'anthropic', display_name: 'Claude Sonnet 5', input_per_1m: 3, output_per_1m: 15, release_date: '2026-06-30', tier: 'balanced' },
+  { id: 'gpt-6-luna', provider: 'openai', display_name: 'GPT-6 Luna', input_per_1m: 0.1, output_per_1m: 0.4, release_date: '2026-09-22', tier: 'fast' },
+  { id: 'gemini-flash-lite', provider: 'google', display_name: 'Gemini Flash-Lite', input_per_1m: 0.1, output_per_1m: 0.4, release_date: '2026-07-21', tier: 'fast' },
   // Not a chat model, as in production: every-model must not try it.
-  { id: 'text-embedding-3-large', provider: 'openai', display_name: 'Embedding 3 large', input_per_1m: 0.13, output_per_1m: 0 },
+  { id: 'text-embedding-3-large', provider: 'openai', display_name: 'Embedding 3 large', input_per_1m: 0.13, output_per_1m: 0, release_date: '2024-01-25', tier: 'embedding' },
 ]
 const CONFIGURED = new Set(['anthropic', 'openai'])
 
