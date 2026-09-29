@@ -113,6 +113,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/billing/subscription", a.requireSession(a.wsProxyGated("/billing/subscription", "subscriptions")))
 	a.mux.HandleFunc("/api/billing/subscription/cancel", a.requireTenant(a.handleSubscriptionChange("cancel")))
 	a.mux.HandleFunc("/api/billing/subscription/resume", a.requireTenant(a.handleSubscriptionChange("resume")))
+	a.mux.HandleFunc("/api/billing/subscription/plan", a.requireTenant(a.handlePlanChange)) // B18.20, Lens B18.14
 	// B13.3 — start a Stripe Checkout for one of the three plans. Session-gated, same-Origin,
 	// the workspace from the SESSION and the plan from a fixed list. See billing.go.
 	a.mux.HandleFunc("/api/billing/subscribe", a.requireTenant(a.handleSubscribe))

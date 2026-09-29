@@ -35,6 +35,8 @@ function summary(over: Partial<EarningsSummary> = {}): EarningsSummary {
       },
     ],
     unclassified_types: [],
+    reuses: 0,
+    helped_workspaces: 0,
     ...over,
   }
 }

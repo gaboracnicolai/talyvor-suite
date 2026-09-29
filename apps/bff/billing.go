@@ -490,3 +490,30 @@ func (a *app) handleSubscriptionChange(action string) func(http.ResponseWriter, 
 		a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/billing/subscription/"+action), nil, "")
 	}
 }
+
+// handlePlanChange — POST /api/billing/subscription/plan {"plan":"plus"|"pro"|"max"} (B18.20), relayed
+// to Lens B18.14 on the session's workspace. Stripe swaps the live subscription's price with proration:
+// the unused time on the old plan is credited and the rest of the period charged at the new one, on the
+// next invoice. Lens answers Stripe's state after the swap; the allowance moves when the webhook that
+// follows arrives. Lens's 409 (nothing live, or already on that plan) is relayed with its sentence.
+func (a *app) handlePlanChange(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var change struct {
+		Plan string `json:"plan"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	if err := json.NewDecoder(r.Body).Decode(&change); err != nil || !subscriptionPlans[change.Plan] {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "plan must be one of plus, pro, max — nothing changed"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensPlanChangeBody: none
+	body, err := json.Marshal(map[string]string{"plan": change.Plan})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "encode"})
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/billing/subscription/plan"), body, "")
+}

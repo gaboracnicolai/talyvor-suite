@@ -203,6 +203,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/use", body: `{"input":"x"}`},
 		{method: http.MethodPost, path: "/api/billing/subscription/cancel", body: `{}`},
 		{method: http.MethodPost, path: "/api/billing/subscription/resume", body: `{}`},
+		{method: http.MethodPost, path: "/api/billing/subscription/plan", body: `{"plan":"pro"}`},
 		{method: http.MethodPost, path: "/api/agents/pause-all", body: `{"reason":"r"}`},
 		{method: http.MethodPost, path: "/api/agents/resume-all", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/x1/pause", body: `{"reason":"r"}`},

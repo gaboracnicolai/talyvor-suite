@@ -182,6 +182,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'subs.post(authed, "/v1/workspaces/{wsID}/billing/subscribe", func',
     subject: 'lensSubscribeBody',
   },
+  // B18.20 — the plan a subscriber moves to on /plans.
+  {
+    route: 'POST /v1/workspaces/{wsID}/billing/subscription/plan',
+    file: 'apps/bff/billing.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"plan": change.Plan})',
+    upstreamFile: 'cmd/lens/main.go',
+    upstreamAnchor: 'subs.post(authed, "/v1/workspaces/{wsID}/billing/subscription/plan", func',
+    subject: 'lensPlanChangeBody',
+  },
   // B21.4 — Features' Stored answers: deleting them, and asking Talyvor to delete everything.
   {
     route: 'DELETE /v1/workspaces/{wsID}/stored-answers',
