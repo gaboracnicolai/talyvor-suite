@@ -10,11 +10,13 @@ import {
   type ChatAttachment,
   type ChatMessage,
   type ChatModel,
+  type DistillSaved,
   type PickerCatalog,
   fetchModels,
   fetchUnconfiguredProviders,
   pickerCatalog,
   streamChat,
+  uploadDocument,
 } from './chatApi'
 import {
   type Conversation,
@@ -73,12 +75,13 @@ import { topupApi } from '../lens/topupApi'
 /**
  * B10.3 — the documents a question can carry: exactly the formats Lens's converter reads
  * (talyvor-lens internal/distill/orchestrator.go, FormatFromMediaType). Keyed by extension because
- * a browser often reports no type for .md or .csv. Slide decks are not among them.
+ * a browser often reports no type for .md or .csv. B18.24 — slide decks too, since Lens reads .pptx.
  */
 export const ATTACHABLE: Record<string, string> = {
   pdf: 'application/pdf',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   csv: 'text/csv',
   html: 'text/html',
   htm: 'text/html',
@@ -89,23 +92,28 @@ export const ATTACHABLE: Record<string, string> = {
 }
 
 /**
- * ⚠ 2.5 MB OF DOCUMENTS PER CONVERSATION, AND THE REASON IS THE WIRE. The BFF and Lens each refuse a
- * request body over 4 MiB, a document travels base64-encoded (a third larger), and every later
- * question in the conversation carries it again.
+ * B18.24 — 25 MB per document: Lens's upload cap (talyvor-lens internal/documents.MaxBytes). A document
+ * is uploaded once (POST /api/documents) and each question references it by id, so the chat request's
+ * own 4 MiB bound no longer limits it.
  */
-export const ATTACH_LIMIT_BYTES = 2_500_000
-
-function readBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''))
-    reader.onerror = () => reject(reader.error ?? new Error('unreadable'))
-    reader.readAsDataURL(file)
-  })
-}
+export const ATTACH_LIMIT_BYTES = 25 << 20
 
 function formatSize(bytes: number): string {
   return bytes < 1_000_000 ? `${Math.max(1, Math.round(bytes / 1000))} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`
+}
+
+/**
+ * B18.24 — what converting a question's documents saved, for the answer's footer, in Lens's figures.
+ * Lens counts tokens only where it can measure them (0 for a binary file such as a slide deck), so a
+ * zero is not shown as a saving: the size the conversion took off is.
+ */
+export function savedLine(saved: DistillSaved | undefined): string | undefined {
+  if (saved === undefined) return undefined
+  const smaller = saved.bytes > 0 ? `${formatSize(saved.bytes)} smaller` : undefined
+  if (saved.tokens > 0) {
+    return `Conversion saved ${saved.tokens.toLocaleString('en-US')} tokens${smaller ? ` · ${smaller}` : ''}`
+  }
+  return smaller ? `Converted to text, ${smaller}` : undefined
 }
 
 /** Click-to-ask prompts for an empty conversation. Plain requests, no instructions. */
@@ -134,6 +142,8 @@ export function Chat() {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [attachError, setAttachError] = useState<string | null>(null)
+  // B18.24 — documents on their way to Lens; a question waits for them.
+  const [uploading, setUploading] = useState<string[]>([])
   const [pending, setPending] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [unreadable, setUnreadable] = useState(0)
@@ -231,9 +241,10 @@ export function Chat() {
       let answer = ''
       let cost: AnswerCost | undefined
       let source: AnswerSource | undefined
+      let saved: DistillSaved | undefined
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
       const asked = turn.length - 1
-      const carriedDocs = turn[asked]?.attachments?.some((a) => a.data !== undefined) === true
+      const carriedDocs = turn[asked]?.attachments?.some((a) => a.file_id !== undefined) === true
       let sentTurn = turn
 
       await streamChat(
@@ -256,10 +267,20 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
+            }
+            // B18.24 — what converting the documents saved, shown under the answer.
+            if (conversion !== undefined) {
+              saved = conversion
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, saved: conversion }
+                return next
+              })
             }
             // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
             // B15.6 — except one the model did not write just now: a replayed or shared answer is
@@ -271,7 +292,7 @@ export function Chat() {
               setMessages((prev) => {
                 const next = [...prev]
                 const last = next[next.length - 1]
-                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from }
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved }
                 return next
               })
             }
@@ -287,7 +308,7 @@ export function Chat() {
         fresh,
       )
       store((list) =>
-        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source }], Date.now()),
+        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved }], Date.now()),
       )
     },
     [activeId, catalog.data, pending, selected, store],
@@ -296,49 +317,49 @@ export function Chat() {
   const send = useCallback(
     (text: string = draft) => {
       const question = text.trim()
-      if (question === '' || selected === undefined || pending) return
+      if (question === '' || selected === undefined || pending || uploading.length > 0) return
       setDraft('')
       const docs = attachments
       setAttachments([])
       setAttachError(null)
       void run([...messages, docs.length > 0 ? { role: 'user', content: question, attachments: docs } : { role: 'user', content: question }])
     },
-    [attachments, draft, messages, pending, run, selected],
+    [attachments, draft, messages, pending, run, selected, uploading],
   )
 
   const attach = useCallback(
     async (files: File[]) => {
       setAttachError(null)
-      const inMemory = [...messages.flatMap((m) => m.attachments ?? []), ...attachments]
-        .filter((a) => a.data !== undefined)
-        .reduce((sum, a) => sum + a.size, 0)
-      let room = ATTACH_LIMIT_BYTES - inMemory
-      const added: ChatAttachment[] = []
       for (const f of files) {
         const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
         const mediaType = ATTACHABLE[ext]
         if (mediaType === undefined) {
           setAttachError(
-            `${f.name} can’t be converted. PDF, Word, Excel, CSV, HTML, JSON, XML, text and Markdown files can — save a slide deck as PDF first.`,
+            `${f.name} can’t be converted. PDF, Word, Excel, PowerPoint, CSV, HTML, JSON, XML, text and Markdown files can.`,
           )
           continue
         }
-        if (f.size > room) {
-          setAttachError(
-            `${f.name} is too large: documents are limited to 2.5 MB per conversation, because a request can carry at most 4 MB and a document travels base64-encoded.`,
-          )
+        if (f.size > ATTACH_LIMIT_BYTES) {
+          setAttachError(`${f.name} is too large: a document can be at most 25 MB.`)
           continue
         }
+        // B18.24 — stored in Lens once; each question then references it by id.
+        setUploading((prev) => [...prev, f.name])
         try {
-          added.push({ name: f.name, media_type: mediaType, size: f.size, data: await readBase64(f) })
-          room -= f.size
-        } catch {
-          setAttachError(`${f.name} could not be read by this browser.`)
+          const id = await uploadDocument(f, mediaType)
+          setAttachments((prev) => [...prev, { name: f.name, media_type: mediaType, size: f.size, file_id: id }])
+        } catch (e) {
+          const why = e instanceof Error && e.message !== '' ? e.message : 'try again.'
+          setAttachError(`${f.name} couldn’t be uploaded: ${why}${/[.!?]$/.test(why) ? '' : '.'}`)
+        } finally {
+          setUploading((prev) => {
+            const i = prev.indexOf(f.name)
+            return i < 0 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]
+          })
         }
       }
-      if (added.length > 0) setAttachments((prev) => [...prev, ...added])
     },
-    [attachments, messages],
+    [],
   )
 
   // Regenerate answers the last question again: the previous answer is dropped, not kept beside it.
@@ -566,6 +587,7 @@ export function Chat() {
               onAttach={(files) => void attach(files)}
               onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, j) => j !== i))}
               attachError={attachError}
+              uploading={uploading}
               draft={draft}
               onDraft={setDraft}
               onSend={() => send()}
@@ -751,7 +773,7 @@ function Drawer({ onClose, children }: { onClose: () => void; children: React.Re
  */
 function SentDocuments({ message, answering }: { message: ChatMessage; answering: boolean }) {
   const docs = message.attachments ?? []
-  const kept = docs.every((d) => d.data !== undefined)
+  const kept = docs.every((d) => d.file_id !== undefined)
   return (
     <div className="mb-2 space-y-1">
       <ul className="flex flex-wrap gap-2" aria-label="Documents sent">
@@ -859,6 +881,11 @@ function Reply({
                   `${message.cost.output_tokens.toLocaleString('en-US')} out tokens`
                 : 'Price not known — the provider reported no token counts for this answer'}
           </p>
+          {savedLine(message.saved) !== undefined ? (
+            <p className="ml-1 w-full font-figure text-caption text-faint" data-testid="turn-saved">
+              {savedLine(message.saved)}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -870,6 +897,7 @@ function Composer({
   onAttach,
   onRemoveAttachment,
   attachError,
+  uploading,
   draft,
   onDraft,
   onSend,
@@ -883,6 +911,8 @@ function Composer({
   onAttach: (files: File[]) => void
   onRemoveAttachment: (index: number) => void
   attachError: string | null
+  /** B18.24 — names of the documents still on their way to Lens. */
+  uploading: string[]
   draft: string
   onDraft: (text: string) => void
   onSend: () => void
@@ -915,7 +945,7 @@ function Composer({
         onSend()
       }}
     >
-      {attachments.length > 0 ? (
+      {attachments.length > 0 || uploading.length > 0 ? (
         <ul className="flex flex-wrap gap-2 px-3 pt-3" aria-label="Attached documents">
           {attachments.map((a, i) => (
             <li key={`${a.name}-${i}`} className="flex items-center gap-1 rounded-control border border-rule bg-canvas py-1 pl-2 pr-1 text-caption text-ink">
@@ -929,6 +959,15 @@ function Composer({
               >
                 Remove
               </button>
+            </li>
+          ))}
+          {uploading.map((name, i) => (
+            <li
+              key={`uploading-${name}-${i}`}
+              className="flex items-center gap-1 rounded-control border border-rule bg-canvas px-2 py-1 text-caption text-muted"
+              data-testid="attachment-uploading"
+            >
+              <span className="max-w-48 truncate">{name}</span> uploading…
             </li>
           ))}
         </ul>
@@ -998,7 +1037,12 @@ function Composer({
             Stop
           </Button>
         ) : (
-          <Button key="send" type="submit" variant="primary" disabled={draft.trim() === '' || selected === undefined}>
+          <Button
+            key="send"
+            type="submit"
+            variant="primary"
+            disabled={draft.trim() === '' || selected === undefined || uploading.length > 0}
+          >
             Send
           </Button>
         )}

@@ -56,7 +56,16 @@ export interface ChatAttachment {
   name: string
   media_type: string
   size: number
-  data?: string
+  /** B18.24 — the id Lens stored the document under (POST /api/documents → tdoc_…). A question
+   *  references the document by it rather than carrying the file. Absent on a document from before. */
+  file_id?: string
+}
+
+/** B18.24 — what converting a question's documents saved, as Lens measured it (talyvor-lens B18.13):
+ *  tokens by the gateway's own count — 0, never a guess, for a binary file — and bytes. */
+export interface DistillSaved {
+  tokens: number
+  bytes: number
 }
 
 export interface ChatMessage {
@@ -70,6 +79,50 @@ export interface ChatMessage {
   converted?: boolean
   /** B15.6 — set when the answer was not written by the model just now: replayed or shared. */
   source?: AnswerSource
+  /** B18.24 — on an answer: what converting the question's documents saved. */
+  saved?: DistillSaved
+}
+
+/** An upload Lens refused or could not take, with the sentence to show. */
+export class DocumentUploadError extends ApiError {
+  constructor(
+    status: number,
+    readonly sentence: string,
+  ) {
+    super(status, '/api/documents')
+    this.message = sentence
+  }
+}
+
+/**
+ * B18.24 — stores a document in Lens (up to 25 MB, through the BFF) and returns the id a question
+ * references it by. The body is the file itself and its Content-Type the document's media type.
+ */
+export async function uploadDocument(file: File, mediaType: string): Promise<string> {
+  const res = await fetch(`/api/documents?filename=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': mediaType, Accept: 'application/json' },
+    body: file,
+  })
+  const answer = (await res.json().catch(() => ({}))) as { id?: unknown; error?: unknown }
+  if (!res.ok) {
+    const said = typeof answer.error === 'string' && res.status < 500 ? answer.error : 'Lens couldn’t store it just now.'
+    throw new DocumentUploadError(res.status, said)
+  }
+  if (typeof answer.id !== 'string' || !answer.id.startsWith('tdoc_')) {
+    throw new DocumentUploadError(res.status, 'Lens answered without a document id.')
+  }
+  return answer.id
+}
+
+/** Reads what Lens says converting the documents saved, or undefined when it said nothing. */
+function distillSaved(headers: Headers): DistillSaved | undefined {
+  const tokens = headers.get('X-Talyvor-Distill-Tokens-Saved')
+  const bytes = headers.get('X-Talyvor-Distill-Bytes-Saved')
+  if (tokens === null && bytes === null) return undefined
+  const n = (v: string | null) => (v !== null && /^\d+$/.test(v) ? Number(v) : 0)
+  return { tokens: n(tokens), bytes: n(bytes) }
 }
 
 /** Reads the deployment's catalog. Errors are the shared ApiError so the app-wide bar sees them. */
@@ -194,26 +247,24 @@ function requestBody(provider: string, model: string, turns: ChatMessage[]): unk
   // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
   // refuses a message with a field it does not know.
   const messages = turns.map(({ role, content, attachments }) => {
-    const docs = (attachments ?? []).filter((a) => a.data !== undefined)
+    const docs = (attachments ?? []).filter((a) => a.file_id !== undefined)
     if (docs.length === 0) return { role, content }
-    // ⚠ THE TWO SHAPES LENS'S CONVERTER READS (talyvor-lens internal/proxy/distill_integration.go,
-    // extractBlockDocument): Anthropic's base64 `document` block and OpenAI's `file` part with a
-    // data: URL. Lens replaces each with the document's text before the model sees it.
+    // ⚠ THE TWO SHAPES LENS READS AN UPLOADED DOCUMENT FROM (talyvor-lens B18.13): Anthropic's
+    // `document` block with a `file` source and OpenAI's `file` part, each naming the tdoc_ id. Lens
+    // replaces each with the document's text before the model sees it — the id means nothing to a
+    // provider, so it always converts.
     if (provider === 'anthropic') {
       return {
         role,
         content: [
-          ...docs.map((d) => ({ type: 'document', source: { type: 'base64', media_type: d.media_type, data: d.data } })),
+          ...docs.map((d) => ({ type: 'document', source: { type: 'file', file_id: d.file_id } })),
           { type: 'text', text: content },
         ],
       }
     }
     return {
       role,
-      content: [
-        { type: 'text', text: content },
-        ...docs.map((d) => ({ type: 'file', file: { filename: d.name, file_data: `data:${d.media_type};base64,${d.data}` } })),
-      ],
+      content: [{ type: 'text', text: content }, ...docs.map((d) => ({ type: 'file', file: { file_id: d.file_id } }))],
     }
   })
   if (provider === 'anthropic' || provider === 'bedrock') {
@@ -228,7 +279,15 @@ export interface StreamHandlers {
   /** Called once when the stream ends. `unrecognised` is frames this parser could not read;
    *  `usage` and `model` are what the provider reported, when it did; `converted` is Lens saying it
    *  turned an attached document into text (X-Talyvor-Distill: applied). */
-  onDone: (info: { unrecognised: number; usage?: Usage; model?: string; converted: boolean; source?: AnswerSource }) => void
+  onDone: (info: {
+    unrecognised: number
+    usage?: Usage
+    model?: string
+    converted: boolean
+    source?: AnswerSource
+    /** B18.24 — what the conversion saved, when Lens said. */
+    saved?: DistillSaved
+  }) => void
   /** A server-reported error inside the stream, or a transport failure. */
   onError: (message: string) => void
 }
@@ -270,7 +329,7 @@ export async function streamChat(
       headers: {
         'Content-Type': 'application/json',
         // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
-        ...(messages.some((m) => m.attachments?.some((a) => a.data !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
+        ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
         ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
       },
       body: JSON.stringify(requestBody(provider, model, messages)),
@@ -295,6 +354,7 @@ export async function streamChat(
   }
 
   const converted = res.headers.get('X-Talyvor-Distill') === 'applied'
+  const saved = converted ? distillSaved(res.headers) : undefined
   const source = answerSource(res.headers)
   const reader = body.getReader()
   const decoder = new TextDecoder()
@@ -321,7 +381,7 @@ export async function streamChat(
         }
         for (const d of got.deltas) handlers.onDelta(d.text)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved })
           return
         }
       }
@@ -336,7 +396,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved })
 }
 
 /**

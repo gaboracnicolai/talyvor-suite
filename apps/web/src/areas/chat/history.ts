@@ -96,9 +96,8 @@ export function upsertConversation(
 ): Conversation[] {
   const kept = messages
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
-    // B10.3 — an attached document's bytes are never kept: localStorage is small, and the name and
-    // size are what a reopened conversation needs to show.
-    .map((m) => (m.attachments === undefined ? m : { ...m, attachments: m.attachments.map(({ data: _data, ...meta }) => meta) }))
+    // B18.24 — an attached document is kept whole: it is Lens's id for the file, never the file's bytes,
+    // so a reopened conversation still references it.
   const prior = list.find((c) => c.id === id)
   const next: Conversation = {
     id,
