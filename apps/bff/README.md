@@ -82,6 +82,7 @@ without.
 | `DOCS_GATEWAY_SECRET` | — | must equal Docs' `GATEWAY_AUTH_SECRET` |
 | `LENS_SYNTHETIC_KEY` | — | same value as Lens's; set ⇒ `POST /auth/synthetic` signs in Lens's synthetic test workspaces (B17.2), unset ⇒ 404 |
 | `LENS_MODERATOR_KEY` | — | a `tlv_mod_` key from Lens (`/lens moderator-keys create web app`, talyvor-lens `docs/moderator-keys.md`); set ⇒ the marketplace review queue under `/api/admin/marketplace/*` works for anyone on `OPERATOR_SUBS`, each call naming the signed-in operator in `X-Talyvor-Operator`; unset ⇒ 501. Never a Lens admin key (B20.12) |
+| `LENS_OPERATOR_READ_KEY` | — | the same value as Lens's `LENS_OPERATOR_READ_KEY`; set ⇒ `GET /api/admin/workspaces` (the operator screen) reads every workspace's spend, held LENS and last activity from Lens for anyone on `OPERATOR_SUBS`; unset ⇒ 501. Never a Lens admin key (B18.25) |
 
 That is the whole surface, and it is held to the binary from both sides:
 `TestEveryEnvVarTheBinaryReadsIsDocumented` fails if a variable is read and missing here,

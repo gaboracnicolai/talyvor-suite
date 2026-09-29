@@ -372,7 +372,6 @@ func everyMutatingRoute() []mutatingRoute {
 var notSweptWrite = map[string]string{
 	"/auth/logout": "a browser POST the app issues at itself; it is swept by TestLogout_RefusesCrossOrigin, " +
 		"which drives it directly rather than through this table because it has no JSON body and no upstream.",
-	"/api/admin/workspaces":          "operator read surface, adminNotWired — see the note above",
 	"/api/admin/billing/purchases":   "operator read surface, adminNotWired — see the note above",
 	"/api/admin/economy/flags":       "operator read surface, adminNotWired — see the note above",
 	"/api/admin/keel/findings":       "operator read surface, adminNotWired — see the note above",
@@ -582,8 +581,9 @@ func TestOperatorExemptionHoldsOnlyWhileAdminIsNotWired(t *testing.T) {
 				"wired to %s — sweep it in everyMutatingRoute() or restate the exemption", m[1], m[2])
 		}
 	}
-	if found < 6 {
-		t.Fatalf("operator routes matched = %d, want at least 6 — this scan stopped seeing the operator "+
+	// 5 since B18.25 wired /api/admin/workspaces (GET only, so the write sweep skips it on its 405).
+	if found < 5 {
+		t.Fatalf("operator routes matched = %d, want at least 5 — this scan stopped seeing the operator "+
 			"surface, so the expiry it enforces is inert", found)
 	}
 }

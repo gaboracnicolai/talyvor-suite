@@ -145,6 +145,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   // after and would have argued the opposite.
   '/spend': 4,
   '/members': 1,
+  '/operator': 0,
   '/settings': 2,
   '/features': 0,
   '/features/try/tare': 0,

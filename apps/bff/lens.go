@@ -236,7 +236,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	// this prefix with the same wrapper — no restructuring, and no route can be added to the
 	// operator surface without passing the boundary, because the prefix and the gate are applied
 	// together here.
-	a.mux.HandleFunc("/api/admin/workspaces", a.requireOperator(a.adminNotWired))
+	// B18.25 — the operator screen: every workspace's spend, held LENS and last activity. See operator_workspaces.go.
+	a.mux.HandleFunc("/api/admin/workspaces", onlyMethod(http.MethodGet, a.requireOperator(a.handleOperatorWorkspaces)))
 	a.mux.HandleFunc("/api/admin/billing/purchases", a.requireOperator(a.adminNotWired))
 	a.mux.HandleFunc("/api/admin/economy/flags", a.requireOperator(a.adminNotWired))
 	a.mux.HandleFunc("/api/admin/keel/findings", a.requireOperator(a.adminNotWired))

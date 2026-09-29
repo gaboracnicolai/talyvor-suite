@@ -43,7 +43,7 @@ import { Region, RegionScreen } from '../../components/Region'
 // now says what the state would MEAN, which is that two things disagree.
 //
 // (3) ⚠ THE PROVENANCE LINE STATED A PINNING THIS BFF REFUSES TO BOOT WITH. It read "the
-// workspace is pinned server-side". `TRACK_WORKSPACE_ID` is gone and apps/bff/main.go:126
+// workspace is pinned server-side". `TRACK_WORKSPACE_ID` is gone and apps/bff/main.go:132
 // refuses the boot if it is set — "leaving it set would state a pinning that does not happen". The
 // workspace comes from the SESSION per request (apps/bff/track_tenant.go), and a browser-named
 // one is ignored (apps/bff/keys_test.go:318). That is what the line says now, and it is the
@@ -73,7 +73,7 @@ const HEADLINE_FAILED = 'The roster could not be read.'
  * The membership join key, compared the way the upstream compared it.
  *
  * The BFF sends `X-User-Email: sess.email` and calls it "the workspace-membership join key"
- * (apps/bff/lens.go:903); /auth/me serves that SAME `s.email` (apps/bff/auth.go:681); Track
+ * (apps/bff/lens.go:904); /auth/me serves that SAME `s.email` (apps/bff/auth.go:681); Track
  * authorizes and lists from `members.email` with SQL `=`.
  *
  * ⚠ SO THE COMPARISON IS EXACT, DELIBERATELY. Case-folding here would be a DIFFERENT rule from

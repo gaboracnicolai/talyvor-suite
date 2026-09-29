@@ -71,6 +71,7 @@ var builtByThisService = map[string]string{
 	"docsWriteBody":        "request body this service POSTs to the Docs write route (B2.3)",
 	"docsTranslateBody":    "request body this service POSTs to the Docs translate route",
 	"versionResponse":      "the /api/version payload",
+	"operatorWorkspace":    "one row of the operator screen (B18.25), joined by workspace id from four Lens reads in handleOperatorWorkspaces",
 }
 
 // decodedFromUpstream: written wholesale by encoding/json from an upstream
