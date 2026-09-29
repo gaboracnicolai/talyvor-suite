@@ -366,9 +366,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE SIXTY-NINTH IS B18.20'S PLAN CHANGE, write only: POST /api/billing/subscription/plan. What it
 	// changes is read back through GET /api/billing/subscription and /api/billing/allowance, which the
 	// sweep reaches. It relays Lens's answer (or its refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 69 {
+	//
+	// THE SEVENTIETH IS B18.24'S DOCUMENT UPLOAD, write only: POST /api/documents. Lens has no read of an
+	// uploaded document but the chat that references it by id, and the BFF relays Lens's answer (the id,
+	// or its refusal) and holds nothing.
+	if len(methodOnly) > 70 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 69 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 70 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

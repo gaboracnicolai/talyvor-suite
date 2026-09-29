@@ -48,15 +48,14 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     body: (
       <>
         <p>
-          Attach sits beside the model picker. PDF, Word, Excel, CSV, HTML, JSON, XML, text and Markdown
-          files can be attached — up to 2.5 MB of documents in one conversation, because a request can
-          carry at most 4 MB and a document travels encoded. Slide decks can&rsquo;t be read yet; save one
-          as PDF first.
+          Attach sits beside the model picker. PDF, Word, Excel, PowerPoint, CSV, HTML, JSON, XML, text and
+          Markdown files can be attached, each up to 25 MB. A document is uploaded once, and every later
+          question in the conversation can still see it.
         </p>
         <p>
           Lens converts an attached document to plain text before the model reads it, so the model is
           billed for the words rather than the file. The question then says &ldquo;Converted to text
-          before the model read it.&rdquo; Whether conversion runs is a workspace setting in{' '}
+          before the model read it,&rdquo; and the answer says what the conversion saved. Whether conversion runs is a workspace setting in{' '}
           <Link className={inlineLink} to="/settings">
             Settings
           </Link>

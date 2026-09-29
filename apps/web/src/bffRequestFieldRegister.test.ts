@@ -78,6 +78,10 @@ const unboundedBodies: Record<string, string> = {
     'Tare paste as JSON {content, kind, model}, and the chosen document File as raw bytes. The BFF ' +
     '(apps/bff/tryit.go) decodes only `content` to refuse an empty paste and forwards the bytes to ' +
     'Lens POST /v1/workspaces/{ws}/tare/preview and /distill/preview, which own the contract.',
+  'src/areas/chat/chatApi.ts file':
+    'chatApi.ts#uploadDocument sends the attached document itself — raw bytes, its media type as the ' +
+    'Content-Type — to POST /api/documents (B18.24). The BFF (apps/bff/documents.go) decodes no field of ' +
+    'it and relays the bytes to Lens POST /v1/documents, which owns the contract (talyvor-lens B18.13).',
 }
 
 // B18.23 — each test re-scans every source file (about 1s on a quiet machine). Under a full parallel

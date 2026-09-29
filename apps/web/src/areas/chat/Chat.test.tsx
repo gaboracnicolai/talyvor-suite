@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS } from './Chat'
+import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS, savedLine } from './Chat'
 import { type Conversation, historyKey, loadConversations } from './history'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
@@ -74,8 +74,17 @@ function mockChat({
   unconfigured?: string[]
 } = {}) {
   const posted = vi.fn()
+  const uploaded = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
+    // B18.24 — Lens stores an attached document and answers the id a question references.
+    if (url.startsWith('/api/documents?') && init?.method === 'POST') {
+      uploaded({ url, init })
+      return new Response(JSON.stringify({ id: `tdoc_${uploaded.mock.calls.length}`, size_bytes: (init.body as File).size }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     if (url === '/auth/me') {
       return new Response(
         JSON.stringify({ mode: 'oidc', authenticated: true, user: { sub, email: `${sub}@example.com` } }),
@@ -116,7 +125,7 @@ function mockChat({
     }
     return new Response('null', { status: 404 })
   })
-  return { posted }
+  return { posted, uploaded }
 }
 
 function renderChat() {
@@ -757,29 +766,48 @@ describe('attached documents (B10.3)', () => {
     fireEvent.change(document.getElementById('chat-attach') as HTMLInputElement, { target: { files } })
   }
 
-  it('sends the document in the shape Lens converts, asks for conversion, and says it happened', async () => {
-    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', converts: true })
+  it('uploads a 20 MB slide deck, asks about it by id, and the footer shows what conversion saved (B18.24)', async () => {
+    const pptx = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    const { posted, uploaded } = mockChat({
+      body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n',
+      converts: true,
+      answerHeaders: { 'X-Talyvor-Distill-Tokens-Saved': '1834', 'X-Talyvor-Distill-Bytes-Saved': '19800000' },
+    })
     renderChat()
-    await attach([pdf()])
-    expect(await screen.findByText('report.pdf')).toBeTruthy()
+    await attach([new File([new Uint8Array(20_000_000)], 'Q3 deck.pptx')])
+    expect(await screen.findByText('Q3 deck.pptx')).toBeTruthy()
+    const { url, init: sent } = uploaded.mock.calls[0][0]
+    expect(url).toBe('/api/documents?filename=Q3%20deck.pptx')
+    expect(new Headers(sent.headers).get('Content-Type')).toBe(pptx)
+    expect((sent.body as File).size).toBe(20_000_000)
+
     await ask('summarise this')
     await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
-
     const { init } = posted.mock.calls[0][0]
     expect(new Headers(init.headers).get('X-Talyvor-Distill')).toBe('true')
     const [message] = JSON.parse(String(init.body)).messages
-    expect(message.content[0]).toEqual({ type: 'text', text: 'summarise this' })
-    expect(message.content[1].type).toBe('file')
-    expect(message.content[1].file.filename).toBe('report.pdf')
-    expect(message.content[1].file.file_data).toBe(`data:application/pdf;base64,${btoa('%PDF-1.7 quarterly report')}`)
+    expect(message.content).toEqual([
+      { type: 'text', text: 'summarise this' },
+      { type: 'file', file: { file_id: 'tdoc_1' } },
+    ])
+    expect(String(init.body).length).toBeLessThan(1000)
 
     await waitFor(() =>
       expect(screen.getByTestId('documents-status').textContent).toBe('Converted to text before the model read it.'),
     )
-    // The bytes never reach storage; the name, size and outcome do.
+    await waitFor(() =>
+      expect(screen.getByTestId('turn-saved').textContent).toBe('Conversion saved 1,834 tokens · 19.8 MB smaller'),
+    )
+    // What is kept is Lens's id for the file, never its bytes, so a reopened conversation still references it.
     const kept = loadConversations('user-a').list[0].messages[0]
-    expect(kept.attachments).toEqual([{ name: 'report.pdf', media_type: 'application/pdf', size: 25 }])
+    expect(kept.attachments).toEqual([{ name: 'Q3 deck.pptx', media_type: pptx, size: 20_000_000, file_id: 'tdoc_1' }])
     expect(kept.converted).toBe(true)
+  })
+
+  it('shows the size conversion took off when Lens measured no tokens, and never a zero saving', () => {
+    // Lens counts 0 tokens for a binary file such as a slide deck at the faithful tier (B18.13).
+    expect(savedLine({ tokens: 0, bytes: 19_800_000 })).toBe('Converted to text, 19.8 MB smaller')
+    expect(savedLine({ tokens: 0, bytes: 0 })).toBeUndefined()
   })
 
   it('says so when Lens sent the original file instead of converting it', async () => {
@@ -792,13 +820,14 @@ describe('attached documents (B10.3)', () => {
   })
 
   it('refuses a format Lens cannot convert, and a document over the limit, in words', async () => {
-    const { posted } = mockChat()
+    const { posted, uploaded } = mockChat()
     renderChat()
-    await attach([new File(['x'], 'deck.pptx')])
-    expect((await screen.findByRole('alert')).textContent).toMatch(/deck\.pptx can’t be converted/)
+    await attach([new File(['x'], 'deck.key')])
+    expect((await screen.findByRole('alert')).textContent).toMatch(/deck\.key can’t be converted/)
     await attach([new File([new Uint8Array(ATTACH_LIMIT_BYTES + 1)], 'huge.pdf', { type: 'application/pdf' })])
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/huge\.pdf is too large/))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/huge\.pdf is too large: a document can be at most 25 MB/))
     expect(screen.queryByRole('list', { name: 'Attached documents' })).toBeNull()
+    expect(uploaded).not.toHaveBeenCalled()
     expect(posted).not.toHaveBeenCalled()
   })
 })

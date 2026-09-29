@@ -254,6 +254,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/ai/stream/{provider}/{rest...}", a.handleAIStream())
 	// B18.58 — which of those providers this deployment's Lens holds a key for (providers.go).
 	a.mux.HandleFunc("/api/ai/providers", a.handleAIProviders())
+	// B18.24 — a document the chat attaches, up to 25 MB, stored in Lens for the chat to reference by id.
+	a.mux.HandleFunc("/api/documents", a.requireTenant(a.handleDocumentUpload))
 
 	// W4.6.1 step 6 — THE MODEL CATALOG, so the chat screen can offer what this DEPLOYMENT serves
 	// rather than a list someone typed into the front end.

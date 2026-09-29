@@ -256,6 +256,13 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		if resp.Header.Get(distillHeader) == "applied" {
 			w.Header().Set(distillHeader, "applied")
 		}
+		// B18.24 — and what converting it saved (talyvor-lens B18.13): tokens by Lens's own measure, and
+		// bytes. The chat's footer shows them.
+		for _, h := range distillSavingHeaders {
+			if v := resp.Header.Get(h); v != "" {
+				w.Header().Set(h, v)
+			}
+		}
 		// B15.6 — where the answer came from: Lens replays a cached answer (own, free) and states a
 		// pooled one's list price, charge, saving and discount. The chat's footer reads them.
 		for _, h := range answerSourceHeaders {
@@ -274,6 +281,11 @@ func (a *app) handleAIStream() http.HandlerFunc {
 // distillHeader is Lens's document-conversion header: `true` on a request opts it in, `applied` on
 // the response says the conversion happened.
 const distillHeader = "X-Talyvor-Distill"
+
+// distillSavingHeaders are what Lens says converting a request's documents saved (talyvor-lens
+// internal/proxy distillSaved): tokens by the gateway's own measure — 0, never a guess, for a binary
+// file — and bytes.
+var distillSavingHeaders = []string{"X-Talyvor-Distill-Tokens-Saved", "X-Talyvor-Distill-Bytes-Saved"}
 
 // cacheHeader is Lens's cache-bypass header (talyvor-lens B15.2): `bypass` on a request skips every
 // cache read.
