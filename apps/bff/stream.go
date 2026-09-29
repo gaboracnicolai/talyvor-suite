@@ -213,8 +213,12 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		}
 
 		// r.Context() is the browser's connection. Cancelling it cancels the upstream, which is
-		// what stops Lens generating — and being billed for — tokens nobody will read.
-		up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
+		// what stops Lens generating — and being billed for — tokens nobody will read. B23.9 — and
+		// streamMaxDuration is the hard ceiling on one answer, now that the server's 30s write bound
+		// no longer is.
+		ctx, cancel := context.WithTimeout(r.Context(), streamMaxDuration)
+		defer cancel()
+		up, err := http.NewRequestWithContext(ctx, http.MethodPost,
 			a.cfg.lensBaseURL+"/v1/proxy/"+provider+"/"+rest, bytes.NewReader(body))
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
@@ -305,6 +309,15 @@ var answerSourceHeaders = []string{
 // legitimately large body — but not unbounded.
 const streamRequestMaxBytes = 4 << 20
 
+// streamWriteWindow is how long one chunk may take to reach the browser. B23.9 — the server's 30s
+// WriteTimeout runs from the moment the request was read, so without this every answer still
+// streaming at 30 seconds was cut off mid-sentence. The deadline moves forward before each write.
+const streamWriteWindow = 30 * time.Second
+
+// streamMaxDuration is the hard ceiling on one streamed answer: at it the upstream request is
+// cancelled and the stream ends.
+const streamMaxDuration = 15 * time.Minute
+
 // relayFlushing copies src to w, flushing after every chunk.
 //
 // ⚠ THE Flush IS THE ENTIRE FUNCTION. Without it this is io.Copy, the finished bytes are
@@ -320,10 +333,15 @@ func relayFlushing(w http.ResponseWriter, src io.Reader) {
 		_, _ = io.Copy(w, src)
 		return
 	}
+	rc := http.NewResponseController(w)
+	// Once before anything is read, so the headers of an answer whose first byte was slow — or of an
+	// empty one — still reach the browser.
+	_ = rc.SetWriteDeadline(time.Now().Add(streamWriteWindow))
 	buf := make([]byte, 4096)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
+			_ = rc.SetWriteDeadline(time.Now().Add(streamWriteWindow))
 			if _, werr := w.Write(buf[:n]); werr != nil {
 				return // the browser hung up mid-write
 			}
