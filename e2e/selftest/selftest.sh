@@ -25,7 +25,7 @@ tmp=$(mktemp -d)
 (cd "$root/apps/bff" && go build -o "$tmp/bff" .)
 [ -f "$root/apps/web/dist/index.html" ] || pnpm --dir "$root" --filter @talyvor/web build
 
-STUB_PORT=$stub_port LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/stub-lens.ts" &
+STUB_PORT=$stub_port STUB_APP_URL="http://localhost:$bff_port" LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/stub-lens.ts" &
 stub=$!
 TRACK_PORT=$track_port DOCS_PORT=$docs_port GATEWAY_SECRET=$gateway node --experimental-strip-types --no-warnings "$here/stub-products.ts" &
 products=$!

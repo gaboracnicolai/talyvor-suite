@@ -16,7 +16,7 @@ import {
   seeded,
   statesNumber,
 } from './oracles.ts'
-import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, tryConversion, tryTare } from './screens.ts'
+import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
 import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles } from './bank.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -840,6 +840,84 @@ export function trackExport(seed: number): Scenario {
   }
 }
 
+// ─── B17.10 — a test user's plan on a Stripe test card, and a pooled serve's royalty ────────────────
+
+/** The plan a test user subscribes to, at the price Plans shows for it (apps/web planApi.ts PLANS). */
+const TEST_PLAN = { id: 'plus', name: 'Plus', usdCents: 2000 }
+
+/**
+ * Plans → Choose Plus → Stripe's hosted checkout (test mode: B25.2) → test card 4242 → back in the app.
+ * The oracle is Lens's allowance row for the period, never the screen: granted, at Plus's price.
+ */
+export function planOnTestCard(seed: number): Scenario {
+  return {
+    id: 'plan-test-card',
+    title: 'subscribes to Plus with Stripe test card 4242, and Lens grants the period’s allowance',
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const s = await subscribeWithTestCard(app, TEST_PLAN.name, `tester-${seed}@example.com`)
+      ctx.evidence.push({ note: `Plans → Choose ${TEST_PLAN.name}: ${s.checkout === undefined ? 'never reached Stripe' : `paid on ${s.checkout}`}` +
+        `${s.heading === undefined ? '' : `; back in the app: "${s.heading}"`}${s.refused === undefined ? '' : `; ${s.refused}`}` })
+      if (s.checkout === undefined) {
+        // Lens's own sentence names what it lacks (a test workspace pays only through Stripe test mode).
+        const lens = await env.lens.startSubscription(app.user, TEST_PLAN.id)
+        return { pass: false, detail: `a test user cannot subscribe: ${s.refused}${lens.ok ? '' : ` — Lens ${lens.status}: ${lens.error}`}` }
+      }
+      const a = await eventually(ctx, 6, () => env.lens.allowance(app.user), (x) => x.ok && x.value !== null)
+      if (a.ok && a.value !== null) {
+        const off = await env.lens.cancelSubscription(app.user)
+        ctx.evidence.push({ note: `the plan cancelled at the end of its period: ${off.ok ? 'yes' : `${off.status} ${off.error}`}` })
+      }
+      if (!a.ok) return { pass: false, detail: `paid with the test card, and Lens answers ${a.status} for the allowance: ${a.error}` }
+      if (a.value === null) return { pass: false, detail: `paid with the test card on ${s.checkout}, and Lens granted no allowance ("${s.heading}")` }
+      const { granted_ulxc: granted, fee_usd_cents: fee } = a.value
+      ctx.evidence.push({ note: `allowance: ${granted} µLXC granted, ${a.value.remaining_ulxc} left, for ${fee} cents` })
+      if (fee !== TEST_PLAN.usdCents) return { pass: false, detail: `the allowance is for ${fee} cents, not ${TEST_PLAN.name}'s ${TEST_PLAN.usdCents}` }
+      if (granted <= 0) return { pass: false, detail: `the allowance grants ${granted} µLXC` }
+      return { pass: true, detail: `on ${TEST_PLAN.name} by test card: ${granted} µLXC allowed this period for ${fee} cents` }
+    },
+  }
+}
+
+/**
+ * One test user asks a question only it has asked; another test user asks the same and is served it from
+ * the pool. The oracle is the contributor's earnings ledger: a new pool_royalty_held row for that serve.
+ */
+export function pooledServePaysRoyalty(seed: number, partner: number): Scenario {
+  return {
+    id: 'pooled-royalty',
+    title: 'an answer served from the pool to another test user pays its contributor a royalty',
+    run: async (ctx) => {
+      const { env, app } = ctx
+      // Numbers from the contributor's own workspace: no earlier run's user has asked it, reset or not.
+      const r = seeded([...app.user.workspaceID].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16_777_619), 2_166_136_261 ^ seed))
+      const a = 10_000 + Math.floor(r() * 90_000)
+      const b = 10_000 + Math.floor(r() * 90_000)
+      const q = `What is ${a} + ${b}? ${NUMBER_ONLY}`
+      const t = await ask(ctx, q, `user ${app.user.index} (the contributor) asks`)
+      if (!statesNumber(t.answer, a + b)) return { pass: false, detail: `expected ${a + b}, got ${describe(t)}` }
+      const royalties = async () => (await env.lens.earningsRows(app.user)).filter((x) => x.type === 'pool_royalty_held')
+      const before = new Set((await royalties()).map((x) => x.id))
+      const other = await env.signInUser(partner)
+      let served: Turn
+      try {
+        served = record(ctx, await other.ask(q), `user ${partner} (another test user) asks the same`)
+      } finally {
+        await other.close()
+      }
+      // Not served from the pool, no royalty is owed: that is across-accounts' to judge, not a verdict here.
+      if (served.footer.kind !== 'pool') throw new Error(`user ${partner} was not served from the pool, so no royalty was owed: ${describe(served)}`)
+      const rows = await eventually(ctx, 4, royalties, (xs) => xs.some((x) => !before.has(x.id)))
+      const minted = rows.filter((x) => !before.has(x.id))
+      ctx.evidence.push({ note: `the contributor's pool_royalty_held rows: ${before.size} before, ${rows.length} after` +
+        `${minted.length === 0 ? '' : ` — ${minted.map((x) => `${x.amount_ulens} µLENS "${x.description}"`).join('; ')}`}` })
+      if (minted.length === 0) return { pass: false, detail: `served from the pool at ${served.footer.discountPct}% off, and the contributor's earnings gained no royalty row` }
+      if (minted.some((x) => x.amount_ulens <= 0)) return { pass: false, detail: `a royalty row of ${minted.map((x) => x.amount_ulens).join(', ')} µLENS` }
+      return { pass: true, detail: `served from the pool; the contributor earned ${minted.map((x) => x.amount_ulens).join(' + ')} µLENS, held` }
+    },
+  }
+}
+
 /**
  * The money oracle, read back from the ledger once every journey is over. Each answer a workspace was
  * charged for — in any browser signed in as it, and each judge call — is exactly one spend row, a free
@@ -912,5 +990,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   }
   // B25.5 — every Lens read a customer's key can make, a few times a run.
   if (i % 100 === 8) list.push(lensReads())
+  // B17.10, one in ten again. The contributor (7, 17, …) changes no setting and its partner is one of 9,
+  // 19, …. The plan comes last, on a user nobody else asks as: what is asked after it is drawn from its
+  // allowance, which the ledger read-back does not expect.
+  if (i % 10 === 7 && i + 2 < users) list.push(pooledServePaysRoyalty(i, i + 2))
+  if (i % 10 === 6) list.push(planOnTestCard(i))
   return list
 }

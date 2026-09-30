@@ -108,6 +108,23 @@ export interface MarketEarnings {
   lifetime_gross_usd_micros: number
 }
 
+/** B17.10 — one period of a plan, as Lens granted it (billing.Allowance). */
+export interface PlanAllowance {
+  granted_ulxc: number
+  consumed_ulxc: number
+  remaining_ulxc: number
+  fee_usd_cents: number
+}
+
+/** B17.10 — one row of the workspace's earnings ledger (GET /v1/workspaces/{id}/tokens/history), in µLENS. */
+export interface EarningsRow {
+  id: string
+  amount_ulens: number
+  type: string
+  description: string
+  created_at: string
+}
+
 /** Lens's sentence in a refusal body — {"error": "…"} or {"error": {"message": "…"}} — or the body itself. */
 function refusalOf(raw: string): string {
   try {
@@ -312,6 +329,49 @@ export class LensClient {
   /** B17.6 — the seller's earnings: pending, payable, in holdback, available (µUSD). */
   async marketEarnings(user: SyntheticUser): Promise<MarketEarnings> {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/earnings`, this.bearer(user.token))) as MarketEarnings
+  }
+
+  /**
+   * B17.10 — the plan's allowance this period: null when the workspace has no plan, or Lens's refusal
+   * (404: Lens sells this workspace no plan).
+   */
+  async allowance(user: SyntheticUser): Promise<Answered<PlanAllowance | null>> {
+    const res = await this.send('GET', `/v1/workspaces/${user.workspaceID}/billing/allowance`,
+      { headers: { ...this.bearer(user.token), Accept: 'application/json' } })
+    const raw = await res.text()
+    return res.ok
+      ? { ok: true, status: res.status, value: (JSON.parse(raw) as { allowance: PlanAllowance | null }).allowance }
+      : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B17.10 — asks Lens itself to start a plan's checkout, for the sentence it refuses with. Nothing is charged. */
+  async startSubscription(user: SyntheticUser, plan: string): Promise<Answered<{ url?: string }>> {
+    const res = await this.send('POST', `/v1/workspaces/${user.workspaceID}/billing/subscribe`, {
+      headers: { ...this.bearer(user.token), 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ plan }),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) as { url?: string } } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B17.10 — cancels the workspace's plan at the end of its period. */
+  async cancelSubscription(user: SyntheticUser): Promise<Answered<unknown>> {
+    const res = await this.send('POST', `/v1/workspaces/${user.workspaceID}/billing/subscription/cancel`,
+      { headers: { ...this.bearer(user.token), Accept: 'application/json' } })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: null } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B17.10 — the workspace's earnings ledger, newest first — every row, however many pages. */
+  async earningsRows(user: SyntheticUser): Promise<EarningsRow[]> {
+    const rows: EarningsRow[] = []
+    for (let offset = 0; ; offset += 200) {
+      const page = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/tokens/history?limit=200&offset=${offset}`,
+        this.bearer(user.token))) as EarningsRow[] | null
+      if (!Array.isArray(page) || page.length === 0) return rows
+      rows.push(...page)
+      if (page.length < 200) return rows
+    }
   }
 
   private sessionKey(user: SyntheticUser): Promise<string> {
