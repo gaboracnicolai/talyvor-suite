@@ -218,30 +218,42 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		// no longer is.
 		ctx, cancel := context.WithTimeout(r.Context(), streamMaxDuration)
 		defer cancel()
-		up, err := http.NewRequestWithContext(ctx, http.MethodPost,
-			a.cfg.lensBaseURL+"/v1/proxy/"+provider+"/"+rest, bytes.NewReader(body))
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
-			return
-		}
-		up.Header.Set("Authorization", "Bearer "+key)
-		up.Header.Set("Content-Type", "application/json")
-		// ⚠ NOT application/json. The shared forward() sets that, and it is how a streaming lane
-		// silently becomes a buffered one.
-		up.Header.Set("Accept", "text/event-stream")
-		// B10.3 — a message with an attached document asks Lens to convert it (distill), so a
-		// workspace on `opt_in` converts it too. Only the one opt-in value is forwarded; every other
-		// request header stays behind, as it always has.
-		if strings.EqualFold(strings.TrimSpace(r.Header.Get(distillHeader)), "true") {
-			up.Header.Set(distillHeader, "true")
-		}
-		// B15.6 — Regenerate asks Lens for a fresh answer rather than the cached one. Again only the
-		// one value is forwarded.
-		if strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheHeader)), "bypass") {
-			up.Header.Set(cacheHeader, "bypass")
+		// B15.6 — Regenerate asks Lens for a fresh answer rather than the cached one. Only the one
+		// value is forwarded.
+		bypass := strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheHeader)), "bypass")
+		send := func(bypass bool) (*http.Response, error) {
+			up, err := http.NewRequestWithContext(ctx, http.MethodPost,
+				a.cfg.lensBaseURL+"/v1/proxy/"+provider+"/"+rest, bytes.NewReader(body))
+			if err != nil {
+				return nil, err
+			}
+			up.Header.Set("Authorization", "Bearer "+key)
+			up.Header.Set("Content-Type", "application/json")
+			// ⚠ NOT application/json. The shared forward() sets that, and it is how a streaming lane
+			// silently becomes a buffered one.
+			up.Header.Set("Accept", "text/event-stream")
+			// B10.3 — a message with an attached document asks Lens to convert it (distill), so a
+			// workspace on `opt_in` converts it too. Only the one opt-in value is forwarded; every other
+			// request header stays behind, as it always has.
+			if strings.EqualFold(strings.TrimSpace(r.Header.Get(distillHeader)), "true") {
+				up.Header.Set(distillHeader, "true")
+			}
+			if bypass {
+				up.Header.Set(cacheHeader, "bypass")
+			}
+			return a.streamClient.Do(up)
 		}
 
-		resp, err := a.streamClient.Do(up)
+		resp, err := send(bypass)
+		// B17.12 — request logging set to none promises that this workspace's repeats go to the model
+		// again (Features). Lens stores nothing new for such a workspace, but still replays an answer
+		// it kept BEFORE the switch. That replay is free, so it is dropped and the question asked
+		// again past the cache. A pooled serve (it carries a price) is left alone: talyvor-lens
+		// docs/retention-none-and-the-semantic-cache.md keeps the shared pool open to it.
+		if err == nil && !bypass && ownReplay(resp.Header) && a.keepsNothing(ctx, t) {
+			_ = resp.Body.Close()
+			resp, err = send(true)
+		}
 		if err != nil {
 			if r.Context().Err() != nil {
 				return // the browser went away; nothing to report to nobody
@@ -298,6 +310,25 @@ var distillSavingHeaders = []string{"X-Talyvor-Distill-Tokens-Saved", "X-Talyvor
 // cacheHeader is Lens's cache-bypass header (talyvor-lens B15.2): `bypass` on a request skips every
 // cache read.
 const cacheHeader = "X-Talyvor-Cache"
+
+// ownReplay reports that Lens answered from this workspace's own cache: a replay with no pool price
+// (web chatApi.ts answerSource reads the same headers the same way).
+func ownReplay(h http.Header) bool {
+	return h.Get("X-Talyvor-Cache-Replay") == "true" && h.Get("X-Talyvor-Pool-Charged-ULXC") == ""
+}
+
+// keepsNothing reports whether the workspace's request logging is none. A policy that cannot be read
+// is not none: the answer already in hand is relayed as it came.
+func (a *app) keepsNothing(ctx context.Context, t tenant) bool {
+	raw, err := a.lensGet(ctx, t, lensWorkspacePath(t, ""))
+	if err != nil {
+		return false
+	}
+	var ws struct {
+		LoggingPolicy string `json:"logging_policy"`
+	}
+	return json.Unmarshal(raw, &ws) == nil && ws.LoggingPolicy == "none"
+}
 
 // answerSourceHeaders are the response headers that say where an answer came from: a replay of a
 // cached answer, and a pooled serve's price in µLXC (talyvor-lens internal/proxy setSavingHeaders).

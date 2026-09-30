@@ -20,7 +20,8 @@
 //   conversion  — the conversion preview drops the document's paragraphs
 //   budget      — a spending limit is recorded but never refuses
 //   setting     — cost-optimised routing is answered as recorded but not kept
-//   logging     — request logging "none" still answers a repeat from a kept copy
+//   logging     — request logging "none" still keeps each answer, and serves the kept copy even when
+//                 asked past the cache
 //   agent-limit — an agent's limit per request is recorded but never refuses (B17.6, stub-bank.ts)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
@@ -259,15 +260,16 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       ws.usage.converted += converted
     }
   }
-  // Request logging "none" keeps nothing, so nothing is answered from a kept copy.
+  // Request logging "none" keeps nothing new. As in Lens (talyvor-lens storeCaches), an answer kept
+  // before the switch is still there to replay; the BFF asks such a repeat again (B17.12).
   const keep = !personal && (ws.settings.logging_policy !== 'none' || BREAK === 'logging')
   ws.usage.total++
 
   const key = JSON.stringify([model.id, messages.map((m) => [m.role, text(m)])])
-  const bypass = req.headers['x-talyvor-cache'] === 'bypass'
+  const bypass = req.headers['x-talyvor-cache'] === 'bypass' && !(BREAK === 'logging' && ws.settings.logging_policy === 'none')
   let answer: string
   let charge = 0
-  const own = keep ? ws.answers.get(key) : undefined
+  const own = personal ? undefined : ws.answers.get(key)
   const shared = messages.length === 1 && !personal ? pool.get(key) : undefined
   const inTok = tokens(messages.map(text).join(' ')) + 8
   if (!bypass && own !== undefined) {
