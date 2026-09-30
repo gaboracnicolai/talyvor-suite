@@ -302,6 +302,8 @@ function refusalOf(raw: string): string {
 }
 
 const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
+/** How long a reset whose answer was lost is waited for: Lens logged each one done 45–70s after it began. */
+const RESET_RUNS_ON_MS = 90_000
 
 export class LensClient {
   readonly baseURL: string
@@ -355,9 +357,19 @@ export class LensClient {
   }
 
   /** Clears every synthetic workspace's stored answers and restores its credits. */
-  async reset(): Promise<number> {
-    const body = await this.call('POST', '/v1/synthetic/workspaces/reset', { [SYNTHETIC_KEY_HEADER]: this.key })
-    return Number((body as { reset?: number }).reset ?? 0)
+  async reset(): Promise<number | undefined> {
+    // B25.8 — with 1671 synthetic workspaces Lens resets for longer than a request may last (45s), and the
+    // answer is lost though the reset runs on to the end (FOUND.md): then this waits it out, and answers
+    // undefined.
+    const res = await this.send('POST', '/v1/synthetic/workspaces/reset', { headers: { [SYNTHETIC_KEY_HEADER]: this.key, Accept: 'application/json' } })
+      .catch(() => undefined)
+    if (res === undefined || res.status === 502 || res.status === 504) {
+      await new Promise((r) => setTimeout(r, RESET_RUNS_ON_MS))
+      return undefined
+    }
+    const raw = await res.text()
+    if (!res.ok) throw new Error(`POST /v1/synthetic/workspaces/reset: Lens answered ${res.status}: ${raw.slice(0, 200)}`)
+    return Number((JSON.parse(raw) as { reset?: number }).reset ?? 0)
   }
 
   /** Creates `count` synthetic workspaces, each with test credits and a token. */
