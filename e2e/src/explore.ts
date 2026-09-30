@@ -23,6 +23,8 @@ export interface Finding {
   /** The explorer's last moves before it, oldest first. */
   trail: string[]
   at: string
+  /** B25.5 — the feature `where` belongs to; run.ts fills it in once the run is over. */
+  feature?: string
 }
 
 export interface ExplorerSummary {
@@ -30,6 +32,8 @@ export interface ExplorerSummary {
   steps: number
   stopped: 'time' | 'done' | 'cap' | 'steps' | 'error'
   detail: string
+  /** B25.5 — the feature it was sent to first. */
+  start?: string
 }
 
 const MAX_OUTPUT_TOKENS = 300
@@ -90,13 +94,21 @@ export function parseMove(reply: string): Move | undefined {
   }
 }
 
-function prompt(step: number, screen: Screen, trail: string[], seen: string[]): string {
+/** B25.5 — a feature of the app and the address it opens at. */
+export interface Area {
+  feature: string
+  path: string
+}
+
+function prompt(step: number, screen: Screen, trail: string[], seen: string[], features: Area[], start: Area | undefined): string {
   return [
     'You are an explorer testing Talyvor, a web app for working with AI models (Chat, Features, Docs, Track, Wallets, Billing and more).',
     'You are signed in as a test user with test credits. Use it the way a curious new customer would: open its screens, try its',
     'features with small realistic inputs, and look for anything that seems wrong — an error, a broken or empty screen that should',
     'have content, figures that do not add up, text that contradicts itself or the screen, a control that does nothing.',
     'Do not sign out. Keep chat questions short.',
+    ...(features.length > 0 ? ['', `Talyvor's features, each at its address: ${features.map((f) => `${f.feature} (${f.path})`).join(', ')}.`] : []),
+    ...(start !== undefined ? [`Start with ${start.feature} (${start.path}): the scripted testers covered it least. Try everything it offers, then go on to the others.`] : []),
     '',
     `Step ${step} of at most ${MAX_STEPS}. You are at ${screen.url} ("${screen.title}").`,
     `Your last moves: ${trail.length > 0 ? trail.slice(-6).join(' → ') : 'none yet'}`,
@@ -122,6 +134,9 @@ export interface ExploreOptions {
   provider: string
   model: string
   minutes: number
+  /** B25.5 — every feature, least covered first; this explorer starts at `start`. */
+  features: Area[]
+  start?: Area
 }
 
 /** One explorer's session. Its findings are pushed into `findings` as they are made. */
@@ -145,13 +160,17 @@ export async function explore(n: number, app: AppUser, opts: ExploreOptions, fin
     }
   })
 
+  if (opts.start !== undefined) {
+    await page.goto(new URL(opts.start.path, page.url()).toString()).catch(() => undefined)
+    trail.push(`goto ${opts.start.path} (its starting feature, ${opts.start.feature})`)
+  }
   const deadline = Date.now() + opts.minutes * 60_000
   let step = 0
   while (step < MAX_STEPS) {
     if (Date.now() >= deadline) return { explorer: n, steps: step, stopped: 'time', detail: `${opts.minutes} minutes up` }
     step++
     const screen = await observe(page)
-    const ask = prompt(step, screen, trail, seen.splice(0))
+    const ask = prompt(step, screen, trail, seen.splice(0), opts.features, opts.start)
     let reply
     try {
       const hold = opts.cap.reserve(listPriceUSD(model, worstInputTokens(ask.length), MAX_OUTPUT_TOKENS))
