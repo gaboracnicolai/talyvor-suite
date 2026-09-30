@@ -165,6 +165,7 @@
   "src/SessionExpired.test.tsx": 20,
   "src/settleCommands.test.ts": 213,
   "src/Sharing.test.tsx": 8,
+  "src/SidebarFold.test.tsx": 8,
   "src/statusChangeRefusal.test.tsx": 7,
   "src/timerCleanup.test.tsx": 5,
   "src/tokenDoor.test.ts": 10,

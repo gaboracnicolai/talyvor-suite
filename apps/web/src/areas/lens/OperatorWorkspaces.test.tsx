@@ -64,7 +64,8 @@ describe('the operator screen (B18.25)', () => {
     mockBff(false)
     const nav = await at('/operator')
     expect(within(nav).queryByRole('link', { name: 'Workspaces' })).toBeNull()
-    expect(await screen.findByText('Only Talyvor’s operators can see this screen.')).toBeTruthy()
+    // The 403 is retried once, a second later, before the refusal shows — past findBy's 1s default.
+    expect(await screen.findByText('Only Talyvor’s operators can see this screen.', {}, { timeout: 3000 })).toBeTruthy()
     expect(screen.queryByTestId('operator-workspace')).toBeNull()
   })
 })

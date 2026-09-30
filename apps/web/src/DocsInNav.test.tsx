@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { App } from './App'
 
@@ -30,15 +30,17 @@ describe('Docs is offered in the Products nav', () => {
     mockBff()
     window.history.pushState({}, '', '/')
   })
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    vi.restoreAllMocks()
+    window.localStorage.clear()
+  })
 
   it('renders a Docs navigation item now that Docs is per-identity', async () => {
     render(<App />)
     const nav = await screen.findByRole('navigation', { name: /sections/i })
-    const docsItems = Array.from(nav.querySelectorAll('*')).filter(
-      (el) => el.children.length === 0 && /^\s*Docs\s*$/.test(el.textContent ?? ''),
-    )
-    expect(docsItems.length).toBeGreaterThan(0)
+    // B24.1 — Docs is a group title that opens its links.
+    fireEvent.click(within(nav).getByRole('button', { name: 'Docs' }))
+    expect(within(nav).getByRole('link', { name: 'All documents' })).toBeInTheDocument()
   })
 
   it('still lists Track, so the assertion above is about Docs and not a nav that renders everything', async () => {
