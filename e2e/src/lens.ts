@@ -1,6 +1,7 @@
 // B17.3 — the harness's own calls to Lens: create and reset the synthetic users (B17.1), read each
 // one's ledger back, and ask the judge. Every call a synthetic user makes uses that user's own token.
 
+import type { Recorder, Tag } from './coverage.ts'
 import type { CatalogModel } from './oracles.ts'
 
 export interface SyntheticUser {
@@ -124,11 +125,49 @@ const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
 export class LensClient {
   readonly baseURL: string
   private readonly key: string
-  private readonly sessionKeys = new Map<string, Promise<string>>()
+  private readonly sessionKeys: Map<string, Promise<string>>
+  private readonly recorder: Recorder | undefined
+  private readonly tag: Tag
 
-  constructor(baseURL: string, syntheticKey: string) {
+  constructor(baseURL: string, syntheticKey: string, recorder?: Recorder, tag: Tag = { scenario: 'harness', user: -1 },
+    sessionKeys = new Map<string, Promise<string>>()) {
     this.baseURL = baseURL
     this.key = syntheticKey
+    this.recorder = recorder
+    this.tag = tag
+    this.sessionKeys = sessionKeys
+  }
+
+  /** B25.5 — the same client, its calls recorded as `tag`'s for the coverage map. */
+  tagged(tag: Tag): LensClient {
+    return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys)
+  }
+
+  /** Every request to Lens goes through here, so the coverage map sees each one with its time. */
+  private async send(method: string, path: string, init: RequestInit = {}): Promise<Response> {
+    const t0 = Date.now()
+    let status = 0
+    try {
+      const res = await fetch(this.baseURL + path, { ...init, method })
+      status = res.status
+      return res
+    } finally {
+      this.recorder?.hit(this.tag, { kind: 'lens', method, path: path.split('?')[0], status, ms: Date.now() - t0 })
+    }
+  }
+
+  /**
+   * B25.5 — one read of the Lens API as this user's key makes it, for the every-read scenario: its
+   * status and how long it took, or status 0 when it did not answer within `timeoutMs`.
+   */
+  async read(user: SyntheticUser, path: string, timeoutMs: number): Promise<{ status: number; ms: number; body: string }> {
+    const t0 = Date.now()
+    try {
+      const res = await this.send('GET', path, { headers: { ...this.bearer(user.token), Accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) })
+      return { status: res.status, ms: Date.now() - t0, body: (await res.text()).slice(0, 300) }
+    } catch (e) {
+      return { status: 0, ms: Date.now() - t0, body: e instanceof Error ? e.message : String(e) }
+    }
   }
 
   /** Clears every synthetic workspace's stored answers and restores its credits. */
@@ -192,8 +231,7 @@ export class LensClient {
    */
   async complete(user: SyntheticUser, provider: string, model: string, prompt: string, maxTokens: number, who = 'model'): Promise<JudgeReply> {
     const key = await this.sessionKey(user)
-    const res = await fetch(`${this.baseURL}/v1/proxy/${provider}/v1/messages`, {
-      method: 'POST',
+    const res = await this.send('POST', `/v1/proxy/${provider}/v1/messages`, {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
     })
@@ -214,8 +252,7 @@ export class LensClient {
    * (its status and sentence) — a refusal is what the bank scenarios look for, so it is not thrown.
    */
   async askAsAgent(key: string, provider: string, model: string, prompt: string, maxTokens: number): Promise<Answered<JudgeReply>> {
-    const res = await fetch(`${this.baseURL}/v1/proxy/${provider}/v1/messages`, {
-      method: 'POST',
+    const res = await this.send('POST', `/v1/proxy/${provider}/v1/messages`, {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
     })
@@ -259,8 +296,7 @@ export class LensClient {
 
   /** B17.6 — an agent pays another agent with its own key; Lens's answer or its refusal. */
   async payAsAgent(key: string, workspaceID: string, fromAgentID: string, toAgentID: string, amountULXC: number, memo: string): Promise<Answered<AgentPayment>> {
-    const res = await fetch(`${this.baseURL}/v1/workspaces/${workspaceID}/agents/${fromAgentID}/pay`, {
-      method: 'POST',
+    const res = await this.send('POST', `/v1/workspaces/${workspaceID}/agents/${fromAgentID}/pay`, {
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ to_agent_id: toAgentID, amount_ulxc: amountULXC, memo }),
     })
@@ -296,8 +332,7 @@ export class LensClient {
   }
 
   private async call(method: string, path: string, headers: Record<string, string>, body?: unknown): Promise<unknown> {
-    const res = await fetch(this.baseURL + path, {
-      method,
+    const res = await this.send(method, path, {
       headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })

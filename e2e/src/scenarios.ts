@@ -18,6 +18,8 @@ import {
 } from './oracles.ts'
 import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, tryConversion, tryTare } from './screens.ts'
 import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles } from './bank.ts'
+import type { Inventory } from './coverage.ts'
+import { everyScreen, lensReads } from './tour.ts'
 
 export interface Evidence {
   note?: string
@@ -31,6 +33,8 @@ export interface Evidence {
 export interface Verdict {
   pass: boolean
   detail: string
+  /** B25.5 — for a verdict that covers many screens, the ones it failed on: it is reported under their features only. */
+  where?: string[]
 }
 
 export interface RunEnv {
@@ -46,6 +50,8 @@ export interface RunEnv {
   /** Another synthetic user, as Lens made it: its workspace and token (B17.6 — another company). */
   userAt: (index: number) => SyntheticUser
   userCount: number
+  /** B25.5 — every screen and route there is, read from the code (coverage.ts). */
+  inventory: Inventory
 }
 
 export interface ScenarioCtx {
@@ -57,6 +63,8 @@ export interface ScenarioCtx {
 export interface Scenario {
   id: string
   title: string
+  /** B25.5 — the feature it is reported under when it opens no screen of its own; otherwise the screens it opened. */
+  feature?: string
   run: (ctx: ScenarioCtx) => Promise<Verdict>
 }
 
@@ -900,6 +908,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 4: if (i + 5 < users) list.push(companyPayment(i, i + 5)); break
     case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3)); break
     case 6: list.push(statementReconciles(i)); break
+    case 7: list.push(everyScreen()); break
   }
+  // B25.5 — every Lens read a customer's key can make, a few times a run.
+  if (i % 100 === 8) list.push(lensReads())
   return list
 }

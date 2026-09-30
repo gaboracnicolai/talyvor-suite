@@ -25,6 +25,8 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--explorers` | `E2E_EXPLORERS` | 0 | AI explorers after the scenarios (at most 10) |
 | `--explore-minutes` | `E2E_EXPLORE_MINUTES` | 30 | how long each explorer may use the app |
 | `--explorer-model` | `E2E_EXPLORER_MODEL` | claude-haiku-4-5 | the model choosing each explorer's next move |
+| `--lens-src` | `E2E_LENS_SRC` | `<out>/lens-src` | a checkout of talyvor-lens whose routes the coverage map lists; `none` lists none |
+| `--testers-md` | `E2E_TESTERS_MD` | `~/talyvor-queue/TESTERS.md` | where the run's short summary goes; `none` writes none |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -76,6 +78,36 @@ else. Findings go into the report under "Explorers — findings to check": what 
 each page error and 5xx its browser saw, with the moves that led there. Findings are never filed as
 build items, because an explorer can be mistaken. The self-test runs two scripted explorers against the
 stub.
+
+## The coverage map, the report per feature, and TESTERS.md (B25.5)
+
+**What there is to test is read from the code on every run** (`src/coverage.ts`), never kept by hand: every
+screen `apps/web/src/App.tsx` mounts (and the screens each area mounts under its `/*`), every route
+`apps/bff/lens.go` registers, and every route Lens registers in its `cmd/lens` and `internal/api` (from
+`--lens-src`; the nightly keeps a shallow checkout of Lens's main there). **What was tested is recorded as it
+happens**: each screen a tester's browser opens, each BFF request with its status, time and the screen that
+made it, each call the harness makes to Lens, and each page error — all filed under the scenario running. A
+Lens route the app reaches through the BFF is counted through the BFF route that leads to it.
+
+Each entry ends in one state: **covered** (the scenarios that reached it, ×users), **explorers only** (nothing
+with an oracle checked it), **cannot be tested yet** (and why — an operator screen, Lens's admin key, a Stripe
+checkout until B25.2, a wallet action between test users until B25.3/B25.4), or **not covered**.
+
+**The report is written per feature** — a feature is a screen's title, or what a scenario names — each with
+what works (with the evidence), what is broken (with the evidence and its build item), the errors the browsers
+saw (ERROR verdicts, page errors, a 5xx from the BFF), what was slow (a screen past 3 s at p95, a route past
+2 s, or 30 s when it waits for a model), what worked well, and what the explorers noted there. It ends with
+the map: every screen, BFF route and Lens route, and its state.
+
+**The explorers** are told every feature, and each starts at the next least covered (the fewest verdicts).
+
+**After every run** the summary — coverage, works, broken, new findings, cost — goes on top of
+`~/talyvor-queue/TESTERS.md`, for the morning brief; earlier runs stay below it.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `every-screen` | 1 in 10 | every screen a customer can open (from the map, operator screens left out), opened as a person does — a screen with a parameter from the first link on the one above it: the console's heading names it (a public page shows a heading), nothing says "Nothing at this address", and while it loads there is no page error and no 5xx |
+| `lens-reads` | 1 in 100 | every Lens read a customer's key can make (GET, no parameter but the workspace, from the map) answers within 15 s, never with a 5xx; 401/403/404 are counted, not failed |
 
 ## Catalog v1, and each scenario's oracle
 

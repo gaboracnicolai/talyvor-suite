@@ -6,7 +6,9 @@
 #   pnpm --filter @talyvor/e2e selftest                   # 10 users
 #   E2E_USERS=30 STUB_BREAK=price pnpm --filter @talyvor/e2e selftest   # a planted defect must FAIL
 #
-# The report goes beside the results, and build items only to E2E_BUILD_MD — never to the real queue.
+# The report goes beside the results, build items only to E2E_BUILD_MD and the summary only to
+# E2E_TESTERS_MD — never to the real queue. Lens's routes join the coverage map when E2E_LENS_SRC names
+# a checkout of talyvor-lens.
 #
 # Needs Go, and Chromium for Playwright (`pnpm --filter @talyvor/e2e exec playwright install chromium`).
 set -eu
@@ -46,5 +48,6 @@ LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/../
   --app "http://localhost:$bff_port" --lens "http://127.0.0.1:$stub_port" \
   --users "${E2E_USERS:-10}" --concurrency "${E2E_CONCURRENCY:-5}" --cap-usd "${E2E_CAP_USD:-1}" \
   --out "${E2E_OUT:-$here/../out}" --report-dir "${E2E_REPORT_DIR:-${E2E_OUT:-$here/../out}}" \
-  --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}" \
+  --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}" --testers-md "${E2E_TESTERS_MD:-$tmp/TESTERS.md}" \
+  --lens-src "${E2E_LENS_SRC:-none}" \
   --explorers "${E2E_EXPLORERS:-2}" --explore-minutes "${E2E_EXPLORE_MINUTES:-1}"

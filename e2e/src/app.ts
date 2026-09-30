@@ -2,8 +2,9 @@
 // POST /auth/synthetic (B17.2), then use Chat the way a person does — type, press Enter, read the
 // answer and the line under it. Every question reserves its worst case against the spend cap first.
 
-import type { Browser, BrowserContext, Locator, Page } from 'playwright'
+import type { Browser, BrowserContext, Locator, Page, Request } from 'playwright'
 import { type Hold, type SpendCap, worstInputTokens } from './budget.ts'
+import type { Recorder, Tag } from './coverage.ts'
 import type { SyntheticUser } from './lens.ts'
 import { type CatalogModel, type Footer, listPriceUSD, parseFooter } from './oracles.ts'
 
@@ -70,12 +71,15 @@ export class AppUser {
   private readonly catalog: CatalogModel[]
   private readonly book: ChargeBook
   private readonly usdPerLXC: number
+  private readonly recorder: Recorder | undefined
+  /** B25.5 — whose outcome what this browser does now belongs to; run.ts sets it before each scenario. */
+  tag: Tag
   private modelName: string
   /** Characters of the open conversation, for the worst-case input estimate. */
   private conversationChars = 0
 
   private constructor(user: SyntheticUser, context: BrowserContext, page: Page, appURL: string, cap: SpendCap,
-    catalog: CatalogModel[], modelName: string, book: ChargeBook, usdPerLXC: number) {
+    catalog: CatalogModel[], modelName: string, book: ChargeBook, usdPerLXC: number, recorder: Recorder | undefined, tag: Tag) {
     this.user = user
     this.context = context
     this.page = page
@@ -85,6 +89,8 @@ export class AppUser {
     this.modelName = modelName
     this.book = book
     this.usdPerLXC = usdPerLXC
+    this.recorder = recorder
+    this.tag = tag
   }
 
   get modelNameInUse(): string {
@@ -94,9 +100,13 @@ export class AppUser {
   /** A fresh browser context signed in as `user`, on the Chat screen with `modelName` chosen. */
   static async signIn(browser: Browser, user: SyntheticUser, opts: {
     appURL: string; syntheticKey: string; cap: SpendCap; catalog: CatalogModel[]; modelName: string; book: ChargeBook
-    usdPerLXC: number
+    usdPerLXC: number; recorder?: Recorder; tag?: Tag
   }): Promise<AppUser> {
     const context = await browser.newContext()
+    const tag = opts.tag ?? { scenario: 'sign-in', user: user.index }
+    // Watching starts before the first page opens, so sign-in's own requests are recorded too.
+    const holder: { app?: AppUser } = {}
+    if (opts.recorder !== undefined) watch(context, opts.appURL, opts.recorder, () => holder.app?.tag ?? tag)
     const page = await context.newPage()
     await page.goto(opts.appURL + '/')
     // From inside the page, so the request carries the app's own Origin and the cookie lands in
@@ -113,7 +123,9 @@ export class AppUser {
       await context.close()
       throw new SignInRefused(`POST /auth/synthetic answered ${status} for ${user.workspaceID}`)
     }
-    const app = new AppUser(user, context, page, opts.appURL, opts.cap, opts.catalog, opts.modelName, opts.book, opts.usdPerLXC)
+    const app = new AppUser(user, context, page, opts.appURL, opts.cap, opts.catalog, opts.modelName, opts.book, opts.usdPerLXC,
+      opts.recorder, tag)
+    holder.app = app
     await app.openChat()
     if (!(await app.chooseModel(opts.modelName))) throw new Error(`the model picker does not offer "${opts.modelName}"`)
     return app
@@ -135,8 +147,15 @@ export class AppUser {
    */
   async tab(path: string): Promise<Page> {
     const page = await this.context.newPage()
-    await page.goto(this.appURL + path)
+    const t0 = Date.now()
+    const res = await page.goto(this.appURL + path)
+    this.screenTimed(path, res?.status() ?? 0, Date.now() - t0)
     return page
+  }
+
+  /** B25.5 — how long a screen took to open, for the report's timings. */
+  screenTimed(path: string, status: number, ms: number): void {
+    this.recorder?.hit(this.tag, { kind: 'screen', method: 'GET', path: path.split(/[?#]/)[0], status, ms })
   }
 
   /** Picks a model in the picker by the name it shows; false, with the picker closed, if it is not offered. */
@@ -270,4 +289,53 @@ export class AppUser {
     if (m === undefined) throw new Error(`the catalog has no model named "${this.modelName}"`)
     return m
   }
+}
+
+/**
+ * B25.5 — records what a browser context does for the coverage map: every screen its pages open (by
+ * the address, client-side navigations included), every request to the BFF (/api, /auth, and each page
+ * load) with its status, its time and the screen that made it, and every uncaught page error. Each is
+ * filed under the tag current when it STARTED, so a slow answer is not credited to the next scenario.
+ */
+function watch(context: BrowserContext, appURL: string, rec: Recorder, tag: () => Tag): void {
+  const origin = new URL(appURL).origin
+  const started = new WeakMap<Request, { at: number; tag: Tag; from: string }>()
+  const bff = (url: URL, req: Request) => url.origin === origin && (/^\/(api|auth)\//.test(url.pathname) || req.isNavigationRequest())
+  context.on('request', (req) => {
+    let from = ''
+    try {
+      from = new URL(req.frame().url()).pathname
+    } catch {
+      // a worker's request has no frame
+    }
+    started.set(req, { at: Date.now(), tag: { ...tag() }, from })
+  })
+  const done = (req: Request, status: number) => {
+    const url = new URL(req.url())
+    const s = started.get(req)
+    if (s === undefined || !bff(url, req)) return
+    rec.hit(s.tag, { kind: 'bff', method: req.method(), path: url.pathname, status, ms: Date.now() - s.at,
+      from: req.isNavigationRequest() ? url.pathname : s.from })
+  }
+  context.on('requestfinished', (req) => {
+    void req.response().then((r) => done(req, r?.status() ?? 0), () => done(req, 0))
+  })
+  context.on('requestfailed', (req) => done(req, 0))
+  const page = (p: Page) => {
+    p.on('framenavigated', (f) => {
+      if (f !== p.mainFrame()) return
+      const url = new URL(f.url())
+      if (url.origin === origin) rec.hit(tag(), { kind: 'screen', method: 'GET', path: url.pathname, status: 200 })
+    })
+    p.on('pageerror', (e) => {
+      let where = ''
+      try {
+        where = new URL(p.url()).pathname
+      } catch {
+        // a page closing as it errs
+      }
+      rec.pageError(tag(), where, e.message)
+    })
+  }
+  context.on('page', page)
 }
