@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { App, CONSOLE_ROUTES, queryClient } from './App'
+import { SIDEBAR_FOLD_KEY } from './sidebarFold'
+import { revealLink } from './sidebarTestKit'
 
 /**
  * scrollReset.test.tsx — CLIENT-SIDE NAVIGATION CARRIED THE PREVIOUS PAGE'S SCROLL OFFSET INTO
@@ -75,12 +77,9 @@ function sectionsNav(): HTMLElement {
   return nav
 }
 
+/** B24.1 — the link sits in a group that may be folded, so its title is pressed first. */
 function destination(path: string): HTMLAnchorElement {
-  const a = Array.from(sectionsNav().querySelectorAll<HTMLAnchorElement>('a[href]')).find(
-    (el) => new URL(el.href, window.location.origin).pathname === path,
-  )
-  if (!a) throw new Error(`the sidebar offered no destination for ${path}`)
-  return a
+  return revealLink(sectionsNav(), path)
 }
 
 let scrollTo: ReturnType<typeof vi.spyOn>
@@ -95,6 +94,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   queryClient.clear()
   document.body.replaceChildren()
+  window.localStorage.removeItem(SIDEBAR_FOLD_KEY)
 })
 
 describe('the instrument, before it is pointed at the product', () => {

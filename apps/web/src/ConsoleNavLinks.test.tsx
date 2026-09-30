@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { blankComments } from '../../../packages/ui/src/lib/sourceText'
 import { App, CONSOLE_ROUTES, queryClient } from './App'
+import { SIDEBAR_FOLD_KEY } from './sidebarFold'
+import { openEveryGroup, revealLink } from './sidebarTestKit'
 
 /**
  * ConsoleNavLinks.test.tsx — TEN OF THE TWELVE DESTINATIONS IN THE CONSOLE'S PRIMARY NAVIGATION
@@ -114,6 +116,22 @@ const SIDEBAR_DESTINATIONS = [
 const OPERATOR_DESTINATIONS = ['/marketplace/review', '/operator'] as const
 
 /**
+ * B24.1 — the sidebar folds to its group titles. These are its only COMMANDS: each group's title
+ * opens and closes that group, and the one at the top folds or opens them all. They go nowhere, so
+ * they are <button>s, and they are the ONLY href-less affordances the sweep below allows, by name.
+ */
+const FOLD_CONTROLS = [
+  'Fold all <button NO-HREF>',
+  'Lens <button NO-HREF>',
+  'Marketplace <button NO-HREF>',
+  'Chat <button NO-HREF>',
+  'Track <button NO-HREF>',
+  'Docs <button NO-HREF>',
+  'Billing <button NO-HREF>',
+  'Workspace <button NO-HREF>',
+] as const
+
+/**
  * A destination affordance is anything in the sections nav a keyboard reaches. If it is focusable
  * and it is in the navigation, it is offered as a way to go somewhere.
  */
@@ -159,6 +177,8 @@ afterEach(() => {
   vi.restoreAllMocks()
   queryClient.clear()
   document.body.replaceChildren()
+  // Pressing a title is remembered; the next case starts from a fresh load, not from this one.
+  window.localStorage.removeItem(SIDEBAR_FOLD_KEY)
 })
 
 const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '')
@@ -217,16 +237,19 @@ describe('every destination in the console navigation is a link', () => {
       window.history.pushState({}, '', address)
       render(<App />)
       await screen.findByRole('navigation', { name: /sections/i })
+      // B24.1 — a folded group's links are not rendered at all, so every group is opened first.
+      openEveryGroup(sectionsNav())
 
       const found = affordances(sectionsNav())
       expect(
         found.length,
-        `the sidebar at ${address} offered ${found.length} focusable destinations, not ` +
-          `${SIDEBAR_DESTINATIONS.length} — a sidebar that drew nothing has no href-less ` +
-          'destination either, so the assertion below would be a fact about an empty box',
-      ).toBe(SIDEBAR_DESTINATIONS.length)
+        `the sidebar at ${address} offered ${found.length} focusable affordances, not ` +
+          `${SIDEBAR_DESTINATIONS.length} destinations and ${FOLD_CONTROLS.length} fold controls — ` +
+          'a sidebar that drew nothing has no href-less destination either, so the assertion ' +
+          'below would be a fact about an empty box',
+      ).toBe(SIDEBAR_DESTINATIONS.length + FOLD_CONTROLS.length)
       expect(
-        found.filter((f) => f.includes('NO-HREF')),
+        found.filter((f) => f.includes('NO-HREF') && !(FOLD_CONTROLS as readonly string[]).includes(f)),
         `${address}: these destinations in the primary navigation carry no href. They cannot be ` +
           'cmd-clicked into a new tab, cannot be middle-clicked at all, have no "copy link ' +
           'address", and are announced as buttons — so the links list behind the gate does not ' +
@@ -243,21 +266,12 @@ describe('every destination in the console navigation is a link', () => {
 describe('the capability, not the tag: activation is what the reader gets', () => {
   beforeEach(mockBff)
 
-  /** Mount at `/` and hand back the sidebar link for `to`. */
+  /** Mount at `/` and hand back the sidebar link for `to` — pressing its group's title, then the link. */
   async function sidebarLink(to: string): Promise<HTMLAnchorElement> {
     window.history.pushState({}, '', '/')
     render(<App />)
     await screen.findByRole('navigation', { name: /sections/i })
-    const link = Array.from(sectionsNav().querySelectorAll<HTMLAnchorElement>('a[href]')).find(
-      (a) => new URL(a.href, window.location.origin).pathname === to,
-    )
-    if (!link) {
-      throw new Error(
-        `the sidebar offers no LINK to ${to} — its affordance is ` +
-          `${affordances(sectionsNav()).join(', ')}`,
-      )
-    }
-    return link
+    return revealLink(sectionsNav(), to)
   }
 
   it('B21.6 — the agents destination is called Wallets, and it opens Agent Wallets', async () => {

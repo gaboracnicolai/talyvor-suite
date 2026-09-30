@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 
@@ -78,6 +78,9 @@ describe('the billing routes Lens already redirects to', () => {
 
   it('reaches the top-up screen from the sidebar, so buying is discoverable', async () => {
     at('/')
-    expect(await screen.findByRole('link', { name: /^plan & top up$/i })).toBeInTheDocument()
+    // B24.1 — two clicks: the Billing title opens its links.
+    const nav = await screen.findByRole('navigation', { name: /sections/i })
+    fireEvent.click(within(nav).getByRole('button', { name: 'Billing' }))
+    expect(within(nav).getByRole('link', { name: /^plan & top up$/i })).toBeInTheDocument()
   })
 })

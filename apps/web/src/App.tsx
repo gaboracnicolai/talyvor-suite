@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react'
+import { useId, useLayoutEffect } from 'react'
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   BrowserRouter,
@@ -11,7 +11,7 @@ import {
   useLocation,
   useNavigationType,
 } from 'react-router-dom'
-import { Mark, NavItem, Shell, ThemeToggle, inlineLink } from '@talyvor/ui'
+import { Mark, NavItem, Shell, ThemeToggle, cn, focusRing, inlineLink } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { useDocumentTitle } from './documentTitle'
 import { ApiError } from './lib/api'
@@ -43,6 +43,7 @@ import { SignIn, SignUp } from './areas/auth/Entry'
 import { SessionExpiredBar } from './components/SessionExpiredBar'
 import { type DocRef, pageHref, useDocsNav } from './areas/docs/docsNav'
 import { useAuthMeReader } from './lib/authMe'
+import { useSidebarFold } from './sidebarFold'
 
 // App.tsx is a SHARED file (see README §Directory ownership): it owns routing
 // and the nav for every area. Area work happens inside src/areas/<area>/ —
@@ -72,11 +73,72 @@ export const queryClient: QueryClient = new QueryClient({
   },
 })
 
-function Group({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * B24.1 — which group holds which addresses, so the group holding the current page opens on load.
+ * A path owns itself and everything below it; `/` owns only itself.
+ */
+const GROUP_PATHS: Record<string, readonly string[]> = {
+  Lens: ['/', '/ledger', '/earnings', '/spend', '/setup', '/keys', '/agents'],
+  Marketplace: ['/marketplace'],
+  Chat: ['/chat'],
+  Track: ['/track'],
+  Docs: ['/docs'],
+  Billing: ['/billing', '/plans', '/pricing'],
+  Workspace: ['/features', '/members', '/settings'],
+  Operator: ['/operator'],
+}
+const GROUPS = Object.keys(GROUP_PATHS)
+
+function groupOf(pathname: string): string | undefined {
+  return GROUPS.find((g) =>
+    GROUP_PATHS[g].some((p) => pathname === p || (p !== '/' && pathname.startsWith(`${p}/`))),
+  )
+}
+
+/**
+ * A group title is a real <button> that opens and closes its links; folded, the links are not
+ * rendered at all, so nothing hidden can be tabbed to or read out.
+ */
+function Group({
+  label,
+  open,
+  onToggle,
+  children,
+}: {
+  label: string
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  const regionId = useId()
   return (
     <div className="flex flex-col">
-      <div className="px-3 pb-1 font-figure text-eyebrow font-semibold uppercase text-faint">{label}</div>
-      {children}
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={regionId}
+        onClick={onToggle}
+        className={cn(
+          'flex items-center justify-between gap-2 rounded-control px-3 py-1 text-left transition-colors duration-200 hover:text-ink',
+          'font-figure text-eyebrow font-semibold uppercase text-faint',
+          focusRing,
+        )}
+      >
+        {label}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 12 12"
+          className={cn('h-3 w-3 shrink-0 transition-transform duration-200', !open && '-rotate-90')}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        >
+          <path d="M3 4.5 6 7.5l3-3" />
+        </svg>
+      </button>
+      <div id={regionId} hidden={!open} className={open ? 'flex flex-col' : undefined}>
+        {open ? children : null}
+      </div>
     </div>
   )
 }
@@ -221,6 +283,11 @@ function Sidebar() {
   // (at fifty it was unusable); every page is one click away on "All documents". B8.1's reason for
   // naming things here stands: a page is one click from anywhere once it is pinned or recent.
   const docsNav = useDocsNav()
+  // B24.1 — every group folds to its title; the one holding this page starts open.
+  const fold = useSidebarFold(
+    me.data?.operator ? GROUPS : GROUPS.filter((g) => g !== 'Operator'),
+    groupOf(pathname),
+  )
   const docsListed = [...docsNav.pinned, ...docsNav.recent]
   const onTrackIssues = pathname === '/track' || pathname.startsWith('/track/issues')
   const onDocsIndex = pathname.startsWith('/docs') && !docsListed.some((d) => pathname === pageHref(d))
@@ -244,10 +311,20 @@ function Sidebar() {
           <div className="text-head leading-tight text-ink">Talyvor</div>
           <div className="text-caption font-normal leading-tight text-faint">Suite</div>
         </div>
+        <button
+          type="button"
+          onClick={fold.toggleAll}
+          className={cn(
+            'ml-auto inline-flex h-7 shrink-0 items-center rounded-control px-2 text-caption text-muted transition-colors duration-200 hover:text-ink',
+            focusRing,
+          )}
+        >
+          {fold.anyOpen ? 'Fold all' : 'Open all'}
+        </button>
       </div>
       {/* B8.1 — GROUPED BY PRODUCT, and every screen the console mounts has a row. /chat was
           mounted with no row at all, and Track's cycles and projects were a second level down. */}
-      <Group label="Lens">
+      <Group label="Lens" {...fold.group('Lens')}>
         {item('/', 'Overview')}
         {item('/ledger', 'Ledger')}
         {item('/earnings', 'Earnings')}
@@ -258,7 +335,7 @@ function Sidebar() {
         {item('/keys', 'API keys')}
         {item('/agents', 'Wallets')}
       </Group>
-      <Group label="Marketplace">
+      <Group label="Marketplace" {...fold.group('Marketplace')}>
         {item('/marketplace', 'Browse', false, pathname === '/marketplace' || pathname.startsWith('/marketplace/listings'))}
         {item('/marketplace/publish', 'Publish')}
         {item('/marketplace/selling', 'Your listings & earnings')}
@@ -266,10 +343,10 @@ function Sidebar() {
         {/* B20.12 — offered only to someone the BFF's operator gate will admit. */}
         {me.data?.operator ? item('/marketplace/review', 'Review queue') : null}
       </Group>
-      <Group label="Chat">
+      <Group label="Chat" {...fold.group('Chat')}>
         {item('/chat', 'Conversations')}
       </Group>
-      <Group label="Track">
+      <Group label="Track" {...fold.group('Track')}>
         {item('/track', 'Issues', false, onTrackIssues)}
         {item('/track/cycles', 'Cycles')}
         {item('/track/projects', 'Projects')}
@@ -279,7 +356,7 @@ function Sidebar() {
           condition written into the removal comment has been met rather than waived. See
           apps/bff docsWorkspaceFor and the Track↔Docs enumeration that broke the cold-start
           deadlock (talyvor-track bf60842, talyvor-docs c970329). */}
-      <Group label="Docs">
+      <Group label="Docs" {...fold.group('Docs')}>
         {item('/docs', 'All documents', false, onDocsIndex)}
         {docsNav.pinned.length > 0 ? (
           <>
@@ -294,7 +371,7 @@ function Sidebar() {
           </>
         ) : null}
       </Group>
-      <Group label="Billing">
+      <Group label="Billing" {...fold.group('Billing')}>
         {/* Buying LXC has to be findable, not a URL you have to be told. The
             wildcard keeps it highlighted on the Stripe return pages too. */}
         {item('/billing', 'Plan & top up', true)}
@@ -302,13 +379,17 @@ function Sidebar() {
         {/* The public price list (B5.2). It opens outside the console, as a buyer sees it. */}
         {item('/pricing', 'Pricing')}
       </Group>
-      <Group label="Workspace">
+      <Group label="Workspace" {...fold.group('Workspace')}>
         {item('/features', 'Features')}
         {item('/members', 'Members')}
         {item('/settings', 'Settings')}
       </Group>
       {/* B18.25 — offered only to someone the BFF's operator gate will admit. */}
-      {me.data?.operator ? <Group label="Operator">{item('/operator', 'Workspaces')}</Group> : null}
+      {me.data?.operator ? (
+        <Group label="Operator" {...fold.group('Operator')}>
+          {item('/operator', 'Workspaces')}
+        </Group>
+      ) : null}
       {/* The first "Operator" group held one item, /admin, and went with it: an operator
           console whose five screens were entirely fabricated (invented node ids, IPs,
           certificate fingerprints, a Let's Encrypt issuer string) with no BFF route and no

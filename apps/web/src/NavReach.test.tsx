@@ -56,6 +56,8 @@ describe('the Docs sidebar: pinned and recent pages, never all of them (B10.6)',
     const first = render(<App />)
     const nav = await screen.findByRole('navigation', { name: /sections/i })
 
+    // B24.1 — the Docs title opens the Docs group; from `/` it starts folded.
+    fireEvent.click(within(nav).getByRole('button', { name: 'Docs' }))
     fireEvent.click(within(nav).getByRole('link', { name: 'All documents' }))
     fireEvent.click(await within(screen.getByRole('main')).findByRole('link', { name: 'Open space Engineering' }))
     fireEvent.click(await within(screen.getByRole('main')).findByRole('link', { name: /Onboarding/ }))
@@ -73,6 +75,7 @@ describe('the Docs sidebar: pinned and recent pages, never all of them (B10.6)',
     window.history.pushState({}, '', '/')
     render(<App />)
     const again = await screen.findByRole('navigation', { name: /sections/i })
+    fireEvent.click(within(again).getByRole('button', { name: 'Docs' }))
     fireEvent.click(await within(again).findByRole('link', { name: 'Onboarding' }))
     expect(window.location.pathname).toBe('/docs/spaces/sp-eng/pages/pg-1')
   })
@@ -84,6 +87,7 @@ describe('the Docs sidebar: pinned and recent pages, never all of them (B10.6)',
     window.history.pushState({}, '', '/')
     render(<App />)
     const nav = await screen.findByRole('navigation', { name: /sections/i })
+    fireEvent.click(within(nav).getByRole('button', { name: 'Docs' }))
     await within(nav).findByText('Pinned')
     const docLinks = within(nav)
       .getAllByRole('link')
@@ -101,6 +105,7 @@ describe('the Docs sidebar: pinned and recent pages, never all of them (B10.6)',
     window.history.pushState({}, '', '/')
     render(<App />)
     const nav = await screen.findByRole('navigation', { name: /sections/i })
+    fireEvent.click(within(nav).getByRole('button', { name: 'Docs' }))
     expect(await within(nav).findByText('Pinned')).toBeTruthy()
     expect(await within(nav).findByRole('link', { name: 'Onboarding' })).toBeTruthy()
     expect(pins.map((p) => p.page_id)).toEqual(['pg-1'])
