@@ -59,6 +59,12 @@ type streamUpstream struct {
 	gotDistill    string
 	gotCache      string
 	answerHeaders map[string]string // set on the proxied answer, as Lens does on a cache serve
+	// replayUnlessBypassed sets answerHeaders only on a request without X-Talyvor-Cache: bypass, as
+	// Lens does: a bypass skips every cache read.
+	replayUnlessBypassed bool
+	// loggingPolicy, when set, is what GET /v1/workspaces/{id} answers.
+	loggingPolicy string
+	cacheSent     []string // X-Talyvor-Cache on each proxied request, in order
 	mintCalls     int
 	proxyCalls    int
 	chunkGap      time.Duration
@@ -90,6 +96,11 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 				testSessionKey, time.Now().Add(time.Hour).UTC().Format(time.RFC3339)))
 			return
 
+		case strings.HasPrefix(r.URL.Path, "/v1/workspaces/") && r.Method == http.MethodGet && u.loggingPolicy != "":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"logging_policy":%q}`, u.loggingPolicy)
+			return
+
 		case strings.HasPrefix(r.URL.Path, "/v1/proxy/"):
 			u.proxyCalls++
 			u.gotProxyAuth = r.Header.Get("Authorization")
@@ -97,8 +108,11 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotAccept = r.Header.Get("Accept")
 			u.gotDistill = r.Header.Get("X-Talyvor-Distill")
 			u.gotCache = r.Header.Get("X-Talyvor-Cache")
-			for k, v := range u.answerHeaders {
-				w.Header().Set(k, v)
+			u.cacheSent = append(u.cacheSent, u.gotCache)
+			if !u.replayUnlessBypassed || u.gotCache != "bypass" {
+				for k, v := range u.answerHeaders {
+					w.Header().Set(k, v)
+				}
 			}
 			if u.gotDistill == "true" {
 				w.Header().Set("X-Talyvor-Distill", "applied") // as Lens does when it converted a document
@@ -854,6 +868,44 @@ func TestStream_RegenerateBypassReachesLensAndTheAnswerSourceReachesTheChat(t *t
 			if got := resp.Header.Get(k); got != v {
 				t.Errorf("the chat received %s %q, want %q", k, got, v)
 			}
+		}
+	}
+}
+
+// B17.12 — with request logging none, a repeat goes to the model again: Lens still replays an answer
+// it kept before the switch, so the BFF drops that free replay and asks past the cache. Logging on,
+// the replay reaches the chat; a pooled serve reaches it either way.
+func TestStream_LoggingNoneAsksARepeatAgainRatherThanReplayingAKeptAnswer(t *testing.T) {
+	own := map[string]string{"X-Talyvor-Cache-Replay": "true"}
+	pooled := map[string]string{"X-Talyvor-Cache-Replay": "true", "X-Talyvor-Pool-Charged-ULXC": "1519", "X-Talyvor-Pool-Discount-Rate": "0.3"}
+	for _, tc := range []struct {
+		policy     string
+		served     map[string]string
+		wantSent   []string
+		wantReplay string
+	}{
+		{"none", own, []string{"", "bypass"}, ""},
+		{"full", own, []string{""}, "true"},
+		{"none", pooled, []string{""}, "true"},
+	} {
+		up := newStreamUpstream(t)
+		up.noBlock = true
+		up.replayUnlessBypassed = true
+		up.answerHeaders = tc.served
+		up.loggingPolicy = tc.policy
+		a, sess := streamApp(t, up)
+		resp, br, done := openStream(t, a, sess, "/api/ai/stream/anthropic/v1/messages", `{"stream":true}`)
+		body, _ := io.ReadAll(br)
+		done()
+		what := fmt.Sprintf("logging %s, %d served header(s)", tc.policy, len(tc.served))
+		if strings.Join(up.cacheSent, ",") != strings.Join(tc.wantSent, ",") {
+			t.Errorf("%s: Lens was asked with X-Talyvor-Cache %q, want %q", what, up.cacheSent, tc.wantSent)
+		}
+		if got := resp.Header.Get("X-Talyvor-Cache-Replay"); got != tc.wantReplay {
+			t.Errorf("%s: the chat received X-Talyvor-Cache-Replay %q, want %q", what, got, tc.wantReplay)
+		}
+		if !strings.Contains(string(body), "data: two") {
+			t.Errorf("%s: the chat did not receive the whole answer: %q", what, body)
 		}
 	}
 }
