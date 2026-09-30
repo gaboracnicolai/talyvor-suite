@@ -137,9 +137,8 @@ export function lensReads(): Scenario {
     run: async (ctx) => {
       const user = ctx.app.user
       const reads = customerReads(ctx.env.inventory.lens)
-      if (reads.length === 0) {
-        return { pass: true, detail: `no Lens routes listed: ${ctx.env.inventory.lensMissing ?? 'the inventory has none'}` }
-      }
+      // Nothing to read is no verdict: an ERROR, never a PASS that checked nothing.
+      if (reads.length === 0) throw new Error(`no Lens routes to read: ${ctx.env.inventory.lensMissing ?? 'the inventory lists none'}`)
       const by = { ok: 0, refused: 0, absent: 0, other: 0 }
       const broken: string[] = []
       for (const r of reads) {

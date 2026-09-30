@@ -25,7 +25,7 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--explorers` | `E2E_EXPLORERS` | 0 | AI explorers after the scenarios (at most 10) |
 | `--explore-minutes` | `E2E_EXPLORE_MINUTES` | 30 | how long each explorer may use the app |
 | `--explorer-model` | `E2E_EXPLORER_MODEL` | claude-haiku-4-5 | the model choosing each explorer's next move |
-| `--lens-src` | `E2E_LENS_SRC` | `<out>/lens-src` | a checkout of talyvor-lens whose routes the coverage map lists; `none` lists none |
+| `--lens-src` | `E2E_LENS_SRC` | `<out>/lens-src` | a checkout of talyvor-lens whose routes the coverage map lists; `none` lists none. Not given, the run keeps its own there, cloned from `E2E_LENS_REPO` and brought up to Lens's main each run; one you name is left as it is |
 | `--testers-md` | `E2E_TESTERS_MD` | `~/talyvor-queue/TESTERS.md` | where the run's short summary goes; `none` writes none |
 | `--headed` | | off | show the browsers |
 
@@ -84,7 +84,7 @@ stub.
 **What there is to test is read from the code on every run** (`src/coverage.ts`), never kept by hand: every
 screen `apps/web/src/App.tsx` mounts (and the screens each area mounts under its `/*`), every route
 `apps/bff/lens.go` registers, and every route Lens registers in its `cmd/lens` and `internal/api` (from
-`--lens-src`; the nightly keeps a shallow checkout of Lens's main there). **What was tested is recorded as it
+`--lens-src`; not given, the run keeps a shallow checkout of Lens's main there itself). **What was tested is recorded as it
 happens**: each screen a tester's browser opens, each BFF request with its status, time and the screen that
 made it, each call the harness makes to Lens, and each page error — all filed under the scenario running. A
 Lens route the app reaches through the BFF is counted through the BFF route that leads to it.

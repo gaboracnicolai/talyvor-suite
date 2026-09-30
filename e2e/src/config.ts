@@ -32,6 +32,8 @@ export interface RunConfig {
   explorerModel: string
   /** B25.5 — a checkout of talyvor-lens, whose routes the coverage map lists; 'none' lists none. */
   lensSrc: string
+  /** Where the run clones Lens from into its own lensSrc; undefined when lensSrc was given, which is left as it is. */
+  lensRepo: string | undefined
   /** B25.5 — where each run's short summary is written for the morning brief; 'none' writes none. */
   testersMd: string
   headed: boolean
@@ -47,6 +49,7 @@ export const DEFAULTS = {
   outDir: 'out',
   exploreMinutes: 30,
   explorerModel: 'claude-haiku-4-5',
+  lensRepo: 'https://github.com/gaboracnicolai/talyvor-lens.git',
 } as const
 
 export function parseConfig(argv: string[], env: Record<string, string | undefined>): RunConfig {
@@ -98,8 +101,9 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     explorers: Math.min(10, Math.floor(num('explorers', 'E2E_EXPLORERS', 0, true))),
     exploreMinutes: num('explore-minutes', 'E2E_EXPLORE_MINUTES', DEFAULTS.exploreMinutes),
     explorerModel: pick('explorer-model', 'E2E_EXPLORER_MODEL') ?? DEFAULTS.explorerModel,
-    // scripts/e2e-nightly.sh keeps a checkout of Lens here, up to its main, before every run.
+    // Unless told where one is, the run keeps its own checkout of Lens, up to its main (coverage.ts).
     lensSrc: pick('lens-src', 'E2E_LENS_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/lens-src`,
+    lensRepo: pick('lens-src', 'E2E_LENS_SRC') !== undefined ? undefined : env.E2E_LENS_REPO ?? DEFAULTS.lensRepo,
     testersMd: pick('testers-md', 'E2E_TESTERS_MD') ?? `${env.HOME ?? ''}/talyvor-queue/TESTERS.md`,
     headed: flags.get('headed') === 'true',
   }
