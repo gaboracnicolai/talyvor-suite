@@ -18,7 +18,7 @@ import {
 } from './oracles.ts'
 import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
 import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles } from './bank.ts'
-import { marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCashOut, walletEscrow, walletLoan, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
+import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
 
@@ -1008,6 +1008,16 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 7: if (other < users) list.push(walletRecurring(i, other)); break
     case 8: list.push(marketTakedown(i, i - 1)); break
     case 9: list.push(walletCard(i), marketPayoutConnect()); break
+  }
+  // B25.8: the slow money, brought due by Lens (B25.7), one in ten again. A seller or buyer here buys and
+  // sells in no other scenario, so paying a buyer's whole bill and taking a seller's whole balance touch
+  // this trade alone; the seller's credits land on 6, 16, …, whose workspace balance nobody else reads.
+  switch (i % 10) {
+    case 0: if (other < users) list.push(walletLoanRepay(i, other)); break
+    case 1: if (other < users) list.push(walletLoanDefault(i, other)); break
+    case 2: list.push(walletCardPurchase(i)); break
+    case 3: if (i + 3 < users) list.push(marketPayout(i, i + 3)); break
+    case 6: list.push(marketBillRefund(i, i - 5)); break
   }
   // B25.5 — every Lens read a customer's key can make, a few times a run.
   if (i % 100 === 8) list.push(lensReads())

@@ -152,12 +152,45 @@ export interface Listing {
   review_status: string
 }
 
+/** B25.8 — one payout (market.Payout): money through Stripe, or the balance taken as credits. */
+export interface Payout {
+  id: string
+  method: 'stripe' | 'credits'
+  gross_usd_micros: number
+  credits_ulxc?: number
+  paid_at?: string
+}
+
 /** B25.4 — the seller's payout page (market.Payouts): account is null until they connect Stripe. */
 export interface Payouts {
   account: { stripe_account_id: string; country: string; details_submitted: boolean; payouts_enabled: boolean } | null
   in_holdback_usd_micros: number
   available_usd_micros: number
-  payouts: unknown[] | null
+  paid_out_usd_micros?: number
+  payouts: Payout[] | null
+}
+
+/** B25.8 — one purchase on an agent's card (economy.CardAuthorizationRecord), approved or declined by its rules. */
+export interface CardAuthorization {
+  authorization_id: string
+  approved: boolean
+  reason: string
+  amount_minor: number
+  currency: string
+  merchant_name: string
+  amount_ulxc?: number
+}
+
+/** B25.8 — what a synthetic-key route that brings a test user's slow money due answers (Lens B25.7). */
+export interface PaidTestBill {
+  invoice_id: string
+  uses_cleared: number
+}
+export interface CardPurchase {
+  authorization_id: string
+  approved: boolean
+  reason: string
+  amount_ulxc: number
 }
 
 /** B25.4 — one listing in the moderators' review queue (market.QueueItem). */
@@ -233,6 +266,10 @@ export interface MarketEarnings {
   in_holdback_usd_micros: number
   available_usd_micros: number
   lifetime_gross_usd_micros: number
+  /** B25.8 — paid out, in money or credits; reversed by refunds; and each cleared use's share */
+  paid_out_usd_micros?: number
+  refunded_usd_micros?: number
+  earnings?: { use_id: string; share_usd_micros: number; payable_at: string; refunded_at?: string }[] | null
 }
 
 /** B17.10 — one period of a plan, as Lens granted it (billing.Allowance). */
@@ -265,6 +302,8 @@ function refusalOf(raw: string): string {
 }
 
 const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
+/** How long a reset whose answer was lost is waited for: Lens logged each one done 45–70s after it began. */
+const RESET_RUNS_ON_MS = 90_000
 
 export class LensClient {
   readonly baseURL: string
@@ -318,9 +357,19 @@ export class LensClient {
   }
 
   /** Clears every synthetic workspace's stored answers and restores its credits. */
-  async reset(): Promise<number> {
-    const body = await this.call('POST', '/v1/synthetic/workspaces/reset', { [SYNTHETIC_KEY_HEADER]: this.key })
-    return Number((body as { reset?: number }).reset ?? 0)
+  async reset(): Promise<number | undefined> {
+    // B25.8 — with 1671 synthetic workspaces Lens resets for longer than a request may last (45s), and the
+    // answer is lost though the reset runs on to the end (FOUND.md): then this waits it out, and answers
+    // undefined.
+    const res = await this.send('POST', '/v1/synthetic/workspaces/reset', { headers: { [SYNTHETIC_KEY_HEADER]: this.key, Accept: 'application/json' } })
+      .catch(() => undefined)
+    if (res === undefined || res.status === 502 || res.status === 504) {
+      await new Promise((r) => setTimeout(r, RESET_RUNS_ON_MS))
+      return undefined
+    }
+    const raw = await res.text()
+    if (!res.ok) throw new Error(`POST /v1/synthetic/workspaces/reset: Lens answered ${res.status}: ${raw.slice(0, 200)}`)
+    return Number((JSON.parse(raw) as { reset?: number }).reset ?? 0)
   }
 
   /** Creates `count` synthetic workspaces, each with test credits and a token. */
@@ -577,10 +626,57 @@ export class LensClient {
 
   /** The agent's card, or null when it has none (Lens answers 404). */
   async agentCard(user: SyntheticUser, agentID: string): Promise<AgentCard | null> {
-    const r = await this.answer<{ card: AgentCard }>('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/card`, user.token)
+    return (await this.cardAndPurchases(user, agentID))?.card ?? null
+  }
+
+  /** B25.8 — the agent's card and every purchase on it, or null when it has none. */
+  async cardAndPurchases(user: SyntheticUser, agentID: string): Promise<{ card: AgentCard; authorizations: CardAuthorization[] | null } | null> {
+    const r = await this.answer<{ card: AgentCard; authorizations: CardAuthorization[] | null }>('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/card`, user.token)
     if (!r.ok && r.status === 404) return null
     if (!r.ok) throw new Error(`GET the card of ${agentID}: Lens answered ${r.status}: ${r.error}`)
-    return r.value.card
+    return r.value
+  }
+
+  /** B25.8 — the workspace publishes a public prompt listing with its own token, as another company's software would. */
+  async publishListing(user: SyntheticUser, l: { title: string; template: string; priceULXC: number; model: string }): Promise<Answered<Listing>> {
+    return this.answer('POST', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, user.token, { kind: 'prompt', title: l.title, description: '',
+      price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '' })
+  }
+
+  /** B25.8 — takes LXC back from an agent into its workspace, as the workspace's owner. */
+  async withdrawAgent(user: SyntheticUser, agentID: string, amountULXC: number): Promise<void> {
+    await this.call('POST', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/withdraw`, this.bearer(user.token), { amount_ulxc: amountULXC })
+  }
+
+  // ─── B25.8: a test user's slow money brought due now (Lens B25.7), with the synthetic key ───
+
+  /** A test loan the workspace lends or borrows: its next instalment due now, for the minute tick to take or miss. */
+  async bringLoanDue(user: SyntheticUser, loanID: string): Promise<Answered<Loan>> {
+    return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/loans/${loanID}/due`)
+  }
+
+  /** The test buyer's metered, unpaid marketplace uses paid on one bill, their sellers' earnings past the holdback. */
+  async payTestBill(user: SyntheticUser): Promise<Answered<PaidTestBill>> {
+    return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/marketplace/bill/pay`)
+  }
+
+  /** That paid bill refunded, as Stripe's charge.refunded refunds it. */
+  async refundTestBill(user: SyntheticUser, invoiceID: string): Promise<Answered<{ uses_refunded: number }>> {
+    return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/marketplace/bill/${invoiceID}/refund`)
+  }
+
+  /** A purchase on the test agent's card, decided as Stripe Issuing's authorisation request is. */
+  async cardPurchase(user: SyntheticUser, agentID: string, p: { amount_minor: number; currency: string; merchant: string }): Promise<Answered<CardPurchase>> {
+    return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/agents/${agentID}/card/authorizations`, p)
+  }
+
+  private async synthetic<T>(method: string, path: string, body?: unknown): Promise<Answered<T>> {
+    const res = await this.send(method, path, {
+      headers: { [SYNTHETIC_KEY_HEADER]: this.key, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: (raw === '' ? null : JSON.parse(raw)) as T } : { ok: false, status: res.status, error: refusalOf(raw) }
   }
 
   /** The workspace's own listings, whatever their review. */

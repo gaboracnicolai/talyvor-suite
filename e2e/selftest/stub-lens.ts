@@ -236,7 +236,11 @@ function runModel(on: { id: string }, modelID: string, question: string): { answ
 }
 
 const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read,
-  moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', base: BASE })
+  moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', base: BASE,
+  credit: (id, ulxc, type, description) => {
+    const ws = workspaces.get(id)
+    if (ws !== undefined) book(ws, ulxc, type, description)
+  } })
 setInterval(() => bank.tick(), 2000)
 
 async function proxy(req: IncomingMessage, res: ServerResponse, provider: string, path: string): Promise<void> {
@@ -424,6 +428,7 @@ createServer(async (req, res) => {
         pool.clear()
         return json(res, 200, { reset: workspaces.size })
       }
+      if (await bank.syntheticRoute(req, res, p)) return
       const { count = 100 } = JSON.parse((await read(req)) || '{}') as { count?: number }
       const expires = new Date(Date.now() + 24 * 3600e3).toISOString().replace(/\.\d+Z$/, 'Z')
       const out = []

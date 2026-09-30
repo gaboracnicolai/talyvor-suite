@@ -91,7 +91,8 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
   const book = new ChargeBook()
 
   const reset = await lens.reset()
-  console.log(`reset ${reset} synthetic workspace(s): stored answers cleared, credits restored`)
+  console.log(reset === undefined ? 'reset: Lens did not answer within its request timeout; waited for the reset to run on to the end'
+    : `reset ${reset} synthetic workspace(s): stored answers cleared, credits restored`)
   const users = await lens.createUsers(cfg.users)
   console.log(`created ${users.length} synthetic users`)
   const catalog = await lens.catalog(users[0])
