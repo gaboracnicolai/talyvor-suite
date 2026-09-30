@@ -14,7 +14,7 @@ import { chromium } from 'playwright'
 import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
-import { type CoverageMap, Matcher, Recorder, type Tag, buildMap, inventory, leastCovered } from './coverage.ts'
+import { type CoverageMap, Matcher, Recorder, type Tag, buildMap, inventory, leastCovered, refreshLensCheckout } from './coverage.ts'
 import { type ExplorerSummary, type Finding, explore } from './explore.ts'
 import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser } from './lens.ts'
@@ -73,6 +73,8 @@ async function pool<T>(items: T[], width: number, work: (item: T) => Promise<voi
 export async function run(cfg: RunConfig): Promise<RunResult> {
   const started = new Date()
   // B25.5 — what there is to test, read from the code before anything runs, and what is tested, as it is.
+  const stale = cfg.lensRepo === undefined ? undefined : await refreshLensCheckout(cfg.lensSrc, cfg.lensRepo)
+  if (stale !== undefined) console.log(`lens source: ${stale}`)
   const inv = await inventory(REPO, cfg.lensSrc)
   console.log(`inventory: ${inv.screens.length} screens, ${inv.bff.length} BFF routes, ` +
     `${inv.lensMissing === undefined ? `${inv.lens.length} Lens routes` : `no Lens routes (${inv.lensMissing})`}`)

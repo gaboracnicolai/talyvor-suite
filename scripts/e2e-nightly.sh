@@ -8,9 +8,8 @@
 # (only when it is on main), then runs the harness — the scenarios for E2E_USERS synthetic users, then
 # E2E_EXPLORERS AI explorers for E2E_EXPLORE_MINUTES each — all under ONE hard cap, E2E_CAP_USD. The
 # day's report is appended to docs/e2e/, and each new failure is filed in ~/talyvor-queue/BUILD.md
-# (B17.4), and a short summary is put at the top of ~/talyvor-queue/TESTERS.md (B25.5). It keeps a
-# shallow checkout of talyvor-lens in e2e/out/lens-src so the coverage map lists Lens's routes. Nothing
-# here deploys, pushes or commits.
+# (B17.4), and a short summary is put at the top of ~/talyvor-queue/TESTERS.md (B25.5). Nothing here
+# deploys, pushes or commits.
 #
 # Settings are read from E2E_ENV_FILE (default ~/.config/talyvor/e2e.env) before every run:
 #   LENS_SYNTHETIC_KEY=…   E2E_APP_URL=https://app.talyvor.com   E2E_LENS_URL=https://lens.talyvor.com
@@ -48,16 +47,6 @@ run_once() {
       git pull -q --ff-only origin main || log "could not bring the checkout up to main; running what is here"
     fi
     pnpm install --frozen-lockfile >>"$state/nightly.log" 2>&1 || { log "pnpm install failed — skipped"; exit 2; }
-    # B25.5 — Lens's source, up to its main, so the coverage map lists every route Lens registers.
-    lens_src=${E2E_LENS_SRC:-$state/lens-src}
-    if [ -d "$lens_src/.git" ]; then
-      { git -C "$lens_src" fetch -q --depth 1 origin main && git -C "$lens_src" reset -q --hard FETCH_HEAD; } >>"$state/nightly.log" 2>&1 ||
-        log "could not bring $lens_src up to Lens's main; the map lists the routes it has"
-    else
-      git clone -q --depth 1 "${E2E_LENS_REPO:-https://github.com/gaboracnicolai/talyvor-lens.git}" "$lens_src" >>"$state/nightly.log" 2>&1 ||
-        log "could not clone Lens into $lens_src; the map will say Lens's routes are not listed"
-    fi
-    export E2E_LENS_SRC=$lens_src
     pnpm --filter @talyvor/e2e exec playwright install chromium >>"$state/nightly.log" 2>&1
     log "run starting at $(git rev-parse --short HEAD): ${E2E_USERS:-100} users, $E2E_EXPLORERS explorers, cap \$${E2E_CAP_USD:-5}"
     node --experimental-strip-types --no-warnings e2e/src/run.ts >>"$state/nightly.log" 2>&1

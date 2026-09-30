@@ -1,9 +1,10 @@
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { type Inventory, Recorder, buildMap, inventory, leastCovered, lensRoutesFromGo } from '../src/coverage.ts'
+import { type Inventory, Recorder, buildMap, inventory, leastCovered, lensRoutesFromGo, refreshLensCheckout } from '../src/coverage.ts'
 import { type ReportedRun, renderRun, writeTesters } from '../src/report.ts'
 import { customerReads } from '../src/tour.ts'
 
@@ -40,6 +41,28 @@ describe('the inventory is read from the code', () => {
       'POST /v1/admin/held-mints/eval_mints/adjudicate', 'POST /v1/admin/held-mints/node_mints/adjudicate',
       'POST /v1/pots/{potID}/in', 'POST /v1/pots/{potID}/out',
     ])
+  })
+})
+
+describe('the run keeps its own checkout of Lens', () => {
+  it('clones Lens\'s main the first time and brings it up to main on the next run', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lens-src-'))
+    const origin = join(root, 'lens')
+    const git = (...a: string[]) => execFileSync('git', ['-C', origin, '-c', 'user.name=t', '-c', 'user.email=t@t', ...a])
+    execFileSync('git', ['init', '-q', '-b', 'main', origin])
+    const commit = async (route: string) => {
+      await writeFile(join(origin, 'main.go'), `r.Get("${route}", h)\n`)
+      git('add', '.')
+      git('commit', '-q', '-m', route)
+    }
+    await commit('/v1/one')
+    const dir = join(root, 'lens-src')
+    expect(await refreshLensCheckout(dir, `file://${origin}`)).toBeUndefined()
+    expect(await readFile(join(dir, 'main.go'), 'utf8')).toContain('/v1/one')
+    await commit('/v1/two')
+    expect(await refreshLensCheckout(dir, `file://${origin}`)).toBeUndefined()
+    expect(await readFile(join(dir, 'main.go'), 'utf8')).toContain('/v1/two')
+    expect(await refreshLensCheckout(join(root, 'elsewhere'), `file://${root}/missing`)).toMatch(/^could not bring .* up to Lens's main/)
   })
 })
 

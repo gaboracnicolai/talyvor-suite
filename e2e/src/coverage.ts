@@ -15,8 +15,10 @@
 // Each entry ends in one state: covered (by the scenarios named), seen by the explorers only (no oracle
 // checked it), cannot be tested yet (and why), or not covered.
 
-import { readFile, readdir } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { access, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 
 export type Kind = 'screen' | 'bff' | 'lens'
 
@@ -155,6 +157,27 @@ export async function lensRoutesFrom(lensSrc: string): Promise<Entry[]> {
   }
   if (seen.size === 0) throw new Error(`no routes found under ${lensSrc}/cmd/lens`)
   return [...seen.values()]
+}
+
+/**
+ * Brings the run's own shallow checkout of Lens at `dir` up to its main, cloning it from `repoURL` the
+ * first time. Answers why it could not, or undefined. The run does this itself rather than leave it to
+ * whatever started it: a nightly loop started before this existed runs the new harness with its old
+ * script, and would list no Lens route at all.
+ */
+export async function refreshLensCheckout(dir: string, repoURL: string): Promise<string | undefined> {
+  const git = (...args: string[]) => promisify(execFile)('git', args, { timeout: 120_000 })
+  try {
+    if (await access(join(dir, '.git')).then(() => true, () => false)) {
+      await git('-C', dir, 'fetch', '-q', '--depth', '1', 'origin', 'main')
+      await git('-C', dir, 'reset', '-q', '--hard', 'FETCH_HEAD')
+    } else {
+      await git('clone', '-q', '--depth', '1', '--branch', 'main', repoURL, dir)
+    }
+    return undefined
+  } catch (e) {
+    return `could not bring ${dir} up to Lens's main from ${repoURL}: ${(e instanceof Error ? e.message : String(e)).split('\n')[0]}`
+  }
 }
 
 /** The whole inventory. `lensSrc` 'none' (or unreadable) leaves Lens's routes out and says why. */
