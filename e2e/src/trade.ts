@@ -162,16 +162,22 @@ export function walletLoan(seed: number, partner: number): Scenario {
       const borrowed = (await env.lens.loans(other.co)).find((x) => x.id === l.id)
       ctx.evidence.push({ note: `the loan as each side reads it: ${JSON.stringify([lent, borrowed])}` })
       if (lent?.status !== 'active' || borrowed?.status !== 'active') return fail(`accepted, the loan reads ${lent?.status ?? 'missing'} to the lender and ${borrowed?.status ?? 'missing'} to the borrower`)
+      // The loan names the transfer that paid it out; both companies' transfers carry it, naming the loan.
       const payout = (lent.events ?? []).filter((e) => e.kind === 'payout')
-      const paid = (await env.lens.transfers(app.user, a.id)).filter((t) => t.loan_id === l.id)
-      const got = (await env.lens.transfers(other.co, other.agent.id)).filter((t) => t.loan_id === l.id)
-      if (payout.length !== 1 || paid.length !== 1 || got.length !== 1 || paid[0].id !== got[0].id || payout[0].transfer_id !== paid[0].id || paid[0].amount_ulxc !== principal) {
-        return fail(`accepted, the loan paid out ${payout.length} time(s): ${paid.length} transfer(s) on the lender's side, ${got.length} on the borrower's`)
+      const tid = payout[0]?.transfer_id
+      const paid = (await env.lens.transfers(app.user, a.id)).filter((t) => t.id === tid)
+      const got = (await env.lens.transfers(other.co, other.agent.id)).filter((t) => t.id === tid)
+      ctx.evidence.push({ note: `the payout transfer as each side reads it: ${JSON.stringify([paid, got])}` })
+      if (payout.length !== 1 || paid.length !== 1 || got.length !== 1 || paid[0].amount_ulxc !== principal || paid[0].to_agent_id !== other.agent.id) {
+        return fail(`accepted, the loan paid out ${payout.length} time(s); its transfer ${tid ?? '(none)'} is on the lender's side ${paid.length} time(s) and the borrower's ${got.length}`)
+      }
+      const [x, y] = await balances(ctx, a, other)
+      if (x !== funded - principal || y !== principal) return fail(`lent, ${a.name} holds ${x} µLXC (want ${funded - principal}) and the borrower ${y} (want ${principal})`)
+      if (paid[0].loan_id !== l.id || got[0].loan_id !== l.id) {
+        return fail(`the loan's payout ${tid} is on both sides but names loan ${paid[0].loan_id ?? '(none)'} to the lender and ${got[0].loan_id ?? '(none)'} to the borrower, not ${l.id}`)
       }
       const due = Date.parse(lent.next_due_at ?? '') - Date.parse(lent.decided_at ?? '')
       if (!(Math.abs(due - DAY_MS) < 60_000)) return fail(`the first instalment is due ${lent.next_due_at}, not a day after the loan was accepted (${lent.decided_at})`)
-      const [x, y] = await balances(ctx, a, other)
-      if (x !== funded - principal || y !== principal) return fail(`lent, ${a.name} holds ${x} µLXC (want ${funded - principal}) and the borrower ${y} (want ${principal})`)
       return { pass: true, detail: `offered on the screen, accepted by the borrower: active on both sides, ${lxcText(principal)} LXC paid out once, the first instalment due a day on (repaying and defaulting happen then — B25.7)` }
     }),
   }
@@ -336,7 +342,8 @@ export function walletCard(seed: number): Scenario {
       const { env, app } = ctx
       const a = await openAgent(ctx, bank, `Buyer card ${seed}`)
       if (typeof a === 'string') return fail(a)
-      const err = await bank.issueCard(a, { first: 'Test', last: `User ${seed}`, line1: '1 High Street', city: 'London', postcode: 'EC1A 1BB' })
+      // Stripe refuses a cardholder's name with a digit in it.
+      const err = await bank.issueCard(a, { first: 'Test', last: 'Tester', line1: '1 High Street', city: 'London', postcode: 'EC1A 1BB' })
       if (err !== undefined) return fail(`issuing the card was refused: ${err}`)
       const c = await env.lens.agentCard(app.user, a.id)
       ctx.evidence.push({ note: `the card: ${JSON.stringify(c)}` })
