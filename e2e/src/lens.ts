@@ -41,6 +41,130 @@ export interface Agent {
   balance_ulxc: number
   spent_ulxc: number
   owner_user_id?: string
+  /** B25.4 — what its pots hold, beside its balance */
+  pots_ulxc?: number
+}
+
+/** B25.4 — Lens economy.AgentTransfer (B22.3): credits moved between two agents, of one owner or two. */
+export interface AgentTransfer {
+  id: string
+  from_workspace_id: string
+  from_agent_id: string
+  to_workspace_id: string
+  to_agent_id: string
+  amount_ulxc: number
+  memo?: string
+  request_id?: string
+  schedule_id?: string
+  refund_of?: string
+  loan_id?: string
+  created_at: string
+}
+
+/** B25.4 — Lens economy.MoneyRequest: from_* asked to_* for credits. */
+export interface MoneyRequest {
+  id: string
+  from_agent_id: string
+  to_agent_id: string
+  amount_ulxc: number
+  status: 'pending' | 'accepted' | 'declined'
+  transfer_id?: string
+}
+
+/** B25.4 — Lens economy.Loan (B22.5). */
+export interface Loan {
+  id: string
+  lender_agent_id: string
+  borrower_agent_id: string
+  principal_ulxc: number
+  interest_bps: number
+  instalments: number
+  every: string
+  status: string
+  paid_instalments: number
+  next_due_at?: string
+  decided_at?: string
+  events: { kind: string; transfer_id?: string; at: string }[] | null
+}
+
+/** B25.4 — Lens economy.Escrow (B22.6). */
+export interface Escrow {
+  id: string
+  payer_agent_id: string
+  payee_agent_id: string
+  amount_ulxc: number
+  memo?: string
+  status: 'held' | 'disputed' | 'released' | 'returned'
+  release_at: string
+}
+
+/** B25.4 — Lens economy.Pot (B22.7). */
+export interface Pot {
+  id: string
+  agent_id: string
+  name: string
+  balance_ulxc: number
+}
+
+/** B25.4 — Lens economy.AgentSchedule and one of its runs (B19.21, B22.3). */
+export interface AgentSchedule {
+  id: string
+  from_agent_id: string
+  to_agent_id: string
+  amount_ulxc: number
+  every: string
+  next_run_at: string
+  active: boolean
+}
+export interface ScheduleRun {
+  tick_at: string
+  outcome: 'paid' | 'refused'
+  entry_id?: string
+  detail?: string
+}
+
+/** B25.4 — Lens economy.CashOut (B22.9). */
+export interface CashOut {
+  id: string
+  agent_id: string
+  amount_ulxc: number
+  destination: string
+  partner: string
+  status: 'held' | 'submitted' | 'paid' | 'failed'
+  detail?: string
+}
+
+/** B25.4 — Lens economy.AgentCard (B19.24): an agent's Stripe Issuing card. */
+export interface AgentCard {
+  id: string
+  agent_id: string
+  last4: string
+  currency: string
+  livemode: boolean
+}
+
+/** B25.4 — a marketplace listing as Lens lists it (market.Listing). */
+export interface Listing {
+  id: string
+  workspace_id: string
+  title: string
+  price_per_use_ulxc: number
+  review_status: string
+}
+
+/** B25.4 — the seller's payout page (market.Payouts): account is null until they connect Stripe. */
+export interface Payouts {
+  account: { stripe_account_id: string; country: string; details_submitted: boolean; payouts_enabled: boolean } | null
+  in_holdback_usd_micros: number
+  available_usd_micros: number
+  payouts: unknown[] | null
+}
+
+/** B25.4 — one listing in the moderators' review queue (market.QueueItem). */
+export interface QueueItem {
+  listing: Listing
+  open_reports: number
+  report_reasons: string[] | null
 }
 
 /** Lens economy.AgentBook: workspace = allocated + unallocated. */
@@ -88,6 +212,8 @@ export interface BillLine {
   agent_id?: string
   price_ulxc: number
   cleared_at?: string
+  /** B25.4 — credited back: the listing was taken down */
+  refunded_at?: string
   payee_agent_id?: string
 }
 
@@ -95,6 +221,7 @@ export interface BillLine {
 export interface MarketBill {
   month: string
   total_ulxc: number
+  refunded_ulxc?: number
   lines: BillLine[] | null
 }
 
@@ -145,19 +272,22 @@ export class LensClient {
   private readonly sessionKeys: Map<string, Promise<string>>
   private readonly recorder: Recorder | undefined
   private readonly tag: Tag
+  /** B25.4 — a moderator key (lens moderator-keys create): the review queue's approve and take down. */
+  private readonly moderatorKey: string
 
   constructor(baseURL: string, syntheticKey: string, recorder?: Recorder, tag: Tag = { scenario: 'harness', user: -1 },
-    sessionKeys = new Map<string, Promise<string>>()) {
+    sessionKeys = new Map<string, Promise<string>>(), moderatorKey = '') {
     this.baseURL = baseURL
     this.key = syntheticKey
     this.recorder = recorder
     this.tag = tag
     this.sessionKeys = sessionKeys
+    this.moderatorKey = moderatorKey
   }
 
   /** B25.5 — the same client, its calls recorded as `tag`'s for the coverage map. */
   tagged(tag: Tag): LensClient {
-    return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys)
+    return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys, this.moderatorKey)
   }
 
   /** Every request to Lens goes through here, so the coverage map sees each one with its time. */
@@ -372,6 +502,141 @@ export class LensClient {
       rows.push(...page)
       if (page.length < 200) return rows
     }
+  }
+
+  // ─── B25.4: the wallet and the marketplace, as each test user's own token reads and moves them ───
+
+  /** Funds an agent from its workspace, as the workspace's owner. */
+  async fundAgent(user: SyntheticUser, agentID: string, amountULXC: number): Promise<void> {
+    await this.call('POST', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/fund`, this.bearer(user.token), { amount_ulxc: amountULXC })
+  }
+
+  /** What one agent sent and received, newest first. */
+  async transfers(user: SyntheticUser, agentID: string): Promise<AgentTransfer[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/transfers`, this.bearer(user.token))) as { transfers?: AgentTransfer[] | null }
+    return body.transfers ?? []
+  }
+
+  /** Gives back a transfer the workspace's agent received. */
+  async refundTransfer(user: SyntheticUser, transferID: string): Promise<Answered<AgentTransfer>> {
+    return this.answer('POST', `/v1/workspaces/${user.workspaceID}/transfers/${transferID}/refund`, user.token)
+  }
+
+  /** The workspace's agent `agentID` asks the agent at wallet `from` for credits. */
+  async requestMoney(user: SyntheticUser, agentID: string, from: string, amountULXC: number, memo: string): Promise<Answered<MoneyRequest>> {
+    return this.answer('POST', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/requests`, user.token, { from, amount_ulxc: amountULXC, memo })
+  }
+
+  /** Every request the workspace's agents made and were made. */
+  async moneyRequests(user: SyntheticUser): Promise<MoneyRequest[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/money-requests`, this.bearer(user.token))) as { requests?: MoneyRequest[] | null }
+    return body.requests ?? []
+  }
+
+  /** Every loan the workspace lends and borrows. */
+  async loans(user: SyntheticUser): Promise<Loan[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/loans`, this.bearer(user.token))) as { loans?: Loan[] | null }
+    return body.loans ?? []
+  }
+
+  /** The borrower accepts (or declines) a loan offered to its agent. */
+  async answerLoan(user: SyntheticUser, loanID: string, accept: boolean): Promise<Answered<Loan>> {
+    return this.answer('POST', `/v1/workspaces/${user.workspaceID}/loans/${loanID}/${accept ? 'accept' : 'decline'}`, user.token)
+  }
+
+  /** Every escrow the workspace's agents paid into or are owed from. */
+  async escrows(user: SyntheticUser): Promise<Escrow[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/escrows`, this.bearer(user.token))) as { escrows?: Escrow[] | null }
+    return body.escrows ?? []
+  }
+
+  async pots(user: SyntheticUser, agentID: string): Promise<Pot[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/pots`, this.bearer(user.token))) as { pots?: Pot[] | null }
+    return body.pots ?? []
+  }
+
+  async schedules(user: SyntheticUser): Promise<AgentSchedule[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/schedules`, this.bearer(user.token))) as { schedules?: AgentSchedule[] | null }
+    return body.schedules ?? []
+  }
+
+  async scheduleRuns(user: SyntheticUser, scheduleID: string): Promise<ScheduleRun[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/schedules/${scheduleID}/runs`, this.bearer(user.token))) as { runs?: ScheduleRun[] | null }
+    return body.runs ?? []
+  }
+
+  /** Stops a schedule, so a test user's recurring transfer does not outlive its run. */
+  async stopSchedule(user: SyntheticUser, scheduleID: string): Promise<Answered<unknown>> {
+    return this.answer('DELETE', `/v1/workspaces/${user.workspaceID}/agents/schedules/${scheduleID}`, user.token)
+  }
+
+  async cashOuts(user: SyntheticUser): Promise<CashOut[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/cash-outs`, this.bearer(user.token))) as { cash_outs?: CashOut[] | null }
+    return body.cash_outs ?? []
+  }
+
+  /** The agent's card, or null when it has none (Lens answers 404). */
+  async agentCard(user: SyntheticUser, agentID: string): Promise<AgentCard | null> {
+    const r = await this.answer<{ card: AgentCard }>('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/card`, user.token)
+    if (!r.ok && r.status === 404) return null
+    if (!r.ok) throw new Error(`GET the card of ${agentID}: Lens answered ${r.status}: ${r.error}`)
+    return r.value.card
+  }
+
+  /** The workspace's own listings, whatever their review. */
+  async ownListings(user: SyntheticUser): Promise<Listing[]> {
+    const body = await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, this.bearer(user.token))
+    return Array.isArray(body) ? (body as Listing[]) : []
+  }
+
+  /** The public catalog, as this user browses it. */
+  async catalogListings(user: SyntheticUser): Promise<Listing[]> {
+    const body = await this.call('GET', '/v1/marketplace/listings', this.bearer(user.token))
+    return Array.isArray(body) ? (body as Listing[]) : []
+  }
+
+  /** One listing as this user sees it; a refusal when they may not. */
+  async listing(user: SyntheticUser, id: string): Promise<Answered<Listing>> {
+    return this.answer('GET', `/v1/marketplace/listings/${id}`, user.token)
+  }
+
+  async payouts(user: SyntheticUser): Promise<Payouts> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/payouts`, this.bearer(user.token))) as Payouts
+  }
+
+  get canModerate(): boolean {
+    return this.moderatorKey !== ''
+  }
+
+  /** The moderators' queue: every held or reported listing. */
+  async reviewQueue(): Promise<QueueItem[]> {
+    const body = await this.call('GET', '/v1/admin/marketplace/review', this.moderator())
+    return Array.isArray(body) ? (body as QueueItem[]) : []
+  }
+
+  /** A moderator approves a held listing, or takes one down for `reason`. */
+  async moderate(listingID: string, action: 'approve' | 'takedown', reason = ''): Promise<Answered<unknown>> {
+    const res = await this.send('POST', `/v1/admin/marketplace/listings/${listingID}/${action}`, {
+      headers: { ...this.moderator(), 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(action === 'takedown' ? { reason } : {}),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: raw === '' ? null : JSON.parse(raw) } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** A moderator key must name the person it acts for; every use is recorded under that name. */
+  private moderator(): Record<string, string> {
+    return { Authorization: `Bearer ${this.moderatorKey}`, 'X-Talyvor-Operator': 'e2e-testers' }
+  }
+
+  /** A write a scenario reads the refusal of: Lens's answer, or its status and sentence. */
+  private async answer<T>(method: string, path: string, token: string, body?: unknown): Promise<Answered<T>> {
+    const res = await this.send(method, path, {
+      headers: { ...this.bearer(token), Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: (raw === '' ? null : JSON.parse(raw)) as T } : { ok: false, status: res.status, error: refusalOf(raw) }
   }
 
   private sessionKey(user: SyntheticUser): Promise<string> {

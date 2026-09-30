@@ -183,6 +183,33 @@ which the ledger read-back does not expect. In production it needs Lens's test-m
 to `/v1/billing/webhook/test`) and `LENS_STRIPE_TEST_SUBSCRIPTION_PLANS`; without them Plans says plans are
 not on sale and the scenario FAILs with Lens's sentence naming what is unset.
 
+## Catalog v4 — test users trade with each other (B25.4)
+
+Every wallet, bank and marketplace function Lens made work for test users (B25.3), used between two test
+companies. A person works Agent Wallets, a listing's page and Your listings & earnings; the other company
+answers with its own token, straight to Lens. Every oracle is a row read back from Lens, on both sides.
+Approvals, statements, listing, buying and the seller's earnings are catalog v3's.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `wallet-send-refund` | 0, 10, … with 9, 19, … | Send 1.5 LXC to the other company's agent: one transfer both companies read, the sender −1.5 and the receiver +1.5; the other company gives it back: one refund both read, both balances where they began |
+| `wallet-request` | 1, 11, … with 9, 19, … | the other company's agent asks for 0.8 LXC; Accept under Requests: the request reads accepted on both sides, paid by one transfer both read, the balances moved by it |
+| `market-review` | 2, 12, … with 9, 19, … | a listing that reads as a prompt injection is held on Publish, not in the other company's catalog and not readable by it, and in the moderators' queue; approved with the moderator key, it is approved and in the other company's catalog |
+| `wallet-loan` | 3, 13, … with 9, 19, … | Offer a loan of 2 LXC at 10% over 2 daily instalments; the other company accepts: active on both sides, one payout transfer both read, the balances moved by the principal, the first instalment due a day after acceptance |
+| `wallet-escrow` | 4, 14, … with 9, 19, … | Pay into escrow 1 LXC: held on both sides and out of both balances; Confirm delivered: released, the payee +1. A second of 0.5 LXC disputed: disputed on both sides, still held |
+| `wallet-pots` | 5, 15, … | Create pot, move 1.2 in and 0.4 out: the pot holds 0.8, the agent the rest, and the book's pots count it |
+| `wallet-cash-out` | 6, 16, … | Ask to cash out 0.5 LXC: held from the agent at once; paid by the test partner on Lens's tick, within four minutes |
+| `wallet-recurring` | 7, 17, … with 9, 19, … | Start 0.25 LXC every day: Lens's tick pays the first at once — one run, one transfer both read — and a minute later nothing more; next due a day on. The schedule is then stopped |
+| `market-takedown` | 8, 18, … with 7, 17, … selling | another company publishes; this user uses it (one bill line, the seller one more pending use), reports it on its page (in the moderators' queue with the reason); taken down with the moderator key: the bill line refunded, the seller's pending back where it was, gone from the catalog |
+| `wallet-card` | 9, 19, … | Issue a test card: Lens holds one test-mode card for that agent, in pounds |
+| `market-payout-connect` | 9, 19, … | Connect with Stripe on Your listings & earnings: the browser goes to Stripe's onboarding and Lens holds the seller's Connect account, not yet payable |
+
+`market-review` and `market-takedown` need a moderator key in `LENS_MODERATOR_KEY` (`lens moderator-keys
+create`, inside the lens container; every use is recorded under the operator `e2e-testers`). Without one
+they SKIP. What one run cannot reach, because it happens days later, is B25.7's: a loan's instalment and its
+default (a day at the soonest), a payout (a paid bill, then the 14-day holdback), the refund of a paid bill,
+and a purchase on the card (Stripe's authorization).
+
 ## Self-test
 
 `pnpm --filter @talyvor/e2e selftest` runs the whole harness on this machine. It uses a stand-in Lens
@@ -193,4 +220,4 @@ Track and Docs are stood in for by `selftest/stub-products.ts`.
 `setting`, `logging` (stub-lens.ts), `docs-ai`, `track-ai`, `export` (stub-products.ts) and, for
 catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace), and for B17.10 `subscribe`
 and `royalty` (stub-lens.ts, which stands in for Stripe's hosted checkout too), each file saying what each
-breaks.
+breaks. Catalog v4's sixteen (stub-bank.ts) may be named together, comma-separated, one per scenario.
