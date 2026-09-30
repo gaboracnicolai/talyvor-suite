@@ -12,7 +12,7 @@ import type { Agent, AgentBook, Answered, JudgeReply, SyntheticUser } from './le
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
 import type { Scenario, ScenarioCtx, Verdict } from './scenarios.ts'
 
-const ACTION_TIMEOUT_MS = 30_000
+export const ACTION_TIMEOUT_MS = 30_000
 /** An agent's questions are one number long. */
 const AGENT_MAX_TOKENS = 16
 /** A listing's use: Lens runs it with the most output a chat answer may produce. */
@@ -22,7 +22,7 @@ const NUMBER_ONLY = 'Reply with the number only.'
 const ULXC_PER_USD_MICRO = 10
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const lxcText = (ulxc: number): string => String(ulxc / 1e6)
+export const lxcText = (ulxc: number): string => String(ulxc / 1e6)
 
 /** The card under an `h2` heading (packages/ui CardHeader). */
 function card(page: Page, heading: string): Locator {
@@ -167,10 +167,140 @@ export class AgentBankScreen {
     ])
     return { name: download.suggestedFilename(), text: await readFile(await download.path(), 'utf8') }
   }
+
+  // ─── B25.4: money between owners, on the same screen ───
+
+  /** Send or request → Send: `ulxc` from `agent` to the wallet `to`; the line the card then shows. */
+  async send(agent: Agent, to: string, ulxc: number, memo: string): Promise<string> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Send or request')
+    await c.getByRole('group', { name: 'Send or request' }).getByRole('button', { name: 'Send', exact: true }).click()
+    await c.getByLabel('Send to (wallet ID or @handle)').fill(to)
+    await c.getByLabel('Amount in LXC to send').fill(lxcText(ulxc))
+    await c.getByLabel('What it is for').fill(memo)
+    await c.getByRole('button', { name: 'Send credits' }).click()
+    return said(c)
+  }
+
+  /** Between owners → Requests: accepts what the agent at wallet `from` asks `agent` for; the row's pill, or the refusal. */
+  async acceptRequest(agent: Agent, from: string): Promise<string> {
+    await this.fresh()
+    const c = card(this.page, 'Requests')
+    const row = c.getByText(`${from} asks ${agent.name}`, { exact: true }).first().locator('xpath=../..')
+    await row.getByRole('button', { name: 'Accept', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+    const done = row.getByText('Accepted', { exact: true })
+    return (await outcome(done, c)) ?? 'Accepted'
+  }
+
+  /** Offer a loan: `principal` to the wallet `to`, at `pct`% over `n` instalments every `every`. */
+  async offerLoan(agent: Agent, l: { to: string; principal: number; pct: number; n: number; every: 'day' | 'week' | 'month'; memo: string }): Promise<string> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Offer a loan')
+    await c.getByLabel('Lend to (wallet ID or @handle)').fill(l.to)
+    await c.getByLabel('Loan amount in LXC').fill(lxcText(l.principal))
+    await c.getByLabel('Interest over the whole loan, in percent').fill(String(l.pct))
+    await c.getByLabel('Number of instalments').fill(String(l.n))
+    await c.getByRole('group', { name: 'Instalments every' }).getByRole('button', { name: `Every ${l.every}`, exact: true }).click()
+    await c.getByLabel('What the loan is for').fill(l.memo)
+    await c.getByRole('button', { name: 'Offer', exact: true }).click()
+    return said(c)
+  }
+
+  /** Pay into escrow: `ulxc` for the wallet `to`, released on `releaseOn` (YYYY-MM-DD) unless disputed. */
+  async payIntoEscrow(agent: Agent, to: string, ulxc: number, releaseOn: string, memo: string): Promise<string> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Pay into escrow')
+    await c.getByLabel('Hold for (wallet ID or @handle)').fill(to)
+    await c.getByLabel('Amount in LXC to hold').fill(lxcText(ulxc))
+    await c.getByLabel('Release on').fill(releaseOn)
+    await c.getByLabel('What the escrow is for').fill(memo)
+    await c.getByRole('button', { name: 'Pay into escrow', exact: true }).click()
+    return said(c)
+  }
+
+  /** Held and cashed out → Escrow: confirms the escrow `memo` names delivered, or disputes it; its pill, or the refusal. */
+  async settleEscrow(memo: string, how: { confirm: true } | { dispute: string }): Promise<string> {
+    await this.fresh()
+    const c = card(this.page, 'Escrow')
+    const row = c.getByTestId('escrow').filter({ hasText: memo })
+    if ('confirm' in how) {
+      await row.getByRole('button', { name: 'Confirm delivered' }).click({ timeout: ACTION_TIMEOUT_MS })
+    } else {
+      await row.getByLabel('Why you dispute it').fill(how.dispute)
+      await row.getByRole('button', { name: 'Dispute', exact: true }).click()
+    }
+    const done = row.getByText('confirm' in how ? 'Released' : 'Disputed', { exact: true })
+    return (await outcome(done, row)) ?? ('confirm' in how ? 'Released' : 'Disputed')
+  }
+
+  /** Pots → Create pot: a goal of `targetULXC`. */
+  async createPot(agent: Agent, name: string, targetULXC: number): Promise<string | undefined> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Pots')
+    await c.getByLabel('New pot’s name').fill(name)
+    await c.getByLabel('Target in LXC (optional)').fill(lxcText(targetULXC))
+    await c.getByRole('button', { name: 'Create pot' }).click()
+    return outcome(c.getByTestId('pot').filter({ hasText: name }), c)
+  }
+
+  /** Moves `ulxc` into or out of the pot `name`; Lens's refusal, if the move was refused. */
+  async movePot(agent: Agent, name: string, ulxc: number, dir: 'in' | 'out'): Promise<string | undefined> {
+    await this.fresh(agent)
+    const row = card(this.page, 'Pots').getByTestId('pot').filter({ hasText: name })
+    await row.getByLabel(`Amount in LXC to move for ${name}`).fill(lxcText(ulxc))
+    const [res] = await Promise.all([
+      this.page.waitForResponse((r) => r.request().method() === 'POST' && new RegExp(`/pots/[^/]+/${dir}$`).test(new URL(r.url()).pathname), { timeout: ACTION_TIMEOUT_MS }),
+      row.getByRole('button', { name: dir === 'in' ? 'Move in' : 'Move out' }).click(),
+    ])
+    if (res.ok()) return undefined
+    const refused = row.getByRole('alert')
+    await refused.waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+    return (await refused.count()) > 0 ? (await refused.first().innerText()).trim() : `the move answered ${res.status()}`
+  }
+
+  /** Recurring transfer: `ulxc` to the wallet `to` every `every`, from now. */
+  async startRecurring(agent: Agent, to: string, ulxc: number, every: 'day' | 'week' | 'month', memo: string): Promise<string> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Recurring transfer')
+    await c.getByLabel('Pay every period to (wallet ID or @handle)').fill(to)
+    await c.getByLabel('Recurring amount in LXC').fill(lxcText(ulxc))
+    await c.getByRole('group', { name: 'How often' }).getByRole('button', { name: `Every ${every}`, exact: true }).click()
+    await c.getByLabel('What the recurring transfer is for').fill(memo)
+    await c.getByRole('button', { name: 'Start', exact: true }).click()
+    return said(c)
+  }
+
+  /** Cash out: `ulxc` of the agent's credits, paid to `destination`. */
+  async cashOut(agent: Agent, ulxc: number, destination: string): Promise<string> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Cash out')
+    await c.getByLabel('Amount in LXC to cash out').fill(lxcText(ulxc))
+    await c.getByLabel('Pay to (a name for the account)').fill(destination)
+    await c.getByRole('button', { name: 'Ask to cash out' }).click()
+    return said(c)
+  }
+
+  /** Card → Issue a test card, to the cardholder `holder`; Lens's refusal, if it was refused. */
+  async issueCard(agent: Agent, holder: { first: string; last: string; line1: string; city: string; postcode: string }): Promise<string | undefined> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Card')
+    for (const [label, v] of [['First name', holder.first], ['Last name', holder.last], ['Address', holder.line1], ['Town or city', holder.city], ['Postcode', holder.postcode]]) {
+      await c.getByLabel(label, { exact: true }).fill(v)
+    }
+    await c.getByRole('button', { name: 'Issue a test card' }).click()
+    return outcome(c.getByTestId('agent-card'), c)
+  }
+}
+
+/** The note a card shows once its form was sent: what was done, or "Refused …"/"Not …" and why. */
+async function said(scope: Locator): Promise<string> {
+  const note = scope.getByRole('status').or(scope.getByRole('alert')).first()
+  await note.waitFor({ timeout: ACTION_TIMEOUT_MS })
+  return (await note.innerText()).trim()
 }
 
 /** Marketplace → Publish: a prompt listing; answers its id, or Lens's refusal. */
-async function publishPrompt(app: AppUser, l: { title: string; template: string; priceULXC: number; model: string }): Promise<{ id?: string; error?: string }> {
+export async function publishPrompt(app: AppUser, l: { title: string; template: string; priceULXC: number; model: string }): Promise<{ id?: string; error?: string }> {
   const page = await app.tab('/marketplace/publish')
   try {
     // A label that wraps a select or a hint names its control with them too: matched by its start.
@@ -193,7 +323,7 @@ async function publishPrompt(app: AppUser, l: { title: string; template: string;
 }
 
 /** A listing's page: fills its variables and presses Use it; what it answered, or the refusal. */
-async function runListing(app: AppUser, id: string, variables: Record<string, string>): Promise<{ shown?: string; error?: string }> {
+export async function runListing(app: AppUser, id: string, variables: Record<string, string>): Promise<{ shown?: string; error?: string }> {
   const page = await app.tab(`/marketplace/listings/${encodeURIComponent(id)}`)
   try {
     const use = page.getByRole('button', { name: /^Use it/ })
@@ -222,9 +352,9 @@ async function billShown(app: AppUser): Promise<string> {
 
 // ─── what the scenarios share ────────────────────────────────────────────────
 
-const fail = (detail: string): Verdict => ({ pass: false, detail })
+export const fail = (detail: string): Verdict => ({ pass: false, detail })
 
-async function withBank(ctx: ScenarioCtx, body: (bank: AgentBankScreen) => Promise<Verdict>): Promise<Verdict> {
+export async function withBank(ctx: ScenarioCtx, body: (bank: AgentBankScreen) => Promise<Verdict>): Promise<Verdict> {
   const bank = await AgentBankScreen.open(ctx.app)
   try {
     return await body(bank)
@@ -233,17 +363,17 @@ async function withBank(ctx: ScenarioCtx, body: (bank: AgentBankScreen) => Promi
   }
 }
 
-async function bookOf(ctx: ScenarioCtx, user: SyntheticUser = ctx.app.user): Promise<AgentBook> {
+export async function bookOf(ctx: ScenarioCtx, user: SyntheticUser = ctx.app.user): Promise<AgentBook> {
   const b = await ctx.env.lens.agentBook(user)
   ctx.evidence.push({ note: `book: workspace ${b.workspace_balance_ulxc} µLXC = ${b.allocated_ulxc} with agents + ${b.unallocated_ulxc} free; ` +
     b.agents.map((a) => `${a.name} ${a.balance_ulxc}`).join(', ') })
   return b
 }
 
-const agentIn = (b: AgentBook, id: string): Agent | undefined => b.agents.find((a) => a.id === id)
+export const agentIn = (b: AgentBook, id: string): Agent | undefined => b.agents.find((a) => a.id === id)
 
 /** Creates an agent on the screen and finds it in Lens's book, owned by the person who made it. */
-async function openAgent(ctx: ScenarioCtx, bank: AgentBankScreen, name: string): Promise<Agent | string> {
+export async function openAgent(ctx: ScenarioCtx, bank: AgentBankScreen, name: string): Promise<Agent | string> {
   const err = await bank.create(name)
   if (err !== undefined) return `creating ${name} was refused: ${err}`
   const a = (await ctx.env.lens.agentBook(ctx.app.user)).agents.find((x) => x.name === name)
@@ -252,7 +382,7 @@ async function openAgent(ctx: ScenarioCtx, bank: AgentBankScreen, name: string):
   return a
 }
 
-async function spendRows(ctx: ScenarioCtx): Promise<{ id: string; amount_ulxc: number }[]> {
+export async function spendRows(ctx: ScenarioCtx): Promise<{ id: string; amount_ulxc: number }[]> {
   return (await ctx.env.lens.ledger(ctx.app.user)).filter((r) => r.type === 'spend')
 }
 

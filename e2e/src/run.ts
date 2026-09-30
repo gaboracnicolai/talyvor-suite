@@ -19,7 +19,7 @@ import { type ExplorerSummary, type Finding, explore } from './explore.ts'
 import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser } from './lens.ts'
 import { reportPath, writeReport, writeTesters } from './report.ts'
-import { type Evidence, type RunEnv, checkLedger, journeyFor } from './scenarios.ts'
+import { CannotTest, type Evidence, type RunEnv, checkLedger, journeyFor } from './scenarios.ts'
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -86,7 +86,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     const fs = [...new Set(paths.map(featureAt).filter((f): f is string => f !== undefined))]
     return fs.length > 0 ? fs : [named ?? 'Chat']
   }
-  const lens = new LensClient(cfg.lensURL, cfg.syntheticKey, rec)
+  const lens = new LensClient(cfg.lensURL, cfg.syntheticKey, rec, undefined, undefined, cfg.moderatorKey)
   const cap = new SpendCap(cfg.capUSD)
   const book = new ChargeBook()
 
@@ -154,7 +154,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
             detail = v.detail
             if (!v.pass) where = v.where
           } catch (e) {
-            status = e instanceof CapReached ? 'SKIP' : 'ERROR'
+            status = e instanceof CapReached || e instanceof CannotTest ? 'SKIP' : 'ERROR'
             detail = e instanceof Error ? e.message : String(e)
             // Where it was when it broke — before going back to Chat, which is not where it broke.
             where = rec.screensOf(tag)

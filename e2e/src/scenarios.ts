@@ -18,6 +18,7 @@ import {
 } from './oracles.ts'
 import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
 import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles } from './bank.ts'
+import { marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCashOut, walletEscrow, walletLoan, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
 
@@ -59,6 +60,9 @@ export interface ScenarioCtx {
   env: RunEnv
   evidence: Evidence[]
 }
+
+/** B25.4 — a scenario this run cannot reach, and why (a credential it was not given): reported as SKIP, files nothing. */
+export class CannotTest extends Error {}
 
 export interface Scenario {
   id: string
@@ -987,6 +991,23 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3)); break
     case 6: list.push(statementReconciles(i)); break
     case 7: list.push(everyScreen()); break
+  }
+  // Catalog v4 (B25.4): test users trade with each other through every wallet, bank and marketplace
+  // function, one in ten again. The other company is 9, 19, …: nobody pauses its agents, and a trade
+  // leaves its marketplace earnings — which company-payment reads — alone. The seller of a listing that
+  // is taken down is 7, 17, …, whose marketplace earnings nobody else reads.
+  const other = i - (i % 10) + 9
+  switch (i % 10) {
+    case 0: if (other < users) list.push(walletSendRefund(i, other)); break
+    case 1: if (other < users) list.push(walletRequest(i, other)); break
+    case 2: if (other < users) list.push(marketReview(i, other)); break
+    case 3: if (other < users) list.push(walletLoan(i, other)); break
+    case 4: if (other < users) list.push(walletEscrow(i, other)); break
+    case 5: list.push(walletPots(i)); break
+    case 6: list.push(walletCashOut(i)); break
+    case 7: if (other < users) list.push(walletRecurring(i, other)); break
+    case 8: list.push(marketTakedown(i, i - 1)); break
+    case 9: list.push(walletCard(i), marketPayoutConnect()); break
   }
   // B25.5 — every Lens read a customer's key can make, a few times a run.
   if (i % 100 === 8) list.push(lensReads())
