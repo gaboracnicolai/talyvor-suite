@@ -28,6 +28,15 @@
 //   report-lost         — a report is acknowledged and never reaches the moderators' queue
 //   takedown-no-refund  — taking a listing down refunds nobody
 //   connect-none        — Connect with Stripe sends the browser to Stripe but records no account
+//
+// B25.8 adds what Lens (B25.7) brings due for a test workspace with the synthetic key: a loan's instalment
+// (taken or missed by tick(), as Lens's minute tick does), a buyer's bill paid and refunded, a purchase on
+// an agent's card; and a seller taking their earnings as credits. Its defects, one per scenario:
+//   loan-repay-lost     — an instalment is taken from the borrower and never reaches the lender
+//   loan-default-never  — a late loan missed again stays late, never in default
+//   card-free           — an approved card purchase takes nothing from the agent
+//   payout-uncredited   — taking earnings as credits records the payout and credits nothing
+//   bill-refund-kept    — refunding a paid bill marks the buyer's use refunded and leaves the seller's earning
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -47,6 +56,8 @@ export interface BankDeps {
   /** B25.4 — the moderator key the review queue takes, and where the stub serves Stripe's onboarding */
   moderatorKey: string
   base: string
+  /** B25.8 — books `ulxc` (negative: a debit) on workspace `ws`'s ledger as a row of `type` */
+  credit: (ws: string, ulxc: number, type: string, description: string) => void
 }
 
 interface Rules {
@@ -70,7 +81,17 @@ interface Listing {
   visibility: string; latest_version: number; created_at: string; updated_at: string; review_status: string
   artifact: Record<string, unknown>; changelog: string
 }
-interface Use { id: string; listing_id: string; seller: string; buyer: string; agent_id: string; price_ulxc: number; charge: string; used_at: string; payee_agent_id: string; memo: string; refunded_at?: string }
+interface Use {
+  id: string; listing_id: string; seller: string; buyer: string; agent_id: string; price_ulxc: number; charge: string; used_at: string; payee_agent_id: string; memo: string
+  refunded_at?: string
+  /** B25.8 — the bill it was paid on, when, and a refund that left the seller's share in place (bill-refund-kept) */
+  invoice?: string; cleared_at?: string; kept?: boolean
+}
+interface Payout { id: string; ws: string; method: 'credits'; month: string; gross_usd_micros: number; net_usd_micros: number; credits_ulxc: number; paid_at: string; created_at: string }
+interface CardAuth {
+  id: string; agent_id: string; authorization_id: string; approved: boolean; reason: string; amount_minor: number; currency: string
+  merchant_name: string; merchant_category: string; amount_usd_micros: number; amount_ulxc: number; created_at: string
+}
 interface Transfer {
   id: string; from_workspace_id: string; from_agent_id: string; to_workspace_id: string; to_agent_id: string; amount_ulxc: number; memo: string
   class: 'GREEN' | 'AMBER'; test_funded_ulxc: number; request_id?: string; schedule_id?: string; refund_of?: string; loan_id?: string; created_at: string
@@ -114,6 +135,9 @@ const noRules = (): Rules => ({ max_per_request_ulxc: 0, daily_limit_ulxc: 0, mo
   allowed_models: [], allowed_providers: [], allowed_listings: [], active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
 
 const lxc = (ulxc: number): string => String(ulxc / 1e6)
+/** µLXC per µUSD (LXC is pegged at $0.10), and µUSD a penny buys, at the stub's fixed pound. */
+const ULXC_PER_USD_MICRO = 10
+const USD_MICROS_PER_PENNY = 12_700
 const id = (prefix: string): string => prefix + randomBytes(8).toString('hex')
 
 export class Bank {
@@ -136,6 +160,8 @@ export class Bank {
   private readonly cards = new Map<string, object>()
   private readonly reports: Report[] = []
   private readonly accounts = new Map<string, ConnectAccount>()
+  private readonly payouts: Payout[] = []
+  private readonly cardAuths: CardAuth[] = []
 
   constructor(d: BankDeps) {
     this.d = d
@@ -353,8 +379,37 @@ export class Bank {
     return this.agents.get(address.trim())
   }
 
-  /** Lens's minute tick (cmd/lens): every recurring transfer due, then every cash-out's next step. */
+  /** Lens's minute tick (cmd/lens): every recurring transfer due, every loan instalment due, then every cash-out's next step. */
   tick(now = Date.now()): void {
+    // B25.8 — a loan's instalment due is taken from the borrower (principal, interest and, when late, the
+    // late fee), or missed: once, the loan is late and tried a period on; again, it is in default.
+    for (const l of this.loans) {
+      if ((l.status !== 'active' && l.status !== 'late') || l.next_due_at === undefined || Date.parse(l.next_due_at) > now) continue
+      const k = l.paid_instalments + 1
+      const interest = Math.floor(l.principal_ulxc * l.interest_bps / 10_000)
+      const [p, i] = k === l.instalments
+        ? [l.principal_ulxc - Math.floor(l.principal_ulxc / l.instalments) * (l.instalments - 1), interest - Math.floor(interest / l.instalments) * (l.instalments - 1)]
+        : [Math.floor(l.principal_ulxc / l.instalments), Math.floor(interest / l.instalments)]
+      const from = this.agents.get(l.borrower_agent_id)
+      const to = this.agents.get(l.lender_agent_id)
+      const at = new Date(now).toISOString()
+      const t = from === undefined || to === undefined ? { status: 404, error: 'economy: no such agent' }
+        : this.transfer(from, to, p + i + (l.status === 'late' ? l.late_fee_ulxc : 0), `loan ${l.id}: instalment ${k} of ${l.instalments}`, { loan_id: l.id }, !this.broken('loan-repay-lost'))
+      if ('id' in t) {
+        l.events.push({ kind: 'instalment', transfer_id: t.id, at })
+        l.paid_instalments = k
+        l.status = k === l.instalments ? 'repaid' : 'active'
+        l.next_due_at = k === l.instalments ? undefined : new Date(Date.parse(l.decided_at ?? at) + (k + 1) * PERIOD_MS[l.every]).toISOString()
+      } else if (l.status === 'late' && !this.broken('loan-default-never')) {
+        l.events.push({ kind: 'missed', at }, { kind: 'defaulted', at })
+        l.status = 'defaulted'
+        l.next_due_at = undefined
+      } else {
+        l.events.push({ kind: 'missed', at }, { kind: 'late', at })
+        l.status = 'late'
+        l.next_due_at = new Date(Date.parse(l.next_due_at) + PERIOD_MS[l.every]).toISOString()
+      }
+    }
     for (const sc of this.schedules) {
       while (sc.active && Date.parse(sc.next_run_at) <= now) {
         const from = this.agents.get(sc.from_agent_id)
@@ -378,6 +433,56 @@ export class Bank {
         this.post(c.workspace_id, 'cash_out', [[`cash_out:${c.id}`, -c.amount_ulxc, 'partner:test']], c.id)
       }
     }
+  }
+
+  /**
+   * B25.8 — Lens B25.7's synthetic-key routes that bring a test workspace's slow money due now (every stub
+   * workspace is a test one): a loan's instalment, the buyer's bill paid and refunded, a purchase on a card.
+   */
+  async syntheticRoute(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
+    const { json } = this.d
+    const now = new Date().toISOString()
+    let m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/loans\/([^/]+)\/due$/.exec(path)
+    if (m !== null) {
+      const l = this.loans.find((x) => x.id === m?.[2] && (x.lender_workspace_id === m[1] || x.borrower_workspace_id === m[1]) && (x.status === 'active' || x.status === 'late'))
+      if (l === undefined) return json(res, 404, { error: 'no active or late test loan of this workspace has that id' }), true
+      if (l.next_due_at === undefined || l.next_due_at > now) l.next_due_at = now
+      return json(res, 200, l), true
+    }
+    if ((m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/marketplace\/bill\/pay$/.exec(path)) !== null) {
+      const due = this.uses.filter((u) => u.buyer === m?.[1] && u.charge === 'billed' && u.cleared_at === undefined && u.refunded_at === undefined)
+      if (due.length === 0) return json(res, 409, { error: 'the bill holds no metered, unpaid marketplace use (a paid use is metered within a minute)' }), true
+      const invoice = id('in_synthetic_')
+      for (const u of due) Object.assign(u, { invoice, cleared_at: now })
+      return json(res, 200, { invoice_id: invoice, uses_cleared: due.length }), true
+    }
+    if ((m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/marketplace\/bill\/([^/]+)\/refund$/.exec(path)) !== null) {
+      const paid = this.uses.filter((u) => u.invoice === m?.[2] && u.buyer === m?.[1])
+      if (paid.length === 0) return json(res, 404, { error: 'market: no paid bill of this test workspace has that id' }), true
+      const refunded = paid.filter((u) => u.refunded_at === undefined)
+      for (const u of refunded) Object.assign(u, { refunded_at: now, kept: this.broken('bill-refund-kept') })
+      return json(res, 200, { invoice_id: m[2], uses_refunded: refunded.length }), true
+    }
+    if ((m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/agents\/([^/]+)\/card\/authorizations$/.exec(path)) !== null && req.method === 'POST') {
+      const a = this.agents.get(m[2])
+      if (a === undefined || a.ws !== m[1] || !this.cards.has(a.id)) return json(res, 404, { error: 'economy: the agent has no card' }), true
+      const b = await this.body<{ amount_minor?: number; currency?: string; merchant?: string; category?: string }>(req)
+      const minor = b.amount_minor ?? 2000
+      const usd = minor * USD_MICROS_PER_PENNY
+      const cost = usd * ULXC_PER_USD_MICRO
+      const refused = this.judge(a, cost, { payment: true, fingerprint: `card\0${a.id}\0${Date.now()}` })?.error
+        ?? (cost > this.balance(`agent:${a.id}`) ? `the agent holds ${lxc(this.balance(`agent:${a.id}`))} LXC and this purchase costs ${lxc(cost)} LXC` : undefined)
+      const auth: CardAuth = { id: id('cau_'), agent_id: a.id, authorization_id: id('iauth_synthetic_'), approved: refused === undefined,
+        reason: refused ?? "within the agent's rules", amount_minor: minor, currency: (b.currency ?? 'gbp').toLowerCase(), merchant_name: b.merchant ?? 'Synthetic merchant',
+        merchant_category: b.category ?? 'miscellaneous_general_merchandise', amount_usd_micros: usd, amount_ulxc: cost, created_at: now }
+      this.cardAuths.unshift(auth)
+      if (auth.approved && !this.broken('card-free')) {
+        this.post(a.ws, 'card', [[`agent:${a.id}`, -cost, 'spend'], ['spend', cost, `agent:${a.id}`]], auth.authorization_id)
+        this.d.credit(a.ws, -cost, 'agent_card', `card purchase at ${auth.merchant_name}`)
+      }
+      return json(res, 200, { authorization_id: auth.authorization_id, approved: auth.approved, reason: auth.reason, amount_ulxc: cost }), true
+    }
+    return false
   }
 
   /** /v1/admin/marketplace/…: the moderators' queue, behind a moderator key naming its operator (B20.13). */
@@ -432,6 +537,18 @@ export class Bank {
     if (!this.broken('report-lost')) this.reports.push(r)
     const { reporter: _r, resolved: _x, ...out } = r
     return json(res, 201, out), true
+  }
+
+  /**
+   * B25.8 — a seller's earnings in µUSD: the uses of their listings on a paid bill are payable at once (Lens
+   * B25.7 pays a test bill a holdback ago), less what a refund reversed and what was paid out.
+   */
+  private earnings(ws: string): { lifetime: number; refunded: number; available: number; paid: number } {
+    const cleared = this.uses.filter((u) => u.seller === ws && u.cleared_at !== undefined)
+    const share = (us: Use[]) => us.reduce((s, u) => s + u.price_ulxc / ULXC_PER_USD_MICRO, 0)
+    const reversed = cleared.filter((u) => u.refunded_at !== undefined && !u.kept)
+    const paid = this.payouts.filter((p) => p.ws === ws).reduce((s, p) => s + p.gross_usd_micros, 0)
+    return { lifetime: share(cleared), refunded: share(reversed), available: Math.max(share(cleared) - share(reversed) - paid, 0), paid }
   }
 
   /** Whether `viewer` may see listing `l`: held and taken-down listings are their owner's alone. */
@@ -637,7 +754,8 @@ export class Bank {
     }
     if (action === '/card' && method === 'GET') {
       const card = this.cards.get(a.id)
-      return (card === undefined ? json(res, 404, { error: 'economy: the agent has no card' }) : json(res, 200, { card, authorizations: [] })), true
+      const authorizations = this.cardAuths.filter((x) => x.agent_id === a.id)
+      return (card === undefined ? json(res, 404, { error: 'economy: the agent has no card' }) : json(res, 200, { card, authorizations })), true
     }
     if (action === '/card' && method === 'POST') {
       const h = await this.body<Record<string, string>>(req)
@@ -786,10 +904,14 @@ export class Bank {
       return json(res, 200, { id: use.id, listing_id: l.id, version: 1, kind: l.kind, model, charge, price_ulxc: use.price_ulxc, output: ran.answer, used_at: now }), true
     }
     if (rest === '/marketplace/earnings') {
-      const pending = this.uses.filter((u) => u.seller === ws.id && u.charge === 'billed' && u.refunded_at === undefined)
+      const pending = this.uses.filter((u) => u.seller === ws.id && u.charge === 'billed' && u.cleared_at === undefined && u.refunded_at === undefined)
       const gross = pending.reduce((s, u) => s + u.price_ulxc, 0)
-      return json(res, 200, { pending_uses: pending.length, pending_usd_micros: Math.floor(gross / 10), payable_usd_micros: 0, in_holdback_usd_micros: 0,
-        available_usd_micros: 0, paid_out_usd_micros: 0, owed_usd_micros: 0, lifetime_gross_usd_micros: 0, refunded_usd_micros: 0, earnings: [] }), true
+      const e = this.earnings(ws.id)
+      const earnings = this.uses.filter((u) => u.seller === ws.id && u.cleared_at !== undefined).map((u) => ({ use_id: u.id, listing_id: u.listing_id,
+        gross_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, share_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, invoice_id: u.invoice, cleared_at: u.cleared_at,
+        payable_at: u.cleared_at, refunded_at: u.kept ? undefined : u.refunded_at, payee_agent_id: u.payee_agent_id || undefined }))
+      return json(res, 200, { pending_uses: pending.length, pending_usd_micros: Math.floor(gross / 10), payable_usd_micros: e.available, in_holdback_usd_micros: 0,
+        available_usd_micros: e.available, paid_out_usd_micros: e.paid, owed_usd_micros: 0, lifetime_gross_usd_micros: e.lifetime, refunded_usd_micros: e.refunded, earnings }), true
     }
     if (rest === '/marketplace/bill') {
       const month = url.searchParams.get('month') ?? now.slice(0, 7)
@@ -797,16 +919,28 @@ export class Bank {
         use_id: u.id, listing_id: u.listing_id,
         title: u.listing_id !== '' ? this.listings.get(u.listing_id)?.title ?? '' : `Payment to ${this.agents.get(u.payee_agent_id)?.name ?? ''}`,
         agent_id: u.agent_id || undefined, price_ulxc: u.price_ulxc, used_at: u.used_at, payee_agent_id: u.payee_agent_id || undefined, memo: u.memo || undefined,
-        refunded_at: u.refunded_at,
+        cleared_at: u.cleared_at, refunded_at: u.refunded_at,
       }))
       const total = lines.filter((l) => l.refunded_at === undefined).reduce((s, l) => s + l.price_ulxc, 0)
       const refunded = lines.filter((l) => l.refunded_at !== undefined).reduce((s, l) => s + l.price_ulxc, 0)
       return json(res, 200, { month, total_ulxc: total, total_usd_micros: Math.floor(total / 10), refunded_ulxc: refunded, lines }), true
     }
     if (rest === '/marketplace/payouts' && method === 'GET') {
-      return json(res, 200, { account: this.accounts.get(ws.id) ?? null, in_holdback_usd_micros: 0, available_usd_micros: 0, owed_usd_micros: 0,
-        paid_out_usd_micros: 0, minimum_usd_micros: 10_000_000, paid_this_month: false,
-        quote: { gross_usd_micros: 0, account_fee_usd_micros: 0, payout_fee_usd_micros: 0, net_usd_micros: 0 }, payouts: [] }), true
+      const e = this.earnings(ws.id)
+      return json(res, 200, { account: this.accounts.get(ws.id) ?? null, in_holdback_usd_micros: 0, available_usd_micros: e.available, owed_usd_micros: 0,
+        paid_out_usd_micros: e.paid, minimum_usd_micros: 10_000_000, paid_this_month: false,
+        quote: { gross_usd_micros: e.available, account_fee_usd_micros: 0, payout_fee_usd_micros: 0, net_usd_micros: e.available },
+        payouts: this.payouts.filter((p) => p.ws === ws.id).map(({ ws: _w, ...p }) => p) }), true
+    }
+    if (rest === '/marketplace/payouts/credits' && method === 'POST') {
+      const gross = this.earnings(ws.id).available
+      if (gross <= 0) return json(res, 409, { error: 'market: nothing is available to pay out yet' }), true
+      const p: Payout = { id: id('mpo_'), ws: ws.id, method: 'credits', month: now.slice(0, 7), gross_usd_micros: gross, net_usd_micros: gross,
+        credits_ulxc: gross * ULXC_PER_USD_MICRO, paid_at: now, created_at: now }
+      this.payouts.unshift(p)
+      if (!this.broken('payout-uncredited')) this.d.credit(ws.id, p.credits_ulxc, 'purchase', 'marketplace earnings taken as credits')
+      const { ws: _w, ...out } = p
+      return json(res, 201, out), true
     }
     if (rest === '/marketplace/payouts/connect' && method === 'POST') {
       const { country = '' } = await this.body<{ country?: string }>(req)

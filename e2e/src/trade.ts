@@ -5,13 +5,14 @@
 // transfers, the request, the loan, the escrow, the pot, the schedule's run, the cash-out, the card,
 // the listing's review, the bill and the seller's earnings, the Stripe account. Never a status code.
 //
-// What one run cannot reach, because it only happens days later: a loan's instalment (the first is due a
-// period after it is accepted, a day at the soonest) and so its default; a payout (earnings wait for the
-// buyer's monthly bill and then a 14-day holdback); a refund of a paid bill; a purchase on the card
-// (Stripe's authorization). B25.7 asks Lens for a way to bring those due inside a run.
+// What one run cannot otherwise reach, because it only happens days later: a loan's instalment (the first is
+// due a period after it is accepted, a day at the soonest) and so its default; a payout (earnings wait for
+// the buyer's monthly bill and then a 14-day holdback); a refund of a paid bill; a purchase on the card
+// (Stripe's authorization). B25.8: Lens (B25.7) brings each due now for a test workspace, with the
+// synthetic key, and the last five scenarios below trade through them.
 
-import type { Agent, SyntheticUser } from './lens.ts'
-import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
+import type { Agent, BillLine, Loan, MarketEarnings, PaidTestBill, SyntheticUser } from './lens.ts'
+import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, card, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
 import { CannotTest, type Scenario, type ScenarioCtx } from './scenarios.ts'
@@ -508,3 +509,281 @@ export function marketPayoutConnect(): Scenario {
   }
 }
 
+
+// ─── B25.8: the slow money, brought due inside the run (Lens B25.7) ──────────
+
+/** A person offers the other company's agent a loan on Agent Wallets and that company accepts: the loan, or why not. */
+async function lend(ctx: ScenarioCtx, bank: AgentBankScreen, a: Agent, other: { co: SyntheticUser; agent: { id: string } },
+  terms: { principal: number; pct: number; n: number; every: 'day' | 'week' | 'month'; memo: string }): Promise<Loan | string> {
+  const said = await bank.offerLoan(a, { to: other.agent.id, ...terms })
+  ctx.evidence.push({ note: `Offer ${lxcText(terms.principal)} LXC at ${terms.pct}% over ${terms.n} instalment(s) every ${terms.every}: ${said}` })
+  if (!/^Offered/.test(said)) return `offering the loan was refused: "${said}"`
+  const l = (await ctx.env.lens.loans(other.co)).find((x) => x.lender_agent_id === a.id && x.status === 'offered')
+  if (l === undefined) return `the borrower's company sees no loan offered by ${a.name}`
+  const accepted = await ctx.env.lens.answerLoan(other.co, l.id, true)
+  ctx.evidence.push({ note: 'the other company accepts', answer: JSON.stringify(accepted) })
+  return accepted.ok ? l : `accepting the loan was refused: ${accepted.status} ${accepted.error}`
+}
+
+/** The loan as the lender and the borrower each read it. */
+async function loanBothSides(ctx: ScenarioCtx, other: { co: SyntheticUser }, id: string): Promise<[Loan | undefined, Loan | undefined]> {
+  const got: [Loan | undefined, Loan | undefined] = [(await ctx.env.lens.loans(ctx.app.user)).find((x) => x.id === id), (await ctx.env.lens.loans(other.co)).find((x) => x.id === id)]
+  ctx.evidence.push({ note: `the loan as each side reads it: ${JSON.stringify(got)}` })
+  return got
+}
+
+const kinds = (l: Loan | undefined): string => (l?.events ?? []).map((e) => e.kind).join(',')
+
+export function walletLoanRepay(seed: number, partner: number): Scenario {
+  const funded = 5e6
+  const principal = 2e6
+  const interest = 200_000
+  return {
+    id: 'wallet-loan-repay',
+    title: "a person lends another company's agent on Agent Wallets; its one instalment falls due and Lens's minute tick takes it: principal and interest back in one transfer both companies see, the loan repaid",
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const { env, app } = ctx
+      // The borrower already holds the interest, so the instalment can be paid in full.
+      const other = await otherCompany(ctx, partner, `Repayer ${seed}`, interest)
+      const a = await fundedAgent(ctx, bank, `Creditor ${seed}`, funded)
+      if (typeof a === 'string') return fail(a)
+      const l = await lend(ctx, bank, a, other, { principal, pct: 10, n: 1, every: 'week', memo: `stock ${seed}` })
+      if (typeof l === 'string') return fail(l)
+      const due = await env.lens.bringLoanDue(app.user, l.id)
+      ctx.evidence.push({ note: 'its instalment, due a week on, brought due now (B25.7)', answer: JSON.stringify(due) })
+      if (!due.ok) return fail(`bringing the instalment due was refused: ${due.status} ${due.error}`)
+      await until(async () => (await env.lens.loans(app.user)).find((x) => x.id === l.id), (x) => x?.status !== 'active')
+      const [lent, borrowed] = await loanBothSides(ctx, other, l.id)
+      if (lent?.status !== 'repaid' || borrowed?.status !== 'repaid') {
+        return fail(`${TICK_WAIT_MS / 60_000} minutes after its only instalment fell due, the loan reads ${lent?.status ?? 'missing'} to the lender and ${borrowed?.status ?? 'missing'} to the borrower, not repaid`)
+      }
+      if (kinds(lent) !== 'payout,instalment' || kinds(borrowed) !== 'payout,instalment') return fail(`repaid, the loan's events read ${kinds(lent)} to the lender and ${kinds(borrowed)} to the borrower`)
+      const tid = (lent.events ?? [])[1].transfer_id
+      const back = (await env.lens.transfers(app.user, a.id)).filter((t) => t.id === tid)
+      const went = (await env.lens.transfers(other.co, other.agent.id)).filter((t) => t.id === tid)
+      ctx.evidence.push({ note: `the instalment's transfer as each side reads it: ${JSON.stringify([back, went])}` })
+      if (back.length !== 1 || went.length !== 1 || back[0].amount_ulxc !== principal + interest || back[0].from_agent_id !== other.agent.id || back[0].to_agent_id !== a.id) {
+        return fail(`the instalment's transfer ${tid ?? '(none)'} is on the lender's side ${back.length} time(s) and the borrower's ${went.length}, for ${back[0]?.amount_ulxc} µLXC (want ${principal + interest})`)
+      }
+      const [x, y] = await balances(ctx, a, other)
+      if (x !== funded + interest || y !== 0) return fail(`repaid, ${a.name} holds ${x} µLXC (want ${funded + interest}) and the borrower ${y} (want 0)`)
+      return { pass: true, detail: `lent ${lxcText(principal)} LXC at 10%; brought due, the tick took ${lxcText(principal + interest)} LXC in one transfer both companies see, and the loan reads repaid on both sides` }
+    }),
+  }
+}
+
+export function walletLoanDefault(seed: number, partner: number): Scenario {
+  const funded = 5e6
+  const principal = 2e6
+  return {
+    id: 'wallet-loan-default',
+    title: "a loan whose borrower cannot pay: its instalment falls due and is missed, the loan is late; due again and missed again, it is in default on both sides, and nothing more moved",
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const { env, app } = ctx
+      const other = await otherCompany(ctx, partner, `Defaulter ${seed}`, 0)
+      const a = await fundedAgent(ctx, bank, `Backer ${seed}`, funded)
+      if (typeof a === 'string') return fail(a)
+      const l = await lend(ctx, bank, a, other, { principal, pct: 10, n: 2, every: 'day', memo: `runway ${seed}` })
+      if (typeof l === 'string') return fail(l)
+      // The borrower's company takes the principal back out of its agent: nothing is left to repay with.
+      await env.lens.withdrawAgent(other.co, other.agent.id, principal)
+      for (const [n, want] of [[1, 'late'], [2, 'defaulted']] as const) {
+        const due = await env.lens.bringLoanDue(app.user, l.id)
+        ctx.evidence.push({ note: `the next instalment brought due now, time ${n} (B25.7)`, answer: JSON.stringify(due) })
+        if (!due.ok) return fail(`bringing the instalment due (time ${n}) was refused: ${due.status} ${due.error}`)
+        const now = await until(async () => (await env.lens.loans(app.user)).find((x) => x.id === l.id),
+          (x) => (x?.events ?? []).filter((e) => e.kind === 'missed').length >= n)
+        if (now?.status !== want) return fail(`an instalment the borrower cannot pay fell due (time ${n}); ${TICK_WAIT_MS / 60_000} minutes on the loan reads ${now?.status ?? 'missing'} (${kinds(now)}), not ${want}`)
+      }
+      const [lent, borrowed] = await loanBothSides(ctx, other, l.id)
+      const want = 'payout,missed,late,missed,defaulted'
+      if (lent?.status !== 'defaulted' || borrowed?.status !== 'defaulted' || kinds(lent) !== want || kinds(borrowed) !== want) {
+        return fail(`missed twice, the loan reads ${lent?.status} (${kinds(lent)}) to the lender and ${borrowed?.status} (${kinds(borrowed)}) to the borrower; want defaulted (${want})`)
+      }
+      const between = (ts: { from_agent_id: string; to_agent_id: string }[], x: string) => ts.filter((t) => t.from_agent_id === x || t.to_agent_id === x)
+      const mine = between(await env.lens.transfers(app.user, a.id), other.agent.id)
+      const theirs = between(await env.lens.transfers(other.co, other.agent.id), a.id)
+      if (mine.length !== 1 || theirs.length !== 1) return fail(`in default, ${mine.length} transfer(s) passed between the two agents on the lender's side and ${theirs.length} on the borrower's; want the payout alone`)
+      const [x, y] = await balances(ctx, a, other)
+      if (x !== funded - principal || y !== 0) return fail(`in default, ${a.name} holds ${x} µLXC (want ${funded - principal}) and the borrower ${y} (want 0)`)
+      return { pass: true, detail: `the borrower emptied its agent; brought due, the instalment was missed and the loan went late; due again, missed again: defaulted on both sides (${want}), only the payout moved` }
+    }),
+  }
+}
+
+export function walletCardPurchase(seed: number): Scenario {
+  const funded = 20e6
+  const pence = 50
+  return {
+    id: 'wallet-card-purchase',
+    title: "an agent pays a merchant with its test card: its rules approve the purchase, Agent Wallets shows it on the card, and exactly what it cost in LXC leaves the agent",
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const { env, app } = ctx
+      const a = await fundedAgent(ctx, bank, `Shopper ${seed}`, funded)
+      if (typeof a === 'string') return fail(a)
+      const err = await bank.issueCard(a, { first: 'Test', last: 'Shopper', line1: '1 High Street', city: 'London', postcode: 'EC1A 1BB' })
+      if (err !== undefined) return fail(`issuing the card was refused: ${err}`)
+      const merchant = `Paper Co ${seed}`
+      const bought = await env.lens.cardPurchase(app.user, a.id, { amount_minor: pence, currency: 'gbp', merchant })
+      ctx.evidence.push({ note: `the agent pays £0.${pence} at ${merchant} with its card (B25.7)`, answer: JSON.stringify(bought) })
+      if (!bought.ok) return fail(`the purchase could not be made: ${bought.status} ${bought.error}`)
+      if (!bought.value.approved) return fail(`a £0.${pence} purchase by an agent holding ${lxcText(funded)} LXC was declined: ${bought.value.reason}`)
+      const cost = bought.value.amount_ulxc
+      const held = await env.lens.cardAndPurchases(app.user, a.id)
+      ctx.evidence.push({ note: `the card's purchases: ${JSON.stringify(held?.authorizations)}` })
+      const rec = (held?.authorizations ?? []).filter((x) => x.authorization_id === bought.value.authorization_id)
+      if (rec.length !== 1 || !rec[0].approved || rec[0].amount_minor !== pence || rec[0].currency !== 'gbp' || rec[0].merchant_name !== merchant) {
+        return fail(`approved, the purchase is on the card ${rec.length} time(s): ${JSON.stringify(rec)}`)
+      }
+      const after = await balance(ctx, app.user, a.id)
+      if (!(cost > 0) || after !== funded - cost) return fail(`approved at ${cost} µLXC, ${a.name} holds ${after} µLXC, want ${funded - cost}`)
+      const shown = await bank.purchases(a)
+      ctx.evidence.push({ note: `Agent Wallets → Card: ${JSON.stringify(shown)}` })
+      if (!shown.some((r) => r.includes(merchant) && /\bapproved\b/i.test(r))) return fail(`Lens holds the purchase, but the card on Agent Wallets does not show it approved: ${JSON.stringify(shown)}`)
+      return { pass: true, detail: `£0.${pence} at ${merchant}: approved by the agent's rules, on the card on the screen, and ${lxcText(cost)} LXC left the agent` }
+    }),
+  }
+}
+
+/**
+ * The other company publishes a listing with its own token and the person uses it on its page: the listing,
+ * the use's line on the buyer's bill, and the seller — or why not. The use is held against the cap and booked
+ * for the ledger read-back, as every charged answer is.
+ */
+async function buyFrom(ctx: ScenarioCtx, seller: number, seed: number, price: number): Promise<{ id: string; line: BillLine; seller: SyntheticUser } | string> {
+  const { env, app } = ctx
+  const r = seeded(seed * 47 + 23)
+  const [a, b] = [100 + Math.floor(r() * 900), 100 + Math.floor(r() * 900)]
+  const template = 'What is {{a}} + {{b}}? Reply with the number only.'
+  const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+  if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
+  const co = env.userAt(seller)
+  const published = await env.lens.publishListing(co, { title: `Totals ${seed}-${a}`, template, priceULXC: price, model: model.id })
+  ctx.evidence.push({ note: `the seller publishes "Totals ${seed}-${a}" at ${lxcText(price)} LXC a use`, answer: JSON.stringify(published) })
+  if (!published.ok) return `publishing was refused: ${published.status} ${published.error}`
+  const id = published.value.id
+  const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
+  const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
+  let used
+  try {
+    used = await runListing(app, id, { a: String(a), b: String(b) })
+  } catch (e) {
+    env.cap.settle(hold, undefined)
+    throw e
+  }
+  const charged = (await spendRows(ctx)).filter((x) => !rows0.has(x.id))
+  env.cap.settle(hold, used.error === undefined ? (charged.reduce((s, x) => s - x.amount_ulxc, 0) / 1e6) * env.usdPerLXC : undefined)
+  for (const x of charged) env.book.add(app.user.workspaceID, -x.amount_ulxc)
+  ctx.evidence.push({ note: 'the buyer uses it', answer: used.shown, error: used.error })
+  if (used.error !== undefined) return `the use was refused: ${used.error}`
+  if (!statesNumber(used.shown ?? '', a + b)) return `the listing answered wrong: expected ${a + b}, got "${used.shown}"`
+  const lines = ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === id)
+  if (lines.length !== 1 || lines[0].price_ulxc !== price) return `one use put ${lines.length} line(s) on the buyer's bill: ${JSON.stringify(lines)}`
+  return { id, line: lines[0], seller: co }
+}
+
+/** The buyer's bill paid now (B25.7), tried until Lens has metered the use (within a minute): the bill, or why not. */
+async function payBill(ctx: ScenarioCtx): Promise<PaidTestBill | string> {
+  const paid = await until(() => ctx.env.lens.payTestBill(ctx.app.user), (x) => x.ok || x.status !== 409)
+  ctx.evidence.push({ note: "the buyer's bill paid now (B25.7)", answer: JSON.stringify(paid) })
+  if (!paid.ok) return `paying the buyer's bill was refused: ${paid.status} ${paid.error}`
+  if (paid.value.uses_cleared !== 1) return `paying a bill of one use cleared ${paid.value.uses_cleared}`
+  return paid.value
+}
+
+/** Both sides of a paid bill: the buyer's line cleared, and the seller's share of it payable now. */
+async function clearedBothSides(ctx: ScenarioCtx, bought: { line: BillLine; seller: SyntheticUser }): Promise<{ share: number; earned: MarketEarnings } | string> {
+  const line = ((await ctx.env.lens.marketBill(ctx.app.user)).lines ?? []).find((l) => l.use_id === bought.line.use_id)
+  const earned = await ctx.env.lens.marketEarnings(bought.seller)
+  const e = (earned.earnings ?? []).find((x) => x.use_id === bought.line.use_id)
+  ctx.evidence.push({ note: `paid: the buyer's line ${JSON.stringify(line)}; the seller's earning ${JSON.stringify(e)}, available ${earned.available_usd_micros} µUSD` })
+  if (line?.cleared_at === undefined) return "the bill was paid, but the use does not read paid on the buyer's bill"
+  if (e === undefined || !(e.share_usd_micros > 0)) return 'the bill was paid, but the seller has no earning from the use'
+  if (Date.parse(e.payable_at) > Date.now() || earned.available_usd_micros < e.share_usd_micros) {
+    return `paid a holdback ago, the seller's ${e.share_usd_micros} µUSD is payable ${e.payable_at} with ${earned.available_usd_micros} µUSD available`
+  }
+  return { share: e.share_usd_micros, earned }
+}
+
+/** Your listings & earnings → Take … as credits, as the seller; what the Payouts card then says. */
+async function takeAsCredits(ctx: ScenarioCtx, seller: number): Promise<string> {
+  const sellerApp = await ctx.env.signInUser(seller)
+  try {
+    const page = await sellerApp.tab('/marketplace/selling')
+    const c = card(page, 'Payouts')
+    await c.getByRole('button', { name: /^Take .* as credits$/ }).click({ timeout: ACTION_TIMEOUT_MS })
+    const note = c.getByRole('status').filter({ hasText: /credits\.$/ }).or(c.getByRole('alert')).first()
+    await note.waitFor({ timeout: ACTION_TIMEOUT_MS })
+    return (await note.innerText()).trim()
+  } finally {
+    await sellerApp.close()
+  }
+}
+
+export function marketPayout(seed: number, seller: number): Scenario {
+  const price = 1_000_000
+  return {
+    id: 'market-payout',
+    title: "a buyer uses another company's listing and pays the bill; past the holdback, the seller takes the earnings as credits on Your listings & earnings: one credits payout, its credits in the seller's workspace, nothing left available",
+    run: async (ctx) => {
+      const { env } = ctx
+      const bought = await buyFrom(ctx, seller, seed, price)
+      if (typeof bought === 'string') return fail(bought)
+      const paid = await payBill(ctx)
+      if (typeof paid === 'string') return fail(paid)
+      const cleared = await clearedBothSides(ctx, bought)
+      if (typeof cleared === 'string') return fail(cleared)
+      const gross = cleared.earned.available_usd_micros
+      const payouts0 = new Set(((await env.lens.payouts(bought.seller)).payouts ?? []).map((p) => p.id))
+      const rows0 = new Set((await env.lens.ledger(bought.seller)).map((x) => x.id))
+      const said = await takeAsCredits(ctx, seller)
+      ctx.evidence.push({ note: `the seller: Take as credits: ${said}` })
+      if (!/credits\.$/.test(said)) return fail(`taking the earnings as credits was refused: "${said}"`)
+      const made = ((await env.lens.payouts(bought.seller)).payouts ?? []).filter((p) => !payouts0.has(p.id))
+      const credited = (await env.lens.ledger(bought.seller)).filter((x) => !rows0.has(x.id))
+      ctx.evidence.push({ note: `the seller's new payouts ${JSON.stringify(made)}; new ledger rows ${JSON.stringify(credited)}` })
+      if (made.length !== 1 || made[0].method !== 'credits' || made[0].gross_usd_micros !== gross || made[0].credits_ulxc !== gross * 10 || made[0].paid_at === undefined) {
+        return fail(`taking ${gross} µUSD as credits made ${made.length} payout(s): ${JSON.stringify(made)}`)
+      }
+      if (credited.length !== 1 || credited[0].amount_ulxc !== made[0].credits_ulxc) return fail(`a ${made[0].credits_ulxc} µLXC credits payout put ${credited.length} row(s) on the seller's ledger: ${JSON.stringify(credited)}`)
+      const after = await env.lens.marketEarnings(bought.seller)
+      if (after.available_usd_micros !== 0 || after.paid_out_usd_micros !== (cleared.earned.paid_out_usd_micros ?? 0) + gross) {
+        return fail(`paid out, the seller has ${after.available_usd_micros} µUSD available (want 0) and ${after.paid_out_usd_micros} paid out (want ${(cleared.earned.paid_out_usd_micros ?? 0) + gross})`)
+      }
+      return { pass: true, detail: `used (one ${lxcText(price)} LXC line), the bill paid: the line reads paid and the seller's ${cleared.share} µUSD share is payable; taken as credits on the screen: one credits payout of ${gross} µUSD, ${lxcText(gross * 10)} LXC on the seller's ledger, nothing left available` }
+    },
+  }
+}
+
+export function marketBillRefund(seed: number, seller: number): Scenario {
+  const price = 1_000_000
+  return {
+    id: 'market-bill-refund',
+    title: "a buyer's paid marketplace bill is refunded (Stripe's charge.refunded): the use reads refunded on the buyer's bill, and the seller's earning from it is reversed",
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const bought = await buyFrom(ctx, seller, seed, price)
+      if (typeof bought === 'string') return fail(bought)
+      const paid = await payBill(ctx)
+      if (typeof paid === 'string') return fail(paid)
+      const cleared = await clearedBothSides(ctx, bought)
+      if (typeof cleared === 'string') return fail(cleared)
+      const back = await env.lens.refundTestBill(app.user, paid.invoice_id)
+      ctx.evidence.push({ note: `the paid bill ${paid.invoice_id} refunded (B25.7)`, answer: JSON.stringify(back) })
+      if (!back.ok) return fail(`refunding the paid bill was refused: ${back.status} ${back.error}`)
+      if (back.value.uses_refunded !== 1) return fail(`refunding a bill of one use refunded ${back.value.uses_refunded}`)
+      const bill = await env.lens.marketBill(app.user)
+      const line = (bill.lines ?? []).find((l) => l.use_id === bought.line.use_id)
+      ctx.evidence.push({ note: `the buyer's bill: refunded ${bill.refunded_ulxc}; the line ${JSON.stringify(line)}` })
+      if (line?.refunded_at === undefined || (bill.refunded_ulxc ?? 0) < price) return fail(`refunded, the use reads ${line?.refunded_at === undefined ? 'not refunded' : 'refunded'} on the buyer's bill, which refunds ${bill.refunded_ulxc ?? 0} µLXC`)
+      const earned = await env.lens.marketEarnings(bought.seller)
+      const e = (earned.earnings ?? []).find((x) => x.use_id === bought.line.use_id)
+      ctx.evidence.push({ note: `the seller's earning ${JSON.stringify(e)}; available ${earned.available_usd_micros}, refunded ${earned.refunded_usd_micros} µUSD` })
+      if (e?.refunded_at === undefined || earned.refunded_usd_micros !== (cleared.earned.refunded_usd_micros ?? 0) + cleared.share
+        || earned.available_usd_micros !== cleared.earned.available_usd_micros - cleared.share) {
+        return fail(`refunded, the seller's ${cleared.share} µUSD earning was not reversed: available ${cleared.earned.available_usd_micros} → ${earned.available_usd_micros}, refunded ${cleared.earned.refunded_usd_micros ?? 0} → ${earned.refunded_usd_micros ?? 0}`)
+      }
+      return { pass: true, detail: `used and paid, then the bill refunded: the use reads refunded on the buyer's bill, and the seller's ${cleared.share} µUSD share is reversed out of what is available` }
+    },
+  }
+}

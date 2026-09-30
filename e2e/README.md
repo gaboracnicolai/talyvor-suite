@@ -206,9 +206,23 @@ Approvals, statements, listing, buying and the seller's earnings are catalog v3'
 
 `market-review` and `market-takedown` need a moderator key in `LENS_MODERATOR_KEY` (`lens moderator-keys
 create`, inside the lens container; every use is recorded under the operator `e2e-testers`). Without one
-they SKIP. What one run cannot reach, because it happens days later, is B25.7's: a loan's instalment and its
-default (a day at the soonest), a payout (a paid bill, then the 14-day holdback), the refund of a paid bill,
-and a purchase on the card (Stripe's authorization).
+they SKIP. What happens days later — a loan's instalment and its default (a day at the soonest), a payout (a
+paid bill, then the 14-day holdback), the refund of a paid bill, and a purchase on the card (Stripe's
+authorization) — is B25.8's, below.
+
+## B25.8 — the slow money, brought due inside the run
+
+Lens (B25.7) brings a test workspace's slow money due now, with the synthetic key: a loan's next instalment,
+the buyer's bill paid (its earnings past the holdback) and refunded, a purchase on an agent's card. Each
+scenario then reads the rows back on both sides. A buyer or seller here buys and sells in no other scenario.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `wallet-loan-repay` | 0, 10, … with 9, 19, … | Offer 2 LXC at 10% in one weekly instalment; accepted by a borrower already holding the 0.2 interest; brought due: within four minutes Lens's tick takes 2.2 LXC in one transfer both read, the loan reads repaid on both sides (`payout,instalment`), the lender +0.2 and the borrower 0 |
+| `wallet-loan-default` | 1, 11, … with 9, 19, … | 2 LXC over 2 daily instalments; the borrower takes the principal back out of its agent; brought due: missed, late; due again: missed, defaulted — on both sides (`payout,missed,late,missed,defaulted`), and only the payout moved |
+| `wallet-card-purchase` | 2, 12, … | Issue a test card to an agent holding 20 LXC; a £0.50 purchase: approved, one record on the card with its amount, currency and merchant, the agent −exactly what Lens says it cost, and Agent Wallets → Card lists it Approved |
+| `market-payout` | 3, 13, … buying from 6, 16, … | the seller publishes with its own token; this user uses it on its page; the bill paid: the line reads paid and the seller's share is payable; the seller presses Take … as credits on Your listings & earnings: one credits payout of what was available, its credits one row on the seller's ledger, nothing left available |
+| `market-bill-refund` | 6, 16, … buying from 1, 11, … | used and the bill paid as above, then refunded: the use reads refunded on the buyer's bill, and the seller's earning from it is reversed — out of what is available, into refunded |
 
 ## Self-test
 
@@ -220,4 +234,5 @@ Track and Docs are stood in for by `selftest/stub-products.ts`.
 `setting`, `logging` (stub-lens.ts), `docs-ai`, `track-ai`, `export` (stub-products.ts) and, for
 catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace), and for B17.10 `subscribe`
 and `royalty` (stub-lens.ts, which stands in for Stripe's hosted checkout too), each file saying what each
-breaks. Catalog v4's sixteen (stub-bank.ts) may be named together, comma-separated, one per scenario.
+breaks. Catalog v4's sixteen and B25.8's five (`loan-repay-lost`, `loan-default-never`, `card-free`,
+`payout-uncredited`, `bill-refund-kept`; stub-bank.ts) may be named together, comma-separated, one per scenario.

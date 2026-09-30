@@ -25,7 +25,7 @@ const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 export const lxcText = (ulxc: number): string => String(ulxc / 1e6)
 
 /** The card under an `h2` heading (packages/ui CardHeader). */
-function card(page: Page, heading: string): Locator {
+export function card(page: Page, heading: string): Locator {
   return page.getByRole('heading', { name: heading, exact: true }).locator('xpath=../..')
 }
 
@@ -289,6 +289,14 @@ export class AgentBankScreen {
     }
     await c.getByRole('button', { name: 'Issue a test card' }).click()
     return outcome(c.getByTestId('agent-card'), c)
+  }
+
+  /** B25.8 — Card → the purchases on the agent's card, one line each, as the screen lists them. */
+  async purchases(agent: Agent): Promise<string[]> {
+    await this.fresh(agent)
+    const rows = card(this.page, 'Card').getByTestId('agent-card-purchases').locator('tbody tr')
+    await rows.first().waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+    return (await rows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
   }
 }
 
