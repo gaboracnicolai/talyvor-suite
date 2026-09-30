@@ -167,8 +167,21 @@ The other company is a user no other scenario reads the earnings of: 9, 19, … 
 sell. A synthetic company's bill is never paid, so a sale or a payment stays pending: the scenarios check
 it is pending, exactly, and not yet payable — the holdback itself is Lens's own test (B20.2, B20.5).
 
-Not yet in the catalog: "plans on Stripe test cards" and "a pooled serve pays the contributor's royalty" —
-B17.1 refuses a synthetic checkout and funds no synthetic royalty, so they wait on a decision.
+## Plans on a Stripe test card, and a pooled serve's royalty (B17.10)
+
+Test users pay with Stripe test cards and earn royalties, every such row marked test — never paid out,
+never counted in real totals (Nicolai, 30 Sep 2026; Lens B25.2). One user in ten again.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `plan-test-card` | 6, 16, … (last in the journey) | Plans → Choose Plus → Stripe's hosted checkout, paid with test card 4242 → back in the app; Lens's allowance for the period is granted, at Plus's 2000 cents. The plan is then cancelled at the end of its period |
+| `pooled-royalty` | 7, 17, … with 9, 19, … | a question only this user has asked, asked again by another test user and served from the pool: the contributor's earnings ledger (`tokens/history`) gains a `pool_royalty_held` row. Not served from the pool, it is an ERROR — no royalty was owed |
+
+The plan comes last and on a user nobody else asks as: what is asked after it is drawn from the allowance,
+which the ledger read-back does not expect. In production it needs Lens's test-mode Stripe settings in
+`lens.env` — `LENS_STRIPE_TEST_SECRET_KEY`, `LENS_STRIPE_TEST_WEBHOOK_SECRET` (Stripe test mode's webhook
+to `/v1/billing/webhook/test`) and `LENS_STRIPE_TEST_SUBSCRIPTION_PLANS`; without them Plans says plans are
+not on sale and the scenario FAILs with Lens's sentence naming what is unset.
 
 ## Self-test
 
@@ -178,5 +191,6 @@ Track and Docs are stood in for by `selftest/stub-products.ts`.
 `STUB_BREAK=<name>` plants a defect, which must make the matching scenario FAIL: `price`,
 `cross-replay`, and for catalog v2 `pii`, `injection`, `distill`, `tare`, `conversion`, `budget`,
 `setting`, `logging` (stub-lens.ts), `docs-ai`, `track-ai`, `export` (stub-products.ts) and, for
-catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace), each file saying what
-each breaks.
+catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace), and for B17.10 `subscribe`
+and `royalty` (stub-lens.ts, which stands in for Stripe's hosted checkout too), each file saying what each
+breaks.

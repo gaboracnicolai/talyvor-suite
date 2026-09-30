@@ -23,9 +23,16 @@
 //   logging     — request logging "none" still keeps each answer, and serves the kept copy even when
 //                 asked past the cache
 //   agent-limit — an agent's limit per request is recorded but never refuses (B17.6, stub-bank.ts)
+//   subscribe   — the test card is taken and Stripe sends the browser back, but no allowance is granted
+//   royalty     — an answer served from the pool to another synthetic workspace mints its contributor nothing
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
+//
+// B17.10 adds plans and royalties as Lens has them for synthetic workspaces since B25.2: subscribing
+// sends the browser to a stand-in for Stripe's hosted checkout (/stub-checkout/…, with Stripe's field
+// ids), where test card 4242 grants the period's allowance and returns to the app; and a pooled serve
+// credits its contributor a pool_royalty_held row on the earnings ledger (tokens/history).
 
 import { randomBytes } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
@@ -37,6 +44,11 @@ const KEY = process.env.LENS_SYNTHETIC_KEY ?? 'selftest-key'
 const BREAK = process.env.STUB_BREAK ?? ''
 const USD_PER_LXC = 0.1
 const GRANT_ULXC = 1_000_000_000
+/** Where Stripe sends the browser back to: the app's /billing/success (LENS_BILLING_SUCCESS_URL). */
+const APP_URL = process.env.STUB_APP_URL ?? 'http://localhost:8797'
+/** What each plan costs a month, in cents, and the allowance a period grants (LENS_SUBSCRIPTION_ALLOWANCE_ULXC). */
+const PLAN_FEES: Record<string, number> = { plus: 2000, pro: 10000, max: 20000 }
+const ALLOWANCE_ULXC = 50_000_000
 
 const CATALOG = [
   { id: 'claude-haiku-4-5', provider: 'anthropic', display_name: 'Claude Haiku 4.5', input_per_1m: 1, output_per_1m: 5, release_date: '2025-10-15', tier: 'fast' },
@@ -56,6 +68,8 @@ const CAPITALS: Record<string, string> = {
 }
 
 interface Row { id: string; workspace_id: string; amount_ulxc: number; balance_after_ulxc: number; type: string; description: string; metadata: object; created_at: string }
+/** A row of the earnings ledger (Lens mining.LedgerEntry), in µLENS. */
+interface Earned { id: string; workspace_id: string; amount_ulens: number; balance_after_ulens: number; type: string; description: string; metadata: object; created_at: string }
 interface Settings {
   tare_policy: string
   distill_policy: string
@@ -75,6 +89,9 @@ interface Workspace {
   guardrails: Record<string, unknown> & { enable_injection: boolean; enable_pii: boolean }
   budgets: Budget[]
   usage: { total: number; hits: number; pooled: number; converted: number }
+  plan?: { id: string; cancel: boolean }
+  allowance?: { granted_ulxc: number; consumed_ulxc: number; remaining_ulxc: number; fee_usd_cents: number }
+  earnings: Earned[]
 }
 
 function newWorkspace(id: string, token: string): Workspace {
@@ -85,6 +102,7 @@ function newWorkspace(id: string, token: string): Workspace {
     guardrails: { enable_injection: true, enable_pii: true, blocked_topics: [], custom_rules: [] },
     budgets: [],
     usage: { total: 0, hits: 0, pooled: 0, converted: 0 },
+    earnings: [],
   }
 }
 
@@ -97,6 +115,8 @@ const byToken = new Map<string, Workspace>()
 const bySessionKey = new Map<string, Workspace>()
 /** Single-turn questions any synthetic workspace has had answered: the synthetic pool. */
 const pool = new Map<string, { owner: string; answer: string }>()
+/** Open checkouts on the stand-in for Stripe: session → the workspace and the plan it is for. */
+const checkouts = new Map<string, { ws: string; plan: string }>()
 
 function book(ws: Workspace, amount: number, type: string, description: string): void {
   if (type === 'spend') for (const b of ws.budgets) b.spent_usd += (-amount / 1e6) * USD_PER_LXC
@@ -286,6 +306,14 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       headers['X-Talyvor-Pool-Discount-Rate'] = '0.3'
       headers['X-Talyvor-Pool-Charged-ULXC'] = String(charge)
       book(ws, -charge, 'spend', 'pooled answer')
+      // The contributor's royalty, held (Lens poolroyalty: minted between two synthetic workspaces since B25.2).
+      const owner = workspaces.get(shared.owner)
+      if (owner !== undefined && BREAK !== 'royalty') {
+        const amount = Math.max(1, Math.round((charge / 0.7) * 0.5))
+        const balance = (owner.earnings[0]?.balance_after_ulens ?? 0) + amount
+        owner.earnings.unshift({ id: randomBytes(8).toString('hex'), workspace_id: owner.id, amount_ulens: amount, balance_after_ulens: balance,
+          type: 'pool_royalty_held', description: 'pool royalty: exact pooled hit served', metadata: { layer: 'exact' }, created_at: new Date().toISOString() })
+      }
     }
   } else {
     answer = think(messages)
@@ -321,6 +349,43 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: shownIn, completion_tokens: outTok } })}\n\n`)
     res.write('data: [DONE]\n\n')
   }
+  res.end()
+}
+
+/**
+ * The stand-in for Stripe's hosted checkout, with its field ids (#email, #cardNumber, …). Paid with test
+ * card 4242, it does what Stripe's test-mode webhook makes Lens do — the plan and the period's allowance
+ * — and sends the browser back to the app, as Stripe does.
+ */
+async function stripeCheckout(req: IncomingMessage, res: ServerResponse, session: string): Promise<void> {
+  const open = checkouts.get(session)
+  if (open === undefined) return json(res, 404, { error: 'no such checkout' })
+  if (req.method !== 'POST') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(`<!doctype html><html><head><title>Stub checkout</title></head><body><form method="post">
+<h1>Subscribe to ${open.plan}</h1>
+<label>Email <input id="email" name="email"></label>
+<label>Card number <input id="cardNumber" name="card"></label>
+<label>Expiry <input id="cardExpiry" name="expiry"></label>
+<label>CVC <input id="cardCvc" name="cvc"></label>
+<label>Name on card <input id="billingName" name="name"></label>
+<button type="submit" data-testid="hosted-payment-submit-button">Subscribe</button>
+</form></body></html>`)
+    return
+  }
+  const form = new URLSearchParams(await read(req))
+  if ((form.get('card') ?? '').replace(/\s/g, '') !== '4242424242424242') {
+    res.writeHead(402, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end('<!doctype html><p>Your card was declined.</p>')
+    return
+  }
+  checkouts.delete(session)
+  const ws = workspaces.get(open.ws)
+  if (ws !== undefined && BREAK !== 'subscribe') {
+    ws.plan = { id: open.plan, cancel: false }
+    ws.allowance = { granted_ulxc: ALLOWANCE_ULXC, consumed_ulxc: 0, remaining_ulxc: ALLOWANCE_ULXC, fee_usd_cents: PLAN_FEES[open.plan] }
+  }
+  res.writeHead(303, { Location: `${APP_URL}/billing/success?session_id=${session}` })
   res.end()
 }
 
@@ -367,6 +432,8 @@ createServer(async (req, res) => {
       return json(res, 201, { created: out.length, workspaces: out })
     }
     if (p === '/v1/economy/conversion-rate') return json(res, 200, { usd_per_lxc: USD_PER_LXC })
+    const paying = /^\/stub-checkout\/(\w+)$/.exec(p)
+    if (paying !== null) return await stripeCheckout(req, res, paying[1])
     const proxied = /^\/v1\/proxy\/([a-z]+)\/(.+)$/.exec(p)
     if (proxied !== null) return await proxy(req, res, proxied[1], proxied[2])
 
@@ -448,6 +515,31 @@ createServer(async (req, res) => {
         const [tin, tout] = [tokens(raw), tokens(markdown)]
         return json(res, 200, { markdown, format: /html/.test(mediaType) ? 'html' : 'txt', needs_vision: false,
           savings: { input_bytes: raw.length, output_bytes: markdown.length, input_tokens_raw: tin, input_tokens_distilled: tout, tokens_saved: tin - tout } })
+      }
+      if (rest === '/billing/subscribe' && req.method === 'POST') {
+        const { plan = '' } = JSON.parse((await read(req)) || '{}') as { plan?: string }
+        if (PLAN_FEES[plan] === undefined) return json(res, 400, { error: `plan ${plan} is not sold here` })
+        if (ws.plan !== undefined) return json(res, 409, { error: 'this workspace already has a live subscription' })
+        const session = 'cs_test_' + randomBytes(12).toString('hex')
+        checkouts.set(session, { ws: ws.id, plan })
+        return json(res, 200, { url: `${BASE}/stub-checkout/${session}` })
+      }
+      if (rest === '/billing/allowance') {
+        return json(res, 200, { allowance: ws.allowance === undefined ? null : { workspace_id: ws.id, ...ws.allowance },
+          earned_ulens: 0, earned_held_ulens: 0, earned_usd_cents: 0, earned_back_usd_cents: 0 })
+      }
+      if (rest === '/billing/subscription/cancel' && req.method === 'POST') {
+        if (ws.plan === undefined) return json(res, 409, { error: 'this workspace has no live subscription' })
+        ws.plan.cancel = true
+      }
+      if (rest === '/billing/subscription' || rest === '/billing/subscription/cancel') {
+        return json(res, 200, { subscribed: ws.plan !== undefined, status: ws.plan === undefined ? undefined : 'active',
+          current_period_end: new Date(Date.now() + 30 * 86400e3).toISOString(), cancel_at_period_end: ws.plan?.cancel ?? false, livemode: false })
+      }
+      if (rest === '/tokens/history') {
+        const limit = Number(url.searchParams.get('limit') ?? 20)
+        const offset = Number(url.searchParams.get('offset') ?? 0)
+        return json(res, 200, ws.earnings.slice(offset, offset + limit))
       }
       if (rest === '/lxc/balance') return json(res, 200, { workspace_id: ws.id, balance_ulxc: ws.balance })
       if (rest === '/lxc/history') {

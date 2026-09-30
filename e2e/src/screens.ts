@@ -337,3 +337,77 @@ export class TrackScreen {
     await this.page.close()
   }
 }
+
+// ─── B17.10 — Plans, paid on Stripe's own checkout with a test card ─────────────────────────────────
+
+const CHECKOUT_TIMEOUT_MS = 60_000
+/** Stripe's test card that always succeeds; any future expiry and any CVC go with it. */
+const TEST_CARD = '4242 4242 4242 4242'
+
+export interface Subscribed {
+  /** Why Plans never sent the browser to Stripe, or why it never came back: the screen's words. */
+  refused?: string
+  /** Where the checkout was: Stripe's host (checkout.stripe.com), or the stub's in the self-test. */
+  checkout?: string
+  /** What the app says once Stripe sends the browser back. */
+  heading?: string
+}
+
+/**
+ * On Plans (apps/web/src/areas/lens/Plans.tsx), chooses `plan` as a person does, pays on Stripe's hosted
+ * checkout with test card 4242, and follows Stripe back to the app. The app then shows the plan once
+ * Stripe's webhook has reached Lens (BillingReturn.tsx).
+ */
+export async function subscribeWithTestCard(app: AppUser, plan: string, email: string): Promise<Subscribed> {
+  const page = await app.tab('/plans')
+  try {
+    const appOrigin = new URL(page.url()).origin
+    const choose = page.getByRole('button', { name: `Choose ${plan}`, exact: true })
+    const notForSale = page.getByText('Plans aren’t on sale on this deployment yet.')
+    await choose.or(notForSale).first().waitFor({ state: 'visible', timeout: SAVE_TIMEOUT_MS })
+    if (await notForSale.isVisible()) return { refused: (await notForSale.innerText()).trim() }
+
+    await choose.click()
+    const failure = page.locator('p[role="status"]')
+    const went = await Promise.race([
+      page.waitForURL((u) => u.origin !== appOrigin, { timeout: CHECKOUT_TIMEOUT_MS }).then(() => 'stripe' as const),
+      failure.first().waitFor({ state: 'visible', timeout: CHECKOUT_TIMEOUT_MS }).then(() => 'refused' as const),
+    ].map((p) => p.catch(() => 'nothing' as const)))
+    if (went === 'refused') return { refused: (await failure.first().innerText()).trim() }
+    if (went === 'nothing') return { refused: `Choose ${plan} neither left for Stripe nor said why within ${CHECKOUT_TIMEOUT_MS / 1000} s` }
+
+    const checkout = new URL(page.url()).host
+    await payWithTestCard(page, email)
+    const back = await page.waitForURL((u) => u.origin === appOrigin, { timeout: CHECKOUT_TIMEOUT_MS }).then(() => true, () => false)
+    if (!back) return { checkout, refused: `paid on ${checkout} and Stripe never sent the browser back: ${(await page.locator('body').innerText()).slice(0, 200)}` }
+    const on = page.getByRole('heading', { name: `You’re on ${plan}.` })
+    await on.waitFor({ state: 'visible', timeout: CHECKOUT_TIMEOUT_MS }).catch(() => undefined)
+    // The screen's first region heading (Region.tsx): the plan, or why it is not confirmed yet.
+    return { checkout, heading: (await page.getByRole('heading', { level: 2 }).first().innerText()).trim() }
+  } finally {
+    await page.close()
+  }
+}
+
+/** Fills Stripe's hosted checkout (checkout.stripe.com) with the test card and submits it. */
+async function payWithTestCard(page: Page, email: string): Promise<void> {
+  const card = page.locator('#cardNumber')
+  const cardChoice = page.locator('[data-testid="card-accordion-item-button"]')
+  await card.or(cardChoice).first().waitFor({ state: 'visible', timeout: CHECKOUT_TIMEOUT_MS })
+  if (!(await card.isVisible())) await cardChoice.click()
+  const fillIfShown = async (l: Locator, v: string) => {
+    if ((await l.isVisible()) && (await l.isEditable()) && (await l.inputValue()) === '') await l.fill(v)
+  }
+  await fillIfShown(page.locator('#email'), email)
+  await card.fill(TEST_CARD)
+  await page.locator('#cardExpiry').fill('12 / 34')
+  await page.locator('#cardCvc').fill('123')
+  await fillIfShown(page.locator('#billingName'), 'Talyvor Tester')
+  const country = page.locator('#billingCountry')
+  if (await country.isVisible()) await country.selectOption('US')
+  await fillIfShown(page.locator('#billingPostalCode'), '10001')
+  // Link would ask for a phone number: it stays off.
+  const link = page.locator('#enableStripePass')
+  if ((await link.isVisible()) && (await link.isChecked())) await link.uncheck()
+  await page.locator('[data-testid="hosted-payment-submit-button"]').click()
+}
