@@ -93,21 +93,36 @@ const slowAt = (r: Row): number => (r.kind === 'screen' ? SCREEN_SLOW_MS : WAITS
 const failedAnswers = (r: Row): number => Object.entries(r.answers).filter(([s]) => Number(s) >= 500 || s === '0').reduce((n, [, c]) => n + c, 0)
 const timingText = (r: Row): string => (r.timing === undefined ? '' : `p50 ${secs(r.timing.p50)} · p95 ${secs(r.timing.p95)} · max ${secs(r.timing.max)} (n=${r.timing.n})`)
 
-/** The same note on the same screen is one lead, however often and by however many it was seen. */
-function leads(findings: Finding[]): string[] {
+/** One distinct lead: its first note, how many notes were it, and the explorers who saw it. */
+export interface LeadGroup {
+  f: Finding
+  times: number
+  who: number[]
+}
+
+/**
+ * Each distinct lead once, the most seen first. A note names its lead (B26.19); one from a run before
+ * that is one lead with every note of the same words on the same screen.
+ */
+export function groupLeads(findings: Finding[]): LeadGroup[] {
   const m = new Map<string, { f: Finding; times: number; who: Set<number> }>()
   for (const f of findings) {
-    const key = `${f.source}|${f.where}|${f.note}`
+    const key = f.lead !== undefined ? `#${f.lead}` : `${f.source}|${f.where}|${f.note}`
     const l = m.get(key) ?? { f, times: 0, who: new Set<number>() }
     l.times++
     l.who.add(f.explorer)
     m.set(key, l)
   }
+  return [...m.values()].map(({ f, times, who }) => ({ f, times, who: [...who].sort((a, b) => a - b) }))
+    .sort((a, b) => b.who.length - a.who.length || b.times - a.times)
+}
+
+function leads(findings: Finding[]): string[] {
   const lines: string[] = []
-  for (const { f, times, who } of m.values()) {
-    const by = `explorer${who.size > 1 ? 's' : ''} ${[...who].sort((a, b) => a - b).join(', ')}`
-    lines.push(`- **${f.severity}** ${f.source === 'browser' ? `the browser of ${by}` : by} on ` +
-      `\`${f.where}\`${times > 1 ? ` (${times} times)` : ''}: ${cell(f.note)}`)
+  for (const { f, times, who } of groupLeads(findings)) {
+    const by = `${who.length} explorer${who.length > 1 ? 's' : ''} (${who.join(', ')})`
+    lines.push(`- **${f.severity}** ${f.source === 'browser' ? `the browsers of ${by}` : by} on ` +
+      `\`${f.where}\`${times > who.length ? ` (${times} times)` : ''}: ${cell(f.note)}`)
     if (f.trail.length > 0) lines.push(`  - after: ${cell(f.trail.join(' → '))}`)
   }
   return lines
@@ -174,14 +189,25 @@ function featureSection(feature: string, run: ReportedRun, outcomes: Outcome[], 
   return lines
 }
 
-/** The explorers' sessions: where each started and why it stopped. */
+/** The explorers' sessions: where each started, how far it went and why it stopped. */
 function explorerTable(run: ReportedRun): string[] {
   const explorers = run.explorers ?? []
   if (explorers.length === 0) return []
-  const lines = ['', `### Explorers — ${(run.findings ?? []).length} finding(s) to check, each under its feature above`, '',
-    '| Explorer | Started at | Steps | Stopped | |', '|---:|---|---:|---|---|',
-    ...explorers.map((e) => `| ${e.explorer} | ${e.start ?? ''} | ${e.steps} | ${e.stopped} | ${cell(e.detail)} |`), '']
+  const findings = run.findings ?? []
+  const lines = ['', `### Explorers — ${groupLeads(findings).length} distinct lead(s) to check, from ${findings.length} note(s), each under its feature above`, '',
+    '| Explorer | Started at | Steps | Screens | Notes | Stopped | |', '|---:|---|---:|---:|---:|---|---|',
+    ...explorers.map((e) => `| ${e.explorer} | ${e.start ?? ''} | ${e.steps} | ${e.screens ?? ''} | ${e.notes ?? ''} | ${e.stopped} | ${cell(e.detail)} |`), '']
   if (explorers.some((e) => e.stopped === 'cap')) lines.push('The explorers stopped at the spend cap.', '')
+  // B26.19 — how far they spread, and the most one of them wrote on one screen.
+  const screens = run.coverage?.screens ?? []
+  if (screens.length > 0) {
+    const not = screens.filter((r) => r.explorers === 0).map((r) => `\`${r.path}\``)
+    lines.push(`Between them the explorers opened ${screens.length - not.length} of ${screens.length} screens` +
+      `${not.length > 0 ? `; not ${not.join(', ')}` : ''}.`, '')
+  }
+  const per = new Map<string, number>()
+  for (const f of findings) per.set(`${f.explorer}|${f.screen ?? f.where}`, (per.get(`${f.explorer}|${f.screen ?? f.where}`) ?? 0) + 1)
+  if (per.size > 0) lines.push(`The most notes one explorer made on one screen: ${Math.max(...per.values())}.`, '')
   return lines
 }
 
@@ -308,7 +334,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
       `\`${id}\` (${os.filter((o) => o.status === 'FAIL').length} of ${os.length}${run.filed?.[id] !== undefined ? `, ${run.filed[id]}` : ''})`).join(', ')}` +
       `${c.ERROR > 0 ? `; ${c.ERROR} errored` : ''}.`,
     `- **New findings**: ${newItems.length > 0 ? `build items ${newItems.join(', ')}` : 'no new build item'}; ` +
-      `${findings.length} explorer lead(s)${findings.length > 0 ? ` on ${[...new Set(findings.map((f) => f.feature ?? '(no screen)'))].join(', ')}` : ''}.`,
+      `${groupLeads(findings).length} explorer lead(s)${findings.length > 0 ? ` on ${[...new Set(findings.map((f) => f.feature ?? '(no screen)'))].join(', ')}` : ''}.`,
     ...(run.stopped_by === undefined ? [] : [`- **STOPPED EARLY**: ${run.stopped_by}.`]),
     ...(run.incidents ?? []).map((i) => `- **Incident**: ${i}.`),
     `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
