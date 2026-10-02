@@ -103,6 +103,11 @@ function formatSize(bytes: number): string {
   return bytes < 1_000_000 ? `${Math.max(1, Math.round(bytes / 1000))} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`
 }
 
+/** "a.pdf", "a.pdf and b.pdf", "a.pdf, b.pdf and c.pdf". */
+function andList(names: string[]): string {
+  return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 /**
  * B18.24 — what converting a question's documents saved, for the answer's footer, in Lens's figures.
  * Lens counts tokens only where it can measure them (0 for a binary file such as a slide deck), so a
@@ -145,6 +150,8 @@ export function Chat() {
   const [attachError, setAttachError] = useState<string | null>(null)
   // B18.24 — documents on their way to Lens; a question waits for them.
   const [uploading, setUploading] = useState<string[]>([])
+  // B26.20 — a question sent before its documents are up: it goes the moment they are.
+  const [waiting, setWaiting] = useState(false)
   const [pending, setPending] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [unreadable, setUnreadable] = useState(0)
@@ -188,6 +195,7 @@ export function Chat() {
     setRenaming(null)
     setConfirmingDelete(false)
     setDrawerOpen(false)
+    setWaiting(false)
   }, [])
 
   // Reopening the tab lands on the most recent conversation — "it is still there", literally.
@@ -329,7 +337,11 @@ export function Chat() {
   const send = useCallback(
     (text: string = draft) => {
       const question = text.trim()
-      if (question === '' || selected === undefined || pending || uploading.length > 0) return
+      if (question === '' || selected === undefined || pending) return
+      if (uploading.length > 0) {
+        setWaiting(true)
+        return
+      }
       setDraft('')
       const docs = attachments
       setAttachments([])
@@ -373,6 +385,16 @@ export function Chat() {
     },
     [],
   )
+
+  // send() is a new function every render; the waiting question is sent once, when the uploads end.
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    if (!waiting || uploading.length > 0) return
+    setWaiting(false)
+    // A document that could not be uploaded leaves the question in the box, the reason beside it.
+    if (attachError === null) sendRef.current()
+  }, [attachError, uploading, waiting])
 
   // Regenerate answers the last question again: the previous answer is dropped, not kept beside it.
   // B15.6 — and it always asks the model: without the bypass Lens would replay the answer it has.
@@ -613,6 +635,7 @@ export function Chat() {
               onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, j) => j !== i))}
               attachError={attachError}
               uploading={uploading}
+              waiting={waiting}
               draft={draft}
               onDraft={setDraft}
               onSend={() => send()}
@@ -959,6 +982,7 @@ function Composer({
   onRemoveAttachment,
   attachError,
   uploading,
+  waiting,
   draft,
   onDraft,
   onSend,
@@ -974,6 +998,8 @@ function Composer({
   attachError: string | null
   /** B18.24 — names of the documents still on their way to Lens. */
   uploading: string[]
+  /** B26.20 — a question was sent and goes once `uploading` is empty. */
+  waiting: boolean
   draft: string
   onDraft: (text: string) => void
   onSend: () => void
@@ -1102,12 +1128,17 @@ function Composer({
             key="send"
             type="submit"
             variant="primary"
-            disabled={draft.trim() === '' || selected === undefined || uploading.length > 0}
+            disabled={draft.trim() === '' || selected === undefined}
           >
             Send
           </Button>
         )}
       </div>
+      {waiting && uploading.length > 0 ? (
+        <p className="px-4 pb-3 text-caption text-muted" role="status" data-testid="send-waiting">
+          Sends when {andList(uploading)} {uploading.length === 1 ? 'has' : 'have'} uploaded.
+        </p>
+      ) : null}
       {attachError !== null ? (
         <p className="px-4 pb-3 text-caption text-ink" role="alert">
           {attachError}

@@ -852,6 +852,69 @@ describe('attached documents (B10.3)', () => {
     await waitFor(() => expect(screen.getByTestId('documents-status').textContent).toMatch(/^Sent as the original file/))
   })
 
+  /** Holds every document upload until the returned function lets them through. */
+  function holdUploads(): () => void {
+    const wire = vi.mocked(globalThis.fetch).getMockImplementation()!
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (String(input).startsWith('/api/documents?')) await held
+      return wire(input, init)
+    })
+    return release
+  }
+
+  it('a question sent while its document is still uploading waits for it, says so, then goes with it (B26.20)', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n' })
+    const release = holdUploads()
+    renderChat()
+    await attach([pdf()])
+    await screen.findByTestId('attachment-uploading')
+    const box = await screen.findByPlaceholderText('Ask anything')
+    fireEvent.change(box, { target: { value: 'summarise this' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect((await screen.findByTestId('send-waiting')).textContent).toBe('Sends when report.pdf has uploaded.')
+    expect(posted).not.toHaveBeenCalled()
+
+    release()
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
+    expect(message.content).toEqual([
+      { type: 'text', text: 'summarise this' },
+      { type: 'file', file: { file_id: 'tdoc_1' } },
+    ])
+    expect(screen.queryByTestId('send-waiting')).toBeNull()
+  })
+
+  it('a waiting question is not sent when its document fails to upload; it stays in the box', async () => {
+    const { posted } = mockChat()
+    const wire = vi.mocked(globalThis.fetch).getMockImplementation()!
+    let refuse!: () => void
+    const held = new Promise<void>((r) => {
+      refuse = r
+    })
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (!String(input).startsWith('/api/documents?')) return wire(input, init)
+      await held
+      return new Response(JSON.stringify({ error: 'storage is full' }), { status: 507, headers: { 'Content-Type': 'application/json' } })
+    })
+    renderChat()
+    await attach([pdf()])
+    await screen.findByTestId('attachment-uploading')
+    const box = await screen.findByPlaceholderText('Ask anything')
+    fireEvent.change(box, { target: { value: 'summarise this' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await screen.findByTestId('send-waiting')
+
+    refuse()
+    expect((await screen.findByRole('alert')).textContent).toMatch(/^report\.pdf couldn’t be uploaded/)
+    expect(screen.queryByTestId('send-waiting')).toBeNull()
+    expect((box as HTMLTextAreaElement).value).toBe('summarise this')
+    expect(posted).not.toHaveBeenCalled()
+  })
+
   it('refuses a format Lens cannot convert, and a document over the limit, in words', async () => {
     const { posted, uploaded } = mockChat()
     renderChat()
