@@ -313,10 +313,14 @@ fi
 # rewritten section — and the void it would otherwise print blames the wording for the absence
 # of the whole document, which is the wrong diagnosis by exactly the distance that costs a
 # reader an hour.
+#
+# ⚠ AND THE CODE HALF READS apps/bff/auth.go ONLY, since B26.21 put a second call in
+# track_tenant.go (the nudge for a workspace first resolved after login). The promise is the
+# LOGIN-time call; a glob over every file would stay green with that one commented out. A
+# missing auth.go reads as zero hits and voids, so it still fails closed.
 if subject deploy/FULL-STACK-DEPLOY.md "STEP 3a-bis's promise that membership lands at login"; then
     _d7_code=0; _d7_doc=0
-    for _f in apps/bff/*.go; do
-        case "$_f" in *_test.go) continue ;; esac
+    for _f in apps/bff/auth.go; do
         _d7_hits=$(grep -vE '^[[:space:]]*(//|/\*|\*)' "$_f" 2>/dev/null |
             grep -cF 'a.nudgeDocsMemberSync(')
         case "${_d7_hits}" in '' | *[!0-9]*) _d7_hits=0 ;; esac
