@@ -251,6 +251,15 @@ catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace),
 and `royalty` (stub-lens.ts, which stands in for Stripe's hosted checkout too), each file saying what each
 breaks. Catalog v4's sixteen and B25.8's five (`loan-repay-lost`, `loan-default-never`, `card-free`,
 `payout-uncredited`, `bill-refund-kept`; stub-bank.ts) may be named together, comma-separated, one per scenario.
+The run clones talyvor-lens's main beside its results, for the coverage map and `lens-reads`
+(`E2E_LENS_SRC` names a checkout to use instead).
+
+The stub answers each read the way a real Lens does (B26.24). `selftest/lens-shapes.json` records the
+status and the JSON shape of every read in `READS` (`selftest/lens-shapes.ts`), as a real Lens answered
+it. `test/stubLens.test.ts` runs in CI and fails on any field Lens sends that the stub leaves out or
+sends as another type. A route the stub does not know answers 404. When the BFF asked for one, the
+self-test fails and names it. To teach the stub a route, answer it in `stub-lens.ts` and add it to `READS`.
+Then re-record with `selftest/record-lens-shapes.ts`, against a Lens built from main; the file says how.
 `E2E_FAULTS=1` (B26.18) kills the run's browser after a few verdicts. After a user passes on the browser that
 replaced it, it stops the stub Lens. Then it checks that the report and TESTERS.md say the run stopped early,
 name ECONNREFUSED and the browser that went away, and state the spend; and that the run exits 1.

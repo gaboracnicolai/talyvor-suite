@@ -724,14 +724,14 @@ export class LensClient {
 
   /** The workspace's own listings, whatever their review. */
   async ownListings(user: SyntheticUser): Promise<Listing[]> {
-    const body = await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, this.bearer(user.token))
-    return Array.isArray(body) ? (body as Listing[]) : []
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, this.bearer(user.token))) as { listings?: Listing[] | null } | null
+    return body?.listings ?? []
   }
 
   /** The public catalog, as this user browses it. */
   async catalogListings(user: SyntheticUser): Promise<Listing[]> {
-    const body = await this.call('GET', '/v1/marketplace/listings', this.bearer(user.token))
-    return Array.isArray(body) ? (body as Listing[]) : []
+    const body = (await this.call('GET', '/v1/marketplace/listings', this.bearer(user.token))) as { listings?: Listing[] | null } | null
+    return body?.listings ?? []
   }
 
   /** One listing as this user sees it; a refusal when they may not. */
@@ -749,8 +749,8 @@ export class LensClient {
 
   /** The moderators' queue: every held or reported listing. */
   async reviewQueue(): Promise<QueueItem[]> {
-    const body = await this.call('GET', '/v1/admin/marketplace/review', this.moderator())
-    return Array.isArray(body) ? (body as QueueItem[]) : []
+    const body = (await this.call('GET', '/v1/admin/marketplace/review', this.moderator())) as { listings?: QueueItem[] | null } | null
+    return body?.listings ?? []
   }
 
   /** A moderator approves a held listing, or takes one down for `reason`. */
