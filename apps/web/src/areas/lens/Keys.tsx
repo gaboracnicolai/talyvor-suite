@@ -197,7 +197,12 @@ export function Keys() {
 
   const mint = useMutation({
     mutationFn: () => keysApi.mint(name.trim(), ['proxy']),
-    onSuccess: (result) => setMinted(result), // held in local state only; rendered once
+    onSuccess: (result) => {
+      setMinted(result) // held in local state only; rendered once
+      // The list refetches NOW, not on dismiss: a reveal left open used to hold "The keys that
+      // exist" on Loading… (B26.23). The row comes back BY PREFIX — no credential in it.
+      void qc.invalidateQueries({ queryKey: ['keys'] })
+    },
   })
 
   const submit = () => {
@@ -345,8 +350,8 @@ export function Keys() {
             ) : list.isError ? (
               <PanelFailure error={list.error} what="your keys" />
             ) : keys.length === 0 ? (
-              // Reachable only in the moment between a mint and its refetch, where `minted` holds
-              // the reveal open over a list the server has not re-served yet.
+              // Reachable only in the moment between a mint and its refetch (started by the mint's
+              // onSuccess), where `minted` holds the reveal open over a list not yet re-served.
               <div className="px-gutter py-3 text-body text-muted">Loading…</div>
             ) : (
               keys.map((k) => <KeyRow key={k.id} k={k} />)
