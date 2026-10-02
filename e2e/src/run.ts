@@ -8,9 +8,10 @@
 // Exit status: 0 when nothing failed, 1 when a scenario FAILED or ERRORED or the run stopped early, 2 when
 // it could not start (its flags). B26.18 — whatever stops it, it writes its report and summary first.
 
+import { realpathSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { type Browser, chromium } from 'playwright'
 import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
@@ -463,6 +464,8 @@ async function main(): Promise<number> {
   return c.FAIL + c.ERROR > 0 || result.stopped_by !== undefined ? 1 : 0
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// B26.25 — Node loads this file by its real path, so started through a symlink (/tmp on macOS) the path it was
+// given must be resolved too, or the run does nothing and exits 0.
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   process.exitCode = await main()
 }
