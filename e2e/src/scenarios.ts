@@ -16,7 +16,7 @@ import {
   seeded,
   statesNumber,
 } from './oracles.ts'
-import { DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
+import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
 import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
@@ -867,11 +867,8 @@ export function planOnTestCard(seed: number): Scenario {
         const lens = await env.lens.startSubscription(app.user, TEST_PLAN.id)
         return { pass: false, detail: `a test user cannot subscribe: ${s.refused}${lens.ok ? '' : ` — Lens ${lens.status}: ${lens.error}`}` }
       }
+      // plan-cancel-resume, next, cancels it on Billing and leaves it ending (B26.17).
       const a = await eventually(ctx, 6, () => env.lens.allowance(app.user), (x) => x.ok && x.value !== null)
-      if (a.ok && a.value !== null) {
-        const off = await env.lens.cancelSubscription(app.user)
-        ctx.evidence.push({ note: `the plan cancelled at the end of its period: ${off.ok ? 'yes' : `${off.status} ${off.error}`}` })
-      }
       if (!a.ok) return { pass: false, detail: `paid with the test card, and Lens answers ${a.status} for the allowance: ${a.error}` }
       if (a.value === null) return { pass: false, detail: `paid with the test card on ${s.checkout}, and Lens granted no allowance ("${s.heading}")` }
       const { granted_ulxc: granted, fee_usd_cents: fee } = a.value
@@ -879,6 +876,67 @@ export function planOnTestCard(seed: number): Scenario {
       if (fee !== TEST_PLAN.usdCents) return { pass: false, detail: `the allowance is for ${fee} cents, not ${TEST_PLAN.name}'s ${TEST_PLAN.usdCents}` }
       if (granted <= 0) return { pass: false, detail: `the allowance grants ${granted} µLXC` }
       return { pass: true, detail: `on ${TEST_PLAN.name} by test card: ${granted} µLXC allowed this period for ${fee} cents` }
+    },
+  }
+}
+
+/** The day as Billing draws it (packages/ui formatDay): en-US, in UTC. */
+const screenDay = (iso: string) =>
+  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(iso))
+
+/**
+ * B26.17 — the subscriber plan-test-card made cancels on Billing, sees the day the plan ends, resumes it,
+ * and cancels again, so the test plan is left ending. After each press the oracle is Lens's own read of
+ * the subscription, never the screen, and the day the screen names must be Lens's period end.
+ */
+export function planCancelResume(): Scenario {
+  return {
+    id: 'plan-cancel-resume',
+    title: 'cancels the plan on Billing, sees the day it ends, resumes it — and Lens agrees each time',
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const start = await env.lens.subscription(app.user)
+      if (!start.ok) throw new Error(`Lens answers ${start.status} for the subscription: ${start.error}`)
+      if (!start.value.subscribed) throw new Error('this test user has no plan to cancel: plan-test-card says why')
+      const card = await BillingPlanCard.open(app)
+      let leftEnding = false
+      try {
+        const shown = await card.sentence()
+        ctx.evidence.push({ note: `Billing's plan card: ${shown === undefined ? 'no renewal sentence' : `"${shown}"`}` })
+        // A plan an earlier run left ending is resumed first; either way both buttons are pressed.
+        const presses = shown?.startsWith('Your plan is cancelled') ? (['resume', 'cancel'] as const) : (['cancel', 'resume', 'cancel'] as const)
+        for (const button of presses) {
+          const pressed = await card.press(button)
+          const ending = button === 'cancel'
+          const lens = await eventually(ctx, 6, () => env.lens.subscription(app.user), (x) => x.ok && x.value.cancel_at_period_end === ending)
+          ctx.evidence.push({ note: `${button}: Billing says "${pressed.after ?? pressed.refused}"; Lens: ` +
+            (lens.ok ? `cancel_at_period_end ${lens.value.cancel_at_period_end}, period end ${lens.value.current_period_end}` : `${lens.status} ${lens.error}`) })
+          if (pressed.after === undefined) return { pass: false, detail: `pressing ${button} on Billing: ${pressed.refused}` }
+          if (!lens.ok) return { pass: false, detail: `Lens answers ${lens.status} for the subscription after ${button}: ${lens.error}` }
+          if (lens.value.cancel_at_period_end !== ending) {
+            return { pass: false, detail: `Billing says "${pressed.after}" and Lens's subscription has cancel_at_period_end ${lens.value.cancel_at_period_end}` }
+          }
+          if (!lens.value.current_period_end) return { pass: false, detail: `Lens names no period end after ${button}` }
+          const day = screenDay(lens.value.current_period_end)
+          const lead = ending ? 'Your plan is cancelled.' : 'Your plan renews on'
+          if (!pressed.after.startsWith(lead) || !pressed.after.includes(day)) {
+            return { pass: false, detail: `after ${button} Billing says "${pressed.after}", which should begin "${lead}" and name ${day}` }
+          }
+          leftEnding = ending
+        }
+        // A fresh Billing draws Lens's own read: the plan ends, on the day Lens holds.
+        await card.reload()
+        const after = await card.sentence()
+        ctx.evidence.push({ note: `Billing reloaded: ${after === undefined ? 'no renewal sentence' : `"${after}"`}` })
+        if (!after?.startsWith('Your plan is cancelled.')) return { pass: false, detail: `cancelled, and a reloaded Billing says "${after}"` }
+        return { pass: true, detail: `${presses.join(', ')} on Billing; Lens agreed after each, and the card names the day it ends` }
+      } finally {
+        await card.close()
+        if (!leftEnding) {
+          const off = await env.lens.cancelSubscription(app.user)
+          ctx.evidence.push({ note: `the test plan cancelled through Lens instead: ${off.ok ? 'yes' : `${off.status} ${off.error}`}` })
+        }
+      }
     },
   }
 }
@@ -1025,6 +1083,6 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // 19, …. The plan comes last, on a user nobody else asks as: what is asked after it is drawn from its
   // allowance, which the ledger read-back does not expect.
   if (i % 10 === 7 && i + 2 < users) list.push(pooledServePaysRoyalty(i, i + 2))
-  if (i % 10 === 6) list.push(planOnTestCard(i))
+  if (i % 10 === 6) list.push(planOnTestCard(i), planCancelResume())
   return list
 }

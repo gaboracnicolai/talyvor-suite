@@ -545,11 +545,11 @@ createServer(async (req, res) => {
         return json(res, 200, { allowance: ws.allowance === undefined ? null : { workspace_id: ws.id, ...ws.allowance },
           earned_ulens: 0, earned_held_ulens: 0, earned_usd_cents: 0, earned_back_usd_cents: 0 })
       }
-      if (rest === '/billing/subscription/cancel' && req.method === 'POST') {
+      if ((rest === '/billing/subscription/cancel' || rest === '/billing/subscription/resume') && req.method === 'POST') {
         if (ws.plan === undefined) return json(res, 409, { error: 'this workspace has no live subscription' })
-        ws.plan.cancel = true
+        ws.plan.cancel = rest.endsWith('/cancel')
       }
-      if (rest === '/billing/subscription' || rest === '/billing/subscription/cancel') {
+      if (rest === '/billing/subscription' || rest === '/billing/subscription/cancel' || rest === '/billing/subscription/resume') {
         return json(res, 200, { subscribed: ws.plan !== undefined, status: ws.plan === undefined ? undefined : 'active',
           current_period_end: new Date(Date.now() + 30 * 86400e3).toISOString(), cancel_at_period_end: ws.plan?.cancel ?? false, livemode: false })
       }

@@ -280,6 +280,13 @@ export interface PlanAllowance {
   fee_usd_cents: number
 }
 
+/** B26.17 — Lens's read of the workspace's plan: does it renew or end, and when (GET …/billing/subscription). */
+export interface SubscriptionState {
+  subscribed: boolean
+  current_period_end?: string
+  cancel_at_period_end: boolean
+}
+
 /** B17.10 — one row of the workspace's earnings ledger (GET /v1/workspaces/{id}/tokens/history), in µLENS. */
 export interface EarningsRow {
   id: string
@@ -531,6 +538,14 @@ export class LensClient {
     })
     const raw = await res.text()
     return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) as { url?: string } } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B26.17 — whether the workspace's plan renews or ends at the end of its period, and when. */
+  async subscription(user: SyntheticUser): Promise<Answered<SubscriptionState>> {
+    const res = await this.send('GET', `/v1/workspaces/${user.workspaceID}/billing/subscription`,
+      { headers: { ...this.bearer(user.token), Accept: 'application/json' } })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) as SubscriptionState } : { ok: false, status: res.status, error: refusalOf(raw) }
   }
 
   /** B17.10 — cancels the workspace's plan at the end of its period. */
