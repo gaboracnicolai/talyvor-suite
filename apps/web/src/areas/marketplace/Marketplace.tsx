@@ -603,9 +603,14 @@ function Bill() {
             <Row
               key={l.use_id}
               label={
-                <Link className={`text-ink ${inlineLink}`} to={`/marketplace/listings/${encodeURIComponent(l.listing_id)}`}>
-                  {l.title || l.listing_id}
-                </Link>
+                // A payment to another company's agent (B19.15) has no listing, so there is no page to link to.
+                l.listing_id ? (
+                  <Link className={`text-ink ${inlineLink}`} to={`/marketplace/listings/${encodeURIComponent(l.listing_id)}`}>
+                    {l.title || l.listing_id}
+                  </Link>
+                ) : (
+                  l.title || 'Payment to an agent'
+                )
               }
               hint={
                 <>

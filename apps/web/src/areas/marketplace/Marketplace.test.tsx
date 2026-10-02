@@ -164,4 +164,27 @@ describe('the marketplace', () => {
     )
     expect(screen.getByRole('heading', { name: 'Publish a listing' })).toBeTruthy()
   })
+
+  // B26.27 — a payment to another company's agent (B19.15) has no listing, so its bill line is plain
+  // text: it once linked to /marketplace/listings/, a page that is not there.
+  it("a payment to an agent on the bill is plain text, not a link to a listing that isn't there", async () => {
+    const state = mockBff()
+    const rest = vi.mocked(globalThis.fetch).getMockImplementation()!
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (!String(input).startsWith('/api/marketplace/bill?month=')) return rest(input, init)
+      const lines = [
+        { use_id: 'use_1', listing_id: 'lst_1', title: 'Translate to French', price_ulxc: 500_000, used_at: '2026-09-28T10:00:00Z' },
+        { use_id: 'use_2', listing_id: '', title: 'Payment to Bea', payee_agent_id: 'agt_bea', price_ulxc: 250_000, used_at: '2026-09-28T11:00:00Z' },
+      ]
+      return new Response(JSON.stringify({ month: '2026-09', total_ulxc: 750_000, total_usd_micros: 75_000, lines }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    })
+    state.as = 'ws_buyer'
+    await at('/marketplace/bill')
+    const payment = await screen.findByText('Payment to Bea')
+    expect(payment.closest('a')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Translate to French' }).getAttribute('href')).toBe('/marketplace/listings/lst_1')
+  })
 })
