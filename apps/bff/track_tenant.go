@@ -150,6 +150,15 @@ func (a *app) trackWorkspaceFor(w http.ResponseWriter, r *http.Request) (string,
 				"Nothing else is affected; try again shortly."})
 		return "", false
 	}
+	// DOCS: the nudge the login makes, made here too. A session gets this far without a Track
+	// workspace when Track was down at login or when it never logged in through OIDC (a synthetic
+	// sign-in), and the request being resolved may be its first Docs one. Docs has not read the
+	// roster of a workspace minted a moment ago, so without this it answers 403 "not a member"
+	// until its next sweep and the Docs screen opens broken (B26.21). Best-effort, as at login.
+	if derr := a.nudgeDocsMemberSync(r.Context(), ws); derr != nil && !errors.Is(derr, errDocsNotConfigured) {
+		log.Printf("bff: docs member-sync nudge failed for sub=%s (Docs' own sweep will reconcile "+
+			"within its interval): %s", s.sub, redactSecret(derr.Error()))
+	}
 	// ⚠ MERGED UNDER THE LOCK, NOT PUT BACK. `s` was read BEFORE bootstrapTrackWorkspace, and that
 	// is an HTTP round trip: anything another in-flight request stored during it — a re-minted Lens
 	// token, the pooling answer — is in the store and NOT in this copy, so a whole-struct put

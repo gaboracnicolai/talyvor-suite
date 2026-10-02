@@ -291,3 +291,32 @@ func sessionHasField(t *testing.T, field string) bool {
 	}
 	return found
 }
+
+/* ── B26.21: a workspace first resolved after login is nudged too ────────── */
+
+// A session can reach its first Docs request WITHOUT a Track workspace: a synthetic sign-in never
+// runs the OIDC callback, and a login whose Track bootstrap failed stores none. The workspace is
+// then minted by that Docs request itself, and Docs has not read its roster — so, measured on
+// production on 2 Oct, /api/docs/spaces answered 403 "not a member of this workspace" and the Docs
+// screen opened as "Docs can't be reached", with no way to create a space. The nudge must reach
+// Docs for the minted workspace BEFORE the request it was minted for is forwarded.
+func TestDocsNudge_FirstDocsRequestWithoutATrackWorkspaceSyncsBeforeForwarding(t *testing.T) {
+	up := newTrackWriteUpstream(t, func(string) string { return "ws-new" })
+	a := trackWriteApp(t, up)
+	sess := signIn(t, a, "sid-new", "s1@synthetic.talyvor.invalid", "")
+
+	if rec := sendAs(t, a, sess, http.MethodGet, "/api/docs/spaces", ""); rec.Code >= 400 {
+		t.Fatalf("list spaces: %d %s", rec.Code, rec.Body.String())
+	}
+	calls := up.since(0)
+	if len(calls) != 2 {
+		t.Fatalf("upstream saw %+v, want the member-sync for ws-new and then the space list", calls)
+	}
+	if calls[0].method != http.MethodPost || calls[0].path != docsMemberSyncPath("ws-new") {
+		t.Errorf("first call = %s %s, want POST %s — without it Docs 403s the list until its next sweep",
+			calls[0].method, calls[0].path, docsMemberSyncPath("ws-new"))
+	}
+	if calls[1].path != "/v1/workspaces/ws-new/spaces" {
+		t.Errorf("second call = %s, want /v1/workspaces/ws-new/spaces", calls[1].path)
+	}
+}
