@@ -1,0 +1,538 @@
+{
+ "lens": "74a752b",
+ "recorded_at": "2026-10-02",
+ "reads": {
+  "/v1/catalog/models": {
+   "status": 200,
+   "shape": [
+    {
+     "id": "string",
+     "provider": "string",
+     "display_name": "string",
+     "input_per_1m": "number",
+     "output_per_1m": "number",
+     "cached_input_per_1m": "number",
+     "cache_write_per_1m": "number",
+     "capabilities": {
+      "vision": "boolean",
+      "audio": "boolean",
+      "document": "boolean"
+     },
+     "context_tokens": "number",
+     "max_output": "number",
+     "release_date": "string",
+     "tier": "string"
+    }
+   ]
+  },
+  "/v1/catalog/discovered": {
+   "status": 200,
+   "shape": []
+  },
+  "/v1/economy/conversion-rate": {
+   "status": 200,
+   "shape": {
+    "lens_per_lxc": "number",
+    "rate": "number",
+    "usd_per_lxc": "number"
+   }
+  },
+  "/v1/api/usage?days=30": {
+   "status": 200,
+   "shape": {
+    "cache": {
+     "by_source": {},
+     "cache_hits": "number",
+     "hit_rate": "number",
+     "misses": "number",
+     "total_requests": "number"
+    },
+    "models": [],
+    "period_days": "number"
+   }
+  },
+  "/v1/api/spend/by-feature?days=30": {
+   "status": 200,
+   "shape": "null"
+  },
+  "/v1/bonds": {
+   "status": 404
+  },
+  "/v1/markets/simulated/quotes": {
+   "status": 200,
+   "shape": {
+    "simulated": "boolean",
+    "market_data": "string",
+    "rate_date": "string",
+    "quotes": [
+     {
+      "instrument": "string",
+      "price_usd": "string",
+      "rate_date": "string"
+     }
+    ]
+   }
+  },
+  "/v1/marketplace/listings": {
+   "status": 200,
+   "shape": {
+    "listings": []
+   }
+  },
+  "/v1/wallets/capabilities": {
+   "status": 200,
+   "shape": {
+    "capabilities": [
+     {
+      "capability": "string",
+      "name": "string",
+      "class": "string",
+      "real_money": "boolean"
+     }
+    ]
+   }
+  },
+  "/v1/wallets/{agentID}": {
+   "status": 200,
+   "shape": {
+    "wallet_id": "string",
+    "name": "string"
+   }
+  },
+  "/v1/workspaces/{wsID}": {
+   "status": 200,
+   "shape": {
+    "id": "string",
+    "name": "string",
+    "cache_prefix": "string",
+    "spend_limit_usd": "number",
+    "allowed_models": [],
+    "allowed_providers": [],
+    "max_tokens_per_request": "number",
+    "max_output_tokens": "number",
+    "max_input_tokens": "number",
+    "active": "boolean",
+    "logging_policy": "string",
+    "distill_policy": "string",
+    "compression_policy": "string",
+    "tare_policy": "string",
+    "cache_poolable": "boolean",
+    "cost_optimize_routing": "boolean",
+    "distill_poolable": "boolean",
+    "synthetic": "boolean",
+    "created_at": "string"
+   }
+  },
+  "/v1/workspaces/{wsID}/api-keys": {
+   "status": 200,
+   "shape": [
+    {
+     "id": "string",
+     "workspace_id": "string",
+     "key_prefix": "string",
+     "name": "string",
+     "scopes": [
+      "string"
+     ],
+     "created_at": "string"
+    }
+   ]
+  },
+  "/v1/workspaces/{wsID}/spend/current-month": {
+   "status": 200,
+   "shape": {
+    "current_month_usd": "number"
+   }
+  },
+  "/v1/workspaces/{wsID}/deletion-requests": {
+   "status": 200,
+   "shape": {
+    "requests": []
+   }
+  },
+  "/v1/workspaces/{wsID}/pattern-mining/opt-in": {
+   "status": 200,
+   "shape": {
+    "enabled": "boolean",
+    "opted_in": "boolean"
+   }
+  },
+  "/v1/workspaces/{wsID}/stored-answers": {
+   "status": 200,
+   "shape": {
+    "shared_answers": "number",
+    "private_answers": "number",
+    "shared_conversions": "number",
+    "private_conversions": "number",
+    "cached_copies": "number"
+   }
+  },
+  "/v1/workspaces/{wsID}/tokens/balance": {
+   "status": 200,
+   "shape": {
+    "workspace_id": "string",
+    "balance_ulens": "number",
+    "held_balance_ulens": "number",
+    "lifetime_earned_ulens": "number",
+    "lifetime_spent_ulens": "number",
+    "updated_at": "string"
+   }
+  },
+  "/v1/workspaces/{wsID}/tokens/history?limit=20&offset=0": {
+   "status": 200,
+   "shape": "null"
+  },
+  "/v1/workspaces/{wsID}/lxc/balance": {
+   "status": 200,
+   "shape": {
+    "workspace_id": "string",
+    "balance_ulxc": "number",
+    "lifetime_minted_ulxc": "number",
+    "lifetime_spent_ulxc": "number",
+    "usd_value_uusd": "number"
+   }
+  },
+  "/v1/workspaces/{wsID}/lxc/history?limit=20&offset=0": {
+   "status": 200,
+   "shape": [
+    {
+     "id": "string",
+     "workspace_id": "string",
+     "amount_ulxc": "number",
+     "balance_after_ulxc": "number",
+     "type": "string",
+     "description": "string",
+     "metadata": {
+      "funding": "string",
+      "synthetic": "boolean"
+     },
+     "created_at": "string"
+    }
+   ]
+  },
+  "/v1/workspaces/{wsID}/billing/allowance": {
+   "status": 200,
+   "shape": {
+    "allowance": "null",
+    "earned_ulens": "number",
+    "earned_held_ulens": "number",
+    "earned_usd_cents": "number",
+    "earned_back_usd_cents": "number"
+   }
+  },
+  "/v1/workspaces/{wsID}/billing/subscription": {
+   "status": 200,
+   "shape": {
+    "subscribed": "boolean",
+    "cancel_at_period_end": "boolean",
+    "livemode": "boolean"
+   }
+  },
+  "/v1/workspaces/{wsID}/budgets": {
+   "status": 200,
+   "shape": [
+    {
+     "id": "string",
+     "workspace_id": "string",
+     "scope": "string",
+     "scope_id": "string",
+     "period": "string",
+     "limit_usd": "number",
+     "spent_usd": "number",
+     "alert_thresholds": [
+      "number"
+     ],
+     "enforcement": "string",
+     "created_at": "string",
+     "updated_at": "string"
+    }
+   ]
+  },
+  "/v1/workspaces/{wsID}/earnings": {
+   "status": 200,
+   "shape": {
+    "workspace_id": "string",
+    "contribution_settled_ulens": "number",
+    "capital_settled_ulens": "number",
+    "settled_ulens": "number",
+    "held_ulens": "number",
+    "revoked_ulens": "number",
+    "contribution_settled_usd_at_peg": "number",
+    "settled_usd_at_peg": "number",
+    "held_usd_at_peg": "number",
+    "lens_per_usd": "number",
+    "earning_enabled": "boolean",
+    "disabled_gates": "null",
+    "reuses": "number",
+    "helped_workspaces": "number",
+    "by_type": [],
+    "unclassified_types": "null"
+   }
+  },
+  "/v1/workspaces/{wsID}/distill/usage": {
+   "status": 200,
+   "shape": {
+    "converted": "number",
+    "vision_ocr": "number",
+    "days": "number"
+   }
+  },
+  "/v1/workspaces/{wsID}/tare/savings": {
+   "status": 200,
+   "shape": {
+    "by_work_item": []
+   }
+  },
+  "/v1/workspaces/{wsID}/guardrails": {
+   "status": 200,
+   "shape": {
+    "workspace_id": "string",
+    "enable_pii": "boolean",
+    "enable_injection": "boolean",
+    "enable_topics": "boolean",
+    "blocked_topics": "null",
+    "enable_word_filter": "boolean",
+    "blocked_words": "null",
+    "pii_action": "string",
+    "injection_action": "string",
+    "custom_rules": "null"
+   }
+  },
+  "/v1/workspaces/{wsID}/agents": {
+   "status": 200,
+   "shape": {
+    "workspace_balance_ulxc": "number",
+    "allocated_ulxc": "number",
+    "unallocated_ulxc": "number",
+    "spent_ulxc": "number",
+    "agents": [
+     {
+      "id": "string",
+      "name": "string",
+      "balance_ulxc": "number",
+      "spent_ulxc": "number",
+      "keys": [],
+      "created_at": "string",
+      "owner_user_id": "string",
+      "verified": "boolean",
+      "pots_ulxc": "number"
+     }
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/approvals": {
+   "status": 200,
+   "shape": {
+    "approvals": []
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/alerts": {
+   "status": 200,
+   "shape": {
+    "alerts": [],
+    "rule": "string"
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/forecast": {
+   "status": 200,
+   "shape": {
+    "at": "string",
+    "month_start": "string",
+    "month_end": "string",
+    "spent_ulxc": "number",
+    "forecast_ulxc": "number",
+    "agents": [
+     {
+      "agent_id": "string",
+      "name": "string",
+      "spent_ulxc": "number",
+      "forecast_ulxc": "number"
+     }
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/passkeys": {
+   "status": 200,
+   "shape": {
+    "passkeys": []
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/schedules": {
+   "status": 200,
+   "shape": {
+    "schedules": []
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/statement": {
+   "status": 200,
+   "shape": {
+    "workspace_id": "string",
+    "from": "string",
+    "to": "string",
+    "accounts": [
+     {
+      "account": "string",
+      "opening_ulxc": "number",
+      "in_ulxc": "number",
+      "out_ulxc": "number",
+      "closing_ulxc": "number"
+     }
+    ],
+    "lines": [
+     {
+      "posting_id": "number",
+      "entry_id": "string",
+      "at": "string",
+      "account": "string",
+      "kind": "string",
+      "amount_ulxc": "number",
+      "counterparty": "string",
+      "balance_after_ulxc": "number"
+     }
+    ],
+    "loans": [],
+    "escrows": []
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules": {
+   "status": 200,
+   "shape": {
+    "max_per_request_ulxc": "number",
+    "daily_limit_ulxc": "number",
+    "monthly_limit_ulxc": "number",
+    "approval_above_ulxc": "number",
+    "allowed_models": [],
+    "allowed_providers": [],
+    "allowed_listings": [],
+    "active_from": "string",
+    "active_until": "string",
+    "timezone": "string",
+    "pause_on_unusual_spend": "boolean"
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/pots": {
+   "status": 200,
+   "shape": {
+    "pots": []
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/statement": {
+   "status": 200,
+   "shape": {
+    "agent_id": "string",
+    "lines": [
+     {
+      "entry_id": "string",
+      "kind": "string",
+      "amount_ulxc": "number",
+      "counterparty": "string",
+      "balance_after_ulxc": "number",
+      "at": "string"
+     }
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/transfers": {
+   "status": 200,
+   "shape": {
+    "transfers": []
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/topup": {
+   "status": 404
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/portfolios": {
+   "status": 200,
+   "shape": {
+    "notice": "string",
+    "portfolios": []
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/card": {
+   "status": 404
+  },
+  "/v1/workspaces/{wsID}/cash-outs": {
+   "status": 200,
+   "shape": {
+    "cash_outs": []
+   }
+  },
+  "/v1/workspaces/{wsID}/credit-line": {
+   "status": 404
+  },
+  "/v1/workspaces/{wsID}/escrows": {
+   "status": 200,
+   "shape": {
+    "escrows": []
+   }
+  },
+  "/v1/workspaces/{wsID}/loans": {
+   "status": 200,
+   "shape": {
+    "loans": []
+   }
+  },
+  "/v1/workspaces/{wsID}/money-requests": {
+   "status": 200,
+   "shape": {
+    "requests": []
+   }
+  },
+  "/v1/workspaces/{wsID}/marketplace/bill": {
+   "status": 200,
+   "shape": {
+    "month": "string",
+    "total_ulxc": "number",
+    "total_usd_micros": "number",
+    "refunded_ulxc": "number",
+    "lines": []
+   }
+  },
+  "/v1/workspaces/{wsID}/marketplace/earnings": {
+   "status": 200,
+   "shape": {
+    "pending_uses": "number",
+    "pending_usd_micros": "number",
+    "payable_usd_micros": "number",
+    "in_holdback_usd_micros": "number",
+    "available_usd_micros": "number",
+    "paid_out_usd_micros": "number",
+    "owed_usd_micros": "number",
+    "lifetime_gross_usd_micros": "number",
+    "refunded_usd_micros": "number",
+    "earnings": []
+   }
+  },
+  "/v1/workspaces/{wsID}/marketplace/listings": {
+   "status": 200,
+   "shape": {
+    "listings": []
+   }
+  },
+  "/v1/workspaces/{wsID}/marketplace/payouts": {
+   "status": 200,
+   "shape": {
+    "account": "null",
+    "in_holdback_usd_micros": "number",
+    "available_usd_micros": "number",
+    "owed_usd_micros": "number",
+    "paid_out_usd_micros": "number",
+    "minimum_usd_micros": "number",
+    "paid_this_month": "boolean",
+    "quote": {
+     "gross_usd_micros": "number",
+     "account_fee_usd_micros": "number",
+     "payout_fee_usd_micros": "number",
+     "net_usd_micros": "number"
+    },
+    "payouts": []
+   }
+  },
+  "/v1/admin/marketplace/review": {
+   "status": 200,
+   "shape": {
+    "listings": []
+   }
+  }
+ }
+}

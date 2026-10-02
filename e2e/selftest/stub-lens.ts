@@ -37,6 +37,10 @@
 // B25.4 adds money between owners and the marketplace's moderators, with their planted defects
 // (stub-bank.ts): the review queue answers the moderator key in STUB_MODERATOR_KEY, Lens's minute tick
 // runs every two seconds, and Stripe's Connect onboarding is a page at /stub-connect/….
+//
+// B26.24: every read the self-test makes is answered in the shape a real Lens answers it, held to
+// lens-shapes.json by test/stubLens.test.ts. A route this stub does not know is a 404 it logs as
+// "stub lens: no such route", which the self-test names — never a `{}` that a screen then throws on.
 
 import { randomBytes } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
@@ -54,13 +58,16 @@ const APP_URL = process.env.STUB_APP_URL ?? 'http://localhost:8797'
 const PLAN_FEES: Record<string, number> = { plus: 2000, pro: 10000, max: 20000 }
 const ALLOWANCE_ULXC = 50_000_000
 
+const model = (id: string, provider: string, display_name: string, input_per_1m: number, output_per_1m: number, release_date: string, tier: string,
+  document: boolean) => ({ id, provider, display_name, input_per_1m, output_per_1m, cached_input_per_1m: input_per_1m / 10, cache_write_per_1m: input_per_1m * 1.25,
+  capabilities: { vision: tier !== 'embedding', audio: false, document }, context_tokens: 200_000, max_output: tier === 'embedding' ? 0 : 8192, release_date, tier })
 const CATALOG = [
-  { id: 'claude-haiku-4-5', provider: 'anthropic', display_name: 'Claude Haiku 4.5', input_per_1m: 1, output_per_1m: 5, release_date: '2025-10-15', tier: 'fast' },
-  { id: 'claude-sonnet-5', provider: 'anthropic', display_name: 'Claude Sonnet 5', input_per_1m: 3, output_per_1m: 15, release_date: '2026-06-30', tier: 'balanced' },
-  { id: 'gpt-6-luna', provider: 'openai', display_name: 'GPT-6 Luna', input_per_1m: 0.1, output_per_1m: 0.4, release_date: '2026-09-22', tier: 'fast' },
-  { id: 'gemini-flash-lite', provider: 'google', display_name: 'Gemini Flash-Lite', input_per_1m: 0.1, output_per_1m: 0.4, release_date: '2026-07-21', tier: 'fast' },
+  model('claude-haiku-4-5', 'anthropic', 'Claude Haiku 4.5', 1, 5, '2025-10-15', 'fast', true),
+  model('claude-sonnet-5', 'anthropic', 'Claude Sonnet 5', 3, 15, '2026-06-30', 'balanced', true),
+  model('gpt-6-luna', 'openai', 'GPT-6 Luna', 0.1, 0.4, '2026-09-22', 'fast', false),
+  model('gemini-flash-lite', 'google', 'Gemini Flash-Lite', 0.1, 0.4, '2026-07-21', 'fast', false),
   // Not a chat model, as in production: every-model must not try it.
-  { id: 'text-embedding-3-large', provider: 'openai', display_name: 'Embedding 3 large', input_per_1m: 0.13, output_per_1m: 0, release_date: '2024-01-25', tier: 'embedding' },
+  model('text-embedding-3-large', 'openai', 'Embedding 3 large', 0.13, 0, '2024-01-25', 'embedding', false),
 ]
 const CONFIGURED = new Set(['anthropic', 'openai'])
 
@@ -84,11 +91,16 @@ interface Settings {
   cost_optimize_routing: boolean
 }
 interface Budget {
-  id: string; scope: string; period: string; limit_usd: number; spent_usd: number; alert_thresholds: number[]
-  enforcement: string; ends_at: string | null
+  id: string; workspace_id: string; scope: string; scope_id: string; period: string; limit_usd: number; spent_usd: number; alert_thresholds: number[]
+  enforcement: string; ends_at: string | null; created_at: string; updated_at: string
 }
+/** An API key as Lens lists it (tenant.APIKey); the key itself is shown once, when it is made. */
+interface ApiKey { id: string; workspace_id: string; key_prefix: string; name: string; scopes: string[]; created_at: string }
 interface Workspace {
-  id: string; token: string; balance: number; ledger: Row[]; answers: Map<string, string>
+  id: string; token: string; created_at: string; balance: number; ledger: Row[]; answers: Map<string, string>
+  keys: (ApiKey & { key: string })[]
+  /** Documents uploaded for Chat to reference by their tdoc_ id (Lens POST /v1/documents, B18.13). */
+  documents: Map<string, { mediaType: string; bytes: Buffer }>
   settings: Settings
   guardrails: Record<string, unknown> & { enable_injection: boolean; enable_pii: boolean }
   budgets: Budget[]
@@ -100,23 +112,26 @@ interface Workspace {
 
 function newWorkspace(id: string, token: string): Workspace {
   return {
-    id, token, balance: 0, ledger: [], answers: new Map(),
+    id, token, created_at: new Date().toISOString(), balance: 0, ledger: [], answers: new Map(), keys: [], documents: new Map(),
     settings: { tare_policy: 'disabled', distill_policy: 'always', compression_policy: 'disabled', logging_policy: 'full',
       cache_poolable: true, distill_poolable: false, cost_optimize_routing: false },
-    guardrails: { enable_injection: true, enable_pii: true, blocked_topics: [], custom_rules: [] },
+    guardrails: { ...GUARDRAILS },
     budgets: [],
     usage: { total: 0, hits: 0, pooled: 0, converted: 0 },
     earnings: [],
   }
 }
 
-// Lens's guardrails, reduced to what the scenarios send.
+// Lens's guardrails, reduced to what the scenarios send; a new workspace's as Lens answers them.
+const GUARDRAILS = { workspace_id: '', enable_pii: true, enable_injection: true, enable_topics: true, blocked_topics: null, enable_word_filter: true,
+  blocked_words: null, pii_action: 'redact', injection_action: 'block', custom_rules: null }
 const INJECTION = /ignore (all )?(previous|prior) instructions/i
 const PERSONAL = /[\w.+-]+@[\w-]+\.[\w.]+|\+?\d[\d ()-]{8,}\d/
 
 const workspaces = new Map<string, Workspace>()
 const byToken = new Map<string, Workspace>()
-const bySessionKey = new Map<string, Workspace>()
+/** Session keys and API keys: the credentials the proxy takes. */
+const byKey = new Map<string, Workspace>()
 /** Single-turn questions any synthetic workspace has had answered: the synthetic pool. */
 const pool = new Map<string, { owner: string; answer: string }>()
 /** Open checkouts on the stand-in for Stripe: session → the workspace and the plan it is for. */
@@ -125,11 +140,22 @@ const checkouts = new Map<string, { ws: string; plan: string }>()
 function book(ws: Workspace, amount: number, type: string, description: string): void {
   if (type === 'spend') for (const b of ws.budgets) b.spent_usd += (-amount / 1e6) * USD_PER_LXC
   ws.balance += amount
+  // A synthetic workspace's credits are a grant Lens marks as such.
+  const metadata = type === 'admin_grant' ? { funding: 'grant', synthetic: true } : {}
   ws.ledger.unshift({ id: randomBytes(8).toString('hex'), workspace_id: ws.id, amount_ulxc: amount, balance_after_ulxc: ws.balance,
-    type, description, metadata: {}, created_at: new Date().toISOString() })
+    type, description, metadata, created_at: new Date().toISOString() })
 }
 
-type Block = { type: string; text?: string; source?: { data?: string; media_type?: string }; file?: { file_data?: string } }
+/** What the workspace spent this calendar month, in dollars (Lens spend/current-month). */
+function monthUSD(ws: Workspace): number {
+  const start = new Date()
+  start.setUTCDate(1)
+  start.setUTCHours(0, 0, 0, 0)
+  const ulxc = ws.ledger.filter((r) => r.type === 'spend' && new Date(r.created_at) >= start).reduce((n, r) => n - r.amount_ulxc, 0)
+  return (ulxc / 1e6) * USD_PER_LXC
+}
+
+type Block = { type: string; text?: string; source?: { data?: string; media_type?: string; file_id?: string }; file?: { file_data?: string; file_id?: string } }
 type Msg = { role: string; content: string | Block[] }
 const text = (m: Msg): string => (typeof m.content === 'string' ? m.content : m.content.map((c) => c.text ?? '').join(''))
 
@@ -151,6 +177,11 @@ function documentOf(c: Block): { mediaType: string; bytes: Buffer } | undefined 
   if (c.type === 'document' && c.source?.data !== undefined) return { mediaType: c.source.media_type ?? '', bytes: Buffer.from(c.source.data, 'base64') }
   const m = c.type === 'file' ? /^data:([^;]*);base64,(.*)$/s.exec(c.file?.file_data ?? '') : null
   return m === null ? undefined : { mediaType: m[1], bytes: Buffer.from(m[2], 'base64') }
+}
+
+/** The tdoc_ id a block references an uploaded document by: Anthropic's file source, or OpenAI's file part. */
+function fileRef(c: Block): string | undefined {
+  return c.type === 'document' ? c.source?.file_id : c.type === 'file' ? c.file?.file_id : undefined
 }
 
 /** Tare on JSON: an array of same-shaped objects keeps one row per shape. */
@@ -224,6 +255,12 @@ async function read(req: IncomingMessage): Promise<string> {
   return s
 }
 
+async function readBytes(req: IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  return Buffer.concat(chunks)
+}
+
 /** A question asked outside the proxy — a marketplace use — answered and charged as the proxy would. */
 function runModel(on: { id: string }, modelID: string, question: string): { answer: string } | { error: string } {
   const ws = workspaces.get(on.id)
@@ -235,7 +272,25 @@ function runModel(on: { id: string }, modelID: string, question: string): { answ
   return { answer }
 }
 
-const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read,
+/**
+ * Not a route this stub knows. Said where the self-test reads it, so a read the app starts making is named
+ * rather than answered with a body the screen cannot use. The BFF is Go's HTTP client; the harness reads
+ * Lens directly too, and its lens-reads scenario asks for every route Lens has.
+ */
+function miss(req: IncomingMessage, res: ServerResponse, path: string): void {
+  const asker = /^Go-http-client\//.test(req.headers['user-agent'] ?? '') ? 'the BFF' : 'the harness'
+  console.log(`stub lens: no such route: ${req.method} ${path.replace(/^\/v1\/workspaces\/[^/]+/, '/v1/workspaces/{wsID}')} (asked by ${asker})`)
+  json(res, 404, { error: 'stub: no such route' })
+}
+
+/** Routes Lens itself does not serve as production is configured: answered as Lens answers them, not as misses. */
+const ABSENT = new Set(['/v1/bonds'])
+
+/** Lens's simulated market (B22.8): the ECB's reference rates, a few of them, fixed. */
+const QUOTES = { simulated: true, market_data: 'European Central Bank euro foreign exchange reference rates (source: ECB, free at www.ecb.europa.eu)',
+  rate_date: '2026-10-02', quotes: [['EUR', '1.17'], ['GBP', '1.35'], ['JPY', '0.0068']].map(([instrument, price_usd]) => ({ instrument, price_usd, rate_date: '2026-10-02' })) }
+
+const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read, miss,
   moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', base: BASE,
   credit: (id, ulxc, type, description) => {
     const ws = workspaces.get(id)
@@ -246,7 +301,7 @@ setInterval(() => bank.tick(), 2000)
 async function proxy(req: IncomingMessage, res: ServerResponse, provider: string, path: string): Promise<void> {
   const credential = (req.headers.authorization ?? '').replace(/^Bearer /, '')
   const agentCall = bank.agentOfKey(credential)
-  const ws = bySessionKey.get(credential) ?? (agentCall === undefined ? undefined : workspaces.get(agentCall.ws.id))
+  const ws = byKey.get(credential) ?? (agentCall === undefined ? undefined : workspaces.get(agentCall.ws.id))
   if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
   const raw = await read(req)
   if (!CONFIGURED.has(provider)) return json(res, 503, { error: `provider ${provider} not configured` })
@@ -273,22 +328,30 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   if (BREAK !== 'budget' && ws.budgets.some((b) => b.enforcement === 'hard_block' && b.spent_usd >= b.limit_usd)) {
     return json(res, 402, { error: 'budget exceeded for workspace/team/sprint' })
   }
-  // Document conversion: asked for by the app, applied unless the workspace switched it off.
-  if (req.headers['x-talyvor-distill'] === 'true' && ws.settings.distill_policy !== 'disabled' && BREAK !== 'distill') {
-    let converted = 0
-    for (const m of messages) {
-      if (typeof m.content === 'string') continue
-      m.content = m.content.map((c) => {
-        const doc = documentOf(c)
-        if (doc === undefined) return c
+  // Document conversion: asked for by the app, applied unless the workspace switched it off. A document
+  // uploaded first and referenced by its tdoc_ id (B18.24) is converted whatever the switch says, as in
+  // Lens: the id means nothing to a provider.
+  const distill = req.headers['x-talyvor-distill'] === 'true' && ws.settings.distill_policy !== 'disabled'
+  let converted = 0
+  for (const m of messages) {
+    if (typeof m.content === 'string') continue
+    const blocks: Block[] = []
+    for (const c of m.content) {
+      const ref = fileRef(c)
+      const doc = ref === undefined ? documentOf(c) : ws.documents.get(ref)
+      if (ref !== undefined && doc === undefined) return json(res, 400, { error: `document ${ref} not found` })
+      if (doc === undefined) blocks.push(c)
+      else if (BREAK === 'distill' || (ref === undefined && !distill)) blocks.push(ref === undefined ? c : { type: 'text', text: doc.bytes.toString('utf8') })
+      else {
         converted++
-        return { type: 'text', text: toMarkdown(doc.bytes.toString('utf8'), doc.mediaType) }
-      })
+        blocks.push({ type: 'text', text: toMarkdown(doc.bytes.toString('utf8'), doc.mediaType) })
+      }
     }
-    if (converted > 0) {
-      headers['X-Talyvor-Distill'] = 'applied'
-      ws.usage.converted += converted
-    }
+    m.content = blocks
+  }
+  if (converted > 0) {
+    headers['X-Talyvor-Distill'] = 'applied'
+    ws.usage.converted += converted
   }
   // Request logging "none" keeps nothing new. As in Lens (talyvor-lens storeCaches), an answer kept
   // before the switch is still there to replay; the BFF asks such a repeat again (B17.12).
@@ -442,7 +505,7 @@ createServer(async (req, res) => {
       }
       return json(res, 201, { created: out.length, workspaces: out })
     }
-    if (p === '/v1/economy/conversion-rate') return json(res, 200, { usd_per_lxc: USD_PER_LXC })
+    if (p === '/v1/economy/conversion-rate') return json(res, 200, { lens_per_lxc: 1, rate: 1, usd_per_lxc: USD_PER_LXC })
     const paying = /^\/stub-checkout\/(\w+)$/.exec(p)
     if (paying !== null) return await stripeCheckout(req, res, paying[1])
     const proxied = /^\/v1\/proxy\/([a-z]+)\/(.+)$/.exec(p)
@@ -455,28 +518,42 @@ createServer(async (req, res) => {
       return void res.end('<!doctype html><title>Stripe Connect onboarding (stub)</title><h1>Stripe Connect onboarding (stub)</h1>')
     }
     // The BFF runs a marketplace use on the session key the chat streams on (B20.3).
-    const ws = byToken.get(bearer) ?? bySessionKey.get(bearer)
+    const ws = byToken.get(bearer) ?? byKey.get(bearer)
     if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
     if (p === '/v1/catalog/models') return json(res, 200, CATALOG)
     if (bank.publicRoute(res, p, url, ws.id)) return
     if (await bank.publicWrite(req, res, p, ws.id)) return
     if (p === '/v1/catalog/discovered') return json(res, 200, [])
+    if (ABSENT.has(p)) return json(res, 404, { error: 'not found' })
+    if (p === '/v1/markets/simulated/quotes') return json(res, 200, QUOTES)
+    // Spend by feature: Lens's Go slice, null while nothing is attributed to a feature. The stub attributes nothing.
+    if (p === '/v1/api/spend/by-feature') return json(res, 200, null)
     if (p === '/v1/api/usage') {
       const u = ws.usage
       return json(res, 200, { period_days: Number(url.searchParams.get('days') ?? 30), models: [], cache: { total_requests: u.total,
         cache_hits: u.hits + u.pooled, misses: u.total - u.hits - u.pooled, hit_rate: u.total === 0 ? 0 : (u.hits + u.pooled) / u.total,
         by_source: { cache_hit_exact: u.hits, cache_hit_pooled: u.pooled } } })
     }
+    if (p === '/v1/documents' && req.method === 'POST') {
+      const bytes = await readBytes(req)
+      const id = 'tdoc_' + randomBytes(12).toString('hex')
+      const mediaType = String(req.headers['content-type'] ?? '')
+      ws.documents.set(id, { mediaType, bytes })
+      return json(res, 201, { id, media_type: mediaType, filename: url.searchParams.get('filename') ?? '', size_bytes: bytes.length, uploaded_at: new Date().toISOString() })
+    }
     if (p === '/v1/auth/session-keys' && req.method === 'POST') {
       const key = 'tlv_sk_' + randomBytes(24).toString('hex')
-      bySessionKey.set(key, ws)
+      byKey.set(key, ws)
       return json(res, 201, { key, expires_at: new Date(Date.now() + 3600e3).toISOString() })
     }
     const scoped = /^\/v1\/workspaces\/([^/]+)(\/.*)?$/.exec(p)
     if (scoped !== null) {
       if (scoped[1] !== ws.id) return json(res, 403, { error: 'forbidden' })
       const rest = scoped[2] ?? ''
-      if (rest === '') return json(res, 200, { id: ws.id, name: 'Synthetic user', active: true, synthetic: true, ...ws.settings })
+      if (rest === '') {
+        return json(res, 200, { id: ws.id, name: 'Synthetic user', cache_prefix: `ws:${ws.id}:`, spend_limit_usd: 0, allowed_models: [], allowed_providers: [],
+          max_tokens_per_request: 0, max_output_tokens: 0, max_input_tokens: 0, active: true, ...ws.settings, synthetic: true, created_at: ws.created_at })
+      }
       if (await bank.workspaceRoute(req, res, ws, rest, url)) return
       const setting = SETTINGS[rest]
       if (setting !== undefined && req.method === 'PUT') {
@@ -486,13 +563,33 @@ createServer(async (req, res) => {
         return json(res, 200, { [setting]: BREAK === 'setting' && setting === 'cost_optimize_routing' ? v : ws.settings[setting] })
       }
       if (rest === '/guardrails') {
-        if (req.method === 'POST') ws.guardrails = JSON.parse((await read(req)) || '{}') as Workspace['guardrails']
+        if (req.method === 'POST') ws.guardrails = { ...GUARDRAILS, ...(JSON.parse((await read(req)) || '{}') as object) } as Workspace['guardrails']
         return json(res, 200, ws.guardrails)
+      }
+      if (rest === '/api-keys' && req.method === 'POST') {
+        const { name = '', scopes = [] } = JSON.parse((await read(req)) || '{}') as { name?: string; scopes?: string[] }
+        const key = 'tlv_' + randomBytes(24).toString('hex')
+        const k = { id: randomBytes(16).toString('hex'), workspace_id: ws.id, key_prefix: key.slice(0, 12), name, scopes, created_at: new Date().toISOString(), key }
+        ws.keys.push(k)
+        byKey.set(key, ws)
+        return json(res, 201, { key, id: k.id, prefix: k.key_prefix, name, scopes, warning: 'Store this key securely. It will not be shown again.' })
+      }
+      // Lens lists the keys as a Go slice: null when there are none.
+      if (rest === '/api-keys') return json(res, 200, ws.keys.length === 0 ? null : ws.keys.map(({ key: _k, ...k }) => k))
+      const apiKey = /^\/api-keys\/([^/]+)$/.exec(rest)
+      if (apiKey !== null && req.method === 'DELETE') {
+        const k = ws.keys.find((x) => x.id === apiKey[1])
+        if (k === undefined) return json(res, 404, { error: 'key not found' })
+        ws.keys = ws.keys.filter((x) => x !== k)
+        byKey.delete(k.key)
+        return json(res, 200, { ok: true })
       }
       if (rest === '/budgets' && req.method === 'POST') {
         const b = JSON.parse((await read(req)) || '{}') as Partial<Budget>
-        const budget: Budget = { id: randomBytes(8).toString('hex'), scope: b.scope ?? 'workspace', period: b.period ?? 'monthly',
-          limit_usd: b.limit_usd ?? 0, spent_usd: 0, alert_thresholds: [], enforcement: b.enforcement ?? 'hard_block', ends_at: null }
+        const at = new Date().toISOString()
+        const budget: Budget = { id: randomBytes(8).toString('hex'), workspace_id: ws.id, scope: b.scope ?? 'workspace', scope_id: b.scope_id ?? '',
+          period: b.period ?? 'monthly', limit_usd: b.limit_usd ?? 0, spent_usd: 0, alert_thresholds: b.alert_thresholds ?? [],
+          enforcement: b.enforcement ?? 'hard_block', ends_at: null, created_at: at, updated_at: at }
         ws.budgets.push(budget)
         return json(res, 201, budget)
       }
@@ -501,12 +598,35 @@ createServer(async (req, res) => {
       if (budget !== null && req.method === 'PATCH') {
         const b = ws.budgets.find((x) => x.id === budget[1])
         if (b === undefined) return json(res, 404, { error: 'no such budget' })
-        Object.assign(b, JSON.parse((await read(req)) || '{}'), { id: b.id, scope: b.scope, spent_usd: b.spent_usd })
+        Object.assign(b, JSON.parse((await read(req)) || '{}'), { id: b.id, workspace_id: ws.id, scope: b.scope, spent_usd: b.spent_usd, updated_at: new Date().toISOString() })
         return json(res, 200, b)
       }
       if (rest === '/tare/savings') return json(res, 200, { by_work_item: [] })
       if (rest === '/distill/usage') return json(res, 200, { converted: ws.usage.converted, vision_ocr: 0, days: 30 })
-      if (rest === '/earnings') return json(res, 200, { disabled_gates: [], by_type: [] })
+      if (rest === '/earnings') {
+        const held = ws.earnings.filter((e) => e.type.endsWith('_held')).reduce((n, e) => n + e.amount_ulens, 0)
+        return json(res, 200, { workspace_id: ws.id, contribution_settled_ulens: 0, capital_settled_ulens: 0, settled_ulens: 0, held_ulens: held, revoked_ulens: 0,
+          contribution_settled_usd_at_peg: 0, settled_usd_at_peg: 0, held_usd_at_peg: held / 1e6 / 10, lens_per_usd: 10, earning_enabled: true,
+          disabled_gates: null, reuses: ws.usage.pooled, helped_workspaces: 0, by_type: [], unclassified_types: null })
+      }
+      if (rest === '/tokens/balance') {
+        const held = ws.earnings.filter((e) => e.type.endsWith('_held')).reduce((n, e) => n + e.amount_ulens, 0)
+        return json(res, 200, { workspace_id: ws.id, balance_ulens: 0, held_balance_ulens: held, lifetime_earned_ulens: 0, lifetime_spent_ulens: 0,
+          updated_at: ws.earnings[0]?.created_at ?? '0001-01-01T00:00:00Z' })
+      }
+      if (rest === '/spend/current-month') return json(res, 200, { current_month_usd: monthUSD(ws) })
+      if (rest === '/deletion-requests') return json(res, 200, { requests: [] })
+      if (rest === '/pattern-mining/opt-in') return json(res, 200, { enabled: false, opted_in: false })
+      if (rest === '/stored-answers') {
+        const shared = [...pool.values()].filter((a) => a.owner === ws.id).length
+        return json(res, 200, { shared_answers: shared, private_answers: ws.answers.size - shared, shared_conversions: 0, private_conversions: 0,
+          cached_copies: ws.answers.size })
+      }
+      // The BFF asks with an empty body whether top-ups are sold (probeBillingEnabled): Lens refuses the body.
+      if (rest === '/billing/checkout' && req.method === 'POST') {
+        const { usd_cents } = JSON.parse((await read(req)) || '{}') as { usd_cents?: number }
+        if (usd_cents === undefined) return json(res, 400, { error: 'invalid JSON body' })
+      }
       if (rest === '/tare/preview' && req.method === 'POST') {
         const { content = '', kind = '' } = JSON.parse((await read(req)) || '{}') as { content?: string; kind?: string }
         let reduced: string | undefined
@@ -558,15 +678,17 @@ createServer(async (req, res) => {
         const offset = Number(url.searchParams.get('offset') ?? 0)
         return json(res, 200, ws.earnings.slice(offset, offset + limit))
       }
-      if (rest === '/lxc/balance') return json(res, 200, { workspace_id: ws.id, balance_ulxc: ws.balance })
+      if (rest === '/lxc/balance') {
+        return json(res, 200, { workspace_id: ws.id, balance_ulxc: ws.balance, lifetime_minted_ulxc: ws.ledger.filter((r) => r.amount_ulxc > 0).reduce((n, r) => n + r.amount_ulxc, 0),
+          lifetime_spent_ulxc: ws.ledger.filter((r) => r.type === 'spend').reduce((n, r) => n - r.amount_ulxc, 0), usd_value_uusd: Math.round(ws.balance * USD_PER_LXC) })
+      }
       if (rest === '/lxc/history') {
         const limit = Number(url.searchParams.get('limit') ?? 20)
         const offset = Number(url.searchParams.get('offset') ?? 0)
         return json(res, 200, ws.ledger.slice(offset, offset + limit))
       }
-      return json(res, 200, {})
     }
-    return json(res, 404, { error: 'stub: no such route' })
+    return miss(req, res, p)
   } catch (e) {
     return json(res, 500, { error: String(e) })
   }

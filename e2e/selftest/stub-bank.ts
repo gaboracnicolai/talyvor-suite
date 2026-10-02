@@ -58,6 +58,8 @@ export interface BankDeps {
   base: string
   /** B25.8 — books `ulxc` (negative: a debit) on workspace `ws`'s ledger as a row of `type` */
   credit: (ws: string, ulxc: number, type: string, description: string) => void
+  /** B26.24 — answers a route the stub does not know: a 404 the self-test names */
+  miss: (req: IncomingMessage, res: ServerResponse, path: string) => void
 }
 
 interface Rules {
@@ -75,7 +77,11 @@ interface Rules {
 }
 interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules }
 interface Posting { posting_id: number; entry_id: string; at: string; ws: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string }
-interface Approval { id: string; ws: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; decided_at?: string; fingerprint: string }
+interface Approval {
+  id: string; ws: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; decided_at?: string; fingerprint: string
+  /** Who a payment goes to, and its memo (Lens economy.AgentApproval since B23.5); none for a request to a model. */
+  payee?: { kind: string; id: string; name: string }; memo?: string
+}
 interface Listing {
   id: string; workspace_id: string; kind: string; title: string; description: string; price_per_use_ulxc: number
   visibility: string; latest_version: number; created_at: string; updated_at: string; review_status: string
@@ -208,7 +214,7 @@ export class Bank {
    * request, the day's and month's limits, then the approval amount. A refusal is 403 naming the rule;
    * a request above the approval amount files an approval, and an approved one goes through once.
    */
-  judge(agent: Agent, amount: number, req: { model?: string; payment?: boolean; fingerprint: string }): { status: number; error: string } | undefined {
+  judge(agent: Agent, amount: number, req: { model?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }): { status: number; error: string } | undefined {
     const rule = (s: string) => ({ status: 403, error: `the agent's spending rules refuse this request: ${s}` })
     const all = this.allPaused.get(agent.ws)
     if (all !== undefined) return rule(`every agent in this workspace is paused (${all.reason || "paused by the workspace's owner"}) — the workspace's owner can resume them`)
@@ -233,7 +239,8 @@ export class Bank {
         return undefined
       }
       const a: Approval = { id: id('apr_'), ws: agent.ws, agent_id: agent.id, amount_ulxc: amount, model: req.model ?? '', status: 'pending',
-        created_at: new Date().toISOString(), fingerprint: req.fingerprint }
+        created_at: new Date().toISOString(), fingerprint: req.fingerprint,
+        ...(req.payee === undefined ? {} : { payee: { kind: 'agent', id: req.payee.id, name: req.payee.name } }), ...(req.memo ? { memo: req.memo } : {}) }
       this.approvals.unshift(a)
       return { status: 403, error: `economy: this request would cost up to ${lxc(amount)} LXC, above the agent's approval amount — approval ${a.id} must be approved by the workspace's owner before it is retried` }
     }
@@ -281,7 +288,11 @@ export class Bank {
       return { posting_id: p.posting_id, entry_id: p.entry_id, at: p.at, account: p.account, kind: p.kind, amount_ulxc: p.amount_ulxc,
         counterparty: p.counterparty, ref: p.ref, balance_after_ulxc: after }
     })
-    return { workspace_id: ws, agent_id: agentID, from: from.toISOString(), to: to.toISOString(), accounts, lines }
+    // The loans and escrows the workspace (or the agent) is party to, as Lens lists them beside the lines (B22.5, B22.6).
+    const party = (wss: string[], agents: string[]) => (agentID === undefined ? wss.includes(ws) : agents.includes(agentID))
+    const loans = this.loans.filter((l) => party([l.lender_workspace_id, l.borrower_workspace_id], [l.lender_agent_id, l.borrower_agent_id]))
+    const escrows = this.escrows.filter((e) => party([e.payer_workspace_id, e.payee_workspace_id], [e.payer_agent_id, e.payee_agent_id]))
+    return { workspace_id: ws, agent_id: agentID, from: from.toISOString(), to: to.toISOString(), accounts, lines, loans, escrows }
   }
 
   private async body<T>(req: IncomingMessage): Promise<T> {
@@ -294,7 +305,7 @@ export class Bank {
     const payee = this.agents.get(to)
     if (payee === undefined) return json(res, 404, { error: 'economy: no such agent in this workspace' })
     if (payee.id === from.id) return json(res, 400, { error: 'economy: an agent cannot pay itself' })
-    const refused = this.judge(from, amount, { payment: true, fingerprint: `pay\0${from.id}\0${to}\0${amount}\0${memo}` })
+    const refused = this.judge(from, amount, { payment: true, payee, memo, fingerprint: `pay\0${from.id}\0${to}\0${amount}\0${memo}` })
     if (refused !== undefined) return json(res, refused.status, { error: refused.error })
     if (payee.ws !== ws.id) {
       // B19.15: another company's agent, through the marketplace: one billed use on the payer's bill.
@@ -337,8 +348,8 @@ export class Bank {
     const { json } = this.d
     if (path === '/v1/marketplace/listings') {
       const kind = url.searchParams.get('kind') ?? ''
-      json(res, 200, [...this.listings.values()].filter((l) => l.visibility === 'public' && this.visible(l, viewer) && (kind === '' || l.kind === kind))
-        .map((l) => { const { artifact: _a, changelog: _c, ...rest } = l; return rest }))
+      json(res, 200, { listings: [...this.listings.values()].filter((l) => l.visibility === 'public' && this.visible(l, viewer) && (kind === '' || l.kind === kind))
+        .map((l) => { const { artifact: _a, changelog: _c, ...rest } = l; return rest }) })
       return true
     }
     const m = /^\/v1\/marketplace\/listings\/([^/]+)$/.exec(path)
@@ -495,12 +506,12 @@ export class Bank {
     }
     if (path === '/v1/admin/marketplace/review' && req.method === 'GET') {
       const open = (l: Listing) => this.reports.filter((r) => r.listing_id === l.id && !r.resolved)
-      return json(res, 200, [...this.listings.values()].filter((l) => l.review_status === 'held' || (l.review_status !== 'taken_down' && open(l).length > 0))
+      return json(res, 200, { listings: [...this.listings.values()].filter((l) => l.review_status === 'held' || (l.review_status !== 'taken_down' && open(l).length > 0))
         .map((l) => ({ listing: this.listingOut(l, l.workspace_id), open_reports: open(l).length, report_reasons: [...new Set(open(l).map((r) => r.reason))],
-          report_details: open(l).map((r) => r.details) }))), true
+          report_details: open(l).map((r) => r.details) })) }), true
     }
     const m = /^\/v1\/admin\/marketplace\/listings\/([^/]+)\/(approve|takedown)$/.exec(path)
-    if (m === null || req.method !== 'POST') return json(res, 404, { error: 'stub: no such admin route' }), true
+    if (m === null || req.method !== 'POST') return this.d.miss(req, res, path), true
     const l = this.listings.get(m[1])
     if (l === undefined) return json(res, 404, { error: 'market: no such listing' }), true
     if (m[2] === 'approve') {
@@ -868,7 +879,10 @@ export class Bank {
       if (await this.agentWalletRoute(req, res, ws, a, action)) return true
       if (action === '/topup' && method === 'GET') return json(res, 404, { error: 'the agent has no automatic top-up' }), true
       if (action === '/claim' && method === 'POST') return json(res, 200, { agent_id: a.id, owner_user_id: a.owner_user_id }), true
-      return json(res, 404, { error: 'stub: no such agent route' }), true
+      if (action === '/portfolios' && method === 'GET') {
+        return json(res, 200, { notice: "Simulated: executed by Talyvor's simulator at the ECB reference rate. No order is ever sent to a market.", portfolios: [] }), true
+      }
+      return this.d.miss(req, res, `/v1/workspaces/${ws.id}${rest}`), true
     }
 
     // ── the marketplace ──
@@ -883,7 +897,7 @@ export class Bank {
       return json(res, 201, this.listingOut(l, ws.id)), true
     }
     if (rest === '/marketplace/listings' && method === 'GET') {
-      return json(res, 200, [...this.listings.values()].filter((l) => l.workspace_id === ws.id).map((l) => this.listingOut(l, ws.id))), true
+      return json(res, 200, { listings: [...this.listings.values()].filter((l) => l.workspace_id === ws.id).map((l) => this.listingOut(l, ws.id)) }), true
     }
     if ((m = /^\/marketplace\/listings\/([^/]+)\/use$/.exec(rest)) !== null && method === 'POST') {
       const l = this.listings.get(m[1])
