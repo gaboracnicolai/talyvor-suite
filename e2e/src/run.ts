@@ -15,11 +15,11 @@ import { type Browser, chromium } from 'playwright'
 import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
-import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap, inventory, leastCovered, refreshLensCheckout } from './coverage.ts'
-import { type ExplorerSummary, type Finding, explore } from './explore.ts'
+import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap, cannotTest, inventory, leastCovered, refreshLensCheckout } from './coverage.ts'
+import { type ExplorerSummary, type Finding, Notebook, explore } from './explore.ts'
 import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
-import { reportPath, writeReport, writeTesters } from './report.ts'
+import { groupLeads, reportPath, writeReport, writeTesters } from './report.ts'
 import { CannotTest, type Evidence, type RunEnv, checkLedger, journeyFor } from './scenarios.ts'
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
@@ -330,6 +330,9 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       const perFeature = new Map<string, number>()
       for (const o of outcomes) for (const f of o.features) perFeature.set(f, (perFeature.get(f) ?? 0) + 1)
       const areas = leastCovered(buildMap(inv, rec), perFeature)
+      // B26.19 — one notebook for them all; a screen with a parameter is reached by a click, never sent to.
+      const notebook = new Notebook(findings, inv.screens.filter((e) => cannotTest(e) === undefined && !e.path.includes(':')).map((e) => e.path),
+        (path) => screens?.match('GET', path.replace(/(.)\/$/, '$1'))?.path ?? path)
       console.log(`${explorers.length} explorers, up to ${cfg.exploreMinutes} minutes each, with $${(cfg.capUSD - cap.spentUSD).toFixed(2)} of the cap left; ` +
         `least covered first: ${areas.slice(0, explorers.length).map((a) => a.feature).join(', ')}`)
       const again = new Browsers(cfg.headed, incidents)
@@ -344,7 +347,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
             try {
               s = await timed(SIGN_IN_MS + cfg.exploreMinutes * 60_000, 'exploring', unlessStopped('exploring',
                 explore(n, app, { lens: lens.tagged(tag), cap, catalog, usdPerLXC, provider: cfg.judgeProvider, model: cfg.explorerModel,
-                  minutes: cfg.exploreMinutes, features: areas, start }, findings)))
+                  minutes: cfg.exploreMinutes, features: areas, start, notebook })))
             } finally {
               await timed(CLOSE_MS, 'closing its browser', app.close()).catch(() => undefined)
             }
@@ -353,7 +356,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
           }
           s.start = start?.feature
           summaries.push(s)
-          console.log(`explorer ${n}: ${s.steps} steps, stopped (${s.stopped}): ${s.detail}`)
+          console.log(`explorer ${n}: ${s.steps} steps, ${s.screens ?? 0} screens, ${s.notes ?? 0} notes, stopped (${s.stopped}): ${s.detail}`)
         }))
       } finally {
         await timed(CLOSE_MS, 'closing the browser', again.close()).catch(() => undefined)
@@ -421,7 +424,7 @@ async function main(): Promise<number> {
     `${result.stopped_at_cap ? ' (STOPPED AT THE CAP)' : ''}` +
     (result.stopped_by !== undefined ? `\nSTOPPED EARLY: ${result.stopped_by}` : '') +
     result.incidents.map((i) => `\nincident: ${i}`).join('') +
-    (result.explorers.length > 0 ? `\n${result.explorers.length} explorers: ${result.findings.length} findings to check` : '') +
+    (result.explorers.length > 0 ? `\n${result.explorers.length} explorers: ${groupLeads(result.findings).length} distinct leads to check, from ${result.findings.length} notes` : '') +
     `\nresults: ${file}`)
 
   // B17.4 — a build item for each scenario that FAILED and is not covered yet, then the day's report,

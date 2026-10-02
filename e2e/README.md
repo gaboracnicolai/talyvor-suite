@@ -101,6 +101,12 @@ the map: every screen, BFF route and Lens route, and its state.
 
 **The explorers** are told every feature, and each starts at the next least covered (the fewest verdicts).
 
+**They share one notebook (B26.19).** Each is shown what it and the others have already noted on the
+screen it is on, and answers "same as L4" instead of noting it again in new words. One explorer makes at
+most three notes on a screen; after the third, or after 20 steps in a row there, it is sent to the screen
+the explorers have opened least. The report lists each distinct lead once, with the explorers who saw it,
+and says how many of the screens they opened between them.
+
 **After every run** the summary — coverage, works, broken, new findings, cost — goes on top of
 `~/talyvor-queue/TESTERS.md`, for the morning brief; earlier runs stay below it.
 

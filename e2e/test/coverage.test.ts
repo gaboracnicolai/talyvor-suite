@@ -161,7 +161,7 @@ describe('the report, per feature, ending with the map', () => {
     expect(wallets).toContain('- page error on `/agents` (1 time(s), during every-screen): TypeError: x is undefined')
     expect(wallets).toContain('- `ANY /api/agents/{id}/fund` answered 502 ×1')
     expect(wallets).toContain('- `ANY /api/agents/{id}/fund`: p50 4.0 s · p95 4.0 s · max 4.0 s (n=1)')
-    expect(wallets).toContain('explorer 0 on `/agents`: the forecast says NaN')
+    expect(wallets).toContain('- **low** 1 explorer (0) on `/agents`: the forecast says NaN')
     expect(md).toContain('#### Operator\n\nNot tested: operator only')
     expect(md.indexOf('### Coverage map')).toBeGreaterThan(md.indexOf('### Every verdict'))
     expect(md).toContain('#### Screens — 1 of 4 covered, 1 explorers only, 1 cannot be tested yet, 1 not covered')

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { Finding } from '../src/explore.ts'
 import { type ReportedRun, renderRun, renderSummary } from '../src/report.ts'
 
 // B26.18 — a run that was cut short still says, in the report and in TESTERS.md, why it stopped, what went
@@ -26,5 +27,20 @@ describe('a run that stopped early', () => {
     expect(summary).toContain('- **STOPPED EARLY**: Lens stopped answering at 2026-10-02T03:19:00.000Z')
     expect(summary).toContain('- **Incident**: 2026-10-02T03:10:00.000Z the browser went away mid-run')
     expect(summary).toContain('- **Cost**: $0.42 of the $5.00 cap, spent before it stopped.')
+  })
+})
+
+// B26.19 — each distinct lead once, with how many explorers saw it.
+describe("the explorers' leads", () => {
+  it('lists a lead once with the explorers who saw it, the most seen first', () => {
+    const f = (explorer: number, lead: number, note: string): Finding =>
+      ({ explorer, source: 'explorer', severity: 'high', where: '/keys', note, trail: [], at: '', feature: 'API keys', screen: '/keys', lead })
+    const report = renderRun({ ...cutShort, explorers: [{ explorer: 0, steps: 5, stopped: 'done', detail: '' }],
+      findings: [f(0, 1, 'a one-off'), f(0, 2, 'the list is stuck on Loading…'), f(4, 2, 'the list is stuck on Loading…'), f(7, 2, 'the list is stuck on Loading…')] })
+    expect(report).toContain('### Explorers — 2 distinct lead(s) to check, from 4 note(s)')
+    const keys = report.slice(report.indexOf('#### API keys'))
+    expect(keys.match(/stuck on Loading/g)).toHaveLength(1)
+    expect(keys.indexOf('- **high** 3 explorers (0, 4, 7) on `/keys`: the list is stuck on Loading…')).toBeLessThan(keys.indexOf('a one-off'))
+    expect(report).toContain('The most notes one explorer made on one screen: 2.')
   })
 })
