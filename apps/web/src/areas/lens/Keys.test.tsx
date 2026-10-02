@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Keys } from './Keys'
@@ -26,8 +26,9 @@ const MINTED = {
 const writeText = vi.fn(() => Promise.resolve())
 
 /** Mock GET /api/keys (list) and POST /api/keys (mint). `postStatus` lets a test
- *  force the mint to fail. Records the POST init so the write shape is asserted. */
-function mockKeys({ postStatus = 201 }: { postStatus?: number } = {}) {
+ *  force the mint to fail; `existing` is what the list holds before the mint. Records the POST
+ *  init so the write shape is asserted. */
+function mockKeys({ postStatus = 201, existing = EXISTING }: { postStatus?: number; existing?: typeof EXISTING } = {}) {
   let minted = false
   const post = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -41,7 +42,7 @@ function mockKeys({ postStatus = 201 }: { postStatus?: number } = {}) {
     }
     if (url === '/api/keys' && method === 'GET') {
       // After a successful mint the refetch includes the new key BY PREFIX.
-      const rows = minted ? [{ id: 'key_new', workspace_id: 'default', key_prefix: MINTED.prefix, name: MINTED.name, scopes: MINTED.scopes, created_at: '2026-07-23T00:00:00Z' }, ...EXISTING] : EXISTING
+      const rows = minted ? [{ id: 'key_new', workspace_id: 'default', key_prefix: MINTED.prefix, name: MINTED.name, scopes: MINTED.scopes, created_at: '2026-07-23T00:00:00Z' }, ...existing] : existing
       return new Response(JSON.stringify(rows), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     return new Response('null', { status: 404 })
@@ -100,7 +101,8 @@ describe('Keys — mint is a one-time reveal', () => {
 
     expect(await screen.findByText(MINTED.key)).toBeInTheDocument()
     expect(screen.getByText(/will not be shown again/i)).toBeInTheDocument()
-    expect(screen.getByText(MINTED.prefix)).toBeInTheDocument()
+    // Scoped to the reveal's region: the list refetches on mint, so its new row carries the prefix too.
+    expect(within(screen.getByRole('region', { name: /create a key/i })).getByText(MINTED.prefix)).toBeInTheDocument()
     expect(screen.getByText(/not a credential/i)).toBeInTheDocument()
   })
 
@@ -151,6 +153,25 @@ describe('Keys — mint is a one-time reveal', () => {
     // and never as the credential value (asserted absent above).
     expect(await screen.findByText('Laptop')).toBeInTheDocument()
     expect(await screen.findByText(MINTED.prefix)).toBeInTheDocument()
+  })
+
+  it('B26.23 — a first key just created is in the list within 2 seconds, with the reveal still open', async () => {
+    // The explorers' finding: the reveal stayed open and "The keys that exist" sat on Loading…,
+    // because the list only refetched when the reveal was dismissed.
+    mockKeys({ existing: [] })
+    renderKeys()
+    await screen.findByText(/has no keys/i)
+    fireEvent.change(screen.getByLabelText(/new key name/i), { target: { value: 'Laptop' } })
+    fireEvent.click(screen.getByRole('button', { name: /create key/i }))
+    await screen.findByText(MINTED.key)
+
+    const list = screen.getByRole('region', { name: /the keys that exist/i })
+    expect(await within(list).findByText('Laptop', {}, { timeout: 2000 })).toBeInTheDocument()
+    expect(within(list).getByText(MINTED.prefix)).toBeInTheDocument()
+    expect(within(list).queryByText('Loading…')).not.toBeInTheDocument()
+    // Still the one reveal: the row carries the prefix, never the credential.
+    expect(screen.getAllByText(MINTED.key)).toHaveLength(1)
+    expect(within(list).queryByText(MINTED.key)).not.toBeInTheDocument()
   })
 
   it('a mint failure surfaces calmly and shows no credential', async () => {
