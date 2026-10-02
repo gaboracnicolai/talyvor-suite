@@ -24,6 +24,28 @@ export interface Turn {
 
 export class SignInRefused extends Error {}
 
+/** B26.20 — what the Chat screen showed when neither an answer nor its failure line came. */
+export interface Stalled {
+  question: string
+  /** What is still in the message box. */
+  box: string
+  /** Documents still shown as uploading. */
+  uploading: string[]
+  /** The answer's text so far, or undefined when no answer was started. */
+  partial: string | undefined
+}
+
+/** B26.20 — why no answer came, in words: a bare timeout says nothing about where the question stopped. */
+export function noAnswer(s: Stalled, seconds: number): string {
+  const after = `no answer and no error after ${seconds} s`
+  if (s.partial !== undefined) return `${after}: the answer started but never finished ("${s.partial.slice(0, 200)}")`
+  if (s.box.trim() === s.question.trim()) {
+    return `${after}: the question was never sent — it is still in the message box` +
+      (s.uploading.length > 0 ? `, with ${s.uploading.join(', ')} still uploading` : '')
+  }
+  return `${after}: the question left the message box but no answer was started`
+}
+
 /** A file a person picks with Attach (Playwright's setInputFiles payload). */
 export interface Attachment {
   name: string
@@ -247,7 +269,14 @@ export class AppUser {
       await footer.or(alert).first().waitFor({ state: 'visible', timeout: ANSWER_TIMEOUT_MS })
     } catch (e) {
       this.cap.settle(hold, undefined)
-      throw e
+      if (!(e instanceof Error && e.name === 'TimeoutError')) throw e
+      const stalled: Stalled = {
+        question,
+        box: await this.page.locator('#chat-message').inputValue().catch(() => ''),
+        uploading: (await this.page.locator('[data-testid="attachment-uploading"] span').allInnerTexts().catch(() => [])),
+        partial: (await turn.count()) > 0 ? (await turn.innerText().catch(() => '')).trim() : undefined,
+      }
+      throw new Error(noAnswer(stalled, ANSWER_TIMEOUT_MS / 1000))
     }
     if (!(await footer.isVisible())) {
       const error = (await alert.first().innerText()).trim()
