@@ -24,6 +24,10 @@ export interface ReportedRun {
   cap_usd: number
   spent_usd: number
   stopped_at_cap: boolean
+  /** B26.18 — what ended the run before its end, and when (run.ts RunResult). */
+  stopped_by?: string
+  /** B26.18 — what went wrong under the run without ending it. */
+  incidents?: string[]
   counts: Record<'PASS' | 'FAIL' | 'SKIP' | 'ERROR', number>
   outcomes: {
     scenario: string
@@ -225,6 +229,8 @@ export function renderRun(run: ReportedRun): string {
       (run.stopped_at_cap ? ' — STOPPED AT THE CAP; everything after it was skipped.' : '.') +
       ` Finished ${run.finished_at}.`,
     '',
+    ...(run.stopped_by === undefined ? [] : [`**STOPPED EARLY** — ${run.stopped_by}. What ran before that is below; what had not started was skipped.`, '']),
+    ...((run.incidents ?? []).length === 0 ? [] : ['**Incidents** (the run went on):', '', ...(run.incidents ?? []).map((i) => `- ${cell(i)}`), '']),
     ...(map === undefined ? [] : [
       `Coverage: screens ${tallyLine(map.screens)}; BFF routes ${tallyLine(map.bff)}; Lens routes ` +
         `${map.lensMissing !== undefined ? `not listed (${map.lensMissing})` : tallyLine(map.lens)}. The map is at the end.`, '']),
@@ -303,7 +309,10 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
       `${c.ERROR > 0 ? `; ${c.ERROR} errored` : ''}.`,
     `- **New findings**: ${newItems.length > 0 ? `build items ${newItems.join(', ')}` : 'no new build item'}; ` +
       `${findings.length} explorer lead(s)${findings.length > 0 ? ` on ${[...new Set(findings.map((f) => f.feature ?? '(no screen)'))].join(', ')}` : ''}.`,
-    `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}.`,
+    ...(run.stopped_by === undefined ? [] : [`- **STOPPED EARLY**: ${run.stopped_by}.`]),
+    ...(run.incidents ?? []).map((i) => `- **Incident**: ${i}.`),
+    `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
+      `${run.stopped_by === undefined ? '' : ', spent before it stopped'}.`,
     `- **Report**: ${report}`,
     '',
   ].join('\n')
