@@ -3,8 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Plans } from './Plans'
+import { TopUp } from './TopUp'
 
 // B18.61 — a subscriber cancels on /plans, sees the day the plan ends, resumes, and sees it renew again.
+// B26.17 — and the same on /billing, in the plan card under the balance.
 // The mock BFF answers cancel and resume the way Lens B1.5 does — with Stripe's state after the change —
 // while its own read of the subscription stays as it was, the way Lens's does until Stripe's webhook.
 
@@ -55,6 +57,32 @@ describe('cancel and resume on /plans (B18.61)', () => {
     )
     const renewal = await screen.findByTestId('plan-renewal')
     expect(renewal.textContent).toBe('Your plan renews on Oct 28, 2026.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel at the end of this period' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('plan-renewal').textContent).toBe(
+        'Your plan is cancelled. It ends on Oct 28, 2026, and you keep everything it includes until then.',
+      ),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resume my plan' }))
+    await waitFor(() => expect(screen.getByTestId('plan-renewal').textContent).toBe('Your plan renews on Oct 28, 2026.'))
+    expect(posts).toEqual(['/api/billing/subscription/cancel', '/api/billing/subscription/resume'])
+  })
+})
+
+describe('cancel and resume on /billing (B26.17)', () => {
+  it('cancels from the plan card, says the day it ends, and resumes', async () => {
+    const posts = serve()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <TopUp />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect((await screen.findByTestId('plan-renewal')).textContent).toBe('Your plan renews on Oct 28, 2026.')
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel at the end of this period' }))
     await waitFor(() =>

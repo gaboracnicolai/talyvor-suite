@@ -389,6 +389,59 @@ export async function subscribeWithTestCard(app: AppUser, plan: string, email: s
   }
 }
 
+// ─── B26.17 — cancelling and resuming the plan on Billing ──────────────────────────────────────────
+
+const CANCEL = 'Cancel at the end of this period'
+const RESUME = 'Resume my plan'
+
+/**
+ * Billing's plan card (apps/web/src/areas/lens/Plan.tsx, PlanRenewal), in one tab as a person keeps it
+ * open: the card answers each press with Stripe's state at once, while a fresh read of Lens's catches up
+ * only when Stripe's webhook arrives.
+ */
+export class BillingPlanCard {
+  private readonly page: Page
+
+  private constructor(page: Page) {
+    this.page = page
+  }
+
+  static async open(app: AppUser): Promise<BillingPlanCard> {
+    return new BillingPlanCard(await app.tab('/billing'))
+  }
+
+  /** The card's sentence: whether the plan renews or ends, and when — or undefined when it draws none. */
+  async sentence(): Promise<string | undefined> {
+    const renewal = this.page.getByTestId('plan-renewal')
+    return (await renewal.waitFor({ state: 'visible', timeout: SAVE_TIMEOUT_MS }).then(() => true, () => false))
+      ? (await renewal.innerText()).trim()
+      : undefined
+  }
+
+  /** Presses Cancel or Resume and waits for the other to take its place: the sentence after, or why not. */
+  async press(button: 'cancel' | 'resume'): Promise<{ after?: string; refused?: string }> {
+    const [press, next] = button === 'cancel' ? [CANCEL, RESUME] : [RESUME, CANCEL]
+    const pressable = this.page.getByRole('button', { name: press, exact: true })
+    const opposite = this.page.getByRole('button', { name: next, exact: true })
+    const shown = await pressable.or(opposite).first().waitFor({ state: 'visible', timeout: SAVE_TIMEOUT_MS }).then(() => true, () => false)
+    if (!shown) return { refused: `Billing shows neither "${CANCEL}" nor "${RESUME}"` }
+    if (!(await pressable.isVisible())) return { refused: `Billing offers "${next}", not "${press}": "${await this.sentence()}"` }
+    await pressable.click()
+    const turned = await opposite.waitFor({ state: 'visible', timeout: SAVE_TIMEOUT_MS }).then(() => true, () => false)
+    if (turned) return { after: await this.sentence() }
+    const alert = this.page.getByRole('alert')
+    return { refused: (await alert.isVisible()) ? (await alert.innerText()).trim() : `"${press}" never turned into "${next}"` }
+  }
+
+  async reload(): Promise<void> {
+    await this.page.reload()
+  }
+
+  async close(): Promise<void> {
+    await this.page.close()
+  }
+}
+
 /** Fills Stripe's hosted checkout (checkout.stripe.com) with the test card and submits it. */
 async function payWithTestCard(page: Page, email: string): Promise<void> {
   const card = page.locator('#cardNumber')

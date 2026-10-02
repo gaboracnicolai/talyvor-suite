@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, formatDay, MuNumeral, Row } from '@talyvor/ui'
 import { planApi } from './planApi'
+import { PlanRenewal } from './Plans'
 import { formatCents } from './topupApi'
 
 /**
@@ -12,6 +13,9 @@ import { formatCents } from './topupApi'
  * sentence about a plan, and a card saying "no plan" to a workspace whose read merely failed would
  * be the conflation this app has paid for twice. A failed read draws nothing rather than a claim;
  * the balance card above already reports an unreachable Lens.
+ *
+ * B26.17 — and whether it renews or ends, and when, with cancelling at the end of the period or
+ * resuming it before then (PlanRenewal, the same control /plans draws).
  */
 export function YourPlan() {
   const plan = useQuery({ queryKey: ['plan-allowance'], queryFn: planApi.allowance, retry: false })
@@ -43,6 +47,7 @@ export function YourPlan() {
           </p>
         ) : null}
       </div>
+      <PlanRenewal className="border-b border-rule px-gutter py-4" />
       <Row
         label="Allowance used"
         hint={`Since ${formatDay(a.period_start)}; the allowance renews ${formatDay(a.period_end)}`}

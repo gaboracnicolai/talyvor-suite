@@ -238,8 +238,9 @@ function changeFailure(err: unknown): string {
  * B18.61 — whether the plan renews or ends, and when; cancelling it at the end of the period already
  * paid for, or resuming it before then (Lens B1.5). Lens answers Stripe's state after a change and
  * that is shown at once: Lens's own read catches up when Stripe's webhook arrives.
+ * B26.17 — /billing's plan card draws it too, so a subscriber cancels or resumes where they top up.
  */
-function Renewal() {
+export function PlanRenewal({ className = 'mt-3' }: { className?: string } = {}) {
   const qc = useQueryClient()
   const sub = useQuery({ queryKey: SUBSCRIPTION_KEY, queryFn: planApi.subscription, retry: false })
   const change = useMutation({
@@ -247,7 +248,7 @@ function Renewal() {
     onSuccess: (st) => qc.setQueryData(SUBSCRIPTION_KEY, { enabled: true, data: st }),
   })
   if (sub.isError) {
-    return <p className="mt-2 max-w-2xl text-body text-muted">Whether your plan renews could not be read just now.</p>
+    return <p className={`${className} max-w-2xl text-body text-muted`}>Whether your plan renews could not be read just now.</p>
   }
   const st = sub.data?.enabled ? sub.data.data : null
   if (!st?.subscribed) return null
@@ -255,7 +256,7 @@ function Renewal() {
     <span className="font-figure">{formatDay(st.current_period_end)}</span>
   ) : null
   return (
-    <div className="mt-3 flex max-w-2xl flex-col gap-2">
+    <div className={`${className} flex max-w-2xl flex-col gap-2`}>
       <p className="text-body text-ink" data-testid="plan-renewal">
         {st.cancel_at_period_end ? (
           end ? (
@@ -377,7 +378,7 @@ export function Plans({
             {changeFailure(move.error)}
           </p>
         ) : null}
-        {subscribed ? <Renewal /> : null}
+        {subscribed ? <PlanRenewal /> : null}
         {failure ? (
           <p role="status" className="mt-3 border-l-2 border-l-slashed pl-2 text-body text-ink">
             {SUBSCRIBE_FAILURE[failure.kind]}
