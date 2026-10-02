@@ -210,11 +210,13 @@ export interface AgentBook {
   all_paused_at?: string
 }
 
-/** Lens economy.AgentApproval. */
+/** Lens economy.AgentApproval. A payment names who it pays and why (Lens B23.5). */
 export interface AgentApproval {
   id: string
   agent_id: string
   amount_ulxc: number
+  payee?: { kind: string; id: string; name: string }
+  memo?: string
   status: 'pending' | 'approved' | 'denied' | 'used'
 }
 
