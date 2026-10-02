@@ -121,8 +121,8 @@ const OK_MARK: Record<string, string> = {
  * Every path a locally-checkable premise is read out of, and which checks read it.
  *
  * apps/bff/auth.go holds the `a.nudgeDocsMemberSync(` call D7's code half looks for. It is in
- * this table as the MUST-STAY-GREEN companion: D7 globs `apps/bff/*.go` rather than naming a
- * path, so it already fails closed, and a case that was green before this work and after it is
+ * this table as the MUST-STAY-GREEN companion: D7's code half reads that one file and counts a
+ * missing one as zero hits, so it already fails closed, and a case that was green before this work and after it is
  * what says the harness can tell a register that speaks from one that does not.
  */
 const SUBJECTS: { path: string; reads: string[]; gated: boolean }[] = [
@@ -134,8 +134,8 @@ const SUBJECTS: { path: string; reads: string[]; gated: boolean }[] = [
   { path: 'deploy/track-docs.compose.yaml', reads: ['D3'], gated: true },
   { path: 'apps/bff/lens.go', reads: ['D9'], gated: true },
   // NOT gated, and that is a claim the removal case below verifies rather than assumes. D7's
-  // code half globs `apps/bff/*.go` for the CALL rather than naming a path, so there is nothing
-  // for `subject` to assert and the glob already fails closed. It is here as the MUST-STAY-GREEN
+  // code half counts the CALL in this file, and a missing file counts zero, so there is nothing
+  // for `subject` to assert and the count already fails closed. It is here as the MUST-STAY-GREEN
   // companion: green before this work and after it, which is what says the harness can tell a
   // register that speaks from one that does not.
   { path: 'apps/bff/auth.go', reads: ['D7'], gated: false },

@@ -340,7 +340,7 @@ describe('an empty roster is a CONTRADICTION on this route, and says so', () => 
 })
 
 describe('the screen offers no control this product does not have', () => {
-  // MEASURED, not assumed: apps/bff/track_tenant.go:178 answers anything but GET with
+  // MEASURED, not assumed: apps/bff/track_tenant.go:187 answers anything but GET with
   // methodNotAllowed, and /api/members is the only member route apps/bff/lens.go registers. Track
   // DOES have Add/ChangeRole/Remove and owner-gates all three — they are simply not proxied here.
   // An "Invite someone" button would be a sentence true of an intention over a product that

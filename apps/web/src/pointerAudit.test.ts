@@ -561,7 +561,7 @@ const PINS: Record<string, Pin> = {
     fragment: 's.email',
     why: 'same sentence, the /auth/me half',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:343|apps/bff/track_tenant.go:178': {
+  'apps/web/src/areas/lens/Members.test.tsx:343|apps/bff/track_tenant.go:187': {
     kind: 'LIVE',
     fragment: 'http.MethodGet',
     why: 'the screen renders no control at all because this BFF proxies a GET and nothing else; this is the method test that makes that true',
