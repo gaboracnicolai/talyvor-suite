@@ -104,6 +104,15 @@ the map: every screen, BFF route and Lens route, and its state.
 **After every run** the summary — coverage, works, broken, new findings, cost — goes on top of
 `~/talyvor-queue/TESTERS.md`, for the morning brief; earlier runs stay below it.
 
+**A run always reports (B26.18).** A user, an explorer or a browser that crashes is that one's ERROR, never
+the end of the run: a browser that crashes or is killed is replaced for whoever signs in next, and the
+report's **Incidents** say when it went. After an ERROR the run checks whether Lens still answers. The
+first time it does not, the run stops: what is in flight is abandoned, and everything not yet started is
+skipped. Any step that cannot go on also stops it. Nothing is waited on forever: a sign-in has 5 minutes,
+a scenario 30, a ledger read-back 5. However it ends, the run writes its results, its report and
+TESTERS.md with what it has. Both say **STOPPED EARLY** with the cause and when it happened, and the cost
+spent before it stopped. A run that stopped early exits 1.
+
 | Scenario | Who | Oracle |
 |---|---|---|
 | `every-screen` | 1 in 10 | every screen a customer can open (from the map, operator screens left out), opened as a person does — a screen with a parameter from the first link on the one above it: the console's heading names it (a public page shows a heading), nothing says "Nothing at this address", and while it loads there is no page error and no 5xx |
@@ -236,3 +245,6 @@ catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace),
 and `royalty` (stub-lens.ts, which stands in for Stripe's hosted checkout too), each file saying what each
 breaks. Catalog v4's sixteen and B25.8's five (`loan-repay-lost`, `loan-default-never`, `card-free`,
 `payout-uncredited`, `bill-refund-kept`; stub-bank.ts) may be named together, comma-separated, one per scenario.
+`E2E_FAULTS=1` (B26.18) kills the run's browser after a few verdicts. After a user passes on the browser that
+replaced it, it stops the stub Lens. Then it checks that the report and TESTERS.md say the run stopped early,
+name ECONNREFUSED and the browser that went away, and state the spend; and that the run exits 1.

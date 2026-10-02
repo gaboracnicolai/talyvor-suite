@@ -131,8 +131,9 @@ export class AppUser {
     return app
   }
 
+  /** B26.18 — a context whose browser has already gone has nothing left to close, and that is not an error. */
   async close(): Promise<void> {
-    await this.context.close()
+    await this.context.close().catch(() => undefined)
   }
 
   async openChat(): Promise<void> {

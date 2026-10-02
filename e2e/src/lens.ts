@@ -308,6 +308,14 @@ function refusalOf(raw: string): string {
   return raw.slice(0, 300)
 }
 
+/** An error as one line, with what fetch hides behind "fetch failed" (ECONNREFUSED, a DNS failure, …). */
+export function describe(e: unknown): string {
+  if (!(e instanceof Error)) return String(e)
+  // A refused connection to a name with two addresses is an AggregateError with no message, only a code.
+  const cause = e.cause instanceof Error ? e.cause.message || (e.cause as { code?: string }).code : undefined
+  return cause === undefined || e.message.includes(cause) ? e.message : `${e.message} (${cause})`
+}
+
 const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
 /** How long a reset whose answer was lost is waited for: Lens logged each one done 45–70s after it began. */
 const RESET_RUNS_ON_MS = 90_000
@@ -361,6 +369,24 @@ export class LensClient {
     } catch (e) {
       return { status: 0, ms: Date.now() - t0, body: e instanceof Error ? e.message : String(e) }
     }
+  }
+
+  /**
+   * B26.18 — undefined while Lens answers at all (any status will do), else why it does not: asked three
+   * times, two seconds apart, so one dropped connection does not end a run.
+   */
+  async unreachable(): Promise<string | undefined> {
+    let why = ''
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2_000))
+      try {
+        await (await fetch(this.baseURL + '/healthz', { signal: AbortSignal.timeout(10_000) })).body?.cancel()
+        return undefined
+      } catch (e) {
+        why = describe(e)
+      }
+    }
+    return why
   }
 
   /** Clears every synthetic workspace's stored answers and restores its credits. */
