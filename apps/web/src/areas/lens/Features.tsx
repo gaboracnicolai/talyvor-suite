@@ -105,7 +105,9 @@ const LOGGING: Record<LoggingPolicy, string> = {
 }
 
 const count = (n: number) => <span className="font-figure">{n.toLocaleString('en-US')}</span>
-const usd = (n: number) => <span className="font-figure">${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}</span>
+/** Dollars to the cent, or to four places under a cent — so $0.0005 never reads as $0.00. */
+const dollars = (n: number) => `$${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}`
+const usd = (n: number) => <span className="font-figure">{dollars(n)}</span>
 
 /** Writes one setting, then re-reads what Lens recorded; says so when the write did not land. */
 function useSettingWrite(alsoInvalidate?: string[]) {
@@ -171,7 +173,6 @@ function SettingChoice<T extends string>({
 }
 
 const PERIOD: Record<'monthly' | 'weekly' | 'total', string> = { monthly: 'a month', weekly: 'a week', total: 'in total' }
-const dollars = (n: number) => `$${n.toFixed(2)}`
 
 function budgetState(r: { isPending: boolean; isError: boolean; data?: BudgetReading }): string {
   if (r.isPending) return 'Checking…'

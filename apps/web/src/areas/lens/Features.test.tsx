@@ -369,4 +369,17 @@ describe('the Features screen', () => {
       { url: '/api/features/budget', body: { limit_usd: 50, enforcement: 'off' } },
     ])
   })
+
+  it('a spending limit under a cent reads as what it is, not $0.00', async () => {
+    mockBff([])
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Spending limit')
+    await waitFor(() => expect(within(r()).getByTestId('state-Spending limit')).toHaveTextContent('No limit'))
+    fireEvent.change(within(r()).getByRole('textbox', { name: /Limit in dollars/ }), { target: { value: '0.0005' } })
+    fireEvent.click(within(r()).getByRole('button', { name: 'Set' }))
+    await waitFor(() =>
+      expect(within(r()).getByTestId('state-Spending limit')).toHaveTextContent('On — $0.0005 a month; requests past it are refused'),
+    )
+  })
 })
