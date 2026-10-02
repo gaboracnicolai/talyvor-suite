@@ -138,21 +138,30 @@ export class AgentBankScreen {
   }
 
   /**
-   * Approves what `agent` is waiting on, in Approvals. Not after a reload: a payment this screen sent is
-   * sent again on Approve only by the screen that sent it.
+   * Approves `agent`'s payment to `payee` in Approvals; the row's words, then the line the screen shows. The
+   * row reads "<agent> wants to pay <payee> <amount> — <memo>" (B23.10). Not after a reload: a payment this
+   * screen sent is sent again on Approve only by the screen that sent it.
    */
-  async approve(agent: Agent): Promise<string> {
+  async approve(agent: Agent, payee: Agent): Promise<{ row: string; said: string }> {
     const waiting = card(this.page, 'Waiting for a person')
-    await waiting.getByText(`${agent.name} · `).first().waitFor({ timeout: ACTION_TIMEOUT_MS })
-    await waiting.locator('div').filter({ hasText: `${agent.name} · ` }).getByRole('button', { name: 'Approve', exact: true }).last().click()
+    const asks = `${agent.name} wants to pay ${payee.name} `
+    const label = waiting.getByText(asks).first()
+    try {
+      await label.waitFor({ timeout: ACTION_TIMEOUT_MS })
+    } catch {
+      const shown = await waiting.innerText({ timeout: 1000 }).catch(() => 'nothing')
+      return { row: `no row reads "${asks}…"; Waiting for a person shows: ${shown.trim()}`, said: '' }
+    }
+    const row = (await label.innerText()).trim()
+    await waiting.locator('div').filter({ hasText: asks }).getByRole('button', { name: 'Approve', exact: true }).last().click()
     const said = this.page.getByRole('status').filter({ hasText: /^(Approved|Denied)/ })
     try {
       await said.waitFor({ timeout: ACTION_TIMEOUT_MS })
     } catch {
       const alerts = await this.page.getByRole('alert').allInnerTexts()
-      return `no approval was confirmed; the screen says: ${alerts.join(' | ') || 'nothing'}`
+      return { row, said: `no approval was confirmed; the screen says: ${alerts.join(' | ') || 'nothing'}` }
     }
-    return (await said.innerText()).trim()
+    return { row, said: (await said.innerText()).trim() }
   }
 
   /** Downloads "Statement for every agent" for this month as JSON; the file's name and text. */
@@ -557,19 +566,25 @@ export function agentApproval(seed: number): Scenario {
       if (err !== undefined) return fail(`funding was refused: ${err}`)
       err = await bank.setLimit(payer, 'Ask a person above', 500_000)
       if (err !== undefined) return fail(`the approval amount was not saved: ${err}`)
-      const said = await bank.pay(payer, payee, 1e6, `nightly check ${seed}`)
+      const memo = `nightly check ${seed}`
+      const said = await bank.pay(payer, payee, 1e6, memo)
       ctx.evidence.push({ note: `Pay 1 LXC: ${said}` })
       if (!/^Refused\./.test(said) || !/waiting in Approvals/.test(said)) return fail(`a payment above the approval amount was not held for a person: "${said}"`)
       const filed = (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.agent_id === payer.id)
       if (filed.length !== 1 || filed[0].status !== 'pending' || filed[0].amount_ulxc !== 1e6) {
         return fail(`Lens has ${filed.length} approval(s) for ${payer.name}: ${JSON.stringify(filed)}`)
       }
+      // B23.5: the approval names who it pays and why — what the person approving reads on the row.
+      if (filed[0].payee?.id !== payee.id || filed[0].payee.name !== payee.name || filed[0].memo !== memo) {
+        return fail(`Lens's approval does not name ${payee.name} and "${memo}": ${JSON.stringify(filed[0])}`)
+      }
       const held = await bookOf(ctx)
       if (agentIn(held, payer.id)?.balance_ulxc !== 2e6 || agentIn(held, payee.id)?.balance_ulxc !== 0) {
         return fail('money moved before anyone approved it')
       }
-      const approved = await bank.approve(payer)
-      ctx.evidence.push({ note: `Approve: ${approved}` })
+      const { row, said: approved } = await bank.approve(payer, payee)
+      ctx.evidence.push({ note: `Waiting for a person: ${row}` }, { note: `Approve: ${approved}` })
+      if (!row.endsWith(` 1 LXC — ${memo}`)) return fail(`the row waiting for a person does not say 1 LXC — ${memo}: "${row}"`)
       if (!/^Approved and paid/.test(approved)) return fail(`approving did not pay: "${approved}"`)
       const after = await bookOf(ctx)
       const [from, to] = [agentIn(after, payer.id)?.balance_ulxc, agentIn(after, payee.id)?.balance_ulxc]
@@ -578,7 +593,7 @@ export function agentApproval(seed: number): Scenario {
       if (state !== 'used') return fail(`the approval is ${state ?? 'gone'}, not used`)
       const pays = (await ctx.env.lens.agentLines(ctx.app.user, payer.id)).filter((l) => l.kind === 'pay')
       if (pays.length !== 1 || pays[0].amount_ulxc !== -1e6) return fail(`${payer.name}'s account has ${pays.length} payment line(s): ${JSON.stringify(pays)}`)
-      return { pass: true, detail: 'held for a person, approved on the screen, paid once (one pay line, the approval used)' }
+      return { pass: true, detail: `held for a person ("${row}"), approved on the screen, paid once (one pay line, the approval used)` }
     }),
   }
 }
