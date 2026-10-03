@@ -55,6 +55,9 @@ type config struct {
 
 	addr        string // BFF bind address; loopback unless oidc+https (see loadConfig)
 	lensBaseURL string // e.g. http://127.0.0.1:8080 — how the BFF REACHES Lens
+	// lensRestartWait is how long a read that finds Lens not listening waits for it to come back
+	// (B17.41, lens_restart.go). Zero — every test config — fails at once, as before.
+	lensRestartWait time.Duration
 	// lensPublicBaseURL is how a CUSTOMER reaches Lens: the origin they put in
 	// OPENAI_BASE_URL / ANTHROPIC_BASE_URL. Deliberately separate from lensBaseURL, which is a
 	// loopback or compose-internal address — printing that on the setup page would hand every
@@ -113,6 +116,7 @@ func loadConfig() (config, error) {
 	cfg := config{
 		addr:              envOr("BFF_ADDR", "127.0.0.1:8787"),
 		lensBaseURL:       strings.TrimRight(envOr("LENS_BASE_URL", "http://127.0.0.1:8080"), "/"),
+		lensRestartWait:   lensRestartWait,
 		lensPublicBaseURL: strings.TrimRight(os.Getenv("LENS_PUBLIC_BASE_URL"), "/"),
 		provisionSecret:   os.Getenv("LENS_PROVISION_SECRET"),
 		webDist:           envOr("WEB_DIST", "../web/dist"),
