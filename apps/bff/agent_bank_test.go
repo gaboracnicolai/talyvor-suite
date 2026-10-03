@@ -14,8 +14,9 @@ import (
 // B19.1–B19.3 routes do: a daily limit refused with its sentence (403), a fund answered with the
 // new balance, and a 500 whose body Lens has already redacted.
 type fakeLensAgentBank struct {
-	mu  sync.Mutex
-	got []string // method, path and body of every request
+	mu   sync.Mutex
+	got  []string // method, path and body of every request
+	keys []string // the Idempotency-Key of every request
 }
 
 func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
@@ -29,6 +30,7 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 		raw, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
 		f.got = append(f.got, r.Method+" "+r.URL.Path+" "+string(raw))
+		f.keys = append(f.keys, r.Header.Get("Idempotency-Key"))
 		f.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch {
@@ -103,6 +105,19 @@ func TestAgentBankForwardsToTheSessionsWorkspaceWithRebuiltBodies(t *testing.T) 
 	if !strings.HasPrefix(f.got[1], "PUT /v1/workspaces/"+ws+"/agents/agt_1/rules {\"max_per_request_ulxc\":0,\"daily_limit_ulxc\":5000000,") ||
 		strings.Contains(f.got[1], "secret") {
 		t.Fatalf("Lens received %q", f.got[1])
+	}
+}
+
+// B17.26 — a Fund's Idempotency-Key reaches Lens, so the screen's retry through a restart moves once.
+func TestAgentBankForwardsAMovesIdempotencyKey(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/agt_1/fund", strings.NewReader(`{"amount_ulxc":10000000}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "move-1")
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || len(f.keys) != 1 || f.keys[0] != "move-1" {
+		t.Fatalf("fund = %d, Lens received Idempotency-Key %q, want 200 and [move-1]", rec.Code, f.keys)
 	}
 }
 

@@ -34,7 +34,9 @@ import (
 // refusal comes back with Lens's status AND its sentence — which rule, what the agent holds, which
 // approval to approve — because that sentence is the screen's whole answer to "why not?". Lens
 // redacts its own 5xx bodies, so only a 4xx sentence is relayed. Every body sent up is rebuilt from
-// the fields each handler names, so nothing else a browser sends reaches Lens.
+// the fields each handler names, so nothing else a browser sends reaches Lens — but one header: the
+// Idempotency-Key a Fund or Take back (B17.26) or a pot's Move in or Move out (B17.33) is retried under
+// through a restart, which Lens reads on those four routes and nowhere else.
 
 // agentBankRelay sends body (nil for none) to a workspace-scoped Lens agent route and answers what
 // Lens answered: its JSON on success, its status and sentence on a 4xx, a 502 otherwise.
@@ -58,6 +60,9 @@ func (a *app) agentBankRelayPath(w http.ResponseWriter, r *http.Request, t tenan
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if k := r.Header.Get("Idempotency-Key"); k != "" && len(k) <= 128 {
+		req.Header.Set("Idempotency-Key", k)
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {

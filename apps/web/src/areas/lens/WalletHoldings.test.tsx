@@ -6,8 +6,12 @@ import { App, queryClient } from '../../App'
 // simulated order and sees the portfolio, and sees cash-out marked test money only. The mock BFF answers
 // the way Lens B22.1, B22.6, B22.7, B22.8 and B22.9 do.
 
+// B17.33 — what a pot's Move out met on each send (a 502, a dropped connection), and the key each carried.
+let potOut: { blips: Array<502 | 'drop'>; keys: string[] } = { blips: [], keys: [] }
+
 function mockBff() {
   const sent: Array<{ method: string; url: string; body: unknown }> = []
+  potOut = { blips: [], keys: [] }
   const agent = { id: 'agt_1', name: 'Buyer', balance_ulxc: 50_000_000, spent_ulxc: 0, keys: [], created_at: '2026-09-01T09:00:00Z', owner_user_id: 'ws_1', verified: true }
   const escrow = {
     id: 'esc_1',
@@ -68,6 +72,14 @@ function mockBff() {
       pot.balance_ulxc = (pot.balance_ulxc as number) + body.amount_ulxc
       return json(pot)
     }
+    if (url === '/api/agents/agt_1/pots/pot_1/out' && method === 'POST') {
+      potOut.keys.push(new Headers(init?.headers).get('Idempotency-Key') ?? '')
+      const blip = potOut.blips.shift()
+      if (blip === 502) return json({ error: 'Lens could not answer just now' }, 502)
+      if (blip === 'drop') throw new TypeError('Failed to fetch')
+      pot.balance_ulxc = (pot.balance_ulxc as number) - body.amount_ulxc
+      return json(pot)
+    }
     if (url === '/api/agents/agt_1/pots/pot_1/lock' && method === 'PUT') {
       pot.locked_until = body.locked_until
       return json(pot)
@@ -124,6 +136,26 @@ describe('escrow, pots, investing and cash-out on Agent Wallets', () => {
     // Never the word bank — but for the European Central Bank, whose rates the simulator and card panel name.
     expect((document.body.textContent ?? '').replace(/European Central Bank/g, '')).not.toMatch(/\bbank\b/i)
   })
+
+  // B17.33 — a Move out that meets a deploy's restart (a 502, then no answer) is sent again under one
+  // Idempotency-Key and lands once, instead of "Not moved."
+  it('moves credits out of a pot through a restart, sending the same key until it is answered', async () => {
+    mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+    fireEvent.change(await screen.findByLabelText('Amount in LXC to move for Rainy day'), { target: { value: '1.2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Move in' }))
+    expect(await within(screen.getByTestId('pot')).findByText('1.2 LXC')).toBeTruthy()
+
+    potOut.blips.push(502, 'drop')
+    fireEvent.change(screen.getByLabelText('Amount in LXC to move for Rainy day'), { target: { value: '0.4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Move out' }))
+    expect(await within(screen.getByTestId('pot')).findByText('0.8 LXC', undefined, { timeout: 5_000 })).toBeTruthy()
+    expect(within(screen.getByTestId('pot')).queryByRole('alert')).toBeNull()
+    expect(potOut.keys).toHaveLength(3)
+    expect(potOut.keys[0]).not.toBe('')
+    expect(new Set(potOut.keys).size).toBe(1)
+  }, 15_000)
 
   it('completes an escrow, fills and locks a pot, and places a simulated order that shows in the portfolio', async () => {
     const sent = mockBff()

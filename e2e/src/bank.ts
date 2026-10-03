@@ -293,14 +293,17 @@ export class AgentBankScreen {
     await this.fresh(agent)
     const row = card(this.page, 'Pots').getByTestId('pot').filter({ hasText: name })
     await row.getByLabel(`Amount in LXC to move for ${name}`).fill(lxcText(ulxc))
-    const [res] = await Promise.all([
-      this.page.waitForResponse((r) => r.request().method() === 'POST' && new RegExp(`/pots/[^/]+/${dir}$`).test(new URL(r.url()).pathname), { timeout: ACTION_TIMEOUT_MS }),
-      row.getByRole('button', { name: dir === 'in' ? 'Move in' : 'Move out' }).click(),
-    ])
-    if (res.ok()) return undefined
+    // B17.33 — the card sends a move again under its key while the app or Lens restarts (a 5xx), so the
+    // move's answer is the first one that is not a 5xx — or, when every send met the restart, the alert.
     const refused = row.getByRole('alert')
+    const answered = this.page
+      .waitForResponse((r) => r.request().method() === 'POST' && r.status() < 500 && new RegExp(`/pots/[^/]+/${dir}$`).test(new URL(r.url()).pathname), { timeout: ACTION_TIMEOUT_MS })
+      .catch(() => undefined)
+    await row.getByRole('button', { name: dir === 'in' ? 'Move in' : 'Move out' }).click()
+    const res = await Promise.race([answered, refused.waitFor({ timeout: ACTION_TIMEOUT_MS }).then(() => undefined, () => undefined)])
+    if (res?.ok()) return undefined
     await refused.waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
-    return (await refused.count()) > 0 ? (await refused.first().innerText()).trim() : `the move answered ${res.status()}`
+    return (await refused.count()) > 0 ? (await refused.first().innerText()).trim() : `the move answered ${res?.status() ?? 'nothing'}`
   }
 
   /** Recurring transfer: `ulxc` to the wallet `to` every `every`, from now. */
