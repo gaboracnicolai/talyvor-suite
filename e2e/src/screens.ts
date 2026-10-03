@@ -196,6 +196,15 @@ function card(page: Page, heading: string): Locator {
 }
 
 /**
+ * Whether a Docs or Track AI card still shows its pending label. Docs Ask's is a bare "Asking…"
+ * (AskAI.tsx): a pattern that wanted "Asking " plus a space read it as the answer, so a slow Ask was
+ * recorded as "no answer" while it was still being asked (B17.39, user 215).
+ */
+export function stillAsking(text: string): boolean {
+  return /Asking(?: Track| Docs)?…|Summarising…|Translating…|Suggesting…/.test(text)
+}
+
+/**
  * Presses a card's button and waits until the card has answered — no longer "Asking…" and no longer
  * what it said before — then reads it.
  */
@@ -206,7 +215,7 @@ async function answerOf(page: Page, heading: string, button: string): Promise<st
   const deadline = Date.now() + AI_TIMEOUT_MS
   while (Date.now() < deadline) {
     const now = await c.innerText()
-    if (now !== before && !/Asking (Track|Docs)?…|Summarising…|Translating…|Suggesting…/.test(now)) return now
+    if (now !== before && !stillAsking(now)) return now
     await page.waitForTimeout(250)
   }
   throw new Error(`"${heading}" gave no answer within ${AI_TIMEOUT_MS / 1000} s`)
