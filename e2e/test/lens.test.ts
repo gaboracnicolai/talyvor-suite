@@ -36,3 +36,25 @@ describe('the ledger read (B17.32)', () => {
     await expect(client.ledger(user, 1_500)).rejects.toThrow(/Lens answered 502/)
   })
 })
+
+// B17.34 — user 166's seller published its listing while Lens was being redeployed and got the proxy's
+// bare 502, so market-bill-refund never reached the refund. A publish is now sent again through a restart,
+// under the one Idempotency-Key Lens publishes once for.
+describe('publishing a listing (B17.34)', () => {
+  it('is sent again under the same Idempotency-Key while Lens restarts, and answers the listing', async () => {
+    const keys: (string | undefined)[] = []
+    server = createServer((req, res) => {
+      keys.push(req.headers['idempotency-key'] as string | undefined)
+      const status = keys.length === 1 ? 502 : 201
+      res.writeHead(status, { 'Content-Type': 'application/json' }).end(status === 201 ? JSON.stringify({ id: 'lst_1' }) : '')
+    })
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r))
+    const { port } = server.address() as { port: number }
+    const client = new LensClient(`http://127.0.0.1:${port}`, 'key')
+    const published = await client.publishListing(user, { title: 'Totals', template: 'What is {{a}} + {{b}}?', priceULXC: 1_000_000, model: 'm' }, 10_000)
+    expect(published).toMatchObject({ ok: true, value: { id: 'lst_1' } })
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toBeTruthy()
+    expect(keys[1]).toBe(keys[0])
+  })
+})

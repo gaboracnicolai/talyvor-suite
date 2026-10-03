@@ -1,6 +1,7 @@
 // B17.3 — the harness's own calls to Lens: create and reset the synthetic users (B17.1), read each
 // one's ledger back, and ask the judge. Every call a synthetic user makes uses that user's own token.
 
+import { randomUUID } from 'node:crypto'
 import type { Recorder, Tag } from './coverage.ts'
 import type { CatalogModel } from './oracles.ts'
 
@@ -325,6 +326,8 @@ const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
 const RESET_RUNS_ON_MS = 90_000
 /** B17.32 — how long a ledger read waits out a Lens that answers 502, 503 or 504, or not at all, while it restarts. */
 const LEDGER_RESTART_MS = 60_000
+/** B17.34 — how long a listing publish is sent again, with its one Idempotency-Key, while Lens restarts. */
+const PUBLISH_RESTART_MS = 60_000
 
 export class LensClient {
   readonly baseURL: string
@@ -687,10 +690,13 @@ export class LensClient {
     return r.value
   }
 
-  /** B25.8 — the workspace publishes a public prompt listing with its own token, as another company's software would. */
-  async publishListing(user: SyntheticUser, l: { title: string; template: string; priceULXC: number; model: string }): Promise<Answered<Listing>> {
-    return this.answer('POST', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, user.token, { kind: 'prompt', title: l.title, description: '',
-      price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '' })
+  /**
+   * B25.8 — the workspace publishes a public prompt listing with its own token, as another company's software would.
+   * B17.34 — sent again while Lens restarts, under one Idempotency-Key, so it publishes once (Lens #668).
+   */
+  async publishListing(user: SyntheticUser, l: { title: string; template: string; priceULXC: number; model: string }, restartMs = PUBLISH_RESTART_MS): Promise<Answered<Listing>> {
+    return this.answerThroughRestart('POST', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, user.token, { kind: 'prompt', title: l.title, description: '',
+      price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '' }, restartMs)
   }
 
   /** B25.8 — takes LXC back from an agent into its workspace, as the workspace's owner. */
@@ -776,9 +782,9 @@ export class LensClient {
   }
 
   /** A write a scenario reads the refusal of: Lens's answer, or its status and sentence. */
-  private async answer<T>(method: string, path: string, token: string, body?: unknown): Promise<Answered<T>> {
+  private async answer<T>(method: string, path: string, token: string, body?: unknown, headers: Record<string, string> = {}): Promise<Answered<T>> {
     const res = await this.send(method, path, {
-      headers: { ...this.bearer(token), Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: { ...this.bearer(token), Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     const raw = await res.text()
@@ -828,6 +834,21 @@ export class LensClient {
       }
       if (res instanceof Response) await res.body?.cancel()
       await new Promise((r) => setTimeout(r, 1_000))
+    }
+  }
+
+  /** B17.34 — a write sent again, a second apart and under one Idempotency-Key, while Lens answers 502, 503 or 504 or not at all — for up to `restartMs`. */
+  private async answerThroughRestart<T>(method: string, path: string, token: string, body: unknown, restartMs: number): Promise<Answered<T>> {
+    const headers = { 'Idempotency-Key': randomUUID() }
+    const deadline = Date.now() + restartMs
+    for (;;) {
+      const r = await this.answer<T>(method, path, token, body, headers).then((a) => a, (e: unknown) => ({ thrown: e }))
+      const restarting = 'thrown' in r || (!r.ok && [502, 503, 504].includes(r.status))
+      if (!restarting || Date.now() >= deadline) {
+        if ('thrown' in r) throw r.thrown
+        return r
+      }
+      await new Promise((res) => setTimeout(res, 1_000))
     }
   }
 }
