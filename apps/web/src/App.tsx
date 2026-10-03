@@ -66,9 +66,9 @@ export const queryClient: QueryClient = new QueryClient({
     queries: {
       staleTime: 15_000,
       refetchOnWindowFocus: false,
-      // A 401 is a verdict, not a flake — retrying it just delays the gate.
+      // A 401 or 403 is a verdict, not a flake — retrying it just delays the gate or the refusal.
       retry: (failureCount, error) =>
-        failureCount < 1 && !(error instanceof ApiError && error.status === 401),
+        failureCount < 1 && !(error instanceof ApiError && (error.status === 401 || error.status === 403)),
     },
   },
 })
