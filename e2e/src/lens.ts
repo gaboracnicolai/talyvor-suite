@@ -323,6 +323,8 @@ export function describe(e: unknown): string {
 const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
 /** How long a reset whose answer was lost is waited for: Lens logged each one done 45–70s after it began. */
 const RESET_RUNS_ON_MS = 90_000
+/** B17.32 — how long a ledger read waits out a Lens that answers 502, 503 or 504, or not at all, while it restarts. */
+const LEDGER_RESTART_MS = 60_000
 
 export class LensClient {
   readonly baseURL: string
@@ -438,12 +440,15 @@ export class LensClient {
     return 0.1
   }
 
-  /** The workspace's ledger, newest first — every row, however many pages. */
-  async ledger(user: SyntheticUser): Promise<LedgerRow[]> {
+  /**
+   * The workspace's ledger, newest first — every row, however many pages. B17.32: a page Lens cannot answer
+   * while it restarts is asked again, so a charged answer whose read-back meets a restart is still booked.
+   */
+  async ledger(user: SyntheticUser, restartMs = LEDGER_RESTART_MS): Promise<LedgerRow[]> {
     const rows: LedgerRow[] = []
     for (let offset = 0; ; offset += 200) {
-      const page = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/lxc/history?limit=200&offset=${offset}`,
-        this.bearer(user.token))) as LedgerRow[] | null
+      const page = (await this.callThroughRestart(`/v1/workspaces/${user.workspaceID}/lxc/history?limit=200&offset=${offset}`,
+        this.bearer(user.token), restartMs)) as LedgerRow[] | null
       if (!Array.isArray(page) || page.length === 0) return rows
       rows.push(...page)
       if (page.length < 200) return rows
@@ -802,8 +807,27 @@ export class LensClient {
       headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
+    return this.parse(method, path, res)
+  }
+
+  private async parse(method: string, path: string, res: Response): Promise<unknown> {
     const raw = await res.text()
     if (!res.ok) throw new Error(`${method} ${path}: Lens answered ${res.status}: ${raw.slice(0, 200)}`)
     return raw === '' ? null : JSON.parse(raw)
+  }
+
+  /** A GET asked again, a second apart, while Lens answers 502, 503 or 504 or not at all — for up to `restartMs`. */
+  private async callThroughRestart(path: string, headers: Record<string, string>, restartMs: number): Promise<unknown> {
+    const deadline = Date.now() + restartMs
+    for (;;) {
+      const res = await this.send('GET', path, { headers: { Accept: 'application/json', ...headers } }).catch((e: unknown) => e)
+      const restarting = !(res instanceof Response) || [502, 503, 504].includes(res.status)
+      if (!restarting || Date.now() >= deadline) {
+        if (!(res instanceof Response)) throw res
+        return this.parse('GET', path, res)
+      }
+      if (res instanceof Response) await res.body?.cancel()
+      await new Promise((r) => setTimeout(r, 1_000))
+    }
   }
 }
