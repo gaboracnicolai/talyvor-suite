@@ -265,7 +265,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'font-figure text-eyebrow uppercase text-faint',
     why: 'the uppercase label whose µ arrives as a prop from 130 lines away — the reason the rule cannot be a source rule',
   },
-  'apps/web/src/test-setup.ts:202|packages/ui/src/components/CaseSafe.tsx:85': {
+  'apps/web/src/test-setup.ts:208|packages/ui/src/components/CaseSafe.tsx:85': {
     kind: 'LIVE',
     fragment: 'normal-case',
     why: 'a DEVELOPER-FACING FAILURE MESSAGE naming the shape to copy — read exactly when somebody is already confused',

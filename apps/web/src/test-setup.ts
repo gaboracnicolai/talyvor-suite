@@ -7,6 +7,7 @@ import './reachRegistry'
 
 import '@testing-library/jest-dom/vitest'
 
+import { configure } from '@testing-library/react'
 import { afterAll, afterEach, beforeEach, inject } from 'vitest'
 
 import { flushReach } from './reachAudit'
@@ -67,6 +68,11 @@ import {
   setFieldFaceAuditFile,
   takeFieldFaceOffenders,
 } from './fieldFaceAudit'
+
+// B26.31 — Testing Library's 1s default for findBy/waitFor ran out under a full parallel run on a
+// loaded machine: WalletMoney, AgentCard and AgentListings failed in the root `pnpm test` and
+// passed alone. A wait that is satisfied still returns at once; this only moves when it gives up.
+configure({ asyncUtilTimeout: 3_000 })
 
 /**
  * EVERY FIGURE THIS SUITE RENDERS IS AUDITED, on every surface, in every test.
