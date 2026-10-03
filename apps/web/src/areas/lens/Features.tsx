@@ -76,13 +76,24 @@ type SettingWrite =
   | { logging_policy: LoggingPolicy }
   | { limit_usd: number; enforcement: Enforcement }
 
-async function post(path: string, body: SettingWrite): Promise<void> {
+/** What a write's reply says Lens recorded, in this screen's terms; undefined when it cannot be read. */
+type Recorded = Partial<FeaturesState> | undefined
+
+/** Writes one setting and answers Lens's reply, which states what it recorded. */
+async function post(path: string, body: SettingWrite): Promise<Recorded> {
   const res = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new ApiError(res.status, path)
+  return (await res.json().catch(() => undefined)) as Recorded
+}
+
+/** The guardrail write answers both flags; on this screen they sit under `guardrails`. */
+async function postGuardrail(body: { injection: boolean } | { pii: boolean }): Promise<Recorded> {
+  const g = await post('/api/features/guardrails', body)
+  return g && { guardrails: g as FeaturesState['guardrails'] }
 }
 
 const UNREAD = 'Could not be read'
@@ -109,23 +120,32 @@ const count = (n: number) => <span className="font-figure">{n.toLocaleString('en
 const dollars = (n: number) => `$${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}`
 const usd = (n: number) => <span className="font-figure">{dollars(n)}</span>
 
-/** Writes one setting, then re-reads what Lens recorded; says so when the write did not land. */
+/**
+ * Writes one setting and shows what Lens's reply says it recorded, then re-reads in the background;
+ * says so when the write did not land. B17.28: under load the re-read could take past 15 s or fail,
+ * and a switch that waited on it never showed the change. A write whose reply cannot be shown (the
+ * spending limit, a failed write) still waits for the re-read.
+ */
 function useSettingWrite(alsoInvalidate?: string[]) {
   const qc = useQueryClient()
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState<unknown>(null)
-  const run = async (write: () => Promise<void>) => {
+  const run = async (write: () => Promise<Recorded | void>) => {
     setBusy(true)
     setFailed(null)
+    let recorded: Recorded | void
     try {
-      await write()
+      recorded = await write()
+      if (recorded) qc.setQueryData<FeaturesState>(FEATURES_KEY, (s) => s && { ...s, ...recorded })
     } catch (err) {
       setFailed(err)
-    } finally {
-      await qc.invalidateQueries({ queryKey: FEATURES_KEY })
-      if (alsoInvalidate) await qc.invalidateQueries({ queryKey: alsoInvalidate })
-      setBusy(false)
     }
+    const reread = Promise.all([
+      qc.invalidateQueries({ queryKey: FEATURES_KEY }),
+      alsoInvalidate ? qc.invalidateQueries({ queryKey: alsoInvalidate }) : undefined,
+    ])
+    if (!recorded) await reread
+    setBusy(false)
   }
   const note = busy ? (
     <span className="text-caption text-muted">Saving…</span>
@@ -149,7 +169,7 @@ function SettingChoice<T extends string>({
   name: string
   value: T
   options: Record<T, string>
-  write: (v: T) => Promise<void>
+  write: (v: T) => Promise<Recorded>
 }) {
   const { busy, run, note } = useSettingWrite()
   return (
@@ -192,7 +212,10 @@ function BudgetControl({ budget }: { budget: BudgetReading['budget'] }) {
   const [amount, setAmount] = useState(budget ? String(budget.limit_usd) : '')
   const limit = Number(amount)
   const valid = amount.trim() !== '' && Number.isFinite(limit) && limit > 0
-  const write = (body: { limit_usd: number; enforcement: Enforcement }) => run(() => post('/api/features/budget', body))
+  const write = (body: { limit_usd: number; enforcement: Enforcement }) =>
+    run(async () => {
+      await post('/api/features/budget', body)
+    })
   return (
     <div className="flex w-full flex-col items-end gap-1">
       {budget ? (
@@ -226,7 +249,7 @@ function BudgetControl({ budget }: { budget: BudgetReading['budget'] }) {
   )
 }
 
-/** A switch that writes one setting and then re-reads what Lens recorded. */
+/** A switch that writes one setting and shows what Lens recorded. */
 function SettingSwitch({
   name,
   checked,
@@ -235,39 +258,19 @@ function SettingSwitch({
 }: {
   name: string
   checked: boolean
-  write: (on: boolean) => Promise<void>
+  write: (on: boolean) => Promise<Recorded>
   alsoInvalidate?: string[]
 }) {
-  const qc = useQueryClient()
-  const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState<unknown>(null)
-  const flip = async (on: boolean) => {
-    setBusy(true)
-    setFailed(null)
-    try {
-      await write(on)
-    } catch (err) {
-      setFailed(err)
-    } finally {
-      await qc.invalidateQueries({ queryKey: FEATURES_KEY })
-      if (alsoInvalidate) await qc.invalidateQueries({ queryKey: alsoInvalidate })
-      setBusy(false)
-    }
-  }
+  const { busy, run, note } = useSettingWrite(alsoInvalidate)
   return (
     <div className="flex flex-col items-end gap-1">
       <Switch
         checked={checked}
         disabled={busy}
-        onCheckedChange={(on) => void flip(on)}
+        onCheckedChange={(on) => void run(() => write(on))}
         aria-label={`${name}: turn ${checked ? 'off' : 'on'}`}
       />
-      {busy ? <span className="text-caption text-muted">Saving…</span> : null}
-      {failed ? (
-        <span role="status" className="text-caption text-muted">
-          {isSessionExpired(failed) ? 'Not saved — sign in again.' : 'Not saved. You can try again.'}
-        </span>
-      ) : null}
+      {note}
     </div>
   )
 }
@@ -366,9 +369,10 @@ export function Features() {
   const f = q.data
 
   // While loading, or when the workspace could not be read, every state says so rather than
-  // defaulting to Off — "we could not read it" and "it is off" are different facts.
+  // defaulting to Off — "we could not read it" and "it is off" are different facts. Once read, a
+  // failed re-read keeps the switches on what Lens last reported (B17.28) and says so.
   const stateOf = (s: string) => (q.isPending ? 'Checking…' : s)
-  const readable = q.isSuccess
+  const readable = f !== undefined
 
   // A figure is shown only from a successful read; a failed read says so, never a zero.
   const reading = (r: { isPending: boolean; isError: boolean }, ok: () => React.ReactNode) =>
@@ -393,7 +397,9 @@ export function Features() {
           <p role="status" className="mt-4 text-body text-ink">
             {isSessionExpired(q.error)
               ? 'This workspace’s settings can’t be read until you sign in again.'
-              : 'Couldn’t load this workspace’s settings, so no state below is shown.'}
+              : f === undefined
+                ? 'Couldn’t load this workspace’s settings, so no state below is shown.'
+                : 'Couldn’t re-read this workspace’s settings just now; each row shows what Lens last reported.'}
           </p>
         ) : null}
       </Region>
@@ -512,7 +518,7 @@ export function Features() {
                 <SettingSwitch
                   name="Prompt-injection detection"
                   checked={f.guardrails.injection}
-                  write={(on) => post('/api/features/guardrails', { injection: on })}
+                  write={(on) => postGuardrail({ injection: on })}
                 />
               ) : undefined
             }
@@ -528,7 +534,7 @@ export function Features() {
                 <SettingSwitch
                   name="Personal-data detection"
                   checked={f.guardrails.pii}
-                  write={(on) => post('/api/features/guardrails', { pii: on })}
+                  write={(on) => postGuardrail({ pii: on })}
                 />
               ) : undefined
             }
@@ -784,7 +790,10 @@ export function Features() {
                 <SettingSwitch
                   name="Routing pattern sharing"
                   checked={f.pattern_mining.opted_in}
-                  write={(on) => post('/api/features/pattern-mining', { opted_in: on })}
+                  write={async (on) => {
+                    const p = await post('/api/features/pattern-mining', { opted_in: on })
+                    return p && { pattern_mining: p as FeaturesState['pattern_mining'] }
+                  }}
                 />
               ) : undefined
             }
