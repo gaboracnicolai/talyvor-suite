@@ -26,7 +26,8 @@ package main
 // own expiry, and it is the price of keeping no store on disk.
 //
 // THE KEY is derived from LENS_PROVISION_SECRET, which the BFF already requires to start and
-// keeps across restarts; nothing new to configure. Only the fields a request needs are sealed.
+// keeps across restarts; nothing new to configure. Lens holds the same secret, and gains nothing:
+// with it, POST /v1/provision already hands out a token for any identity's workspace. Only the fields a request needs are sealed.
 // What changes during a session is re-derived after a restore: an expired Lens token is
 // re-provisioned (tenant.go), an empty Track workspace is re-asked (track_tenant.go), and the
 // pooling question is not put again.
@@ -129,7 +130,9 @@ func (z *sessionSealer) open(sid string) (session, bool) {
 		return session{}, false
 	}
 	now := time.Now()
-	if !time.Unix(0, p.Issued).Before(z.bootedAt) || !now.Before(time.Unix(0, p.Expires)) {
+	issued, expires := time.Unix(0, p.Issued), time.Unix(0, p.Expires)
+	// A seal claiming a longer life than any session gets was not made by this BFF's sign-in.
+	if !issued.Before(z.bootedAt) || !now.Before(expires) || expires.Sub(issued) > z.maxLife+time.Minute {
 		return session{}, false
 	}
 	z.mu.Lock()

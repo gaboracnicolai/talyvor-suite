@@ -243,7 +243,8 @@ func (auth *authenticator) session(sid string) (session, bool) {
 		return session{}, false
 	}
 	s, ok := auth.sealer.open(sid)
-	if !ok {
+	// A test user's session comes back only where test users may sign in at all.
+	if !ok || (s.synthetic && auth.cfg.syntheticKey == "") {
 		return session{}, false
 	}
 	log.Printf("bff: session restored from its seal for sub=%s", s.sub)
