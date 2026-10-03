@@ -101,9 +101,14 @@ export function judgeVerdict(reply: string): boolean | undefined {
   return undefined
 }
 
-/** A small deterministic generator, so a run's questions are reproducible from its seed. */
+/** A small deterministic generator, so a run's questions are reproducible from its seed. The seed is
+ *  scrambled first (murmur3's finaliser, one-to-one on 32 bits), so 0 and 1 are different streams and
+ *  neighbouring seeds don't open with near-identical draws. */
 export function seeded(seed: number): () => number {
-  let s = seed >>> 0 || 1
+  let s = (seed ^ 0x9e37_79b9) >>> 0
+  s = Math.imul(s ^ (s >>> 16), 0x85eb_ca6b)
+  s = Math.imul(s ^ (s >>> 13), 0xc2b2_ae35)
+  s = (s ^ (s >>> 16)) >>> 0 || 1
   return () => {
     s ^= s << 13
     s ^= s >>> 17
