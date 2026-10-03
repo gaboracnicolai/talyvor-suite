@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatModels, expectedFigure, judgeVerdict, listPriceUSD, namesWord, parseFooter, statesNumber } from '../src/oracles.ts'
+import { chatModels, expectedFigure, judgeVerdict, listPriceUSD, namesWord, parseFooter, seeded, statesNumber } from '../src/oracles.ts'
 
 describe('parseFooter reads every line the Chat screen writes under an answer', () => {
   it('a priced answer, in LXC or dollars', () => {
@@ -51,5 +51,14 @@ describe('known-answer oracles', () => {
     expect(judgeVerdict(' Yes.')).toBe(true)
     expect(judgeVerdict('NO')).toBe(false)
     expect(judgeVerdict('Maybe')).toBeUndefined()
+  })
+})
+
+describe('seeded', () => {
+  it('gives user 0 and user 1 different question streams', () => {
+    const draws = (seed: number) => { const r = seeded(seed); return [r(), r(), r(), r()] }
+    const [zero, one] = [draws(0), draws(1)]
+    expect(zero).not.toEqual(one)
+    expect(zero[0]).not.toBeCloseTo(one[0], 1)
   })
 })
