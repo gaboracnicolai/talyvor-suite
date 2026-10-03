@@ -1267,6 +1267,7 @@ function Approvals({
             pending.map((a) => (
               <Row
                 key={a.id}
+                stack
                 label={asks(a)}
                 hint={
                   <>
@@ -1274,18 +1275,18 @@ function Approvals({
                   </>
                 }
               >
-                {/* One-handed on a phone: two full-width buttons under the thumb; side by side on a wide screen. */}
-                <div className="flex w-full items-center gap-2 wide:w-auto">
+                {/* One-handed on a phone: two full-width buttons under the sentence and the thumb; side by side on a wide screen. */}
+                <div className="flex w-full flex-col gap-2 wide:w-auto wide:flex-row wide:items-center">
                   <Button
                     variant="primary"
-                    className="h-12 flex-1 wide:h-8 wide:flex-none"
+                    className="h-12 w-full wide:h-8 wide:w-auto"
                     disabled={decide.isPending}
                     onClick={() => decide.mutate({ a, decision: 'approve' })}
                   >
                     {signed ? 'Approve with Face ID' : 'Approve'}
                   </Button>
                   <Button
-                    className="h-12 flex-1 wide:h-8 wide:flex-none"
+                    className="h-12 w-full wide:h-8 wide:w-auto"
                     disabled={decide.isPending}
                     onClick={() => decide.mutate({ a, decision: 'deny' })}
                   >

@@ -226,6 +226,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       signInUser: (index) => signIn(users[index]),
       userAt: (index) => users[index],
       userCount: users.length,
+      outDir: cfg.outDir,
     }
 
     try {

@@ -4,7 +4,8 @@
 // the agents' book, their postings, the approvals, the marketplace bill and the seller's earnings, and
 // the workspace's own ledger.
 
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Locator, Page } from 'playwright'
 import { type AppUser, chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
@@ -162,6 +163,41 @@ export class AgentBankScreen {
       return { row, said: `no approval was confirmed; the screen says: ${alerts.join(' | ') || 'nothing'}` }
     }
     return { row, said: (await said.innerText()).trim() }
+  }
+
+  /**
+   * B26.28 — `agent`'s row waiting for a person, on a 390px phone: saved as a screenshot at `file`, and
+   * what is wrong with it — undefined when Approve and Deny each sit full-width under the sentence.
+   */
+  async phoneRow(agent: Agent, payee: Agent, file: string): Promise<string | undefined> {
+    const was = this.page.viewportSize()
+    await this.page.setViewportSize({ width: 390, height: 844 })
+    try {
+      const label = card(this.page, 'Waiting for a person').getByText(`${agent.name} wants to pay ${payee.name} `).first()
+      await label.waitFor({ timeout: ACTION_TIMEOUT_MS })
+      const words = label.locator('xpath=../..') // the sentence and the line under it (packages/ui Row)
+      const row = words.locator('xpath=..')
+      await mkdir(join(file, '..'), { recursive: true })
+      await row.screenshot({ path: file })
+      const [r, w, approve, deny] = await Promise.all([
+        row.boundingBox(),
+        words.boundingBox(),
+        row.getByRole('button', { name: /^Approve/ }).boundingBox(),
+        row.getByRole('button', { name: 'Deny', exact: true }).boundingBox(),
+      ])
+      if (!r || !w || !approve || !deny) return 'the row, its sentence or a button is not on the screen'
+      const box = (b: { x: number; y: number; width: number }) => `${Math.round(b.width)}px wide at y=${Math.round(b.y)}`
+      const shown = `row ${Math.round(r.width)}px; sentence ${box(w)}, ${Math.round(w.height)}px tall; Approve ${box(approve)}; Deny ${box(deny)}`
+      const full = 0.8 * r.width
+      if (w.width < full) return `the sentence is squeezed beside the buttons: ${shown}`
+      for (const [name, b] of [['Approve', approve], ['Deny', deny]] as const) {
+        if (b.y < w.y + w.height - 1) return `${name} is not under the sentence: ${shown}`
+        if (b.width < full) return `${name} is not full-width: ${shown}`
+      }
+      return undefined
+    } finally {
+      if (was) await this.page.setViewportSize(was)
+    }
   }
 
   /** Downloads "Statement for every agent" for this month as JSON; the file's name and text. */
@@ -582,6 +618,10 @@ export function agentApproval(seed: number): Scenario {
       if (agentIn(held, payer.id)?.balance_ulxc !== 2e6 || agentIn(held, payee.id)?.balance_ulxc !== 0) {
         return fail('money moved before anyone approved it')
       }
+      const shot = join(ctx.env.outDir, `agent-approval-390px-user${ctx.app.user.index}.png`)
+      const phone = await bank.phoneRow(payer, payee, shot)
+      ctx.evidence.push({ note: `on a 390px phone (${shot}): ${phone ?? 'Approve and Deny each sit full-width under the sentence'}` })
+      if (phone !== undefined) return fail(`on a 390px phone, ${phone}`)
       const { row, said: approved } = await bank.approve(payer, payee)
       ctx.evidence.push({ note: `Waiting for a person: ${row}` }, { note: `Approve: ${approved}` })
       if (!row.endsWith(` 1 LXC — ${memo}`)) return fail(`the row waiting for a person does not say 1 LXC — ${memo}: "${row}"`)
