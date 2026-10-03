@@ -94,9 +94,9 @@ func (p pendingLogin) expiresAt() time.Time { return p.expires }
 type expirable interface{ expiresAt() time.Time }
 
 // ttlMap is a mutex-guarded in-memory store with per-entry expiry. In-memory is
-// a deliberate inc5 choice: one BFF process, sessions die on restart (users
-// re-login). A multi-instance deployment swaps this for a shared store; nothing
-// else changes.
+// a deliberate inc5 choice: one BFF process. A session outlives a restart only
+// through its sealed id (session_seal.go). A multi-instance deployment swaps this
+// for a shared store; nothing else changes.
 type ttlMap[T expirable] struct {
 	mu sync.Mutex
 	m  map[string]T
@@ -150,6 +150,18 @@ func (s *ttlMap[T]) delete(id string) {
 	delete(s.m, id)
 }
 
+// adopt stores v under id only when id holds nothing live, and returns what id holds after: a
+// session restored from its seal (session_seal.go) never overwrites one already restored or stored.
+func (s *ttlMap[T]) adopt(id string, v T) T {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cur, ok := s.m[id]; ok && !time.Now().After(cur.expiresAt()) {
+		return cur
+	}
+	s.m[id] = v
+	return v
+}
+
 // update applies fn to the stored value INSIDE the lock and stores the result.
 //
 // The read-modify-write it replaces is the reason it exists: get → change one field → put is
@@ -186,6 +198,9 @@ type authenticator struct {
 	httpClient *http.Client
 	pending    *ttlMap[pendingLogin]
 	sessions   *ttlMap[session]
+	// sealer makes a session id carry its session, so a restart does not sign anyone out (B17.40).
+	// Nil without LENS_PROVISION_SECRET: sessions are then in memory only.
+	sealer *sessionSealer
 }
 
 // newAuthenticator discovers the issuer and builds the OIDC client. It is called
@@ -214,7 +229,34 @@ func newAuthenticator(ctx context.Context, cfg config) (*authenticator, error) {
 // provider — session middleware works, the login machinery answers 503. Used
 // directly by tests; production always goes through newAuthenticator.
 func newSessionOnlyAuthenticator(cfg config) *authenticator {
-	return &authenticator{cfg: cfg, pending: newTTLMap[pendingLogin](), sessions: newTTLMap[session]()}
+	return &authenticator{cfg: cfg, pending: newTTLMap[pendingLogin](), sessions: newTTLMap[session](),
+		sealer: newSessionSealer(cfg.provisionSecret, cfg.sessionTTL)}
+}
+
+// session returns the session stored under sid, restoring it from its seal when this process has
+// not seen it — the case after a restart (session_seal.go).
+func (auth *authenticator) session(sid string) (session, bool) {
+	if s, ok := auth.sessions.get(sid); ok {
+		return s, true
+	}
+	if auth.sealer == nil {
+		return session{}, false
+	}
+	s, ok := auth.sealer.open(sid)
+	// A test user's session comes back only where test users may sign in at all.
+	if !ok || (s.synthetic && auth.cfg.syntheticKey == "") {
+		return session{}, false
+	}
+	log.Printf("bff: session restored from its seal for sub=%s", s.sub)
+	return auth.sessions.adopt(sid, s), true
+}
+
+// endSession ends sid for good: gone from the map, and its seal can no longer restore it.
+func (auth *authenticator) endSession(sid string) {
+	auth.sessions.delete(sid)
+	if auth.sealer != nil {
+		auth.sealer.end(sid)
+	}
 }
 
 // sessionAndIDFrom is sessionFrom plus the session id, for callers that must write the session
@@ -224,7 +266,7 @@ func (auth *authenticator) sessionAndIDFrom(r *http.Request) (string, session, b
 	if err != nil || ck.Value == "" {
 		return "", session{}, false
 	}
-	s, ok := auth.sessions.get(ck.Value)
+	s, ok := auth.session(ck.Value)
 	return ck.Value, s, ok
 }
 
@@ -233,7 +275,7 @@ func (auth *authenticator) sessionFrom(r *http.Request) (session, bool) {
 	if err != nil || ck.Value == "" {
 		return session{}, false
 	}
-	return auth.sessions.get(ck.Value)
+	return auth.session(ck.Value)
 }
 
 // randomToken returns 256 bits of crypto/rand, URL-safe. Used for session ids,
@@ -448,7 +490,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Rotate: any previous session this browser presented dies with the new
 	// login — one live session per browser, and no fixation via a stale id.
 	if old, err := r.Cookie(sessionCookieName); err == nil {
-		a.auth.sessions.delete(old.Value)
+		a.auth.endSession(old.Value)
 	}
 	// PROVISION: turn this identity into a tenant before the session exists. The workspace id is
 	// derived by LENS from the identity we present — the BFF never names a workspace, so no bug
@@ -513,9 +555,15 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 // (synthetic.go) both create theirs here. Any session this browser already held dies with it.
 func (a *app) startSession(w http.ResponseWriter, r *http.Request, s session, maxAge int) error {
 	if old, err := r.Cookie(sessionCookieName); err == nil {
-		a.auth.sessions.delete(old.Value)
+		a.auth.endSession(old.Value)
 	}
-	sid, err := randomToken()
+	var sid string
+	var err error
+	if a.auth.sealer != nil {
+		sid, err = a.auth.sealer.seal(s)
+	} else {
+		sid, err = randomToken()
+	}
 	if err != nil {
 		return err
 	}
@@ -652,7 +700,7 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ck, err := r.Cookie(sessionCookieName); err == nil {
-		a.auth.sessions.delete(ck.Value)
+		a.auth.endSession(ck.Value)
 	}
 	clearCookie(w, sessionCookieName)
 	w.WriteHeader(http.StatusNoContent)
