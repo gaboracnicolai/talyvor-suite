@@ -225,10 +225,10 @@ export class AgentBankError extends ApiError {
   }
 }
 
-async function send<T>(method: string, path: string, body: object = {}): Promise<T> {
+async function send<T>(method: string, path: string, body: object = {}, headers: Record<string, string> = {}): Promise<T> {
   const res = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
     body: JSON.stringify(body),
   })
   if (!res.ok) {
@@ -244,6 +244,23 @@ async function send<T>(method: string, path: string, body: object = {}): Promise
 }
 
 const e = encodeURIComponent
+
+/** A fresh Idempotency-Key for one Fund or Take back. */
+export function newMoveKey(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Date.now().toString(36) + Math.random().toString(36).slice(2)
+}
+
+/**
+ * B17.26 — whether a Fund or Take back met the seconds the app or Lens restarts on a deploy (502, 503,
+ * 504, or no answer at all), so it is sent again under its Idempotency-Key: Lens moves the LXC once
+ * however many times the key arrives. Sent again up to six times over about fifteen seconds (the Money
+ * card's retryDelay); a refusal is final.
+ */
+export function retryMoveThroughRestart(failures: number, err: unknown): boolean {
+  return failures < 6 && (err instanceof TypeError || (err instanceof AgentBankError && [502, 503, 504].includes(err.status)))
+}
 
 /**
  * B19.22 — a statement for the period [from, to) (YYYY-MM-DD, midnight UTC) as the file Lens writes:
@@ -268,10 +285,10 @@ async function statementFile(agentID: string | null, from: string, to: string, f
 export const agentBankApi = {
   book: () => getJSON<AgentBook>('/api/agents'),
   create: (name: string) => send<Agent>('POST', '/api/agents', { name }),
-  fund: (id: string, amount_ulxc: number) =>
-    send<{ balance_ulxc: number }>('POST', `/api/agents/${e(id)}/fund`, { amount_ulxc }),
-  withdraw: (id: string, amount_ulxc: number) =>
-    send<{ balance_ulxc: number }>('POST', `/api/agents/${e(id)}/withdraw`, { amount_ulxc }),
+  fund: (id: string, amount_ulxc: number, key: string) =>
+    send<{ balance_ulxc: number }>('POST', `/api/agents/${e(id)}/fund`, { amount_ulxc }, { 'Idempotency-Key': key }),
+  withdraw: (id: string, amount_ulxc: number, key: string) =>
+    send<{ balance_ulxc: number }>('POST', `/api/agents/${e(id)}/withdraw`, { amount_ulxc }, { 'Idempotency-Key': key }),
   issueKey: (id: string, name: string) => send<AgentKey>('POST', `/api/agents/${e(id)}/keys`, { name }),
   rules: (id: string) => getJSON<AgentRules>(`/api/agents/${e(id)}/rules`),
   setRules: (id: string, rules: AgentRules) => send<AgentRules>('PUT', `/api/agents/${e(id)}/rules`, rules),

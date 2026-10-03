@@ -25,8 +25,10 @@ import {
   approvalNamedIn,
   formatULXC,
   limitText,
+  newMoveKey,
   parseLXC,
   refusalText,
+  retryMoveThroughRestart,
 } from './agentBankApi'
 
 // AgentBank.tsx — B19.4: Agent Wallets (named so by B21.6). Each AI agent a workspace runs has a wallet of its own on
@@ -528,9 +530,13 @@ function Money({ agent, book }: { agent: Agent; book: AgentBook }) {
   const qc = useQueryClient()
   const [amount, setAmount] = useState('')
   const micros = parseLXC(amount)
+  // B17.26 — the amount and the Idempotency-Key are the mutation's own, so a retry through a deploy's
+  // restart repeats both and Lens moves the LXC once.
   const move = useMutation({
-    mutationFn: (dir: 'fund' | 'withdraw') =>
-      dir === 'fund' ? agentBankApi.fund(agent.id, micros ?? 0) : agentBankApi.withdraw(agent.id, micros ?? 0),
+    mutationFn: ({ dir, ulxc, key }: { dir: 'fund' | 'withdraw'; ulxc: number; key: string }) =>
+      dir === 'fund' ? agentBankApi.fund(agent.id, ulxc, key) : agentBankApi.withdraw(agent.id, ulxc, key),
+    retry: retryMoveThroughRestart,
+    retryDelay: (failures) => Math.min(500 * 2 ** failures, 4_000),
     onSuccess: () => setAmount(''),
     onSettled: () =>
       Promise.all([
@@ -580,10 +586,10 @@ function Money({ agent, book }: { agent: Agent; book: AgentBook }) {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <Button variant="primary" disabled={busy} onClick={() => move.mutate('fund')}>
+          <Button variant="primary" disabled={busy} onClick={() => move.mutate({ dir: 'fund', ulxc: micros ?? 0, key: newMoveKey() })}>
             Fund
           </Button>
-          <Button disabled={busy} onClick={() => move.mutate('withdraw')}>
+          <Button disabled={busy} onClick={() => move.mutate({ dir: 'withdraw', ulxc: micros ?? 0, key: newMoveKey() })}>
             Take back
           </Button>
         </div>
