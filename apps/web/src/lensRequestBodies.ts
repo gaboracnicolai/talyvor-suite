@@ -587,6 +587,11 @@ export const NON_LENS_ANON_SITES = [
     what:
       'handleFeatureGuardrails (B18.22) re-marshals talyvor-lens’s OWN guardrail policy, read from GET /v1/workspaces/{ws}/guardrails, with one flag changed — because Lens’s POST replaces the whole policy. The key set is whatever Lens answered, echoed back, so there is no key set of this repo’s to ask about and this site is exempt; the two flag names it sets, enable_injection and enable_pii, are the ones readFeatures already reads off the same policy.',
   },
+  {
+    file: 'session_seal.go',
+    what:
+      'sessionSealer.seal (B17.40) marshals sealedSession, the session sealed into its own cookie id so a restart does not sign anyone out. It is encrypted and only this BFF ever reads it back — no request body, sent to no repository, so there is no key set to ask about and this site is exempt.',
+  },
 ] as const
 
 const cache = new Map<string, string>()
