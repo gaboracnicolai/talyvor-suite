@@ -137,11 +137,11 @@ const pool = new Map<string, { owner: string; answer: string }>()
 /** Open checkouts on the stand-in for Stripe: session → the workspace and the plan it is for. */
 const checkouts = new Map<string, { ws: string; plan: string }>()
 
-function book(ws: Workspace, amount: number, type: string, description: string): void {
+function book(ws: Workspace, amount: number, type: string, description: string, tags: object = {}): void {
   if (type === 'spend') for (const b of ws.budgets) b.spent_usd += (-amount / 1e6) * USD_PER_LXC
   ws.balance += amount
   // A synthetic workspace's credits are a grant Lens marks as such.
-  const metadata = type === 'admin_grant' ? { funding: 'grant', synthetic: true } : {}
+  const metadata = type === 'admin_grant' ? { funding: 'grant', synthetic: true } : tags
   ws.ledger.unshift({ id: randomBytes(8).toString('hex'), workspace_id: ws.id, amount_ulxc: amount, balance_after_ulxc: ws.balance,
     type, description, metadata, created_at: new Date().toISOString() })
 }
@@ -292,9 +292,9 @@ const QUOTES = { simulated: true, market_data: 'European Central Bank euro forei
 
 const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read, miss,
   moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', base: BASE,
-  credit: (id, ulxc, type, description) => {
+  credit: (id, ulxc, type, description, metadata) => {
     const ws = workspaces.get(id)
-    if (ws !== undefined) book(ws, ulxc, type, description)
+    if (ws !== undefined) book(ws, ulxc, type, description, metadata)
   } })
 setInterval(() => bank.tick(), 2000)
 

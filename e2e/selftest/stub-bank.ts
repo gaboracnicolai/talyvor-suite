@@ -56,8 +56,8 @@ export interface BankDeps {
   /** B25.4 — the moderator key the review queue takes, and where the stub serves Stripe's onboarding */
   moderatorKey: string
   base: string
-  /** B25.8 — books `ulxc` (negative: a debit) on workspace `ws`'s ledger as a row of `type` */
-  credit: (ws: string, ulxc: number, type: string, description: string) => void
+  /** B25.8 — books `ulxc` (negative: a debit) on workspace `ws`'s ledger as a row of `type`, tagged with `metadata` */
+  credit: (ws: string, ulxc: number, type: string, description: string, metadata?: object) => void
   /** B26.24 — answers a route the stub does not know: a 404 the self-test names */
   miss: (req: IncomingMessage, res: ServerResponse, path: string) => void
 }
@@ -952,7 +952,7 @@ export class Bank {
       const p: Payout = { id: id('mpo_'), ws: ws.id, method: 'credits', month: now.slice(0, 7), gross_usd_micros: gross, net_usd_micros: gross,
         credits_ulxc: gross * ULXC_PER_USD_MICRO, paid_at: now, created_at: now }
       this.payouts.unshift(p)
-      if (!this.broken('payout-uncredited')) this.d.credit(ws.id, p.credits_ulxc, 'purchase', 'marketplace earnings taken as credits')
+      if (!this.broken('payout-uncredited')) this.d.credit(ws.id, p.credits_ulxc, 'purchase', 'marketplace earnings taken as credits', { market_payout_id: p.id })
       const { ws: _w, ...out } = p
       return json(res, 201, out), true
     }

@@ -18,6 +18,8 @@ export interface LedgerRow {
   balance_after_ulxc: number
   type: string
   description: string
+  /** What Lens tagged the row with — a credits payout's row names its market_payout_id. */
+  metadata?: Record<string, unknown>
   created_at: string
 }
 
