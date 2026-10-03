@@ -740,12 +740,16 @@ export function marketPayout(seed: number, seller: number): Scenario {
       ctx.evidence.push({ note: `the seller: Take as credits: ${said}` })
       if (!/credits\.$/.test(said)) return fail(`taking the earnings as credits was refused: "${said}"`)
       const made = ((await env.lens.payouts(bought.seller)).payouts ?? []).filter((p) => !payouts0.has(p.id))
-      const credited = (await env.lens.ledger(bought.seller)).filter((x) => !rows0.has(x.id))
-      ctx.evidence.push({ note: `the seller's new payouts ${JSON.stringify(made)}; new ledger rows ${JSON.stringify(credited)}` })
+      // The seller's own lanes keep writing its ledger meanwhile (a question's spend, an agent's cash-out),
+      // so only the new rows that name a market payout are this payout's.
+      const credited = (await env.lens.ledger(bought.seller)).filter((x) => !rows0.has(x.id) && x.metadata?.market_payout_id !== undefined)
+      ctx.evidence.push({ note: `the seller's new payouts ${JSON.stringify(made)}; new payout rows on its ledger ${JSON.stringify(credited)}` })
       if (made.length !== 1 || made[0].method !== 'credits' || made[0].gross_usd_micros !== gross || made[0].credits_ulxc !== gross * 10 || made[0].paid_at === undefined) {
         return fail(`taking ${gross} µUSD as credits made ${made.length} payout(s): ${JSON.stringify(made)}`)
       }
-      if (credited.length !== 1 || credited[0].amount_ulxc !== made[0].credits_ulxc) return fail(`a ${made[0].credits_ulxc} µLXC credits payout put ${credited.length} row(s) on the seller's ledger: ${JSON.stringify(credited)}`)
+      if (credited.length !== 1 || credited[0].metadata?.market_payout_id !== made[0].id || credited[0].amount_ulxc !== made[0].credits_ulxc) {
+        return fail(`a ${made[0].credits_ulxc} µLXC credits payout ${made[0].id} put ${credited.length} payout row(s) on the seller's ledger: ${JSON.stringify(credited)}`)
+      }
       const after = await env.lens.marketEarnings(bought.seller)
       if (after.available_usd_micros !== 0 || after.paid_out_usd_micros !== (cleared.earned.paid_out_usd_micros ?? 0) + gross) {
         return fail(`paid out, the seller has ${after.available_usd_micros} µUSD available (want 0) and ${after.paid_out_usd_micros} paid out (want ${(cleared.earned.paid_out_usd_micros ?? 0) + gross})`)
