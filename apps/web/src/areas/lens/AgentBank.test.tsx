@@ -16,6 +16,8 @@ function mockBff() {
   const approvals: Array<{ id: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; fp: string }> = []
   let workspace = 100 * M
   const paid: Record<string, number> = {}
+  const moveKeys: string[] = []
+  const blips: Array<502 | 'drop'> = []
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -53,6 +55,14 @@ function mockBff() {
       case 'fund':
         agent.balance_ulxc += Number(body.amount_ulxc)
         return json({ agent_id: agent.id, balance_ulxc: agent.balance_ulxc })
+      case 'withdraw': {
+        moveKeys.push(new Headers(init?.headers).get('Idempotency-Key') ?? '')
+        const blip = blips.shift()
+        if (blip === 502) return json({ error: 'Lens could not answer just now' }, 502)
+        if (blip === 'drop') throw new TypeError('Failed to fetch')
+        agent.balance_ulxc -= Number(body.amount_ulxc)
+        return json({ agent_id: agent.id, balance_ulxc: agent.balance_ulxc })
+      }
       case 'rules':
         if (method === 'PUT') rules[agent.id] = body
         return json({
@@ -90,7 +100,7 @@ function mockBff() {
     }
     return new Response('null', { status: 404 })
   })
-  return { agents, approvals, setWorkspace: (v: number) => (workspace = v) }
+  return { agents, approvals, moveKeys, blips, setWorkspace: (v: number) => (workspace = v) }
 }
 
 afterEach(() => {
@@ -107,6 +117,28 @@ async function createAgent(name: string) {
 }
 
 describe('Agent Bank', () => {
+  // B17.26 — a Take back that meets a deploy's restart (a 502, then no answer) is sent again under one
+  // Idempotency-Key and lands, instead of "Nothing changed. You can try again."
+  it('takes LXC back through a restart, sending the same key until it is answered', async () => {
+    const bff = mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+    await waitFor(() => expect(screen.getByTestId('agent-bank-totals')).toHaveTextContent('The workspace holds 100 LXC'))
+    await createAgent('South')
+    fireEvent.change(screen.getByLabelText('Amount in LXC for South'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Fund' }))
+    await waitFor(() => expect(screen.getByTestId('agent-balance-agt_1')).toHaveTextContent('1 LXC'))
+
+    bff.blips.push(502, 'drop')
+    fireEvent.change(screen.getByLabelText('Amount in LXC for South'), { target: { value: '0.25' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Take back' }))
+    await waitFor(() => expect(screen.getByText(/South now holds/)).toHaveTextContent('South now holds 0.75 LXC.'), { timeout: 5_000 })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(bff.moveKeys).toHaveLength(3)
+    expect(bff.moveKeys[0]).not.toBe('')
+    expect(new Set(bff.moveKeys).size).toBe(1)
+  }, 15_000)
+
   it('creates and funds an agent, refuses a payment over its daily limit, and pays once approved from the inbox', async () => {
     const bff = mockBff()
     window.history.pushState({}, '', '/agents')
