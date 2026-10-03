@@ -64,8 +64,11 @@ describe('the operator screen (B18.25)', () => {
     mockBff(false)
     const nav = await at('/operator')
     expect(within(nav).queryByRole('link', { name: 'Workspaces' })).toBeNull()
-    // The 403 is retried once, a second later, before the refusal shows — past findBy's 1s default.
-    expect(await screen.findByText('Only Talyvor’s operators can see this screen.', {}, { timeout: 3000 })).toBeTruthy()
+    // B26.29 — a 403 is a verdict, so it is not retried: the refusal shows at once, well inside the
+    // one-second wait a retry would cost, and the BFF is asked exactly once.
+    expect(await screen.findByText('Only Talyvor’s operators can see this screen.', {}, { timeout: 500 })).toBeTruthy()
     expect(screen.queryByTestId('operator-workspace')).toBeNull()
+    const asked = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input) === '/api/admin/workspaces')
+    expect(asked).toHaveLength(1)
   })
 })
