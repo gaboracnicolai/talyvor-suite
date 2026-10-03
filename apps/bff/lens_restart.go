@@ -17,6 +17,9 @@ package main
 // with "lens upstream unreachable" (e2e 2026-10-03, capital, user 173). Both are marked: a mint
 // moves no LXC, and a question Lens never answered was never settled — the hold it may have taken
 // is swept and refunded, so asking it again charges it once.
+//
+// B17.36 — the chat's third call, a document attached to the question (POST /api/documents), is
+// marked too: the upload only stores the file, so one Lens never answered is safe to send again.
 
 import (
 	"context"

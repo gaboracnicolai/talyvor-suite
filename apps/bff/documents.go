@@ -64,7 +64,9 @@ func (a *app) handleDocumentUpload(w http.ResponseWriter, r *http.Request, t ten
 	if name := r.URL.Query().Get("filename"); name != "" && len(name) <= 255 {
 		target += "?filename=" + url.QueryEscape(name)
 	}
-	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost, target, bytes.NewReader(doc))
+	// B17.36 — an upload that meets a Lens restart is sent again once Lens is back, like the chat's
+	// question (B17.30): Lens never stored a file it never answered for, and storing one moves no LXC.
+	up, err := http.NewRequestWithContext(resendOnRestart(r.Context()), http.MethodPost, target, bytes.NewReader(doc))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
 		return

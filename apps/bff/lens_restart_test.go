@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -25,6 +26,12 @@ func fakeLensOn(t *testing.T, addr string) *httptest.Server {
 		case r.URL.Path == lensSessionKeyPath:
 			w.WriteHeader(http.StatusCreated)
 			_, _ = io.WriteString(w, `{"key":"`+testSessionKey+`","expires_at":"`+time.Now().Add(time.Hour).UTC().Format(time.RFC3339)+`"}`)
+		case r.URL.Path == "/v1/documents":
+			// The stored document's id carries its size, so a test sees the file arrived whole.
+			doc, _ := io.ReadAll(r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = fmt.Fprintf(w, `{"id":"tdoc_%d"}`, len(doc))
 		case strings.HasPrefix(r.URL.Path, "/v1/proxy/"):
 			// The answer repeats the question, so a test sees the question arrived whole.
 			question, _ := io.ReadAll(r.Body)
@@ -175,4 +182,56 @@ func TestChatQuestionWaitsForLensRestartInsteadOf502(t *testing.T) {
 	}
 	askDuringRestart("first question, credential not minted yet")
 	askDuringRestart("next question, credential already minted")
+}
+
+// B17.36 — a document attached in Chat while Lens restarts is stored once Lens is back. The upload is
+// the chat's third call to Lens (POST /api/documents, before the question), and B17.30 left it to fail
+// with "lens upstream unreachable" (e2e 2026-10-03, document-in-chat).
+func TestChatDocumentUploadWaitsForLensRestartInsteadOf502(t *testing.T) {
+	lens := fakeLensOn(t, "127.0.0.1:0")
+	addr := lens.Listener.Addr().String()
+	cfg := config{
+		lensBaseURL:     "http://" + addr,
+		lensRestartWait: bootWithUnset(t, "LENS_BASE_URL", minimalDisabled()).lensRestartWait,
+		provisionSecret: testProvisionSecret,
+		authMode:        authModeOIDC, oidcIssuer: "https://idp.example.com",
+		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
+		webDist: t.TempDir(),
+	}
+	auth := newSessionOnlyAuthenticator(cfg)
+	seedProvisionedSession(auth, "doc-sid", "u1", "ng@example.com", "u-test-workspace")
+	a := newApp(cfg, auth)
+
+	const memo = "<h1>Quarterly memo</h1><p>The code word is juniper.</p>"
+	attach := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/documents?filename=memo.html", strings.NewReader(memo))
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "doc-sid"})
+		req.Header.Set("Origin", "https://app.talyvor.com")
+		req.Header.Set("Content-Type", "text/html")
+		rec := httptest.NewRecorder()
+		a.ServeHTTP(rec, req)
+		return rec
+	}
+	// The chat credential is minted before the restart, so it is the upload itself that meets the gap.
+	if rec := attach(); rec.Code != http.StatusCreated {
+		t.Fatalf("before the restart: %d %s", rec.Code, rec.Body)
+	}
+
+	lens.Close()
+	down := lensRestarting(t, addr)
+	go func() {
+		time.Sleep(700 * time.Millisecond)
+		_ = down.Close()
+		fakeLensOn(t, addr)
+	}()
+
+	start := time.Now()
+	rec := attach()
+
+	if want := fmt.Sprintf(`"tdoc_%d"`, len(memo)); rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), want) {
+		t.Fatalf("a document attached during the restart answered %d %s, want Lens's 201 with %s once it is back", rec.Code, rec.Body, want)
+	}
+	if waited := time.Since(start); waited < 500*time.Millisecond {
+		t.Fatalf("answered after %v — the upload never met the restart gap", waited)
+	}
 }
