@@ -63,6 +63,16 @@ interface DistillReading {
 
 const FEATURES_KEY = ['features']
 
+// B17.35 — the screen opened while Lens restarts reads it again instead of showing a row with no
+// switch. The e2e run of 2026-10-03 opened Features inside a redeploy: the read failed, and the BFF's
+// best-effort guardrail read can come back null, so "Prompt-injection detection" read "Could not be
+// read" with nothing to switch. A reply without the guardrail policy now counts as a failed read,
+// and until something has been read a failed read is tried again every READ_EVERY_MS, up to
+// READ_TRIES tries — about ten seconds, inside the e2e's thirty-second wait. The rows say
+// "Checking…" meanwhile; the last try shows what it read.
+const READ_TRIES = 6
+const READ_EVERY_MS = 2_000
+
 /** Every body this screen sends — one key each, so each write names exactly the setting it changes. */
 type SettingWrite =
   | { tare_policy: ReducerPolicy }
@@ -359,7 +369,21 @@ function To({ to, children }: { to: string; children: React.ReactNode }) {
 }
 
 export function Features() {
-  const q = useQuery({ queryKey: FEATURES_KEY, queryFn: () => getJSON<FeaturesState>('/api/features') })
+  const qc = useQueryClient()
+  const q = useQuery({
+    queryKey: FEATURES_KEY,
+    queryFn: async () => {
+      const st = await getJSON<FeaturesState>('/api/features')
+      const tried = qc.getQueryState(FEATURES_KEY)?.fetchFailureCount ?? 0
+      if (st.guardrails == null && tried < READ_TRIES - 1) throw new ApiError(502, '/api/features')
+      return st
+    },
+    // Once read, a failed re-read keeps what Lens last reported (B17.28) after the app's one retry.
+    retry: (failures, err) =>
+      !(err instanceof ApiError && (err.status === 401 || err.status === 403)) &&
+      failures < (qc.getQueryData(FEATURES_KEY) === undefined ? READ_TRIES - 1 : 1),
+    retryDelay: READ_EVERY_MS,
+  })
   const tare = useQuery({ queryKey: ['tare-savings'], queryFn: () => getJSON<TareSavings>('/api/features/tare-savings') })
   const distill = useQuery({ queryKey: ['distill'], queryFn: () => getJSON<DistillReading>('/api/distill') })
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
