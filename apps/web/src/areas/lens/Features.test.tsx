@@ -14,6 +14,8 @@ function mockBff(
     pii = false,
     miningEnabled = true,
     featuresReads = Infinity,
+    /** How the first reads of /api/features answer, in order, before Lens is back — B17.35. */
+    restarting = [] as Array<'502' | 'no guardrails'>,
   } = {},
 ) {
   let tare = 'disabled'
@@ -88,6 +90,8 @@ function mockBff(
         by_type: [{ type: 'pool_royalty', class: 'settled', kind: 'contribution', amount_ulens: 2_500_000, rows: 3, reason: '' }],
       })
     if (url === '/api/features' && featuresReads-- <= 0) return new Response('{}', { status: 502 })
+    const restart = url === '/api/features' && !init?.method ? restarting.shift() : undefined
+    if (restart === '502') return new Response('{"error":"lens upstream unreachable"}', { status: 502 })
     if (url === '/api/features')
       return json({
         tare_policy: tare,
@@ -97,7 +101,7 @@ function mockBff(
         cache_poolable: cachePoolable,
         distill_poolable: distillPoolable,
         cost_optimize_routing: false,
-        guardrails,
+        guardrails: restart === 'no guardrails' ? null : guardrails,
         pattern_mining: { opted_in: patternOptedIn, enabled: miningEnabled },
       })
     return new Response('null', { status: 404 })
@@ -406,4 +410,18 @@ describe('the Features screen', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Couldn’t re-read this workspace’s settings just now')
     expect(screen.getByRole('switch', { name: 'Tare: turn on' })).toBeEnabled()
   })
+
+  // B17.35 — the e2e run of 2026-10-03 opened Features while Lens restarted: the read failed, then
+  // came back without the guardrail policy, and the row read "Could not be read" with no switch.
+  it('opened while Lens restarts, the screen keeps reading and the injection switch appears once Lens answers', async () => {
+    mockBff([], { restarting: ['502', 'no guardrails'] })
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const state = () => screen.getByTestId('state-Prompt-injection detection')
+
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([u]) => u === '/api/features')).toHaveLength(2), { timeout: 4000 })
+    expect(state()).toHaveTextContent('Checking…')
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Prompt-injection detection: turn off' })).toBeChecked(), { timeout: 4000 })
+    expect(state()).toHaveTextContent('On')
+  }, 10_000)
 })
