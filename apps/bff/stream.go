@@ -98,12 +98,14 @@ const sessionKeyRenewMargin = 2 * time.Minute
 //
 // ⚠ NO Timeout FIELD. See point 3 above — it would bound body reads and truncate every long
 // completion. What IS bounded is the phase that can hang without any progress at all.
-func newStreamClient() *http.Client {
+//
+// B17.30 — and a question that finds Lens restarting waits for it (lens_restart.go).
+func newStreamClient(restartWait time.Duration) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.ResponseHeaderTimeout = 60 * time.Second
 	// SSE is a long-lived response; compression would defeat incremental delivery.
 	tr.DisableCompression = true
-	return &http.Client{Transport: tr}
+	return &http.Client{Transport: newRestartTolerantTransport(tr, restartWait)}
 }
 
 // sessionKeyFor returns a {proxy}-scoped Lens credential for this session, minting one if the
@@ -122,7 +124,8 @@ func (a *app) sessionKeyFor(ctx context.Context, t tenant) (string, error) {
 	}
 	a.skMu.Unlock()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+	// B17.30 — a mint moves no LXC, so one that finds Lens restarting is sent again once it is back.
+	req, err := http.NewRequestWithContext(resendOnRestart(ctx), http.MethodPost,
 		a.cfg.lensBaseURL+lensSessionKeyPath, bytes.NewReader([]byte(`{}`)))
 	if err != nil {
 		return "", err
@@ -222,7 +225,8 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		// value is forwarded.
 		bypass := strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheHeader)), "bypass")
 		send := func(bypass bool) (*http.Response, error) {
-			up, err := http.NewRequestWithContext(ctx, http.MethodPost,
+			// B17.30 — a question that never reached a restarting Lens is asked again once it is back.
+			up, err := http.NewRequestWithContext(resendOnRestart(ctx), http.MethodPost,
 				a.cfg.lensBaseURL+"/v1/proxy/"+provider+"/"+rest, bytes.NewReader(body))
 			if err != nil {
 				return nil, err
