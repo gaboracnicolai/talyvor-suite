@@ -479,17 +479,17 @@ const PINS: Record<string, Pin> = {
   // A deployer following one of these is mid-deploy and checking a refusal before they trip it.
   // The fragment is the REFUSAL ITSELF: a claim that the BFF stops for a variable is worth
   // exactly the line that stops it, so deleting the refusal reds the runbook that promises it.
-  'deploy/README.md:385|apps/bff/main.go:133': {
+  'deploy/README.md:385|apps/bff/main.go:137': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID must not be set',
     why: 'the ~~TRACK_WORKSPACE_ID~~ row promises "the BFF now REFUSES TO START if this is set"; it cited 112, which is a closing brace',
   },
-  'deploy/FULL-STACK-DEPLOY.md:39|apps/bff/main.go:127': {
+  'deploy/FULL-STACK-DEPLOY.md:39|apps/bff/main.go:131': {
     kind: 'LIVE',
     fragment: 'LENS_PROVISION_SECRET is required',
     why: '"BFF requires LENS_PROVISION_SECRET … Refuses to start, names itself" — it cited 94, a comment line naming a test',
   },
-  'deploy/FULL-STACK-DEPLOY.md:40|apps/bff/main.go:136': {
+  'deploy/FULL-STACK-DEPLOY.md:40|apps/bff/main.go:140': {
     kind: 'LIVE',
     fragment: 'LENS_API_KEY must not be set',
     why: '"BFF refuses to boot if LENS_API_KEY is set" — it cited 96, the docsGatewaySecret field',
@@ -526,7 +526,7 @@ const PINS: Record<string, Pin> = {
     fragment: 's.email',
     why: 'the other half of the same argument — the browser may only mark a row if /auth/me serves the SAME value the BFF forwards upstream',
   },
-  'apps/web/src/areas/lens/Members.tsx:46|apps/bff/main.go:132': {
+  'apps/web/src/areas/lens/Members.tsx:46|apps/bff/main.go:136': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID',
     why: 'the provenance line used to say the workspace is "pinned server-side"; this is the line that refuses to boot into that design, and it is why the sentence changed',
@@ -536,12 +536,12 @@ const PINS: Record<string, Pin> = {
     fragment: 'workspace_id=SOMEBODY-ELSE',
     why: 'the positive half — the screen says a browser-named workspace is ignored, and this is the test that drives one',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:43|apps/bff/main.go:252': {
+  'apps/web/src/areas/lens/Members.test.tsx:43|apps/bff/main.go:256': {
     kind: 'LIVE',
     fragment: 'TRACK_BASE_URL',
     why: 'the 503 state names the two variables as the next action; they are read from here, not remembered',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:259|apps/bff/main.go:252': {
+  'apps/web/src/areas/lens/Members.test.tsx:259|apps/bff/main.go:256': {
     kind: 'LIVE',
     fragment: 'TRACK_BASE_URL',
     why: 'the same claim at the case that asserts it, so the case and the header cannot drift apart',
@@ -566,7 +566,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'http.MethodGet',
     why: 'the screen renders no control at all because this BFF proxies a GET and nothing else; this is the method test that makes that true',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:369|apps/bff/main.go:132': {
+  'apps/web/src/areas/lens/Members.test.tsx:369|apps/bff/main.go:136': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID',
     why: 'the case that forbids the word "pinned" in the provenance line cites the refusal that makes pinning impossible',

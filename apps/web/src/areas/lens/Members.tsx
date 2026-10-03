@@ -43,7 +43,7 @@ import { Region, RegionScreen } from '../../components/Region'
 // now says what the state would MEAN, which is that two things disagree.
 //
 // (3) ⚠ THE PROVENANCE LINE STATED A PINNING THIS BFF REFUSES TO BOOT WITH. It read "the
-// workspace is pinned server-side". `TRACK_WORKSPACE_ID` is gone and apps/bff/main.go:132
+// workspace is pinned server-side". `TRACK_WORKSPACE_ID` is gone and apps/bff/main.go:136
 // refuses the boot if it is set — "leaving it set would state a pinning that does not happen". The
 // workspace comes from the SESSION per request (apps/bff/track_tenant.go), and a browser-named
 // one is ignored (apps/bff/keys_test.go:318). That is what the line says now, and it is the

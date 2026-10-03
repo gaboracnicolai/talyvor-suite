@@ -40,7 +40,7 @@ import { Members } from './Members'
 //
 // ⚠ THE STATE A NEW SIGNUP ACTUALLY SEES FIRST ON THIS DEPLOYMENT IS THE 503, and that is where
 // the "name the next action" half of W1.1.6 lands: the two variables, measured from
-// apps/bff/main.go:252-256, not remembered.
+// apps/bff/main.go:256-260, not remembered.
 
 const ROSTER = [
   { id: 'mem-owner', name: 'Ada Owner', email: 'ada@corp.example', role: 'owner', avatar_url: '' },
@@ -256,7 +256,7 @@ describe('an unconfigured Track upstream is DETECTED, never asserted', () => {
 
   // W1.1.6: "the empty state names the absence without naming the next action". On THIS deployment
   // the 503 is the state a new signup meets first, so the next action lands here. Both names are
-  // measured from apps/bff/main.go:252-256, and the all-or-none rule with them: setting one alone
+  // measured from apps/bff/main.go:256-260, and the all-or-none rule with them: setting one alone
   // makes the BFF refuse to boot.
   it('names the next action — the two variables that wire Track, and that they go together', async () => {
     mockBff({ status: 503, body: { error: 'track upstream not configured on this BFF' } })
@@ -366,7 +366,7 @@ describe('the screen offers no control this product does not have', () => {
 describe('the provenance line states the mechanism this deployment actually uses', () => {
   // ⚠ THE OLD LINE SAID "the workspace is pinned server-side", AND THIS PRODUCT REFUSES TO BOOT
   // INTO THAT DESIGN. `TRACK_WORKSPACE_ID` — the variable that pinned one workspace at startup —
-  // is gone, and apps/bff/main.go:132 refuses the boot if it is set, with the reason spelled out:
+  // is gone, and apps/bff/main.go:136 refuses the boot if it is set, with the reason spelled out:
   // "Track is per-session … this variable is not read. Remove it; leaving it set would state a
   // pinning that does not happen". The screen was stating exactly that pinning.
   //
