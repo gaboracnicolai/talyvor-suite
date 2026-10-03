@@ -7,6 +7,8 @@ export interface RowProps extends React.HTMLAttributes<HTMLDivElement> {
   hint?: React.ReactNode
   /** Right-hand control. */
   children?: React.ReactNode
+  /** On a phone the control sits full-width under the label; beside it from `wide` up. */
+  stack?: boolean
 }
 
 // The settings row: label left, control right, 38px tall, hairline divider. The
@@ -43,11 +45,16 @@ export interface RowProps extends React.HTMLAttributes<HTMLDivElement> {
 // ⚠ AND WRAPPING ADDS HEIGHT RATHER THAN BREAKING THE GRID: the row is `min-h-row`, a FLOOR, so a
 // two-line hint grows the row and the control stays on its axis. Measured after the change — no
 // horizontal overflow at 1280/1440/390, and the count of clipped elements at desktop went 2 → 0.
-export function Row({ label, hint, children, className, ...props }: RowProps) {
+//
+// `stack` is for a row whose control is wider than a phone can spare beside its label — Approve and
+// Deny under a sentence (B26.28). Without it the row never wraps, so at 390px the control keeps its
+// width and the label is squeezed to what is left.
+export function Row({ label, hint, children, stack = false, className, ...props }: RowProps) {
   return (
     <div
       className={cn(
-        'flex min-h-row items-center justify-between gap-gutter px-gutter py-2',
+        'flex min-h-row gap-gutter px-gutter py-2',
+        stack ? 'flex-col wide:flex-row wide:items-center wide:justify-between' : 'items-center justify-between',
         'border-b border-rule last:border-b-0',
         className,
       )}

@@ -53,6 +53,8 @@ export interface RunEnv {
   userCount: number
   /** B25.5 — every screen and route there is, read from the code (coverage.ts). */
   inventory: Inventory
+  /** Where the run's results go; a scenario's screenshots are written beside them. */
+  outDir: string
 }
 
 export interface ScenarioCtx {
