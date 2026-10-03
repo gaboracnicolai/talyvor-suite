@@ -12,8 +12,10 @@ import {
   type SimOrderInput,
   agentBankApi,
   formatULXC,
+  newMoveKey,
   parseLXC,
   refusalText,
+  retryMoveThroughRestart,
 } from './agentBankApi'
 import { Note, TestMoneyOnly, readFailure } from './WalletMoney'
 
@@ -60,8 +62,12 @@ function PotRow({ agent, pot }: { agent: Agent; pot: Pot }) {
   const micros = parseLXC(amount)
   const lockAt = startOfDay(until)
   const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: potsKey(agent.id) }), qc.invalidateQueries({ queryKey: BOOK_KEY })])
+  // B17.33 — as Money's Fund and Take back (B17.26): the amount and the Idempotency-Key are the mutation's
+  // own, so a move sent again through a deploy's restart repeats both and Lens moves the LXC once.
   const move = useMutation({
-    mutationFn: (dir: 'in' | 'out') => agentBankApi.movePot(agent.id, pot.id, dir, micros ?? 0),
+    mutationFn: ({ dir, ulxc, key }: { dir: 'in' | 'out'; ulxc: number; key: string }) => agentBankApi.movePot(agent.id, pot.id, dir, ulxc, key),
+    retry: retryMoveThroughRestart,
+    retryDelay: (failures) => Math.min(500 * 2 ** failures, 4_000),
     onSuccess: () => setAmount(''),
     onSettled: refresh,
   })
@@ -93,10 +99,10 @@ function PotRow({ agent, pot }: { agent: Agent; pot: Pot }) {
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
         />
-        <Button disabled={micros === null || move.isPending} onClick={() => move.mutate('in')}>
+        <Button disabled={micros === null || move.isPending} onClick={() => move.mutate({ dir: 'in', ulxc: micros ?? 0, key: newMoveKey() })}>
           Move in
         </Button>
-        <Button disabled={micros === null || move.isPending} onClick={() => move.mutate('out')}>
+        <Button disabled={micros === null || move.isPending} onClick={() => move.mutate({ dir: 'out', ulxc: micros ?? 0, key: newMoveKey() })}>
           Move out
         </Button>
         <Input type="date" aria-label={`Lock ${pot.name} until`} className="w-40 font-figure" value={until} onChange={(e) => setUntil(e.target.value)} />

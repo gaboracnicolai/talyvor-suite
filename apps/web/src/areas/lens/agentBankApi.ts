@@ -245,7 +245,7 @@ async function send<T>(method: string, path: string, body: object = {}, headers:
 
 const e = encodeURIComponent
 
-/** A fresh Idempotency-Key for one Fund or Take back. */
+/** A fresh Idempotency-Key for one Fund or Take back, or one move into or out of a pot. */
 export function newMoveKey(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -253,10 +253,10 @@ export function newMoveKey(): string {
 }
 
 /**
- * B17.26 — whether a Fund or Take back met the seconds the app or Lens restarts on a deploy (502, 503,
- * 504, or no answer at all), so it is sent again under its Idempotency-Key: Lens moves the LXC once
- * however many times the key arrives. Sent again up to six times over about fifteen seconds (the Money
- * card's retryDelay); a refusal is final.
+ * B17.26 — whether a Fund or Take back (or, B17.33, a pot's Move in or Move out) met the seconds the app
+ * or Lens restarts on a deploy (502, 503, 504, or no answer at all), so it is sent again under its
+ * Idempotency-Key: Lens moves the LXC once however many times the key arrives. Sent again up to six times
+ * over about fifteen seconds (the card's retryDelay); a refusal is final.
  */
 export function retryMoveThroughRestart(failures: number, err: unknown): boolean {
   return failures < 6 && (err instanceof TypeError || (err instanceof AgentBankError && [502, 503, 504].includes(err.status)))
@@ -381,10 +381,10 @@ export const agentBankApi = {
   pots: (id: string) => getJSON<{ pots: Pot[] | null }>(`/api/agents/${e(id)}/pots`),
   createPot: (id: string, body: { name: string; kind: Pot['kind']; target_ulxc: number; locked_until: string | null }) =>
     send<Pot>('POST', `/api/agents/${e(id)}/pots`, body),
-  movePot: (id: string, pid: string, dir: 'in' | 'out', amount_ulxc: number) =>
+  movePot: (id: string, pid: string, dir: 'in' | 'out', amount_ulxc: number, key: string) =>
     dir === 'in'
-      ? send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/in`, { amount_ulxc })
-      : send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/out`, { amount_ulxc }),
+      ? send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/in`, { amount_ulxc }, { 'Idempotency-Key': key })
+      : send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/out`, { amount_ulxc }, { 'Idempotency-Key': key }),
   lockPot: (id: string, pid: string, locked_until: string | null) => send<Pot>('PUT', `/api/agents/${e(id)}/pots/${e(pid)}/lock`, { locked_until }),
   quotes: () => getJSON<SimQuotes>('/api/wallets/quotes'),
   portfolios: (id: string) => getJSON<{ portfolios: Portfolio[] | null; notice: string }>(`/api/agents/${e(id)}/portfolios`),
