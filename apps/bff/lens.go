@@ -51,7 +51,7 @@ func newApp(cfg config, auth *authenticator) *app {
 		cfg:          cfg,
 		auth:         auth,
 		mux:          http.NewServeMux(),
-		client:       &http.Client{Timeout: 10 * time.Second},
+		client:       &http.Client{Timeout: 10 * time.Second, Transport: newRestartTolerantTransport(cfg.lensRestartWait)},
 		streamClient: newStreamClient(),
 		sessionKeys:  map[string]sessionKeyLease{},
 	}
