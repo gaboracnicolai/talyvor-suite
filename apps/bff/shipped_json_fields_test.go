@@ -53,6 +53,7 @@ import (
 // value this process invented. These are the ones worth checking.
 var builtByThisService = map[string]string{
 	"binaryVersion":        "build identity of this binary; assembled by describeBinary",
+	"sealedSession":        "the session sealed into its own cookie id, filled from a session in sessionSealer.seal (B17.40)",
 	"bundleVersion":        "identity of the web bundle on disk; assembled by readBundleVersion",
 	"convertQuote":         "the LENS->LXC quote returned to the money screen",
 	"distillState":         "the distill panel's state, assembled in readDistillState",
