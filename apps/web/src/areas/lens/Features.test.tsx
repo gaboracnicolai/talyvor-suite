@@ -13,6 +13,7 @@ function mockBff(
     waiting = [] as Array<{ provider: string; id: string; first_seen_at: string }>,
     pii = false,
     miningEnabled = true,
+    featuresReads = Infinity,
   } = {},
 ) {
   let tare = 'disabled'
@@ -86,6 +87,7 @@ function mockBff(
         disabled_gates: disabledGates,
         by_type: [{ type: 'pool_royalty', class: 'settled', kind: 'contribution', amount_ulens: 2_500_000, rows: 3, reason: '' }],
       })
+    if (url === '/api/features' && featuresReads-- <= 0) return new Response('{}', { status: 502 })
     if (url === '/api/features')
       return json({
         tare_policy: tare,
@@ -381,5 +383,27 @@ describe('the Features screen', () => {
     await waitFor(() =>
       expect(within(r()).getByTestId('state-Spending limit')).toHaveTextContent('On — $0.0005 a month; requests past it are refused'),
     )
+  })
+
+  // B17.28 — under load the re-read after a write was slow or failed: the switch waited on it past
+  // 15 s, and a failed re-read hid every control on the page. Lens's reply to the write says what it
+  // recorded, so that is what shows; a failed re-read leaves the switches where they are.
+  it('a switch shows what Lens recorded from its own reply, and switches back, while the re-read fails', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts, { featuresReads: 1 })
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+
+    await waitFor(() => expect(within(row('Tare')).getByTestId('state-Tare')).toHaveTextContent('Off'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Tare: turn on' }))
+    await waitFor(() => expect(within(row('Tare')).getByTestId('state-Tare')).toHaveTextContent('On'))
+    expect(screen.getByRole('switch', { name: 'Tare: turn off' })).toBeEnabled()
+    expect(screen.getByRole('combobox', { name: 'Request logging' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Tare: turn off' }))
+    await waitFor(() => expect(within(row('Tare')).getByTestId('state-Tare')).toHaveTextContent('Off'))
+    expect(posts.map((p) => p.body)).toEqual([{ tare_policy: 'always' }, { tare_policy: 'disabled' }])
+    expect(await screen.findByRole('status')).toHaveTextContent('Couldn’t re-read this workspace’s settings just now')
+    expect(screen.getByRole('switch', { name: 'Tare: turn on' })).toBeEnabled()
   })
 })
