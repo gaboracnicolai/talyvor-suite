@@ -212,6 +212,9 @@ serve(DOCS_PORT, 'docs', async (req, res, path) => {
   if (rest === '/pins') return json(res, 200, [])
   if (rest === '/ai/ask' && req.method === 'POST') {
     const { question = '' } = await body<{ question?: string }>(req)
+    // A model takes a while to answer, so the card shows "Asking…" first (B17.39: the harness once read
+    // that label as the answer, and an instant stub could never show it).
+    await new Promise((r) => setTimeout(r, 1500))
     // Retrieval: the page sentence sharing the most words with the question.
     let best: { page: Page; sentence: string; score: number } | undefined
     for (const p of pages.filter((x) => mine.some((s) => s.id === x.space_id))) {
