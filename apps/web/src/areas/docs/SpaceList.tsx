@@ -1,6 +1,6 @@
 // The one LIVE screen: spaces from GET /api/docs/spaces (upstream body verbatim).
 // macOS-Settings density — one 38px row per space, whole row is the affordance.
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Row, focusRing } from '@talyvor/ui'
@@ -10,6 +10,7 @@ import { AskAI } from './AskAI'
 import { SearchDocs } from './SearchDocs'
 import { docsApi, type DocsSpace } from './api'
 import { Chip } from './components'
+import { DOCS_MEMBERSHIP_KEY, readDocsMembership } from './docsNav'
 import { isSessionExpired } from '../../lib/productState'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 
@@ -130,11 +131,44 @@ const HEADLINE = 'Everything this workspace has written down.'
 const HEADLINE_EMPTY = 'Nothing is written down in this workspace yet.'
 const HEADLINE_OFF = 'Docs is not configured here.'
 const HEADLINE_FAULT = 'Docs can’t be reached, so nothing can be listed.'
+const HEADLINE_REFUSED = 'You’re not a member of Docs yet.'
+
+/**
+ * B27.15 — how long to wait before the Nth re-check of a refused person's membership: 2s, doubling,
+ * never more than 30s apart. Docs learns its members from Track, so a person who has just joined is
+ * refused until that roster lands; each check also asks Docs to sync again (docs_membership.go).
+ */
+export function membershipRecheckDelay(attempt: number): number {
+  return Math.min(2_000 * 2 ** attempt, 30_000)
+}
 
 export function SpaceList() {
   const q = useQuery({ queryKey: ['docs-spaces'], queryFn: docsApi.spaces })
   const spaces = q.data ?? []
   const nameRef = useRef<HTMLInputElement | null>(null)
+  const qc = useQueryClient()
+  // B27.15 — a 403 is Docs saying it has not been told this person belongs here yet: a refusal, not
+  // an outage. It used to read "Docs can't be reached" and never ask again. Now the screen re-checks
+  // MEMBERSHIP (which answers 200 either way, so the wait logs no failed requests) with backoff, and
+  // reads the spaces again once Docs says yes — recovering by itself when the roster arrives.
+  const refused = q.error instanceof ApiError && q.error.status === 403
+  useEffect(() => {
+    if (!refused) return
+    let stopped = false
+    let attempt = 0
+    let timer: ReturnType<typeof setTimeout>
+    const check = async () => {
+      try {
+        const member = await qc.fetchQuery({ queryKey: DOCS_MEMBERSHIP_KEY, queryFn: readDocsMembership, staleTime: 0 })
+        if (member && !stopped) await qc.refetchQueries({ queryKey: ['docs-spaces'] })
+      } catch {
+        // A check that failed is one more try, on the same backoff.
+      }
+      if (!stopped) timer = setTimeout(check, membershipRecheckDelay(++attempt))
+    }
+    timer = setTimeout(check, membershipRecheckDelay(attempt))
+    return () => { stopped = true; clearTimeout(timer) }
+  }, [refused, qc])
   // An unconfigured upstream is a 503 from the BFF's proxyProduct ("… upstream
   // not configured on this BFF"), and a 404 is a BFF built before the Docs
   // routes — both are INFORMATION, not faults (the same reading Overview's
@@ -149,11 +183,13 @@ export function SpaceList() {
   const empty = answered && spaces.length === 0
   const heading = off
     ? HEADLINE_OFF
-    : q.isError
-      ? HEADLINE_FAULT
-      : empty
-        ? HEADLINE_EMPTY
-        : HEADLINE
+    : refused
+      ? HEADLINE_REFUSED
+      : q.isError
+        ? HEADLINE_FAULT
+        : empty
+          ? HEADLINE_EMPTY
+          : HEADLINE
 
   return (
     <RegionScreen>
@@ -194,6 +230,18 @@ export function SpaceList() {
             The BFF has no Docs upstream wired (its DOCS_* trio is unset) — off, not broken. Nothing
             is shown because nothing is being served.
           </p>
+        ) : refused ? (
+          <div className="flex max-w-2xl flex-col gap-3">
+            <p className="text-body text-muted">
+              Docs hasn’t been told yet that you belong to this workspace. It learns its members from
+              Track, and that normally lands shortly after you sign in — there is nothing you need to do.
+            </p>
+            <p className="text-body text-muted">
+              This screen keeps checking and lists your spaces by itself the moment Docs lets you in. If
+              it still says this after a few minutes, Docs is not receiving its member list from Track —
+              tell whoever runs this deployment.
+            </p>
+          </div>
         ) : q.isError ? (
           <>
             <PanelFailure error={q.error} what="spaces" />

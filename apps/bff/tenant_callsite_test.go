@@ -349,6 +349,9 @@ func TestDocsWorkspacePathOnlyForWorkspaceScopedUpstreamRoutes(t *testing.T) {
 		// B18.27 — talyvor-docs 243ca04 (B18.41): internal/pin/handler.go Mount registers
 		// `GET /workspaces/{wsID}/pins`, and the list's first act is AuthorizeWorkspace on that {wsID}.
 		"docsPins:/pins": "GET /v1/workspaces/{wsID}/pins — internal/pin/handler.go Mount",
+		// B27.15 — the same upstream route, read for its status only: docs_membership.go answers
+		// whether Docs' AuthorizeWorkspace on that {wsID} admits the session's person yet.
+		"docsMembership:/pins": "GET /v1/workspaces/{wsID}/pins — internal/pin/handler.go Mount",
 		// Checked at talyvor-docs `e70ff61`, and checked by RUNNING it rather than by reading:
 		// internal/ai/handler.go Mount registers `POST /workspaces/{wsID}/ai/transform` beside the
 		// four other AI routes, and Transform's first act is AuthorizeWorkspace on that {wsID}.

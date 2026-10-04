@@ -20,6 +20,7 @@ function mockBff(pins: ServerPin[] = []) {
     const json = (v: unknown) =>
       new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } })
     if (url === '/auth/me') return json({ mode: 'disabled', authenticated: false, user: null })
+    if (url === '/api/docs/membership') return json({ member: true })
     if (url === '/api/docs/pins') return json(pins)
     const pin = /^\/api\/docs\/spaces\/(.+)\/pages\/(.+)\/pin$/.exec(url)
     if (pin !== null) {
