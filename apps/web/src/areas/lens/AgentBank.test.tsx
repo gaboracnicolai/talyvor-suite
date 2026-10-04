@@ -13,7 +13,7 @@ const M = 1_000_000
 function mockBff() {
   const agents: Array<{ id: string; name: string; balance_ulxc: number; spent_ulxc: number; keys: string[]; created_at: string }> = []
   const rules: Record<string, Record<string, unknown>> = {}
-  const approvals: Array<{ id: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; fp: string }> = []
+  const approvals: Array<{ id: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; fp: string; payee?: { kind: 'agent'; id: string; name: string }; memo?: string }> = []
   let workspace = 100 * M
   const paid: Record<string, number> = {}
   const moveKeys: string[] = []
@@ -85,7 +85,10 @@ function mockBff() {
           else {
             let open = approvals.find((x) => x.fp === fp && x.status === 'pending')
             if (!open) {
-              open = { id: `apr_${approvals.length + 1}`, agent_id: agent.id, amount_ulxc: amount, model: '', status: 'pending', created_at: '2026-09-28T06:05:00Z', fp }
+              // Lens B23.5: the approval names who it pays and why.
+              const payee = agents.find((a) => a.id === body.to_agent_id)!
+              open = { id: `apr_${approvals.length + 1}`, agent_id: agent.id, amount_ulxc: amount, model: '', status: 'pending', created_at: '2026-09-28T06:05:00Z', fp,
+                payee: { kind: 'agent', id: payee.id, name: payee.name }, memo: String(body.memo) }
               approvals.push(open)
             }
             return json({ error: `this request would cost up to ${amount / M} LXC, above the agent's approval amount — approval ${open.id} must be approved by the workspace's owner before it is retried` }, 403)
@@ -175,6 +178,10 @@ describe('Agent Bank', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Pay' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('It is waiting in Approvals'))
     expect(bff.approvals.map((a) => a.status)).toEqual(['pending'])
+    // B27.21: the row reads single-spaced — the figure alone in the figure face, " LXC" in the sentence's.
+    const asks = await screen.findByText(/wants to pay Writer/)
+    expect(asks.textContent).toBe('Researcher wants to pay Writer 3 LXC — draft')
+    expect(asks.querySelector('.font-figure')?.textContent).toBe('3')
 
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
     await waitFor(() =>

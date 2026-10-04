@@ -264,11 +264,12 @@ func TestAgentClaimReachesLens(t *testing.T) {
 }
 
 // B19.24 — an agent's card: issuing it sends Lens the cardholder and nothing else a browser adds, and a
-// card-less agent's 404 comes back with Lens's sentence, which the screen reads as "no card yet".
+// card-less agent's 404 comes back with Lens's sentence, which the screen reads as "no card yet". B27.21:
+// the holder's phone is one of those fields; Lens hands it to Stripe as the cardholder's phone_number.
 func TestAgentCardReachesLensWithOnlyTheCardholder(t *testing.T) {
 	a, f := newFakeLensAgentBank(t)
 	rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/card",
-		`{"first_name":"Ada","last_name":"Lovelace","email":"ada@example.com","line1":"1 High St","city":"London","postal_code":"N1 1AA","country":"GB","workspace_id":"ws_other"}`)
+		`{"first_name":"Ada","last_name":"Lovelace","email":"ada@example.com","phone_number":"+447700900123","line1":"1 High St","city":"London","postal_code":"N1 1AA","country":"GB","workspace_id":"ws_other"}`)
 	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"last4":"4242"`) {
 		t.Fatalf("issue = %d %s", rec.Code, rec.Body.String())
 	}
@@ -285,7 +286,8 @@ func TestAgentCardReachesLensWithOnlyTheCardholder(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.got[0][strings.Index(f.got[0], "{"):]), &sent); err != nil {
 		t.Fatal(err)
 	}
-	if _, leaked := sent["workspace_id"]; leaked || sent["first_name"] != "Ada" || sent["postal_code"] != "N1 1AA" || len(sent) != 8 {
-		t.Fatalf("Lens was sent %v; want exactly the eight cardholder fields", sent)
+	if _, leaked := sent["workspace_id"]; leaked || sent["first_name"] != "Ada" || sent["postal_code"] != "N1 1AA" ||
+		sent["phone_number"] != "+447700900123" || len(sent) != 9 {
+		t.Fatalf("Lens was sent %v; want exactly the nine cardholder fields, the phone among them", sent)
 	}
 }

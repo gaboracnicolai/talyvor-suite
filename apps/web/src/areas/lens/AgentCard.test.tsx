@@ -109,8 +109,38 @@ describe("an agent's card on Agent Wallets", () => {
       {
         method: 'POST',
         url: '/api/agents/agt_1/card',
-        body: { first_name: 'Ada', last_name: 'Lovelace', email: '', line1: '1 High Street', line2: '', city: 'London', postal_code: 'N1 1AA', country: 'GB' },
+        body: { first_name: 'Ada', last_name: 'Lovelace', email: '', phone_number: '', line1: '1 High Street', line2: '', city: 'London', postal_code: 'N1 1AA', country: 'GB' },
       },
     ])
+  })
+
+  // B27.21 — the holder's own phone goes with the cardholder, as Stripe takes it (E.164); one without its
+  // country code holds the card back and says why. Lens hands phone_number to Stripe's cardholder.
+  it("sends the holder's phone in E.164, and holds a phone without its country code", async () => {
+    const sent = mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+
+    const issue = await screen.findByRole('button', { name: 'Issue a test card' })
+    for (const [label, value] of [
+      ['First name', 'Ada'],
+      ['Last name', 'Lovelace'],
+      ['Address', '1 High Street'],
+      ['Town or city', 'London'],
+      ['Postcode', 'N1 1AA'],
+      ['Phone', '07700 900123'],
+    ]) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    }
+    expect(screen.getByText('The phone number needs its country code, like +44 7700 900123.')).toBeTruthy()
+    expect((issue as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '+44 7700 900123' } })
+    expect(screen.queryByText(/needs its country code/)).toBeNull()
+    fireEvent.click(issue)
+
+    await screen.findByTestId('agent-card')
+    expect(sent).toHaveLength(1)
+    expect((sent[0].body as { phone_number: string }).phone_number).toBe('+447700900123')
   })
 })

@@ -336,6 +336,7 @@ func (a *app) handleAgentCard(w http.ResponseWriter, r *http.Request, t tenant) 
 		FirstName  string `json:"first_name"`
 		LastName   string `json:"last_name"`
 		Email      string `json:"email"`
+		Phone      string `json:"phone_number"` // E.164; Lens falls back to an unallocated number in test mode when empty (B27.21)
 		Line1      string `json:"line1"`
 		Line2      string `json:"line2"`
 		City       string `json:"city"`

@@ -206,6 +206,8 @@ export interface Cardholder {
   first_name: string
   last_name: string
   email: string
+  /** E.164, e.g. +447700900123; Lens falls back to an unallocated number in test mode when empty (B27.21) */
+  phone_number: string
   line1: string
   line2: string
   city: string
