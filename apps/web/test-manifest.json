@@ -144,7 +144,7 @@
   "src/inlineLinkTreatment.test.ts": 5,
   "src/LandmarkCoverage.test.tsx": 40,
   "src/landmarkIds.test.tsx": 11,
-  "src/Legal.test.tsx": 26,
+  "src/Legal.test.tsx": 29,
   "src/lensRequestBodyRegister.test.ts": 283,
   "src/lib/awaiting.test.ts": 9,
   "src/lib/calledRoutes.test.ts": 11,

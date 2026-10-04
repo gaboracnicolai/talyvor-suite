@@ -20,6 +20,12 @@ import {
 //   cache contents     migrations/0001_init.sql prompt_embeddings (response TEXT NOT NULL)
 //   retention reset    internal/cache/semantic.go:142 (touch bumps updated_at) + :153 (sweep on it)
 //   pooling gate       internal/cache/semantic.go (is_poolable) + LENS_CACHE_POOLABLE_ENABLED
+// and in this repo, for the wallet and Marketplace claims (B28.16):
+//   wallet records     areas/lens/agentBankApi.ts (AgentApproval, Passkey, AgentCard, Cardholder)
+//   passkeys, pushes   areas/lens/passkeys.ts (Lens keeps the public key; pushes via /sw.js)
+//   test-mode cards    areas/lens/AgentCardPanel.tsx ("Test mode" unless livemode)
+//   payouts            areas/marketplace/Marketplace.tsx (Stripe asks; Talyvor never sees bank details)
+//   deletion           areas/lens/StoredAnswers.tsx, areas/track/WorkspaceSettings.tsx
 export function Privacy() {
   return (
     // `main`, NOT `div` — same element, same classes. 6,447 of this page's 6,584 characters (98%)
@@ -69,6 +75,57 @@ export function Privacy() {
             cache, and it is the mechanism the whole product is built on.
           </li>
         </ul>
+      </Section>
+
+      <Section title="What Agent Wallets stores">
+        <p className="text-body">
+          Every agent you create gets a wallet. Running it means keeping a record of what it holds,
+          what it may do, and everything it did:
+        </p>
+        <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-body text-muted">
+          <li>
+            <strong className="text-ink">Statements.</strong> Every movement into and out of each
+            agent&rsquo;s wallet: funding, spending on requests, payments to other agents, card
+            purchases, top-ups, pots, escrows, loans and cash-outs, each with its amount, time and
+            any memo you or the agent wrote. These are ledger records.
+          </li>
+          <li>
+            <strong className="text-ink">Rules and approvals.</strong> Each agent&rsquo;s budget,
+            limits and approval amount. When a request or payment needs a person, we keep what was
+            asked — the amount, the model or the payee, the agent&rsquo;s stated reason and memo —
+            and whether and when it was approved or denied.
+          </li>
+          <li>
+            <strong className="text-ink">Passkeys.</strong> If you approve from your phone, a
+            passkey is made on that device with Face ID, Touch ID or its PIN. We keep the
+            passkey&rsquo;s public key, the name you gave it and when it was used. Your face,
+            fingerprint and PIN never leave the device, and neither does the passkey&rsquo;s private
+            key. If you turn on notifications, we keep the push address your browser gives us.
+          </li>
+          <li>
+            <strong className="text-ink">Test-mode cards.</strong> An agent&rsquo;s virtual card is
+            issued by Stripe, in test mode, for test purchases, to a person you name: the
+            cardholder&rsquo;s name, email, billing address and, if you give one, phone number are
+            sent to Stripe for that. We keep the card&rsquo;s last four digits and expiry, and each
+            purchase: the merchant, the amount, and whether the agent&rsquo;s rules allowed it and
+            why. We never see or store the full card number.
+          </li>
+        </ul>
+      </Section>
+
+      <Section title="What the Marketplace stores and shows">
+        <p className="text-body">
+          A listing you publish — an agent, prompt, skill, evaluation or pipeline — is stored and{' '}
+          <strong>shown to every other Talyvor workspace</strong>. Lens checks it before it is
+          published and refuses one that carries a secret, personal data or a prompt injection; that
+          check is a safeguard, not a reason to put anything private into a listing.
+        </p>
+        <p className="mt-3 text-body text-muted">
+          Each use of a listing is recorded with its price, for the buyer&rsquo;s monthly bill and the
+          seller&rsquo;s earnings. A report someone files about a listing is kept with its reason
+          and details. If you connect a Stripe account to be paid, Stripe asks who you are and where
+          to send the money; Talyvor never sees your bank details.
+        </p>
       </Section>
 
       <Section title="Whether your prompt text is kept">
@@ -136,9 +193,10 @@ export function Privacy() {
           fact, not &ldquo;the prompt does not&rdquo;.
         </p>
         <p className="mt-3 text-body text-muted">
-          Sharing is <strong>on</strong> for a new workspace and one click turns it off, on the
-          screen shown before you first reach the app and in Settings at any time.{' '}
-          {SHARING_OFF_FACT} Your API keys, balance and ledger are never shared under either setting.
+          Sharing is <strong>on</strong> for a new workspace and one click turns it off, on Home and
+          in Settings at any time.{' '}
+          {SHARING_OFF_FACT} Your API keys, balance, ledger and agent wallets are never shared under
+          either setting.
         </p>
         <SharedAnswersFact className="mt-3 text-body text-muted" />
         <p className="mt-3 text-body text-muted">
@@ -149,8 +207,9 @@ export function Privacy() {
 
       <Section title="How long we keep it">
         <p className="text-body">
-          Usage and billing records are kept for as long as the account exists — they are the
-          ledger, and a balance you cannot audit is not a balance.
+          Usage and billing records, and every agent wallet&rsquo;s statement, are kept for as long
+          as the account exists — they are the ledger, and a balance you cannot audit is not a
+          balance.
         </p>
         <p className="mt-3 text-body">
           <strong>{KEPT_UNTIL_DELETED_FACT}</strong> This applies identically to shared and unshared
@@ -177,11 +236,19 @@ export function Privacy() {
           <li>
             <strong className="text-ink">Stripe</strong> handles payment. Your card details go to
             Stripe directly and never reach us — we never see or store a card number. We send
-            Stripe a workspace identifier and an amount, so we can credit the right balance.
+            Stripe a workspace identifier and an amount, so we can credit the right balance. Stripe
+            also issues agent cards, so it receives the cardholder details described above, and
+            pays Marketplace sellers, so it receives what a seller gives it when connecting.
+          </li>
+          <li>
+            <strong className="text-ink">Your browser&rsquo;s push service</strong> — Apple, Google
+            or Mozilla, depending on the browser — carries approval notifications to a device you
+            turned them on for.
           </li>
           <li>
             <strong className="text-ink">Other Talyvor workspaces</strong> — cached answers, as
-            described above, when sharing is on.
+            described above, when sharing is on; the listings you publish on the Marketplace; and,
+            when an agent pays another owner&rsquo;s agent, that payment.
           </li>
         </ul>
         <p className="mt-3 text-body text-muted">
@@ -190,20 +257,23 @@ export function Privacy() {
         </p>
       </Section>
 
-      <Section title="What we have not built">
+      <Section title="Deleting your data">
         <p className="text-body">
-          <strong>There is no self-service data deletion.</strong> Nothing in the product deletes a
-          workspace or the records attached to it, and there is no code path that does so. If you
-          want your data removed, contact the operator, who will do it by hand against the database.
+          In Features, a workspace&rsquo;s owner or an admin can delete the answers it shared, or
+          everything it has stored, at once, by typing the workspace&rsquo;s name to confirm. The
+          same screen asks Talyvor to delete <strong>all</strong> of the workspace&rsquo;s data and
+          shows that request until it is done. In Track, a workspace&rsquo;s owner can delete it and
+          restore it within 14 days.
         </p>
         <p className="mt-3 text-body text-muted">
-          We would rather say this than imply a capability that does not exist. It is the first
-          thing to fix if this stops being a trial.
+          Deleting all of your data is carried out by an operator, not automatically, and no
+          turnaround is promised. Billing and ledger records — agent wallet statements included —
+          are kept, because the law requires them.
         </p>
         <LawyerReview compact>
-          Absent deletion is likely to be the largest compliance gap here, particularly against
-          erasure rights. It should be assessed before the service is offered outside a closed
-          trial.
+          A deletion that waits on an operator with no stated turnaround, and ledger records kept
+          after it, both need to be assessed against erasure rights before the service is offered
+          outside a closed trial.
         </LawyerReview>
       </Section>
     </main>

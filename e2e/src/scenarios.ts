@@ -422,16 +422,27 @@ export function walletDocs(): Scenario {
 }
 
 /** B28.3 — the pricing and privacy pages make no claim the code does not keep: nothing says no
- *  charge recurs (plans and BYOK bill monthly), and privacy does not say the product beats going direct. */
+ *  charge recurs (plans and BYOK bill monthly), and privacy does not say the product beats going direct.
+ *  B28.16 — privacy and terms cover Agent Wallets and the Marketplace, and neither says deletion or
+ *  cash-out does not exist (Features deletes stored answers; Agent Wallets cashes LXC out). */
 export function honestPages(): Scenario {
   return {
     id: 'honest-pages',
-    title: 'pricing and privacy make no claim the product does not keep',
+    title: 'pricing, privacy and terms make no claim the product does not keep',
     run: async (ctx) => {
       const missing: string[] = []
-      for (const [path, banned, wanted] of [
+      for (const [path, banned, ...wanted] of [
         ['/pricing', /nothing\s+recurs|only charge is the requests you run|self-hosted/i, /a plan or BYOK, if you choose one, is billed every month/i],
-        ['/privacy', /cheaper than going direct/i, /charged less than its list price/i],
+        [
+          '/privacy',
+          /cheaper than going direct|no self-service data deletion/i,
+          /charged less than its list price/i,
+          /What Agent Wallets stores/,
+          /Passkeys\./,
+          /Test-mode cards\./,
+          /What the Marketplace stores and shows/,
+        ],
+        ['/terms', /no mechanism to convert|no self-service deletion/i, /LXC can be cashed out/, /Agent Wallets/, /The Marketplace/],
       ] as const) {
         const page = await ctx.app.tab(path)
         try {
@@ -439,13 +450,13 @@ export function honestPages(): Scenario {
           ctx.evidence.push({ note: `${path}: ${text.length} chars read` })
           const hit = text.match(banned)
           if (hit) missing.push(`${path} still says "${hit[0]}"`)
-          if (!wanted.test(text)) missing.push(`${path} lacks ${wanted}`)
+          for (const w of wanted) if (!w.test(text)) missing.push(`${path} lacks ${w}`)
         } finally {
           await page.close()
         }
       }
       return missing.length === 0
-        ? { pass: true, detail: 'pricing says plans and BYOK recur; privacy claims only a below-list reused answer' }
+        ? { pass: true, detail: 'pricing says plans and BYOK recur; privacy and terms cover wallets and the Marketplace, and deny no deletion or cash-out' }
         : { pass: false, detail: missing.join('; ') }
     },
   }
