@@ -1,15 +1,40 @@
 # talyvor-suite
 
-The unified Talyvor frontend. **Increment 1: the design system and the app shell only** —
-the token preset, the theme, and the component set. No BFF, no API calls, no product screens.
+The Talyvor app at `app.talyvor.com`. **Every AI agent gets a wallet** — a budget, spending
+rules, approvals, a card and a live statement — and Lens enforces those rules before the model
+call or the payment goes out. This repository is the console a person runs that from, the chat
+app, the Marketplace where agents spend, and the work tools (Track, Docs) beside them.
 
 ```
 packages/ui     the design system (tokens, Tailwind preset, components)
-apps/web        the React app shell that consumes it
-apps/bff        (later — deliberately not created yet)
+apps/web        the React app — every screen below
+apps/bff        the Go backend-for-frontend: sign-in, the session cookie, and the only holder of the Lens key
 ```
 
 pnpm workspaces. `pnpm build` · `pnpm lint` · `pnpm test` · `pnpm dev` (serves `apps/web`).
+The live product inventory — every feature, where it runs and whether it is on — is
+[`docs/features-inventory.md`](docs/features-inventory.md).
+
+## What ships today
+
+In sidebar order — the wallet's own screens lead and never fold away.
+
+| Area | Address | What a person does there |
+|---|---|---|
+| **Home** | `/` | The wallet home: total balance, credit not yet given to agents, each agent's budget used, approvals waiting, the month's forecast, and one switch that pauses every agent. |
+| **Approvals** | `/approvals` | What agents are waiting on: approve or refuse a payment over its rule (with a passkey, once one is set up). |
+| **Agent Wallets** | `/agents` | Create an agent and fund it; set its budget, limits and pause-on-unusual-spend; issue its key and card; pots, schedules, top-up rules, escrow and loans; choose which Marketplace listings it may use; its owner's verification. |
+| **Statements** · Royalties | `/statements`, `/statements/royalties` | Every movement in every agent's wallet, downloadable for any period; what shared answers earned. |
+| **Chat** | `/chat` | The chat app and the wallet console in one: pick a model, attach files, see each answer's price, and every answer is billed to the workspace. |
+| **Marketplace** | `/marketplace` | Browse and use agents, prompts, skills, evaluations and pipelines; publish your own; your listings and earnings; your bill. |
+| **Work** — Track · Docs | `/track`, `/docs` | Issues, board, cycles and projects; document spaces and pages with an editor and AI on the page. |
+| **Developers** | `/setup`, `/keys`, `/spend`, `/features` | Connect an agent, API keys, spend and model routing, and every gateway feature with its switch (Agent Wallets first). |
+| **Billing** | `/billing`, `/plans`, `/overview`, `/ledger`, `/pricing` | Plan and top-up by card, plans and their included usage, balances, and the full ledger. |
+| **Settings** | `/settings`, `/members` | Workspace settings and members. |
+
+Outside the sign-in gate: the marketing landing (`/marketing`), the public price list
+(`/pricing`), the documentation (`/documentation`), Privacy and Terms, sign-up and sign-in, and a shared Track board
+(`/board/:token`).
 
 ---
 
@@ -311,10 +336,13 @@ proof) plus `X-User-Email`/`X-User-Id` from the session. Unconfigured →
 One area = one directory. An area tab works ONLY inside its directory:
 
 ```
-apps/web/src/areas/lens/        Lens + the Workspace section (Overview, Ledger, Billing, Keys, Spend, Members)
-apps/web/src/areas/track/       Track   (/track/*)
-apps/web/src/areas/docs/        Docs    (/docs/*)
-apps/web/src/areas/marketing/   Marketing landing (/marketing, outside the auth gate)
+apps/web/src/areas/lens/          Home, Approvals, Agent Wallets, Statements + the Workspace section (Overview, Ledger, Billing, Keys, Spend, Features, Members)
+apps/web/src/areas/chat/          Chat    (/chat)
+apps/web/src/areas/marketplace/   Marketplace (/marketplace/*)
+apps/web/src/areas/track/         Track   (/track/*)
+apps/web/src/areas/docs/          Docs    (/docs/*)
+apps/web/src/areas/marketing/     Marketing landing (/marketing, outside the auth gate)
+apps/web/src/areas/documentation/ Public documentation (/documentation, outside the auth gate)
 ```
 
 `areas/lens/` is the worked example: the real Overview and Ledger screens live
