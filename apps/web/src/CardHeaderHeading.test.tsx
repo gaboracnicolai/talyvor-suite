@@ -140,7 +140,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/billing/cancel': 0,
   '/keys': 2,
   // B19.4 — Waiting for a person, Agents, and the open agent's Money, Rules, Pay, Key and Statement.
-  '/agents': 28, // B19.10 added "Face ID and notifications"; B19.20 "Month-end forecast" and "Unusual spend"; B19.21 "Scheduled payments" and "Automatic top-up"; B19.22 "Statement for every agent"; B19.24 "Card"; B22.10 "Address", "Send or request", "Transfers", "Recurring transfer", "Offer a loan", "Requests", "Credit line" and "Loans"; B22.12 "Pay into escrow", "Pots", "Investing, simulated", "Cash out", "Escrow" and "Cash-outs"
+  '/agents': 30, // B19.10 added "Face ID and notifications"; B19.20 "Month-end forecast" and "Unusual spend"; B19.21 "Scheduled payments" and "Automatic top-up"; B19.22 "Statement for every agent"; B19.24 "Card"; B22.10 "Address", "Send or request", "Transfers", "Recurring transfer", "Offer a loan", "Requests", "Credit line" and "Loans"; B22.12 "Pay into escrow", "Pots", "Investing, simulated", "Cash out", "Escrow" and "Cash-outs"; B28.21 "Name and description" and "Archive"
   // B20.3 — the catalog's Listings card.
   '/marketplace': 1,
   // 5 → 8 at W1.1.17b. THREE OF SETUP'S CARDS ARE GATED ON DATA and the census had never seen

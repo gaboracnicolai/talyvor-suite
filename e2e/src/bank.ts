@@ -238,6 +238,27 @@ export class AgentBankScreen {
     return (await words.innerText()).trim()
   }
 
+  /** B28.21 — renames and describes the agent on Name and description; Lens's refusal, if it refused. */
+  async describe(agent: Agent, name: string, description: string): Promise<string | undefined> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Name and description')
+    await c.getByLabel(`Name of ${agent.name}`).fill(name)
+    await c.getByLabel(`What ${agent.name} is for`).fill(description)
+    await c.getByRole('button', { name: 'Save', exact: true }).click()
+    return outcome(this.page.getByTestId('agent-open').filter({ hasText: new RegExp(`^${esc(name)}$`) }), c)
+  }
+
+  /** B28.21 — archives the agent on Archive, confirming it; what the screen then says, or the refusal. */
+  async archive(agent: Agent): Promise<{ said?: string; err?: string }> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Archive')
+    await c.getByRole('button', { name: `Archive ${agent.name}`, exact: true }).click()
+    await c.getByRole('button', { name: `Yes, archive ${agent.name}`, exact: true }).click()
+    const done = this.page.getByTestId('agent-archived')
+    const err = await outcome(done, c)
+    return err === undefined ? { said: (await done.innerText()).trim() } : { err }
+  }
+
   /** Downloads "Statement for every agent" for this month as JSON; the file's name and text. */
   async statementThisMonth(): Promise<{ name: string; text: string }> {
     await this.fresh()
@@ -1117,6 +1138,62 @@ export function walletCurrency(seed: number): Scenario {
       ctx.evidence.push({ note: `the Rules card says: ${words}` })
       if (!words.includes(`It may use only ${name}.`)) return fail(`the Rules card does not say "It may use only ${name}.": ${words}`)
       return { pass: true, detail: `${a.name} reads "${shown}"; ${name} picked from the model picker, stored by Lens as the one allowed model, and stated as a sentence` }
+    }),
+  }
+}
+
+/**
+ * B28.21 — an agent renamed and described on Agent Wallets carries both in Lens's book; archived there, Lens
+ * writes ONE withdraw posting for its whole balance back to the workspace, and its key then writes no hold:
+ * its next request is refused with nothing new on its account or the workspace's ledger.
+ */
+export function agentArchive(seed: number): Scenario {
+  const r = seeded(seed * 43 + 11)
+  const amount = 750_000
+  return {
+    id: 'agent-archive',
+    title: 'an agent renamed, described and archived on Agent Wallets: one withdraw posting sweeps its whole balance back to the workspace, and its key then writes no hold',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const first = await openAgent(ctx, bank, `Retiring ${seed}`)
+      if (typeof first === 'string') return fail(first)
+      let err = await bank.move(first, amount, 'Fund')
+      if (err !== undefined) return fail(`funding ${lxcText(amount)} LXC was refused: ${err}`)
+      const key = await bank.issueKey(first)
+      const a = { ...first, name: `Retired ${seed}` }
+      const description = `Reads the overnight reports, run ${seed}`
+      err = await bank.describe(first, a.name, description)
+      if (err !== undefined) return fail(`renaming ${first.name} was refused: ${err}`)
+      const before = await bookOf(ctx)
+      const named = agentIn(before, a.id)
+      if (named?.name !== a.name || named.description !== description) {
+        return fail(`renamed "${a.name}" and described "${description}" on the screen; Lens has "${named?.name}" and "${named?.description}"`)
+      }
+      if (named.balance_ulxc !== amount) return fail(`funded ${amount} µLXC; Lens has ${a.name} holding ${named.balance_ulxc}`)
+      const lines0 = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+      const done = await bank.archive(a)
+      if (done.err !== undefined) return fail(`archiving ${a.name} was refused: ${done.err}`)
+      ctx.evidence.push({ note: `Agent Wallets says: ${done.said}` })
+      const after = await bookOf(ctx)
+      const gone = agentIn(after, a.id)
+      if (gone === undefined || !gone.archived_at) return fail(`archived on the screen; Lens's book has ${a.name} ${gone === undefined ? 'gone' : 'not archived'}`)
+      const lines1 = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+      const swept = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id))
+      ctx.evidence.push({ note: `archiving wrote ${swept.length} line(s) on ${a.name}'s account: ${swept.map((l) => `${l.kind} ${l.amount_ulxc} → ${l.balance_after_ulxc}`).join(', ') || 'none'}` })
+      if (swept.length !== 1 || swept[0].kind !== 'withdraw' || swept[0].amount_ulxc !== -amount || swept[0].balance_after_ulxc !== 0) {
+        return fail(`archiving ${a.name}, which held ${amount} µLXC, should write one withdraw of -${amount} leaving 0; it wrote ${swept.map((l) => `${l.kind} ${l.amount_ulxc} → ${l.balance_after_ulxc}`).join(', ') || 'nothing'}`)
+      }
+      if (gone.balance_ulxc !== 0 || after.allocated_ulxc !== before.allocated_ulxc - amount || after.workspace_balance_ulxc !== before.workspace_balance_ulxc) {
+        return fail(`archived: ${a.name} holds ${gone.balance_ulxc} µLXC; the agents held ${before.allocated_ulxc} and hold ${after.allocated_ulxc}; the workspace ${before.workspace_balance_ulxc} → ${after.workspace_balance_ulxc}`)
+      }
+      const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const t = await agentAsks(ctx, key, sum(r).q, `${a.name}'s key, after it was archived`)
+      if (t.ok) return fail(`archived, ${a.name}'s key was still served: "${t.value.text}"`)
+      const late = (await ctx.env.lens.agentLines(ctx.app.user, a.id)).filter((l) => !lines1.some((o) => o.entry_id === l.entry_id))
+      const charged = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
+      if (late.length > 0 || charged.length > 0) {
+        return fail(`archived, ${a.name}'s key was refused (${t.status}) yet wrote ${late.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} on its account and ${charged.length} spend row(s) on the ledger`)
+      }
+      return { pass: true, detail: `${a.name} renamed and described; archived: one withdraw of ${lxcText(amount)} LXC back to the workspace, balance 0, and its key refused (${t.status}) with no hold and no charge` }
     }),
   }
 }

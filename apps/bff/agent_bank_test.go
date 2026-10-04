@@ -47,6 +47,10 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/card"):
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "ic_1", "agent_id": "agt_1", "last4": "4242", "livemode": false})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/archive"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "swept_ulxc": 750_000, "revoked_keys": []string{"key_1"}})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1") && r.Method == http.MethodPatch:
+			_, _ = w.Write(raw)
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/claim"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "owner_user_id": "ws_1"})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/pause"):
@@ -260,6 +264,33 @@ func TestAgentClaimReachesLens(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.got) != 1 || !strings.HasSuffix(f.got[0], "/agents/agt_1/claim ") || !strings.HasPrefix(f.got[0], "POST ") {
 		t.Fatalf("Lens got %q", f.got)
+	}
+}
+
+// B28.21 — renaming and describing an agent sends Lens only the two fields (null for the one not given, which
+// Lens leaves as it is), and archiving it reaches Lens's archive route and answers what Lens swept.
+func TestAgentRenameAndArchiveReachLens(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	if rec := doJSON(a, http.MethodPatch, "/api/agents/agt_1", `{"description":"Summarises the weekly reports","workspace_id":"ws_other"}`); rec.Code != http.StatusOK {
+		t.Fatalf("describe = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPatch, "/api/agents/agt_1", `{}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("an empty change = %d %s; want 400 before Lens", rec.Code, rec.Body.String())
+	}
+	rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/archive", `{"agent_id":"agt_2"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"swept_ulxc":750000`) {
+		t.Fatalf("archive = %d %s", rec.Code, rec.Body.String())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.got) != 2 {
+		t.Fatalf("Lens got %q; want the describe and the archive", f.got)
+	}
+	if want := `/agents/agt_1 {"name":null,"description":"Summarises the weekly reports"}`; !strings.HasPrefix(f.got[0], "PATCH /v1/workspaces/") || !strings.HasSuffix(f.got[0], want) {
+		t.Fatalf("Lens got %q; want PATCH …%s", f.got[0], want)
+	}
+	if !strings.HasPrefix(f.got[1], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[1], "/agents/agt_1/archive ") {
+		t.Fatalf("Lens got %q; want POST …/agents/agt_1/archive with no body", f.got[1])
 	}
 }
 

@@ -28,6 +28,19 @@ export interface Agent {
   verified?: boolean
   /** B22.3 — its address besides its id, once its owner picks one. */
   handle?: string
+  /** B28.21 — what the agent is for, in its owner's words. */
+  description?: string
+  /** B28.21 — set once it is archived: swept to zero, its keys revoked, refused every movement of its own. */
+  archived_at?: string
+}
+
+/** Lens economy.AgentArchive (B28.21): what archiving an agent did. */
+export interface AgentArchive {
+  agent_id: string
+  /** its whole balance, moved back to the workspace in one withdraw entry */
+  swept_ulxc: number
+  revoked_keys: string[]
+  archived_at: string
 }
 
 /** Lens economy.AgentBook: workspace = allocated + unallocated; spent is what the agents spent. */
@@ -339,6 +352,10 @@ export const agentBankApi = {
     }
   },
   issueCard: (id: string, holder: Cardholder) => send<AgentCard>('POST', `/api/agents/${e(id)}/card`, holder),
+  /** B28.21 — renames the agent and/or sets what it is for; Lens answers the agent. */
+  update: (id: string, change: { name?: string; description?: string }) => send<Agent>('PATCH', `/api/agents/${e(id)}`, change),
+  /** B28.21 — retires the agent: its balance back to the workspace, its keys revoked, its top-up and schedules stopped. */
+  archive: (id: string) => send<AgentArchive>('POST', `/api/agents/${e(id)}/archive`),
   /** B19.23 — the signed-in person becomes the owner of an agent that has none. */
   claim: (id: string) => send<{ agent_id: string; owner_user_id: string }>('POST', `/api/agents/${e(id)}/claim`),
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>

@@ -560,6 +560,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/cash-outs", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentCashOutBody',
   },
+  // B28.21 — renaming and describing an agent.
+  {
+    route: 'PATCH /v1/workspaces/{wsID}/agents/{agentID}',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgent(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Patch("/v1/workspaces/{wsID}/agents/{agentID}", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentUpdateBody',
+  },
   // B23.12 — the chat's thumbs-down: Lens removes the stored answer the request was served.
   {
     route: 'POST /v1/feedback',
