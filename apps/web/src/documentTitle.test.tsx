@@ -137,6 +137,9 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/billing/cancel': 'Billing',
   '/keys': 'API keys',
   '/agents': 'Agent Wallets',
+  // B28.7 — the wallet's own destinations in the sidebar.
+  '/approvals': 'Approvals',
+  '/statements': 'Statements',
   '/marketplace/*': 'Marketplace',
   '/setup': 'Setup',
   '/spend': 'Spend & routing',
@@ -248,8 +251,8 @@ describe('every console address names itself to the browser', () => {
     // correct for exactly one route and wrong for every route the user walks to afterwards.
     await at('/')
     await waitFor(() => expect(document.title).toBe(`Home | ${BRAND}`))
-    fireEvent.click(screen.getByRole('link', { name: 'Ledger' }))
-    await waitFor(() => expect(document.title).toBe(`Ledger | ${BRAND}`))
+    fireEvent.click(screen.getByRole('link', { name: 'Statements' }))
+    await waitFor(() => expect(document.title).toBe(`Statements | ${BRAND}`))
   })
 })
 

@@ -18,10 +18,10 @@ import { ScreenBoundary } from './components/ScreenBoundary'
 // screens that phrase it themselves ("could not be read just now", "We couldn’t read your balance").
 const READ_FAILED = /Couldn’t (load|check|reach|read)|couldn’t read|could not be read/
 
-// Asked on every address by the shell itself (the session, and the sidebar's Docs membership and
-// pins — B27.15), so a screen that asks for nothing else reads nothing of its own and has no read
-// to fail.
-const SHELL_READS = new Set(['/auth/me', '/api/docs/pins', '/api/docs/membership'])
+// Asked on every address by the shell itself (the session, the sidebar's Docs membership and
+// pins — B27.15 — and the approvals its Approvals badge counts — B28.7), so a screen that asks for
+// nothing else reads nothing of its own and has no read to fail.
+const SHELL_READS = new Set(['/auth/me', '/api/docs/pins', '/api/docs/membership', '/api/agents/approvals'])
 
 const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '') || '/'
 

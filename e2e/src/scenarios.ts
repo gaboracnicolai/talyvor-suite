@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletHome } from './bank.ts'
+import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletFirstNav, walletHome } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1256,7 +1256,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(statementReconciles(i)); break
     case 7: list.push(everyScreen()); break
     // B28.6 — Home, the first screen after sign-in: an agent's budget used and the approvals waiting.
-    case 8: list.push(walletHome(i)); break
+    // B28.7 — then the wallet-first sidebar, whose Approvals badge counts the approval Home just filed.
+    case 8: list.push(walletHome(i), walletFirstNav()); break
   }
   // Catalog v4 (B25.4): test users trade with each other through every wallet, bank and marketplace
   // function, one in ten again. The other company is 9, 19, …: nobody pauses its agents, and a trade

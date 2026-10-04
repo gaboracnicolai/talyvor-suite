@@ -84,6 +84,9 @@ const PINNED: Readonly<Record<string, string>> = {
   '/billing/cancel': 'Billing',
   '/keys': 'API keys',
   '/agents': 'Agent Wallets',
+  // B28.7 — the wallet's own destinations in the sidebar.
+  '/approvals': 'Approvals',
+  '/statements': 'Statements',
   '/marketplace': 'Marketplace',
   '/setup': 'Setup',
   '/spend': 'Spend & routing',

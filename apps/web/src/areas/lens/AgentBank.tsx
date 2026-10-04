@@ -966,7 +966,7 @@ function lineText(l: StatementLine, nameOf: (id: string) => string): string {
   }
 }
 
-function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string) => string }) {
+export function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string) => string }) {
   const st = useQuery({ queryKey: statementKey(agent.id), queryFn: () => agentBankApi.statement(agent.id) })
   const lines = st.data?.lines ?? []
   return (
@@ -1046,7 +1046,7 @@ function saveFile(name: string, blob: Blob) {
  * naming its posting and entry, and each account's closing balance. Days are whole UTC days, the last
  * one included.
  */
-function StatementDownload({ agent }: { agent: Agent | null }) {
+export function StatementDownload({ agent }: { agent: Agent | null }) {
   const [period, setPeriod] = useState(() => monthPeriod('last'))
   const [format, setFormat] = useState<'csv' | 'json'>('csv')
   const who = agent ? `${agent.name}’s` : 'every agent’s'
@@ -1197,7 +1197,7 @@ function FaceID({ signed, passkeyCount }: { signed: boolean; passkeyCount: numbe
   )
 }
 
-function Approvals({
+export function Approvals({
   nameOf,
   held,
   onSent,

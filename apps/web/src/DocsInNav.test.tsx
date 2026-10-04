@@ -38,14 +38,15 @@ describe('Docs is offered in the Products nav', () => {
   it('renders a Docs navigation item now that Docs is per-identity', async () => {
     render(<App />)
     const nav = await screen.findByRole('navigation', { name: /sections/i })
-    // B24.1 — Docs is a group title that opens its links.
-    fireEvent.click(within(nav).getByRole('button', { name: 'Docs' }))
-    expect(within(nav).getByRole('link', { name: 'All documents' })).toBeInTheDocument()
+    // B24.1, B28.7 — Docs is a link inside the Work group, whose title opens it.
+    fireEvent.click(within(nav).getByRole('button', { name: 'Work' }))
+    expect(within(nav).getByRole('link', { name: 'Docs' })).toBeInTheDocument()
   })
 
   it('still lists Track, so the assertion above is about Docs and not a nav that renders everything', async () => {
     render(<App />)
     const nav = await screen.findByRole('navigation', { name: /sections/i })
-    expect(nav.textContent).toContain('Track')
+    fireEvent.click(within(nav).getByRole('button', { name: 'Work' }))
+    expect(within(nav).getByRole('link', { name: 'Track' })).toBeInTheDocument()
   })
 })

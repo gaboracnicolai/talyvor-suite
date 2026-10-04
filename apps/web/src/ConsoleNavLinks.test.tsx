@@ -78,6 +78,9 @@ import { openEveryGroup, revealLink } from './sidebarTestKit'
 /** Every destination the sidebar offers, pinned. A literal, so a deletion moves it too. */
 const SIDEBAR_DESTINATIONS = [
   '/',
+  // B28.7 — the wallet's own destinations, under Home.
+  '/approvals',
+  '/statements',
   // B28.6 — Home took `/`; Overview moved one address over, still in the sidebar.
   '/overview',
   '/ledger',
@@ -125,13 +128,11 @@ const OPERATOR_DESTINATIONS = ['/marketplace/review', '/operator'] as const
  */
 const FOLD_CONTROLS = [
   'Fold all <button NO-HREF>',
-  'Lens <button NO-HREF>',
   'Marketplace <button NO-HREF>',
-  'Chat <button NO-HREF>',
-  'Track <button NO-HREF>',
-  'Docs <button NO-HREF>',
+  'Work <button NO-HREF>',
+  'Developers <button NO-HREF>',
   'Billing <button NO-HREF>',
-  'Workspace <button NO-HREF>',
+  'Settings <button NO-HREF>',
 ] as const
 
 /**
@@ -277,9 +278,9 @@ describe('the capability, not the tag: activation is what the reader gets', () =
     return revealLink(sectionsNav(), to)
   }
 
-  it('B21.6 — the agents destination is called Wallets, and it opens Agent Wallets', async () => {
+  it('B28.7 — the agents destination is called Agent Wallets, the title of the page it opens', async () => {
     const link = await sidebarLink('/agents')
-    expect(link.textContent?.trim()).toBe('Wallets')
+    expect(link.textContent?.trim()).toBe('Agent Wallets')
   })
 
   it('a plain click navigates, and does it inside the app rather than reloading', async () => {
