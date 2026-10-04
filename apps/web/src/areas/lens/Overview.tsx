@@ -355,7 +355,7 @@ function SpendCard({ now }: { now: Date }) {
           {windowRows.length} ledger row{windowRows.length === 1 ? "" : "s"} landed in the
           last 30 days, and none of them records which model it came from — so there is
           nothing to split by model. The rows themselves are on the{" "}
-          {/* ⚠ THE SITE'S MOTION SHAPE, NOT A NEW ONE. Landing.tsx:267 moves its section tabs with
+          {/* ⚠ THE SITE'S MOTION SHAPE, NOT A NEW ONE. Landing.tsx:143 moves its section tabs with
               `transition-colors duration-200` and lands the hover on `text-ink`; this is that,
               on the two links this screen writes itself. Both classes are NAMED steps — 200ms is
               Tailwind's own `duration-200`, so `local/no-arbitrary-value` has nothing to refuse

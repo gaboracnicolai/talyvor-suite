@@ -154,7 +154,7 @@ describe('the policies are not a dead end', () => {
     fireEvent.click(await returnLink())
 
     // Arrived at the marketing page — not merely "left the document".
-    expect(await screen.findByRole('link', { name: /see the suite/i })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /see how it works/i })).toBeInTheDocument()
     // And NOT dropped at a sign-in card, which is where /  would have put a stranger.
     expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument()
   })
@@ -172,7 +172,7 @@ describe('the policies are not a dead end', () => {
     // Arrived inside the shell — the sidebar is the thing only the app has.
     expect(await screen.findByRole('navigation', { name: /sections/i })).toBeInTheDocument()
     // And NOT ejected onto the marketing page mid-session.
-    expect(screen.queryByRole('link', { name: /see the suite/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /see how it works/i })).not.toBeInTheDocument()
   })
 
   // The full trip a signed-in person actually takes: deep in the app, out to the policy, back.

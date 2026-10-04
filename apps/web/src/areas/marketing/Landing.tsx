@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, CaseSafe, ThemeToggle, focusRing, inlineLink } from '@talyvor/ui'
 import { useSignupProbe } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
-import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, billAt, micro, savedAt } from './economics'
+import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, micro } from './economics'
 
 // The marketing landing (/marketing, OUTSIDE the AuthGate — see App.tsx). It must render with no
 // session, no router context, and no providers: Landing.test.tsx renders <Landing /> bare, so
@@ -13,25 +13,22 @@ import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, billAt, micro, savedAt } f
 // ── DESIGN STANCE ────────────────────────────────────────────────────────────────────────────────
 //
 // The console's instrument language, given landing-page air: the accent is ARCHITECTURE (ticks,
-// rules, the curve) and never coloured text; anything measured is set in mono; hierarchy comes from
-// structure and space. What this page takes that the console does not have is DISPLAY TYPE — the
-// locked scale stops at 24px because a control panel has no use for more, so the hero sizes are
-// local arbitrary values. The tokens are NOT touched; packages/ui stays the authority for the app,
-// and this page borrows its voice rather than editing it.
+// rules) and never coloured text; anything measured is set in mono; hierarchy comes from structure
+// and space. What this page takes that the console does not have is DISPLAY TYPE — the locked
+// scale stops at 24px because a control panel has no use for more, so the hero sizes are local
+// arbitrary values. The tokens are NOT touched; packages/ui stays the authority for the app, and
+// this page borrows its voice rather than editing it.
 //
-// The one thing a visitor should remember is the INVERSION: everything else in AI gets more
-// expensive as you use it, and this gets cheaper. So the page is built around a single figure that
-// descends, and the reader can move it themselves.
+// The one thing a visitor should remember is the PRODUCT: every AI agent gets a wallet, and the
+// rules on it are enforced before the model call or the payment, not reconciled afterwards.
+// Pooling is one cost-saving feature with one section, never the pitch (B28.2).
 //
 // ── COPY STANCE ──────────────────────────────────────────────────────────────────────────────────
 //
-// Two kinds of number live here and they are never mixed:
-//   MEASURED — the settled pooled hit in economics.ts, from one real ledger row, labelled as real.
-//   TARGET   — the compounding curve: the product claim drawn as a shape, labelled as the shape it
-//              is built to reach. Stated confidently, not hedged into meaninglessness, and never
-//              dressed up as data.
-// Landing.test.tsx forbids a `%` anywhere on this page. Unmeasured rates are how the first version
-// went wrong, and absolute µ-units keep every figure checkable against the ledger.
+// Every figure on this page is MEASURED — the settled pooled hit in economics.ts, from one real
+// ledger row, labelled as real. The one percentage (the pooled discount) is DERIVED from that row
+// below rather than typed, so it cannot disagree with the figures printed beside it. There is no
+// projected curve and no "toward zero": a shape drawn from a claim is not a measurement.
 
 // ── THE CONTACT ADDRESS ──────────────────────────────────────────────────────────────────────────
 //
@@ -66,7 +63,7 @@ export function SectionLabel({ index, children }: { index: string; children: Rea
  *  ⚠ THE UNIT GOES THROUGH `CaseSafe` AND MUST. Every unit this page quotes is a µ-prefixed ledger
  *  amount — `µLXC list`, `µLENS earned` — and `uppercase` maps µ (U+00B5) to Μ (U+039C), so the
  *  label painted `MLXC`: the mega prefix on a micro figure, on the four numbers this page offers as
- *  checkable against the ledger. It is fixed HERE rather than at the six call sites because the
+ *  checkable against the ledger. It is fixed HERE rather than at the call sites because the
  *  µ arrives as a prop from 130 lines away and no future caller should have to know. */
 export function Figure({ value, unit, tone = 'ink' }: { value: string; unit: string; tone?: 'ink' | 'muted' }) {
   return (
@@ -83,149 +80,28 @@ export function Figure({ value, unit, tone = 'ink' }: { value: string; unit: str
   )
 }
 
-/** The descending curve — the page's one piece of iconography, plotted from the SAME function the
- *  interactive control reads, so the picture and the number cannot disagree. */
-function DescentCurve({ members }: { members: number }) {
-  const y = (m: number) => 100 - (billAt(m) / LEDGER_HIT.listMicroLXC) * 88 - 6
-  const points = Array.from({ length: 61 }, (_, i) => `${(i / 60) * 100},${y(1 + i)}`).join(' ')
-  const cursorX = ((members - 1) / 60) * 100
-  return (
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-40 w-full" aria-hidden="true">
-      <defs>
-        <linearGradient id="tal-descent" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="var(--accent)" stopOpacity="0.16" />
-          <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[25, 50, 75].map((g) => (
-        <line
-          key={g}
-          x1="0"
-          y1={g}
-          x2="100"
-          y2={g}
-          stroke="var(--rule)"
-          strokeWidth="1"
-          vectorEffect="non-scaling-stroke"
-        />
-      ))}
-      <polygon points={`0,100 ${points} 100,100`} fill="url(#tal-descent)" />
-      <polyline
-        points={points}
-        fill="none"
-        stroke="var(--accent)"
-        strokeWidth="2"
-        strokeLinejoin="round"
-        vectorEffect="non-scaling-stroke"
-      />
-      <line
-        x1={cursorX}
-        y1="0"
-        x2={cursorX}
-        y2="100"
-        stroke="var(--rule-strong)"
-        strokeWidth="1"
-        vectorEffect="non-scaling-stroke"
-      />
-      <circle cx={cursorX} cy={y(members)} r="2.4" fill="var(--accent)" />
-    </svg>
-  )
-}
+/** The pooled discount, as a whole percentage of list — DERIVED from the settled row, so the
+ *  "30% off" in the copy and the figures in the stepper are one number, not two. */
+export const POOLED_DISCOUNT_PERCENT = Math.round((SAVED_MICRO_LXC / LEDGER_HIT.listMicroLXC) * 100)
 
-// ⚠ WHAT THIS PAGE MAY CLAIM, AND WHY — checked against source, not against intent.
-//
-// · PER-ISSUE COST IS REAL and stays: talyvor-track's issues.ai_cost_usd is a running sum of the
-//   ai_spend_events ledger, idempotent on request_id (internal/issue/store.go, migration 0017).
-//
-// · PER-DOCUMENT COST STAYS OFF THE PAGE — AND THE REASON IT USED TO GIVE HAS EXPIRED, which is
-//   why this bullet is longer than the others. It read: "Docs tags its own Lens calls by FEATURE
-//   (docs-ai-write, docs-ai-summarize) and never by page, so there is no per-page attribution to
-//   report", with the restore condition "when Docs tags its own calls with a page identifier AND
-//   pages.ai_cost_usd stops being a roll-up of something else".
-//
-//   MEASURED read-only against talyvor-docs `63b7ea6`, three ways, none of them a reading of that
-//   repo's prose: `go test ./internal/ai/ -run TestAttribution_EachSinglePageOperationBindsItsPage`
-//   PASSES; migration 0018 adds `pages.own_ai_cost_usd` and the `page_ai_spend_events` ledger
-//   (request_id PRIMARY KEY, page_id NOT NULL REFERENCES pages); and cmd/docs/main.go:234 wires the
-//   binder into the production engine (`ai.New(lensClient).WithSpendBinder(pageStore)`). DOCS
-//   ATTRIBUTES AI SPEND TO A PAGE TODAY. 0018's own header names the sentence on THIS page as the
-//   thing it was built to make true.
-//
-//   ⚠ THE RESTORE CONDITION AS WRITTEN CAN NOW NEVER BE MET, and that is the part worth keeping.
-//   Its second half asked for `pages.ai_cost_usd` to stop being a roll-up. It did not: Docs added a
-//   SECOND column instead, deliberately — ai_cost_usd is RECOMPUTED AND OVERWRITTEN from the linked
-//   issues on every sweep, so an accumulated per-page total added into it would be erased by the
-//   next sweep, silently and only for the pages that had AI work. So ai_cost_usd still means what
-//   this page's Docs blurb says it means, `own_ai_cost_usd` is the new number, and their sum is
-//   exposed as a third derived field. A condition written against a shape the upstream then chose
-//   not to take is a condition that stays unmet while the fact underneath it changes.
-//
-//   WHAT STILL KEEPS THE SENTENCE OFF THE PAGE, stated so the next session need not re-derive it:
-//   (a) the claim is the ENUMERATION "an issue, a document or a change", and the change half has no
-//   surface at all — see the next bullet — so the sentence cannot be restored whole; and (b)
-//   own_ai_cost_usd is a documented LOWER BOUND: docs-ai-ask (many pages by construction) and
-//   docs-search (workspace-wide) have no single page and are excluded by design. Whether a lower
-//   bound may be sold as "the cost of a document" is a claim decision, not a session's.
-//   ⚠ AND NOTHING IN THIS REPOSITORY CAN SEE ANY OF IT. Landing.test.tsx asserts the page stays
-//   SILENT, which is green for every possible state of talyvor-docs — the assertion could not have
-//   noticed this and cannot notice the next move either. The premise is therefore registered in
-//   deploy/decision-expiry.sh's uncheckable half, where the repo already keeps the cross-repo
-//   premises it cannot check, with a command a deployer runs in a talyvor-docs checkout.
-//
-// · PER-CHANGE COST HAS NO SURFACE. talyvor-code has no route in this app and no proxy in the BFF,
-//   so a reader has nowhere to go and look.
-//
-// · MCP IS NOT A SURFACE ANY CUSTOMER CAN REACH. deploy/Caddyfile publishes ONE origin
-//   (app.talyvor.com → the BFF on :8787); the BFF registers no /mcp route; Track and Docs are not
-//   publicly routed. The MCP server EXISTS in Track — it is simply unreachable on the hosted
-//   product, and naming it as a surface is a promise the deployment cannot keep. ⚠ RESTORE IT ONLY
-//   when a customer-reachable path to it exists, not when the server exists.
-//
-// Landing.test.tsx asserts each of these on the RENDERED TEXT, because a comment cannot fail a
-// build — this page has already shipped one claim that a comment beside it contradicted.
-const PRODUCTS: Array<{ name: string; role: string; body: string; surfaces: string }> = [
+/** What an agent's wallet does, in the order a request meets it. Each line is something the
+ *  console already does — /agents is where a customer sets every one of them. */
+const WALLET: Array<{ title: string; body: string }> = [
   {
-    name: 'Lens',
-    role: 'Inference gateway',
-    body: 'Every model call from every tool goes through one self-hosted gateway: routing across providers, response caching, per-workspace keys and budgets, and a ledger that records what each request cost.',
-    surfaces: 'OpenAI/Anthropic-compatible API · web console',
+    title: 'A budget of its own',
+    body: 'Fund each agent from the workspace balance. It spends its own money, and when the money runs out the next call is refused rather than billed to you.',
   },
   {
-    name: 'Track',
-    role: 'Issue tracker',
-    body: 'Issues, workflows, dependencies and comments, with the AI cost of each issue recorded against it.',
-    surfaces: 'web',
+    title: 'Spending rules',
+    body: 'Caps per request, per day and per month, the models it may call and the hours it may work — checked before the model is called, not reconciled after.',
   },
   {
-    name: 'Docs',
-    role: 'Team wiki',
-    body: 'Spaces and pages with versioned history and tiered sharing, and pages that carry the cost of the issues linked to them.',
-    surfaces: 'web',
+    title: 'Approvals',
+    body: 'A payment above the line you set waits for a person. Nothing moves until someone approves it.',
   },
   {
-    name: 'Code',
-    role: 'Coding agent',
-    body: 'An iterative, tool-using agent with a semantic index of your repository — in the terminal, VS Code, and JetBrains — with every model call routed through Lens.',
-    surfaces: 'CLI · VS Code · JetBrains',
-  },
-]
-
-const POSTURE: Array<{ title: string; body: string }> = [
-  {
-    title: 'Your keys stay yours.',
-    body: 'Provider keys live in your environment and requests leave from your machines. Nobody proxies your traffic but you.',
-  },
-  {
-    title: 'Your data has one home.',
-    body: 'Prompts, issues, pages, and spend records sit in your Postgres. Retention is a per-workspace policy you set — including "log nothing" — not a plan tier.',
-  },
-  {
-    title: 'The bill is legible.',
-    body: 'Per-workspace keys, budgets that block at the limit, and a ledger of what every request cost. Metering is built into the gateway, not reconstructed from invoices.',
-  },
-  {
-    title: 'Audit is an export, not a request.',
-    body: 'The gateway writes an audit log you can stream out as NDJSON into whatever your security team already runs.',
+    title: 'A live statement',
+    body: 'Every hold, charge, payment and refund lands on the agent’s own statement as it happens, so you can read what an agent spent the way you read a bank account.',
   },
 ]
 
@@ -235,24 +111,24 @@ function WorkedHit() {
   const [step, setStep] = useState(0)
   const beats = [
     {
-      label: 'A request arrives',
+      label: 'An agent asks',
       figure: <Figure value={micro(LEDGER_HIT.listMicroLXC)} unit="µLXC list" />,
-      body: 'Someone at another company has already asked this. Billed straight to the provider, the answer costs list price.',
+      body: 'Another workspace has already paid to have this answered. Billed straight to the provider, it would cost list price.',
     },
     {
-      label: 'The pool has it',
+      label: 'It is served from the pool',
       figure: <Figure value={micro(LEDGER_HIT.chargedMicroLXC)} unit="µLXC charged" />,
-      body: 'It is served from the pool instead of the provider, and charged below list — this workspace did not pay to generate the answer, only to reuse it.',
+      body: `The answer is reused instead of generated again, and charged ${POOLED_DISCOUNT_PERCENT}% under list.`,
     },
     {
-      label: 'The consumer keeps the difference',
+      label: 'The wallet keeps the difference',
       figure: <Figure value={micro(SAVED_MICRO_LXC)} unit="µLXC saved" />,
       body: 'Not a discount anyone funds. The saving is a generation cost nobody had to pay a second time.',
     },
     {
-      label: 'The contributor is paid',
+      label: 'The contributor is paid half',
       figure: <Figure value={micro(LEDGER_HIT.contributorEarnedMicroLENS)} unit="µLENS earned" />,
-      body: `Minted to the workspace whose answer was reused, and spendable once the ${HOLDBACK_HOURS}-hour holdback elapses — long enough that the gaming patterns are detectable before anything settles.`,
+      body: `Half of what was charged is minted to the workspace whose answer was reused, spendable once the ${HOLDBACK_HOURS}-hour holdback elapses.`,
     },
   ]
   return (
@@ -295,56 +171,14 @@ function WorkedHit() {
   )
 }
 
-/** The compounding, made movable: the visitor sets the pool size and watches the bill fall. */
-function Compounding() {
-  const [members, setMembers] = useState(1)
-  return (
-    <div className="overflow-hidden rounded-card border border-rule bg-surface">
-      <div className="flex flex-col gap-8 px-gutter py-6 wide:flex-row wide:items-end wide:justify-between">
-        <div>
-          <p className="font-figure text-eyebrow uppercase text-muted">
-            The same answer, at a pool of{' '}
-            <span className="font-figure text-ink">{members}</span>
-            {members === 1 ? ' contributor' : ' contributors'}
-          </p>
-          <div className="mt-4 flex flex-wrap items-baseline gap-x-8 gap-y-3">
-            <Figure value={micro(billAt(members))} unit="µLXC you pay" />
-            <Figure value={micro(savedAt(members))} unit="µLXC kept" tone="muted" />
-          </div>
-        </div>
-        <label className="block wide:w-72">
-          <span className="font-figure text-eyebrow uppercase text-faint">
-            Contributors in the pool
-          </span>
-          <input
-            type="range"
-            min={1}
-            max={61}
-            value={members}
-            onChange={(e) => setMembers(Number(e.target.value))}
-            aria-label="Contributors in the pool"
-            className={`tal-range mt-2 w-full ${focusRing}`}
-          />
-        </label>
-      </div>
-      <DescentCurve members={members} />
-      <p className="border-t border-rule px-gutter py-3 text-caption text-faint">
-        The shape this is built to reach, drawn from the claim — not a measurement. The settled
-        figures above are the measured part of this page.
-      </p>
-    </div>
-  )
-}
-
 export function Landing() {
   // The ONE piece of server state this page reads: whether a stranger may sign up. Deliberately a
   // bare-fetch hook rather than react-query — this page renders with no providers at all, and a
   // probe that failed to answer leaves the page saying nothing about access rather than guessing.
   const { signup } = useSignupProbe()
   // THE FRONT DOOR TAKES THE BRAND LINE — `null`, not a page name. That is what the marketing
-  // site does with its own home page (`TALYVOR: the AI development suite that gets cheaper`,
-  // while every inner page is `<page> | TALYVOR`), and this page's own h1 is a sentence, not a
-  // name. See documentTitle.test.tsx for the fetched titles.
+  // site does with its own home page, while every inner page is `<page> | TALYVOR`, and this
+  // page's own h1 is a sentence, not a name. See documentTitle.test.tsx for the fetched titles.
   useDocumentTitle(null)
   return (
     <div className="flex min-h-full flex-col bg-canvas text-ink">
@@ -359,7 +193,6 @@ export function Landing() {
         .tal-stagger > *:nth-child(3) { animation-delay: .12s }
         .tal-stagger > *:nth-child(4) { animation-delay: .18s }
         .tal-stagger > *:nth-child(5) { animation-delay: .24s }
-        .tal-range { accent-color: var(--accent) }
         @media (prefers-reduced-motion: reduce) {
           .tal-rise, .tal-stagger > * { animation: none }
         }
@@ -377,7 +210,7 @@ export function Landing() {
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-gutter py-3">
           <div>
             <div className="text-head text-ink">Talyvor</div>
-            <div className="text-caption font-normal text-faint">Suite</div>
+            <div className="text-caption font-normal text-faint">Agent Wallets</div>
           </div>
           <div className="flex items-center gap-3">
             <a href="/pricing" className={`text-body text-muted ${inlineLink}`}>
@@ -396,7 +229,7 @@ export function Landing() {
       </header>
 
       <main className="flex-1">
-        {/* ── 00 · The inversion ───────────────────────────────────────────── */}
+        {/* ── 00 · The product ─────────────────────────────────────────────── */}
         <section aria-labelledby="hero-heading" className="relative overflow-hidden border-b border-rule">
           {/* Atmosphere rather than a flat fill: one accent wash bled off the top-right corner, so
               the display type has something to sit against without any coloured text. */}
@@ -407,28 +240,26 @@ export function Landing() {
           />
           <div className="relative mx-auto w-full max-w-5xl px-gutter pb-20 pt-16 wide:pb-28 wide:pt-24">
             <div className="tal-stagger">
-              <SectionLabel index="00">Self-hosted · pre-launch</SectionLabel>
+              <SectionLabel index="00">Agent wallets</SectionLabel>
               <h1
                 id="hero-heading"
                 className="mt-7 max-w-3xl text-display-1 text-ink"
               >
-                Everything in AI gets more expensive the more you use it.{' '}
+                Give every AI agent{' '}
                 <span className="relative inline-block">
-                  This gets cheaper.
+                  a wallet.
                   <span className="absolute -bottom-1 left-0 h-0.5 w-full bg-accent" aria-hidden="true" />
                 </span>
               </h1>
               <p className="mt-8 max-w-2xl text-lede text-muted">
-                An answer generated by one company can serve another — with consent, attribution and
-                payment. Bills fall toward zero as the community grows and usage compounds: the shape
-                this is built to reach is near-zero at roughly ninety days of constant use, with a
-                pool big enough to cover your work.
+                A budget, spending rules, approvals and a live statement for each agent you run —
+                enforced before the model call or the payment, not reconciled after the bill
+                arrives.
               </p>
               <p className="mt-4 max-w-2xl text-body text-muted">
-                That is what the community <span className="text-ink">reaches</span>, the way a
-                shared resource does — every workspace that contributes makes the next answer cheaper
-                for everyone, including the one that arrives after yours. Day one is an ordinary bill
-                with a real ledger under it. The curve is the product.
+                An agent with a wallet can only spend what you gave it, on what you allowed, when
+                you allowed it. Everything it does spend is on its own statement the moment it
+                happens.
               </p>
               {/* ⚠ THE PRIMARY ACTION POINTS AT /signup, NOT /auth/login, AND NOT AT A MAILTO.
                   Preserved from the previous version because the reasoning is easy to "simplify"
@@ -445,7 +276,7 @@ export function Landing() {
                   <a href="/signup">Get started</a>
                 </Button>
                 <Button asChild>
-                  <a href="#economics">See the arithmetic</a>
+                  <a href="#wallets">See how it works</a>
                 </Button>
               </div>
             </div>
@@ -478,197 +309,113 @@ export function Landing() {
           </div>
         </section>
 
-        {/* ── 01 · Why nobody else can offer it ────────────────────────────── */}
-        <section aria-labelledby="moat-heading" className="border-b border-rule">
-          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
-            <SectionLabel index="01">Why this is not a discount</SectionLabel>
-            <h2
-              id="moat-heading"
-              className="mt-6 max-w-3xl text-display-3 text-ink"
-            >
-              One company’s answer can serve another. That is the whole product.
-            </h2>
-            <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
-              <p className="text-body text-muted">
-                Anthropic and OpenAI cache too — per account, and only back to you. They cannot serve
-                your answer to another customer: their agreements are with each customer separately,
-                so one customer’s output is not theirs to hand to the next. That is a legal position
-                rather than an engineering gap, and not one they can decide their way out of.
-              </p>
-              <p className="text-body text-muted">
-                Talyvor is built the other way round. Sharing is a choice each workspace makes, and
-                once made, an answer becomes an asset: the consumer pays under list, the contributor
-                is paid for the reuse, and the pool gets richer with every request that passes
-                through it. More people using it is the mechanism that makes it cheaper as more
-                people use it — the opposite of how every other bill in this industry behaves.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 02/03 · The arithmetic, worked and compounded ────────────────── */}
+        {/* ── 01 · Wallets ─────────────────────────────────────────────────── */}
         <section
-          id="economics"
-          aria-labelledby="economics-heading"
-          className="scroll-mt-16 border-b border-rule bg-canvas"
+          id="wallets"
+          aria-labelledby="wallets-heading"
+          className="scroll-mt-16 border-b border-rule"
         >
           <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
-            <SectionLabel index="02">The arithmetic</SectionLabel>
-            <h2
-              id="economics-heading"
-              className="mt-6 max-w-2xl text-display-3 text-ink"
-            >
-              One pooled answer, as the ledger recorded it.
-            </h2>
-            <p className="mt-4 max-w-xl text-body text-muted">
-              Step through it. These are not illustrative figures — they are the list price, the
-              charge, the saving and the mint from a single settled transaction.
-            </p>
-            <div className="mt-8">
-              <WorkedHit />
-            </div>
-
-            <div className="mt-16">
-              <SectionLabel index="03">The compounding</SectionLabel>
-              <h3 className="mt-6 max-w-2xl text-display-4 text-ink">
-                Every member who contributes lowers the next bill — including yours.
-              </h3>
-              <p className="mt-4 max-w-xl text-body text-muted">
-                More members means more answers in the pool, which means more requests already
-                answered, which means a smaller share of list price paid. Move the pool and watch the
-                same answer get cheaper.
-              </p>
-              <div className="mt-8">
-                <Compounding />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 04 · Earning ─────────────────────────────────────────────────── */}
-        <section aria-labelledby="earning-heading" className="border-b border-rule">
-          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
-            <SectionLabel index="04">Earning</SectionLabel>
-            <h2
-              id="earning-heading"
-              className="mt-6 max-w-2xl text-display-3 text-ink"
-            >
-              Contribute answers, earn LENS, spend it on inference.
-            </h2>
-            <div className="mt-10 grid gap-x-12 gap-y-8 wide:grid-cols-3">
-              <div>
-                <div className="h-0.5 w-8 bg-accent" aria-hidden="true" />
-                <p className="mt-4 text-head text-ink">Reuse mints</p>
-                <p className="mt-2 text-body text-muted">
-                  When your answer serves another workspace, LENS is minted to you against that
-                  reuse. Nothing is minted for producing an answer nobody needed.
-                </p>
-              </div>
-              <div>
-                <div className="h-0.5 w-8 bg-accent" aria-hidden="true" />
-                <p className="mt-4 text-head text-ink">It settles after {HOLDBACK_HOURS} hours</p>
-                <p className="mt-2 text-body text-muted">
-                  Earnings are held before they become spendable, sized so the statistical gaming
-                  patterns are detectable inside the window. Held earnings are visible while they
-                  wait, and the window is exactly when a payout can still be contested — a held
-                  amount can be removed before it ever becomes spendable, which is the point of
-                  holding it. The Terms say the same thing in full.
-                </p>
-              </div>
-              <div>
-                <div className="h-0.5 w-8 bg-accent" aria-hidden="true" />
-                <p className="mt-4 text-head text-ink">Convert and spend</p>
-                <p className="mt-2 text-body text-muted">
-                  Settled LENS converts into the credit that pays for inference. A workspace that
-                  contributes steadily is paying for a shrinking share of its own usage.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 05 · Consent ─────────────────────────────────────────────────── */}
-        <section aria-labelledby="consent-heading" className="border-b border-rule bg-canvas">
-          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
-            <SectionLabel index="05">Consent</SectionLabel>
-            <h2
-              id="consent-heading"
-              className="mt-6 max-w-3xl text-display-3 text-ink"
-            >
-              Your prompts are never served to another company. Only answers, only with consent.
-            </h2>
-            <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
-              <p className="text-body text-muted">
-                Sharing is a decision, made per workspace, and it is reversible. A workspace that has
-                not opted in contributes nothing and is served nothing from the pool — an ordinary
-                gateway with an ordinary bill, which is a supported way to run this.
-              </p>
-              <p className="text-body text-muted">
-                What crosses between companies is a generated answer, attributed and paid for. What
-                never crosses is the prompt that produced it. If the mechanism only worked by moving
-                your questions around, it would not be worth having — and we would not be able to
-                describe it this plainly on a public page.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* ── 06 · The suite ───────────────────────────────────────────────── */}
-        <section id="suite" aria-labelledby="suite-heading" className="scroll-mt-16 border-b border-rule">
-          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
-            <SectionLabel index="06">The suite</SectionLabel>
-            <h2
-              id="suite-heading"
-              className="mt-6 max-w-2xl text-display-3 text-ink"
-            >
-              Four tools that know what every piece of AI work cost.
-            </h2>
-            <p className="mt-4 max-w-xl text-body text-muted">
-              The tracker, the wiki and the coding agent route their model calls through the same
-              gateway — one ledger instead of four invoices nobody can reconcile. The tracker goes
-              furthest: every model call is attributed to the issue that caused it, so you can read
-              the cost of an issue the way you read its status.
-            </p>
-            <div className="mt-10 grid gap-px border border-rule bg-rule wide:grid-cols-2">
-              {PRODUCTS.map((p) => (
-                <div key={p.name} className="bg-surface p-6">
-                  <div className="flex items-baseline gap-3">
-                    <span className="text-head text-ink">{p.name}</span>
-                    <span className="font-figure text-eyebrow uppercase text-faint">{p.role}</span>
-                  </div>
-                  <p className="mt-3 text-body text-muted">{p.body}</p>
-                  <p className="mt-4 text-caption text-faint">{p.surfaces}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ── 07 · Where it runs ───────────────────────────────────────────── */}
-        <section aria-labelledby="posture-heading" className="border-b border-rule bg-canvas">
-          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
-            <SectionLabel index="07">Where it runs</SectionLabel>
+            <SectionLabel index="01">Wallets</SectionLabel>
             {/* THE ONE HEADING THAT NAMES THE PRODUCT. Landing.test.tsx asserts exactly one heading
                 matches /talyvor/i, so nothing else on this page may put the name in a heading. */}
             <h2
-              id="posture-heading"
+              id="wallets-heading"
               className="mt-6 max-w-3xl text-display-3 text-ink"
             >
-              Talyvor runs on your infrastructure, with your provider keys.
+              Talyvor checks the rules before the money moves.
             </h2>
             <p className="mt-4 max-w-xl text-body text-muted">
-              Self-hosting is the moat, said plainly: none of the economics above require you to hand
-              anyone your traffic. You run the gateway, your data stays in your Postgres, and the
-              pool is something you opt into rather than something you are inside by default.
+              Every model call and every payment an agent makes passes through the gateway first.
+              The wallet is consulted there — so a rule that says no stops the call, instead of
+              showing up as a line on next month’s invoice.
             </p>
-            <div className="mt-10 grid gap-x-12 gap-y-8 wide:grid-cols-2">
-              {POSTURE.map((p) => (
-                <div key={p.title}>
-                  <div className="h-0.5 w-8 bg-accent" aria-hidden="true" />
-                  <p className="mt-4 text-head text-ink">{p.title}</p>
-                  <p className="mt-2 text-body text-muted">{p.body}</p>
-                </div>
+            <ol className="mt-10 grid gap-px border border-rule bg-rule wide:grid-cols-2">
+              {WALLET.map((w, i) => (
+                <li key={w.title} className="bg-surface p-6">
+                  <div className="flex items-baseline gap-3">
+                    <span className="font-figure text-caption text-faint">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <span className="text-head text-ink">{w.title}</span>
+                  </div>
+                  <p className="mt-3 text-body text-muted">{w.body}</p>
+                </li>
               ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* ── 02 · Chat ────────────────────────────────────────────────────── */}
+        <section aria-labelledby="chat-heading" className="border-b border-rule bg-canvas">
+          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
+            <SectionLabel index="02">Chat</SectionLabel>
+            <h2
+              id="chat-heading"
+              className="mt-6 max-w-3xl text-display-3 text-ink"
+            >
+              A chat app for you, and the console for your agents.
+            </h2>
+            <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
+              <p className="text-body text-muted">
+                Ask the models your workspace allows, attach documents, and keep your
+                conversations. Your own messages go through the same gateway as your agents’
+                calls.
+              </p>
+              <p className="text-body text-muted">
+                The same app is where you fund an agent, set its rules, approve what it asked to
+                spend and read its statement — the wallet console sits beside the conversation
+                rather than in a separate admin product.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ── 03 · Marketplace ─────────────────────────────────────────────── */}
+        <section aria-labelledby="marketplace-heading" className="border-b border-rule">
+          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
+            <SectionLabel index="03">Marketplace</SectionLabel>
+            <h2
+              id="marketplace-heading"
+              className="mt-6 max-w-3xl text-display-3 text-ink"
+            >
+              Where agents spend.
+            </h2>
+            <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
+              <p className="text-body text-muted">
+                Browse and use agents, prompts, skills, evaluations and pipelines that other
+                workspaces have published, instead of building every one yourself.
+              </p>
+              <p className="text-body text-muted">
+                Publish your own, and the Marketplace shows you what each listing earned.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* ── 04 · Repeated questions cost less ────────────────────────────── */}
+        <section
+          id="pooling"
+          aria-labelledby="pooling-heading"
+          className="scroll-mt-16 border-b border-rule bg-canvas"
+        >
+          <div className="mx-auto w-full max-w-5xl px-gutter py-16 wide:py-20">
+            <SectionLabel index="04">Pooling</SectionLabel>
+            <h2
+              id="pooling-heading"
+              className="mt-6 max-w-2xl text-display-3 text-ink"
+            >
+              Repeated questions cost less.
+            </h2>
+            <p className="mt-4 max-w-xl text-body text-muted">
+              When an agent asks something another workspace has already paid to have answered, the
+              answer is served from the pool at {POOLED_DISCOUNT_PERCENT}% off list, and the
+              workspace whose answer it was is paid half of the charge. Only answers cross between
+              workspaces — never the prompt that produced them. Step through one real settled
+              transaction:
+            </p>
+            <div className="mt-8">
+              <WorkedHit />
             </div>
           </div>
         </section>
@@ -680,7 +427,7 @@ export function Landing() {
               id="close-heading"
               className="max-w-3xl text-display-2 text-ink"
             >
-              Start on an ordinary bill. Stay for the one that keeps falling.
+              Give your first agent a wallet.
             </h2>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Button asChild variant="primary">
@@ -708,7 +455,7 @@ export function Landing() {
       <footer className="border-t border-rule">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-gutter py-6">
           <div className="font-figure text-eyebrow uppercase text-faint">
-            Talyvor Ltd · self-hosted AI development
+            Talyvor Ltd · wallets for AI agents
           </div>
           <div className="text-caption text-faint">
             <a href="/privacy" className={inlineLink}>
@@ -727,8 +474,8 @@ export function Landing() {
               Documentation
             </a>
             {' · '}
-            <a href="#suite" className={inlineLink}>
-              See the suite
+            <a href="#pooling" className={inlineLink}>
+              Repeated questions
             </a>
           </div>
         </div>
