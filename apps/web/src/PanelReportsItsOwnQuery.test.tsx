@@ -110,6 +110,7 @@ function bodyFor(url: string): unknown {
   if (url.includes('/api/track/workspaces')) return []
   if (url.includes('/api/track/issues')) return []
   if (url.includes('/api/docs/spaces')) return []
+  if (url.includes('/api/docs/membership')) return { member: true }
   if (url.includes('/api/docs/pins')) return []
   return {}
 }
@@ -145,21 +146,22 @@ function mockBff(refusals: Array<[string, number]> = []) {
  * addresses are swept anyway — the property is general, and their cost is one render each.
  */
 const ADDRESS_ROUTES: Record<string, string[]> = {
-  '/': ['/api/bonds', '/api/docs/pins', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/history', '/api/spend/month', '/api/tokens/balance', '/api/tokens/history', '/api/track/workspaces', '/api/usage'],
-  '/ledger': ['/api/docs/pins', '/api/lxc/history'],
-  '/billing': ['/api/billing/allowance', '/api/docs/pins', '/api/lxc/balance', '/api/lxc/topup-options'],
-  '/keys': ['/api/docs/pins', '/api/keys'],
-  '/setup': ['/api/context', '/api/docs/pins', '/api/keys'],
-  '/spend': ['/api/docs/pins', '/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
-  '/members': ['/api/docs/pins', '/api/members'],
-  '/settings': ['/api/distill', '/api/docs/pins'],
+  '/': ['/api/bonds', '/api/docs/membership', '/api/docs/pins', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/history', '/api/spend/month', '/api/tokens/balance', '/api/tokens/history', '/api/track/workspaces', '/api/usage'],
+  '/ledger': ['/api/docs/membership', '/api/docs/pins', '/api/lxc/history'],
+  '/billing': ['/api/billing/allowance', '/api/docs/membership', '/api/docs/pins', '/api/lxc/balance', '/api/lxc/topup-options'],
+  '/keys': ['/api/docs/membership', '/api/docs/pins', '/api/keys'],
+  '/setup': ['/api/context', '/api/docs/membership', '/api/docs/pins', '/api/keys'],
+  '/spend': ['/api/docs/membership', '/api/docs/pins', '/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
+  '/members': ['/api/docs/membership', '/api/docs/pins', '/api/members'],
+  '/settings': ['/api/distill', '/api/docs/membership', '/api/docs/pins'],
   // B8.1 made every gated address ask for /api/docs/spaces, for the sidebar's list of spaces. B10.6
   // replaced that list with the pages this browser pinned or opened, which needs no read — so only
   // Overview (its product status) and /docs itself still ask for it. B18.27 moved the pins to Docs,
-  // so every address asks for /api/docs/pins again — one read, for the sidebar.
+  // so every address asks for /api/docs/pins again — one read, for the sidebar. B27.15 asks Docs
+  // whether the person is a member first (/api/docs/membership), and reads pins only if so.
   // B4.2 added /api/track/projects — the issue list's Project filter.
-  '/track': ['/api/docs/pins', '/api/members', '/api/track/issues', '/api/track/projects', '/api/track/workspaces'],
-  '/docs': ['/api/docs/pins', '/api/docs/spaces'],
+  '/track': ['/api/docs/membership', '/api/docs/pins', '/api/members', '/api/track/issues', '/api/track/projects', '/api/track/workspaces'],
+  '/docs': ['/api/docs/membership', '/api/docs/pins', '/api/docs/spaces'],
 }
 
 const FAILURE_WORDING = /Couldn[’']t (load|check)/i
@@ -233,8 +235,9 @@ describe('the swept set', () => {
     // quieter one.
     // 36 → 28 at B10.6: the eight sidebar reads of /api/docs/spaces are gone (see the table).
     // 28 → 38 at B18.27: the sidebar's pinned pages are read from Docs on every address.
+    // 38 → 48 at B27.15: the sidebar asks Docs whether the person is a member first, on every address.
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(38)
+    expect(pairs).toBe(48)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 
-import { ApiError, getJSONArray } from '../../lib/api'
+import { ApiError, getJSON, getJSONArray } from '../../lib/api'
 import { useAuthMeReader } from '../../lib/authMe'
 
 // B10.6 — the Docs pages a person pinned, and the ones they opened last, for the sidebar.
@@ -95,6 +95,17 @@ interface ServerPin {
 
 const PINS_KEY = ['docs', 'pins']
 
+/** B27.15 — whether Docs knows this person yet, shared by the sidebar and the Docs screen. */
+export const DOCS_MEMBERSHIP_KEY = ['docs', 'membership']
+
+/** GET /api/docs/membership — 200 either way, so asking never logs a failed request. Docs learns its
+ *  members from Track, and a person who has just joined is refused until that roster arrives; anything
+ *  but an explicit `true` means "do not ask Docs for this person's things yet". */
+export async function readDocsMembership(): Promise<boolean> {
+  const v: unknown = await getJSON<unknown>('/api/docs/membership')
+  return (v as { member?: unknown } | null)?.member === true
+}
+
 const toRef = (p: ServerPin): DocRef => ({ spaceId: p.space_id, pageId: p.page_id, title: p.title })
 
 function isServerPin(v: unknown): v is ServerPin {
@@ -103,9 +114,16 @@ function isServerPin(v: unknown): v is ServerPin {
 }
 
 /** Docs' list, kept to well-formed entries: the sidebar is on every screen, so a reply that is not a
- *  list must leave it without pins rather than take the page down. */
+ *  list must leave it without pins rather than take the page down. A refusal — membership lost after
+ *  the check above said yes — is no pins, not a failure. */
 async function readPins(): Promise<ServerPin[]> {
-  const v: unknown = await getJSONArray<ServerPin>('/api/docs/pins')
+  let v: unknown
+  try {
+    v = await getJSONArray<ServerPin>('/api/docs/pins')
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) return []
+    throw err
+  }
   return Array.isArray(v) ? v.filter(isServerPin) : []
 }
 
@@ -123,10 +141,18 @@ export function useDocsNav() {
     me.data?.user?.sub ?? me.data?.workspace_id ?? (me.data?.mode === 'disabled' ? 'local' : null)
   const raw = useSyncExternalStore(subscribe, () => (scope === null ? null : readRaw(scope)))
   const stored = useMemo(() => parse(raw), [raw])
+  // B27.15 — pins are asked for only once Docs counts this person as a member. The sidebar is on every
+  // screen, and asking a Docs that has not been told about someone logged a 403 on every page load.
+  const membership = useQuery({
+    queryKey: DOCS_MEMBERSHIP_KEY,
+    queryFn: readDocsMembership,
+    enabled: scope !== null,
+    staleTime: 60_000,
+  })
   const pins = useQuery({
     queryKey: PINS_KEY,
     queryFn: readPins,
-    enabled: scope !== null,
+    enabled: scope !== null && membership.data === true,
     staleTime: 60_000,
   })
   const pinned = useMemo(() => (pins.data ?? []).map(toRef), [pins.data])

@@ -33,6 +33,8 @@
 
 /** A body per endpoint. Keys are matched by exact URL first, then by pathname. */
 const BODIES: Record<string, unknown> = {
+  // B27.15 — Docs counts the fixture's person as a member, so the sidebar reads its pins.
+  '/api/docs/membership': { member: true },
   '/auth/me': { mode: 'disabled', authenticated: false, user: null },
 
   '/api/context': {
