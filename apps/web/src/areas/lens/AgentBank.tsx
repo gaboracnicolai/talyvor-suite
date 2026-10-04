@@ -945,16 +945,37 @@ function IssueKey({ agent }: { agent: Agent }) {
 }
 
 function lineText(l: StatementLine, nameOf: (id: string) => string): string {
+  const out = l.amount_ulxc < 0
+  const other = l.counterparty.startsWith('agent:') ? nameOf(l.counterparty.slice(6)) : 'another agent'
   switch (l.kind) {
     case 'fund':
       return 'Funded by the workspace'
     case 'withdraw':
       return 'Taken back by the workspace'
+    case 'topup':
+      return 'Topped up automatically by the workspace'
+    case 'credit_line':
+      return 'Covered by the credit line'
     case 'pay': {
-      const other = l.counterparty.startsWith('agent:') ? nameOf(l.counterparty.slice(6)) : 'another agent'
-      const what = l.amount_ulxc < 0 ? `Paid ${other}` : `Received from ${other}`
+      const what = out ? `Paid ${other}` : `Received from ${other}`
       return l.ref ? `${what} — ${l.ref}` : what
     }
+    case 'transfer':
+      return out ? `Transferred to ${other}` : `Transfer from ${other}`
+    case 'reversal':
+      return out ? `Test money given back to ${other}` : `Test money returned by ${other}`
+    case 'escrow':
+      return out ? 'Held in escrow' : 'Released from escrow'
+    case 'card':
+      return out ? 'Card charge' : 'Card refund'
+    case 'cash_out':
+      return out ? 'Cashed out' : 'Cash-out returned'
+    case 'pot_in':
+      return 'Moved into a pot'
+    case 'pot_out':
+      return 'Moved out of a pot'
+    case 'spend':
+      return 'Spent on a request'
     case 'hold':
       return 'Held for a request'
     case 'release':
@@ -962,7 +983,8 @@ function lineText(l: StatementLine, nameOf: (id: string) => string): string {
     case 'settle':
       return 'Settled a request'
     default:
-      return 'Spent on a request'
+      // A kind Lens added after this screen: say which way it moved rather than guess what it was.
+      return out ? 'Money out' : 'Money in'
   }
 }
 
