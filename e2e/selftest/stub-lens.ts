@@ -622,6 +622,16 @@ createServer(async (req, res) => {
           updated_at: ws.earnings[0]?.created_at ?? '0001-01-01T00:00:00Z' })
       }
       if (rest === '/spend/current-month') return json(res, 200, { current_month_usd: monthUSD(ws) })
+      // B27.32: the stub routes nothing to a cheaper model and keeps no list price, so every measured
+      // request was charged what it would have cost — a saving of exactly zero, as Lens reports it.
+      if (rest === '/savings/current-month') {
+        const start = new Date()
+        start.setUTCDate(1)
+        start.setUTCHours(0, 0, 0, 0)
+        const n = ws.ledger.filter((r) => r.type === 'spend' && new Date(r.created_at) >= start).length
+        const usd = monthUSD(ws)
+        return json(res, 200, { month_start: start.toISOString(), saved_usd: 0, list_usd: usd, charged_usd: usd, requests: n, unmeasured_requests: 0 })
+      }
       if (rest === '/deletion-requests') return json(res, 200, { requests: [] })
       if (rest === '/pattern-mining/opt-in') return json(res, 200, { enabled: false, opted_in: false })
       if (rest === '/stored-answers') {

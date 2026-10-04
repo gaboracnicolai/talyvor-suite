@@ -42,6 +42,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
     queryFn: () => api.lxcLedger(LEDGER_PAGE, 0),
   })
   const month = useQuery({ queryKey: ['spend-month'], queryFn: api.spendMonth })
+  const saved = useQuery({ queryKey: ['savings-month'], queryFn: api.savingsMonth })
   // ⚠ TWO DIFFERENT QUESTIONS, AND THE EMPTY STATE BELOW USED TO ANSWER THE WRONG ONE.
   // `windowRows` is "what is in the window"; `agg` is "what in the window says which model
   // it came from". byModel DROPS a row with no `metadata.model_used`, so agg can be empty
@@ -64,6 +65,41 @@ export function Spend({ now = new Date() }: { now?: Date }) {
 
   return (
     <div className="flex flex-col gap-4 px-gutter py-4">
+      {/* B27.32 — the saving is MEASURED: Lens sums the spend rows of this month, each carrying what that
+          request would have cost at the model it asked for with no Talyvor cache and what it was
+          charged. No rate is multiplied and nothing is projected, so it is shown as the sum it is. */}
+      <Card>
+        <CardHeader>Saved — measured</CardHeader>
+        {saved.isLoading ? (
+          <div className="px-gutter py-3 text-body text-muted">Loading…</div>
+        ) : saved.isError || !saved.data ? (
+          <PanelFailure error={saved.error} what="the month’s saving" />
+        ) : (
+          <>
+            <div data-testid="saved-this-month" className="px-gutter py-3 text-body text-ink">
+              Saved this month: <span className="font-figure">{usd(saved.data.saved_usd)}</span>, measured from your
+              requests
+            </div>
+            <div data-testid="saved-basis" className="px-gutter pb-3 text-caption text-muted">
+              {saved.data.requests === 0 ? (
+                'No measured requests yet this month — it starts adding up with your first request through Lens.'
+              ) : (
+                <>
+                  What your {saved.data.requests} request{saved.data.requests === 1 ? '' : 's'} this month would have
+                  cost at the model each asked for with no Talyvor cache (
+                  <span className="font-figure">{usd(saved.data.list_usd)}</span>), minus what{' '}
+                  {saved.data.requests === 1 ? 'it was' : 'they were'} charged (
+                  <span className="font-figure">{usd(saved.data.charged_usd)}</span>).
+                </>
+              )}
+              {saved.data.unmeasured_requests > 0
+                ? ` ${saved.data.unmeasured_requests} request${saved.data.unmeasured_requests === 1 ? '' : 's'} Lens has no measurement for (recorded before it began measuring, or the OCR step of a document) ${saved.data.unmeasured_requests === 1 ? 'is' : 'are'} not counted.`
+                : ''}
+            </div>
+          </>
+        )}
+      </Card>
+
       <Card>
         <CardHeader>Earned by model — LENS mint attribution</CardHeader>
         <Row label="Window" hint="Mint credits by model (copper — the mined token, not provider spend)">
@@ -219,4 +255,10 @@ export function Spend({ now = new Date() }: { now?: Date }) {
       </Card>
     </div>
   )
+}
+
+/** Dollars, to the cent — and to a hundredth of a cent below one, so a real saving never reads $0.00. */
+function usd(n: number): string {
+  const tiny = n !== 0 && Math.abs(n) < 0.01
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: tiny ? 4 : 2 })
 }

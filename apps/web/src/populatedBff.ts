@@ -70,6 +70,7 @@ const BODIES: Record<string, unknown> = {
   },
 
   '/api/spend/month': { current_month_usd: 12.34 },
+  '/api/savings/month': { month_start: '2026-09-01T00:00:00Z', saved_usd: 3.21, list_usd: 15.55, charged_usd: 12.34, requests: 1_200, unmeasured_requests: 0 },
   '/api/ai/providers': { unconfigured: [] },
 
   // The BFF's capability envelope (apps/bff/lens.go#forwardGated), never a bare list. This was
