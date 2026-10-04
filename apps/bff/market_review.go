@@ -42,7 +42,7 @@ func onlyMethod(method string, next http.HandlerFunc) http.HandlerFunc {
 
 // handleMarketReviewQueue — GET /api/admin/marketplace/review.
 func (a *app) handleMarketReviewQueue(w http.ResponseWriter, r *http.Request, s session) {
-	a.moderate(w, r, s, a.client, http.MethodGet, "/v1/admin/marketplace/review", nil)
+	a.moderate(w, r, s, a.client, http.MethodGet, "/v1/admin/marketplace/review", nil, nil)
 }
 
 // handleMarketApprove — POST /api/admin/marketplace/listings/{id}/approve. Lens reads no body.
@@ -51,7 +51,8 @@ func (a *app) handleMarketApprove(w http.ResponseWriter, r *http.Request, s sess
 	if !ok {
 		return
 	}
-	a.moderate(w, r, s, a.client, http.MethodPost, "/v1/admin/marketplace/listings/"+url.PathEscape(id)+"/approve", nil)
+	a.moderate(w, r, s, a.client, http.MethodPost, "/v1/admin/marketplace/listings/"+url.PathEscape(id)+"/approve", nil,
+		&operatorAction{action: auditApprove, target: "listing:" + id})
 }
 
 // handleMarketTakedown — POST /api/admin/marketplace/listings/{id}/takedown {reason}. Lens refuses an
@@ -73,7 +74,8 @@ func (a *app) handleMarketTakedown(w http.ResponseWriter, r *http.Request, s ses
 	ctx, cancel := context.WithTimeout(r.Context(), marketTakedownTimeout)
 	defer cancel()
 	a.moderate(w, r.WithContext(ctx), s, marketUseClient, http.MethodPost,
-		"/v1/admin/marketplace/listings/"+url.PathEscape(id)+"/takedown", body)
+		"/v1/admin/marketplace/listings/"+url.PathEscape(id)+"/takedown", body,
+		&operatorAction{action: auditTakedown, target: "listing:" + id, detail: in.Reason})
 }
 
 // moderatorName is who Lens records as having acted: the address a person reads, and the sub the
@@ -85,13 +87,14 @@ func moderatorName(s session) string {
 	return s.email + " sub=" + s.sub
 }
 
-// moderate sends one review request to Lens on the moderator key and answers what Lens answered.
+// moderate sends one review request to Lens on the moderator key and answers what Lens answered. An
+// operator action (act, nil for a read) Lens did is recorded in the operator trail first (operator_audit.go).
 //
 // ⚠ LENS'S 401 AND 403 ARE NOT RELAYED AS THEY ARE. They are about the web app's key (wrong,
 // revoked, or not a moderator key), and a 401 reaching the browser reads as "your session ended —
 // sign in again", which would send the operator round a loop that cannot fix it. They are answered
 // 502 with the sentence that can.
-func (a *app) moderate(w http.ResponseWriter, r *http.Request, s session, client *http.Client, method, lensPath string, body []byte) {
+func (a *app) moderate(w http.ResponseWriter, r *http.Request, s session, client *http.Client, method, lensPath string, body []byte, act *operatorAction) {
 	if a.cfg.moderatorKey == "" {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "The review queue is not connected: " +
 			"set LENS_MODERATOR_KEY in the web app's environment and restart it (talyvor-lens docs/moderator-keys.md)."})
@@ -126,6 +129,9 @@ func (a *app) moderate(w http.ResponseWriter, r *http.Request, s session, client
 	_ = json.Unmarshal(raw, &refusal)
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300 && json.Valid(raw):
+		if act != nil {
+			a.recordOperatorAction(r.Context(), s, *act)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		_, _ = w.Write(raw)

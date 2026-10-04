@@ -4,6 +4,7 @@ import { Button } from '@talyvor/ui'
 import { Region } from '../../components/Region'
 import { formatULXC } from '../lens/agentBankApi'
 import { formatWhen } from '../lens/format'
+import { TRAIL_KEY } from '../lens/OperatorTrail'
 import { MarketError, type ParkedUse, marketApi, refusalText } from './marketApi'
 import { readFailure } from './parts'
 
@@ -25,6 +26,7 @@ export function ParkedUses() {
   const onRetried = (id: string) => {
     setRetried((was) => [id, ...was])
     void client.invalidateQueries({ queryKey: PARKED_KEY })
+    void client.invalidateQueries({ queryKey: TRAIL_KEY })
   }
   const rows = q.data ?? []
   return (

@@ -6,6 +6,7 @@ import { Region } from '../../components/Region'
 import { isSessionExpired } from '../../lib/productState'
 import { formatULXC } from '../lens/agentBankApi'
 import { formatUSD, formatWhen } from '../lens/format'
+import { TRAIL_KEY } from '../lens/OperatorTrail'
 import {
   type Listing,
   MarketError,
@@ -49,6 +50,7 @@ export function ReviewQueue() {
   const onDecided = (d: Decision) => {
     setDecided((was) => [d, ...was])
     void client.invalidateQueries({ queryKey: REVIEW_KEY })
+    void client.invalidateQueries({ queryKey: TRAIL_KEY })
   }
   return (
     <>

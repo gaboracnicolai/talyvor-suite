@@ -193,6 +193,13 @@ const BY_PATH: Record<string, unknown> = {
       { id: 'use_parked', listing_id: 'lst_translate', buyer_workspace_id: 'ws-acme', price_ulxc: 500_000, used_at: '2026-09-27T09:30:00Z', refusals: 5, reason: "resource_missing: No such customer: 'cus_gone'", parked_at: '2026-09-28T12:00:00Z' },
     ],
   },
+  // B27.29 — the operator trail: a listing taken down, then one approved.
+  '/api/admin/operator-audit': {
+    entries: [
+      { id: 2, actor: 'ops@example.com sub=110248495', action: 'marketplace.listing.approve', target: 'listing:lst_review', detail: '', occurred_at: '2026-09-28T10:05:00Z', recorded_at: '2026-09-28T10:05:00Z' },
+      { id: 1, actor: 'ops@example.com sub=110248495', action: 'marketplace.listing.takedown', target: 'listing:lst_leak', detail: 'exposes a live key', occurred_at: '2026-09-28T10:00:00Z', recorded_at: '2026-09-28T10:00:00Z' },
+    ],
+  },
   '/api/agents': {
     workspace_balance_ulxc: 100_000_000,
     allocated_ulxc: 12_500_000,
