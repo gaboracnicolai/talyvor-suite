@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Button, MuNumeral } from '@talyvor/ui'
 
-import { api, type EarningsSummary, type EarningsTypeLine } from '../../lib/api'
+import { api, UnreadableError, type EarningsSummary, type EarningsTypeLine } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 import { Region, RegionScreen } from '../../components/Region'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
@@ -95,11 +95,15 @@ export function Earnings() {
   // for a reason the code did not show: the
   // error arm sat in a SIBLING container that had already closed, so nothing on the path to
   // region 03's "nothing has earned yet" had asked whether the read failed.
-  if (q.isError) {
+  // B27.12 — the read is shared with Plans and Features, which each want other fields of it, so
+  // this screen checks the one it branches on: without it, an answer with no `earning_enabled`
+  // drew as "switched off", a claim about the deployment nobody made.
+  const unreadable = q.isSuccess && typeof q.data?.earning_enabled !== 'boolean'
+  if (q.isError || unreadable) {
     return (
       <RegionScreen>
         <Region index="01" label="Earnings" heading="What your work earned">
-          <PanelFailure error={q.error} what="your earnings" />
+          <PanelFailure error={q.error ?? new UnreadableError('/api/earnings')} what="your earnings" />
         </Region>
       </RegionScreen>
     )

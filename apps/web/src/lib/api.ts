@@ -217,10 +217,64 @@ export class ApiError extends Error {
   }
 }
 
-async function getJSON<T>(path: string): Promise<T> {
+/**
+ * B27.12 — the read came back 200 with a body this screen cannot read: `{}` where a list was
+ * due, an object with none of the fields it renders. Lens answering an empty object for a route
+ * crashed eight screens outright ("rows.filter is not a function"), and React unmounts the whole
+ * app on a render error, sidebar included. Thrown from the read instead, it lands in the query's
+ * error and the screen draws the failure state it already has for a fault.
+ *
+ * An ApiError so every `instanceof ApiError` path treats it as one; status 200 so no status
+ * predicate (401 expired, 503 unconfigured, 403 refused) mistakes it for something it is not.
+ */
+export class UnreadableError extends ApiError {
+  constructor(path: string) {
+    super(200, path, 'UNREADABLE')
+    this.name = 'UnreadableError'
+    this.message = `${path} answered with a body that cannot be read`
+  }
+}
+
+/** What a field must be for the screen to draw it. `list` is an array OR null — Go's nil slice. */
+export type Kind = 'number' | 'string' | 'boolean' | 'array' | 'list' | 'object'
+/** The fields a read renders, by name. Fields it treats as optional are left out. */
+export type Shape = Readonly<Record<string, Kind>>
+
+function isKind(v: unknown, kind: Kind): boolean {
+  switch (kind) {
+    case 'array':
+      return Array.isArray(v)
+    case 'list':
+      return v === null || Array.isArray(v)
+    case 'object':
+      return typeof v === 'object' && v !== null && !Array.isArray(v)
+    default:
+      return typeof v === kind
+  }
+}
+
+/** The body, or UnreadableError when it is not an object carrying every field `shape` names. */
+export function readable<T>(path: string, body: unknown, shape: Shape): T {
+  if (!isKind(body, 'object')) throw new UnreadableError(path)
+  const o = body as Record<string, unknown>
+  for (const [field, kind] of Object.entries(shape)) {
+    if (!isKind(o[field], kind)) throw new UnreadableError(path)
+  }
+  return body as T
+}
+
+/** A list body, or UnreadableError when it is neither an array nor Go's nil-slice `null`. */
+export function readableList<T>(path: string, body: unknown): T[] {
+  if (body === null) return []
+  if (!Array.isArray(body)) throw new UnreadableError(path)
+  return body as T[]
+}
+
+async function getJSON<T>(path: string, shape?: Shape): Promise<T> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new ApiError(res.status, path)
-  return (await res.json()) as T
+  const body: unknown = await res.json()
+  return shape ? readable<T>(path, body, shape) : (body as T)
 }
 
 /**
@@ -243,8 +297,7 @@ async function getJSON<T>(path: string): Promise<T> {
  * loses nothing by passing through.
  */
 async function getJSONArray<T>(path: string): Promise<T[]> {
-  const body = await getJSON<T[] | null>(path)
-  return body ?? []
+  return readableList<T>(path, await getJSON<unknown>(path))
 }
 
 /**
@@ -258,11 +311,12 @@ export { getJSON, getJSONArray }
 
 export type Capability<T> = { enabled: false } | { enabled: true; data: T }
 
-export async function getCapability<T>(path: string): Promise<Capability<T>> {
+export async function getCapability<T>(path: string, shape?: Shape): Promise<Capability<T>> {
   const res = await fetch(path, { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new ApiError(res.status, path)
-  const body = (await res.json()) as { enabled: boolean; data?: T }
-  return body.enabled ? { enabled: true, data: body.data as T } : { enabled: false }
+  const body = readable<{ enabled: boolean; data?: T }>(path, await res.json(), { enabled: 'boolean' })
+  if (!body.enabled) return { enabled: false }
+  return { enabled: true, data: shape ? readable<T>(path, body.data, shape) : (body.data as T) }
 }
 
 /** A reputation bond (H5). Shape is intentionally loose — this increment only proves the
@@ -348,23 +402,25 @@ export interface Usage {
 
 export const api = {
   me: () => getJSON<AuthMe>('/auth/me'),
-  spendMonth: () => getJSON<MonthSpend>('/api/spend/month'),
-  context: () => getJSON<BffContext>('/api/context'),
-  lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance'),
-  lensBalance: () => getJSON<LensBalance>('/api/tokens/balance'),
-  earnings: () => getJSON<EarningsSummary>('/api/earnings'),
+  spendMonth: () => getJSON<MonthSpend>('/api/spend/month', { current_month_usd: 'number' }),
+  context: () => getJSON<BffContext>('/api/context', { workspace_id: 'string', lens_public_base_url: 'string' }),
+  lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance', { balance_ulxc: 'number' }),
+  lensBalance: () => getJSON<LensBalance>('/api/tokens/balance', { balance_ulens: 'number' }),
+  // An object, and no field further: Plans, Features and Earnings each read different parts of it,
+  // so each checks its own (Earnings.tsx checks `earning_enabled`).
+  earnings: () => getJSON<EarningsSummary>('/api/earnings', {}),
   tokensHistory: (limit: number, offset: number) =>
     getJSONArray<LedgerEntry>(`/api/tokens/history?limit=${limit}&offset=${offset}`),
   /** Capability-gated (H5 bonds). Off in the trial config today → { enabled: false }. */
   bonds: () => getCapability<Bond[]>('/api/bonds'),
   /** Per-model usage + the measured cache rollup for a window. Replaces the cache fixture. */
-  usage: (days: number) => getJSON<Usage>(`/api/usage?days=${days}`),
+  usage: (days: number) => getJSON<Usage>(`/api/usage?days=${days}`, { models: 'list', cache: 'object' }),
 
   /** Spend grouped by the feature tag, for a window — the join key six cost sentences in this
    *  app print. A LIST read on purpose: Lens answers zero rows with `null` (see getJSONArray),
    *  and the shape is left raw for areas/lens/featureSpend.ts to classify rather than typed
    *  optimistically here, because the untagged bucket and an unreadable row are both real. */
-  spendByFeature: (days: number) => getJSONArray<unknown>(`/api/spend/by-feature?days=${days}`),
+  spendByFeature: async (days: number) => (await getJSON<unknown>(`/api/spend/by-feature?days=${days}`)) ?? [],
 
   /** The LENS mint ledger, normalized. */
   lensLedger: (limit: number, offset: number): Promise<LedgerRow[]> =>

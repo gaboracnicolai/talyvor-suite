@@ -5,6 +5,7 @@ import { Button, Card, CardHeader, Row, formatDay, inlineLink } from '@talyvor/u
 import { Region, RegionScreen } from '../../components/Region'
 import { api } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
+import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
   PLANS,
@@ -351,6 +352,11 @@ export function Plans({
           The plans differ only in how much usage is included each month. Every plan reaches every model from every
           provider, and your answers earn on every plan.
         </p>
+        {plan.isError ? (
+          <p className="mt-2 max-w-2xl">
+            <InlineFailure error={plan.error} failed="Couldn’t load your plan." />
+          </p>
+        ) : null}
         {plan.isSuccess && !forSale ? (
           <p className="mt-2 max-w-2xl text-body text-ink">
             Plans aren’t on sale on this deployment yet. Prepaid credits on{' '}

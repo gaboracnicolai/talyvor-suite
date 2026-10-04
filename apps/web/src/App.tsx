@@ -14,7 +14,7 @@ import {
 import { Mark, NavItem, Shell, ThemeToggle, cn, focusRing, inlineLink } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { useDocumentTitle } from './documentTitle'
-import { ApiError } from './lib/api'
+import { ApiError, UnreadableError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
 import { Ledger } from './areas/lens/Ledger'
 import { Earnings } from './areas/lens/Earnings'
@@ -41,6 +41,7 @@ import { Privacy } from './routes/Privacy'
 import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
 import { SessionExpiredBar } from './components/SessionExpiredBar'
+import { ScreenBoundary } from './components/ScreenBoundary'
 import { type DocRef, pageHref, useDocsNav } from './areas/docs/docsNav'
 import { useAuthMeReader } from './lib/authMe'
 import { useSidebarFold } from './sidebarFold'
@@ -67,8 +68,12 @@ export const queryClient: QueryClient = new QueryClient({
       staleTime: 15_000,
       refetchOnWindowFocus: false,
       // A 401 or 403 is a verdict, not a flake — retrying it just delays the gate or the refusal.
+      // So is an answer that arrived and cannot be read (B27.12): asking again a second later gets
+      // the same body, and the screen's own "try again" is the person's to press.
       retry: (failureCount, error) =>
-        failureCount < 1 && !(error instanceof ApiError && (error.status === 401 || error.status === 403)),
+        failureCount < 1 &&
+        !(error instanceof UnreadableError) &&
+        !(error instanceof ApiError && (error.status === 401 || error.status === 403)),
     },
   },
 })
@@ -473,32 +478,36 @@ function AppShell() {
           below is empty for one reason; this says it once. Renders nothing when nothing is
           refused, so it costs an unbroken app a null. */}
       <SessionExpiredBar />
-      <Routes>
-        {/* EVERY ROUTE COMES FROM CONSOLE_ROUTES, which is also what titles the header. A page
-            declared here and nowhere else would be a page the top bar cannot name — that was
-            the state this table replaced. */}
-        {CONSOLE_ROUTES.map((r) => (
-          <Route key={r.path} path={r.path} element={r.element} />
-        ))}
-        {/* A catch-all, added when /admin was removed. Before it, an unmatched in-app path
-            rendered the shell with an EMPTY content area and no explanation — so an
-            operator's /admin bookmark would have shown a blank page. A silent blank is the
-            same failure class as an invented number: the page says nothing true about what
-            happened. This covers every mistyped or retired path, not just that one.
-            ⚠ It is NOT in CONSOLE_ROUTES: it is the absence of a page, and putting it there
-            would make "no page" a page with a name, which is the lie this replaced. */}
-        <Route
-          path="*"
-          element={
-            <div className="mx-auto max-w-3xl px-gutter py-4 text-body text-muted">
-              Nothing at this address — pick a section from the sidebar.{' '}
-              <Link className={`text-ink ${inlineLink}`} to="/">
-                Go to Overview
-              </Link>
-            </div>
-          }
-        />
-      </Routes>
+      {/* B27.12 — a screen that throws while drawing shows "couldn't be read" here, with the shell
+          still standing. Try again drops the failed screen's cached reads and asks for them anew. */}
+      <ScreenBoundary address={pathname} onRetry={() => void queryClient.resetQueries({ type: 'inactive' })}>
+        <Routes>
+          {/* EVERY ROUTE COMES FROM CONSOLE_ROUTES, which is also what titles the header. A page
+              declared here and nowhere else would be a page the top bar cannot name — that was
+              the state this table replaced. */}
+          {CONSOLE_ROUTES.map((r) => (
+            <Route key={r.path} path={r.path} element={r.element} />
+          ))}
+          {/* A catch-all, added when /admin was removed. Before it, an unmatched in-app path
+              rendered the shell with an EMPTY content area and no explanation — so an
+              operator's /admin bookmark would have shown a blank page. A silent blank is the
+              same failure class as an invented number: the page says nothing true about what
+              happened. This covers every mistyped or retired path, not just that one.
+              ⚠ It is NOT in CONSOLE_ROUTES: it is the absence of a page, and putting it there
+              would make "no page" a page with a name, which is the lie this replaced. */}
+          <Route
+            path="*"
+            element={
+              <div className="mx-auto max-w-3xl px-gutter py-4 text-body text-muted">
+                Nothing at this address — pick a section from the sidebar.{' '}
+                <Link className={`text-ink ${inlineLink}`} to="/">
+                  Go to Overview
+                </Link>
+              </div>
+            }
+          />
+        </Routes>
+      </ScreenBoundary>
     </Shell>
   )
 }

@@ -104,7 +104,7 @@ function mockChat({
       )
     }
     if (url === '/api/lxc/topup-options' && usdPerLXC !== undefined) {
-      return new Response(JSON.stringify({ amounts_cents: [1000], usd_per_lxc: usdPerLXC }), {
+      return new Response(JSON.stringify({ allowed_usd_cents: [1000], usd_per_lxc: usdPerLXC }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })

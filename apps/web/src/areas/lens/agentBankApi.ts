@@ -283,21 +283,35 @@ async function statementFile(agentID: string | null, from: string, to: string, f
 }
 
 export const agentBankApi = {
-  book: () => getJSON<AgentBook>('/api/agents'),
+  book: () => getJSON<AgentBook>('/api/agents', {
+      workspace_balance_ulxc: 'number',
+      allocated_ulxc: 'number',
+      unallocated_ulxc: 'number',
+      spent_ulxc: 'number',
+      agents: 'array',
+    }),
   create: (name: string) => send<Agent>('POST', '/api/agents', { name }),
   fund: (id: string, amount_ulxc: number, key: string) =>
     send<{ balance_ulxc: number }>('POST', `/api/agents/${e(id)}/fund`, { amount_ulxc }, { 'Idempotency-Key': key }),
   withdraw: (id: string, amount_ulxc: number, key: string) =>
     send<{ balance_ulxc: number }>('POST', `/api/agents/${e(id)}/withdraw`, { amount_ulxc }, { 'Idempotency-Key': key }),
   issueKey: (id: string, name: string) => send<AgentKey>('POST', `/api/agents/${e(id)}/keys`, { name }),
-  rules: (id: string) => getJSON<AgentRules>(`/api/agents/${e(id)}/rules`),
+  rules: (id: string) => getJSON<AgentRules>(`/api/agents/${e(id)}/rules`, {
+      max_per_request_ulxc: 'number',
+      daily_limit_ulxc: 'number',
+      monthly_limit_ulxc: 'number',
+      approval_above_ulxc: 'number',
+    }),
   setRules: (id: string, rules: AgentRules) => send<AgentRules>('PUT', `/api/agents/${e(id)}/rules`, rules),
-  statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`),
+  statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`, { lines: 'list' }),
   statementFile,
   /** B19.24 — the agent's test-mode card and every purchase on it; null when it has none (Lens answers 404). */
   card: async (id: string): Promise<{ card: AgentCard; authorizations: CardAuthorization[] | null } | null> => {
     try {
-      return await getJSON<{ card: AgentCard; authorizations: CardAuthorization[] | null }>(`/api/agents/${e(id)}/card`)
+      return await getJSON<{ card: AgentCard; authorizations: CardAuthorization[] | null }>(`/api/agents/${e(id)}/card`, {
+        card: 'object',
+        authorizations: 'list',
+      })
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return null
       throw err
@@ -308,17 +322,17 @@ export const agentBankApi = {
   claim: (id: string) => send<{ agent_id: string; owner_user_id: string }>('POST', `/api/agents/${e(id)}/claim`),
   pay: (id: string, to_agent_id: string, amount_ulxc: number, memo: string) =>
     send<AgentPayment>('POST', `/api/agents/${e(id)}/pay`, { to_agent_id, amount_ulxc, memo }),
-  approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals'),
+  approvals: () => getJSON<{ approvals: AgentApproval[] | null }>('/api/agents/approvals', { approvals: 'list' }),
   // B19.21 — scheduled payments and automatic top-ups.
-  schedules: () => getJSON<{ schedules: AgentSchedule[] | null }>('/api/agents/schedules'),
+  schedules: () => getJSON<{ schedules: AgentSchedule[] | null }>('/api/agents/schedules', { schedules: 'list' }),
   schedule: (id: string, body: { to_agent_id: string; to_listing_id: string; amount_ulxc: number; memo: string; every: AgentSchedule['every'] }) =>
     send<AgentSchedule>('POST', `/api/agents/${e(id)}/schedules`, body),
-  scheduleRuns: (sid: string) => getJSON<{ runs: AgentScheduleRun[] | null }>(`/api/agents/schedules/${e(sid)}/runs`),
+  scheduleRuns: (sid: string) => getJSON<{ runs: AgentScheduleRun[] | null }>(`/api/agents/schedules/${e(sid)}/runs`, { runs: 'list' }),
   stopSchedule: (sid: string) => send<{ active: boolean }>('POST', `/api/agents/schedules/${e(sid)}/stop`),
   /** Null when the agent has none (Lens answers 404). */
   topUp: async (id: string): Promise<AgentTopUp | null> => {
     try {
-      return await getJSON<AgentTopUp>(`/api/agents/${e(id)}/topup`)
+      return await getJSON<AgentTopUp>(`/api/agents/${e(id)}/topup`, { below_ulxc: 'number', to_ulxc: 'number' })
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return null
       throw err
@@ -328,8 +342,8 @@ export const agentBankApi = {
     send<AgentTopUp>('PUT', `/api/agents/${e(id)}/topup`, { below_ulxc, to_ulxc }),
   removeTopUp: (id: string) => send<unknown>('DELETE', `/api/agents/${e(id)}/topup`),
   // B19.20 — stop every agent or one, and what they are spending.
-  alerts: () => getJSON<{ alerts: AgentSpendAlert[] | null; rule: string }>('/api/agents/alerts'),
-  forecast: () => getJSON<SpendForecast>('/api/agents/forecast'),
+  alerts: () => getJSON<{ alerts: AgentSpendAlert[] | null; rule: string }>('/api/agents/alerts', { alerts: 'list' }),
+  forecast: () => getJSON<SpendForecast>('/api/agents/forecast', { spent_ulxc: 'number', forecast_ulxc: 'number', agents: 'list' }),
   pauseAll: (reason: string) => send<{ all_paused: boolean }>('POST', '/api/agents/pause-all', { reason }),
   resumeAll: () => send<{ all_paused: boolean }>('POST', '/api/agents/resume-all'),
   pause: (id: string, reason: string) => send<{ paused: boolean }>('POST', `/api/agents/${e(id)}/pause`, { reason }),
@@ -340,45 +354,50 @@ export const agentBankApi = {
       ? send<AgentApproval>('POST', `/api/agents/approvals/${e(approvalID)}/approve`, assertion ? { assertion } : {})
       : send<AgentApproval>('POST', `/api/agents/approvals/${e(approvalID)}/deny`, assertion ? { assertion } : {}),
   // B19.10 — passkeys and push, kept by Lens (B19.16).
-  passkeys: () => getJSON<{ passkeys: Passkey[] | null }>('/api/agents/passkeys'),
+  passkeys: () => getJSON<{ passkeys: Passkey[] | null }>('/api/agents/passkeys', { passkeys: 'list' }),
   passkeyChallenge: () => send<{ challenge: string; rp_id: string }>('POST', '/api/agents/passkeys/challenge'),
   registerPasskey: (body: PasskeyRegistration) => send<Passkey>('POST', '/api/agents/passkeys', body),
   approvalChallenge: (approvalID: string) =>
     send<{ challenge: string; allow_credentials: string[] | null }>('POST', `/api/agents/approvals/${e(approvalID)}/challenge`),
-  pushPublicKey: () => getJSON<{ public_key: string }>('/api/agents/push/public-key'),
+  pushPublicKey: () => getJSON<{ public_key: string }>('/api/agents/push/public-key', { public_key: 'string' }),
   subscribePush: (sub: PushSubscriptionBody) => send<{ endpoint: string }>('POST', '/api/agents/push/subscriptions', sub),
   // B22.10 — money between owners (Lens B22.1, B22.3, B22.4, B22.5).
-  capabilities: () => getJSON<{ capabilities: WalletCapability[] | null }>('/api/wallets/capabilities'),
-  address: (address: string) => getJSON<WalletAddress>(`/api/wallets/address/${e(address)}`),
+  capabilities: () => getJSON<{ capabilities: WalletCapability[] | null }>('/api/wallets/capabilities', { capabilities: 'list' }),
+  address: (address: string) => getJSON<WalletAddress>(`/api/wallets/address/${e(address)}`, { wallet_id: 'string', name: 'string' }),
   setHandle: (id: string, handle: string) => send<WalletAddress>('PUT', `/api/agents/${e(id)}/handle`, { handle }),
   send: (id: string, to: string, amount_ulxc: number, memo: string) =>
     send<AgentTransfer>('POST', `/api/agents/${e(id)}/send`, { to, amount_ulxc, memo }),
   request: (id: string, from: string, amount_ulxc: number, memo: string) =>
     send<MoneyRequest>('POST', `/api/agents/${e(id)}/requests`, { from, amount_ulxc, memo }),
-  transfers: (id: string) => getJSON<{ transfers: AgentTransfer[] | null }>(`/api/agents/${e(id)}/transfers`),
-  moneyRequests: () => getJSON<{ requests: MoneyRequest[] | null }>('/api/wallets/requests'),
+  transfers: (id: string) => getJSON<{ transfers: AgentTransfer[] | null }>(`/api/agents/${e(id)}/transfers`, { transfers: 'list' }),
+  moneyRequests: () => getJSON<{ requests: MoneyRequest[] | null }>('/api/wallets/requests', { requests: 'list' }),
   answerRequest: (rid: string, accept: boolean) =>
     send<MoneyRequest>('POST', `/api/wallets/requests/${e(rid)}/${accept ? 'accept' : 'decline'}`),
   creditLine: async (): Promise<CreditLine | null> => {
     try {
-      return await getJSON<CreditLine>('/api/wallets/credit-line')
+      return await getJSON<CreditLine>('/api/wallets/credit-line', {
+        limit_ulxc: 'number',
+        used_ulxc: 'number',
+        available_ulxc: 'number',
+        invoices: 'array',
+      })
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) return null
       throw err
     }
   },
-  loans: () => getJSON<{ loans: Loan[] | null }>('/api/wallets/loans'),
+  loans: () => getJSON<{ loans: Loan[] | null }>('/api/wallets/loans', { loans: 'list' }),
   offerLoan: (id: string, body: LoanOffer) => send<Loan>('POST', `/api/agents/${e(id)}/loans`, body),
   acceptLoan: (lid: string) => send<Loan>('POST', `/api/wallets/loans/${e(lid)}/accept`),
   declineLoan: (lid: string) => send<Loan>('POST', `/api/wallets/loans/${e(lid)}/decline`),
   withdrawLoan: (lid: string) => send<{ status: string }>('POST', `/api/wallets/loans/${e(lid)}/withdraw`),
   // B22.12 — escrow, pots, simulated investing and cash-out (Lens B22.6, B22.7, B22.8, B22.9).
-  escrows: () => getJSON<{ escrows: Escrow[] | null }>('/api/wallets/escrows'),
+  escrows: () => getJSON<{ escrows: Escrow[] | null }>('/api/wallets/escrows', { escrows: 'list' }),
   payIntoEscrow: (id: string, body: { to: string; amount_ulxc: number; release_at: string; memo: string }) =>
     send<Escrow>('POST', `/api/agents/${e(id)}/escrows`, body),
   confirmEscrow: (eid: string) => send<Escrow>('POST', `/api/wallets/escrows/${e(eid)}/confirm`),
   disputeEscrow: (eid: string, reason: string) => send<Escrow>('POST', `/api/wallets/escrows/${e(eid)}/dispute`, { reason }),
-  pots: (id: string) => getJSON<{ pots: Pot[] | null }>(`/api/agents/${e(id)}/pots`),
+  pots: (id: string) => getJSON<{ pots: Pot[] | null }>(`/api/agents/${e(id)}/pots`, { pots: 'list' }),
   createPot: (id: string, body: { name: string; kind: Pot['kind']; target_ulxc: number; locked_until: string | null }) =>
     send<Pot>('POST', `/api/agents/${e(id)}/pots`, body),
   movePot: (id: string, pid: string, dir: 'in' | 'out', amount_ulxc: number, key: string) =>
@@ -386,13 +405,15 @@ export const agentBankApi = {
       ? send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/in`, { amount_ulxc }, { 'Idempotency-Key': key })
       : send<Pot>('POST', `/api/agents/${e(id)}/pots/${e(pid)}/out`, { amount_ulxc }, { 'Idempotency-Key': key }),
   lockPot: (id: string, pid: string, locked_until: string | null) => send<Pot>('PUT', `/api/agents/${e(id)}/pots/${e(pid)}/lock`, { locked_until }),
-  quotes: () => getJSON<SimQuotes>('/api/wallets/quotes'),
-  portfolios: (id: string) => getJSON<{ portfolios: Portfolio[] | null; notice: string }>(`/api/agents/${e(id)}/portfolios`),
+  quotes: () => getJSON<SimQuotes>('/api/wallets/quotes', { quotes: 'list' }),
+  portfolios: (id: string) => getJSON<{ portfolios: Portfolio[] | null; notice: string }>(`/api/agents/${e(id)}/portfolios`, {
+      portfolios: 'list',
+    }),
   openPortfolio: (id: string, name: string, cash_uusd: number) => send<Portfolio>('POST', `/api/agents/${e(id)}/portfolios`, { name, cash_uusd }),
   placeOrder: (id: string, pfid: string, body: SimOrderInput) => send<SimOrder>('POST', `/api/agents/${e(id)}/portfolios/${e(pfid)}/orders`, body),
   cancelOrder: (id: string, pfid: string, oid: string) =>
     send<SimOrder>('POST', `/api/agents/${e(id)}/portfolios/${e(pfid)}/orders/${e(oid)}/cancel`),
-  cashOuts: () => getJSON<{ cash_outs: CashOut[] | null }>('/api/wallets/cash-outs'),
+  cashOuts: () => getJSON<{ cash_outs: CashOut[] | null }>('/api/wallets/cash-outs', { cash_outs: 'list' }),
   requestCashOut: (id: string, amount_ulxc: number, destination: string) =>
     send<CashOut>('POST', `/api/agents/${e(id)}/cash-outs`, { amount_ulxc, destination }),
 }

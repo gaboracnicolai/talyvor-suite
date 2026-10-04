@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { MuNumeral } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
-import { ApiError } from '../../lib/api'
+import { ApiError, readable } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
 
@@ -45,7 +45,7 @@ async function readWorkspaces(): Promise<OperatorWorkspace[]> {
     }
     throw new OperatorError(res.status, PATH, sentence)
   }
-  return ((await res.json()) as { workspaces: OperatorWorkspace[] | null }).workspaces ?? []
+  return readable<{ workspaces: OperatorWorkspace[] | null }>(PATH, await res.json(), { workspaces: 'list' }).workspaces ?? []
 }
 
 function failure(err: unknown): string {

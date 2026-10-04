@@ -61,6 +61,11 @@ const BODIES: Record<string, unknown> = {
   '/api/spend/month': { current_month_usd: 12.34 },
   '/api/ai/providers': { unconfigured: [] },
 
+  // The BFF's capability envelope (apps/bff/lens.go#forwardGated), never a bare list. This was
+  // `[{ id: 'bond-1', … }]`, which the screen read as switched off; off is what it showed, so off
+  // is what it answers now that a bare list is refused as unreadable (B27.12).
+  '/api/bonds': { capability: 'bonds', enabled: false },
+
   '/api/lxc/topup-options': { allowed_usd_cents: [1000, 2500, 5000], billing_enabled: true },
 
   // B18.61 — the subscriber's plan renews at the end of the period.
@@ -367,7 +372,6 @@ const ARRAYS: Record<string, unknown[]> = {
     { feature: 'docs.ask', cost_usd: 1.1, requests: 42 },
     { feature: 'track.triage', cost_usd: 0.4, requests: 12 },
   ],
-  '/api/bonds': [{ id: 'bond-1', kind: 'reputation' }],
   '/api/models': [
     { id: 'claude-sonnet-4', provider: 'anthropic', display_name: 'Claude Sonnet 4', input_per_1m: 3, output_per_1m: 15, release_date: '2025-05-22', tier: 'balanced' },
     { id: 'gpt-4o-mini', provider: 'openai', display_name: 'GPT-4o mini', input_per_1m: 0.15, output_per_1m: 0.6, release_date: '2024-07-18', tier: 'fast' },

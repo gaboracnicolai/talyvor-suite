@@ -30,7 +30,7 @@
 // this header went on saying the types already spoke the upstream shape. Nothing broke (the BFF
 // streams the body and the extra keys are invisible to TypeScript); the promise was what was
 // false, and no change in this repository could have made it go red.
-import { ApiError } from '../../lib/api'
+import { ApiError, readableList } from '../../lib/api'
 
 /** talyvor-docs model.Space (model.go).
  *  UPSTREAM-ONLY DocsSpace: none */
@@ -228,7 +228,7 @@ export interface DocsChangelogEntry {
 
 export const docsApi = {
   /** LIVE — spaces in the SESSION's workspace (the BFF no longer pins one). */
-  spaces: (): Promise<DocsSpace[]> => getJSON<DocsSpace[]>('/api/docs/spaces'),
+  spaces: async (): Promise<DocsSpace[]> => readableList<DocsSpace>('/api/docs/spaces', await getJSON<unknown>('/api/docs/spaces')),
 
   /**
    * Creates a space in the SESSION's workspace.
@@ -259,8 +259,10 @@ export const docsApi = {
   > =>
     getJSON(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}`),
 
-  pages: (spaceId: string): Promise<DocsPageRow[]> =>
-    getJSON<DocsPageRow[]>(`/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`),
+  pages: async (spaceId: string): Promise<DocsPageRow[]> => {
+    const path = `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages`
+    return readableList<DocsPageRow>(path, await getJSON<unknown>(path))
+  },
 
   /** Docs owns the schema; the BFF forwards this body verbatim. */
   createPage: (spaceId: string, title: string) =>
