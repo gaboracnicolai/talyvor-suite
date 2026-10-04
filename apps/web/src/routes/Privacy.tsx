@@ -4,6 +4,7 @@ import {
   LOGGING_NONE_FACT,
   QUESTION_STORED_FACT,
   SHARING_OFF_FACT,
+  SharedAnswersFact,
 } from '../components/StoredAnswersFacts'
 
 // Privacy — a factual account of what this system stores, read from the code, not a template.
@@ -139,6 +140,7 @@ export function Privacy() {
           screen shown before you first reach the app and in Settings at any time.{' '}
           {SHARING_OFF_FACT} Your API keys, balance and ledger are never shared under either setting.
         </p>
+        <SharedAnswersFact className="mt-3 text-body text-muted" />
         <p className="mt-3 text-body text-muted">
           Sharing is additionally gated deployment-wide by the operator. On a deployment where that
           switch is off, nothing pools regardless of your setting.

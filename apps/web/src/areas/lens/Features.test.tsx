@@ -263,6 +263,25 @@ describe('the Features screen', () => {
     expect(posts).toEqual([{ url: '/api/pooling', body: { cache_poolable: false } }])
   })
 
+  // B27.22 — the address sign-up, Terms and Privacy link to lands on the Answer sharing switch.
+  it('/features#answer-sharing brings the Answer sharing row, with its switch, into view', async () => {
+    mockBff([])
+    // jsdom has no scrollIntoView; record what the screen asks to scroll to, and put it back after.
+    const jsdomScroll = Element.prototype.scrollIntoView
+    const scrolled: Element[] = []
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this)
+    }
+    try {
+      window.history.pushState({}, '', '/features#answer-sharing')
+      render(<App />)
+      await waitFor(() => expect(scrolled).toEqual([row('Answer sharing')]))
+      await waitFor(() => expect(within(row('Answer sharing')).getByRole('switch')).toBeInTheDocument())
+    } finally {
+      Element.prototype.scrollIntoView = jsdomScroll
+    }
+  })
+
   it('shared document conversions has a switch that writes Lens’s own consent', async () => {
     const posts: Array<{ url: string; body: unknown }> = []
     mockBff(posts)

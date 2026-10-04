@@ -1,6 +1,6 @@
 import { LegalHeader, LawyerReview, Section } from './legalParts'
 import { inlineLink } from '@talyvor/ui'
-import { StoredAnswersFacts } from '../components/StoredAnswersFacts'
+import { SharedAnswersFact, StoredAnswersFacts } from '../components/StoredAnswersFacts'
 
 // Terms — what the service actually is and is not, written from the code.
 //
@@ -126,6 +126,7 @@ export function Terms() {
           and you should not put anything into a prompt whose answer you would not want shared until
           you have turned sharing off.
         </p>
+        <SharedAnswersFact className="mt-3 text-body" />
         <StoredAnswersFacts className="mt-3 text-body" />
       </Section>
 
