@@ -227,7 +227,7 @@ export const MUST_RENDER_FOCUS_RING: Record<string, string> = {
   'src/areas/docs/DocsArea.test.tsx': 'the space rows, the create-space field and the page editor',
   'src/areas/track/IssueList.test.tsx': 'the new-issue field and the per-row status select',
   'src/areas/track/IssueDetail.test.tsx': 'the description editor and its save/cancel buttons',
-  'src/areas/marketing/Landing.test.tsx': 'the public page: the worked-hit stepper and the pool slider',
+  'src/areas/marketing/Landing.test.tsx': 'the public page: the worked-hit stepper',
   'src/areas/lens/TopUp.test.tsx': 'the buy buttons — pressed immediately before spending money',
   'src/areas/lens/Keys.test.tsx': 'the mint and revoke controls',
   'src/areas/auth/Entry.test.tsx': 'the way in: the sign-in and sign-up actions',

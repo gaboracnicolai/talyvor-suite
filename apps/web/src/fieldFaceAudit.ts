@@ -17,7 +17,7 @@
  *     <input type="text" inputmode="decimal" aria-label="LXC to receive">   "1" "1.5" "0.01" "2"
  *         ConvertLens.tsx:289 — audited by Convert.test.tsx and Held.test.tsx.  onFace=FALSE
  *     <input type="range" aria-label="Contributors in the pool">             "1"
- *         Landing.tsx:320 — a slider. It paints NO TEXT, so its value is not on screen at all.
+ *         /marketing's pool slider, removed by B28.2 — it painted NO TEXT, so its value was never on screen.
  *
  * Everything else the suite types is prose: issue titles, comment bodies, space names, key names,
  * and the `tlv_ws_…` string Members asks you to retype to confirm a destructive action.
@@ -101,7 +101,7 @@ import { onFigureFace } from './figureAudit'
 
 /**
  * Input types that paint no text, so no typeface applies. See the exemption note above.
- * ⚠ `range` is not hypothetical: Landing.tsx:320 renders one and its value is a figure.
+ * ⚠ `range` was not hypothetical: /marketing rendered one until B28.2, and its value was a figure.
  *
  * ⚠⚠ `hidden` IS SPELLED IN TWO PIECES AND THAT IS NOT AN AFFECTATION — IT IS A DEFECT THIS FILE
  * SHIPPED AND THEN MEASURED ON ITSELF. `hidden` is also a Tailwind utility, and Tailwind's

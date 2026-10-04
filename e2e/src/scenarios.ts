@@ -356,6 +356,38 @@ export function socialPreview(): Scenario {
   }
 }
 
+/** B28.2 — the front door leads with wallets: the hero a visitor reads first, the three product
+ *  sections and the one pooling block, and no trace of the retired "toward zero" price curve. */
+export function walletHero(): Scenario {
+  return {
+    id: 'wallet-hero',
+    title: 'the front door leads with a wallet for every agent, not pooling',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/marketing')
+      try {
+        const h1 = (await page.getByRole('heading', { level: 1 }).innerText()).replace(/\s+/g, ' ').trim()
+        const sections = await page.getByRole('heading', { level: 2 }).allInnerTexts()
+        const text = await page.locator('main').innerText()
+        const footer = await page.locator('footer').innerText()
+        ctx.evidence.push({ note: `h1="${h1}" h2=${JSON.stringify(sections)} footer="${footer.split('\n')[0]}"` })
+        const missing = [
+          h1 === 'Give every AI agent a wallet.' ? '' : `the wallet hero (h1 reads "${h1}")`,
+          /budget, spending rules, approvals and a live statement/i.test(text) ? '' : 'the wallet subhead',
+          ...[/rules before the money moves/i, /console for your agents/i, /where agents spend/i, /repeated questions cost less/i]
+            .map((h) => (sections.some((s) => h.test(s)) ? '' : `a section heading ${h}`)),
+          /toward zero|ninety days|near-zero/i.test(text) ? 'the price-curve claim is still there' : '',
+          /Talyvor Ltd · wallets for AI agents/i.test(footer) ? '' : 'the wallet footer',
+        ].filter((m) => m !== '')
+        return missing.length === 0
+          ? { pass: true, detail: 'leads with wallets; wallets, chat, marketplace and pooling sections present; no price curve' }
+          : { pass: false, detail: `/marketing: ${missing.join('; ')}` }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 export function streamsProgressively(): Scenario {
   return {
     id: 'streaming',
@@ -1111,6 +1143,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(sidebarStaysHidden()); break
     case 7: list.push(streamsProgressively()); break
     case 8: list.push(socialPreview()); break
+    case 9: list.push(walletHero()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.

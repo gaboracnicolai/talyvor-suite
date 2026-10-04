@@ -380,16 +380,19 @@ const PINS: Record<string, Pin> = {
   //
   // 51 → 57 at B27.29: the operator trail's five filter labels and its table header, the same shapes
   // as /track/cycles' date labels and the operator screen's other tables.
+  //
+  // 57 → 54 at B28.2: /marketing's price curve (its two pool-size eyebrows) and the suite grid's
+  // role eyebrow left with the pooling-first page.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 57,
+    states: 54,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 57,
+    states: 54,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

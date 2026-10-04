@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { CONTACT_EMAIL, Landing } from './Landing'
+import { CONTACT_EMAIL, Landing, POOLED_DISCOUNT_PERCENT } from './Landing'
 import { LEDGER_HIT, SAVED_MICRO_LXC, micro } from './economics'
 
 // Area-owned test — replaces the deleted shared areas/scaffold.test.tsx (the
@@ -39,7 +39,7 @@ describe('Landing', () => {
     // silently drops a buyer's first message.
     expect(mailtos).toHaveLength(0)
     // and the page still has an action to take
-    expect(screen.getByRole('link', { name: /see the suite/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /see how it works/i })).toBeInTheDocument()
   })
 
   it('says plainly that there is no inbox yet, rather than implying one', () => {
@@ -47,13 +47,14 @@ describe('Landing', () => {
     expect(screen.getByText(/no inbox to write to yet/)).toBeInTheDocument()
   })
 
-  it('makes no quantitative marketing claims — no percentage anywhere on the page', () => {
+  // B28.2: ONE percentage is allowed, and it is the measured one. The pooled discount is derived in
+  // Landing.tsx from the settled ledger row (list − charged over list), so the "30% off" in the copy
+  // and the stepper's figures are one number. Any other % on the page is an unmeasured claim.
+  it('prints exactly one kind of percentage — the pooled discount derived from the ledger row', () => {
     const { container } = render(<Landing />)
-    // The brief's hard rule: no metrics we have not measured. There is no
-    // cache-hit rate on this page because none has been measured yet; if a %
-    // ever appears here, it must arrive together with the measurement — and
-    // with this assertion consciously updated in the same change.
-    expect(container.textContent).not.toMatch(/%/)
+    expect(POOLED_DISCOUNT_PERCENT).toBe(30)
+    const percents = new Set(container.textContent?.match(/\d+%/g) ?? [])
+    expect([...percents]).toEqual([`${POOLED_DISCOUNT_PERCENT}%`])
   })
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -61,14 +62,6 @@ describe('Landing', () => {
   // does not support. Each assertion below names the string and the reason —
   // a test that only checked "the page renders" would pass on any wording.
   // ─────────────────────────────────────────────────────────────────────────
-
-  // ⚠ TRUE AND IT STAYS. issues.ai_cost_usd is a running sum of ai_spend_events, idempotent on
-  // request_id (talyvor-track internal/issue/store.go, migration 0017). Per-issue AI cost is real,
-  // and it is the strongest sentence on the page.
-  it('keeps the per-issue cost claim, which source supports', () => {
-    const { container } = render(<Landing />)
-    expect(container.textContent ?? '').toMatch(/cost of an issue/i)
-  })
 
   // ⚠ THE REASON THIS ASSERTION USED TO CARRY IS FALSE, AND THIS ASSERTION COULD NOT HAVE TOLD
   // ANYONE. It read "Docs tags its own Lens calls by FEATURE (docs-ai-write / docs-ai-summarize)
@@ -110,13 +103,19 @@ describe('Landing', () => {
     expect(container.textContent ?? '').not.toMatch(/\bMCP\b/)
   })
 
-  // ⚠ THE 90-DAY CLAIM IS DECIDED AND STAYS EXACTLY AS WRITTEN. Pinned so a later tidy-up of the
-  // sentences around it cannot soften it by accident.
-  it('leaves the ninety-day claim exactly as written', () => {
+  // B28.2: the page leads with wallets, and the price-curve claim is gone — "toward zero" and
+  // "near-zero at ninety days" were a projected shape, and no ledger row supports either.
+  it('leads with wallets, and makes no price-curve claim', () => {
     const { container } = render(<Landing />)
-    expect(container.textContent ?? '').toMatch(
-      /near-zero at roughly ninety days of constant use/i,
-    )
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Give every AI agent a wallet.')
+    const text = container.textContent ?? ''
+    expect(text).toMatch(/budget, spending rules, approvals and a live statement/i)
+    expect(text).toMatch(/enforced before the model call or the payment/i)
+    // wallets, chat, marketplace, and the one pooling block — each section's own heading
+    for (const h of [/rules before the money moves/i, /console for your agents/i, /where agents spend/i, /repeated questions cost less/i])
+      expect(screen.getByRole('heading', { level: 2, name: h })).toBeInTheDocument()
+    expect(text).not.toMatch(/toward zero|ninety days|90 days|near-zero/i)
+    expect(text).toContain('Talyvor Ltd · wallets for AI agents')
   })
 
   /**
@@ -154,10 +153,10 @@ describe('Landing', () => {
   it('advances through all four beats of the worked hit, rendering each unit with its own figure', async () => {
     const { container } = render(<Landing />)
     const beats: [RegExp, string, string][] = [
-      [/A request arrives/i, 'µLXC list', micro(LEDGER_HIT.listMicroLXC)],
-      [/The pool has it/i, 'µLXC charged', micro(LEDGER_HIT.chargedMicroLXC)],
-      [/The consumer keeps the difference/i, 'µLXC saved', micro(SAVED_MICRO_LXC)],
-      [/The contributor is paid/i, 'µLENS earned', micro(LEDGER_HIT.contributorEarnedMicroLENS)],
+      [/An agent asks/i, 'µLXC list', micro(LEDGER_HIT.listMicroLXC)],
+      [/It is served from the pool/i, 'µLXC charged', micro(LEDGER_HIT.chargedMicroLXC)],
+      [/The wallet keeps the difference/i, 'µLXC saved', micro(SAVED_MICRO_LXC)],
+      [/The contributor is paid half/i, 'µLENS earned', micro(LEDGER_HIT.contributorEarnedMicroLENS)],
     ]
     // ⚠ NOT `getByText`. CaseSafe splits a protected label into spans, so no element's OWN text is
     // "µLXC list" any more and Testing Library's default matcher reads own text — measured, that
@@ -173,10 +172,8 @@ describe('Landing', () => {
     for (const [label, unit, value] of beats) {
       fireEvent.click(screen.getByRole('button', { name: label }))
       await new Promise((r) => setTimeout(r, 0))
-      // ⚠ THE BEAT PANEL, NOT THE WHOLE PAGE, AND THAT IS MEASURED RATHER THAN TIDINESS. The
-      // compounding curve below renders its own `Figure`s and at its starting pool size one of
-      // them is "2,350µLXC you pay" — so a page-wide search for beat 1's number would be answered
-      // by a DIFFERENT section and would stay green with the stepper unwired. `.tal-rise` is the
+      // ⚠ THE BEAT PANEL, NOT THE WHOLE PAGE. A page-wide search for a beat's number could be
+      // answered by some other section and stay green with the stepper unwired. `.tal-rise` is the
       // beat panel and the only className of that name in this app; rename it and this reads ''
       // and reds, rather than quietly finding the number somewhere else.
       const panel = container.querySelector('.tal-rise')?.textContent ?? ''
