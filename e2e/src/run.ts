@@ -202,13 +202,14 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     console.log(`inventory: ${inv.screens.length} screens, ${inv.bff.length} BFF routes, ` +
       `${inv.lensMissing === undefined ? `${inv.lens.length} Lens routes` : `no Lens routes (${inv.lensMissing})`}`)
 
-    stage = 'resetting the synthetic workspaces'
-    const reset = await lens.reset()
-    console.log(reset === undefined ? 'reset: Lens did not answer within its request timeout; waited for the reset to run on to the end'
-      : `reset ${reset} synthetic workspace(s): stored answers cleared, credits restored`)
     stage = 'creating the synthetic users'
     users = await lens.createUsers(cfg.users)
     console.log(`created ${users.length} synthetic users`)
+    // B27.16 — this run's users only: another run going on at the same time keeps its answers and credits.
+    stage = "resetting the run's synthetic workspaces"
+    const reset = await lens.reset(users.map((u) => u.workspaceID))
+    console.log(reset === undefined ? 'reset: Lens did not answer within its request timeout; waited for the reset to run on to the end'
+      : `reset ${reset} synthetic workspace(s), this run's: stored answers cleared, credits restored`)
     stage = 'reading the catalog'
     const catalog = await lens.catalog(users[0])
     const usdPerLXC = await lens.usdPerLXC()

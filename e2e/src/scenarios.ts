@@ -959,7 +959,9 @@ export function pooledServePaysRoyalty(seed: number, partner: number): Scenario 
       const b = 10_000 + Math.floor(r() * 90_000)
       const q = `What is ${a} + ${b}? ${NUMBER_ONLY}`
       const t = await ask(ctx, q, `user ${app.user.index} (the contributor) asks`)
-      if (!statesNumber(t.answer, a + b)) return { pass: false, detail: `expected ${a + b}, got ${describe(t)}` }
+      // B27.16 — whether the model adds correctly is not this scenario's question (user 277's answered 102979
+      // to a sum of 101979): what is pooled is checked against the contributor's own answer instead.
+      if (t.footer.kind !== 'priced' || t.answer.trim() === '') return { pass: false, detail: `the contributor's question was not answered afresh: ${describe(t)}` }
       const royalties = async () => (await env.lens.earningsRows(app.user)).filter((x) => x.type === 'pool_royalty_held')
       const before = new Set((await royalties()).map((x) => x.id))
       const other = await env.signInUser(partner)
@@ -971,6 +973,7 @@ export function pooledServePaysRoyalty(seed: number, partner: number): Scenario 
       }
       // Not served from the pool, no royalty is owed: that is across-accounts' to judge, not a verdict here.
       if (served.footer.kind !== 'pool') throw new Error(`user ${partner} was not served from the pool, so no royalty was owed: ${describe(served)}`)
+      if (served.answer.trim() !== t.answer.trim()) return { pass: false, detail: `served from the pool, user ${partner} got "${served.answer.trim()}", not the contributor's "${t.answer.trim()}"` }
       const rows = await eventually(ctx, 4, royalties, (xs) => xs.some((x) => !before.has(x.id)))
       const minted = rows.filter((x) => !before.has(x.id))
       ctx.evidence.push({ note: `the contributor's pool_royalty_held rows: ${before.size} before, ${rows.length} after` +

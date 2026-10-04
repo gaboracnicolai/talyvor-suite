@@ -484,12 +484,19 @@ createServer(async (req, res) => {
     if (p.startsWith('/v1/synthetic/')) {
       if (req.headers['x-talyvor-synthetic-key'] !== KEY) return json(res, 401, { error: 'the synthetic operator key is required' })
       if (p === '/v1/synthetic/workspaces/reset') {
-        for (const ws of workspaces.values()) {
+        // As Lens (B26.1): only those named in {"workspaces":[…]}, or every one when none are named.
+        const named = (JSON.parse((await read(req)) || '{}') as { workspaces?: string[] }).workspaces ?? []
+        const unknown = named.filter((id) => !workspaces.has(id))
+        if (unknown.length > 0) return json(res, 400, { error: `${unknown.length} named workspaces are not active synthetic workspaces, nothing was reset: ${unknown.slice(0, 5).join(', ')}` })
+        const chosen = named.length > 0 ? named.map((id) => workspaces.get(id) as Workspace) : [...workspaces.values()]
+        // B27.16 — the self-test fails on this line: a run resets its own users, never everyone's.
+        if (named.length === 0) console.log(`stub lens: reset EVERY synthetic workspace (${chosen.length}), naming none`)
+        for (const ws of chosen) {
           ws.answers.clear()
           if (ws.balance < GRANT_ULXC) book(ws, GRANT_ULXC - ws.balance, 'admin_grant', 'synthetic test credits restored')
         }
-        pool.clear()
-        return json(res, 200, { reset: workspaces.size })
+        for (const [key, a] of pool) if (chosen.some((ws) => ws.id === a.owner)) pool.delete(key)
+        return json(res, 200, { reset: chosen.length })
       }
       if (await bank.syntheticRoute(req, res, p)) return
       const { count = 100 } = JSON.parse((await read(req)) || '{}') as { count?: number }

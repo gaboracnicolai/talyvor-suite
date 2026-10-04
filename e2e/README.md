@@ -34,8 +34,8 @@ it on either side, Lens's synthetic routes or `/auth/synthetic` answer 404.
 
 ## What a run does
 
-1. Resets every synthetic workspace (stored answers cleared, credits restored), then creates `--users`
-   new ones.
+1. Creates `--users` new synthetic workspaces, then resets them — and only them (stored answers cleared,
+   credits restored), so a run going on at the same time is left alone (B27.16).
 2. Each user signs in and runs a journey in Chat. Every scenario starts from a new chat.
 3. After every journey has finished, it reads back each user's ledger.
 4. It writes `out/run-<time>.json`: each scenario's PASS, FAIL, SKIP or ERROR, with the question, the
