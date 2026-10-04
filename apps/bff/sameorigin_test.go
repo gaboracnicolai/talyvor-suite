@@ -217,6 +217,7 @@ func everyMutatingRoute() []mutatingRoute {
 		// B20.12 — the operator's review queue. This fixture's session is an operator (see sameOriginAppRecording).
 		{method: http.MethodPost, path: "/api/admin/marketplace/listings/x1/approve", body: `{}`},
 		{method: http.MethodPost, path: "/api/admin/marketplace/listings/x1/takedown", body: `{"reason":"r"}`},
+		{method: http.MethodPost, path: "/api/admin/marketplace/parked-uses/x1/retry"},
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/claim", body: `{}`},

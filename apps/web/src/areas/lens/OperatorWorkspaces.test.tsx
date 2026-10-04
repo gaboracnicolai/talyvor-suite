@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
 
@@ -14,9 +14,15 @@ const WORKSPACES = [
     last_request_at: null },
 ]
 
+const PARKED = {
+  id: 'use_9', listing_id: 'lst_adder', buyer_workspace_id: 'ws_acme', price_ulxc: 500_000, used_at: '2026-10-01T08:00:00Z',
+  refusals: 5, reason: "resource_missing: No such customer: 'cus_gone'", parked_at: '2026-10-02T12:00:00Z',
+}
+
 function mockBff(operator: boolean) {
+  let parked = [PARKED]
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
     const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } })
     if (url === '/auth/me')
@@ -25,6 +31,11 @@ function mockBff(operator: boolean) {
       return operator
         ? json({ workspaces: WORKSPACES })
         : json({ error: 'operator access required — this account is not on OPERATOR_SUBS' }, 403)
+    if (url === '/api/admin/marketplace/parked-uses') return json({ parked_uses: parked })
+    if (url === '/api/admin/marketplace/parked-uses/use_9/retry' && init?.method === 'POST') {
+      parked = []
+      return json({ id: 'use_9', retrying: true })
+    }
     return new Response('null', { status: 404 })
   })
 }
@@ -58,6 +69,23 @@ describe('the operator screen (B18.25)', () => {
     expect(within(quiet).getByText('ws_quiet')).toBeTruthy()
     expect(within(quiet).getByText('Never')).toBeTruthy()
     expect(screen.getByTestId('operator-totals').textContent).toMatch(/^3 workspaces · \$1\.25 spent this month · /)
+  })
+
+  // B27.19 — a parked marketplace use shows Stripe's reason and how often it refused; Retry puts it back on
+  // the next metering run and it leaves the list.
+  it('an operator retries a parked marketplace use', async () => {
+    mockBff(true)
+    await at('/operator')
+    const row = await screen.findByTestId('parked-use')
+    expect(row.textContent).toContain("resource_missing: No such customer: 'cus_gone'")
+    expect(within(row).getByText('5 times')).toBeTruthy()
+    expect(within(row).getByText('0.5 LXC')).toBeTruthy()
+    fireEvent.click(within(row).getByRole('button', { name: 'Retry use_9' }))
+    expect((await screen.findByTestId('parked-retried')).textContent).toBe('use_9 will be tried again on the next metering run.')
+    expect(await screen.findByText(/No use is parked/)).toBeTruthy()
+    const retries = vi.mocked(globalThis.fetch).mock.calls.filter(([input]) => String(input).endsWith('/retry'))
+    expect(retries).toHaveLength(1)
+    expect(retries[0][1]?.method).toBe('POST')
   })
 
   it('nobody else has a row for it, and typing the address shows the refusal, not data', async () => {

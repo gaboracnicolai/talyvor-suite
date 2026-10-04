@@ -3,6 +3,7 @@ import { MuNumeral } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, readable } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
+import { ParkedUses } from '../marketplace/ParkedUses'
 import { formatWhen } from './format'
 
 // OperatorWorkspaces.tsx — B18.25: the operator screen. Every workspace on this deployment, with what it
@@ -108,6 +109,8 @@ export function OperatorWorkspaces() {
           </>
         )}
       </Region>
+      {/* B27.19 — read once the operator boundary has let this screen through, so a refusal shows once. */}
+      {q.isSuccess ? <ParkedUses /> : null}
     </RegionScreen>
   )
 }

@@ -171,6 +171,12 @@ const BY_PATH: Record<string, unknown> = {
       { id: 'ws-quiet', name: 'Quiet', created_at: '2026-09-01T00:00:00Z', current_month_usd: 0, all_time_usd: 0, requests: 0, held_ulens: 0, last_request_at: null },
     ],
   },
+  // B27.19 — one marketplace use Stripe refused too often to keep retrying.
+  '/api/admin/marketplace/parked-uses': {
+    parked_uses: [
+      { id: 'use_parked', listing_id: 'lst_translate', buyer_workspace_id: 'ws-acme', price_ulxc: 500_000, used_at: '2026-09-27T09:30:00Z', refusals: 5, reason: "resource_missing: No such customer: 'cus_gone'", parked_at: '2026-09-28T12:00:00Z' },
+    ],
+  },
   '/api/agents': {
     workspace_balance_ulxc: 100_000_000,
     allocated_ulxc: 12_500_000,
