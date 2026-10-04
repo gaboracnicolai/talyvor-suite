@@ -38,6 +38,8 @@ import { DocsArea } from './areas/docs/DocsArea'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
+import { Documentation } from './areas/documentation/Documentation'
+import { DOCUMENTATION_PATH } from './areas/documentation/content'
 import { Privacy } from './routes/Privacy'
 import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
@@ -564,6 +566,9 @@ export function App() {
           <Route path="/marketing/*" element={<Landing />} />
           {/* B5.2 — the price list, public for the same reason: a buyer reads it before signing up. */}
           <Route path="/pricing" element={<Pricing />} />
+          {/* B27.31 — what the product does, each claim linked to its screen. Public for the same
+              reason as the price list. Not /docs: that is the Docs product, behind the gate. */}
+          <Route path={DOCUMENTATION_PATH} element={<Documentation />} />
           {/* Legal pages are public for the same reason: someone deciding whether to sign up must
               be able to read what the service does with their data BEFORE creating an account.
               Putting these behind the gate would mean you had to agree in order to read. */}

@@ -136,6 +136,9 @@ export function Pricing() {
             <div className="text-caption font-normal text-faint">Suite</div>
           </a>
           <div className="flex items-center gap-3">
+            <a href="/documentation" className={`text-body text-muted ${inlineLink}`}>
+              Documentation
+            </a>
             <ThemeToggle />
             <Button asChild>
               <a href="/">Open the app</a>
@@ -254,6 +257,10 @@ export function Pricing() {
             {' · '}
             <a href="/terms" className={inlineLink}>
               Terms
+            </a>
+            {' · '}
+            <a href="/documentation" className={inlineLink}>
+              Documentation
             </a>
           </div>
         </div>

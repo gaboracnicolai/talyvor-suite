@@ -70,6 +70,16 @@ jobs:
       # scripts/w1121d-anchor-check-write-target-controls-j8w4.py, and `grep -l signal` calls that
       # file protected. A regex reads the documentation as the implementation.
       - run: python3 scripts/check-restore-signal-handlers.py --ci
+      # B27.31 — /documentation lists every customer route Lens registers (lens-routes.json). Lens
+      # lives in another repository, so no unit test here can see it: this reads Lens main's source
+      # and fails when a documented route is no longer registered, instead of leaving the page
+      # promising a 404. Last in the job so the extra checkout cannot touch the steps above.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+        with:
+          repository: gaboracnicolai/talyvor-lens
+          path: .lens
+          persist-credentials: false
+      - run: node scripts/lens-routes.mjs .lens --check
 
   # The BFF gates. inc5 added the OIDC deps (go-oidc + x/oauth2), so there IS a
   # go.sum now — the module cache keys off it, and the Go version comes from
