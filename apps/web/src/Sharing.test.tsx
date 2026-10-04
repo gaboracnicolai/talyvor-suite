@@ -73,7 +73,7 @@ describe('sharing consent', () => {
     window.history.pushState({}, '', '/settings')
     render(<App />)
     await waitFor(() => {
-      expect(screen.getByText(/Sharing answers with other companies/i)).toBeInTheDocument()
+      expect(screen.getByText(/Shared answers \(saves on repeated questions\)/i)).toBeInTheDocument()
     })
     // And it offers both directions, not just an off switch.
     expect(screen.getByRole('button', { name: /^Share my answers$/i })).toBeInTheDocument()
@@ -98,8 +98,11 @@ describe('sharing consent', () => {
     await waitFor(() => {
       expect(screen.getByText(/If sharing is on/i)).toBeInTheDocument()
     })
-    // The gain: reuse earns, and buys instant answers back.
-    expect(screen.getByText(/earn you LENS/i)).toBeInTheDocument()
+    // The gain: repeated questions cost less — and, last, a small royalty (B28.10: savings first).
+    const saving = screen.getByText(/Repeated questions are served instantly/i)
+    const royalty = screen.getByText(/you earn a small royalty/i)
+    expect(saving.compareDocumentPosition(royalty) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(royalty.querySelector('a')).toHaveAttribute('href', '/statements/royalties')
     // The cost: content leaves the workspace.
     expect(screen.getByText(/leaves this workspace/i)).toBeInTheDocument()
     // The other side stated with equal weight, so neither reads as the recommendation.

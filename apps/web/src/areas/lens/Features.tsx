@@ -719,7 +719,7 @@ export function Features() {
                       <>
                         {count(pooled)} answers served from the shared pool in the last {count(usage.data!.period_days)}{' '}
                         days, and <span className="font-figure">{(royaltiesULENS / 1_000_000).toLocaleString('en-US')}</span>{' '}
-                        LENS earned from answers others reused (measured). <To to="/earnings">Earnings</To>
+                        LENS earned from answers others reused (measured). <To to="/statements/royalties">Royalties</To>
                       </>
                     )),
                   )

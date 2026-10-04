@@ -112,10 +112,9 @@ const TELLS_YOU_WHAT_TO_DO =
 // (a) The detector was WRONG — this is not an empty state at all. Every entry here is a known
 // limit of a text-shape heuristic, recorded rather than tuned away: narrowing the pattern until
 // these disappear is how a detector stops finding the real ones too.
-const NOT_AN_EMPTY_STATE: Record<string, string> = {
-  'Nothing new produced here is shared.':
-    'A bullet in Sharing’s “If sharing is off” list — it describes the consequence of a setting, not an absent collection. It opens with “Nothing”, which is the shape the detector keys on.',
-}
+// Empty since B28.10 reworded its one entry, Sharing's "Nothing new produced here is shared.", so it
+// no longer opens with the "Nothing" the detector keys on.
+const NOT_AN_EMPTY_STATE: Record<string, string> = {}
 
 // (b) It IS an empty state and it genuinely has no next action to name.
 //

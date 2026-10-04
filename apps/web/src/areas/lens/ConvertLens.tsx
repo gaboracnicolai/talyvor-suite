@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button, Input, MuNumeral } from "@talyvor/ui";
 import { InlineFailure } from "../../components/SessionExpiredBar";
+import { api } from "../../lib/api";
 import {
   ConvertError,
   convertApi,
@@ -76,6 +77,42 @@ export function ConvertLens({
       lensBalanceMicros={lensBalanceMicros}
       heldMicros={heldMicros}
     />
+  );
+}
+
+/**
+ * B28.10 — THE CONVERSION LIVES ON ROYALTIES NOW, NOT ON OVERVIEW. LENS arrives as a royalty when
+ * another company is served an answer this workspace shared, so the one thing to do with it sits
+ * on the page that says where it came from; Overview keeps the balances.
+ *
+ * ⚠ IT RENDERS NOTHING UNTIL THE READ LANDS. `ConvertLens` takes a NUMBER, so it cannot tell a
+ * balance of zero from a balance nobody could read — and the difference decides which of two
+ * opposite things it says. A failed read must not be drawn as "you have not earned any LENS".
+ * It reads the same `["lens-balance"]` query Overview's LENS card does, so react-query dedupes it.
+ */
+export function ConvertRegion() {
+  const q = useQuery({ queryKey: ["lens-balance"], queryFn: api.lensBalance });
+  if (q.isLoading) return <p className="text-body text-muted">Loading…</p>;
+  if (q.isError || typeof q.data?.balance_ulens !== "number")
+    return (
+      <InlineFailure
+        error={q.error}
+        className="text-body text-muted"
+        failed="Couldn’t read this workspace’s LENS balance, so no conversion is offered."
+      />
+    );
+  return (
+    <div className="flex flex-col items-start gap-3">
+      {q.data.balance_ulens > 0 ? (
+        <p data-testid="spendable-lens" className="text-body text-ink">
+          Spendable now: <MuNumeral micros={q.data.balance_ulens} unit="lens" />
+        </p>
+      ) : null}
+      <ConvertLens
+        lensBalanceMicros={q.data.balance_ulens}
+        heldMicros={q.data.held_balance_ulens ?? 0}
+      />
+    </div>
   );
 }
 

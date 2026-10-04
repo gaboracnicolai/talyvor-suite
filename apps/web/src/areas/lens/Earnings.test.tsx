@@ -182,7 +182,7 @@ describe('Earnings states what was earned, and nothing more', () => {
     mockBff({ status: 500, body: { error: 'lens is down' } })
     renderEarnings()
 
-    expect(await screen.findByText(/your earnings/)).toBeInTheDocument()
+    expect(await screen.findByText(/your royalties/)).toBeInTheDocument()
     expect(screen.queryByTestId('contribution-total')).toBeNull()
     expect(screen.queryByTestId('nothing-earned')).toBeNull()
     expect(screen.queryByTestId('earning-off')).toBeNull()
@@ -197,5 +197,54 @@ describe('Earnings states what was earned, and nothing more', () => {
     renderEarnings()
     expect(await screen.findByTestId('contribution-total')).toBeInTheDocument()
     expect(screen.getByTestId('nothing-earned')).toBeInTheDocument()
+  })
+})
+
+// B28.10 — this screen is Royalties now, and the LENS→LXC conversion lives on it. The two W1.1.3
+// empty-state cases moved here from Overview.test.tsx with the conversion itself.
+describe('Royalties: savings framed first, and the conversion beside the royalties', () => {
+  function mockRoyalties(balanceULENS: number) {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input)
+      const body = url.startsWith('/api/tokens/balance')
+        ? { workspace_id: 'ws-1', balance_ulens: balanceULENS, held_balance_ulens: 0, lifetime_earned_ulens: 0, lifetime_spent_ulens: 0, updated_at: '2026-10-04T12:00:00Z' }
+        : summary()
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+  }
+
+  it('says sharing is a saving before it shows a royalty', async () => {
+    mockRoyalties(0)
+    renderEarnings()
+    const framing = await screen.findByTestId('royalties-framing')
+    const text = framing.textContent ?? ''
+    expect(text.indexOf('save on repeated questions')).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('save on repeated questions')).toBeLessThan(text.indexOf('royalty'))
+    // the framing comes before the figure in the document
+    const total = await screen.findByTestId('contribution-total')
+    expect(framing.compareDocumentPosition(total) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('the conversion says LENS is earned, not bought, and links to the choice that earns it', async () => {
+    mockRoyalties(0)
+    renderEarnings()
+    expect(await screen.findByText(/has not earned any LENS/i)).toBeInTheDocument()
+    expect(screen.getByText(/earned, not bought/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open settings/i })).toHaveAttribute('href', '/settings')
+  })
+
+  it('offers no conversion affordance to a workspace with nothing to convert', async () => {
+    mockRoyalties(0)
+    renderEarnings()
+    await screen.findByText(/has not earned any LENS/i)
+    expect(screen.queryByRole('button', { name: /convert to lxc/i })).toBeNull()
+    expect(screen.queryByLabelText(/lxc to receive/i)).toBeNull()
+  })
+
+  it('offers the conversion, with the spendable LENS, when there is some', async () => {
+    mockRoyalties(5_000_000)
+    renderEarnings()
+    expect(await screen.findByRole('button', { name: /convert to lxc/i })).toBeInTheDocument()
+    expect(screen.getByTestId('spendable-lens')).toHaveTextContent('5')
   })
 })

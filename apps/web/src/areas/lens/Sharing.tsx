@@ -24,6 +24,11 @@ import { ProviderKeysCard } from './ProviderKeys'
 // option feel like the sensible one. A consent screen that sells is worse than one that only
 // warns — the person has to be able to read it and decide.
 //
+// B28.10 — SAVINGS FIRST, EARNINGS LAST. Sharing is a cost saving: a repeated question is served
+// from an answer another company already paid for. The royalty a shared answer earns is a side
+// effect, so it is the last line on the "on" side and is called a royalty, not the point. The
+// disclosure stays exactly where it was, beside the saving, with the same weight.
+//
 // This matters more since sharing became ON by default: the screen is now the only thing standing
 // between a person and disclosure, so it has to be readable by someone who is not looking for it.
 
@@ -32,26 +37,32 @@ export function SharingFacts() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-body">
-        Talyvor can reuse answers across companies. A response produced for this workspace may be
-        served to another company asking a near-identical question, and this workspace may be
-        served from theirs.
+        Shared answers save on repeated questions. When another company has already asked a
+        near-identical question, this workspace can be served their answer instead of paying a
+        model for a new one — and an answer produced here may be served to them the same way.
       </p>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <div className="flex-1">
           <p className="text-body text-ink">If sharing is on</p>
           <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-body text-muted">
-            <li>Your answers earn you LENS each time another company reuses one.</li>
-            <li>You are served instantly, and without paying a model, from theirs.</li>
+            <li>Repeated questions are served instantly from shared answers, without paying a model.</li>
             <li>The content of your answers leaves this workspace.</li>
+            <li>
+              When another company is served one of your answers, you earn a small royalty, shown on{' '}
+              <Link to="/statements/royalties" className={inlineLink}>
+                Royalties
+              </Link>
+              .
+            </li>
           </ul>
         </div>
         <div className="flex-1">
           <p className="text-body text-ink">If sharing is off</p>
           <ul className="mt-1 flex list-disc flex-col gap-1 pl-5 text-body text-muted">
-            <li>Nothing new produced here is shared.</li>
+            <li>You pay full price for repeated questions.</li>
             <li>You are never served another company&rsquo;s answers.</li>
-            <li>New answers earn nothing from reuse, and you pay full price for repeated questions.</li>
+            <li>New answers produced here are not shared, and earn no royalty.</li>
           </ul>
         </div>
       </div>
@@ -175,7 +186,7 @@ export function SharingLine() {
         />
         <span>
           Share answers with other companies, so repeated questions cost less: an answer made here may be
-          served to another company, and you earn when it is.{' '}
+          served to another company, and you earn a small royalty when it is.{' '}
           {recorded === undefined ? 'This workspace’s setting could not be read.' : recorded ? 'On now; untick to stop.' : 'Off now.'}{' '}
           <Link to="/settings" className={inlineLink}>
             What sharing means
@@ -192,7 +203,7 @@ export function Settings() {
   return (
     <div className="flex flex-col gap-gutter">
       <Card>
-        <CardHeader>Sharing answers with other companies</CardHeader>
+        <CardHeader>Shared answers (saves on repeated questions)</CardHeader>
         <div className="flex flex-col gap-4 px-gutter py-4">
           <SharingFacts />
           <SharingChoice />

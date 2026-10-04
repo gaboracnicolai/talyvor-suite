@@ -183,10 +183,10 @@ function WaysToGetCredit({ canBuy }: { canBuy: boolean }) {
     index: '02',
     title: 'Convert LENS this workspace has earned.',
     body:
-      'Traffic served to another company earns LENS, and LENS converts to LXC one way. The ' +
-      'Overview carries the balance, the rate this deployment is running, and the conversion.',
-    to: '/',
-    cta: 'Open Overview',
+      'A shared answer served to another company earns a small royalty in LENS, and LENS ' +
+      'converts to LXC one way. Royalties, under Statements, carries the rate and the conversion.',
+    to: '/statements/royalties',
+    cta: 'Open Royalties',
   })
   return (
     <ol className="mt-8 grid gap-px border border-rule bg-rule wide:grid-cols-2">
@@ -387,6 +387,17 @@ export function TopUp({
             )}
           </Row>
         </Card>
+        {/* B28.10 — credit bought here is the workspace's; agents spend from their own wallets, so
+            the next step after a top-up is to give each agent its share. */}
+        <div className="mt-4 flex flex-col items-start gap-2">
+          <p className="text-body text-muted">
+            Your agents spend from their own wallets, each with a budget and rules. Move credit from
+            this balance into them on Agent Wallets.
+          </p>
+          <Button asChild variant="primary">
+            <Link to="/agents">Fund your agents</Link>
+          </Button>
+        </div>
         <YourPlan />
       </Region>
 

@@ -81,14 +81,11 @@ const SIDEBAR_DESTINATIONS = [
   // B28.7 — the wallet's own destinations, under Home.
   '/approvals',
   '/statements',
+  // B28.10 — Earnings became Royalties, indented under Statements.
+  '/statements/royalties',
   // B28.6 — Home took `/`; Overview moved one address over, still in the sidebar.
   '/overview',
   '/ledger',
-  // W4.6.1 step 7. ⚠ THE THIRTEENTH, AND IT IS IN THE SIDEBAR ON PURPOSE: /chat (step 6) is a
-  // route with no sidebar entry, so it is reachable only by typing the address. An earnings screen
-  // nobody can find answers a question nobody gets to ask — the same defect Members.tsx was
-  // rebuilt for, one level up.
-  '/earnings',
   // B8.1 — every screen the console mounts, grouped by product.
   '/chat',
   '/track/board',

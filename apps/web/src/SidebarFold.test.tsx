@@ -82,7 +82,7 @@ describe('the sidebar folds to its group titles (B24.1)', () => {
     const nav = await mountAt('/ledger')
     fireEvent.click(within(nav).getByRole('button', { name: 'Fold all' }))
     expect(openTitles(nav)).toEqual([])
-    expect(linkNames(nav)).toEqual(['Home', 'Approvals', 'Agent Wallets', 'Statements', 'Chat', 'Privacy', 'Terms'])
+    expect(linkNames(nav)).toEqual(['Home', 'Approvals', 'Agent Wallets', 'Statements', 'Royalties', 'Chat', 'Privacy', 'Terms'])
 
     fireEvent.click(within(nav).getByRole('button', { name: 'Open all' }))
     expect(openTitles(nav)).toEqual(TITLES)
