@@ -341,7 +341,7 @@ export function Landing() {
   // bare-fetch hook rather than react-query — this page renders with no providers at all, and a
   // probe that failed to answer leaves the page saying nothing about access rather than guessing.
   const { signup } = useSignupProbe()
-  // THE FRONT DOOR TAKES THE BRAND ALONE — `null`, not a page name. That is what the marketing
+  // THE FRONT DOOR TAKES THE BRAND LINE — `null`, not a page name. That is what the marketing
   // site does with its own home page (`TALYVOR: the AI development suite that gets cheaper`,
   // while every inner page is `<page> | TALYVOR`), and this page's own h1 is a sentence, not a
   // name. See documentTitle.test.tsx for the fetched titles.
