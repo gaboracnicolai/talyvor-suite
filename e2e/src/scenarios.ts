@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1045,6 +1045,40 @@ export function trackExport(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.5 — each card on /plans shows the usage its plan includes this month, and that figure is the one Lens's
+ * public plans read states (talyvor-lens B28.439) — what a new subscriber is granted. No figure is typed in
+ * here: the card's text is read back to µLXC and held to Lens's.
+ */
+export function plansIncludedUsage(): Scenario {
+  return {
+    id: 'plans-included-usage',
+    title: 'each plan card shows the LXC of usage it includes this month, as Lens states it',
+    run: async (ctx) => {
+      const stated = await ctx.env.lens.plans()
+      if (stated === null) throw new CannotTest('Lens sells no plan on this deployment, so it states no included usage')
+      const page = await ctx.app.tab('/plans')
+      const shown: Record<string, string> = {}
+      try {
+        for (const p of stated) {
+          shown[p.id] = (await page.getByTestId(`plan-included-${p.id}`).innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
+        }
+      } finally {
+        await page.close()
+      }
+      ctx.evidence.push({ note: `Lens: ${stated.map((p) => `${p.id} ${p.included_ulxc} µLXC`).join(', ')}; /plans: ${JSON.stringify(shown)}` })
+      const wrong = stated.flatMap((p) => {
+        const m = /^([\d,]+(?:\.\d+)?) LXC$/.exec(shown[p.id])
+        const ulxc = m ? Math.round(Number(m[1].replaceAll(',', '')) * 1e6) : NaN
+        return ulxc === p.included_ulxc ? [] : [`${p.id} shows "${shown[p.id]}", Lens states ${p.included_ulxc} µLXC`]
+      })
+      return wrong.length === 0
+        ? { pass: true, detail: `every plan card shows Lens's figure: ${stated.map((p) => `${p.id} ${shown[p.id]}`).join(', ')}` }
+        : { pass: false, detail: `/plans: ${wrong.join('; ')}` }
+    },
+  }
+}
+
 // ─── B17.10 — a test user's plan on a Stripe test card, and a pooled serve's royalty ────────────────
 
 /** The plan a test user subscribes to, at the price Plans shows for it (apps/web planApi.ts PLANS). */
@@ -1076,7 +1110,13 @@ export function planOnTestCard(seed: number): Scenario {
       ctx.evidence.push({ note: `allowance: ${granted} µLXC granted, ${a.value.remaining_ulxc} left, for ${fee} cents` })
       if (fee !== TEST_PLAN.usdCents) return { pass: false, detail: `the allowance is for ${fee} cents, not ${TEST_PLAN.name}'s ${TEST_PLAN.usdCents}` }
       if (granted <= 0) return { pass: false, detail: `the allowance grants ${granted} µLXC` }
-      return { pass: true, detail: `on ${TEST_PLAN.name} by test card: ${granted} µLXC allowed this period for ${fee} cents` }
+      // B28.5 — the figure /plans showed for the plan is the one Lens granted: its public plans read.
+      const listed = (await env.lens.plans())?.find((p) => p.id === TEST_PLAN.id)
+      if (listed === undefined) return { pass: false, detail: `Lens sold ${TEST_PLAN.name}, yet its public plans read states no ${TEST_PLAN.name}` }
+      if (granted !== listed.included_ulxc) {
+        return { pass: false, detail: `Lens granted ${granted} µLXC; /plans and Lens's plans read say ${TEST_PLAN.name} includes ${listed.included_ulxc}` }
+      }
+      return { pass: true, detail: `on ${TEST_PLAN.name} by test card: ${granted} µLXC allowed this period for ${fee} cents, as /plans said` }
     },
   }
 }
@@ -1228,7 +1268,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(sidebarStaysHidden()); break
     case 7: list.push(streamsProgressively()); break
     case 8: list.push(socialPreview()); break
-    case 9: list.push(walletHero(), honestPages(), pricingTruth()); break
+    case 9: list.push(walletHero(), honestPages(), pricingTruth(), plansIncludedUsage()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.

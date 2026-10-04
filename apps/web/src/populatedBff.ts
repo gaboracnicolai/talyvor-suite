@@ -80,6 +80,19 @@ const BODIES: Record<string, unknown> = {
 
   '/api/lxc/topup-options': { allowed_usd_cents: [1000, 2500, 5000], billing_enabled: true },
 
+  // B28.5 — the public price list, with each plan's included usage as Lens states it (B28.439, h = 0).
+  '/api/pricing': {
+    usd_per_lxc: 0.1,
+    min_usd_cents: 1000,
+    max_usd_cents: 1000000,
+    preset_usd_cents: [1000, 5000, 10000],
+    plans: [
+      { id: 'plus', usd_cents: 2000, included_ulxc: 191_200_000 },
+      { id: 'pro', usd_cents: 10000, included_ulxc: 968_000_000 },
+      { id: 'max', usd_cents: 20000, included_ulxc: 1_939_000_000 },
+    ],
+  },
+
   // B18.61 — the subscriber's plan renews at the end of the period.
   '/api/billing/subscription': {
     capability: 'subscriptions',

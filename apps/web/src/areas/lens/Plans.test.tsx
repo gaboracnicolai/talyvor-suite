@@ -19,6 +19,18 @@ const PERIOD = {
 const SUBSCRIBED = { allowance: PERIOD, earned_ulens: 9_000_000, earned_held_ulens: 0, earned_usd_cents: 600, earned_back_usd_cents: 600 }
 const UNSUBSCRIBED = { ...SUBSCRIBED, allowance: null }
 
+// GET /api/pricing as the BFF passes on Lens's public plans read (talyvor-lens B28.439, at h = 0).
+const PRICING = {
+  min_usd_cents: 1000,
+  max_usd_cents: 1000000,
+  preset_usd_cents: [1000, 5000, 10000],
+  plans: [
+    { id: 'plus', usd_cents: 2000, included_ulxc: 191_200_000 },
+    { id: 'pro', usd_cents: 10000, included_ulxc: 968_000_000 },
+    { id: 'max', usd_cents: 20000, included_ulxc: 1_939_000_000 },
+  ],
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
@@ -27,6 +39,7 @@ function serve(allowance: unknown, { sharing = true, pooled = 9 } = {}) {
     const url = String(input)
     if (url === '/api/billing/allowance') return json(allowance)
     if (url === '/api/billing/subscribe') return json({ url: 'https://checkout.stripe.com/c/pay/cs_test_plan' })
+    if (url === '/api/pricing') return json(PRICING)
     if (url === '/auth/me') return json({ mode: 'oidc', authenticated: true, cache_poolable: sharing })
     if (url.startsWith('/api/usage'))
       return json({ period_days: 30, models: [], cache: { total_requests: 40, cache_hits: pooled, misses: 31, hit_rate: 0.2, by_source: { upstream: 31, cache_hit_pooled: pooled } } })
@@ -65,6 +78,18 @@ describe('Plans (B13.3)', () => {
     expect(call[1]?.method).toBe('POST')
     expect(JSON.parse(String(call[1]?.body))).toEqual({ plan: 'pro' })
     expect(JSON.parse(window.sessionStorage.getItem(PENDING_PLAN_KEY)!).plan).toBe('pro')
+  })
+
+  it('shows on each plan card the LXC of usage it includes this month, as /api/pricing states it (B28.5)', async () => {
+    serve({ capability: 'subscriptions', enabled: true, data: UNSUBSCRIBED })
+    renderIn(<Plans />)
+
+    const shown = { plus: '191.2 LXC', pro: '968 LXC', max: '1,939 LXC' }
+    for (const [id, figure] of Object.entries(shown)) {
+      expect((await screen.findByTestId(`plan-included-${id}`)).textContent).toBe(figure)
+    }
+    expect(screen.getByTestId('plan-included-pro').closest('li')!.textContent).toBe('968 LXC of usage included this month')
+    expect(screen.queryByText(/× the included usage of Plus/)).not.toBeInTheDocument()
   })
 
   it('shows a subscriber their plan, the usage meter as a percentage, and what their answers earned', async () => {
