@@ -19,7 +19,7 @@
 // so the screen renders exactly what the BFF serves and nothing else. (Lens itself
 // exposes that list on no endpoint — see billing.go for why the BFF holds the copy.)
 
-import { ApiError } from '../../lib/api'
+import { ApiError, readable } from '../../lib/api'
 
 /**
  * GET /api/lxc/topup-options — what the screen needs before it draws anything.
@@ -233,7 +233,7 @@ export const topupApi = {
   options: async (): Promise<TopUpOptions> => {
     const res = await fetch('/api/lxc/topup-options', { headers: { Accept: 'application/json' } })
     if (!res.ok) throw new ApiError(res.status, '/api/lxc/topup-options')
-    return (await res.json()) as TopUpOptions
+    return readable<TopUpOptions>('/api/lxc/topup-options', await res.json(), { allowed_usd_cents: 'array' })
   },
 
   /**

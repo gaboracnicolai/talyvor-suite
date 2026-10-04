@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Button, Input, Switch, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
-import { ApiError, api, getJSON } from '../../lib/api'
+import { ApiError, api, getJSON, getJSONArray } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { StoredAnswers } from './StoredAnswers'
 
@@ -384,12 +384,24 @@ export function Features() {
       failures < (qc.getQueryData(FEATURES_KEY) === undefined ? READ_TRIES - 1 : 1),
     retryDelay: READ_EVERY_MS,
   })
-  const tare = useQuery({ queryKey: ['tare-savings'], queryFn: () => getJSON<TareSavings>('/api/features/tare-savings') })
+  const tare = useQuery({
+    queryKey: ['tare-savings'],
+    queryFn: () =>
+      getJSON<TareSavings>('/api/features/tare-savings', {
+        requests: 'number',
+        tokens_before: 'number',
+        tokens_after: 'number',
+        cost_saved_usd: 'number',
+      }),
+  })
   const distill = useQuery({ queryKey: ['distill'], queryFn: () => getJSON<DistillReading>('/api/distill') })
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
   const earnings = useQuery({ queryKey: ['earnings'], queryFn: api.earnings })
-  const waiting = useQuery({ queryKey: ['models-waiting'], queryFn: () => getJSON<WaitingModel[]>('/api/models/waiting') })
-  const budget = useQuery({ queryKey: BUDGET_KEY, queryFn: () => getJSON<BudgetReading>('/api/features/budget') })
+  const waiting = useQuery({ queryKey: ['models-waiting'], queryFn: () => getJSONArray<WaitingModel>('/api/models/waiting') })
+  const budget = useQuery({
+    queryKey: BUDGET_KEY,
+    queryFn: () => getJSON<BudgetReading>('/api/features/budget', { several: 'boolean' }),
+  })
   const f = q.data
 
   // While loading, or when the workspace could not be read, every state says so rather than

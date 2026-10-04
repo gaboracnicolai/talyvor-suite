@@ -72,9 +72,11 @@ async function subscriptionAnswer(res: Response, path: string): Promise<Subscrip
 }
 
 export const planApi = {
-  allowance: (): Promise<Capability<PlanSummary>> => getCapability<PlanSummary>('/api/billing/allowance'),
+  allowance: (): Promise<Capability<PlanSummary>> =>
+    getCapability<PlanSummary>('/api/billing/allowance', { earned_ulens: 'number', earned_usd_cents: 'number' }),
   // B18.61 — the subscription itself, and cancelling it at period end or resuming it (Lens B1.5).
-  subscription: (): Promise<Capability<SubscriptionStatus>> => getCapability<SubscriptionStatus>('/api/billing/subscription'),
+  subscription: (): Promise<Capability<SubscriptionStatus>> =>
+    getCapability<SubscriptionStatus>('/api/billing/subscription', { subscribed: 'boolean' }),
   cancel: () => changeSubscription('/api/billing/subscription/cancel'),
   resume: () => changeSubscription('/api/billing/subscription/resume'),
   changePlan,

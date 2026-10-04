@@ -175,7 +175,7 @@ function AskForDeletion() {
   const qc = useQueryClient()
   const requests = useQuery({
     queryKey: REQUESTS_KEY,
-    queryFn: () => getJSON<{ requests: DeletionRequest[] }>('/api/features/deletion-requests'),
+    queryFn: () => getJSON<{ requests: DeletionRequest[] }>('/api/features/deletion-requests', { requests: 'list' }),
   })
   const ask = useMutation({
     mutationFn: () => send<DeletionRequest>('/api/features/deletion-requests', {}),
@@ -214,7 +214,17 @@ function AskForDeletion() {
 }
 
 export function StoredAnswers() {
-  const stored = useQuery({ queryKey: STORED_KEY, queryFn: () => getJSON<StoredReading>('/api/features/stored-answers') })
+  const stored = useQuery({
+    queryKey: STORED_KEY,
+    queryFn: () =>
+      getJSON<StoredReading>('/api/features/stored-answers', {
+        shared_answers: 'number',
+        private_answers: 'number',
+        shared_conversions: 'number',
+        private_conversions: 'number',
+        confirm_with: 'string',
+      }),
+  })
   const s = stored.data
   return (
     <Region index="08" label="Stored answers" heading="What this workspace has stored, and deleting it">

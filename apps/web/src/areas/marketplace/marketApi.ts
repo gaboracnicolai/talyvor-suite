@@ -279,17 +279,35 @@ const e = encodeURIComponent
 
 export const marketApi = {
   catalog: async (kind: ListingKind | '') =>
-    (await getJSON<{ listings: Listing[] | null }>(`/api/marketplace/listings${kind ? `?kind=${kind}` : ''}`)).listings ?? [],
-  listing: (id: string) => getJSON<Listing>(`/api/marketplace/listings/${e(id)}`),
-  mine: async () => (await getJSON<{ listings: Listing[] | null }>('/api/marketplace/mine')).listings ?? [],
-  earnings: () => getJSON<Earnings>('/api/marketplace/earnings'),
-  bill: (month: string) => getJSON<MarketBill>(`/api/marketplace/bill?month=${e(month)}`),
+    (
+      await getJSON<{ listings: Listing[] | null }>(`/api/marketplace/listings${kind ? `?kind=${kind}` : ''}`, {
+        listings: 'list',
+      })
+    ).listings ?? [],
+  listing: (id: string) =>
+    getJSON<Listing>(`/api/marketplace/listings/${e(id)}`, { id: 'string', title: 'string', price_per_use_ulxc: 'number' }),
+  mine: async () => (await getJSON<{ listings: Listing[] | null }>('/api/marketplace/mine', { listings: 'list' })).listings ?? [],
+  earnings: () =>
+    getJSON<Earnings>('/api/marketplace/earnings', {
+      pending_usd_micros: 'number',
+      payable_usd_micros: 'number',
+      available_usd_micros: 'number',
+      earnings: 'list',
+    }),
+  bill: (month: string) =>
+    getJSON<MarketBill>(`/api/marketplace/bill?month=${e(month)}`, { total_ulxc: 'number', total_usd_micros: 'number', lines: 'list' }),
   publish: (draft: ListingDraft) => post<Listing>('/api/marketplace/listings', draft),
   use: (id: string, req: UseRequest) => post<ListingUse>(`/api/marketplace/listings/${e(id)}/use`, req),
   report: (id: string, reason: string, details: string) =>
     post<ListingReport>(`/api/marketplace/listings/${e(id)}/reports`, { reason, details }),
   // B20.6 — the seller's payouts (Lens B20.5).
-  payouts: () => getJSON<Payouts>('/api/marketplace/payouts'),
+  payouts: () =>
+    getJSON<Payouts>('/api/marketplace/payouts', {
+      available_usd_micros: 'number',
+      owed_usd_micros: 'number',
+      quote: 'object',
+      payouts: 'list',
+    }),
   connectPayouts: (country: string) => post<{ url: string; account: ConnectAccount }>('/api/marketplace/payouts/connect', { country }),
   takeAsCredits: () => post<Payout>('/api/marketplace/payouts/credits', {}),
   // B20.12 — Talyvor's review queue, for operators (apps/bff/market_review.go).

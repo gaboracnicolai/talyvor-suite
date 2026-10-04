@@ -42,7 +42,7 @@
 // on every request. A mirror nobody calls is a mirror nobody checks.
 
 import { useQuery } from '@tanstack/react-query'
-import { ApiError } from '../../lib/api'
+import { ApiError, readableList } from '../../lib/api'
 import type { TrackMember, TrackTeam, TrackWorkspace } from './types'
 
 // The shared ApiError, so isUnconfigured() classifies a Track read exactly as it classifies
@@ -66,7 +66,8 @@ async function getJSON<T>(path: string): Promise<T> {
 export function useTrackWorkspaces() {
   return useQuery({
     queryKey: ['track-workspaces'],
-    queryFn: () => getJSON<TrackWorkspace[]>('/api/track/workspaces'),
+    queryFn: async () =>
+      readableList<TrackWorkspace>('/api/track/workspaces', await getJSON<unknown>('/api/track/workspaces')),
   })
 }
 

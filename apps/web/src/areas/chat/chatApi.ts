@@ -1,4 +1,4 @@
-import { ApiError } from '../../lib/api'
+import { ApiError, readableList } from '../../lib/api'
 import { type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
 import type { AnswerCost, AnswerSource } from './price'
 
@@ -134,8 +134,7 @@ function distillSaved(headers: Headers): DistillSaved | undefined {
 export async function fetchModels(): Promise<ChatModel[]> {
   const res = await fetch('/api/models', { credentials: 'same-origin' })
   if (!res.ok) throw new ApiError(res.status, '/api/models')
-  const body: unknown = await res.json()
-  return Array.isArray(body) ? (body as ChatModel[]) : []
+  return readableList<ChatModel>('/api/models', await res.json())
 }
 
 /**
