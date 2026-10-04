@@ -383,6 +383,9 @@ export function Landing() {
             <a href="/pricing" className={`text-body text-muted ${inlineLink}`}>
               Pricing
             </a>
+            <a href="/documentation" className={`text-body text-muted ${inlineLink}`}>
+              Documentation
+            </a>
             <ThemeToggle />
             {/* The one "Open the app" link — Landing.test.tsx pins its name and href. */}
             <Button asChild>
@@ -718,6 +721,10 @@ export function Landing() {
             {' · '}
             <a href="/pricing" className={inlineLink}>
               Pricing
+            </a>
+            {' · '}
+            <a href="/documentation" className={inlineLink}>
+              Documentation
             </a>
             {' · '}
             <a href="#suite" className={inlineLink}>

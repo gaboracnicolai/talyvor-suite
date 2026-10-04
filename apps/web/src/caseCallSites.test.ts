@@ -373,16 +373,18 @@ const PINS: Record<string, Pin> = {
   //
   // 46 → 48 at B27.30: the public board's eyebrow ("Read-only board") and its footer line, both
   // copied from /pricing's.
+  //
+  // 48 → 50 at B27.31: /documentation's route-table header and its footer line, copied from /pricing's.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 48,
+    states: 50,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 48,
+    states: 50,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {
