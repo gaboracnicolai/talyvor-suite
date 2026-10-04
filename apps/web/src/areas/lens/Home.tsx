@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { type UseQueryResult, useQueries, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Button, Card, CardHeader, MuNumeral, Pill, Row, inlineLink } from '@talyvor/ui'
@@ -5,6 +6,8 @@ import { Region, RegionScreen } from '../../components/Region'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { APPROVALS_KEY, BOOK_KEY, FORECAST_KEY, PauseEveryAgent, rulesKey } from './AgentBank'
 import { type Agent, type AgentBook, type AgentRules, type SpendForecast, agentBankApi, formatULXC } from './agentBankApi'
+import { WalletOnboarding } from './Onboarding'
+import { SharingLine } from './Sharing'
 
 // Home.tsx — B28.6: the first screen after sign-in is the wallet home. It answers, in order:
 //   1. What does the workspace hold, and how much of it have I not yet given to an agent?
@@ -15,8 +18,8 @@ import { type Agent, type AgentBook, type AgentRules, type SpendForecast, agentB
 // Every figure is Lens's, read through the same BFF routes and the same query keys as Agent Wallets,
 // so a change made on either screen is the figure the other shows.
 //
-// A workspace with no agents yet opens in onboarding mode: what it holds, and the two steps that give
-// its first agent a wallet. Like Overview's first run, that is a MEASUREMENT — the book answered and
+// A workspace with no agents yet opens in onboarding mode: what it holds, the three steps that give its
+// first agent a wallet (B28.8, Onboarding.tsx), and the one line that says whether it shares answers. Like Overview's first run, that is a MEASUREMENT — the book answered and
 // listed no agents — never a default: a read that failed is not an empty workspace.
 
 const lxc = (micros: number) => (
@@ -210,42 +213,17 @@ function useForecast() {
   return useQuery({ queryKey: FORECAST_KEY, queryFn: agentBankApi.forecast })
 }
 
-/** Onboarding: the workspace has no agent yet. What it holds, and the two steps to a first wallet. */
-function FirstWallet({ book }: { book: AgentBook }) {
-  const steps = [
-    {
-      index: '01',
-      title: 'Give your first agent a wallet.',
-      body: 'Create it, fund it from the workspace, set what it may spend and when a person must approve, and issue it a key.',
-      to: '/agents',
-      cta: 'Create an agent',
-    },
-    {
-      index: '02',
-      title: 'Put credit in the workspace.',
-      body: 'An agent spends only what you give it. Billing carries the balance, and says whether this deployment can sell more.',
-      to: '/billing',
-      cta: 'Open Billing',
-    },
-  ]
+/** Onboarding: the workspace's first agent, in three steps (B28.8), and the one line about sharing. */
+function FirstWallet({ book, onStarted, onFinished }: { book: AgentBook; onStarted: () => void; onFinished: () => void }) {
   return (
     <>
       <p className="max-w-2xl text-body text-muted" data-testid="home-onboarding">
         Every AI agent gets a wallet: a budget, rules and approvals, checked by Lens before the model is called or a
-        payment moves. This workspace holds {lxc(book.workspace_balance_ulxc)} and has no agents yet.
+        payment moves. This workspace holds {lxc(book.workspace_balance_ulxc)}; give its first agent a wallet in three
+        steps.
       </p>
-      <ol className="mt-2 grid gap-px border border-rule bg-rule wide:grid-cols-2">
-        {steps.map((s) => (
-          <li key={s.index} className="flex flex-col items-start bg-surface px-gutter py-5">
-            <span className="font-figure text-eyebrow uppercase text-faint">Step {s.index}</span>
-            <p className="mt-3 text-body text-ink">{s.title}</p>
-            <p className="mt-1 text-caption font-normal text-muted">{s.body}</p>
-            <Button asChild variant="primary" className="mt-5">
-              <Link to={s.to}>{s.cta}</Link>
-            </Button>
-          </li>
-        ))}
-      </ol>
+      <WalletOnboarding book={book} onStarted={onStarted} onFinished={onFinished} />
+      <SharingLine />
       <p className="text-caption text-muted">
         Already pointing tools at Lens with a workspace key?{' '}
         <Link to="/setup" className={inlineLink}>
@@ -265,8 +243,10 @@ export function Home() {
   const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
   const forecast = useForecast()
   const agents = book.data?.agents ?? []
+  // B28.8 — the onboarding begun here stays open after its agent exists, until the person is done with it.
+  const [onboarding, setOnboarding] = useState(false)
   // The failed read is decided first: a book that could not be read is not a workspace with no agents.
-  const state = book.isError ? 'failed' : book.isPending ? 'reading' : agents.length === 0 ? 'onboarding' : 'wallets'
+  const state = book.isError ? 'failed' : book.isPending ? 'reading' : agents.length === 0 || onboarding ? 'onboarding' : 'wallets'
   return (
     <RegionScreen>
       <Region
@@ -281,7 +261,7 @@ export function Home() {
         ) : !book.data ? (
           <p className="text-body text-muted">Reading…</p>
         ) : state === 'onboarding' ? (
-          <FirstWallet book={book.data} />
+          <FirstWallet book={book.data} onStarted={() => setOnboarding(true)} onFinished={() => setOnboarding(false)} />
         ) : (
           <Holdings book={book.data} />
         )}

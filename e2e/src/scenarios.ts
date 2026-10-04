@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletFirstNav, walletHome } from './bank.ts'
+import { agentApproval, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1254,7 +1254,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 4: if (i + 5 < users) list.push(companyPayment(i, i + 5)); break
     case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3)); break
     case 6: list.push(statementReconciles(i)); break
-    case 7: list.push(everyScreen()); break
+    // B28.8 — first, while the workspace has no agent: Home's three onboarding steps.
+    case 7: list.push(walletOnboarding(i), everyScreen()); break
     // B28.6 — Home, the first screen after sign-in: an agent's budget used and the approvals waiting.
     // B28.7 — then the wallet-first sidebar, whose Approvals badge counts the approval Home just filed.
     case 8: list.push(walletHome(i), walletFirstNav()); break

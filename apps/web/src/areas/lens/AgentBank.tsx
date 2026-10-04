@@ -48,7 +48,7 @@ export const BOOK_KEY = ['agent-book']
 export const APPROVALS_KEY = ['agent-approvals']
 export const rulesKey = (id: string) => ['agent-rules', id]
 export const FORECAST_KEY = ['agent-forecast']
-const statementKey = (id: string) => ['agent-statement', id]
+export const statementKey = (id: string) => ['agent-statement', id]
 
 /** A payment this screen sent that is waiting for its approval — sent again, once, when approved. */
 interface HeldPayment {

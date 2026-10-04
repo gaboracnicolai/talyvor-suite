@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader } from '@talyvor/ui'
+import { Link } from 'react-router-dom'
+import { Button, Card, CardHeader, focusRing, inlineLink } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { useAuthMeReader } from '../../lib/authMe'
 import { DocumentFacts, DistillChoice } from './Documents'
@@ -72,6 +73,17 @@ export function SharingFacts() {
  * recorded, and this re-probes after every write. If a write is refused or only partly applied,
  * the screen says so instead of showing an optimistic result.
  */
+/** Writes the choice; throws when it did not save. Both controls re-probe /auth/me after it. */
+async function savePooling(cachePoolable: boolean): Promise<void> {
+  // Relative path ⇒ same-origin ⇒ the browser supplies the Origin the BFF requires.
+  const res = await fetch('/api/pooling', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ cache_poolable: cachePoolable }),
+  })
+  if (!res.ok) throw new ApiError(res.status, '/api/pooling')
+}
+
 export function SharingChoice({ onDone }: { onDone?: () => void }) {
   const q = useAuthMeReader()
   const qc = useQueryClient()
@@ -84,13 +96,7 @@ export function SharingChoice({ onDone }: { onDone?: () => void }) {
     setBusy(cachePoolable ? 'on' : 'off')
     setFailed(null)
     try {
-      // Relative path ⇒ same-origin ⇒ the browser supplies the Origin the BFF requires.
-      const res = await fetch('/api/pooling', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ cache_poolable: cachePoolable }),
-      })
-      if (!res.ok) throw new ApiError(res.status, '/api/pooling')
+      await savePooling(cachePoolable)
       await qc.invalidateQueries({ queryKey: ['auth-me'] })
       onDone?.()
     } catch {
@@ -127,6 +133,56 @@ export function SharingChoice({ onDone }: { onDone?: () => void }) {
           {busy === 'on' ? 'Saving…' : 'Share my answers'}
         </Button>
       </div>
+    </div>
+  )
+}
+
+/**
+ * SharingLine — B28.8: the signup notice as one line to tick, on the onboarding that replaced the
+ * full-screen consent page. The box is the RECORDED setting (a new workspace starts with sharing on,
+ * Lens's default), so the line tells a person what is already true and one click stops it; the whole
+ * account stays one link away in Settings. Like SharingChoice it re-reads what Lens stored after a write.
+ */
+export function SharingLine() {
+  const q = useAuthMeReader()
+  const qc = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const recorded = q.data?.cache_poolable
+
+  async function toggle(cachePoolable: boolean) {
+    setBusy(true)
+    setFailed(false)
+    try {
+      await savePooling(cachePoolable)
+      await qc.invalidateQueries({ queryKey: ['auth-me'] })
+    } catch {
+      setFailed(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex items-start gap-2 text-caption text-muted">
+        <input
+          type="checkbox"
+          className={`mt-0.5 h-4 w-4 shrink-0 accent-accent transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+          checked={recorded === true}
+          disabled={busy || recorded === undefined}
+          onChange={(e) => void toggle(e.target.checked)}
+        />
+        <span>
+          Share answers with other companies, so repeated questions cost less: an answer made here may be
+          served to another company, and you earn when it is.{' '}
+          {recorded === undefined ? 'This workspace’s setting could not be read.' : recorded ? 'On now; untick to stop.' : 'Off now.'}{' '}
+          <Link to="/settings" className={inlineLink}>
+            What sharing means
+          </Link>
+        </span>
+      </label>
+      {failed ? <p className="text-caption text-ink">That did not save, so nothing changed. You can try again.</p> : null}
     </div>
   )
 }

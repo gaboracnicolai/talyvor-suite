@@ -286,12 +286,11 @@ describe('a screen you are gated out of does not take the name of the page behin
     },
   )
 
-  it('the consent screen is titled by its own header', async () => {
+  it('a new workspace opens Home, titled Home — no consent screen stands in front of it (B28.8)', async () => {
     mockBff(NEEDS_POOLING)
     await at('/')
     await waitFor(() => expect(document.title).not.toBe(SENTINEL))
-    expect(document.title).toBe(`Share your answers, and earn from them | ${BRAND}`)
-    expect(document.title).not.toContain('Home')
+    expect(document.title).toBe(`Home | ${BRAND}`)
   })
 })
 

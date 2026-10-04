@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
 
@@ -114,8 +114,105 @@ describe('Home — the wallet home (B28.6)', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Give every agent a wallet.' })).toBeInTheDocument()
-    expect(screen.getByTestId('home-onboarding')).toHaveTextContent('has no agents yet')
-    expect(screen.getByRole('link', { name: 'Create an agent' })).toHaveAttribute('href', '/agents')
+    expect(screen.getByTestId('home-onboarding')).toHaveTextContent('give its first agent a wallet in three steps')
+    expect(screen.getByRole('button', { name: 'Create agent' })).toBeDisabled()
     expect(screen.queryByTestId('home-approvals-waiting')).not.toBeInTheDocument()
+  })
+})
+
+// B28.8 — DONE reads: "a brand-new workspace reaches a funded agent with a key without ever seeing a
+// full-screen consent page". The BFF below keeps state the way Lens does: an agent created, its rules
+// saved, LXC moved out of the workspace into it, a key issued, and a request on its statement.
+function mockNewWorkspace() {
+  vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+  const writes: { path: string; body: unknown }[] = []
+  let agent: { id: string; name: string; balance_ulxc: number; spent_ulxc: number; keys: string[]; created_at: string; owner_user_id: string } | null = null
+  let rules = { max_per_request_ulxc: 0, daily_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0, allowed_models: null, allowed_providers: null, active_from: '', active_until: '', timezone: '' }
+  const lines: object[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = String(input)
+    const method = init?.method ?? 'GET'
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined
+    if (method !== 'GET') writes.push({ path: `${method} ${url}`, body })
+    const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } })
+    if (url === '/auth/me')
+      return json({ mode: 'oidc', authenticated: true, user: { sub: 'u1', email: 'new@example.com' }, workspace_id: 'ws_new', cache_poolable: true, needs_pooling_choice: true })
+    if (url === '/api/context') return json({ workspace_id: 'ws_new', lens_base_url: 'http://lens:8080', lens_public_base_url: 'https://lens.example.com' })
+    if (url === '/api/agents' && method === 'POST') {
+      agent = { id: 'agt_new', name: body.name, balance_ulxc: 0, spent_ulxc: 0, keys: [], created_at: '2026-10-04T12:00:00Z', owner_user_id: 'u1' }
+      return json(agent, 201)
+    }
+    if (url === '/api/agents') {
+      const allocated = agent?.balance_ulxc ?? 0
+      return json({ workspace_balance_ulxc: 20 * M, allocated_ulxc: allocated, unallocated_ulxc: 20 * M - allocated, spent_ulxc: 0, agents: agent ? [agent] : [] })
+    }
+    if (url === '/api/agents/agt_new/rules' && method === 'PUT') return json((rules = body))
+    if (url === '/api/agents/agt_new/rules') return json(rules)
+    if (url === '/api/agents/agt_new/fund' && agent) {
+      agent.balance_ulxc += body.amount_ulxc
+      lines.unshift({ entry_id: 'e1', kind: 'fund', amount_ulxc: body.amount_ulxc, counterparty: 'workspace', balance_after_ulxc: agent.balance_ulxc, at: '2026-10-04T12:01:00Z' })
+      return json({ balance_ulxc: agent.balance_ulxc })
+    }
+    if (url === '/api/agents/agt_new/keys' && agent) {
+      agent.keys.push('tlv_ak_1234')
+      return json({ agent_id: 'agt_new', key: 'tlv_ak_1234secret', id: 'key_1', prefix: 'tlv_ak_1234' }, 201)
+    }
+    if (url === '/api/agents/agt_new/statement') {
+      // The agent's first request, sent with its key, is on the statement once the key exists.
+      if (agent && agent.keys.length > 0 && lines.length === 1) {
+        agent.balance_ulxc -= 1200
+        lines.unshift({ entry_id: 'e2', kind: 'spend', amount_ulxc: -1200, counterparty: 'provider:anthropic', balance_after_ulxc: agent.balance_ulxc, at: '2026-10-04T12:02:00Z' })
+      }
+      return json({ lines })
+    }
+    if (url === '/api/agents/approvals') return json({ approvals: [] })
+    if (url === '/api/agents/forecast') return json({ spent_ulxc: 0, forecast_ulxc: 0, agents: [] })
+    if (url.startsWith('/api/')) return json({})
+    return new Response('null', { status: 404 })
+  })
+  return writes
+}
+
+describe('Home — three-step wallet onboarding (B28.8)', () => {
+  it('a brand-new workspace reaches a funded agent with a key, and sees its first request, with no consent page', async () => {
+    const writes = mockNewWorkspace()
+    window.history.pushState({}, '', '/')
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Give every agent a wallet.' })).toBeInTheDocument()
+    expect(screen.queryByText(/Share your answers, and earn from them/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Share answers with other companies/i })).toBeChecked()
+
+    // 1 — the agent, with a budget and an approval amount.
+    fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Researcher' } })
+    fireEvent.change(screen.getByLabelText('Monthly budget, in LXC'), { target: { value: '10' } })
+    fireEvent.change(screen.getByLabelText('Ask a person above, in LXC'), { target: { value: '0.5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create agent' }))
+
+    // 2 — fund it. The onboarding stays open though the book now lists the agent.
+    fireEvent.change(await screen.findByLabelText('Amount to fund Researcher, in LXC'), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Fund Researcher' }))
+
+    // 3 — its key, a snippet carrying it, and its first request on its statement.
+    fireEvent.click(await screen.findByRole('button', { name: 'Issue its key' }))
+    expect(await screen.findByTestId('onboarding-key')).toHaveTextContent('tlv_ak_1234secret')
+    expect(screen.getAllByText(/OPENAI_API_KEY="tlv_ak_1234secret"/).length).toBeGreaterThan(0)
+    expect(await screen.findByTestId('onboarding-first-request', {}, { timeout: 5_000 })).toHaveTextContent(
+      'Researcher’s first request is on its statement: −0.0012 LXC, leaving 4.9988 LXC in its wallet.',
+    )
+
+    // What reached the BFF, in order: the agent, its rules, the funding, the key. Sharing was not written.
+    await waitFor(() => expect(writes.map((w) => w.path)).toEqual([
+      'POST /api/agents',
+      'PUT /api/agents/agt_new/rules',
+      'POST /api/agents/agt_new/fund',
+      'POST /api/agents/agt_new/keys',
+    ]))
+    expect(writes[1].body).toMatchObject({ monthly_limit_ulxc: 10 * M, approval_above_ulxc: 500_000 })
+    expect(writes[2].body).toEqual({ amount_ulxc: 5 * M })
+
+    // Done hands Home back its wallets view.
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Your agents’ wallets, at a glance.' })).toBeInTheDocument()
   })
 })

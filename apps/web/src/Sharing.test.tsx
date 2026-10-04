@@ -1,10 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { App, queryClient } from './App'
-import { PoolingConsent } from './components/PoolingConsent'
-import { UNPAID_NOTICE_HEADLINE } from './areas/lens/unpaidNotice'
 
 // Sharing.test.tsx — the consent surface.
 //
@@ -23,7 +20,7 @@ import { UNPAID_NOTICE_HEADLINE } from './areas/lens/unpaidNotice'
 // half of the product — and a screen that lists only the benefit would be selling. Both must be
 // present, which is a property worth a test even though it is words.
 
-function mockBff(cachePoolable: boolean, needsChoice = false) {
+function mockBff(cachePoolable: boolean, needsChoice = false, writes: unknown[] = []) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
     if (url === '/auth/me') {
@@ -39,7 +36,15 @@ function mockBff(cachePoolable: boolean, needsChoice = false) {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       )
     }
+    if (url === '/api/agents') {
+      // A workspace this login just created: no agents, so Home opens its onboarding.
+      return new Response(
+        JSON.stringify({ workspace_balance_ulxc: 0, allocated_ulxc: 0, unallocated_ulxc: 0, spent_ulxc: 0, agents: [] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
     if (url === '/api/pooling' && init?.method === 'POST') {
+      writes.push(JSON.parse(String(init.body)))
       return new Response(JSON.stringify({ cache_poolable: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -102,84 +107,19 @@ describe('sharing consent', () => {
     expect(screen.getByText(/never served another company/i)).toBeInTheDocument()
   })
 
-  // ⚠ THE DISCLOSURE IS THE ONLY THING BETWEEN A PERSON AND SHARING, now that a new workspace is
-  // created with it ON. So these pin the properties that make an on-by-default defensible, not
-  // just that a screen exists.
-  it('BLOCKS the app — the product is not reachable around it', async () => {
-    mockBff(true, true)
+  // B28.8 — the full-screen disclosure is gone. A new workspace opens the app, and sharing is one line
+  // on Home's onboarding: the box is what Lens recorded, and one click changes it.
+  it('a new workspace is never blocked: the app renders, with sharing one line to untick', async () => {
+    const writes: unknown[] = []
+    mockBff(true, true, writes)
     render(<App />)
-    await waitFor(() => {
-      expect(screen.getByText(/Share your answers, and earn from them/i)).toBeInTheDocument()
-    })
-    // The app shell must NOT be behind it. If any nav landmark renders, the disclosure is an
-    // overlay someone can navigate past rather than a gate.
-    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
-  })
+    const box = await screen.findByRole('checkbox', { name: /Share answers with other companies/i })
+    expect(screen.getByRole('navigation', { name: /sections/i })).toBeInTheDocument()
+    expect(screen.queryByText(/Share your answers, and earn from them/i)).not.toBeInTheDocument()
+    expect(box).toBeChecked()
+    expect(box.closest('label')).toHaveTextContent(/On now; untick to stop/)
 
-  it('says the state plainly and first — on, and what that means', async () => {
-    mockBff(true, true)
-    render(<App />)
-    await waitFor(() => {
-      expect(screen.getByText(/Sharing is on for this workspace right now/i)).toBeInTheDocument()
-    })
-    expect(screen.getByText(/may be served\s+to other companies/i)).toBeInTheDocument()
-  })
-
-  it('declining is one click of equal prominence to continuing', async () => {
-    mockBff(true, true)
-    render(<App />)
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^Do not share my answers$/i })).toBeInTheDocument()
-    })
-    const decline = screen.getByRole('button', { name: /^Do not share my answers$/i })
-    const share = screen.getByRole('button', { name: /^Share my answers$/i })
-    // Same element type and same classes ⇒ same visual weight. A decline rendered as a link, or
-    // with a quieter variant, is not an equal choice.
-    expect(decline.tagName).toBe(share.tagName)
-    expect(decline.className).toBe(share.className)
+    fireEvent.click(box)
+    await waitFor(() => expect(writes).toEqual([{ cache_poolable: false }]))
   })
 })
-
-// ── The unpaid-contribution notice on the DISCLOSURE screen ──────────────────
-//
-// This screen is the primary home for it: it BLOCKS (AuthGate renders it instead of the app), so
-// nobody generates a contribution before reading it, and it is already in the register of "here is
-// what happens to what you make" rather than asking permission. The wording itself is pinned in
-// areas/lens/unpaidNotice.test.ts; what is checked here is that it REACHES this surface.
-describe('PoolingConsent — the unpaid-contribution notice', () => {
-  it('shows the notice, from the shared source', async () => {
-    renderConsent()
-    expect(screen.getByText(new RegExp(escapeRe(UNPAID_NOTICE_HEADLINE)))).toBeTruthy()
-    // A distinctive fragment of the body, so a truncated or reworded copy fails here too.
-    expect(screen.getByText(/never credited/i)).toBeTruthy()
-  })
-
-  it('does not bury it below the sharing choice', () => {
-    const { container } = renderConsent()
-    const text = container.textContent ?? ''
-    // The notice must appear before the decline/accept buttons in document order: a tester who
-    // reads to the first control and clicks must already have passed it.
-    const notice = text.indexOf(UNPAID_NOTICE_HEADLINE)
-    const buttons = container.querySelectorAll('button')
-    expect(notice).toBeGreaterThanOrEqual(0)
-    expect(buttons.length).toBeGreaterThan(0)
-    const firstButtonText = buttons[0].textContent ?? ''
-    expect(text.indexOf(notice >= 0 ? UNPAID_NOTICE_HEADLINE : '')).toBeLessThan(
-      text.indexOf(firstButtonText),
-    )
-  })
-})
-
-// SharingChoice inside PoolingConsent uses useQuery, so a provider is required.
-function renderConsent() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
-    <QueryClientProvider client={qc}>
-      <PoolingConsent onDone={() => {}} />
-    </QueryClientProvider>,
-  )
-}
-
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
