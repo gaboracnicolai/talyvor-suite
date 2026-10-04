@@ -200,6 +200,12 @@ export class AgentBankScreen {
     }
   }
 
+  /** B28.20 — the balance the agent's row shows, as Lens has it now. */
+  async balanceShown(agent: Agent): Promise<string> {
+    await this.fresh()
+    return (await this.page.getByTestId(`agent-balance-${agent.id}`).innerText()).trim()
+  }
+
   /** Downloads "Statement for every agent" for this month as JSON; the file's name and text. */
   async statementThisMonth(): Promise<{ name: string; text: string }> {
     await this.fresh()
@@ -965,6 +971,81 @@ export function statementReconciles(seed: number): Scenario {
         return fail(`the statement's spend is ${closing('spend')} µLXC, the book's ${b.spent_ulxc}, the ledger's spend row for the request ${ledgerSpent}`)
       }
       return { pass: true, detail: `${lines.length} lines over ${entries.size} balanced entries; each account adds up, closes at the agent's balance, and spend = the ledger's ${ledgerSpent} µLXC` }
+    }),
+  }
+}
+
+/** B28.20 — fundings sent at once, through Lens as the owner; its per-workspace limit (100 a second) is waited out. */
+const MANY_FUNDINGS = 100
+const FUNDING_WORKERS = 5
+const RATE_LIMITED_RETRIES = 30
+
+/** The balance the Agent Wallets row shows for `ulxc` (apps/web agentBankApi.ts formatULXC). */
+const shownLXC = (ulxc: number): string => `${(ulxc / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 })} LXC`
+
+/** Funds `agent` once for each amount, FUNDING_WORKERS at a time; the first refusal, if any. */
+async function fundAtOnce(ctx: ScenarioCtx, agent: Agent, amounts: number[]): Promise<string | undefined> {
+  const queue = [...amounts]
+  const refused: string[] = []
+  await Promise.all(Array.from({ length: FUNDING_WORKERS }, async () => {
+    for (let n = queue.pop(); n !== undefined && refused.length === 0; n = queue.pop()) {
+      for (let tries = 0; ; tries++) {
+        try {
+          await ctx.env.lens.fundAgent(ctx.app.user, agent.id, n)
+          break
+        } catch (e) {
+          // A 429 is refused before the handler runs, so asking again cannot fund twice.
+          if (/answered 429/.test(String(e)) && tries < RATE_LIMITED_RETRIES) {
+            await new Promise((r) => setTimeout(r, 1_000))
+            continue
+          }
+          refused.push(`funding ${n} µLXC: ${String(e)}`)
+          break
+        }
+      }
+    }
+  }))
+  return refused[0]
+}
+
+export function agentBalanceStored(seed: number): Scenario {
+  // Each funding a different amount, so a posting lost or counted twice moves the total by one no other does.
+  const amounts = Array.from({ length: MANY_FUNDINGS }, (_, k) => 1_000 + k)
+  const total = amounts.reduce((s, n) => s + n, 0)
+  return {
+    id: 'agent-balance-stored',
+    title: `an agent funded ${MANY_FUNDINGS} times at once holds exactly their sum: the balance Lens stores, the postings on the statement and the screen all agree`,
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const before = await bookOf(ctx)
+      const a = await openAgent(ctx, bank, `Tally ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      const refused = await fundAtOnce(ctx, a, amounts)
+      if (refused !== undefined) return fail(refused)
+      const after = await bookOf(ctx)
+      const held = agentIn(after, a.id)?.balance_ulxc
+      const file = await bank.statementThisMonth()
+      const st = JSON.parse(file.text) as StatementJSON
+      const account = `agent:${a.id}`
+      const closing = (st.accounts ?? []).find((x) => x.account === account)?.closing_ulxc
+      const lines = st.lines ?? []
+      const posted = lines.filter((l) => l.account === account)
+      const summed = posted.reduce((s, l) => s + l.amount_ulxc, 0)
+      ctx.evidence.push({ note: `${file.name}: ${account} has ${posted.length} posting(s) summing to ${summed} µLXC and closes at ${closing}; Lens's stored balance is ${held}` })
+      if (posted.length !== MANY_FUNDINGS) return fail(`${MANY_FUNDINGS} fundings wrote ${posted.length} postings to ${a.name}`)
+      if (summed !== total || closing !== total) return fail(`${MANY_FUNDINGS} fundings of ${total} µLXC in all: ${a.name}'s postings sum to ${summed} and its statement closes at ${closing}`)
+      if (held !== summed) return fail(`Lens's stored balance for ${a.name} is ${held} µLXC; its ${posted.length} postings sum to ${summed}`)
+      const entries = new Set(posted.map((l) => l.entry_id))
+      const lopsided = [...entries].filter((id) => lines.filter((l) => l.entry_id === id).reduce((s, l) => s + l.amount_ulxc, 0) !== 0)
+      if (lopsided.length > 0) return fail(`${lopsided.length} of ${a.name}'s fundings do not sum to zero: ${lopsided.slice(0, 3).join(', ')}`)
+      if (after.allocated_ulxc !== before.allocated_ulxc + total) {
+        return fail(`the workspace's agents held ${before.allocated_ulxc} µLXC and hold ${after.allocated_ulxc} after ${total} µLXC of fundings`)
+      }
+      if (after.unallocated_ulxc !== after.workspace_balance_ulxc - after.allocated_ulxc) {
+        return fail(`the book does not add up: ${after.workspace_balance_ulxc} ≠ ${after.allocated_ulxc} + ${after.unallocated_ulxc}`)
+      }
+      const shown = await bank.balanceShown(a)
+      if (shown !== shownLXC(total)) return fail(`Agent Wallets shows ${a.name} holding "${shown}"; its postings sum to ${shownLXC(total)}`)
+      return { pass: true, detail: `${MANY_FUNDINGS} fundings at once, ${lxcText(total)} LXC: ${a.name}'s stored balance = its ${posted.length} postings = the screen's ${shown}, and the workspace's agents hold that much more` }
     }),
   }
 }
