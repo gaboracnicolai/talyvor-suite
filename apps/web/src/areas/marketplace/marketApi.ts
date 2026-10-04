@@ -237,6 +237,20 @@ export interface Takedown {
   credit_error?: string
 }
 
+/** B27.19 — a billed use Stripe refused too often: off its buyer's bill until an operator retries it. */
+export interface ParkedUse {
+  id: string
+  listing_id: string
+  buyer_workspace_id: string
+  price_ulxc: number
+  used_at: string
+  /** how many times Stripe refused it */
+  refusals: number
+  /** Stripe's reason, from its last refusal */
+  reason: string
+  parked_at: string
+}
+
 /** A refusal, with the sentence Lens gave for it. */
 export class MarketError extends ApiError {
   constructor(
@@ -314,6 +328,10 @@ export const marketApi = {
   reviewQueue: async () => (await read<{ listings: QueueItem[] | null }>('/api/admin/marketplace/review')).listings ?? [],
   approve: (id: string) => post<Listing>(`/api/admin/marketplace/listings/${e(id)}/approve`, {}),
   takedown: (id: string, reason: string) => post<Takedown>(`/api/admin/marketplace/listings/${e(id)}/takedown`, { reason }),
+  // B27.19 — parked uses, for operators (apps/bff/market_parked.go).
+  parkedUses: async () =>
+    (await read<{ parked_uses: ParkedUse[] | null }>('/api/admin/marketplace/parked-uses')).parked_uses ?? [],
+  retryParkedUse: (id: string) => post<{ id: string; retrying: boolean }>(`/api/admin/marketplace/parked-uses/${e(id)}/retry`, {}),
 }
 
 /** A listing's price, in words. */

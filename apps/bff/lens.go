@@ -248,6 +248,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/admin/marketplace/review", onlyMethod(http.MethodGet, a.requireOperator(a.handleMarketReviewQueue)))
 	a.mux.HandleFunc("/api/admin/marketplace/listings/{id}/approve", onlyMethod(http.MethodPost, a.requireOperator(a.handleMarketApprove)))
 	a.mux.HandleFunc("/api/admin/marketplace/listings/{id}/takedown", onlyMethod(http.MethodPost, a.requireOperator(a.handleMarketTakedown)))
+	// B27.19 — parked marketplace uses, read on the operator read key and retried on the moderator key. See market_parked.go.
+	a.mux.HandleFunc("/api/admin/marketplace/parked-uses", onlyMethod(http.MethodGet, a.requireOperator(a.handleParkedUses)))
+	a.mux.HandleFunc("/api/admin/marketplace/parked-uses/{id}/retry", onlyMethod(http.MethodPost, a.requireOperator(a.handleParkedUseRetry)))
 
 	// W4.6.1 step 3 — STREAMING inference to the browser. Its own handler rather than `forward`
 	// because forward is GET-only, sets Accept: application/json, io.Copy's without a Flush, and
