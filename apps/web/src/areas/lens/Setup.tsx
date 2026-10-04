@@ -41,7 +41,7 @@ import { KEY_PLACEHOLDER, MECHANISM_CAVEATS, toolsFor, type Tool } from './setup
 // `http://192.168.100.149:8791`: all FIVE copy buttons on this page clicked in turn, every
 // label unchanged, and NOT ONE error raised. `RevealOnce` had no `?.` and threw instead; both
 // told the reader exactly the same thing, which was nothing.
-function CopyBlock({ text, label }: { text: string; label: string }) {
+export function CopyBlock({ text, label }: { text: string; label: string }) {
   // Three states, the same as RevealOnce's — not yet, done, and did not happen.
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   // ⚠ THE RESET MUST NOT OUTLIVE THE COMPONENT. Uncancelled, this 1500ms timer fires

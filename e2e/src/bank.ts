@@ -11,7 +11,7 @@ import { type AppUser, chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
 import type { Agent, AgentBook, Answered, JudgeReply, SyntheticUser } from './lens.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
-import type { Scenario, ScenarioCtx, Verdict } from './scenarios.ts'
+import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
 export const ACTION_TIMEOUT_MS = 30_000
 /** An agent's questions are one number long. */
@@ -684,6 +684,80 @@ export function walletHome(seed: number): Scenario {
         await page.close()
       }
     }),
+  }
+}
+
+/**
+ * B28.8 — a brand-new workspace's first agent, from Home's three steps, with no full-screen consent page:
+ * created with a monthly budget and an approval amount, funded, given a key — and its first request, sent
+ * with that key, shown on Home as it lands on its statement. Sharing is one line on Home to untick. Every
+ * figure is read back from Lens: the agent's owner and rules, its balance and the workspace's, and the
+ * fund and request lines on its statement.
+ */
+export function walletOnboarding(seed: number): Scenario {
+  const r = seeded(seed * 41 + 3)
+  const budget = 5e6
+  const approval = 1e6
+  const amount = 2e6
+  return {
+    id: 'wallet-onboarding',
+    title: 'a new workspace creates, funds and keys its first agent in Home’s three steps and sees its first request land, with no consent page',
+    run: async (ctx) => {
+      const before = await bookOf(ctx)
+      if (before.agents.length > 0) throw new CannotTest(`the workspace already has ${before.agents.length} agent(s), so Home opens no onboarding`)
+      const page = await ctx.app.tab('/')
+      try {
+        await page.getByRole('heading', { level: 2, name: 'Give every agent a wallet.' }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+        if ((await page.getByText(/Share your answers, and earn from them/).count()) > 0) return fail('the full-screen sharing-consent page is still shown')
+        if ((await page.getByRole('checkbox', { name: /Share answers with other companies/ }).count()) !== 1) return fail('Home has no one-line sharing notice')
+        const steps = page.getByTestId('wallet-onboarding')
+        const name = `First ${seed}`
+        await page.getByLabel('Agent name').fill(name)
+        await page.getByLabel('Monthly budget, in LXC').fill(lxcText(budget))
+        await page.getByLabel('Ask a person above, in LXC').fill(lxcText(approval))
+        await page.getByRole('button', { name: 'Create agent' }).click()
+        const fundField = page.getByLabel(`Amount to fund ${name}, in LXC`)
+        let err = await outcome(fundField, steps)
+        if (err !== undefined) return fail(`step 1, creating ${name}, was refused: ${err}`)
+        await fundField.fill(lxcText(amount))
+        await page.getByRole('button', { name: `Fund ${name}` }).click()
+        err = await outcome(page.getByRole('button', { name: 'Issue its key' }), steps)
+        if (err !== undefined) return fail(`step 2, funding ${lxcText(amount)} LXC, was refused: ${err}`)
+        await page.getByRole('button', { name: 'Issue its key' }).click()
+        err = await outcome(page.getByTestId('onboarding-key'), steps)
+        if (err !== undefined) return fail(`step 3, issuing the key, was refused: ${err}`)
+        const key = (await page.getByTestId('onboarding-key').innerText()).trim()
+
+        const book = await bookOf(ctx)
+        const a = book.agents.find((x) => x.name === name)
+        if (a === undefined) return fail(`Home's three steps finished, but Lens has no agent named ${name}`)
+        if (a.owner_user_id === '') return fail(`${name} was created with no owner`)
+        if (a.balance_ulxc !== amount) return fail(`funded ${amount} µLXC on Home; Lens says ${name} holds ${a.balance_ulxc}`)
+        if (book.allocated_ulxc !== before.allocated_ulxc + amount || book.workspace_balance_ulxc !== before.workspace_balance_ulxc) {
+          return fail(`the funding did not come out of the workspace: allocated ${before.allocated_ulxc} → ${book.allocated_ulxc}, workspace ${before.workspace_balance_ulxc} → ${book.workspace_balance_ulxc} µLXC`)
+        }
+        const rules = await ctx.env.lens.agentRules(ctx.app.user, a.id)
+        if (rules.monthly_limit_ulxc !== budget || rules.approval_above_ulxc !== approval) {
+          return fail(`typed a ${budget} µLXC budget and a ${approval} µLXC approval amount; Lens stored ${rules.monthly_limit_ulxc} and ${rules.approval_above_ulxc}`)
+        }
+
+        const served = await agentAsks(ctx, key, sum(r).q, 'the first request, with the key Home issued')
+        if (!served.ok) return fail(`${name}'s first request, with the key Home issued, was refused: ${served.status} ${served.error}`)
+        const shown = (await page.getByTestId('onboarding-first-request').innerText({ timeout: 60_000 })).trim()
+        const lines = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+        ctx.evidence.push({ note: `Home: "${shown}"; ${name}'s statement: ${lines.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ')}` })
+        const funded = lines.filter((l) => l.kind === 'fund')
+        if (funded.length !== 1 || funded[0].amount_ulxc !== amount) return fail(`${name}'s statement should hold one fund line of ${amount} µLXC: ${JSON.stringify(funded)}`)
+        const request = [...lines].reverse().find((l) => ['spend', 'hold', 'settle', 'release'].includes(l.kind))
+        if (request === undefined) return fail(`served, yet ${name}'s statement has no line for the request`)
+        if (!shown.includes(lxcText(Math.abs(request.amount_ulxc)))) {
+          return fail(`Lens put ${request.kind} ${request.amount_ulxc} µLXC on ${name}'s statement; Home says "${shown}"`)
+        }
+        return { pass: true, detail: `${name} created with its budget and approval amount, funded ${lxcText(amount)} LXC and keyed on Home; its first request (${request.kind} ${request.amount_ulxc} µLXC) shown as it landed; no consent page` }
+      } finally {
+        await page.close()
+      }
+    },
   }
 }
 

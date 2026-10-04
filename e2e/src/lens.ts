@@ -535,6 +535,14 @@ export class LensClient {
     return body.approvals ?? []
   }
 
+  /** B28.8 — one agent's rules as Lens stored them: its limits and its approval amount, in µLXC. */
+  async agentRules(user: SyntheticUser, agentID: string): Promise<{ monthly_limit_ulxc: number; approval_above_ulxc: number }> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules`, this.bearer(user.token))) as {
+      monthly_limit_ulxc: number
+      approval_above_ulxc: number
+    }
+  }
+
   /** B17.6 — one agent's account, newest first (Lens B19.3). */
   async agentLines(user: SyntheticUser, agentID: string): Promise<AgentLine[]> {
     const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/statement`, this.bearer(user.token))) as { lines?: AgentLine[] | null }

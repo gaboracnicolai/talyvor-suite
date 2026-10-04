@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { queryClient } from './App'
@@ -129,21 +129,16 @@ describe('the marketing page offers a way in', () => {
 // ─── 2. a first-time user reaches Setup ─────────────────────────────────────
 
 describe('first run opens Home in onboarding mode', () => {
-  it('lands on Home, onboarding, after the pooling choice — and Setup is one link away', async () => {
+  it('a new workspace lands on Home, onboarding, with no consent page — and Setup is one link away', async () => {
     mockBff({ needsChoice: true })
     at('/ledger')
-    // The disclosure blocks first.
-    await screen.findByText(/Share your answers, and earn from them/i)
-
-    // Choosing dismisses it; B28.6 — the app then opens Home, which for a workspace with no agents
-    // is onboarding: the steps to a first agent's wallet, and Setup linked for a workspace key.
-    const decline = await screen.findByRole('button', { name: /^Do not share my answers$/i })
-    fireEvent.click(decline)
-
+    // B28.8 — nothing blocks: the login that created the workspace is routed once to Home, which for a
+    // workspace with no agents is the three onboarding steps, Setup linked for a workspace key.
     await waitFor(() => {
       expect(window.location.pathname).toBe('/')
     })
     expect(await screen.findByTestId('home-onboarding')).toBeInTheDocument()
+    expect(screen.queryByText(/Share your answers, and earn from them/i)).not.toBeInTheDocument()
     expect(within(screen.getByRole('main')).getByRole('link', { name: 'Setup' })).toHaveAttribute('href', '/setup')
   })
 

@@ -1,10 +1,10 @@
+import { useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Button, Card } from '@talyvor/ui'
 import { api } from '../lib/api'
 import { useAuthMeReader } from '../lib/authMe'
 import { useDocumentTitle } from '../documentTitle'
-import { PoolingConsent } from './PoolingConsent'
 import { SignInCard } from '../areas/auth/Entry'
 
 // The auth gate: one probe (/auth/me) decides whether the app or the sign-in
@@ -14,50 +14,26 @@ import { SignInCard } from '../areas/auth/Entry'
 // failure states (a dead BFF is a fault, not a sign-in prompt).
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const q = useQuery({ queryKey: ['auth-me'], queryFn: api.me, staleTime: 60_000 })
-  const qc = useQueryClient()
   const navigate = useNavigate()
+  // B28.8 — THE LOGIN THAT CREATED THE WORKSPACE OPENS HOME, AND NOTHING BLOCKS IT. This used to render
+  // a full-screen sharing-consent page instead of the app. A new workspace now lands, once, on Home's
+  // onboarding — create an agent with a budget, fund it, issue its key — and sharing is one line there
+  // to untick (Sharing.tsx's SharingLine), stating what Lens recorded. needs_pooling_choice is false on
+  // every later sign-in, so a returning user is never sent there again; routed once, they are free.
+  const newWorkspace = q.data?.authenticated === true && q.data.needs_pooling_choice === true
+  const routed = useRef(false)
+  useEffect(() => {
+    if (newWorkspace && !routed.current) {
+      routed.current = true
+      navigate('/', { replace: true })
+    }
+  }, [newWorkspace, navigate])
   if (q.isLoading) {
     // One quiet beat while the probe answers; no spinner theatre for ~20ms.
     return null
   }
   if (q.data && q.data.mode === 'oidc' && !q.data.authenticated) {
     return <SignedOut />
-  }
-  // A workspace that this login just CREATED has sharing ON, and its owner has not been asked yet.
-  // (The BFF sends NO cache_poolable field at provision — provisionForSession passes nil — so Lens's
-  // default of true applies. This comment previously said "provisioned with sharing OFF", which was
-  // the opposite of what the code does and misled a reader within an hour of #33 landing.)
-  //
-  // Ask before the app renders: cross-tenant pooling sends the content of this workspace's answers
-  // to other companies, and that is not a thing to discover later in a settings page. Consent is
-  // never granted by inaction — so the disclosure blocks, rather than the switch starting off.
-  if (q.data?.authenticated && q.data.needs_pooling_choice) {
-    // WHERE SETUP GOES, and why here. Setup is the only page that says how to point tools at
-    // Lens; it existed as a nav item nobody was routed to, so a new user could finish signup
-    // and land on an Overview of an empty workspace with no idea what to do next.
-    //
-    // It is placed AFTER the pooling choice, not before or beside it: the disclosure is about
-    // consent and must not compete for attention with instructions, and it must not be possible
-    // to skip it by reading Setup instead.
-    //
-    // It ROUTES rather than BLOCKS. The consent screen blocks because consent granted by
-    // inaction is not consent; Setup is instructional, so blocking it would trap someone who
-    // wants to look around first — worse than no step at all. Landing on /setup inside the
-    // normal shell means every nav destination stays one click away.
-    //
-    // Fires only on the login that CREATED the workspace: needs_pooling_choice is false on
-    // every later sign-in, so a returning user is never sent here again.
-    //
-    // B28.6 — it now lands on Home, not Setup: a workspace with no agents opens Home in onboarding
-    // mode, whose steps give the first agent a wallet and still link Setup for a workspace key.
-    return (
-      <PoolingConsent
-        onDone={() => {
-          void qc.invalidateQueries({ queryKey: ['auth-me'] })
-          navigate('/', { replace: true })
-        }}
-      />
-    )
   }
   return <>{children}</>
 }

@@ -1,4 +1,4 @@
-// The unpaid-contribution notice. ONE source, used by both surfaces that show it.
+// The unpaid-contribution notice. ONE source, for every surface that shows it.
 //
 // WHY IT EXISTS, AND WHY BEFORE THE FLAG. Lens can put unproven earning mechanisms into SHADOW
 // MODE: they compute what they would have paid, record it, and credit nothing
@@ -7,12 +7,10 @@
 // said so. This is the precondition, and the deploy runbook should treat it as one.
 //
 // WHERE IT SHOWS:
-//   · PoolingConsent — the signup disclosure. It BLOCKS (AuthGate renders it INSTEAD of the app),
-//     so nobody generates a contribution before reading it, and it is already in the register of
-//     "here is what happens to what you make" rather than asking permission.
-//   · Ledger — at the point of ABSENCE. The disclosure is read once at signup; the question
-//     "I contributed, why is there no row?" arrives later, at the ledger, and has to be answered
-//     where it is asked.
+//   · Ledger and Earnings — at the point of ABSENCE. The question "I contributed, why is there no row?" arrives
+//     at the ledger, and has to be answered where it is asked.
+//   It also showed on the full-screen signup disclosure until B28.8 replaced that page with Home's
+//   onboarding, where sharing is one line to untick rather than a page of notices.
 //
 // NOT settings: settings is where you go to change something, and this is not a preference.
 //
