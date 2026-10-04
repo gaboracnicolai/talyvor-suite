@@ -536,7 +536,7 @@ export function Features() {
           />
           <Feature
             name="Cost-optimised routing"
-            does="Lets Lens answer a request that names a model with a cheaper model of the same quality. When off, a named model is always used exactly as named. Requests for the model “auto” are routed either way."
+            does="Lets Lens answer a request that names a model with a cheaper model, but only where the cheaper model’s measured answer quality on the same kind of request (same feature, similar size, from workspaces that share routing patterns) is at least the named model’s. Until both are measured, the named model answers. When off, a named model is always used exactly as named. Requests for the model “auto” are routed either way."
             where="API requests that name a model."
             evidence={
               <>
