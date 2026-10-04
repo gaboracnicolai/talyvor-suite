@@ -42,8 +42,8 @@ type app struct {
 	skMu        sync.Mutex
 	sessionKeys map[string]sessionKeyLease
 
-	// publicPeg caches the peg /api/pricing read, so an anonymous route does not dial Lens per hit.
-	publicPeg publicPegCache
+	// public caches /api/pricing's Lens reads, so an anonymous route does not dial Lens per hit.
+	public pricingReads
 }
 
 func newApp(cfg config, auth *authenticator) *app {

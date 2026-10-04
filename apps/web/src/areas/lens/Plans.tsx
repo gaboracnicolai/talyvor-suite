@@ -22,6 +22,8 @@ import {
   type PlanSummary,
 } from './planApi'
 import { formatCents } from './topupApi'
+import { formatULXC } from './agentBankApi'
+import { usePricing } from '../marketing/pricingApi'
 
 // /plans (B13.3) — the three plans side by side, and for a subscriber: how much of this period's
 // included usage is used, and what their answers earned back.
@@ -37,6 +39,9 @@ import { formatCents } from './topupApi'
 // B27.27 — BYOK, $199 a month (Lens B27.26), on its own card: it sells no usage, so it grants no allowance
 // and a BYOK subscriber is read from the subscription's `byok`. Lens refuses a move to or from BYOK
 // (cancel, then subscribe), so its card says that instead of offering a switch.
+//
+// B28.5 — each card's included usage is the figure Lens states for that plan this month (GET /api/pricing's
+// plans, from Lens's public plans read): what a new subscriber to it is granted. Never typed in here.
 
 const SUBSCRIBE_FAILURE: Record<SubscribeError['kind'], string> = {
   not_for_sale: 'Plans aren’t on sale on this deployment yet. Nothing was charged.',
@@ -81,6 +86,7 @@ function SwitchPlan({ plan, sw }: { plan: PlanOffer; sw: PlanSwitch }) {
 
 function PlanCard({
   plan,
+  includedULXC,
   current,
   canChoose,
   busy,
@@ -88,6 +94,8 @@ function PlanCard({
   switching,
 }: {
   plan: PlanOffer
+  /** The µLXC Lens says the plan includes this month; undefined until — or unless — Lens states it. */
+  includedULXC: number | undefined
   current: boolean
   canChoose: boolean
   busy: boolean
@@ -108,7 +116,16 @@ function PlanCard({
         </p>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-body text-muted">
           <li>Every model from every provider</li>
-          <li>{plan.usage}</li>
+          {includedULXC !== undefined ? (
+            <li>
+              <span className="font-figure text-ink" data-testid={`plan-included-${plan.id}`}>
+                {formatULXC(includedULXC)}
+              </span>{' '}
+              of usage included this month
+            </li>
+          ) : (
+            <li>{plan.usage}</li>
+          )}
           <li>Past it, chat continues on prepaid credits — never an overage</li>
         </ul>
       </div>
@@ -377,6 +394,8 @@ export function Plans({
     },
   })
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
+  const pricing = usePricing()
+  const priced = pricing.status === 'ok' ? pricing.pricing.plans : undefined
   const earnings = useQuery({ queryKey: ['earnings'], queryFn: () => api.earnings() })
   const me = useAuthMeReader()
   // B27.27 — BYOK grants no allowance, so the subscription says whether this workspace is on it.
@@ -464,6 +483,7 @@ export function Plans({
             <PlanCard
               key={p.id}
               plan={p}
+              includedULXC={priced?.find((o) => o.id === p.id)?.included_ulxc}
               current={current?.id === p.id}
               canChoose={forSale && !subscribed}
               busy={start.isPending && start.variables === p.id}

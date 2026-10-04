@@ -11,12 +11,22 @@ import { ApiError } from '../../lib/api'
 
 export const PRICING_PATH = '/api/pricing'
 
+/** B28.5 — one plan as Lens's public plans read states it: its price, and the usage it includes this month. */
+export interface PricedPlan {
+  id: string
+  usd_cents: number
+  /** µLXC — what a new subscriber to the plan is granted this month (talyvor-lens B28.439). */
+  included_ulxc: number
+}
+
 export interface Pricing {
   /** USD per LXC. ABSENT when Lens would not confirm it — the page then prints no rate at all. */
   usd_per_lxc?: number
   min_usd_cents: number
   max_usd_cents: number
   preset_usd_cents: number[]
+  /** ABSENT when Lens would not state them — a deployment that sells no plans. */
+  plans?: PricedPlan[]
 }
 
 export type PricingState =

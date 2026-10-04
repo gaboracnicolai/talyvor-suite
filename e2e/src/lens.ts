@@ -285,6 +285,13 @@ export interface PlanAllowance {
   fee_usd_cents: number
 }
 
+/** B28.5 — one plan as Lens's public plans read states it: its price, and the µLXC it includes this month. */
+export interface PricedPlan {
+  id: string
+  usd_cents: number
+  included_ulxc: number
+}
+
 /** B26.17 — Lens's read of the workspace's plan: does it renew or end, and when (GET …/billing/subscription). */
 export interface SubscriptionState {
   subscribed: boolean
@@ -580,6 +587,19 @@ export class LensClient {
     return res.ok
       ? { ok: true, status: res.status, value: (JSON.parse(raw) as { allowance: PlanAllowance | null }).allowance }
       : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /**
+   * B28.5 — each plan's price and the usage it includes this month, from Lens's public GET /v1/billing/plans
+   * (talyvor-lens B28.439), read with no credential as a visitor reads it. Null where Lens sells no plan (404).
+   */
+  async plans(): Promise<PricedPlan[] | null> {
+    const res = await this.send('GET', '/v1/billing/plans', { headers: { Accept: 'application/json' } })
+    if (res.status === 404) {
+      await res.body?.cancel()
+      return null
+    }
+    return ((await this.parse('GET', '/v1/billing/plans', res)) as { plans: PricedPlan[] }).plans
   }
 
   /** B17.10 — asks Lens itself to start a plan's checkout, for the sentence it refuses with. Nothing is charged. */
