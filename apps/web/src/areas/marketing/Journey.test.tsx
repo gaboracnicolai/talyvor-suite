@@ -97,7 +97,7 @@ describe('a signed-out visitor arrives from talyvor.com and can act', () => {
 
     mockBff()
     at(href)
-    expect(await screen.findByRole('heading', { name: /buy credits up front/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /credit for your agents/i })).toBeInTheDocument()
     expect(await screen.findByText('$0.10')).toBeInTheDocument()
   })
 

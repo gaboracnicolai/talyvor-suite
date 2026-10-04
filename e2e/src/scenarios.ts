@@ -418,6 +418,61 @@ export function honestPages(): Scenario {
   }
 }
 
+/** B28.4 — /pricing lists Plus, Pro, Max and BYOK once each, at the prices the signed-in /plans screen
+ *  sells them at, and the Marketplace bill once. The oracle is /plans itself: no price is typed in here. */
+export function pricingTruth(): Scenario {
+  return {
+    id: 'pricing-truth',
+    title: 'pricing lists every plan, BYOK and the marketplace bill once, at the prices /plans sells',
+    run: async (ctx) => {
+      const money = /\$[\d,]+(?:\.\d\d)?/
+      const pricing = await ctx.app.tab('/pricing')
+      const listed: { name: string; price: string }[] = []
+      let bills = 0
+      try {
+        const cards = pricing.getByTestId('pricing-plan')
+        await cards.first().waitFor({ state: 'visible' })
+        for (const card of await cards.all()) {
+          listed.push({
+            name: (await card.getByTestId('pricing-plan-name').innerText()).trim(),
+            price: (await card.getByTestId('pricing-plan-price').innerText()).trim(),
+          })
+        }
+        bills = await pricing.getByRole('heading', { level: 2, name: /one bill a month/i }).count()
+      } finally {
+        await pricing.close()
+      }
+      const plans = await ctx.app.tab('/plans')
+      const sold: Record<string, string> = {}
+      try {
+        for (const name of ['Plus', 'Pro', 'Max']) {
+          const card = plans.locator('li').filter({ has: plans.getByText(name, { exact: true }) }).first()
+          await card.waitFor({ state: 'visible' })
+          sold[name] = (await card.innerText()).match(money)?.[0] ?? '(no price)'
+        }
+        const byok = plans.locator('section[aria-labelledby="plan-byok"]')
+        await byok.waitFor({ state: 'visible' })
+        sold.BYOK = (await byok.innerText()).match(money)?.[0] ?? '(no price)'
+      } finally {
+        await plans.close()
+      }
+      ctx.evidence.push({ note: `/pricing ${JSON.stringify(listed)}; /plans ${JSON.stringify(sold)}; marketplace bill headings ${bills}` })
+      const wrong = [
+        ...Object.entries(sold).map(([name, price]) => {
+          const on = listed.filter((o) => o.name === name)
+          if (on.length !== 1) return `${name} listed ${on.length} times`
+          return on[0].price === price ? '' : `${name} is ${on[0].price} on /pricing but ${price} on /plans`
+        }),
+        listed.length === 4 ? '' : `${listed.length} offers listed, not 4`,
+        bills === 1 ? '' : `the marketplace bill is listed ${bills} times`,
+      ].filter((m) => m !== '')
+      return wrong.length === 0
+        ? { pass: true, detail: `Plus ${sold.Plus}, Pro ${sold.Pro}, Max ${sold.Max}, BYOK ${sold.BYOK} and the marketplace bill, once each, as /plans sells them` }
+        : { pass: false, detail: `/pricing: ${wrong.join('; ')}` }
+    },
+  }
+}
+
 export function streamsProgressively(): Scenario {
   return {
     id: 'streaming',
@@ -1173,7 +1228,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(sidebarStaysHidden()); break
     case 7: list.push(streamsProgressively()); break
     case 8: list.push(socialPreview()); break
-    case 9: list.push(walletHero(), honestPages()); break
+    case 9: list.push(walletHero(), honestPages(), pricingTruth()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.

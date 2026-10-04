@@ -1,5 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BYOK, PLANS } from '../lens/planApi'
+import { formatCents } from '../lens/topupApi'
 import { Pricing } from './Pricing'
 
 // The page renders BARE — no router, no query client — like Landing. What it prints is what
@@ -48,5 +50,20 @@ describe('/pricing', () => {
     const text = container.textContent ?? ''
     expect(text).not.toMatch(/nothing\s+recurs|only charge is the requests you run|self-hosted/i)
     expect(text).toMatch(/a plan or BYOK, if you choose one, is billed every month/i)
+  })
+
+  // B28.4: plans for people, BYOK and the Marketplace bill, each listed once, at the prices /plans sells.
+  it('lists Plus, Pro, Max and BYOK once each at planApi’s prices, and the Marketplace bill once', async () => {
+    serve({ min_usd_cents: 1000, max_usd_cents: 1_000_000, preset_usd_cents: [1000] })
+    render(<Pricing />)
+    await screen.findByText(/did not confirm its credit rate/i)
+
+    const offers = screen.getAllByTestId('pricing-plan').map((card) => ({
+      name: within(card).getByTestId('pricing-plan-name').textContent,
+      price: within(card).getByTestId('pricing-plan-price').textContent,
+    }))
+    expect(offers).toEqual([...PLANS, BYOK].map((p) => ({ name: p.name, price: formatCents(p.usd_cents) })))
+    expect(screen.getAllByText('$199')).toHaveLength(1)
+    expect(screen.getAllByRole('heading', { name: /one bill a month/i })).toHaveLength(1)
   })
 })

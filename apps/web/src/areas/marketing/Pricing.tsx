@@ -1,5 +1,6 @@
 import { Button, ThemeToggle, focusRing, inlineLink } from '@talyvor/ui'
 import { useDocumentTitle } from '../../documentTitle'
+import { BYOK, BYOK_PROVIDERS, PLANS, type PlanOffer } from '../lens/planApi'
 import { formatCents, formatLXC, lxcForCents } from '../lens/topupApi'
 import { Figure, SectionLabel } from './Landing'
 import {
@@ -25,6 +26,11 @@ import {
 //   no seats         internal/billing has no seat or per-member charge anywhere
 // "No subscription REQUIRED", not "no subscription": a deployment may also sell a plan (B1.5), but
 // nothing needs one — prepaid credits alone run every request.
+//
+// B28.4 — credit for agents, plans for people, BYOK, and the Marketplace bill, each listed once. The
+// plan and BYOK prices are planApi.ts's PLANS and BYOK, the same objects the signed-in /plans screen
+// sells from, so this page cannot quote a price that screen does not charge. Pooling is one line
+// under what a request costs: a saving, not the price.
 
 /** An illustrative "any amount" top-up, shown beside the presets only when the served range
  *  admits it. It is an AMOUNT, not a price — what it buys is computed from the served peg. */
@@ -105,10 +111,39 @@ function TopUps({ pricing }: { pricing: PricingData }) {
   )
 }
 
+/** One priced offer — a plan or BYOK — with what it includes. Name and price come from planApi.ts. */
+function Offer({ plan, title, points }: { plan: PlanOffer; title?: string; points: string[] }) {
+  return (
+    <div data-testid="pricing-plan" className="flex flex-col gap-3 bg-surface px-5 py-5">
+      <p className="text-head text-ink">
+        <span data-testid="pricing-plan-name">{plan.name}</span>
+        {title ? ` — ${title}` : ''}
+      </p>
+      <p className="flex items-baseline gap-2">
+        <span data-testid="pricing-plan-price" className="font-figure text-figure text-ink">
+          {formatCents(plan.usd_cents)}
+        </span>
+        <span className="text-body text-muted">a month</span>
+      </p>
+      <ul className="flex list-disc flex-col gap-1 pl-5 text-body text-muted">
+        {points.map((p) => (
+          <li key={p}>{p}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** "Anthropic, Google, Groq, Mistral and OpenAI" — the providers a BYOK key can be added for. */
+function providerList(): string {
+  const names = Object.values(BYOK_PROVIDERS)
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names.join('')
+}
+
 const NOT_CHARGED: Array<{ title: string; body: string }> = [
   {
     title: 'No subscription required.',
-    body: 'A prepaid balance runs every request. There is nothing you have to sign up to monthly before you can use it.',
+    body: 'Agents run on prepaid credit alone. A plan is for people who want usage included each month; nothing requires one.',
   },
   {
     title: 'No seats.',
@@ -152,12 +187,12 @@ export function Pricing() {
           <div className="mx-auto w-full max-w-5xl px-gutter pb-16 pt-16 wide:pt-20">
             <SectionLabel index="00">Pricing</SectionLabel>
             <h1 id="pricing-heading" className="mt-7 max-w-3xl text-display-2 text-ink">
-              Buy credits up front. Every request draws on them.
+              Credit for your agents. A plan for your people.
             </h1>
             <p className="mt-6 max-w-2xl text-lede text-muted">
-              Prepaid, with no subscription required, no seats and no monthly minimum. A workspace
-              holds a balance in LXC, and each AI request is paid from it at the price its model
-              lists.
+              Each agent spends prepaid credit from its own wallet, at the list price of the model it
+              calls. The people who chat can add a monthly plan with usage included, or bring their own
+              provider keys. Paid Marketplace listings come on one bill a month.
             </p>
             <div className="mt-10">
               <RateCard state={state} />
@@ -167,10 +202,15 @@ export function Pricing() {
 
         <section aria-labelledby="topup-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="01">Topping up</SectionLabel>
+            <SectionLabel index="01">Credit for agents</SectionLabel>
             <h2 id="topup-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
-              Any amount, paid by card.
+              Top up the workspace, then fund each agent from it.
             </h2>
+            <p className="mt-6 max-w-2xl text-body text-muted">
+              Credit is bought by the workspace and handed to each agent from its balance. An agent
+              spends only what it was given: when its wallet is empty, its next call is refused rather
+              than billed to you.
+            </p>
             <div className="mt-8">
               {state.status === 'ok' ? (
                 <TopUps pricing={state.pricing} />
@@ -192,19 +232,73 @@ export function Pricing() {
             <h2 id="request-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               The model’s list price, converted to credits.
             </h2>
-            <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
-              <p className="text-body text-muted">
-                A request is charged the tokens its provider reports, times that model’s catalog rate
-                per million tokens, converted at the rate above — rounded up to the millionth of a
-                credit, never down. Each model’s rate is shown beside it when you pick it in the app.
-              </p>
-              <p className="text-body text-muted">
-                An answer served from the shared pool costs less than list, because nobody paid to
-                generate it a second time.{' '}
-                <a href="/marketing#economics" className={`text-ink ${inlineLink}`}>
-                  See one pooled answer, as the ledger recorded it
+            <p className="mt-8 max-w-2xl text-body text-muted">
+              A request is charged the tokens its provider reports, times that model’s catalog rate
+              per million tokens, converted at the rate above — rounded up to the millionth of a
+              credit, never down. Each model’s rate is shown beside it when you pick it in the app.
+            </p>
+            <ul className="mt-4 max-w-2xl list-disc pl-5 text-body text-muted">
+              <li>
+                One saving: an answer served from the shared pool costs less than list, because nobody
+                paid to generate it a second time.{' '}
+                <a href="/marketing#pooling" className={`text-ink ${inlineLink}`}>
+                  How shared answers work
                 </a>
                 .
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section aria-labelledby="plans-heading" className="border-b border-rule">
+          <div className="mx-auto w-full max-w-5xl px-gutter py-16">
+            <SectionLabel index="03">Plans for people</SectionLabel>
+            <h2 id="plans-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
+              Every model, on every plan.
+            </h2>
+            <p className="mt-6 max-w-2xl text-body text-muted">
+              One plan per workspace, billed monthly by card. The plans differ only in how much usage
+              is included each month; every plan reaches every model from every provider. Past it,
+              chat continues on prepaid credit — a plan never bills an overage.
+            </p>
+            <div className="mt-8 grid gap-px border border-rule bg-rule wide:grid-cols-3">
+              {PLANS.map((p) => (
+                <Offer key={p.id} plan={p} points={['Every model from every provider', p.usage]} />
+              ))}
+            </div>
+            <div className="mt-gutter border border-rule">
+              <Offer
+                plan={BYOK}
+                title="bring your own keys"
+                points={[
+                  `Your own API keys for ${providerList()}`,
+                  'No Talyvor token charge on a request sent on your key — your provider bills you directly',
+                  `${BYOK.usage}; a provider you hold no key for runs on prepaid credit`,
+                ]}
+              />
+            </div>
+            <p className="mt-6 max-w-2xl text-body text-muted">
+              Choose one on the Plans screen once your workspace exists. A deployment that does not
+              sell plans says so there, and prepaid credit runs every request.
+            </p>
+          </div>
+        </section>
+
+        <section aria-labelledby="marketplace-bill-heading" className="border-b border-rule">
+          <div className="mx-auto w-full max-w-5xl px-gutter py-16">
+            <SectionLabel index="04">The Marketplace bill</SectionLabel>
+            <h2 id="marketplace-bill-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
+              Paid listings, on one bill a month.
+            </h2>
+            <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
+              <p className="text-body text-muted">
+                Agents, prompts, skills and evaluations other teams publish on the Marketplace. Each
+                use of a paid listing, by you or one of your agents, is charged the price the listing
+                shows and billed on your card once a month — never taken from your credits.
+              </p>
+              <p className="text-body text-muted">
+                The models a listing calls are charged like any other request, not on this bill. Every
+                line of it is on the Marketplace’s bill screen, month by month.
               </p>
             </div>
           </div>
@@ -212,7 +306,7 @@ export function Pricing() {
 
         <section aria-labelledby="not-charged-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="03">What you are not charged for</SectionLabel>
+            <SectionLabel index="05">What you are not charged for</SectionLabel>
             <h2 id="not-charged-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               What prepaid credit does not charge for.
             </h2>
