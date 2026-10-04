@@ -180,6 +180,7 @@ from Lens: the agents' book and postings, the approvals, the marketplace bill an
 | `company-payment` | 1 in 10 | an agent pays another company's agent with its own key: one line on the payer's marketplace bill (and on Your bill); the payee's pending earnings rise by exactly the amount, and nothing is payable or available before that bill is paid and the 14-day holdback passes |
 | `marketplace-sale` | 1 in 10 | another company publishes a prompt at 0.5 LXC on Publish; this user uses it on its page: the right answer, one line on their bill, one spend row for the model it called, and the seller's pending earnings up by exactly their share |
 | `statement-reconciles` | 1 in 10 | after funding, a payment, a take-back and a request, the statement downloaded from Agent Wallets: each account's opening + in − out = closing, every entry sums to zero, each agent closes at its balance, and spend = the ledger's spend row |
+| `agent-balance-stored` | 1 in 10 (after `statement-reconciles`) | one agent funded 100 times at once, each a different amount, through Lens as the owner: the balance Lens stores and reads as one row equals the 100 postings on the downloaded statement and their sum, every funding sums to zero, the workspace's agents hold that much more, and Agent Wallets shows the same balance |
 
 The other company is a user no other scenario reads the earnings of: 9, 19, … take a payment, 8, 18, …
 sell. A synthetic company's bill is never paid, so a sale or a payment stays pending: the scenarios check
