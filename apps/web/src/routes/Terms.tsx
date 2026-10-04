@@ -40,13 +40,71 @@ export function Terms() {
         <p className="mt-3 text-body">
           They are <strong>not money</strong>, not a deposit, not a stored-value instrument, not a
           security, and not any kind of investment. They confer no ownership of anything and no
-          claim on the company. They exist to meter usage of this service and have no use or value
-          outside it. There is no mechanism to convert them back into currency, and none is planned.
+          claim on the company. They exist to meter usage of this service.
+        </p>
+        <p className="mt-3 text-body">
+          <strong>LXC can be cashed out.</strong> In Agent Wallets, a workspace&rsquo;s owner can ask
+          to turn an agent&rsquo;s LXC back into money, paid by Talyvor&rsquo;s payments partner to an
+          account they name. The credits are held while it is paid and come back if the payment
+          fails. Until Talyvor has cleared cash-out to move real money, it runs on test money only,
+          and the screen says so beside it. Earned LENS converts to LXC.
         </p>
         <LawyerReview compact>
           Whether an internal credit that is purchased with real money constitutes stored value or
-          e-money is jurisdiction-specific, and the answer may depend on refundability. This
-          paragraph states intent; it does not settle the question.
+          e-money is jurisdiction-specific, and a credit that can be cashed out is closer to it than
+          one that cannot. This paragraph describes the mechanism; it does not settle the question.
+        </LawyerReview>
+      </Section>
+
+      <Section title="Agent Wallets">
+        <p className="text-body">
+          Each agent you create has a wallet: LXC you move into it from your workspace, rules for
+          what it may spend, and a statement of everything it did. Lens enforces those rules before
+          a model call or a payment is made. A request or payment the rules refuse is not made; one
+          over the approval amount waits for a person to approve it, and with a passkey that
+          approval is signed on your own device.
+        </p>
+        <p className="mt-3 text-body">
+          <strong>An agent spends what its rules allow without asking anyone.</strong> The rules are
+          what stand between an agent and its wallet, so set them to what you are prepared to have
+          spent. Pausing an agent, or every agent at once, stops it until you resume it.
+        </p>
+        <p className="mt-3 text-body text-muted">
+          An agent can pay other agents, including another company&rsquo;s, hold money in escrow and
+          pots, and lend to or borrow from another company. Each of these that Talyvor has not
+          cleared to move real money is marked &ldquo;Test money only&rdquo; on screen, with why, and
+          uses test credits. An agent&rsquo;s virtual card is issued by Stripe in test mode, for test
+          purchases. Investing is simulated: simulated US dollars at real prices, never real assets.
+        </p>
+        <LawyerReview compact>
+          Who is liable for a payment an agent makes within its rules, for a payment to another
+          owner&rsquo;s agent, and for a loan between companies that is not repaid is not defined
+          here. That needs a position before any of these moves real money.
+        </LawyerReview>
+      </Section>
+
+      <Section title="The Marketplace">
+        <p className="text-body">
+          The Marketplace lists agents, prompts, skills, evaluations and pipelines published by other
+          Talyvor workspaces. Using one runs it through Lens as your workspace. A paid listing&rsquo;s
+          price goes on your monthly marketplace bill, never on your credits.
+        </p>
+        <p className="mt-3 text-body">
+          A listing is its seller&rsquo;s work, not Talyvor&rsquo;s. Lens checks each one before it is
+          published and refuses one that carries a secret, personal data or a prompt injection.
+          Anyone who can see a listing can report it; Talyvor reviews reported and held listings and
+          can take one down for good, which refunds every use of it still inside the 14-day holdback.
+        </p>
+        <p className="mt-3 text-body text-muted">
+          Only a workspace&rsquo;s owner or an admin can publish. A seller earns a share of every use
+          whose bill was paid. Earnings are held for 14 days for refunds, then paid once a month to a
+          Stripe account the seller connects, less Stripe&rsquo;s fees at cost — or taken at once as
+          Talyvor credits, with no fees and no minimum. A refund after the seller was paid is
+          recovered from their next earnings.
+        </p>
+        <LawyerReview compact>
+          Talyvor&rsquo;s share of a sale, the licence a buyer receives to a listing, and who is
+          liable for what a listing does are not defined in this document.
         </LawyerReview>
       </Section>
 
@@ -120,7 +178,7 @@ export function Terms() {
       <Section title="Sharing between companies">
         <p className="text-body">
           Answers generated for your workspace may be served to other companies, and theirs to you.
-          This is on by default, disclosed before you first reach the app, and one click to turn
+          This is on by default, shown on Home, and one click there or in Settings turns it
           off. The full account is in <a className={inlineLink} href="/privacy">Privacy</a>; the
           short version is that <strong>the content of your answers can leave your workspace</strong>,
           and you should not put anything into a prompt whose answer you would not want shared until
@@ -145,28 +203,29 @@ export function Terms() {
           credited to your workspace when Stripe confirms the payment.
         </p>
         <LawyerReview compact>
-          No refund policy exists in the code or in this document. Consumer-law refund and
-          cancellation rights are likely to apply regardless of what is written here, and this needs
-          a position before real money is taken at any scale.
+          No refund policy for purchased LXC exists in the code or in this document; the only
+          refunds the code makes are the Marketplace&rsquo;s, described above. Consumer-law refund
+          and cancellation rights are likely to apply regardless of what is written here, and this
+          needs a position before real money is taken at any scale.
         </LawyerReview>
       </Section>
 
-      <Section title="⚠ Deleting your account">
+      <Section title="⚠ Deleting your data">
         <p className="text-body">
-          <strong>There is no self-service deletion.</strong> No screen, endpoint or command deletes
-          a workspace or its records — we checked, and no such code path exists.
+          In Features, a workspace&rsquo;s owner or an admin can delete the answers it shared, or
+          everything it has stored, at once. The same screen asks Talyvor to delete all of the
+          workspace&rsquo;s data and shows that request until it is done. In Track, a
+          workspace&rsquo;s owner can delete it and restore it within 14 days.
         </p>
         <p className="mt-3 text-body text-muted">
-          To have your data removed, contact the operator, who will do it by hand. There is no
-          automated confirmation and no defined turnaround, because neither has been built.
-        </p>
-        <p className="mt-3 text-body text-muted">
-          We would rather tell you this than describe a deletion flow that is not there. It is the
-          first thing to build if this stops being a trial.
+          Deleting all of your data is carried out by an operator, not automatically, and no
+          turnaround is promised. Billing and ledger records, agent wallet statements included, are
+          kept, because the law requires them. The full account is in{' '}
+          <a className={inlineLink} href="/privacy">Privacy</a>.
         </p>
         <LawyerReview compact>
-          Absence of deletion is a material gap against erasure and account-closure rights, and
-          should be resolved before general availability.
+          A deletion that waits on an operator, with no defined turnaround, needs a position against
+          erasure and account-closure rights before general availability.
         </LawyerReview>
       </Section>
 

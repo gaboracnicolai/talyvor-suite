@@ -9,8 +9,10 @@ import { App, queryClient } from './App'
 //     your data before you create an account, or you are agreeing in order to read;
 //   · the pooling disclosure is present in the policy, because that is the claim most likely to
 //     be softened over time and the one the consent screen already makes;
-//   · the two absences are stated — no deletion, draft not reviewed — because a policy that omits
-//     them reads as complete and is not.
+//   · the draft is marked as not reviewed, because a policy that omits that reads as complete and
+//     is not;
+//   · both cover Agent Wallets and the Marketplace, and neither claims an absence the code has
+//     since filled (B28.16: self-service deletion and cash-out both exist).
 
 function mockBff() {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -233,16 +235,36 @@ describe('the privacy page states the things most likely to be softened', () => 
 })
 
 describe('both documents state their absences rather than reading as complete', () => {
-  it('privacy says there is no self-service deletion', async () => {
+  // B28.16 — Features deletes stored answers and takes an all-data deletion request; Agent Wallets
+  // cashes LXC out. The pages said neither existed.
+  it.each(['/privacy', '/terms'])('%s says what you can delete and no longer says you cannot', async (path) => {
     mockBff()
-    at('/privacy')
-    expect(await screen.findByText(/no self-service data deletion/i)).toBeInTheDocument()
+    at(path)
+    expect((await screen.findAllByText(/everything it has stored/i)).length).toBeGreaterThan(0)
+    expect(document.body.textContent ?? '').not.toMatch(/no self-service (data )?deletion/i)
   })
 
-  it('terms says there is no self-service deletion', async () => {
+  it('terms says LXC can be cashed out, not that it never converts to currency', async () => {
     mockBff()
     at('/terms')
-    expect(await screen.findByText(/no self-service deletion/i)).toBeInTheDocument()
+    expect(await screen.findByText(/LXC can be cashed out/i)).toBeInTheDocument()
+    expect(document.body.textContent ?? '').not.toMatch(/no mechanism to convert/i)
+  })
+
+  it('privacy names the wallet data it keeps: statements, approvals, passkeys and test-mode cards', async () => {
+    mockBff()
+    at('/privacy')
+    expect(await screen.findByRole('heading', { name: /What Agent Wallets stores/i })).toBeInTheDocument()
+    for (const what of ['Statements.', 'Rules and approvals.', 'Passkeys.', 'Test-mode cards.'])
+      expect(screen.getByText(what)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /What the Marketplace stores and shows/i })).toBeInTheDocument()
+  })
+
+  it('terms covers Agent Wallets and the Marketplace', async () => {
+    mockBff()
+    at('/terms')
+    expect(await screen.findByRole('heading', { name: 'Agent Wallets' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'The Marketplace' })).toBeInTheDocument()
   })
 
   it('both carry a visible needs-legal-review marker', async () => {
