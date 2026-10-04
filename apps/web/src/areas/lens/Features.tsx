@@ -5,7 +5,12 @@ import { Button, Input, Switch, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, api, getJSON, getJSONArray } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
+import { marketApi } from '../marketplace/marketApi'
+import { CATALOG_KEY } from '../marketplace/parts'
+import { BOOK_KEY } from './AgentBank'
+import { type AgentBook, agentBankApi, formatULXC } from './agentBankApi'
 import { StoredAnswers } from './StoredAnswers'
+import { usePendingApprovals } from './WalletScreens'
 import { BYOK, BYOK_PROVIDERS } from './planApi'
 import { PROVIDER_KEYS_KEY, providerKeysApi } from './providerKeysApi'
 import { formatCents } from './topupApi'
@@ -13,6 +18,8 @@ import { formatCents } from './topupApi'
 // Features.tsx — B8.2, rebuilt at B11.2 from docs/features-inventory.md: every capability, grouped
 // by product, each saying what it does, where it works (with a link to that screen), and the
 // evidence that it is working — a live figure labelled measured or estimated, or where to look.
+// B28.9: it leads with Agent Wallets and Lens's enforcement of them; Marketplace follows Chat, and
+// the cost savings come after both.
 //
 // ⚠ ENUMERATED FROM LENS, NOT FROM A LIST: the Workspace record's policy fields, the guardrail
 // policy, Tare's recorded savings, the distill counts, the cache's serve sources and the earnings
@@ -142,6 +149,7 @@ const count = (n: number) => <span className="font-figure">{n.toLocaleString('en
 /** Dollars to the cent, or to four places under a cent — so $0.0005 never reads as $0.00. */
 const dollars = (n: number) => `$${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}`
 const usd = (n: number) => <span className="font-figure">{dollars(n)}</span>
+const lxc = (micros: number) => <span className="font-figure">{formatULXC(micros)}</span>
 
 /**
  * Writes one setting and shows what Lens's reply says it recorded, then re-reads in the background;
@@ -229,6 +237,16 @@ function budgetState(r: { isPending: boolean; isError: boolean; data?: BudgetRea
   return `On — ${limit}; requests past it are refused`
 }
 
+function walletState(r: { isPending: boolean; isError: boolean; data?: AgentBook }, pending: number | null): string {
+  if (r.isPending) return 'Checking…'
+  if (r.isError || !r.data) return UNREAD
+  if (r.data.all_paused_at) return 'Paused — every agent is paused; resume them on Agent Wallets'
+  const n = r.data.agents.length
+  if (n === 0) return 'On — no agent yet; create one on Agent Wallets'
+  const waiting = pending ? `; ${pending} ${pending === 1 ? 'approval' : 'approvals'} waiting` : ''
+  return `On — ${n} ${n === 1 ? 'agent' : 'agents'}${waiting}`
+}
+
 /** The workspace's spending limit: an amount to save, and a switch that applies it or not. */
 function BudgetControl({ budget }: { budget: BudgetReading['budget'] }) {
   const { busy, run, note } = useSettingWrite(BUDGET_KEY)
@@ -240,7 +258,7 @@ function BudgetControl({ budget }: { budget: BudgetReading['budget'] }) {
       await post('/api/features/budget', body)
     })
   return (
-    <div className="flex w-full flex-col items-end gap-1">
+    <div className="flex w-full flex-col items-start gap-1 wide:items-end">
       {budget ? (
         <Switch
           checked={budget.enforcement !== 'off'}
@@ -250,7 +268,7 @@ function BudgetControl({ budget }: { budget: BudgetReading['budget'] }) {
         />
       ) : null}
       <form
-        className="flex w-full items-center justify-end gap-2"
+        className="flex w-full items-center gap-2 wide:justify-end"
         onSubmit={(e) => {
           e.preventDefault()
           if (valid) void write({ limit_usd: limit, enforcement: budget?.enforcement ?? 'hard_block' })
@@ -319,7 +337,12 @@ function Feature({
   control?: React.ReactNode
 }) {
   return (
-    <li id={id} className="flex items-start justify-between gap-6 border-b border-rule py-5 last:border-b-0">
+    // B28.9 — below `wide` the state and switch sit under the description: beside it, on a phone, a fixed
+    // 11rem column left the description a strip a few words wide.
+    <li
+      id={id}
+      className="flex flex-col gap-3 border-b border-rule py-5 last:border-b-0 wide:flex-row wide:items-start wide:justify-between wide:gap-6"
+    >
       <div className="min-w-0 space-y-1">
         <h3 className="text-head text-ink">{name}</h3>
         <p className="text-body text-ink">{does}</p>
@@ -330,7 +353,7 @@ function Feature({
           <span className="text-ink">See it working:</span> {evidence}
         </p>
       </div>
-      <div className="flex w-44 shrink-0 flex-col items-end gap-2 text-right">
+      <div className="flex shrink-0 flex-col items-start gap-2 wide:w-44 wide:items-end wide:text-right">
         <span className="text-caption text-muted" data-testid={`state-${name}`}>
           {state}
         </span>
@@ -418,6 +441,10 @@ export function Features() {
     queryKey: BUDGET_KEY,
     queryFn: () => getJSON<BudgetReading>('/api/features/budget', { several: 'boolean' }),
   })
+  // B28.9 — the screen leads with the wallets and the Marketplace, read from the same caches as their screens.
+  const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
+  const pendingApprovals = usePendingApprovals()
+  const catalog = useQuery({ queryKey: [...CATALOG_KEY, ''], queryFn: () => marketApi.catalog('') })
   // B27.27 — BYOK: whether this workspace is on the plan and which of its own keys Lens holds.
   const ownKeys = useQuery({ queryKey: PROVIDER_KEYS_KEY, queryFn: providerKeysApi.list, retry: false })
   const byok = ownKeys.data?.enabled ? ownKeys.data.data : null
@@ -468,128 +495,74 @@ export function Features() {
         ) : null}
       </Region>
 
-      <Region index="02" label="Lens gateway">
+      <Region index="02" label="Agent Wallets">
         <ul>
           <Feature
-            name="Tare"
-            does="Shrinks the newest message before it is sent: JSON tool output keeps one row per shape, Go and TypeScript code keep their signatures and types but drop function bodies. Anything it cannot shrink safely is sent unchanged, and earlier messages are never touched, so the provider’s prompt cache still hits."
+            id="agent-wallets"
+            name="Agent Wallets"
+            does="Every AI agent gets its own wallet: a budget, spending rules, approvals, a card and a live statement. Lens checks the agent’s rules before each model call or payment and refuses one that would break them, so an agent spends only what it was given, on what it was allowed."
             where={
               <>
-                Requests through the gateway with an API key, streamed or not — large tool output and code.
-                A short typed question has nothing to reduce. <To to="/setup">Set up a tool</To> ·{' '}
-                <To to="/features/try/tare">Try it on your own content</To>
+                Every request made with an agent&rsquo;s key, and every payment it makes. <To to="/agents">Agent Wallets</To> ·{' '}
+                <To to="/approvals">Approvals</To> · <To to="/statements">Statements</To>
               </>
             }
-            evidence={reading(tare, () =>
-              tare.data!.requests > 0 ? (
-                <>
-                  {count(tare.data!.requests)} requests reduced from {count(tare.data!.tokens_before)} to{' '}
-                  {count(tare.data!.tokens_after)} tokens, about {usd(tare.data!.cost_saved_usd)} saved — estimated,
-                  from Lens&rsquo;s token estimates at each model&rsquo;s input rate.
-                </>
+            evidence={reading(book, () =>
+              book.data!.agents.length === 0 ? (
+                'No agent has a wallet yet (measured).'
               ) : (
-                'No request has been reduced yet (measured).'
+                <>
+                  {count(book.data!.agents.length)} {book.data!.agents.length === 1 ? 'agent holds' : 'agents hold'}{' '}
+                  {lxc(book.data!.allocated_ulxc)} of this workspace&rsquo;s {lxc(book.data!.workspace_balance_ulxc)} and{' '}
+                  {book.data!.agents.length === 1 ? 'has' : 'have'} spent {lxc(book.data!.spent_ulxc)} (measured). Each
+                  agent&rsquo;s statement lists every charge.
+                </>
               ),
             )}
-            state={stateOf(reducerState(f?.tare_policy, 'X-Talyvor-Tare: true'))}
+            state={walletState(book, pendingApprovals)}
             control={
-              readable && f?.tare_policy != null ? (
-                <SettingSwitch
-                  name="Tare"
-                  checked={f.tare_policy === 'always'}
-                  write={(on) => post('/api/features/tare', { tare_policy: on ? 'always' : 'disabled' })}
-                  alsoInvalidate={['tare-savings']}
-                />
-              ) : undefined
+              <Link className={`text-caption text-ink ${inlineLink}`} to="/agents">
+                Open Agent Wallets
+              </Link>
             }
           />
+        </ul>
+      </Region>
+
+      <Region index="03" label="Lens enforcement">
+        <ul>
           <Feature
-            name="Tare prose model"
-            does="Shortens prose that Tare would otherwise send unchanged — explanations, notes, pasted documents — by dropping the words a small compression model judges the reply does not need. Unlike the rest of Tare it changes the wording, so it is off until you switch it on. Code and JSON are never touched."
-            where={
-              <>
-                The same requests as Tare, only on prose Tare could not shrink. <To to="/features/try/tare">Try it on your own prose</To>
-              </>
-            }
-            evidence="Try it says when the prose model shortened a paste, and the requests it shortens count in Tare’s figures above (estimated)."
-            state={stateOf(tareModelState(f?.tare_model, f?.tare_policy))}
-            control={
-              readable && f?.tare_model != null ? (
-                <SettingSwitch
-                  name="Tare prose model"
-                  checked={f.tare_model}
-                  write={(on) => post('/api/features/tare-model', { tare_model: on })}
-                />
-              ) : undefined
-            }
-          />
-          <Feature
-            name="Document conversion"
-            does="Converts an attached PDF, Word, Excel, CSV, HTML, JSON, XML or text file to plain text before the model reads it, so you are charged for the words rather than the file."
-            where={
-              <>
-                Documents attached to a chat question or to an API request. <To to="/chat">Attach one in Chat</To> ·{' '}
-                <To to="/features/try/conversion">Try it on a document</To>
-              </>
-            }
-            evidence={reading(distill, () =>
-              distill.data!.converted !== undefined && distill.data!.days !== undefined ? (
+            name="Spending limit"
+            does="A limit on what this workspace’s requests may cost. While it is on, a request that would take the spend past it is refused."
+            where="Every request through the gateway and the chat."
+            evidence={reading(budget, () =>
+              budget.data?.budget ? (
                 <>
-                  {count(distill.data!.converted)} documents converted in the last {count(distill.data!.days)} days
-                  (measured). Each question in Chat says whether its document was converted.
+                  {usd(budget.data.budget.spent_usd)} spent of {usd(budget.data.budget.limit_usd)} {PERIOD[budget.data.budget.period]}{' '}
+                  (measured by Lens).
                 </>
               ) : (
-                'This deployment does not count conversions; each question in Chat says whether its document was converted.'
+                'Once a limit is set, what has been spent against it shows here.'
               ),
             )}
-            state={stateOf(reducerState(f?.distill_policy))}
+            state={budgetState(budget)}
             control={
-              readable && f?.distill_policy != null ? (
-                <SettingSwitch
-                  name="Document conversion"
-                  checked={f.distill_policy === 'always'}
-                  write={(on) => post('/api/distill', { distill_policy: on ? 'always' : 'disabled' })}
-                  alsoInvalidate={['distill']}
-                />
+              budget.isSuccess && !budget.data.several ? (
+                <BudgetControl key={JSON.stringify(budget.data.budget)} budget={budget.data.budget} />
               ) : undefined
             }
           />
           <Feature
-            name="Answer cache"
-            does="An identical question, or a nearly identical one, is answered from this workspace’s earlier answer instead of calling the model again — instantly, and without paying for the model twice."
-            where="Every chat request in this workspace, unless request logging is set to none."
-            evidence={reading(usage, () => (
-              <>
-                {count(usage.data!.cache.cache_hits)} of {count(usage.data!.cache.total_requests)} requests in the last{' '}
-                {count(usage.data!.period_days)} days were answered from cache (measured).{' '}
-                <To to="/spend">Spend &amp; routing</To>
-              </>
-            ))}
-            state={stateOf(
-              f?.logging_policy === 'none'
-                ? 'Paused — request logging is none, so nothing is kept to answer from'
-                : 'On',
-            )}
-          />
-          <Feature
-            name="Cost-optimised routing"
-            does="Lets Lens answer a request that names a model with a cheaper model, but only where the cheaper model’s measured answer quality on the same kind of request (same feature, similar size, from workspaces that share routing patterns) is at least the named model’s. Until both are measured, the named model answers. When off, a named model is always used exactly as named. Requests for the model “auto” are routed either way."
-            where="API requests that name a model."
+            name="Budgets"
+            does="Spending limits for a team or a sprint, besides the workspace’s limit above and each agent’s own budget. A request that would go past one is refused rather than charged."
+            where="Every request, checked before it is served."
             evidence={
               <>
-                The model that actually answered is on every row of <To to="/spend">Spend &amp; routing</To>.
+                The workspace&rsquo;s limit is set in the row above and each agent&rsquo;s budget and rules on{' '}
+                <To to="/agents">Agent Wallets</To>; a team or sprint limit is set through Lens&rsquo;s API.
               </>
             }
-            state={stateOf(switchable(f?.cost_optimize_routing))}
-            control={
-              readable && f?.cost_optimize_routing != null ? (
-                <SettingSwitch
-                  name="Cost-optimised routing"
-                  checked={f.cost_optimize_routing}
-                  write={(on) => post('/api/features/cost-optimize-routing', { cost_optimize_routing: on })}
-                />
-              ) : undefined
-            }
+            state="Team and sprint limits are set through Lens’s API"
           />
           <Feature
             name="Prompt-injection detection"
@@ -645,27 +618,6 @@ export function Features() {
             }
           />
           <Feature
-            name="Spending limit"
-            does="A limit on what this workspace’s requests may cost. While it is on, a request that would take the spend past it is refused."
-            where="Every request through the gateway and the chat."
-            evidence={reading(budget, () =>
-              budget.data?.budget ? (
-                <>
-                  {usd(budget.data.budget.spent_usd)} spent of {usd(budget.data.budget.limit_usd)} {PERIOD[budget.data.budget.period]}{' '}
-                  (measured by Lens).
-                </>
-              ) : (
-                'Once a limit is set, what has been spent against it shows here.'
-              ),
-            )}
-            state={budgetState(budget)}
-            control={
-              budget.isSuccess && !budget.data.several ? (
-                <BudgetControl key={JSON.stringify(budget.data.budget)} budget={budget.data.budget} />
-              ) : undefined
-            }
-          />
-          <Feature
             name="Attribution"
             does="A request can say which feature, issue, branch or pull request it was for, and its cost is recorded against that work."
             where="Requests that carry X-Talyvor-Feature, X-Talyvor-Issue or the git headers. Always on."
@@ -676,17 +628,10 @@ export function Features() {
             }
             state="On"
           />
-          <Feature
-            name="Budgets"
-            does="Spending limits for the workspace, a team or a sprint. A request that would go past one is refused rather than charged."
-            where="Every request, checked before it is served."
-            evidence="Budgets are set through Lens’s API; this app has no budget screen yet."
-            state="Set through Lens’s API"
-          />
         </ul>
       </Region>
 
-      <Region index="03" label="Chat">
+      <Region index="04" label="Chat">
         <ul>
           <Feature
             name="Chat"
@@ -711,71 +656,52 @@ export function Features() {
         </ul>
       </Region>
 
-      <Region index="04" label="Track">
+      <Region index="05" label="Marketplace">
         <ul>
           <Feature
-            name="Issues, cycles and projects"
-            does="Plan work as issues, group them into cycles and projects, and export what a view shows."
+            id="marketplace"
+            name="Marketplace"
+            does="Where agents spend: agents, prompts, skills, evaluations and pipelines published by other Talyvor workspaces. Using one runs it through Lens as this workspace; a paid listing’s price goes on the monthly marketplace bill, never on your credits, and an agent can pay a listing from its own wallet on a schedule. Publish your own and earn when others use it."
             where={
               <>
-                <To to="/track">Issues</To>, <To to="/track/cycles">Cycles</To> and <To to="/track/projects">Projects</To>
+                <To to="/marketplace">Browse the Marketplace</To> · <To to="/marketplace/publish">Publish a listing</To> ·{' '}
+                <To to="/marketplace/selling">What your listings earned</To>
               </>
             }
-            evidence="The lists themselves."
-            state="On"
-          />
-          <Feature
-            name="AI on an issue"
-            does="Summarises an issue, finds likely duplicates, and suggests its priority and labels."
-            where={
-              <>
-                An issue&rsquo;s own page, from <To to="/track">Issues</To>.
-              </>
-            }
-            evidence="The summary, duplicates and suggestion appear on the issue when asked for."
-            state="On"
-          />
-        </ul>
-      </Region>
-
-      <Region index="05" label="Docs">
-        <ul>
-          <Feature
-            name="Pages and AI writing"
-            does="Write pages in an editor; write, shorten, lengthen, fix, summarise or translate with AI; ask questions answered from your pages."
-            where={
-              <>
-                <To to="/docs">Docs</To> — any page&rsquo;s editor, and Ask AI.
-              </>
-            }
-            evidence="Each page’s toolbar shows what AI on that page has cost (measured)."
-            state="On"
+            evidence={reading(catalog, () =>
+              catalog.data!.length === 0 ? (
+                'No listing is published yet (measured).'
+              ) : (
+                <>
+                  {count(catalog.data!.length)} {catalog.data!.length === 1 ? 'listing is' : 'listings are'} open to use
+                  (measured). Every use is a line on <To to="/marketplace/bill">this month&rsquo;s marketplace bill</To>.
+                </>
+              ),
+            )}
+            state={catalog.isPending ? 'Checking…' : catalog.isError ? UNREAD : 'On'}
           />
         </ul>
       </Region>
 
-      <Region index="06" label="Code">
+      <Region index="06" label="Cost savings">
         <ul>
           <Feature
-            name="Talyvor Code"
-            does="AI in your editor and terminal — completions, chat, tests, reviews, agent tasks — with every call’s cost recorded against the issue you are working on."
-            where={
+            name="Answer cache"
+            does="An identical question, or a nearly identical one, is answered from this workspace’s earlier answer instead of calling the model again — instantly, and without paying for the model twice."
+            where="Every chat request in this workspace, unless request logging is set to none."
+            evidence={reading(usage, () => (
               <>
-                Your editor or terminal, through a key from <To to="/setup">Setup</To>.
+                {count(usage.data!.cache.cache_hits)} of {count(usage.data!.cache.total_requests)} requests in the last{' '}
+                {count(usage.data!.period_days)} days were answered from cache (measured).{' '}
+                <To to="/spend">Spend &amp; routing</To>
               </>
-            }
-            evidence={
-              <>
-                Its requests appear on <To to="/spend">Spend &amp; routing</To> like any other tool&rsquo;s.
-              </>
-            }
-            state="CLI available; the VS Code extension is not on the Marketplace yet"
+            ))}
+            state={stateOf(
+              f?.logging_policy === 'none'
+                ? 'Paused — request logging is none, so nothing is kept to answer from'
+                : 'On',
+            )}
           />
-        </ul>
-      </Region>
-
-      <Region index="07" label="Billing and economy">
-        <ul>
           <Feature
             id="answer-sharing"
             name="Answer sharing"
@@ -824,6 +750,37 @@ export function Features() {
                   Change in Settings
                 </Link>
               )
+            }
+          />
+          <Feature
+            name="Document conversion"
+            does="Converts an attached PDF, Word, Excel, CSV, HTML, JSON, XML or text file to plain text before the model reads it, so you are charged for the words rather than the file."
+            where={
+              <>
+                Documents attached to a chat question or to an API request. <To to="/chat">Attach one in Chat</To> ·{' '}
+                <To to="/features/try/conversion">Try it on a document</To>
+              </>
+            }
+            evidence={reading(distill, () =>
+              distill.data!.converted !== undefined && distill.data!.days !== undefined ? (
+                <>
+                  {count(distill.data!.converted)} documents converted in the last {count(distill.data!.days)} days
+                  (measured). Each question in Chat says whether its document was converted.
+                </>
+              ) : (
+                'This deployment does not count conversions; each question in Chat says whether its document was converted.'
+              ),
+            )}
+            state={stateOf(reducerState(f?.distill_policy))}
+            control={
+              readable && f?.distill_policy != null ? (
+                <SettingSwitch
+                  name="Document conversion"
+                  checked={f.distill_policy === 'always'}
+                  write={(on) => post('/api/distill', { distill_policy: on ? 'always' : 'disabled' })}
+                  alsoInvalidate={['distill']}
+                />
+              ) : undefined
             }
           />
           <Feature
@@ -883,6 +840,147 @@ export function Features() {
               ) : undefined
             }
           />
+          <Feature
+            name="Tare"
+            does="Shrinks the newest message before it is sent: JSON tool output keeps one row per shape, Go and TypeScript code keep their signatures and types but drop function bodies. Anything it cannot shrink safely is sent unchanged, and earlier messages are never touched, so the provider’s prompt cache still hits."
+            where={
+              <>
+                Requests through the gateway with an API key, streamed or not — large tool output and code.
+                A short typed question has nothing to reduce. <To to="/setup">Set up a tool</To> ·{' '}
+                <To to="/features/try/tare">Try it on your own content</To>
+              </>
+            }
+            evidence={reading(tare, () =>
+              tare.data!.requests > 0 ? (
+                <>
+                  {count(tare.data!.requests)} requests reduced from {count(tare.data!.tokens_before)} to{' '}
+                  {count(tare.data!.tokens_after)} tokens, about {usd(tare.data!.cost_saved_usd)} saved — estimated,
+                  from Lens&rsquo;s token estimates at each model&rsquo;s input rate.
+                </>
+              ) : (
+                'No request has been reduced yet (measured).'
+              ),
+            )}
+            state={stateOf(reducerState(f?.tare_policy, 'X-Talyvor-Tare: true'))}
+            control={
+              readable && f?.tare_policy != null ? (
+                <SettingSwitch
+                  name="Tare"
+                  checked={f.tare_policy === 'always'}
+                  write={(on) => post('/api/features/tare', { tare_policy: on ? 'always' : 'disabled' })}
+                  alsoInvalidate={['tare-savings']}
+                />
+              ) : undefined
+            }
+          />
+          <Feature
+            name="Tare prose model"
+            does="Shortens prose that Tare would otherwise send unchanged — explanations, notes, pasted documents — by dropping the words a small compression model judges the reply does not need. Unlike the rest of Tare it changes the wording, so it is off until you switch it on. Code and JSON are never touched."
+            where={
+              <>
+                The same requests as Tare, only on prose Tare could not shrink. <To to="/features/try/tare">Try it on your own prose</To>
+              </>
+            }
+            evidence="Try it says when the prose model shortened a paste, and the requests it shortens count in Tare’s figures above (estimated)."
+            state={stateOf(tareModelState(f?.tare_model, f?.tare_policy))}
+            control={
+              readable && f?.tare_model != null ? (
+                <SettingSwitch
+                  name="Tare prose model"
+                  checked={f.tare_model}
+                  write={(on) => post('/api/features/tare-model', { tare_model: on })}
+                />
+              ) : undefined
+            }
+          />
+          <Feature
+            name="Cost-optimised routing"
+            does="Lets Lens answer a request that names a model with a cheaper model, but only where the cheaper model’s measured answer quality on the same kind of request (same feature, similar size, from workspaces that share routing patterns) is at least the named model’s. Until both are measured, the named model answers. When off, a named model is always used exactly as named. Requests for the model “auto” are routed either way."
+            where="API requests that name a model."
+            evidence={
+              <>
+                The model that actually answered is on every row of <To to="/spend">Spend &amp; routing</To>.
+              </>
+            }
+            state={stateOf(switchable(f?.cost_optimize_routing))}
+            control={
+              readable && f?.cost_optimize_routing != null ? (
+                <SettingSwitch
+                  name="Cost-optimised routing"
+                  checked={f.cost_optimize_routing}
+                  write={(on) => post('/api/features/cost-optimize-routing', { cost_optimize_routing: on })}
+                />
+              ) : undefined
+            }
+          />
+        </ul>
+      </Region>
+
+      <Region index="07" label="Track">
+        <ul>
+          <Feature
+            name="Issues, cycles and projects"
+            does="Plan work as issues, group them into cycles and projects, and export what a view shows."
+            where={
+              <>
+                <To to="/track">Issues</To>, <To to="/track/cycles">Cycles</To> and <To to="/track/projects">Projects</To>
+              </>
+            }
+            evidence="The lists themselves."
+            state="On"
+          />
+          <Feature
+            name="AI on an issue"
+            does="Summarises an issue, finds likely duplicates, and suggests its priority and labels."
+            where={
+              <>
+                An issue&rsquo;s own page, from <To to="/track">Issues</To>.
+              </>
+            }
+            evidence="The summary, duplicates and suggestion appear on the issue when asked for."
+            state="On"
+          />
+        </ul>
+      </Region>
+
+      <Region index="08" label="Docs">
+        <ul>
+          <Feature
+            name="Pages and AI writing"
+            does="Write pages in an editor; write, shorten, lengthen, fix, summarise or translate with AI; ask questions answered from your pages."
+            where={
+              <>
+                <To to="/docs">Docs</To> — any page&rsquo;s editor, and Ask AI.
+              </>
+            }
+            evidence="Each page’s toolbar shows what AI on that page has cost (measured)."
+            state="On"
+          />
+        </ul>
+      </Region>
+
+      <Region index="09" label="Code">
+        <ul>
+          <Feature
+            name="Talyvor Code"
+            does="AI in your editor and terminal — completions, chat, tests, reviews, agent tasks — with every call’s cost recorded against the issue you are working on."
+            where={
+              <>
+                Your editor or terminal, through a key from <To to="/setup">Setup</To>.
+              </>
+            }
+            evidence={
+              <>
+                Its requests appear on <To to="/spend">Spend &amp; routing</To> like any other tool&rsquo;s.
+              </>
+            }
+            state="The CLI is available; the VS Code extension is not on the Visual Studio Marketplace yet"
+          />
+        </ul>
+      </Region>
+
+      <Region index="10" label="Billing">
+        <ul>
           <Feature
             id="byok"
             name="Bring your own keys (BYOK)"

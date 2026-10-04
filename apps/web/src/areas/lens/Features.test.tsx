@@ -16,6 +16,10 @@ function mockBff(
     featuresReads = Infinity,
     /** How the first reads of /api/features answer, in order, before Lens is back — B17.35. */
     restarting = [] as Array<'502' | 'no guardrails'>,
+    /** B28.9 — the agents' wallets, the approvals they wait on, and the Marketplace catalogue. */
+    agentBook = null as null | Record<string, unknown>,
+    approvals = [] as Array<{ id: string; status: string }>,
+    listings = null as null | Array<{ id: string; title: string }>,
   } = {},
 ) {
   let tare = 'disabled'
@@ -81,6 +85,9 @@ function mockBff(
       return json({ budget, several: false })
     }
     if (url === '/api/features/budget') return json({ budget, several: false })
+    if (url === '/api/agents' && agentBook) return json(agentBook)
+    if (url === '/api/agents/approvals') return json({ approvals })
+    if (url === '/api/marketplace/listings' && listings) return json({ listings })
     if (url === '/api/features/tare-savings')
       return json({ requests: tareRequests, tokens_before: 10000, tokens_after: 3800, cost_saved_usd: 0.0155 })
     if (url === '/api/models/waiting') return json(waiting)
@@ -128,6 +135,94 @@ function row(name: string): HTMLElement {
 }
 
 describe('the Features screen', () => {
+  // B28.9
+  it('leads with Agent Wallets, whose row reads what the agents hold and spent and the approvals waiting', async () => {
+    mockBff([], {
+      agentBook: {
+        workspace_balance_ulxc: 50_000_000,
+        allocated_ulxc: 20_000_000,
+        unallocated_ulxc: 30_000_000,
+        spent_ulxc: 2_500_000,
+        agents: [
+          { id: 'ag_1', name: 'triage', balance_ulxc: 12_000_000, spent_ulxc: 1_000_000, keys: [], created_at: '2026-10-01T00:00:00Z' },
+          { id: 'ag_2', name: 'coder', balance_ulxc: 8_000_000, spent_ulxc: 1_500_000, keys: [], created_at: '2026-10-01T00:00:00Z' },
+        ],
+      },
+      approvals: [
+        { id: 'apr_1', status: 'pending' },
+        { id: 'apr_2', status: 'approved' },
+      ],
+    })
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    await waitFor(() => expect(screen.getByTestId('state-Agent Wallets')).toHaveTextContent('On — 2 agents; 1 approval waiting'))
+    expect(screen.getByTestId('evidence-Agent Wallets').textContent).toBe(
+      'See it working: 2 agents hold 20 LXC of this workspace’s 50 LXC and have spent 2.5 LXC (measured). Each agent’s statement lists every charge.',
+    )
+    expect(within(row('Agent Wallets')).getByRole('link', { name: 'Open Agent Wallets' })).toHaveAttribute('href', '/agents')
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+      'Agent Wallets',
+      'Spending limit',
+      'Budgets',
+      'Prompt-injection detection',
+      'Personal-data detection',
+      'Request logging',
+      'Attribution',
+      'Chat',
+      'New models',
+      'Marketplace',
+      'Answer cache',
+      'Answer sharing',
+      'Document conversion',
+      'Shared document conversions',
+      'Routing pattern sharing',
+      'Tare',
+      'Tare prose model',
+      'Cost-optimised routing',
+      'Issues, cycles and projects',
+      'AI on an issue',
+      'Pages and AI writing',
+      'Talyvor Code',
+      'Bring your own keys (BYOK)',
+      'Credits and top-up',
+    ])
+  })
+
+  it('the Marketplace row counts the listings open to use and links to browse, publish and earnings', async () => {
+    mockBff([], {
+      listings: [
+        { id: 'lst_1', title: 'Triage agent' },
+        { id: 'lst_2', title: 'Release notes prompt' },
+        { id: 'lst_3', title: 'SQL review skill' },
+      ],
+    })
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    await waitFor(() =>
+      expect(screen.getByTestId('evidence-Marketplace')).toHaveTextContent(
+        '3 listings are open to use (measured). Every use is a line on this month’s marketplace bill.',
+      ),
+    )
+    expect(screen.getByTestId('state-Marketplace')).toHaveTextContent('On')
+    expect(within(row('Marketplace')).getAllByRole('link').map((a) => a.getAttribute('href'))).toEqual([
+      '/marketplace',
+      '/marketplace/publish',
+      '/marketplace/selling',
+      '/marketplace/bill',
+    ])
+  })
+
+  it('no row’s description stops mid-sentence, and none says a budget screen or the extension is missing from “the Marketplace”', async () => {
+    mockBff([])
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Agent Wallets', level: 3 })
+    for (const h of screen.getAllByRole('heading', { level: 3 })) {
+      expect(h.nextElementSibling?.textContent, h.textContent ?? '').toMatch(/[.)]$/)
+    }
+    expect(document.body.textContent).not.toMatch(/no budget screen|not on the Marketplace yet/)
+  })
+
   it('turning Tare on writes Lens’s policy and the row then reads On; off writes it back', async () => {
     const posts: Array<{ url: string; body: unknown }> = []
     mockBff(posts)
