@@ -8,6 +8,8 @@ import { kindLabel, marketApi, priceText } from '../marketplace/marketApi'
 import { CATALOG_KEY } from '../marketplace/parts'
 import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
 import { AgentCardPanel } from './AgentCardPanel'
+import { CurrencyPicker, Lxc } from './money'
+import { ChoicePicker, RulesInWords, TimePicker, TimeZonePicker, useRuleChoices } from './rulePickers'
 import { AgentAddress, AgentTransfers, CreditLinePanel, Loans, MoneyRequests, OfferLoan, RecurringTransfer, SendAndRequest } from './WalletMoney'
 import { CashOutCard, CashOuts, Escrows, PayIntoEscrow, Portfolios, Pots } from './WalletHoldings'
 import {
@@ -23,7 +25,6 @@ import {
   AgentBankError,
   agentBankApi,
   approvalNamedIn,
-  formatULXC,
   limitText,
   newMoveKey,
   parseLXC,
@@ -60,11 +61,7 @@ interface HeldPayment {
 
 // B27.21: the figure in the figure face, the unit in the sentence's. A space inside the monospace span is a
 // full digit wide, so "Payee 3 1 LXC" read with a double gap before LXC.
-const lxc = (micros: number) => (
-  <>
-    <span className="font-figure">{formatULXC(micros).replace(/ LXC$/, '')}</span> LXC
-  </>
-)
+const lxc = (micros: number) => <Lxc ulxc={micros} />
 
 function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
@@ -180,12 +177,12 @@ function Spending({ nameOf }: { nameOf: (id: string) => string }) {
           <>
             {(forecast.data.agents ?? []).map((f) => (
               <Row key={f.agent_id} label={f.name} hint={<>Spent {lxc(f.spent_ulxc)} so far this month</>}>
-                <span className="font-figure text-body text-ink">{formatULXC(f.forecast_ulxc)}</span>
+                <span className="text-body text-ink">{lxc(f.forecast_ulxc)}</span>
               </Row>
             ))}
             <Row label="Every agent" hint={<>Spent {lxc(forecast.data.spent_ulxc)} so far; the pace so far, run to the month’s end</>}>
               <span className="font-figure text-body text-ink" data-testid="agents-forecast">
-                {formatULXC(forecast.data.forecast_ulxc)}
+                {lxc(forecast.data.forecast_ulxc)}
               </span>
             </Row>
           </>
@@ -523,7 +520,7 @@ function AgentList({ agents, selected, onSelect }: { agents: Agent[]; selected: 
             {a.paused_at ? <Pill status="parked">Paused</Pill> : null}
             {a.owner_user_id === '' ? <Pill status="held">No owner</Pill> : a.verified ? <Pill status="settled">Verified</Pill> : null}
             <span className="font-figure text-body text-ink" data-testid={`agent-balance-${a.id}`}>
-              {formatULXC(a.balance_ulxc)}
+              {lxc(a.balance_ulxc)}
             </span>
             <Button aria-pressed={selected === a.id} onClick={() => onSelect(a.id)}>
               {selected === a.id ? 'Open' : 'Manage'}
@@ -664,15 +661,15 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
     monthly_limit_ulxc: limitText(rules.monthly_limit_ulxc),
     approval_above_ulxc: limitText(rules.approval_above_ulxc),
   }))
-  const [models, setModels] = useState((rules.allowed_models ?? []).join(', '))
-  const [providers, setProviders] = useState((rules.allowed_providers ?? []).join(', '))
+  const [models, setModels] = useState<string[]>(rules.allowed_models ?? [])
+  const [providers, setProviders] = useState<string[]>(rules.allowed_providers ?? [])
+  const choices = useRuleChoices()
   const [listings, setListings] = useState<string[]>(rules.allowed_listings ?? [])
   const [pauseOnUnusual, setPauseOnUnusual] = useState(rules.pause_on_unusual_spend ?? false)
   const [from, setFrom] = useState(rules.active_from)
   const [until, setUntil] = useState(rules.active_until)
   const [timezone, setTimezone] = useState(rules.timezone)
   const bad = LIMITS.some(([f]) => limits[f].trim() !== '' && parseLXC(limits[f]) === null)
-  const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
   const save = useMutation({
     mutationFn: () =>
       agentBankApi.setRules(agent.id, {
@@ -680,8 +677,8 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         daily_limit_ulxc: parseLXC(limits.daily_limit_ulxc) ?? 0,
         monthly_limit_ulxc: parseLXC(limits.monthly_limit_ulxc) ?? 0,
         approval_above_ulxc: parseLXC(limits.approval_above_ulxc) ?? 0,
-        allowed_models: list(models),
-        allowed_providers: list(providers),
+        allowed_models: models,
+        allowed_providers: providers,
         allowed_listings: listings,
         active_from: from.trim(),
         active_until: until.trim(),
@@ -690,17 +687,6 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
       }),
     onSuccess: (saved) => qc.setQueryData(rulesKey(agent.id), saved),
   })
-  const text = (label: string, value: string, set: (v: string) => void, placeholder: string) => (
-    <Row label={label}>
-      <Input
-        aria-label={`${label} for ${agent.name}`}
-        placeholder={placeholder}
-        className="w-56"
-        value={value}
-        onChange={(e) => set(e.target.value)}
-      />
-    </Row>
-  )
   return (
     <form
       onSubmit={(e) => {
@@ -720,8 +706,23 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
           />
         </Row>
       ))}
-      {text('Allowed models', models, setModels, 'Any model')}
-      {text('Allowed providers', providers, setProviders, 'Any provider')}
+      <ChoicePicker
+        label="Allowed models"
+        agentName={agent.name}
+        chosen={models}
+        onChange={setModels}
+        groups={choices.models}
+        anyText="Any model"
+        hint={choices.failed ? 'The model list could not be read just now; the models already chosen are kept.' : undefined}
+      />
+      <ChoicePicker
+        label="Allowed providers"
+        agentName={agent.name}
+        chosen={providers}
+        onChange={setProviders}
+        groups={[{ label: 'Providers', options: choices.providers }]}
+        anyText="Any provider"
+      />
       <ListingsPicker agent={agent} chosen={listings} onChange={setListings} />
       <Row label="Pause on unusual spend" hint="An unusual-spend alert also pauses this agent until you resume it">
         <Button
@@ -734,9 +735,9 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
           {pauseOnUnusual ? 'On' : 'Off'}
         </Button>
       </Row>
-      {text('Active from', from, setFrom, 'HH:MM — any time')}
-      {text('Active until', until, setUntil, 'HH:MM')}
-      {text('Time zone', timezone, setTimezone, 'UTC')}
+      <TimePicker label="Active from" agentName={agent.name} value={from} onChange={setFrom} />
+      <TimePicker label="Active until" agentName={agent.name} value={until} onChange={setUntil} />
+      <TimeZonePicker agentName={agent.name} value={timezone} onChange={setTimezone} />
       <div className="flex flex-col gap-2 px-gutter py-3">
         <div>
           <Button type="submit" variant="primary" disabled={bad || save.isPending}>
@@ -799,7 +800,10 @@ function Rules({ agent }: { agent: Agent }) {
     <Card>
       <CardHeader>Rules</CardHeader>
       {rules.isSuccess ? (
-        <RulesForm key={agent.id} agent={agent} rules={rules.data} />
+        <>
+          <RulesInWords agentName={agent.name} rules={rules.data} />
+          <RulesForm key={agent.id} agent={agent} rules={rules.data} />
+        </>
       ) : (
         <p className="px-gutter py-3 text-body text-muted">
           {rules.isError ? readFailure(rules.error, 'This agent’s rules') : 'Reading…'}
@@ -1016,10 +1020,9 @@ export function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string
                 <td className="px-gutter py-2 font-figure text-caption text-muted">{formatWhen(l.at)}</td>
                 <td className="py-2">{lineText(l, nameOf)}</td>
                 <td className="py-2 text-right font-figure">
-                  {l.amount_ulxc > 0 ? '+' : '−'}
-                  {formatULXC(Math.abs(l.amount_ulxc))}
+                  <Lxc ulxc={Math.abs(l.amount_ulxc)} sign={l.amount_ulxc > 0 ? '+' : '−'} />
                 </td>
-                <td className="px-gutter py-2 text-right font-figure">{formatULXC(l.balance_after_ulxc)}</td>
+                <td className="px-gutter py-2 text-right font-figure">{lxc(l.balance_after_ulxc)}</td>
               </tr>
             ))}
           </tbody>
@@ -1366,6 +1369,7 @@ export function AgentBank() {
           person must approve, and read every movement on its statement. Lens checks the rules before a provider is
           called or a payment moves.
         </p>
+        <CurrencyPicker />
         {book.isSuccess ? (
           <>
             <Totals book={book.data} />

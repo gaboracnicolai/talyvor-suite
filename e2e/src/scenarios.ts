@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentBalanceStored, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentBalanceStored, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1334,7 +1334,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.440 — then the TypeScript SDK's README quickstart, with this user as the signed-in owner.
     // B28.441 — then Features, which opens on Agent Wallets and these agents.
     case 0: list.push(agentOpenFund(i), sdkWalletQuickstart(i), featuresLeadWithWallets(i)); break
-    case 1: list.push(agentLimit(i)); break
+    // B28.22 — then an agent's balance in dollars and its allowed model picked, not typed.
+    case 1: list.push(agentLimit(i), walletCurrency(i)); break
     case 2: list.push(agentPauseAll(i)); break
     case 3: list.push(agentApproval(i)); break
     case 4: if (i + 5 < users) list.push(companyPayment(i, i + 5)); break

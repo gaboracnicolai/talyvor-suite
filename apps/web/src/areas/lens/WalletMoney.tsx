@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input, Pill, Row, type PillStatus } from '@talyvor/ui'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
+import { Lxc } from './money'
 import {
   type Agent,
   type AgentTransfer,
@@ -32,7 +33,7 @@ const CREDIT_KEY = ['wallet-credit-line']
 const BOOK_KEY = ['agent-book']
 const transfersKey = (id: string) => ['agent-transfers', id]
 
-const lxc = (micros: number) => <span className="font-figure">{formatULXC(micros)}</span>
+const lxc = (micros: number) => <Lxc ulxc={micros} />
 
 export function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (

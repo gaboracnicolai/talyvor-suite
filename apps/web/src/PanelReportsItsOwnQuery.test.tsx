@@ -160,8 +160,8 @@ function mockBff(refusals: Array<[string, number]> = []) {
  * addresses are swept anyway — the property is general, and their cost is one render each.
  */
 const ADDRESS_ROUTES: Record<string, string[]> = {
-  // B28.6 — `/` is the wallet home; Overview moved to /overview with the same reads.
-  '/': ['/api/agents', '/api/agents/agt_1/rules', '/api/agents/approvals', '/api/agents/forecast', '/api/docs/membership', '/api/docs/pins'],
+  // B28.6 — `/` is the wallet home; Overview moved to /overview with the same reads. B28.22 — and the LXC peg, for dollars.
+  '/': ['/api/agents', '/api/agents/agt_1/rules', '/api/agents/approvals', '/api/agents/forecast', '/api/docs/membership', '/api/docs/pins', '/api/lxc/topup-options'],
   '/overview': ['/api/agents/approvals', '/api/bonds', '/api/docs/membership', '/api/docs/pins', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/history', '/api/spend/month', '/api/tokens/balance', '/api/tokens/history', '/api/track/workspaces', '/api/usage'],
   '/ledger': ['/api/agents/approvals', '/api/docs/membership', '/api/docs/pins', '/api/lxc/history'],
   '/billing': ['/api/agents/approvals', '/api/billing/allowance', '/api/docs/membership', '/api/docs/pins', '/api/lxc/balance', '/api/lxc/topup-options'],
@@ -253,9 +253,9 @@ describe('the swept set', () => {
     // 28 → 38 at B18.27: the sidebar's pinned pages are read from Docs on every address.
     // 38 → 48 at B27.15: the sidebar asks Docs whether the person is a member first, on every address; 48 → 49 at B27.27 (/settings reads the provider keys); 49 → 50 at B27.32 (/spend reads the measured saving).
     // 50 → 56 at B28.6: the wallet home at `/` (its book, an agent's rules, approvals, forecast, and the sidebar's two).
-    // 56 → 66 at B28.7: the sidebar's Approvals badge reads the approvals on every address (`/` already did).
+    // 56 → 66 at B28.7: the sidebar's Approvals badge reads the approvals on every address (`/` already did). 67 at B28.22: `/` reads the peg.
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(66)
+    expect(pairs).toBe(67)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {

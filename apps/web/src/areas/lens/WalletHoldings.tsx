@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input, Pill, Row, focusRing, type PillStatus } from '@talyvor/ui'
 import { formatUSD, formatWhen } from './format'
+import { Lxc } from './money'
 import {
   type Agent,
   type CashOut,
@@ -11,7 +12,6 @@ import {
   type SimOrder,
   type SimOrderInput,
   agentBankApi,
-  formatULXC,
   newMoveKey,
   parseLXC,
   refusalText,
@@ -33,7 +33,7 @@ const portfoliosKey = (id: string) => ['agent-portfolios', id]
 
 const selectClass = `h-8 rounded-control border border-rule bg-surface px-2 text-body text-ink transition-colors duration-200 hover:border-rule-strong ${focusRing}`
 
-const lxc = (micros: number) => <span className="font-figure">{formatULXC(micros)}</span>
+const lxc = (micros: number) => <Lxc ulxc={micros} />
 
 /** A date field's `YYYY-MM-DD` → the start of that day, here, as RFC 3339. Null for an empty or bad date. */
 function startOfDay(date: string): string | null {

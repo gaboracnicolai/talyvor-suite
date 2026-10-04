@@ -44,6 +44,10 @@ type app struct {
 
 	// public caches /api/pricing's Lens reads, so an anonymous route does not dial Lens per hit.
 	public pricingReads
+
+	// fx caches the ECB's euro reference rates for /api/fx (fx.go); fxSource is where they are read.
+	fx       fxReads
+	fxSource string
 }
 
 func newApp(cfg config, auth *authenticator) *app {
@@ -54,6 +58,7 @@ func newApp(cfg config, auth *authenticator) *app {
 		client:       &http.Client{Timeout: 10 * time.Second, Transport: newRestartTolerantTransport(http.DefaultTransport, cfg.lensRestartWait)},
 		streamClient: newStreamClient(cfg.lensRestartWait),
 		sessionKeys:  map[string]sessionKeyLease{},
+		fxSource:     ecbDailyURL,
 	}
 
 	// The auth surface. Registered in every mode: in disabled mode the login
@@ -422,6 +427,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	// for why a 404 from Lens means "billing is off" on this route specifically.
 	a.mux.HandleFunc("/api/lxc/topup-options", a.requireTenant(a.handleTopUpOptions))
 	a.mux.HandleFunc("/api/lxc/checkout", a.requireTenant(a.handleLXCCheckout))
+	// B28.22 — the ECB's euro rates, so the wallet screens can show an LXC amount in pounds or euros.
+	a.mux.HandleFunc("/api/fx", a.requireTenant(a.handleFX))
 
 	// LENS → LXC conversion: the exit earned LENS did not have. Both behind requireTenant, so
 	// the workspace is the SESSION's; the write additionally requires a same-origin post. See
