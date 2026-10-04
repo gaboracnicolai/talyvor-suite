@@ -146,7 +146,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/spend': 4,
   '/members': 1,
   '/operator': 0,
-  '/settings': 2,
+  // 2 → 3 at B27.27: "Your provider keys".
+  '/settings': 3,
   '/features': 0,
   '/features/try/tare': 0,
   '/features/try/conversion': 0,

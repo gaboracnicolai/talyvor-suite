@@ -106,6 +106,13 @@ const BODIES: Record<string, unknown> = {
 
   '/api/distill': { converted: 12, vision_ocr: 3, days: 30 },
 
+  // B27.27 — Settings' "Your provider keys": the fixture's plan is Plus, so not BYOK and no key held.
+  '/api/provider-keys': {
+    capability: 'provider_keys',
+    enabled: true,
+    data: { byok: false, providers: ['anthropic', 'google', 'groq', 'mistral', 'openai'], keys: [] },
+  },
+
   '/api/earnings': {
     workspace_id: 'ws-fixture',
     contribution_settled_ulens: 6_000_000,

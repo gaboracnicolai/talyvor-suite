@@ -5,6 +5,7 @@ import { ApiError } from '../../lib/api'
 import { useAuthMeReader } from '../../lib/authMe'
 import { DocumentFacts, DistillChoice } from './Documents'
 import { StoredAnswersFacts } from '../../components/StoredAnswersFacts'
+import { ProviderKeysCard } from './ProviderKeys'
 
 // Sharing.tsx — cross-tenant answer sharing: the explanation, and the control.
 //
@@ -152,6 +153,9 @@ export function Settings() {
           <DistillChoice />
         </div>
       </Card>
+
+      {/* B27.27 — BYOK's keys: added, replaced and removed here, only their last four ever shown. */}
+      <ProviderKeysCard />
     </div>
   )
 }

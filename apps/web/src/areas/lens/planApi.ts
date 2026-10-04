@@ -38,6 +38,8 @@ export interface SubscriptionStatus {
   /** Cancelled at the end of the period already paid for: it will not renew. */
   cancel_at_period_end: boolean
   livemode: boolean
+  /** B27.27 — the BYOK plan (Lens B27.26): own provider keys, no tokens charged, no included usage. */
+  byok?: boolean
 }
 
 /** A cancel or resume Lens refused, with the sentence it gave. */
@@ -84,7 +86,7 @@ export const planApi = {
 
 /* ── B13.3 — the three plans, and starting one ─────────────────────────────── */
 
-export type PlanId = 'plus' | 'pro' | 'max'
+export type PlanId = 'plus' | 'pro' | 'max' | 'byok'
 
 export interface PlanOffer {
   id: PlanId
@@ -105,6 +107,28 @@ export const PLANS: readonly PlanOffer[] = [
   { id: 'pro', name: 'Pro', usd_cents: 10000, usage: '5× the included usage of Plus' },
   { id: 'max', name: 'Max', usd_cents: 20000, usage: '10× the included usage of Plus' },
 ]
+
+/**
+ * B27.27 — BYOK, the one subscription tier that is not usage (Lens B27.26): the workspace brings its own
+ * provider keys and pays $199 a month (Nicolai's decision of 4 Oct 2026, Stripe TEST price
+ * talyvor_byok_monthly) instead of tokens. It grants no included usage, so it has no allowance and is
+ * read from the subscription (`byok`), never from a fee.
+ */
+export const BYOK: PlanOffer = {
+  id: 'byok',
+  name: 'BYOK',
+  usd_cents: 19900,
+  usage: 'No included usage — your provider bills your tokens',
+}
+
+/** The providers a BYOK key can be added for (talyvor-lens internal/byok.Providers), as they are named. */
+export const BYOK_PROVIDERS: Record<string, string> = {
+  anthropic: 'Anthropic',
+  google: 'Google',
+  groq: 'Groq',
+  mistral: 'Mistral',
+  openai: 'OpenAI',
+}
 
 /** The plan a period's fee is the price of, or null when the fee matches none of them. */
 export function planForFee(feeUSDCents: number): PlanOffer | null {
@@ -158,7 +182,7 @@ export function readPendingPlan(now: number = Date.now()): { plan: PlanOffer; at
     if (!raw) return null
     const p = JSON.parse(raw) as { plan?: string; at?: number }
     if (typeof p.at !== 'number' || now - p.at > PENDING_PLAN_MAX_AGE_MS) return null
-    const plan = PLANS.find((o) => o.id === p.plan)
+    const plan = [...PLANS, BYOK].find((o) => o.id === p.plan)
     return plan ? { plan, at: p.at } : null
   } catch {
     return null

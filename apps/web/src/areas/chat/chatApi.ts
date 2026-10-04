@@ -432,13 +432,15 @@ export async function markAnswerWrong(requestId: string): Promise<void> {
 
 /**
  * B15.6 — where the answer came from. A pooled serve is replayed too, so the pool's headers are read
- * first; an own-cache replay carries no price headers because it is free.
+ * first; an own-cache replay carries no price headers because it is free. B27.27 — a BYOK workspace's
+ * answer the model wrote on its own key carries X-Talyvor-BYOK: own-key and was charged no tokens.
  */
 function answerSource(h: Headers): AnswerSource | undefined {
   const rate = Number(h.get('X-Talyvor-Pool-Discount-Rate') ?? NaN)
   const charged = Number(h.get('X-Talyvor-Pool-Charged-ULXC') ?? NaN)
   if (Number.isFinite(rate) && Number.isFinite(charged)) return { kind: 'pool', discount_rate: rate, charged_ulxc: charged }
   if (h.get('X-Talyvor-Cache-Replay') === 'true') return { kind: 'cache' }
+  if (h.get('X-Talyvor-BYOK') === 'own-key') return { kind: 'own_key' }
   return undefined
 }
 

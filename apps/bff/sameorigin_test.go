@@ -262,6 +262,8 @@ func everyMutatingRoute() []mutatingRoute {
 		// wrong names survived because no assertion here has ever looked past the status code.
 		{method: http.MethodPost, path: "/api/lxc/checkout", body: `{"usd_cents":5000}`},
 		{method: http.MethodPost, path: "/api/billing/subscribe", body: `{"plan":"plus"}`},
+		{method: http.MethodPut, path: "/api/provider-keys/openai", body: `{"key":"sk-test-abcdefgh"}`},
+		{method: http.MethodDelete, path: "/api/provider-keys/openai", body: ``},
 		{method: http.MethodPost, path: "/api/lens/convert", body: `{"lxc_amount_ulxc":100000}`},
 		{method: http.MethodPost, path: "/api/track/issues", body: `{"title":"t"}`},
 		{method: http.MethodPost, path: "/api/track/projects", body: `{"team_id":"t","name":"n","identifier":"N"}`},
@@ -401,6 +403,11 @@ var notSweptWrite = map[string]string{
 	//   · TestStream_UsesANarrowSessionKeyNotTheWorkspaceSessionToken — the same request with the
 	//     app's own Origin ARRIVES upstream, which is what stops the line above passing against a
 	//     route that refuses everything.
+	// B27.27 — swept by the two /api/provider-keys/openai rows in everyMutatingRoute(): routeShape cannot turn
+	// a provider name into {id}, and the handler refuses a provider outside Lens's list with 400, so a
+	// probe-shaped row (/api/provider-keys/x1) would be swept for a refusal of its own.
+	"/api/provider-keys/{provider}": "swept as /api/provider-keys/openai (PUT and DELETE) in everyMutatingRoute(); " +
+		"routeShape cannot express a provider name, and x1 is refused by the handler's own provider check.",
 	"/api/ai/stream/{provider}/{rest...}": "streaming inference; swept directly by TestStream_ForeignOriginIsRefused " +
 		"(refusal, upstream untouched) and TestStream_UsesANarrowSessionKeyNotTheWorkspaceSessionToken (same-origin " +
 		"arrival). It cannot go through this table: routeShape cannot express {rest...}, and the handler's own " +

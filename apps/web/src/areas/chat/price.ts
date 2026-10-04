@@ -92,10 +92,13 @@ export type AnswerSource =
   | { kind: 'cache' }
   /** Another workspace's answer from the shared pool, at a discount (X-Talyvor-Pool-*). */
   | { kind: 'pool'; discount_rate: number; charged_ulxc: number }
+  /** B27.27 — the model answered on this workspace's own provider key (X-Talyvor-BYOK). No tokens charged. */
+  | { kind: 'own_key' }
 
-/** The footer line for an answer that did not come from the model just now. */
+/** The footer line for an answer that did not come from the model just now, or not on Talyvor's key. */
 export function answerSourceLine(source: AnswerSource): string {
   if (source.kind === 'cache') return 'from your earlier answer · 0 LXC'
+  if (source.kind === 'own_key') return 'on your own key · no tokens charged'
   // Lens charged credits (µLXC), so the figure is already credits: formatAnswerCost at a peg of 1.
   const charged = formatAnswerCost(source.charged_ulxc / 1_000_000, 1)
   return `shared answer · ${Math.round(source.discount_rate * 100)}% off · ${charged}`
