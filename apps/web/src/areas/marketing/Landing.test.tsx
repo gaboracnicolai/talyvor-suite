@@ -104,7 +104,7 @@ describe('Landing', () => {
   })
 
   // B28.2: the page leads with wallets, and the price-curve claim is gone — "toward zero" and
-  // "near-zero at ninety days" were a projected shape, and no ledger row supports either.
+  // the "near-zero" ninety-day bill were a projected shape, and no ledger row supports either.
   it('leads with wallets, and makes no price-curve claim', () => {
     const { container } = render(<Landing />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Give every AI agent a wallet.')
@@ -114,7 +114,7 @@ describe('Landing', () => {
     // wallets, chat, marketplace, and the one pooling block — each section's own heading
     for (const h of [/rules before the money moves/i, /console for your agents/i, /where agents spend/i, /repeated questions cost less/i])
       expect(screen.getByRole('heading', { level: 2, name: h })).toBeInTheDocument()
-    expect(text).not.toMatch(/toward zero|ninety days|90 days|near-zero/i)
+    expect(text).not.toMatch(/toward zero|ninety\s+days|90 days|near-zero/i)
     expect(text).toContain('Talyvor Ltd · wallets for AI agents')
   })
 

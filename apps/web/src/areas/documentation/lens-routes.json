@@ -137,10 +137,10 @@
     {
       "id": "pool",
       "title": "Shared answers and earnings",
-      "about": "Opt in to the pool, see what your answers earned in LENS, and remove what you stored.",
+      "about": "Turn answer sharing on or off (it is on for a new workspace), see what your answers earned in LENS, and remove what you stored.",
       "screen": { "href": "/earnings", "label": "Earnings" },
       "routes": [
-        { "method": "PUT", "path": "/v1/workspaces/{wsID}/cache-poolable", "does": "Opt in or out of serving and reusing pooled answers" },
+        { "method": "PUT", "path": "/v1/workspaces/{wsID}/cache-poolable", "does": "Turn serving and reusing pooled answers on or off (on for a new workspace)" },
         { "method": "PUT", "path": "/v1/workspaces/{wsID}/distill-poolable", "does": "Opt in or out of sharing converted documents" },
         { "method": "GET", "path": "/v1/workspaces/{wsID}/stored-answers", "does": "How many answers you have stored" },
         { "method": "DELETE", "path": "/v1/workspaces/{wsID}/stored-answers", "does": "Delete your stored answers" },

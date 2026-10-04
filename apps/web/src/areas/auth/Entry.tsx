@@ -137,8 +137,8 @@ export function SignUp() {
           <h1 className="text-title text-ink">Create your Talyvor workspace</h1>
           {/* WHAT IT IS, in one line. A stranger decides here whether to keep reading. */}
           <p className="text-body text-muted">
-            Talyvor is a self-hosted AI development suite: an inference gateway with a real
-            ledger, an issue tracker, a team wiki, and a coding agent.
+            Talyvor gives every AI agent a wallet: a budget, spending rules, approvals and a live
+            statement, enforced before the model call or the payment.
           </p>
         </div>
 

@@ -115,8 +115,8 @@ const NOT_CHARGED: Array<{ title: string; body: string }> = [
     body: 'Everyone in a workspace draws on the same balance. Adding a member costs nothing.',
   },
   {
-    title: 'No monthly minimum.',
-    body: 'Nothing recurs. After a top-up, nothing is due until you choose to top up again — a balance you are not using costs nothing.',
+    title: 'No minimum on prepaid credit.',
+    body: 'A balance you are not using costs nothing, and nothing is due on it until you top up again. A plan or BYOK, if you choose one, is billed every month.',
   },
   {
     title: 'No top-up fee.',
@@ -214,7 +214,7 @@ export function Pricing() {
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
             <SectionLabel index="03">What you are not charged for</SectionLabel>
             <h2 id="not-charged-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
-              The only charge is the requests you run.
+              What prepaid credit does not charge for.
             </h2>
             <div className="mt-10 grid gap-x-12 gap-y-8 wide:grid-cols-2">
               {NOT_CHARGED.map((n) => (
@@ -248,7 +248,7 @@ export function Pricing() {
       <footer className="border-t border-rule">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-gutter py-6">
           <div className="font-figure text-eyebrow uppercase text-faint">
-            Talyvor Ltd · self-hosted AI development
+            Talyvor Ltd · wallets for AI agents
           </div>
           <div className="text-caption text-faint">
             <a href="/privacy" className={inlineLink}>

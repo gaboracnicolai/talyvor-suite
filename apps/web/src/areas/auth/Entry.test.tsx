@@ -131,7 +131,8 @@ describe('the signup page is written for someone who has never heard of us', () 
     const text = document.body.textContent ?? ''
 
     // 1. what it is — in one line, on the page, before they commit to anything.
-    expect(text).toMatch(/inference gateway|AI development suite/i)
+    expect(text).toMatch(/gives every AI agent a wallet/i)
+    expect(text).not.toMatch(/self-hosted/i) // B28.3: nothing self-hosts Lens
     // 2. what happens when they continue — no surprise redirect.
     expect(text).toMatch(/you[’']ll be (sent|taken)/i)
     // 3. what they get — the thing on the other side.

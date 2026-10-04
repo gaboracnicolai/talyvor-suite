@@ -125,8 +125,8 @@ export function Privacy() {
           If another company asks a question close enough in meaning to one you have already asked,
           they may be served <strong>the answer that was generated for you</strong>, in full, rather
           than paying a provider to generate it again. The reverse is also true: you may be served
-          answers generated for them. This is what makes reuse earn, and it is why the product is
-          cheaper than going direct.
+          answers generated for them. This is what makes reuse earn, and it is why a reused answer is
+          charged less than its list price.
         </p>
         <p className="mt-3 text-body text-muted">
           <strong className="text-ink">Your prompts are not served to anyone.</strong> Matching uses
