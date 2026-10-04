@@ -24,6 +24,8 @@ import (
 //	GET  /api/agents/{id}/statement?from=&to=&format=json|csv   B19.22: its statement for a period, to download
 //	GET  /api/agents/statement?from=&to=&format=json|csv        B19.22: every account in the bank, for a period
 //	POST /api/agents/{id}/claim                        B19.23: the signed-in person becomes an ownerless agent's owner
+//	PATCH /api/agents/{id}              {"name"?, "description"?}   B28.21: rename it, describe it
+//	POST /api/agents/{id}/archive                      B28.21: retire it — its balance back to the workspace, its keys revoked
 //	GET  /api/agents/{id}/card                         B19.24: its test-mode card and every purchase on it (404: none)
 //	POST /api/agents/{id}/card          {cardholder}   B19.24: issue it one, the cardholder's name and billing address
 //	POST /api/agents/{id}/pay           {"to_agent_id", "amount_ulxc", "memo"}   pay another of this workspace's agents
@@ -310,6 +312,47 @@ func (a *app) handleAgentClaim(w http.ResponseWriter, r *http.Request, t tenant)
 		return
 	}
 	if suffix, ok := agentSuffix(w, r, "claim"); ok {
+		a.agentBankRelay(w, r, t, http.MethodPost, suffix, nil)
+	}
+}
+
+// handleAgent — PATCH /api/agents/{id} (B28.21): renames the agent and/or sets what it is for. Either field
+// or both; an absent one is sent as null, which Lens leaves as it is. Lens answers the agent.
+func (a *app) handleAgent(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPatch {
+		methodNotAllowed(w, http.MethodPatch)
+		return
+	}
+	id, ok := pathID(w, "agent id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	var in struct {
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	if in.Name == nil && in.Description == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "send a new name, a description, or both"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensAgentUpdateBody: none
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPatch, "/agents/"+url.PathEscape(id), body)
+}
+
+// handleAgentArchive — POST /api/agents/{id}/archive (B28.21): Lens retires the agent in one step — its
+// whole balance back to the workspace as one withdraw entry, its proxy keys revoked, its top-up and
+// schedules stopped — and answers what it did: swept_ulxc, revoked_keys, archived_at.
+func (a *app) handleAgentArchive(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	if suffix, ok := agentSuffix(w, r, "archive"); ok {
 		a.agentBankRelay(w, r, t, http.MethodPost, suffix, nil)
 	}
 }

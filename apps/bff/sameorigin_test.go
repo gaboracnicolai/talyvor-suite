@@ -222,6 +222,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/claim", body: `{}`},
+		{method: http.MethodPatch, path: "/api/agents/x1", body: `{"name":"Renamed"}`},
+		{method: http.MethodPost, path: "/api/agents/x1/archive", body: `{}`},
 		// B22.10 — money between owners.
 		{method: http.MethodPut, path: "/api/agents/x1/handle", body: `{"handle":"acme"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/send", body: `{"to":"@bea","amount_ulxc":1,"memo":""}`},

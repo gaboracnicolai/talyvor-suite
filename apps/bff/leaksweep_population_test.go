@@ -392,9 +392,14 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	//
 	// THE SEVENTY-SIXTH IS B27.37'S PROSE-MODEL SWITCH, /api/features/tare-model: /api/features/tare'S
 	// KIND, read back through GET /api/features as tare_model; it answers only what Lens recorded.
-	if len(methodOnly) > 76 {
+	//
+	// THE SEVENTY-SEVENTH AND SEVENTY-EIGHTH ARE B28.21'S AGENT LIFECYCLE, write only: PATCH
+	// /api/agents/{id} (its name and description) and POST /api/agents/{id}/archive. What they change is
+	// read back through GET /api/agents (each agent's name, description and archived_at) and its
+	// statement, which the sweep reaches. Each relays Lens's answer (or its refusal) and holds nothing.
+	if len(methodOnly) > 78 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 76 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 78 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

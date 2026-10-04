@@ -15,6 +15,7 @@ import { CashOutCard, CashOuts, Escrows, PayIntoEscrow, Portfolios, Pots } from 
 import {
   type Agent,
   type AgentApproval,
+  type AgentArchive,
   type ApprovalPayee,
   type AgentBook,
   type AgentKey,
@@ -517,6 +518,7 @@ function AgentList({ agents, selected, onSelect }: { agents: Agent[]; selected: 
           }
         >
           <div className="flex items-center gap-3">
+            {a.archived_at ? <Pill status="idle">Archived</Pill> : null}
             {a.paused_at ? <Pill status="parked">Paused</Pill> : null}
             {a.owner_user_id === '' ? <Pill status="held">No owner</Pill> : a.verified ? <Pill status="settled">Verified</Pill> : null}
             <span className="font-figure text-body text-ink" data-testid={`agent-balance-${a.id}`}>
@@ -641,6 +643,113 @@ function Ownership({ agent }: { agent: Agent }) {
         </>
       )}
     </div>
+  )
+}
+
+/** B28.21 — the agent's name and what it is for, in its owner's words (Lens keeps up to 500 characters). */
+function AgentDetails({ agent }: { agent: Agent }) {
+  const qc = useQueryClient()
+  const [name, setName] = useState(agent.name)
+  const [description, setDescription] = useState(agent.description ?? '')
+  const save = useMutation({
+    mutationFn: () => agentBankApi.update(agent.id, { name: name.trim(), description: description.trim() }),
+    onSettled: () => qc.invalidateQueries({ queryKey: BOOK_KEY }),
+  })
+  const changed = name.trim() !== agent.name || description.trim() !== (agent.description ?? '')
+  return (
+    <Card>
+      <CardHeader>Name and description</CardHeader>
+      <form
+        className="flex flex-col gap-2 px-gutter py-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (changed && name.trim() !== '' && !save.isPending) save.mutate()
+        }}
+      >
+        <Input aria-label={`Name of ${agent.name}`} placeholder="Agent name" value={name} onChange={(e) => setName(e.target.value)} />
+        <textarea
+          aria-label={`What ${agent.name} is for`}
+          maxLength={500}
+          rows={3}
+          placeholder="What it is for, e.g. answers support tickets overnight"
+          className={`w-full rounded-control border border-rule bg-surface p-3 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <div>
+          <Button type="submit" variant="primary" disabled={!changed || name.trim() === '' || save.isPending}>
+            Save
+          </Button>
+        </div>
+        {save.isSuccess && !changed ? <Note ok>Saved.</Note> : null}
+        {save.isError ? <Note ok={false}>{refusalText(save.error)}</Note> : null}
+      </form>
+    </Card>
+  )
+}
+
+/**
+ * B28.21 — archiving retires the agent for good (Lens B28.298): in one step its whole balance goes back to
+ * the workspace as one withdraw entry, its keys stop working, and its top-up and schedules stop. Asked twice.
+ */
+function ArchiveAgent({ agent, onArchived }: { agent: Agent; onArchived: (done: AgentArchive) => void }) {
+  const qc = useQueryClient()
+  const [asking, setAsking] = useState(false)
+  const archive = useMutation({
+    mutationFn: () => agentBankApi.archive(agent.id),
+    onSuccess: onArchived,
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: BOOK_KEY }),
+        qc.invalidateQueries({ queryKey: statementKey(agent.id) }),
+      ]),
+  })
+  const keys = agent.keys.length
+  return (
+    <Card>
+      <CardHeader>Archive</CardHeader>
+      <div className="flex flex-col gap-2 px-gutter py-3">
+        <p className="text-body text-ink">
+          Archiving {agent.name} moves the {lxc(agent.balance_ulxc)} it holds back to the workspace, stops its{' '}
+          <span className="font-figure">{keys}</span> {keys === 1 ? 'key' : 'keys'} working, and ends its top-up and
+          schedules. Its statement is kept. It cannot be undone.
+        </p>
+        {asking ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="danger" disabled={archive.isPending} onClick={() => archive.mutate()}>
+              {archive.isPending ? 'Archiving…' : `Yes, archive ${agent.name}`}
+            </Button>
+            <Button disabled={archive.isPending} onClick={() => setAsking(false)}>
+              Keep it
+            </Button>
+          </div>
+        ) : (
+          <div>
+            <Button variant="danger" onClick={() => setAsking(true)}>
+              Archive {agent.name}
+            </Button>
+          </div>
+        )}
+        {archive.isError ? <Note ok={false}>{refusalText(archive.error)}</Note> : null}
+      </div>
+    </Card>
+  )
+}
+
+/** B28.21 — an archived agent: when, and what archiving did when this screen did it. */
+function Archived({ agent, done }: { agent: Agent; done: AgentArchive | undefined }) {
+  return (
+    <p role="status" className="text-body text-ink" data-testid="agent-archived">
+      {agent.name} was archived <span className="font-figure">{formatWhen(agent.archived_at ?? '')}</span>
+      {done ? (
+        <>
+          : {lxc(done.swept_ulxc)} went back to the workspace and{' '}
+          <span className="font-figure">{done.revoked_keys.length}</span> {done.revoked_keys.length === 1 ? 'key was' : 'keys were'}{' '}
+          revoked
+        </>
+      ) : null}
+      . It can no longer be funded, spend or pay; its statement is kept below.
+    </p>
   )
 }
 
@@ -1352,8 +1461,11 @@ export function AgentBank() {
   const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
   const [chosen, setChosen] = useState<string | null>(null)
   const [held, setHeld] = useState<Record<string, HeldPayment>>({})
+  const [archived, setArchived] = useState<Record<string, AgentArchive>>({})
   const agents = book.data?.agents ?? []
-  const agent = agents.find((a) => a.id === chosen) ?? agents[0] ?? null
+  // B28.21 — an archived agent stays listed, but is no one's payee and is not the one opened first.
+  const live = agents.filter((a) => !a.archived_at)
+  const agent = agents.find((a) => a.id === chosen) ?? live[0] ?? agents[0] ?? null
   const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? 'an agent'
   return (
     <RegionScreen>
@@ -1420,38 +1532,59 @@ export function AgentBank() {
           <p className="text-head text-ink" data-testid="agent-open">
             {agent.name}
           </p>
-          <Ownership agent={agent} />
-          <PauseAgent agent={agent} />
-          <Money agent={agent} book={book.data} />
-          <Rules key={`rules-${agent.id}`} agent={agent} />
-          {agents.length > 1 ? (
-            <Pay
-              key={`pay-${agent.id}`}
-              agent={agent}
-              agents={agents}
-              waiting={held}
-              onHeld={(id, p) => setHeld((h) => ({ ...h, [id]: p }))}
-            />
+          {agent.description ? (
+            <p className="text-body text-muted" data-testid="agent-description">
+              {agent.description}
+            </p>
+          ) : null}
+          {agent.archived_at ? (
+            <>
+              <Archived agent={agent} done={archived[agent.id]} />
+              <AgentDetails key={`details-${agent.id}`} agent={agent} />
+              <Statement agent={agent} nameOf={nameOf} />
+            </>
           ) : (
-            <Card>
-              <CardHeader>Pay another agent</CardHeader>
-              <p className="px-gutter py-3 text-body text-muted">Create a second agent to pay it from this one.</p>
-            </Card>
+            <>
+              <Ownership agent={agent} />
+              <PauseAgent agent={agent} />
+              <AgentDetails key={`details-${agent.id}`} agent={agent} />
+              <Money agent={agent} book={book.data} />
+              <Rules key={`rules-${agent.id}`} agent={agent} />
+              {live.length > 1 ? (
+                <Pay
+                  key={`pay-${agent.id}`}
+                  agent={agent}
+                  agents={live}
+                  waiting={held}
+                  onHeld={(id, p) => setHeld((h) => ({ ...h, [id]: p }))}
+                />
+              ) : (
+                <Card>
+                  <CardHeader>Pay another agent</CardHeader>
+                  <p className="px-gutter py-3 text-body text-muted">Create a second agent to pay it from this one.</p>
+                </Card>
+              )}
+              <AgentAddress key={`address-${agent.id}`} agent={agent} />
+              <SendAndRequest key={`send-${agent.id}`} agent={agent} />
+              <AgentTransfers agent={agent} />
+              <Schedules key={`schedules-${agent.id}`} agent={agent} agents={live} nameOf={nameOf} />
+              <RecurringTransfer key={`recurring-${agent.id}`} agent={agent} />
+              <OfferLoan key={`loan-${agent.id}`} agent={agent} />
+              <PayIntoEscrow key={`escrow-${agent.id}`} agent={agent} />
+              <Pots key={`pots-${agent.id}`} agent={agent} />
+              <Portfolios key={`portfolios-${agent.id}`} agent={agent} />
+              <CashOutCard key={`cash-out-${agent.id}`} agent={agent} />
+              <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
+              <IssueKey key={`key-${agent.id}`} agent={agent} />
+              <AgentCardPanel key={`card-${agent.id}`} agent={agent} />
+              <Statement agent={agent} nameOf={nameOf} />
+              <ArchiveAgent
+                key={`archive-${agent.id}`}
+                agent={agent}
+                onArchived={(done) => setArchived((m) => ({ ...m, [done.agent_id]: done }))}
+              />
+            </>
           )}
-          <AgentAddress key={`address-${agent.id}`} agent={agent} />
-          <SendAndRequest key={`send-${agent.id}`} agent={agent} />
-          <AgentTransfers agent={agent} />
-          <Schedules key={`schedules-${agent.id}`} agent={agent} agents={agents} nameOf={nameOf} />
-          <RecurringTransfer key={`recurring-${agent.id}`} agent={agent} />
-          <OfferLoan key={`loan-${agent.id}`} agent={agent} />
-          <PayIntoEscrow key={`escrow-${agent.id}`} agent={agent} />
-          <Pots key={`pots-${agent.id}`} agent={agent} />
-          <Portfolios key={`portfolios-${agent.id}`} agent={agent} />
-          <CashOutCard key={`cash-out-${agent.id}`} agent={agent} />
-          <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
-          <IssueKey key={`key-${agent.id}`} agent={agent} />
-          <AgentCardPanel key={`card-${agent.id}`} agent={agent} />
-          <Statement agent={agent} nameOf={nameOf} />
         </Region>
       ) : null}
 

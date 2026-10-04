@@ -75,7 +75,7 @@ interface Rules {
   timezone: string
   pause_on_unusual_spend: boolean
 }
-interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules }
+interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string }
 interface Posting { posting_id: number; entry_id: string; at: string; ws: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string }
 interface Approval {
   id: string; ws: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; decided_at?: string; fingerprint: string
@@ -199,6 +199,7 @@ export class Bank {
       pots_ulxc: this.pots.filter((p) => p.agent_id === a.id).reduce((s, p) => s + this.balance(`pot:${p.id}`), 0),
       spent_ulxc: this.postings.filter((p) => p.account === `agent:${a.id}` && p.kind === 'spend').reduce((s, p) => s - p.amount_ulxc, 0),
       keys: a.keys, created_at: a.created_at, paused_at: a.paused_at, paused_reason: a.paused_reason, owner_user_id: a.owner_user_id, verified: false,
+      description: a.description ?? '', archived_at: a.archived_at,
     }))
     const allocated = agents.reduce((s, a) => s + a.balance_ulxc + a.pots_ulxc, 0)
     const paused = this.allPaused.get(ws.id)
@@ -839,6 +840,24 @@ export class Bank {
       const a = this.agents.get(m[1])
       if (a === undefined || a.ws !== ws.id) return json(res, 404, { error: 'economy: no such agent in this workspace' }), true
       const action = m[2] ?? ''
+      // B28.21 — Lens B28.298's lifecycle: rename and describe; archive sweeps the balance in one withdraw and revokes the keys.
+      if (action === '' && method === 'PATCH') {
+        const b = await this.body<{ name?: string | null; description?: string | null }>(req)
+        if (b.name != null && b.name.trim() === '') return json(res, 400, { error: "economy: invalid agent details: an agent's name cannot be blank" }), true
+        if (b.name != null) a.name = b.name.trim()
+        if (b.description != null) a.description = b.description.trim()
+        return json(res, 200, (this.book(ws) as { agents: { id: string }[] }).agents.find((x) => x.id === a.id)), true
+      }
+      if (action === '/archive' && method === 'POST') {
+        if (a.archived_at !== undefined) return json(res, 409, { error: 'economy: this agent is archived' }), true
+        const swept = this.balance(`agent:${a.id}`)
+        if (swept > 0) this.post(ws.id, 'withdraw', [[`agent:${a.id}`, -swept, 'workspace'], ['workspace', swept, `agent:${a.id}`]], `archive:${a.id}`)
+        for (const [k, owner] of this.keys) if (owner === a) this.keys.delete(k)
+        const revoked = a.keys
+        a.keys = []
+        a.archived_at = now
+        return json(res, 200, { agent_id: a.id, swept_ulxc: swept, revoked_keys: revoked, archived_at: now }), true
+      }
       if (action === '/keys' && method === 'POST') {
         const key = 'tlv_' + randomBytes(24).toString('hex')
         const keyID = id('key_')

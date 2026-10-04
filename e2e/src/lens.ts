@@ -46,6 +46,9 @@ export interface Agent {
   owner_user_id?: string
   /** B25.4 — what its pots hold, beside its balance */
   pots_ulxc?: number
+  /** B28.21 — what it is for, and when it was archived (swept to zero, its keys revoked) */
+  description?: string
+  archived_at?: string
 }
 
 /** B25.4 — Lens economy.AgentTransfer (B22.3): credits moved between two agents, of one owner or two. */
