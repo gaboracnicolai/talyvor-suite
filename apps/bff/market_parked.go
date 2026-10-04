@@ -55,5 +55,6 @@ func (a *app) handleParkedUseRetry(w http.ResponseWriter, r *http.Request, s ses
 	if !ok {
 		return
 	}
-	a.moderate(w, r, s, a.client, http.MethodPost, "/v1/admin/marketplace/parked-uses/"+url.PathEscape(id)+"/retry", nil)
+	a.moderate(w, r, s, a.client, http.MethodPost, "/v1/admin/marketplace/parked-uses/"+url.PathEscape(id)+"/retry", nil,
+		&operatorAction{action: auditParkedRetry, target: "parked_use:" + id})
 }

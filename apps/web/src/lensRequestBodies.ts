@@ -363,6 +363,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'func newMarketTakedownHandler(store *market.Store, refunder market.Refunder) http.Handler {',
     subject: 'lensMarketTakedownBody',
   },
+  // B27.29 — every operator action is recorded in Lens's operator trail.
+  {
+    route: 'POST /v1/admin/operator-audit/record',
+    file: 'apps/bff/operator_audit.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"action": act.action, "target": act.target, "detail": act.detail})',
+    upstreamFile: 'cmd/lens/operator_audit_handler.go',
+    upstreamAnchor: 'func newOperatorAuditRecordHandler(store operatorAuditStore) http.Handler {',
+    subject: 'lensOperatorAuditRecordBody',
+  },
   // B20.6 — a seller connects a Stripe account to be paid.
   {
     route: 'POST /v1/workspaces/{wsID}/marketplace/payouts/connect',

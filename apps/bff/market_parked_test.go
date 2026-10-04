@@ -26,7 +26,8 @@ func TestParkedUses_ReadOnTheOperatorKeyRetryOnTheModeratorKey(t *testing.T) {
 		got.auth != "Bearer tlv_mod_abc" || got.operator != "op@example.com sub=sub-operator" {
 		t.Fatalf("Lens was asked %+v", got)
 	}
-	if rec := reviewCall(a, user, http.MethodPost, "/api/admin/marketplace/parked-uses/u1/retry", ""); rec.Code != http.StatusForbidden || len(*seen) != 2 {
-		t.Fatalf("a non-operator's retry: %d (lens calls %d)", rec.Code, len(*seen))
+	before := len(*seen) // the retry and its operator-trail record (B27.29)
+	if rec := reviewCall(a, user, http.MethodPost, "/api/admin/marketplace/parked-uses/u1/retry", ""); rec.Code != http.StatusForbidden || len(*seen) != before {
+		t.Fatalf("a non-operator's retry: %d (lens calls %d, was %d)", rec.Code, len(*seen), before)
 	}
 }

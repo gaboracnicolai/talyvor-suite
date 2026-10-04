@@ -5,6 +5,7 @@ import { ApiError, readable } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { ParkedUses } from '../marketplace/ParkedUses'
 import { formatWhen } from './format'
+import { OperatorTrail } from './OperatorTrail'
 
 // OperatorWorkspaces.tsx — B18.25: the operator screen. Every workspace on this deployment, with what it
 // spent this month and in all, how many requests it made, the LENS it holds unsettled and when it last
@@ -111,6 +112,8 @@ export function OperatorWorkspaces() {
       </Region>
       {/* B27.19 — read once the operator boundary has let this screen through, so a refusal shows once. */}
       {q.isSuccess ? <ParkedUses /> : null}
+      {/* B27.29 — every operator action, who took it and when. */}
+      {q.isSuccess ? <OperatorTrail /> : null}
     </RegionScreen>
   )
 }
