@@ -85,6 +85,28 @@ describe('/documentation', () => {
     }
   })
 
+  it('is wallet-first: getting started funds an agent, and Agent Wallets leads the guides and the routes (B28.15)', async () => {
+    mockSignedOut()
+    window.history.pushState({}, '', DOCUMENTATION_PATH)
+    const { container } = render(<App />)
+    await screen.findByRole('heading', { level: 1, name: /what talyvor does today/i })
+    const steps = within(container.querySelector<HTMLElement>('#start')!).getAllByRole('link').map((a) => a.textContent)
+    expect(steps).toEqual([
+      'Sign up',
+      'Agent Wallets — Create agent',
+      'Agent Wallets — Fund',
+      'Agent Wallets — Issue a key',
+      'Setup',
+      'Agent Wallets — Statement',
+    ])
+    const contents = within(screen.getByRole('navigation', { name: 'On this page' })).getAllByRole('link')
+    expect(contents.slice(0, 2).map((a) => a.textContent)).toEqual(['Start here', 'Agent Wallets'])
+    expect([...container.querySelectorAll('main > section[id]')].slice(0, 2).map((s) => s.id)).toEqual(['start', 'wallets'])
+    const groups = [...container.querySelectorAll('#lens details')]
+    expect(groups[0].id).toBe('lens-wallets')
+    expect(within(groups[0] as HTMLElement).getByText('/v1/workspaces/{wsID}/agents/{agentID}/statement')).toBeInTheDocument()
+  })
+
   it('links only to screens the app mounts', async () => {
     // The resolver is not vacuous: an invented screen, and one an area's catch-all would draw, fail.
     expect(mounts('/no-such-screen')).toBe(false)

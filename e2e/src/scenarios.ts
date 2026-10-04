@@ -392,6 +392,35 @@ export function walletHero(): Scenario {
   }
 }
 
+/** B28.15 — the public documentation is wallet-first: getting started is create an agent, fund it, issue
+ *  its key and watch its statement; Agent Wallets is the first guide, and its routes lead the Lens API. */
+export function walletDocs(): Scenario {
+  return {
+    id: 'wallet-docs',
+    title: 'the documentation opens on an agent wallet and lists the wallet routes first',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/documentation')
+      try {
+        const steps = (await page.locator('#start a').allInnerTexts()).map((s) => s.trim())
+        const sections = await page.locator('main > section[id]').evaluateAll((els) => els.map((e) => e.id))
+        const groups = await page.locator('#lens details').evaluateAll((els) => els.map((e) => e.id))
+        ctx.evidence.push({ note: `start=${JSON.stringify(steps)} sections=${JSON.stringify(sections)} lens=${JSON.stringify(groups.slice(0, 3))}` })
+        const order = ['Create agent', 'Fund', 'Issue a key', 'Statement'].map((w) => steps.findIndex((s) => s.endsWith(w)))
+        const missing = [
+          order.every((at, k) => at >= 0 && (k === 0 || at > order[k - 1])) ? '' : 'create agent, fund, issue a key, statement, in that order',
+          sections[0] === 'start' && sections[1] === 'wallets' ? '' : `Agent Wallets as the first guide (sections ${sections.join(', ')})`,
+          groups[0] === 'lens-wallets' ? '' : `the wallet routes first (first group ${groups[0] ?? 'none'})`,
+        ].filter((m) => m !== '')
+        return missing.length === 0
+          ? { pass: true, detail: 'starts with an agent wallet; Agent Wallets leads the guides and the Lens routes' }
+          : { pass: false, detail: `/documentation lacks ${missing.join('; ')}` }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 /** B28.3 — the pricing and privacy pages make no claim the code does not keep: nothing says no
  *  charge recurs (plans and BYOK bill monthly), and privacy does not say the product beats going direct. */
 export function honestPages(): Scenario {
@@ -1271,7 +1300,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 5: list.push(followUpNotCached(i)); break
     case 6: list.push(sidebarStaysHidden()); break
     case 7: list.push(streamsProgressively()); break
-    case 8: list.push(socialPreview()); break
+    case 8: list.push(socialPreview(), walletDocs()); break
     case 9: list.push(walletHero(), honestPages(), pricingTruth(), plansIncludedUsage()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users

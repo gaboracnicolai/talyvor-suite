@@ -97,10 +97,11 @@ function LensReference() {
   )
 }
 
+// B28.15 — the guides first, Agent Wallets leading them, then the Lens API reference.
 const CONTENTS: Array<{ id: string; label: string }> = [
   { id: 'start', label: 'Start here' },
-  { id: 'lens', label: 'Lens API' },
   ...CAPABILITIES.map((c) => ({ id: c.id, label: c.name })),
+  { id: 'lens', label: 'Lens API' },
   { id: 'licences', label: 'Licences' },
 ]
 
@@ -137,6 +138,8 @@ export function Documentation() {
               What Talyvor does today, and where to do it.
             </h1>
             <p className="mt-6 max-w-2xl text-lede text-muted">
+              Talyvor gives every AI agent a wallet: a budget, spending rules, approvals and a live
+              statement, and Lens checks the rules before the model is called or the payment moves.
               Every line below is something you can do now. Each links to the screen that does it, or
               names the API route. Nothing here is planned work.
             </p>
@@ -158,17 +161,35 @@ export function Documentation() {
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
             <SectionLabel index="01">Start here</SectionLabel>
             <h2 id="start-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
-              From sign-up to your first metered request.
+              From sign-up to an agent spending from its own wallet.
             </h2>
             <Claims claims={START} />
           </div>
         </section>
 
+        {CAPABILITIES.map((c, i) => (
+          <section
+            key={c.id}
+            id={c.id}
+            aria-labelledby={`${c.id}-heading`}
+            className="scroll-mt-16 border-b border-rule"
+          >
+            <div className="mx-auto w-full max-w-5xl px-gutter py-16">
+              <SectionLabel index={String(i + 2).padStart(2, '0')}>{c.role}</SectionLabel>
+              <h2 id={`${c.id}-heading`} className="mt-6 max-w-2xl text-display-3 text-ink">
+                {c.name}
+              </h2>
+              <p className="mt-4 max-w-2xl text-body text-muted">{c.lede}</p>
+              <Claims claims={c.claims} />
+            </div>
+          </section>
+        ))}
+
         <section id="lens" aria-labelledby="lens-heading" className="scroll-mt-16 border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="02">Lens API</SectionLabel>
+            <SectionLabel index={String(CAPABILITIES.length + 2).padStart(2, '0')}>Lens API</SectionLabel>
             <h2 id="lens-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
-              One gateway for every model call.
+              One gateway for every model call and every agent payment.
             </h2>
             <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
               <p className="text-body text-muted">
@@ -196,24 +217,6 @@ export function Documentation() {
             <LensReference />
           </div>
         </section>
-
-        {CAPABILITIES.map((c, i) => (
-          <section
-            key={c.id}
-            id={c.id}
-            aria-labelledby={`${c.id}-heading`}
-            className="scroll-mt-16 border-b border-rule"
-          >
-            <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-              <SectionLabel index={String(i + 3).padStart(2, '0')}>{c.role}</SectionLabel>
-              <h2 id={`${c.id}-heading`} className="mt-6 max-w-2xl text-display-3 text-ink">
-                {c.name}
-              </h2>
-              <p className="mt-4 max-w-2xl text-body text-muted">{c.lede}</p>
-              <Claims claims={c.claims} />
-            </div>
-          </section>
-        ))}
 
         <section id="licences" aria-labelledby="licences-heading" className="scroll-mt-16">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
