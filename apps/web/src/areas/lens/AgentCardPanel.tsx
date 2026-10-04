@@ -77,10 +77,21 @@ function Purchases({ auths }: { auths: CardAuthorization[] }) {
   )
 }
 
-const FIELDS: { key: keyof Cardholder; label: string; required: boolean; width: string; auto: string }[] = [
+/**
+ * B27.21 — the cardholder's phone as Stripe takes it, E.164: "+44 7700 900123" → "+447700900123". Empty stays
+ * empty (Lens gives a test card an unallocated number); null when what was typed is not a phone number.
+ */
+export function e164(text: string): string | null {
+  const compact = text.replace(/[\s().-]/g, '')
+  if (compact === '') return ''
+  return /^\+[1-9]\d{6,14}$/.test(compact) ? compact : null
+}
+
+const FIELDS: { key: keyof Cardholder; label: string; required: boolean; width: string; auto: string; type?: string }[] = [
   { key: 'first_name', label: 'First name', required: true, width: 'w-40', auto: 'given-name' },
   { key: 'last_name', label: 'Last name', required: true, width: 'w-40', auto: 'family-name' },
   { key: 'email', label: 'Email', required: false, width: 'w-64', auto: 'email' },
+  { key: 'phone_number', label: 'Phone', required: false, width: 'w-48', auto: 'tel', type: 'tel' },
   { key: 'line1', label: 'Address', required: true, width: 'w-64', auto: 'address-line1' },
   { key: 'line2', label: 'Address line 2', required: false, width: 'w-64', auto: 'address-line2' },
   { key: 'city', label: 'Town or city', required: true, width: 'w-40', auto: 'address-level2' },
@@ -94,15 +105,17 @@ function IssueCard({ agent }: { agent: Agent }) {
     first_name: '',
     last_name: '',
     email: '',
+    phone_number: '',
     line1: '',
     line2: '',
     city: '',
     postal_code: '',
     country: 'GB',
   })
-  const ready = FIELDS.every((f) => !f.required || holder[f.key].trim() !== '')
+  const phone = e164(holder.phone_number)
+  const ready = FIELDS.every((f) => !f.required || holder[f.key].trim() !== '') && phone !== null
   const issue = useMutation({
-    mutationFn: () => agentBankApi.issueCard(agent.id, holder),
+    mutationFn: () => agentBankApi.issueCard(agent.id, { ...holder, phone_number: phone ?? '' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: cardKey(agent.id) }),
   })
   return (
@@ -116,7 +129,8 @@ function IssueCard({ agent }: { agent: Agent }) {
       <p className="text-body text-muted">
         Give {agent.name} a virtual card for test purchases. Each purchase is paid from its wallet only if its rules
         allow it, converted from pounds at the day’s European Central Bank rate. Stripe issues the card to a person —
-        the cardholder — and a merchant may ask for their billing address.
+        the cardholder — and a merchant may ask for their billing address. Their phone number is optional on a test
+        card.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {FIELDS.map((f) => (
@@ -125,12 +139,19 @@ function IssueCard({ agent }: { agent: Agent }) {
             aria-label={f.label}
             placeholder={f.required ? f.label : `${f.label} (optional)`}
             autoComplete={f.auto}
+            type={f.type}
+            aria-invalid={f.key === 'phone_number' && phone === null}
             className={f.width}
             value={holder[f.key]}
             onChange={(e) => setHolder((h) => ({ ...h, [f.key]: e.target.value }))}
           />
         ))}
       </div>
+      {phone === null ? (
+        <p className="text-caption text-ink">
+          The phone number needs its country code, like +44 7700 900123.
+        </p>
+      ) : null}
       <div>
         <Button type="submit" variant="primary" disabled={!ready || issue.isPending}>
           {issue.isPending ? 'Issuing…' : 'Issue a test card'}

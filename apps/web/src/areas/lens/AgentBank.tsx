@@ -55,7 +55,13 @@ interface HeldPayment {
   memo: string
 }
 
-const lxc = (micros: number) => <span className="font-figure">{formatULXC(micros)}</span>
+// B27.21: the figure in the figure face, the unit in the sentence's. A space inside the monospace span is a
+// full digit wide, so "Payee 3 1 LXC" read with a double gap before LXC.
+const lxc = (micros: number) => (
+  <>
+    <span className="font-figure">{formatULXC(micros).replace(/ LXC$/, '')}</span> LXC
+  </>
+)
 
 function Note({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
