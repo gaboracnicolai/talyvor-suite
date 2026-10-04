@@ -97,7 +97,8 @@ afterEach(() => {
 
 /** EVERY PAGE'S NAME, AS A LITERAL. Keyed by the route path exactly as `<Route>` receives it. */
 const PINNED: Readonly<Record<string, string>> = {
-  '/': 'Overview',
+  '/': 'Home',
+  '/overview': 'Overview',
   '/ledger': 'Ledger',
   '/chat': 'Chat',
   '/chat/help': 'How to use Talyvor Chat',

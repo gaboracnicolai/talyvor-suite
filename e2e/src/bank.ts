@@ -641,6 +641,52 @@ export function agentApproval(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.6 — the first screen after sign-in is the wallet home. An agent spends once, asks again above its
+ * approval amount (Lens files the approval), and is given a monthly budget of four times what it spent;
+ * Home must then show it 25% through its budget and the approvals Lens has waiting. Every figure the
+ * screen is held to is read back from Lens: the agent's spend from the book, the pending approvals from
+ * Lens's list. The budget is set after the approval is filed, so no limit can refuse the held request first.
+ */
+export function walletHome(seed: number): Scenario {
+  const r = seeded(seed * 37 + 11)
+  return {
+    id: 'wallet-home',
+    title: 'the first screen after sign-in is Home: each agent’s budget used and the approvals waiting, as Lens has them',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const a = await openAgent(ctx, bank, `Home ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      let err = await bank.move(a, 1e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      const key = await bank.issueKey(a)
+      const served = await agentAsks(ctx, key, sum(r).q, 'one request, so the month has a spend')
+      if (!served.ok) return fail(`${a.name}'s first request was refused: ${served.status} ${served.error}`)
+      const spent = agentIn(await bookOf(ctx), a.id)?.spent_ulxc ?? 0
+      if (spent <= 0) return fail(`served, yet Lens says ${a.name} has spent ${spent} µLXC`)
+      err = await bank.setLimit(a, 'Ask a person above', 1)
+      if (err !== undefined) return fail(`the approval amount was not saved: ${err}`)
+      const held = await agentAsks(ctx, key, sum(r).q, 'above the approval amount, so held for a person')
+      if (held.ok) return fail(`a request above an approval amount of 0.000001 LXC was served: "${held.value.text}"`)
+      err = await bank.setLimit(a, 'Monthly limit', spent * 4)
+      if (err !== undefined) return fail(`the monthly limit was not saved: ${err}`)
+      const pending = (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.status === 'pending')
+      if (!pending.some((x) => x.agent_id === a.id)) return fail(`Lens filed no pending approval for ${a.name}: ${held.status} ${held.error}`)
+      const page = await ctx.app.tab('/')
+      try {
+        await page.getByRole('heading', { level: 2, name: 'Your agents’ wallets, at a glance.' }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+        const used = (await page.getByTestId(`home-budget-used-${a.id}`).innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
+        const waiting = (await page.getByTestId('home-approvals-waiting').innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
+        ctx.evidence.push({ note: `Home: ${a.name} ${used} through its budget, ${waiting} approval(s) waiting; Lens: spent ${spent} of ${spent * 4} µLXC, ${pending.length} pending` })
+        if (used !== '25%') return fail(`${a.name} spent ${spent} µLXC of a ${spent * 4} µLXC monthly budget; Home shows ${used} used, not 25%`)
+        if (waiting !== String(pending.length)) return fail(`Lens has ${pending.length} approval(s) pending; Home shows ${waiting} waiting`)
+        return { pass: true, detail: `Home shows ${a.name} 25% through its monthly budget and ${waiting} approval(s) waiting, as Lens has them` }
+      } finally {
+        await page.close()
+      }
+    }),
+  }
+}
+
 export function companyPayment(seed: number, partner: number): Scenario {
   const amount = 700_000
   return {

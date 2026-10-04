@@ -72,7 +72,8 @@ const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '')
  * transaction that sent you there would name a page the reader is not on.
  */
 const PINNED: Readonly<Record<string, string>> = {
-  '/': 'Overview',
+  '/': 'Home',
+  '/overview': 'Overview',
   '/ledger': 'Ledger',
   '/chat': 'Chat',
   '/chat/help': 'How to use Talyvor Chat',

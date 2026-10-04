@@ -89,7 +89,7 @@ describe('the /admin area is gone', () => {
 })
 
 // B3.4 — an address with no page is not a dead end: it links somewhere real.
-it('the catch-all links back to Overview', async () => {
+it('the catch-all links back to Home', async () => {
   at('/nowhere-at-all')
-  expect(await screen.findByRole('link', { name: 'Go to Overview' })).toHaveAttribute('href', '/')
+  expect(await screen.findByRole('link', { name: 'Go to Home' })).toHaveAttribute('href', '/')
 })

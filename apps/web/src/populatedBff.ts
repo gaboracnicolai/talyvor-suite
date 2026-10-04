@@ -259,6 +259,18 @@ const BY_PATH: Record<string, unknown> = {
     active_until: '',
     timezone: '',
   },
+  // B28.6 — the Writer's budget: Home draws each agent's monthly limit against its month's spend.
+  '/api/agents/agt_writer/rules': {
+    max_per_request_ulxc: 0,
+    daily_limit_ulxc: 0,
+    monthly_limit_ulxc: 10_000_000,
+    approval_above_ulxc: 0,
+    allowed_models: null,
+    allowed_providers: null,
+    active_from: '',
+    active_until: '',
+    timezone: '',
+  },
   // B22.10 — money between owners: the classes, a transfer each way, an incoming request, a company credit line
   // and a loan being repaid.
   '/api/wallets/capabilities': {

@@ -42,9 +42,12 @@ import {
 // refuses, and what anything holds. This screen shows Lens's figures and, on a refusal, Lens's own
 // sentence.
 
-const BOOK_KEY = ['agent-book']
-const APPROVALS_KEY = ['agent-approvals']
-const rulesKey = (id: string) => ['agent-rules', id]
+// Exported because Home (B28.6) reads the same book, approvals and rules: one cache, so a change made
+// on either screen is the figure the other shows.
+export const BOOK_KEY = ['agent-book']
+export const APPROVALS_KEY = ['agent-approvals']
+export const rulesKey = (id: string) => ['agent-rules', id]
+export const FORECAST_KEY = ['agent-forecast']
 const statementKey = (id: string) => ['agent-statement', id]
 
 /** A payment this screen sent that is waiting for its approval — sent again, once, when approved. */
@@ -89,7 +92,7 @@ function Totals({ book }: { book: AgentBook }) {
  * refused before a provider is called, agents created later included. Starting them again leaves an
  * agent paused on its own still paused.
  */
-function PauseEveryAgent({ book }: { book: AgentBook }) {
+export function PauseEveryAgent({ book }: { book: AgentBook }) {
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
   const change = useMutation({
@@ -162,7 +165,7 @@ function PauseAgent({ agent }: { agent: Agent }) {
 
 /** B19.20 — this month's spend run on to its end (Lens B19.6), and the unusual-spend alerts. */
 function Spending({ nameOf }: { nameOf: (id: string) => string }) {
-  const forecast = useQuery({ queryKey: ['agent-forecast'], queryFn: agentBankApi.forecast })
+  const forecast = useQuery({ queryKey: FORECAST_KEY, queryFn: agentBankApi.forecast })
   const alerts = useQuery({ queryKey: ['agent-alerts'], queryFn: agentBankApi.alerts })
   const list = alerts.data?.alerts ?? []
   return (

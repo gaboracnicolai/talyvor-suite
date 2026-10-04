@@ -107,6 +107,18 @@ function bodyFor(url: string): unknown {
   // against a screen that was still churning. The baseline case did not catch it, because an
   // unreadable body happens to render calmly here. A fixture's completeness is part of the
   // measurement, not part of the scaffolding.
+  // B28.6 — the wallet home's reads (Lens economy.AgentBook, AgentRules, AgentApproval, SpendForecast).
+  // The more specific paths first: `includes` would answer /api/agents/forecast with the book.
+  if (url.includes('/api/agents/forecast'))
+    return { at: '2026-10-04T00:00:00Z', month_start: '2026-10-01T00:00:00Z', month_end: '2026-11-01T00:00:00Z', spent_ulxc: 0, forecast_ulxc: 0, agents: [] }
+  if (url.includes('/api/agents/approvals')) return { approvals: [] }
+  if (url.includes('/api/agents/agt_1/rules'))
+    return { max_per_request_ulxc: 0, daily_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0, allowed_models: null, allowed_providers: null, active_from: '', active_until: '', timezone: '' }
+  if (url.includes('/api/agents'))
+    return {
+      workspace_balance_ulxc: 0, allocated_ulxc: 0, unallocated_ulxc: 0, spent_ulxc: 0,
+      agents: [{ id: 'agt_1', name: 'Researcher', balance_ulxc: 0, spent_ulxc: 0, keys: [], created_at: '2026-10-01T00:00:00Z' }],
+    }
   if (url.includes('/api/keys')) return []
   if (url.includes('/api/members')) return []
   if (url.includes('/api/track/workspaces')) return []
@@ -143,12 +155,14 @@ function mockBff(refusals: Array<[string, number]> = []) {
  * screen that GAINS or LOSES a query cannot quietly change what is covered — a runtime-derived
  * set alone would silently shrink to nothing if the fixture stopped reaching the app.
  *
- * ⚠ THE MIXING DEFECT NEEDS TWO CONCURRENT QUERIES, so only the five addresses with more than
- * one route below can host it: /, /billing, /setup, /spend and /track. The single-route
+ * ⚠ THE MIXING DEFECT NEEDS TWO CONCURRENT QUERIES, so only the six addresses with more than
+ * one route below can host it: /, /overview, /billing, /setup, /spend and /track. The single-route
  * addresses are swept anyway — the property is general, and their cost is one render each.
  */
 const ADDRESS_ROUTES: Record<string, string[]> = {
-  '/': ['/api/bonds', '/api/docs/membership', '/api/docs/pins', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/history', '/api/spend/month', '/api/tokens/balance', '/api/tokens/history', '/api/track/workspaces', '/api/usage'],
+  // B28.6 — `/` is the wallet home; Overview moved to /overview with the same reads.
+  '/': ['/api/agents', '/api/agents/agt_1/rules', '/api/agents/approvals', '/api/agents/forecast', '/api/docs/membership', '/api/docs/pins'],
+  '/overview': ['/api/bonds', '/api/docs/membership', '/api/docs/pins', '/api/docs/spaces', '/api/lxc/balance', '/api/lxc/history', '/api/spend/month', '/api/tokens/balance', '/api/tokens/history', '/api/track/workspaces', '/api/usage'],
   '/ledger': ['/api/docs/membership', '/api/docs/pins', '/api/lxc/history'],
   '/billing': ['/api/billing/allowance', '/api/docs/membership', '/api/docs/pins', '/api/lxc/balance', '/api/lxc/topup-options'],
   '/keys': ['/api/docs/membership', '/api/docs/pins', '/api/keys'],
@@ -228,7 +242,7 @@ afterEach(() => {
 describe('the swept set', () => {
   it('covers every gated address, and no address contributes nothing', () => {
     const addresses = Object.keys(ADDRESS_ROUTES)
-    expect(addresses).toHaveLength(10)
+    expect(addresses).toHaveLength(11)
     for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {
       expect(routes.length, `${addr} contributes no route, so it is swept by nothing`).toBeGreaterThan(0)
     }
@@ -238,8 +252,9 @@ describe('the swept set', () => {
     // 36 → 28 at B10.6: the eight sidebar reads of /api/docs/spaces are gone (see the table).
     // 28 → 38 at B18.27: the sidebar's pinned pages are read from Docs on every address.
     // 38 → 48 at B27.15: the sidebar asks Docs whether the person is a member first, on every address; 48 → 49 at B27.27 (/settings reads the provider keys); 49 → 50 at B27.32 (/spend reads the measured saving).
+    // 50 → 56 at B28.6: the wallet home at `/` (its book, an agent's rules, approvals, forecast, and the sidebar's two).
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(50)
+    expect(pairs).toBe(56)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {
@@ -315,12 +330,12 @@ describe('a 500 next to a 401 is still a 500', () => {
     expect(card).toMatch(FAILURE_WORDING)
   })
 
-  it('/ (Overview) does this correctly — the control that says the product already knows the answer', async () => {
+  it('/overview (Overview) does this correctly — the control that says the product already knows the answer', async () => {
     mockBff([
       ['/api/tokens/history', 500],
       ['/api/lxc/history', 401],
     ])
-    at('/')
+    at('/overview')
     await settled()
     // Overview.tsx:344 — `ledger.isError ? <Failed what="the mint ledger" error={ledger.error} />`.
     // Same seam, same request, written the right way round. MUST STAY GREEN.

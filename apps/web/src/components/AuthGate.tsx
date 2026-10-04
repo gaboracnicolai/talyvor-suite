@@ -47,11 +47,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     //
     // Fires only on the login that CREATED the workspace: needs_pooling_choice is false on
     // every later sign-in, so a returning user is never sent here again.
+    //
+    // B28.6 — it now lands on Home, not Setup: a workspace with no agents opens Home in onboarding
+    // mode, whose steps give the first agent a wallet and still link Setup for a workspace key.
     return (
       <PoolingConsent
         onDone={() => {
           void qc.invalidateQueries({ queryKey: ['auth-me'] })
-          navigate('/setup', { replace: true })
+          navigate('/', { replace: true })
         }}
       />
     )

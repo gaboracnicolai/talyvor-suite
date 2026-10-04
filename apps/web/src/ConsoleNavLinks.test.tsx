@@ -78,6 +78,8 @@ import { openEveryGroup, revealLink } from './sidebarTestKit'
 /** Every destination the sidebar offers, pinned. A literal, so a deletion moves it too. */
 const SIDEBAR_DESTINATIONS = [
   '/',
+  // B28.6 — Home took `/`; Overview moved one address over, still in the sidebar.
+  '/overview',
   '/ledger',
   // W4.6.1 step 7. ⚠ THE THIRTEENTH, AND IT IS IN THE SIDEBAR ON PURPOSE: /chat (step 6) is a
   // route with no sidebar entry, so it is reachable only by typing the address. An earnings screen
