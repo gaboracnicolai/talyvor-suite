@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardHeader, formatDay, MuNumeral, Row } from '@talyvor/ui'
 import { planApi } from './planApi'
-import { PlanRenewal } from './Plans'
+import { PlanRenewal, SUBSCRIPTION_KEY } from './Plans'
 import { formatCents } from './topupApi'
 
 /**
@@ -16,13 +16,30 @@ import { formatCents } from './topupApi'
  *
  * B26.17 — and whether it renews or ends, and when, with cancelling at the end of the period or
  * resuming it before then (PlanRenewal, the same control /plans draws).
+ *
+ * B27.20 — the allowance row follows that answer: a cancelled plan's allowance ends and is never
+ * said to renew, and while the answer is unknown the row promises neither.
  */
 export function YourPlan() {
   const plan = useQuery({ queryKey: ['plan-allowance'], queryFn: planApi.allowance, retry: false })
+  // Asked only once there is a plan to describe, so /billing asks nothing more of a workspace without one.
+  const sub = useQuery({
+    queryKey: SUBSCRIPTION_KEY,
+    queryFn: planApi.subscription,
+    retry: false,
+    enabled: !!(plan.data?.enabled && plan.data.data.allowance),
+  })
   if (!plan.data?.enabled || !plan.data.data.allowance) return null
 
   const summary = plan.data.data
   const a = summary.allowance!
+  const st = sub.data?.enabled ? sub.data.data : null
+  const ends = formatDay(a.period_end)
+  const periodEnd = !st?.subscribed
+    ? `this period ends ${ends}`
+    : st.cancel_at_period_end
+      ? `it ends ${ends} and does not renew`
+      : `the allowance renews ${ends}`
   return (
     <Card className="mt-4">
       <CardHeader>Your plan</CardHeader>
@@ -50,7 +67,7 @@ export function YourPlan() {
       <PlanRenewal className="border-b border-rule px-gutter py-4" />
       <Row
         label="Allowance used"
-        hint={`Since ${formatDay(a.period_start)}; the allowance renews ${formatDay(a.period_end)}`}
+        hint={`Since ${formatDay(a.period_start)}; ${periodEnd}`}
       >
         <MuNumeral micros={a.consumed_ulxc} unit="lxc" />
         <span className="text-body text-muted">of</span>

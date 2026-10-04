@@ -20,11 +20,14 @@ const SUBSCRIBED = {
   earned_back_usd_cents: 600,
 }
 
-function serve(body: unknown) {
+function serve(body: unknown, subscription?: unknown) {
+  const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } })
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
     String(input) === '/api/billing/allowance'
-      ? new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
-      : new Response('null', { status: 404 }),
+      ? json(body)
+      : String(input) === '/api/billing/subscription' && subscription
+        ? json(subscription)
+        : new Response('null', { status: 404 }),
   )
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const utils = render(
@@ -47,6 +50,23 @@ describe('YourPlan (B1.6)', () => {
     expect(used.textContent).toMatch(/50.*of.*200/)
     const left = screen.getByText('Allowance left').closest('div.flex')!
     expect(left.textContent).toMatch(/150/)
+  })
+
+  // B27.20 — "Your plan is cancelled. It ends on …" sat above "the allowance renews …".
+  it('a plan cancelled at the end of the period shows the day its allowance ends and never says it renews', async () => {
+    const { container } = serve(
+      { capability: 'subscriptions', enabled: true, data: SUBSCRIBED },
+      {
+        capability: 'subscriptions',
+        enabled: true,
+        data: { subscribed: true, status: 'active', current_period_end: '2026-10-01T00:00:00Z', cancel_at_period_end: true, livemode: false },
+      },
+    )
+
+    await screen.findByText(/Your plan is cancelled/)
+    const used = screen.getByText('Allowance used').closest('div.flex')!
+    expect(used.textContent).toContain('Since Sep 1, 2026; it ends Oct 1, 2026 and does not renew')
+    expect(container.textContent).not.toMatch(/renews/)
   })
 
   it('draws nothing for a workspace without a plan, or a deployment that sells none', async () => {

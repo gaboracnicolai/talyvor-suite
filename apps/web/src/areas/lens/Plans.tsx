@@ -224,7 +224,7 @@ function EarningsCard({
   )
 }
 
-const SUBSCRIPTION_KEY = ['plan-subscription']
+export const SUBSCRIPTION_KEY = ['plan-subscription']
 
 function changeFailure(err: unknown): string {
   if (isSessionExpired(err)) return 'Nothing changed — sign in again.'
