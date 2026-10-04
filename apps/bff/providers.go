@@ -12,7 +12,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"sort"
@@ -86,6 +88,15 @@ func (a *app) providerRefused(ctx context.Context, provider, key string) bool {
 		log.Printf("bff: provider probe %s: %v", provider, err)
 		return false
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusServiceUnavailable
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		return false
+	}
+	// B27.5 — Lens also answers 503 when it could not CHECK the session key (a database hiccup).
+	// That says nothing about the provider, and reading it as "not configured" hid every model.
+	var body struct {
+		Code string `json:"code"`
+	}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&body)
+	return body.Code != lensAuthUnavailableCode
 }
