@@ -24,6 +24,37 @@ export interface Turn {
 
 export class SignInRefused extends Error {}
 
+/** B27.16 — the longest a new context or page may take to open on a browser that is still up. */
+const OPEN_MS = 60_000
+
+/** What whileUp needs of a Browser. */
+interface Goes {
+  isConnected(): boolean
+  once(event: 'disconnected', listener: () => void): unknown
+  off(event: 'disconnected', listener: () => void): unknown
+}
+
+/**
+ * B27.16 — `work` (a newContext or newPage), ended as soon as `browser` goes: Playwright leaves those
+ * unsettled for ever on a browser that was killed. One that takes longer than OPEN_MS also fails.
+ */
+export function whileUp<T>(browser: Goes, what: string, work: Promise<T>, ms = OPEN_MS): Promise<T> {
+  let end = (): void => undefined
+  const gone = new Promise<never>((_, reject) => {
+    const went = (): void => reject(new Error(`${what}: the browser went away`))
+    const timer = setTimeout(() => reject(new Error(`${what}: nothing within ${ms / 1000} s`)), ms)
+    browser.once('disconnected', went)
+    end = () => {
+      clearTimeout(timer)
+      browser.off('disconnected', went)
+    }
+    if (!browser.isConnected()) went()
+  })
+  // What it opens after all, too late, is closed: nobody holds it.
+  void work.then((x) => gone.catch(() => (x as { close?: () => Promise<void> }).close?.().catch(() => undefined)), () => undefined)
+  return Promise.race([work, gone]).finally(() => end())
+}
+
 /** B26.20 — what the Chat screen showed when neither an answer nor its failure line came. */
 export interface Stalled {
   question: string
@@ -124,33 +155,36 @@ export class AppUser {
     appURL: string; syntheticKey: string; cap: SpendCap; catalog: CatalogModel[]; modelName: string; book: ChargeBook
     usdPerLXC: number; recorder?: Recorder; tag?: Tag
   }): Promise<AppUser> {
-    const context = await browser.newContext()
-    const tag = opts.tag ?? { scenario: 'sign-in', user: user.index }
-    // Watching starts before the first page opens, so sign-in's own requests are recorded too.
-    const holder: { app?: AppUser } = {}
-    if (opts.recorder !== undefined) watch(context, opts.appURL, opts.recorder, () => holder.app?.tag ?? tag)
-    const page = await context.newPage()
-    await page.goto(opts.appURL + '/')
-    // From inside the page, so the request carries the app's own Origin and the cookie lands in
-    // this context — exactly the session a person's browser holds.
-    const status = await page.evaluate(async ({ u, key }) => {
-      const res = await fetch('/auth/synthetic', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Talyvor-Synthetic-Key': key },
-        body: JSON.stringify({ workspace_id: u.workspaceID, token: u.token, expires_at: u.expiresAt }),
-      })
-      return res.status
-    }, { u: user, key: opts.syntheticKey })
-    if (status !== 200) {
-      await context.close()
-      throw new SignInRefused(`POST /auth/synthetic answered ${status} for ${user.workspaceID}`)
+    const context = await whileUp(browser, 'opening a browser context', browser.newContext())
+    // B27.16 — a sign-in that fails part-way closes what it opened.
+    try {
+      const tag = opts.tag ?? { scenario: 'sign-in', user: user.index }
+      // Watching starts before the first page opens, so sign-in's own requests are recorded too.
+      const holder: { app?: AppUser } = {}
+      if (opts.recorder !== undefined) watch(context, opts.appURL, opts.recorder, () => holder.app?.tag ?? tag)
+      const page = await whileUp(browser, 'opening a page', context.newPage())
+      await page.goto(opts.appURL + '/')
+      // From inside the page, so the request carries the app's own Origin and the cookie lands in
+      // this context — exactly the session a person's browser holds.
+      const status = await page.evaluate(async ({ u, key }) => {
+        const res = await fetch('/auth/synthetic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Talyvor-Synthetic-Key': key },
+          body: JSON.stringify({ workspace_id: u.workspaceID, token: u.token, expires_at: u.expiresAt }),
+        })
+        return res.status
+      }, { u: user, key: opts.syntheticKey })
+      if (status !== 200) throw new SignInRefused(`POST /auth/synthetic answered ${status} for ${user.workspaceID}`)
+      const app = new AppUser(user, context, page, opts.appURL, opts.cap, opts.catalog, opts.modelName, opts.book, opts.usdPerLXC,
+        opts.recorder, tag)
+      holder.app = app
+      await app.openChat()
+      if (!(await app.chooseModel(opts.modelName))) throw new Error(`the model picker does not offer "${opts.modelName}"`)
+      return app
+    } catch (e) {
+      await context.close().catch(() => undefined)
+      throw e
     }
-    const app = new AppUser(user, context, page, opts.appURL, opts.cap, opts.catalog, opts.modelName, opts.book, opts.usdPerLXC,
-      opts.recorder, tag)
-    holder.app = app
-    await app.openChat()
-    if (!(await app.chooseModel(opts.modelName))) throw new Error(`the model picker does not offer "${opts.modelName}"`)
-    return app
   }
 
   /** B26.18 — a context whose browser has already gone has nothing left to close, and that is not an error. */
@@ -169,7 +203,8 @@ export class AppUser {
    * put the next question into it.
    */
   async tab(path: string): Promise<Page> {
-    const page = await this.context.newPage()
+    const browser = this.context.browser()
+    const page = await (browser === null ? this.context.newPage() : whileUp(browser, 'opening a tab', this.context.newPage()))
     const t0 = Date.now()
     const res = await page.goto(this.appURL + path)
     this.screenTimed(path, res?.status() ?? 0, Date.now() - t0)
@@ -214,8 +249,8 @@ export class AppUser {
 
   /**
    * Asks `question` in the open conversation and waits for the whole answer and its footer. With
-   * `lengths`, the answer's visible length is sampled every 40 ms while it arrives; with `files`, they
-   * are attached first, as Attach does.
+   * `lengths`, each length the answer's visible text takes while it arrives; with `files`, they are
+   * attached first, as Attach does.
    */
   async ask(question: string, lengths?: number[], files: Attachment[] = []): Promise<Turn> {
     // A document is read as input: its whole size counts toward the worst case.
@@ -225,25 +260,33 @@ export class AppUser {
       await this.page.locator('#chat-attach').setInputFiles(files)
       await this.page.getByRole('list', { name: 'Attached documents' }).waitFor({ state: 'visible' })
     }
+    if (lengths !== undefined) await this.watchLengths(before)
     await this.page.locator('#chat-message').fill(question)
     await this.page.locator('#chat-message').press('Enter')
     const turn = this.page.locator('[data-testid="turn-assistant"]').nth(before)
-    if (lengths !== undefined) void this.sample(turn, lengths)
-    return this.finish(question, turn, hold)
+    const t = await this.finish(question, turn, hold)
+    if (lengths !== undefined) lengths.push(...await this.page.evaluate(() => (window as unknown as { e2eLengths?: number[] }).e2eLengths ?? []))
+    return t
   }
 
-  /** Records the answer's text length until its footer appears. */
-  private async sample(turn: Locator, lengths: number[]): Promise<void> {
-    const deadline = Date.now() + ANSWER_TIMEOUT_MS
-    while (Date.now() < deadline) {
-      const state = await turn.evaluate((li) => ({
-        len: (li.textContent ?? '').length,
-        done: li.querySelector('[data-testid="turn-cost"]') !== null,
-      })).catch(() => ({ len: 0, done: false }))
-      if (state.done) return
-      if (lengths[lengths.length - 1] !== state.len) lengths.push(state.len)
-      await new Promise((r) => setTimeout(r, 40))
-    }
+  /**
+   * B27.16 — records, inside the page, each length the `nth` answer's text takes until its footer appears.
+   * Read from here every 40 ms instead, a loaded machine's round trips missed the 30 ms between pieces and
+   * saw too few states of an answer that did stream.
+   */
+  private async watchLengths(nth: number): Promise<void> {
+    await this.page.evaluate((n) => {
+      const seen: number[] = []
+      ;(window as unknown as { e2eLengths?: number[] }).e2eLengths = seen
+      const observer = new MutationObserver(() => {
+        const li = document.querySelectorAll('[data-testid="turn-assistant"]')[n]
+        if (li === undefined) return
+        if (li.querySelector('[data-testid="turn-cost"]') !== null) return observer.disconnect()
+        const len = (li.textContent ?? '').length
+        if (seen[seen.length - 1] !== len) seen.push(len)
+      })
+      observer.observe(document.body, { subtree: true, childList: true, characterData: true })
+    }, nth)
   }
 
   /** Presses Regenerate on the last answer — the model is asked afresh — and reads the new answer. */

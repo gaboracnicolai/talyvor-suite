@@ -106,6 +106,10 @@ LENS_SYNTHETIC_KEY=$key LENS_MODERATOR_KEY=$moderator node --experimental-strip-
   --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}" --testers-md "${E2E_TESTERS_MD:-$tmp/TESTERS.md}" \
   ${E2E_LENS_SRC:+--lens-src "$E2E_LENS_SRC"} \
   --explorers "${E2E_EXPLORERS:-2}" --explore-minutes "${E2E_EXPLORE_MINUTES:-1}" || code=$?
+if grep -F 'reset EVERY synthetic workspace' "$tmp/stub.log"; then
+  echo "selftest: FAILED — the run reset every synthetic workspace; it must name its own users (B27.16)"
+  code=1
+fi
 missed=$(grep -F '(asked by the BFF)' "$tmp/stub.log" | sort | uniq -c || true)
 if [ -n "$missed" ]; then
   echo "selftest: FAILED — the app read routes the stub Lens does not answer. Teach selftest/stub-lens.ts each one as Lens"

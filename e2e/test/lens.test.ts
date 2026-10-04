@@ -57,3 +57,21 @@ describe('publishing a listing (B17.34)', () => {
     expect(keys[1]).toBe(keys[0])
   })
 })
+
+// B27.16 — the run reset every synthetic workspace, another run's users too. It names its own.
+describe('the reset (B27.16)', () => {
+  it("names only the run's users", async () => {
+    const bodies: string[] = []
+    server = createServer(async (req, res) => {
+      let body = ''
+      for await (const chunk of req) body += chunk
+      bodies.push(body)
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ reset: 2 }))
+    })
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r))
+    const { port } = server.address() as { port: number }
+    const client = new LensClient(`http://127.0.0.1:${port}`, 'key')
+    expect(await client.reset(['ws_1', 'ws_2'])).toBe(2)
+    expect(bodies.map((b) => JSON.parse(b))).toEqual([{ workspaces: ['ws_1', 'ws_2'] }])
+  })
+})

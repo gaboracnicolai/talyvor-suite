@@ -398,13 +398,19 @@ export class LensClient {
     return why
   }
 
-  /** Clears every synthetic workspace's stored answers and restores its credits. */
-  async reset(): Promise<number | undefined> {
+  /**
+   * Clears the named synthetic workspaces' stored answers and restores their credits. B27.16 — only
+   * these: a reset naming nobody resets every synthetic workspace, another run's users too.
+   */
+  async reset(workspaces: string[]): Promise<number | undefined> {
+    if (workspaces.length === 0) return 0
     // B25.8 — with 1671 synthetic workspaces Lens resets for longer than a request may last (45s), and the
     // answer is lost though the reset runs on to the end (FOUND.md): then this waits it out, and answers
     // undefined.
-    const res = await this.send('POST', '/v1/synthetic/workspaces/reset', { headers: { [SYNTHETIC_KEY_HEADER]: this.key, Accept: 'application/json' } })
-      .catch(() => undefined)
+    const res = await this.send('POST', '/v1/synthetic/workspaces/reset', {
+      headers: { [SYNTHETIC_KEY_HEADER]: this.key, Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspaces }),
+    }).catch(() => undefined)
     if (res === undefined || res.status === 502 || res.status === 504) {
       await new Promise((r) => setTimeout(r, RESET_RUNS_ON_MS))
       return undefined
