@@ -172,6 +172,7 @@ from Lens: the agents' book and postings, the approvals, the marketplace bill an
 | Scenario | Who | Oracle |
 |---|---|---|
 | `agent-open-fund` | 1 in 10 | an agent created and funded on the screen holds exactly that; the workspace's balance is unchanged and = with agents + free |
+| `sdk-wallet-quickstart` | 1 in 10 (after `agent-open-fund`) | the TypeScript SDK's README quickstart, with Lens's own `sdk/typescript` from `--lens-src`: the owner creates an agent, funds it 10 LXC, issues its key; the agent asks a model through `.openai()` with that key; the agent's statement opens on the fund line (+10,000,000 µLXC), then the call's spend line at 10,000,000 minus that spend, each line's balance following from the one before. `--lens-src none` skips it |
 | `agent-limit` | 1 in 10 | a limit per request of 0.000001 LXC refuses the agent's request (403, the limit named) with its balance and the ledger unmoved; raised to 1 LXC, the same request is served once from the agent's balance |
 | `agent-pause-all` | 1 in 10 | Pause every agent refuses both agents (403, every agent paused) with nothing charged; started again, one is served |
 | `agent-approval` | 1 in 10 | a 1 LXC payment above a 0.5 LXC approval amount waits in Approvals with nothing moved, Lens's approval and its row naming the payee and memo ("Payer N wants to pay Payee N 1 LXC — …"); Approve pays it once (one pay line, the approval used) |

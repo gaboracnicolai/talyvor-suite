@@ -21,6 +21,7 @@ import { ACTION_TIMEOUT_MS, agentApproval, agentLimit, agentOpenFund, agentPause
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
+import { sdkWalletQuickstart } from './sdk.ts'
 
 export interface Evidence {
   note?: string
@@ -55,6 +56,8 @@ export interface RunEnv {
   inventory: Inventory
   /** Where the run's results go; a scenario's screenshots are written beside them. */
   outDir: string
+  /** B28.440 — the run's checkout of talyvor-lens (--lens-src), whose sdk/typescript the SDK quickstart runs; 'none' when not given. */
+  lensSrc: string
 }
 
 export interface ScenarioCtx {
@@ -1287,7 +1290,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // Catalog v3 (B17.6), the Agent Bank and the marketplace, one in ten again. The other company is a
   // user no other scenario reads the earnings of: 9, 19, … take a payment, 8, 18, … sell.
   switch (i % 10) {
-    case 0: list.push(agentOpenFund(i)); break
+    // B28.440 — then the TypeScript SDK's README quickstart, with this user as the signed-in owner.
+    case 0: list.push(agentOpenFund(i), sdkWalletQuickstart(i)); break
     case 1: list.push(agentLimit(i)); break
     case 2: list.push(agentPauseAll(i)); break
     case 3: list.push(agentApproval(i)); break
