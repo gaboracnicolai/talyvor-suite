@@ -16,6 +16,8 @@ import { queryClient } from './App'
 //  3. /specimen DOES NOT RESOLVE. The internal component gallery was unlinked but routable.
 
 function mockBff(opts: { needsChoice?: boolean; signupOpen?: boolean } = {}) {
+  // The choice is asked once: after the pooling write, /auth/me stops asking, as the BFF does.
+  let chosen = false
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input)
     if (url === '/auth/me') {
@@ -26,7 +28,7 @@ function mockBff(opts: { needsChoice?: boolean; signupOpen?: boolean } = {}) {
           user: { sub: 'sub-new', email: 'new@example.com' },
           workspace_id: 'uabcdefghijklmnopqrstuvwxy',
           cache_poolable: true,
-          needs_pooling_choice: opts.needsChoice ?? false,
+          needs_pooling_choice: (opts.needsChoice ?? false) && !chosen,
           // Whether a stranger may sign up unattended. Omitted unless a case states it, so the
           // default path exercises the UNKNOWN branch — the one a stale BFF actually produces.
           ...(opts.signupOpen === undefined ? {} : { signup_open: opts.signupOpen }),
@@ -35,12 +37,20 @@ function mockBff(opts: { needsChoice?: boolean; signupOpen?: boolean } = {}) {
       )
     }
     if (url === '/api/pooling') {
+      chosen = true
       // The decline write. Without this the choice fails, onDone never runs, and the redirect
       // under test never fires — the test would fail for a reason unrelated to routing.
       return new Response(JSON.stringify({ cache_poolable: false }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
+    }
+    if (url === '/api/agents') {
+      // A workspace this login just created: nothing in it, no agents (Lens economy.AgentBook).
+      return new Response(
+        JSON.stringify({ workspace_balance_ulxc: 0, allocated_ulxc: 0, unallocated_ulxc: 0, spent_ulxc: 0, agents: [] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
     }
     return new Response('null', { status: 404 })
   })
@@ -118,20 +128,23 @@ describe('the marketing page offers a way in', () => {
 
 // ─── 2. a first-time user reaches Setup ─────────────────────────────────────
 
-describe('first run routes a new user to Setup', () => {
-  it('lands on Setup after the pooling choice, without having to find it', async () => {
+describe('first run opens Home in onboarding mode', () => {
+  it('lands on Home, onboarding, after the pooling choice — and Setup is one link away', async () => {
     mockBff({ needsChoice: true })
-    at('/')
+    at('/ledger')
     // The disclosure blocks first.
     await screen.findByText(/Share your answers, and earn from them/i)
 
-    // Choosing dismisses it; the app must then put the person on Setup rather than Overview.
+    // Choosing dismisses it; B28.6 — the app then opens Home, which for a workspace with no agents
+    // is onboarding: the steps to a first agent's wallet, and Setup linked for a workspace key.
     const decline = await screen.findByRole('button', { name: /^Do not share my answers$/i })
     fireEvent.click(decline)
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe('/setup')
+      expect(window.location.pathname).toBe('/')
     })
+    expect(await screen.findByTestId('home-onboarding')).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).getByRole('link', { name: 'Setup' })).toHaveAttribute('href', '/setup')
   })
 
   it('does NOT trap them there — the whole app is reachable from Setup', async () => {

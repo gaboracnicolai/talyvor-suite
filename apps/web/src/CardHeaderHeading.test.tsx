@@ -114,7 +114,9 @@ function cardHeaderTitles(root: ParentNode): Element[] {
  * merge's own CI rather than in main after the second, which is the failure W0.3 named.
  */
 const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
-  '/': 6,
+  // B28.6 — `/` is the wallet home (approvals, budgets, forecast); Overview's six moved to /overview.
+  '/': 3,
+  '/overview': 6,
   '/ledger': 1,
   // ⚠ 0 IS STRUCTURAL HERE, NOT THE 404-FIXTURE FLOOR W1.1.17b WARNS ABOUT. /chat renders no
   // Card at all — it is built from Region, and its two regions carry their own headings. A
@@ -285,9 +287,9 @@ describe('a card header is a section title, so it is a heading element', () => {
     // passed. Control C3 (scripts/w11-card-heading-controls.py) turned MuNumeral's figure into
     // an `<h2>` and scored 0 red. A selector that filters on the property under test answers its
     // own question; the total is the thing that cannot be dodged.
-    await at('/')
+    await at('/overview')
     const titles = cardHeaderTitles(document.body)
-    expect(titles.length, '/ renders six cards; a count against zero would prove nothing').toBeGreaterThan(4)
+    expect(titles.length, '/overview renders six cards; a count against zero would prove nothing').toBeGreaterThan(4)
     const headings = Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
     // ⚠ W1.1.1 PUT A SECOND KIND OF HEADING ON THIS ADDRESS, and it is NAMED here rather than
     // absorbed into a looser count. Overview now opens with its own heading at the page scale —

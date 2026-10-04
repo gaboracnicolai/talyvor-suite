@@ -125,7 +125,8 @@ const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '')
  *  than read from `CONSOLE_ROUTES`: driving the loop off the table is what audits a NEW page
  *  automatically, and it is also what would let a renamed page rename its own expectation. */
 const PINNED_CONSOLE: Readonly<Record<string, string>> = {
-  '/': 'Overview',
+  '/': 'Home',
+  '/overview': 'Overview',
   '/ledger': 'Ledger',
   '/chat': 'Chat',
   '/chat/help': 'How to use Talyvor Chat',
@@ -246,7 +247,7 @@ describe('every console address names itself to the browser', () => {
     // A single-page app never re-reads <title>. A title set once at mount is a title that is
     // correct for exactly one route and wrong for every route the user walks to afterwards.
     await at('/')
-    await waitFor(() => expect(document.title).toBe(`Overview | ${BRAND}`))
+    await waitFor(() => expect(document.title).toBe(`Home | ${BRAND}`))
     fireEvent.click(screen.getByRole('link', { name: 'Ledger' }))
     await waitFor(() => expect(document.title).toBe(`Ledger | ${BRAND}`))
   })
@@ -287,7 +288,7 @@ describe('a screen you are gated out of does not take the name of the page behin
     await at('/')
     await waitFor(() => expect(document.title).not.toBe(SENTINEL))
     expect(document.title).toBe(`Share your answers, and earn from them | ${BRAND}`)
-    expect(document.title).not.toContain('Overview')
+    expect(document.title).not.toContain('Home')
   })
 })
 

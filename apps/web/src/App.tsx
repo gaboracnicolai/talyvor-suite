@@ -16,6 +16,7 @@ import { AuthGate, SessionChip } from './components/AuthGate'
 import { useDocumentTitle } from './documentTitle'
 import { ApiError, UnreadableError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
+import { Home } from './areas/lens/Home'
 import { Ledger } from './areas/lens/Ledger'
 import { Earnings } from './areas/lens/Earnings'
 import { Keys } from './areas/lens/Keys'
@@ -86,7 +87,7 @@ export const queryClient: QueryClient = new QueryClient({
  * A path owns itself and everything below it; `/` owns only itself.
  */
 const GROUP_PATHS: Record<string, readonly string[]> = {
-  Lens: ['/', '/ledger', '/earnings', '/spend', '/setup', '/keys', '/agents'],
+  Lens: ['/', '/overview', '/ledger', '/earnings', '/spend', '/setup', '/keys', '/agents'],
   Marketplace: ['/marketplace'],
   Chat: ['/chat'],
   Track: ['/track'],
@@ -182,7 +183,11 @@ export interface ConsoleRoute {
 }
 
 export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
-  { path: '/', title: 'Overview', element: <Overview /> },
+  // B28.6 — the first screen after sign-in is the wallet home: total balance, credit not yet given to
+  // agents, each agent's budget used, approvals waiting, the month forecast and pause-all. Overview —
+  // what the workspace has, spends and earns across both tokens — moved one address over, unchanged.
+  { path: '/', title: 'Home', element: <Home /> },
+  { path: '/overview', title: 'Overview', element: <Overview /> },
   { path: '/ledger', title: 'Ledger', element: <Ledger /> },
   // W4.6.1 step 7 — the earnings screen. It sits beside the Ledger because they answer adjacent
   // questions off the SAME ledger table, and deliberately is NOT a panel on Overview: the field
@@ -333,7 +338,8 @@ function Sidebar() {
       {/* B8.1 — GROUPED BY PRODUCT, and every screen the console mounts has a row. /chat was
           mounted with no row at all, and Track's cycles and projects were a second level down. */}
       <Group label="Lens" {...fold.group('Lens')}>
-        {item('/', 'Overview')}
+        {item('/', 'Home')}
+        {item('/overview', 'Overview')}
         {item('/ledger', 'Ledger')}
         {item('/earnings', 'Earnings')}
         {item('/spend', 'Spend & routing')}
@@ -505,7 +511,7 @@ function AppShell() {
               <div className="mx-auto max-w-3xl px-gutter py-4 text-body text-muted">
                 Nothing at this address — pick a section from the sidebar.{' '}
                 <Link className={`text-ink ${inlineLink}`} to="/">
-                  Go to Overview
+                  Go to Home
                 </Link>
               </div>
             }

@@ -812,9 +812,20 @@ export class Bank {
     }
     if (rest === '/agents/alerts') return json(res, 200, { alerts: [], rule: 'an alert when an agent\'s last hour reaches 5× its usual hourly rate' }), true
     if (rest === '/agents/forecast') {
+      // Lens economy.AgentSpendForecast: every agent, its spend postings since the first of the UTC month
+      // (agentSpendPostings: spend, hold, settle, release, card, and pay out), run on to the month's end.
       const d = new Date()
-      return json(res, 200, { at: now, month_start: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString(),
-        month_end: new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString(), spent_ulxc: 0, forecast_ulxc: 0, agents: [] }), true
+      const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+      const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))
+      const runOn = (spent: number) => (spent <= 0 ? Math.max(spent, 0) : Math.floor((spent * (end.getTime() - start.getTime())) / Math.max(1, d.getTime() - start.getTime())))
+      const agents = [...this.agents.values()].filter((a) => a.ws === ws.id).map((a) => {
+        const spent = this.postings.filter((p) => p.account === `agent:${a.id}` && p.at >= start.toISOString() &&
+          (['spend', 'hold', 'settle', 'release', 'card'].includes(p.kind) || (p.kind === 'pay' && p.amount_ulxc < 0)))
+          .reduce((s, p) => s - p.amount_ulxc, 0)
+        return { agent_id: a.id, name: a.name, spent_ulxc: spent, forecast_ulxc: runOn(spent) }
+      })
+      const spent = agents.reduce((s, a) => s + a.spent_ulxc, 0)
+      return json(res, 200, { at: now, month_start: start.toISOString(), month_end: end.toISOString(), spent_ulxc: spent, forecast_ulxc: runOn(spent), agents }), true
     }
     if (await this.walletRoute(req, res, ws, rest)) return true
     if (rest === '/agents/passkeys') return json(res, 200, { passkeys: [] }), true

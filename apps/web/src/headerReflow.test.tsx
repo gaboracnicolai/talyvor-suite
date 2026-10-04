@@ -75,8 +75,8 @@ const header = () => document.querySelector('header')!
 describe('the sticky header may narrow to the viewport', () => {
   it('lets the page title shrink and ellipsise rather than push', async () => {
     render(<App />)
-    await waitFor(() => expect(document.body.textContent ?? '').toContain('Overview'))
-    const title = [...header().children].find((el) => el.textContent?.trim() === 'Overview')
+    await waitFor(() => expect(document.body.textContent ?? '').toContain('Home'))
+    const title = [...header().children].find((el) => el.textContent?.trim() === 'Home')
     const cls = title?.getAttribute('class') ?? ''
     expect(cls, 'the page title is a flex item with min-width:auto — it cannot go below its own text').toContain(
       'min-w-0',
@@ -88,7 +88,7 @@ describe('the sticky header may narrow to the viewport', () => {
 
   it('lets the actions block shrink', async () => {
     render(<App />)
-    await waitFor(() => expect(document.body.textContent ?? '').toContain('Overview'))
+    await waitFor(() => expect(document.body.textContent ?? '').toContain('Home'))
     const actions = [...header().children].find((el) => el.querySelector('button'))
     expect(
       actions?.getAttribute('class') ?? '',
