@@ -1,12 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
-import { Button, MuNumeral } from '@talyvor/ui'
+import { Link, Navigate } from 'react-router-dom'
+import { Button, MuNumeral, inlineLink } from '@talyvor/ui'
 
 import { api, UnreadableError, type EarningsSummary, type EarningsTypeLine } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 import { Region, RegionScreen } from '../../components/Region'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
+import { ConvertRegion } from './ConvertLens'
 
+// B28.10 — THIS SCREEN IS "ROYALTIES", UNDER STATEMENTS, AT /statements/royalties (/earnings
+// redirects here). Sharing answers is a cost saving — repeated questions are served without paying
+// a model — and a royalty is its side effect, not the product's revenue. So it sits beside the
+// agents' statements rather than under Billing, says so first, and carries the LENS→LXC
+// conversion, which moved here from Overview.
+//
 // Earnings — what this workspace has EARNED, from GET /api/earnings (the BFF proxies Lens's
 // /v1/workspaces/{ws}/earnings, the workspace resolved from the session per request).
 //
@@ -82,6 +89,13 @@ function TypeRow({ line }: { line: EarningsTypeLine }) {
   )
 }
 
+const HEADING = 'What your shared answers earned'
+
+/** B28.10 — the old /earnings address, kept so a bookmark lands on Royalties rather than nowhere. */
+export function EarningsMoved() {
+  return <Navigate to="/statements/royalties" replace />
+}
+
 export function Earnings() {
   const q = useQuery({ queryKey: ['earnings'], queryFn: () => api.earnings() })
 
@@ -102,8 +116,11 @@ export function Earnings() {
   if (q.isError || unreadable) {
     return (
       <RegionScreen>
-        <Region index="01" label="Earnings" heading="What your work earned">
-          <PanelFailure error={q.error ?? new UnreadableError('/api/earnings')} what="your earnings" />
+        <Region index="01" label="Royalties" heading={HEADING}>
+          <PanelFailure error={q.error ?? new UnreadableError('/api/earnings')} what="your royalties" />
+        </Region>
+        <Region index="02" label="Convert to LXC">
+          <ConvertRegion />
         </Region>
       </RegionScreen>
     )
@@ -120,7 +137,16 @@ export function Earnings() {
 
   return (
     <RegionScreen>
-      <Region index="01" label="Earnings" heading="What your work earned">
+      <Region index="01" label="Royalties" heading={HEADING}>
+        <p data-testid="royalties-framing" className="mb-3 max-w-2xl text-body text-muted">
+          Sharing answers exists to save on repeated questions: an answer another company already
+          paid for is served to you without paying a model. When one of yours is served to them,
+          this workspace earns a small royalty in LENS — a side effect of sharing, not what it is
+          for.{' '}
+          <Link className={`text-ink ${inlineLink}`} to="/settings">
+            Shared answers in Settings
+          </Link>
+        </p>
         {q.isLoading || !s ? (
           <p className="text-body text-muted">Loading…</p>
         ) : !s.earning_enabled ? (
@@ -252,6 +278,10 @@ export function Earnings() {
           ) : null}
         </Region>
       ) : null}
+
+      <Region index={armed ? '04' : '02'} label="Convert to LXC">
+        <ConvertRegion />
+      </Region>
     </RegionScreen>
   )
 }

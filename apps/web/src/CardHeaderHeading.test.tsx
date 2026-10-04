@@ -127,9 +127,10 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/chat': 0,
   // B10.3 — the how-to page is prose sections under <h3>s, no cards.
   '/chat/help': 0,
-  // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. /earnings is
-  // built from Region and renders no Card at all; its three regions carry their own headings.
-  '/earnings': 0,
+  // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. Royalties is
+  // built from Region and renders no Card at all; its regions carry their own headings. B28.10
+  // moved it under Statements; /earnings redirects to the same screen.
+  '/statements/royalties': 0,
   '/billing': 3,
   // B13.3 — the usage meter and the earnings card; the populated fixture is a subscriber.
   '/plans': 2,

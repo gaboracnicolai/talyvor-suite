@@ -190,7 +190,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'NOTHING HERE CLAIMS THE CONVERSATION IS BILLED',
     why: 'the measurement that keeps areas/chat out of the population entirely, so an absent area reads as decided rather than forgotten',
   },
-  'apps/web/src/eyebrowAudit.ts:25|apps/web/src/areas/lens/Overview.tsx:228': {
+  'apps/web/src/eyebrowAudit.ts:25|apps/web/src/areas/lens/Overview.tsx:203': {
     kind: 'LIVE',
     fragment: 'text-eyebrow uppercase',
     why: "the console's densest eyebrow, the surface `319335c` dropped `uppercase` from to prove 678 tests could not see it",
@@ -245,12 +245,12 @@ const PINS: Record<string, Pin> = {
     fragment: '<SearchIssues />',
     why: 'the census says the surface it was written for is MOUNTED, not merely exported — "reachable only by curl" is what W1.7 opened on, so a metered card that shipped nowhere would be a different finding entirely',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:344': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:28|apps/web/src/areas/lens/Overview.tsx:319': {
     kind: 'LIVE',
     fragment: 'error={ledger.error}',
     why: 'the CORRECT copy of the seam Spend.tsx had backwards — the whole positive control for that finding is that this line reads `ledger.error` while its guard is `ledger.isError`',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:341|apps/web/src/areas/lens/Overview.tsx:344': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:341|apps/web/src/areas/lens/Overview.tsx:319': {
     kind: 'LIVE',
     fragment: '<Failed what="the mint ledger" error={ledger.error} />',
     why: 'the same line quoted VERBATIM beside the must-stay-green control that asserts its wording, so the quote and the assertion cannot drift apart',
@@ -271,7 +271,7 @@ const PINS: Record<string, Pin> = {
     why: 'a DEVELOPER-FACING FAILURE MESSAGE naming the shape to copy — read exactly when somebody is already confused',
   },
 
-  'apps/web/src/areas/lens/Overview.tsx:358|apps/web/src/areas/marketing/Landing.tsx:143': {
+  'apps/web/src/areas/lens/Overview.tsx:333|apps/web/src/areas/marketing/Landing.tsx:143': {
     kind: 'LIVE',
     fragment: 'transition-colors duration-200',
     why: "the SITE's motion shape, quoted where the console copies it — W1.1.0's rule is that a console link moves the way the public page moves, so the call site names the line it is imitating rather than inventing a fifth hover shape",
@@ -348,17 +348,17 @@ const PINS: Record<string, Pin> = {
   // The four pointers the numeric-field audit and its tests write. Both sites they quote are the
   // MEASUREMENT that rule is built on: one is the offender it was written for, the other is the
   // exemption — a field whose value IS a figure and correctly is not on the face.
-  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:289': {
+  'apps/web/src/fieldFaceAudit.ts:18|apps/web/src/areas/lens/ConvertLens.tsx:326': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the one field in the product that declares itself numeric — the defect this audit was written for',
   },
-  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:289': {
+  'apps/web/src/fieldFaceAudit.ts:68|apps/web/src/areas/lens/ConvertLens.tsx:326': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the same site quoted where the rule argues the declaration is written in a DIFFERENT FILE from the class list',
   },
-  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:289': {
+  'apps/web/src/fieldFaceAudit.test.tsx:31|apps/web/src/areas/lens/ConvertLens.tsx:326': {
     kind: 'LIVE',
     fragment: 'inputMode="decimal"',
     why: 'the unit case that pins the predicate to the real call site rather than to an invented fixture',
@@ -372,7 +372,7 @@ const PINS: Record<string, Pin> = {
     fragment: '.isError ?',
     why: 'the sibling with the same fallback shape — revoke gates on isError and picks its 404 words inside',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:342': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:22|apps/web/src/areas/lens/ConvertLens.tsx:379': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the closest sibling of all — ConvertError is the same pattern as CheckoutError, and it is used INSIDE the block',

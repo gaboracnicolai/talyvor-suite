@@ -130,7 +130,8 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/ledger': 'Ledger',
   '/chat': 'Chat',
   '/chat/help': 'How to use Talyvor Chat',
-  '/earnings': 'Earnings',
+  // B28.10 — Earnings became Royalties, under Statements; /earnings redirects to it.
+  '/statements/royalties': 'Royalties',
   '/billing': 'Billing',
   '/plans': 'Plans',
   '/billing/success': 'Billing',

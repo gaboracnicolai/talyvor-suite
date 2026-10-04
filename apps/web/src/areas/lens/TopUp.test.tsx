@@ -122,6 +122,13 @@ describe('TopUp — the amounts come from the server', () => {
     expect(await screen.findByText(/42/)).toBeInTheDocument()
     expect(screen.getByText(/\$4\.20/)).toBeInTheDocument()
   })
+
+  // B28.10 — credit bought here is the workspace's; agents spend from their own wallets.
+  it('offers "Fund your agents", which goes to Agent Wallets', async () => {
+    mockBff()
+    renderTopUp()
+    expect(await screen.findByRole('link', { name: 'Fund your agents' })).toHaveAttribute('href', '/agents')
+  })
 })
 
 describe('TopUp — a deployment that cannot sell says so up front', () => {
@@ -339,7 +346,7 @@ describe('W1.1.4 — a workspace with nothing in it is told what to do', () => {
     renderTopUp()
     expect(await screen.findByText(/has no LXC/i)).toBeInTheDocument()
     // A next action is somewhere to GO, not a better sentence about the absence.
-    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: /royalties/i })).toHaveAttribute('href', '/statements/royalties')
   })
 
   it('a balance that could NOT be read is never drawn as a workspace with no LXC', async () => {
@@ -370,7 +377,7 @@ describe('W1.1.4 — a workspace with nothing in it is told what to do', () => {
     })
     renderTopUp()
     expect(await screen.findByText(/has no LXC/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /overview/i })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: /royalties/i })).toHaveAttribute('href', '/statements/royalties')
     // And it still says what would turn buying on, rather than only that it is off.
     expect(screen.getByText(/LENS_BILLING_ENABLED/)).toBeInTheDocument()
   })

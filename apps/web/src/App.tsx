@@ -18,7 +18,7 @@ import { ApiError, UnreadableError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
 import { Home } from './areas/lens/Home'
 import { Ledger } from './areas/lens/Ledger'
-import { Earnings } from './areas/lens/Earnings'
+import { Earnings, EarningsMoved } from './areas/lens/Earnings'
 import { Keys } from './areas/lens/Keys'
 import { Setup } from './areas/lens/Setup'
 import { Spend } from './areas/lens/Spend'
@@ -91,7 +91,7 @@ const GROUP_PATHS: Record<string, readonly string[]> = {
   Marketplace: ['/marketplace'],
   Work: ['/track', '/docs'],
   Developers: ['/setup', '/keys', '/spend', '/features'],
-  Billing: ['/billing', '/plans', '/overview', '/ledger', '/earnings', '/pricing'],
+  Billing: ['/billing', '/plans', '/overview', '/ledger', '/pricing'],
   Settings: ['/settings', '/members'],
   Operator: ['/operator'],
 }
@@ -196,7 +196,11 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   // Overview would have reached for, lifetime_earned, is lifetime CREDITED (talyvor-lens #472),
   // and putting an honest earnings figure next to a misleading one invites a reader to average
   // them.
-  { path: '/earnings', title: 'Earnings', element: <Earnings /> },
+  //
+  // B28.10 — it is "Royalties" now, under Statements: a royalty on a shared answer is a side effect
+  // of a cost saving, not the product's revenue, so it sits beside the agents' statements and
+  // carries the LENS→LXC conversion. The old /earnings address redirects here (below the table).
+  { path: '/statements/royalties', title: 'Royalties', element: <Earnings /> },
   // W4.6.1 step 6 — the chat screen. It sits directly under Overview because it is the first
   // surface a subscriber uses, not an administrative one.
   { path: '/chat', title: 'Chat', element: <Chat /> },
@@ -367,6 +371,7 @@ function Sidebar() {
         {/* The label is the page's title, so the row and the heading it opens are one name. */}
         {item('/agents', 'Agent Wallets')}
         {item('/statements', 'Statements')}
+        {item('/statements/royalties', 'Royalties', { indent: true })}
         {item('/chat', 'Chat', { wildcard: true })}
       </div>
       <Group label="Marketplace" {...fold.group('Marketplace')}>
@@ -418,7 +423,6 @@ function Sidebar() {
         {item('/plans', 'Plans')}
         {item('/overview', 'Overview')}
         {item('/ledger', 'Ledger')}
-        {item('/earnings', 'Earnings')}
         {/* The public price list (B5.2). It opens outside the console, as a buyer sees it. */}
         {item('/pricing', 'Pricing')}
       </Group>
@@ -525,6 +529,9 @@ function AppShell() {
           {CONSOLE_ROUTES.map((r) => (
             <Route key={r.path} path={r.path} element={r.element} />
           ))}
+          {/* B28.10 — a retired address that still has somewhere to go. Not in CONSOLE_ROUTES for
+              the catch-all's reason: a redirect is not a page, so it has no title of its own. */}
+          <Route path="/earnings" element={<EarningsMoved />} />
           {/* A catch-all, added when /admin was removed. Before it, an unmatched in-app path
               rendered the shell with an EMPTY content area and no explanation — so an
               operator's /admin bookmark would have shown a blank page. A silent blank is the
