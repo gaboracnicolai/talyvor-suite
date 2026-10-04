@@ -35,18 +35,65 @@ export interface Capability {
   claims: Claim[]
 }
 
+// B28.15 — wallet-first: getting started is giving one agent a wallet and watching it spend, and
+// Agent Wallets is the first capability (lens-routes.json lists its routes first too).
 export const START: Claim[] = [
   { text: 'Create a workspace with an account you already have.', href: '/signup', label: 'Sign up' },
-  { text: 'Mint an API key for the workspace. Its secret is shown once.', href: '/keys', label: 'API keys' },
   {
-    text: 'Copy the base URL and the settings for Claude Code, Cursor, Continue or the OpenAI SDK.',
+    text: 'Create an agent. It gets a wallet of its own, empty until you fund it.',
+    href: '/agents',
+    label: 'Agent Wallets — Create agent',
+  },
+  {
+    text: 'Fund its wallet from the workspace’s balance. The agent can spend only what its wallet holds.',
+    href: '/agents',
+    label: 'Agent Wallets — Fund',
+  },
+  {
+    text: 'Issue the agent its own key: a proxy key that spends only this agent’s balance, under its rules. It is shown once.',
+    href: '/agents',
+    label: 'Agent Wallets — Issue a key',
+  },
+  {
+    text: 'Give the agent that key and the base URL Setup prints for Claude Code, Cursor, Continue or the OpenAI SDK.',
     href: '/setup',
     label: 'Setup',
   },
-  { text: 'Watch each request land in the ledger with what it cost.', href: '/ledger', label: 'Ledger' },
+  {
+    text: 'Watch its statement: every request the agent makes is a line with what it cost and the balance left.',
+    href: '/agents',
+    label: 'Agent Wallets — Statement',
+  },
 ]
 
 export const CAPABILITIES: Capability[] = [
+  {
+    id: 'wallets',
+    name: 'Agent Wallets',
+    role: 'A wallet for each AI agent',
+    lede: 'Each agent a workspace runs gets a wallet of its own on Lens’s double-entry ledger: the workspace funds it, the agent spends only what it holds, and its statement is every posting against it. Lens checks the rules before a provider is called or a payment moves.',
+    claims: [
+      { text: 'Create an agent, fund its wallet and take funds back.', href: '/agents', label: 'Agent Wallets' },
+      {
+        text: 'Issue the agent a key that spends only its own balance, under its rules.',
+        href: '/agents',
+        label: 'Agent Wallets',
+      },
+      {
+        text: 'Set its spending rules; a payment past them waits in your approvals inbox, and a passkey can be required to approve it.',
+        href: '/agents',
+        label: 'Agent Wallets',
+      },
+      { text: 'Pause one agent, or stop every agent with one switch.', href: '/agents', label: 'Agent Wallets' },
+      { text: 'Read and download each wallet’s statement.', href: '/agents', label: 'Agent Wallets' },
+      {
+        text: 'Agents pay each other, hold money in escrow, and lend between companies. Investing is simulated: no order reaches a market.',
+        href: '/agents',
+        label: 'Agent Wallets',
+      },
+      { text: 'Every wallet route Lens answers, with what each one does.', href: '#lens-wallets', label: 'Lens API — Agent Wallets' },
+    ],
+  },
   {
     id: 'chat',
     name: 'Chat',
@@ -124,27 +171,6 @@ export const CAPABILITIES: Capability[] = [
       },
       { text: 'Plan work in cycles.', href: '/track/cycles', label: 'Cycles' },
       { text: 'Group issues into projects and open a project’s issues.', href: '/track/projects', label: 'Projects' },
-    ],
-  },
-  {
-    id: 'wallets',
-    name: 'Agent Wallets',
-    role: 'A wallet for each AI agent',
-    lede: 'Each agent a workspace runs gets a wallet of its own on Lens’s double-entry ledger: the workspace funds it, the agent spends only what it holds, and its statement is every posting against it.',
-    claims: [
-      { text: 'Create an agent, fund its wallet and take funds back.', href: '/agents', label: 'Agent Wallets' },
-      {
-        text: 'Set its spending rules; a payment past them waits in your approvals inbox, and a passkey can be required to approve it.',
-        href: '/agents',
-        label: 'Agent Wallets',
-      },
-      { text: 'Pause one agent, or stop every agent with one switch.', href: '/agents', label: 'Agent Wallets' },
-      { text: 'Read and download each wallet’s statement.', href: '/agents', label: 'Agent Wallets' },
-      {
-        text: 'Agents pay each other, hold money in escrow, and lend between companies. Investing is simulated: no order reaches a market.',
-        href: '/agents',
-        label: 'Agent Wallets',
-      },
     ],
   },
   {
