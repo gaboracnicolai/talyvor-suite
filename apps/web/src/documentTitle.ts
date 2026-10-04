@@ -3,20 +3,24 @@ import { useEffect } from 'react'
 /**
  * THE NAME THE BROWSER GETS. See documentTitle.test.tsx for what was measured and where the
  * `<page> | <brand>` shape comes from (the marketing site's own titles, fetched, not chosen).
- *
- * ⚠ `BRAND` IS ALSO IN `index.html`, AND THAT IS NOT A DUPLICATE THAT CAN DRIFT: a full page load
- * paints the file's `<title>` before any JavaScript runs, so the two are the same string at two
- * instants of the same load. The test reads index.html and asserts they are equal.
  */
-export const BRAND = 'Talyvor Suite'
+export const BRAND = 'Talyvor'
+
+/**
+ * B28.1: the front door's whole title, and the one `index.html` ships. ⚠ THAT IS NOT A DUPLICATE
+ * THAT CAN DRIFT: a full page load paints the file's `<title>` before any JavaScript runs, so the
+ * two are the same string at two instants of the same load. The test reads index.html and asserts
+ * they are equal.
+ */
+export const HOME_TITLE = `${BRAND} — wallets for AI agents`
 
 /**
  * `null` means "this surface has no name of its own" — the front door — and takes the brand
- * alone, which is what the website does with its own home page. Every other caller passes a
+ * line, which is what the website does with its own home page. Every other caller passes a
  * string the product ALREADY paints, so this never invents a page name.
  */
 export function documentTitle(pageName: string | null): string {
-  return pageName ? `${pageName} | ${BRAND}` : BRAND
+  return pageName ? `${pageName} | ${BRAND}` : HOME_TITLE
 }
 
 /**

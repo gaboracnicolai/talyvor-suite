@@ -315,6 +315,47 @@ export function sidebarStaysHidden(): Scenario {
   }
 }
 
+/** B28.1 — what a search result and a shared link show: the front door's bytes as a crawler reads them
+ *  (no script runs), the image they name, and the tab title once the app has run. */
+export function socialPreview(): Scenario {
+  return {
+    id: 'social-preview',
+    title: 'the front door carries its title, description and social preview image',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/marketing')
+      try {
+        const html = await (await page.request.get(page.url())).text()
+        const meta = (attr: string, key: string) =>
+          new RegExp(`<meta\\s+${attr}="${key}"\\s+content="([^"]*)"`).exec(html)?.[1] ?? ''
+        const title = /<title>([^<]*)<\/title>/.exec(html)?.[1] ?? ''
+        const image = meta('property', 'og:image')
+        // The image is checked on the app under test, at the path the tag names.
+        const img = image === '' ? null : await page.request.get(new URL(new URL(image).pathname, page.url()).href)
+        const imgType = img?.headers()['content-type'] ?? ''
+        const tab = await page.title()
+        ctx.evidence.push({
+          note: `title="${title}" tab="${tab}" description="${meta('name', 'description')}" og:title="${meta('property', 'og:title')}" ` +
+            `og:description="${meta('property', 'og:description')}" og:image="${image}" -> ${img?.status() ?? 'not fetched'} ${imgType}`,
+        })
+        const missing = [
+          title === 'Talyvor — wallets for AI agents' ? '' : '<title>',
+          tab === title ? '' : 'the tab title after the app ran',
+          meta('name', 'description') === '' ? 'meta description' : '',
+          meta('property', 'og:title') === '' ? 'og:title' : '',
+          meta('property', 'og:description') === '' ? 'og:description' : '',
+          img?.status() === 200 && imgType.startsWith('image/') ? '' : 'og:image that loads',
+          meta('name', 'twitter:card') === 'summary_large_image' ? '' : 'twitter:card',
+        ].filter((m) => m !== '')
+        return missing.length === 0
+          ? { pass: true, detail: 'title, description, og: and twitter: tags present; the image loads' }
+          : { pass: false, detail: `/marketing is missing: ${missing.join(', ')}` }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 export function streamsProgressively(): Scenario {
   return {
     id: 'streaming',
@@ -1069,6 +1110,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 5: list.push(followUpNotCached(i)); break
     case 6: list.push(sidebarStaysHidden()); break
     case 7: list.push(streamsProgressively()); break
+    case 8: list.push(socialPreview()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.

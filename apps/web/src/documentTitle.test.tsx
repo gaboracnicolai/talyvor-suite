@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, CONSOLE_ROUTES, queryClient } from './App'
-import { BRAND, documentTitle } from './documentTitle'
+import { BRAND, HOME_TITLE, documentTitle } from './documentTitle'
 
 /**
  * THE BROWSER TAB NAMED NO PAGE — ON EVERY ADDRESS THE SUITE HAS.
@@ -155,21 +155,21 @@ const NO_SUCH_PAGE = ['/admin', '/specimen', '/nonesuch', '/keys/extra', '/billi
 
 /** Public addresses and the WHOLE title each must carry. `/marketing` is the front door. */
 const PINNED_PUBLIC: ReadonlyArray<readonly [string, string]> = [
-  ['/marketing', 'Talyvor Suite'],
-  ['/marketing/pricing', 'Talyvor Suite'],
-  ['/privacy', 'Privacy | Talyvor Suite'],
-  ['/terms', 'Terms | Talyvor Suite'],
-  ['/signup', 'Create a workspace | Talyvor Suite'],
-  ['/signin', 'Sign in | Talyvor Suite'],
+  ['/marketing', 'Talyvor — wallets for AI agents'],
+  ['/marketing/pricing', 'Talyvor — wallets for AI agents'],
+  ['/privacy', 'Privacy | Talyvor'],
+  ['/terms', 'Terms | Talyvor'],
+  ['/signup', 'Create a workspace | Talyvor'],
+  ['/signin', 'Sign in | Talyvor'],
 ]
 
 describe('the format, and the brand it ends in', () => {
-  it('is "<page> | Talyvor Suite", and the front door is the brand alone', () => {
+  it('is "<page> | Talyvor", and the front door is the wallet line', () => {
     // Hardcoded on both sides. A guard that builds its expectation from the constant it is
     // checking passes for every value of that constant.
-    expect(documentTitle('Ledger')).toBe('Ledger | Talyvor Suite')
-    expect(documentTitle(null)).toBe('Talyvor Suite')
-    expect(BRAND).toBe('Talyvor Suite')
+    expect(documentTitle('Ledger')).toBe('Ledger | Talyvor')
+    expect(documentTitle(null)).toBe('Talyvor — wallets for AI agents')
+    expect(BRAND).toBe('Talyvor')
   })
 
   it('is the same brand the cold load already ships, read from index.html', () => {
@@ -178,7 +178,27 @@ describe('the format, and the brand it ends in', () => {
     const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
     const m = /<title>([^<]*)<\/title>/.exec(html)
     expect(m, 'index.html has no <title> to compare against').not.toBeNull()
-    expect(m?.[1]).toBe(BRAND)
+    expect(m?.[1]).toBe(HOME_TITLE)
+  })
+
+  it('ships a description and a social preview that name the same product (B28.1)', () => {
+    // A crawler and a link unfurler read index.html's bytes and never run the script, so these
+    // tags are the whole of what a search result or a shared link shows.
+    const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
+    const tag = (attr: 'name' | 'property', key: string) =>
+      new RegExp(`<meta\\s+${attr}="${key}"\\s+content="([^"]*)"`).exec(html)?.[1]
+    const description =
+      'Give every AI agent a wallet: a budget, spending rules, approvals, a card and a live statement, enforced before the model call or payment.'
+    expect(tag('name', 'description')).toBe(description)
+    expect(tag('property', 'og:title')).toBe('Talyvor — wallets for AI agents')
+    expect(tag('property', 'og:description')).toBe(description)
+    expect(tag('property', 'og:image')).toBe('https://app.talyvor.com/og-image.png')
+    expect(tag('name', 'twitter:card')).toBe('summary_large_image')
+    expect(tag('name', 'twitter:image')).toBe('https://app.talyvor.com/og-image.png')
+    // The image the tags name is in the build: public/ is copied to the root as it is.
+    const png = readFileSync(resolve(__dirname, '../public/og-image.png'))
+    expect(png.subarray(1, 4).toString('latin1')).toBe('PNG')
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630])
   })
 })
 
@@ -196,7 +216,7 @@ describe('every console address names itself to the browser', () => {
   })
 
   it.each(CONSOLE_ROUTES.map((r) => [addressOf(r.path), r.title] as const))(
-    '%s is titled "%s | Talyvor Suite"',
+    '%s is titled "%s | Talyvor"',
     async (address, name) => {
       await at(address)
       await waitFor(() => expect(document.title).not.toBe(SENTINEL))

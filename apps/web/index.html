@@ -6,7 +6,32 @@
     <!-- B19.10: installable, so an iPhone can take approval pushes once it is on the Home Screen. -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Talyvor Suite</title>
+    <title>Talyvor — wallets for AI agents</title>
+    <!-- B28.1: what a search result and a shared link show. One static set for every address: this
+         is a single-page app, so a crawler reads these bytes and never runs the script. -->
+    <meta
+      name="description"
+      content="Give every AI agent a wallet: a budget, spending rules, approvals, a card and a live statement, enforced before the model call or payment."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Talyvor" />
+    <meta property="og:url" content="https://app.talyvor.com/marketing" />
+    <meta property="og:title" content="Talyvor — wallets for AI agents" />
+    <meta
+      property="og:description"
+      content="Give every AI agent a wallet: a budget, spending rules, approvals, a card and a live statement, enforced before the model call or payment."
+    />
+    <meta property="og:image" content="https://app.talyvor.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Talyvor — give every AI agent a wallet." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Talyvor — wallets for AI agents" />
+    <meta
+      name="twitter:description"
+      content="Give every AI agent a wallet: a budget, spending rules, approvals, a card and a live statement, enforced before the model call or payment."
+    />
+    <meta name="twitter:image" content="https://app.talyvor.com/og-image.png" />
     <!-- No-flash theme: set data-theme before first paint, respecting a stored
          choice then prefers-color-scheme. The theme store reads this back.
          TWO READS, TWO CATCHES: only the stored choice can be refused, so a
