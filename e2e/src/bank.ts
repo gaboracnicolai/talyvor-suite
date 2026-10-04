@@ -296,6 +296,16 @@ export class AgentBankScreen {
     return (await outcome(done, c)) ?? 'Accepted'
   }
 
+  /** B28.23 — Transfers: gives back what the agent at wallet `from` sent `agent` with `memo`, asked twice; the note, or the refusal. */
+  async giveBack(agent: Agent, from: string, memo: string): Promise<string> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Transfers')
+    const row = c.getByText(`Received from ${from} — ${memo}`, { exact: true }).first().locator('xpath=../..')
+    await row.getByRole('button', { name: 'Give back', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+    await row.getByRole('button', { name: 'Yes, give it back', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+    return said(c)
+  }
+
   /** Offer a loan: `principal` to the wallet `to`, at `pct`% over `n` instalments every `every`. */
   async offerLoan(agent: Agent, l: { to: string; principal: number; pct: number; n: number; every: 'day' | 'week' | 'month'; memo: string }): Promise<string> {
     await this.fresh(agent)

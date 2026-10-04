@@ -101,6 +101,57 @@ export function walletSendRefund(seed: number, partner: number): Scenario {
   }
 }
 
+/**
+ * B28.23 — the other way round: another company's agent sends a person's agent credits, and the person gives
+ * them back from Agent Wallets. One refund both companies see, the original marked given back, and one posting
+ * on each agent's account — the same amount, out of one and into the other — so both balances move by it.
+ */
+export function walletGiveBack(seed: number, partner: number): Scenario {
+  const funded = 3e6
+  const amount = 1_200_000
+  const memo = `overpaid ${seed}`
+  return {
+    id: 'wallet-give-back',
+    title: "another company's agent sends a person's agent credits, and the person gives them back on Agent Wallets: one refund both sides see, one posting on each account, both balances moved by it",
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const { env, app } = ctx
+      const other = await otherCompany(ctx, partner, `Giver ${seed}`, funded)
+      const a = await openAgent(ctx, bank, `Receiver ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      const sent = await env.lens.sendCredits(other.co, other.agent.id, a.id, amount, memo)
+      ctx.evidence.push({ note: `the other company sends ${a.name} ${lxcText(amount)} LXC`, answer: JSON.stringify(sent) })
+      if (!sent.ok) return fail(`the other company could not send: ${sent.status} ${sent.error}`)
+      const got = (await env.lens.transfers(app.user, a.id)).find((t) => t.id === sent.value.id)
+      if (got?.refundable !== true) return fail(`Lens does not offer ${a.name} the transfer it received to give back: ${JSON.stringify(got)}`)
+      let [x, y] = await balances(ctx, a, other)
+      if (x !== amount || y !== funded - amount) return fail(`after the send ${a.name} holds ${x} µLXC (want ${amount}) and the sender ${y} (want ${funded - amount})`)
+      const mine0 = await env.lens.agentLines(app.user, a.id)
+      const theirs0 = await env.lens.agentLines(other.co, other.agent.id)
+
+      const said = await bank.giveBack(a, other.agent.id, memo)
+      ctx.evidence.push({ note: `Give back: ${said}` })
+      if (!/^Gave/.test(said)) return fail(`giving it back was refused: "${said}"`)
+      const refunds = (await env.lens.transfers(app.user, a.id)).filter((t) => t.refund_of === sent.value.id)
+      const theirRefunds = (await env.lens.transfers(other.co, other.agent.id)).filter((t) => t.refund_of === sent.value.id)
+      if (refunds.length !== 1 || theirRefunds.length !== 1 || refunds[0].id !== theirRefunds[0].id || refunds[0].from_agent_id !== a.id || refunds[0].to_agent_id !== other.agent.id || refunds[0].amount_ulxc !== amount) {
+        return fail(`giving it back left ${refunds.length} refund(s) on the receiver's side and ${theirRefunds.length} on the sender's: ${JSON.stringify([refunds, theirRefunds])}`)
+      }
+      const original = (await env.lens.transfers(app.user, a.id)).find((t) => t.id === sent.value.id)
+      if (original?.refunded_by !== refunds[0].id || original.refundable === true) return fail(`given back, the original reads ${JSON.stringify(original)}`)
+      const mine = (await env.lens.agentLines(app.user, a.id)).filter((l) => !mine0.some((o) => o.entry_id === l.entry_id))
+      const theirs = (await env.lens.agentLines(other.co, other.agent.id)).filter((l) => !theirs0.some((o) => o.entry_id === l.entry_id))
+      const text = (ls: typeof mine) => ls.map((l) => `${l.kind} ${l.amount_ulxc} → ${l.balance_after_ulxc}`).join(', ') || 'nothing'
+      ctx.evidence.push({ note: `giving back wrote ${text(mine)} on ${a.name}'s account and ${text(theirs)} on the sender's` })
+      if (mine.length !== 1 || mine[0].amount_ulxc !== -amount || mine[0].balance_after_ulxc !== 0 || theirs.length !== 1 || theirs[0].amount_ulxc !== amount || theirs[0].balance_after_ulxc !== funded) {
+        return fail(`giving back ${amount} µLXC should write -${amount} leaving 0 on ${a.name}'s account and +${amount} leaving ${funded} on the sender's; it wrote ${text(mine)} and ${text(theirs)}`)
+      }
+      ;[x, y] = await balances(ctx, a, other)
+      if (x !== 0 || y !== funded) return fail(`given back, ${a.name} holds ${x} µLXC (want 0) and the sender ${y} (want ${funded})`)
+      return { pass: true, detail: `received ${lxcText(amount)} LXC from another company, given back on the screen: one refund both see, the original marked, one posting of ${lxcText(amount)} LXC out of ${a.name} and one into the sender, both balances where they began` }
+    }),
+  }
+}
+
 export function walletRequest(seed: number, partner: number): Scenario {
   const funded = 2e6
   const amount = 800_000

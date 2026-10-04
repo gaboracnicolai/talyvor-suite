@@ -683,7 +683,11 @@ export class Bank {
     const now = new Date().toISOString()
     const answer = (x: object | { status: number; error: string }, ok = 200) => 'error' in x && 'status' in x ? json(res, x.status as number, { error: x.error }) : json(res, ok, x)
     if (action === '/transfers' && method === 'GET') {
-      return json(res, 200, { transfers: this.transfers.filter((t) => t.from_agent_id === a.id || t.to_agent_id === a.id) }), true
+      // B28.299: what gave each back, and whether this agent may still give back one it received.
+      return json(res, 200, { transfers: this.transfers.filter((t) => t.from_agent_id === a.id || t.to_agent_id === a.id).map((t) => {
+        const refunded_by = this.transfers.find((x) => x.refund_of === t.id)?.id
+        return { ...t, ...(refunded_by ? { refunded_by } : {}), ...(t.to_agent_id === a.id && !t.refund_of && !t.loan_id && !refunded_by ? { refundable: true } : {}) }
+      }) }), true
     }
     if (action === '/send' && method === 'POST') {
       const b = await this.body<{ to?: string; amount_ulxc?: number; memo?: string }>(req)

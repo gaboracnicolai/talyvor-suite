@@ -214,6 +214,7 @@ Approvals, statements, listing, buying and the seller's earnings are catalog v3'
 | Scenario | Who | Oracle |
 |---|---|---|
 | `wallet-send-refund` | 0, 10, … with 9, 19, … | Send 1.5 LXC to the other company's agent: one transfer both companies read, the sender −1.5 and the receiver +1.5; the other company gives it back: one refund both read, both balances where they began |
+| `wallet-give-back` | 0, 10, … with 9, 19, … | B28.23: the other company's agent sends 1.2 LXC to a new agent; on Agent Wallets → Transfers the person presses Give back, then Yes: one refund both companies read, the original marked given back, one −1.2 posting on the agent's account and one +1.2 on the sender's, both balances where they began |
 | `wallet-request` | 1, 11, … with 9, 19, … | the other company's agent asks for 0.8 LXC; Accept under Requests: the request reads accepted on both sides, paid by one transfer both read, the balances moved by it |
 | `market-review` | 2, 12, … with 9, 19, … | a listing that reads as a prompt injection is held on Publish, not in the other company's catalog and not readable by it, and in the moderators' queue; approved with the moderator key, it is approved and in the other company's catalog |
 | `wallet-loan` | 3, 13, … with 9, 19, … | Offer a loan of 2 LXC at 10% over 2 daily instalments; the other company accepts: active on both sides, one payout transfer both read, the balances moved by the principal, the first instalment due a day after acceptance |

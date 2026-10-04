@@ -47,6 +47,11 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/card"):
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "ic_1", "agent_id": "agt_1", "last4": "4242", "livemode": false})
+		case strings.HasSuffix(r.URL.Path, "/transfers/xfr_1/refund"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "xfr_2", "from_agent_id": "agt_1", "to_agent_id": "agt_bea", "amount_ulxc": 1_500_000, "refund_of": "xfr_1"})
+		case strings.HasSuffix(r.URL.Path, "/transfers/xfr_given/refund"):
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "economy: this transfer was already refunded"})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/archive"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "swept_ulxc": 750_000, "revoked_keys": []string{"key_1"}})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1") && r.Method == http.MethodPatch:
@@ -291,6 +296,25 @@ func TestAgentRenameAndArchiveReachLens(t *testing.T) {
 	}
 	if !strings.HasPrefix(f.got[1], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[1], "/agents/agt_1/archive ") {
 		t.Fatalf("Lens got %q; want POST …/agents/agt_1/archive with no body", f.got[1])
+	}
+}
+
+// B28.23 — giving back a received transfer reaches Lens's refund route for that transfer with no body (a browser's
+// fields go nowhere), answers Lens's refund, and one already given back comes back as Lens's 409 and sentence.
+func TestTransferRefundReachesLens(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	rec := doJSON(a, http.MethodPost, "/api/wallets/transfers/xfr_1/refund", `{"amount_ulxc":1}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"refund_of":"xfr_1"`) {
+		t.Fatalf("refund = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(a, http.MethodPost, "/api/wallets/transfers/xfr_given/refund", `{}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "already refunded") {
+		t.Fatalf("a second refund = %d %s; want Lens's 409 and its sentence", rec.Code, rec.Body.String())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.got) != 2 || !strings.HasPrefix(f.got[0], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[0], "/transfers/xfr_1/refund ") {
+		t.Fatalf("Lens got %q; want POST …/transfers/xfr_1/refund with no body, then the second", f.got)
 	}
 }
 

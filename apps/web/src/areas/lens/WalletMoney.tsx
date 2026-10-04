@@ -286,9 +286,25 @@ function transferText(t: AgentTransfer, agentID: string): string {
   return `${verb} ${out ? 'to' : 'from'} ${other}${t.memo ? ` — ${t.memo}` : ''}`
 }
 
-/** What the agent sent to and received from other agents. */
+/**
+ * What the agent sent to and received from other agents. B28.23: a transfer it received and Lens says it may
+ * still give back has "Give back", asked twice; Lens moves the same amount back to the sender as one refund.
+ */
 export function AgentTransfers({ agent }: { agent: Agent }) {
+  const qc = useQueryClient()
   const list = useQuery({ queryKey: transfersKey(agent.id), queryFn: () => agentBankApi.transfers(agent.id) })
+  const [asking, setAsking] = useState<string | null>(null)
+  const giveBack = useMutation({
+    mutationFn: (t: AgentTransfer) => agentBankApi.refundTransfer(t.id),
+    onSettled: () => {
+      setAsking(null)
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: transfersKey(agent.id) }),
+        qc.invalidateQueries({ queryKey: BOOK_KEY }),
+        qc.invalidateQueries({ queryKey: ['agent-statement'] }),
+      ])
+    },
+  })
   const transfers = list.data?.transfers ?? []
   return (
     <Card>
@@ -300,13 +316,39 @@ export function AgentTransfers({ agent }: { agent: Agent }) {
       ) : (
         transfers.map((t) => (
           <Row key={t.id} label={transferText(t, agent.id)} hint={formatWhen(t.created_at)}>
-            <span className="flex items-center gap-2">
+            <span className="flex flex-wrap items-center gap-2">
               {t.test_funded_ulxc > 0 ? <Pill status="held">Test money</Pill> : null}
+              {t.refunded_by ? <Pill status="settled">Given back</Pill> : null}
               {lxc(t.from_agent_id === agent.id ? -t.amount_ulxc : t.amount_ulxc)}
+              {!t.refundable ? null : asking === t.id ? (
+                <>
+                  <Button variant="primary" disabled={giveBack.isPending} onClick={() => giveBack.mutate(t)}>
+                    Yes, give it back
+                  </Button>
+                  <Button disabled={giveBack.isPending} onClick={() => setAsking(null)}>
+                    Keep it
+                  </Button>
+                </>
+              ) : (
+                <Button disabled={giveBack.isPending} onClick={() => setAsking(t.id)}>
+                  Give back
+                </Button>
+              )}
             </span>
           </Row>
         ))
       )}
+      {giveBack.isSuccess ? (
+        <div className="px-gutter py-2">
+          <Note ok>
+            Gave {lxc(giveBack.data.amount_ulxc)} back to {giveBack.data.to_agent_id}.
+          </Note>
+        </div>
+      ) : giveBack.isError ? (
+        <div className="px-gutter py-2">
+          <Note ok={false}>Not given back. {refusalText(giveBack.error)}</Note>
+        </div>
+      ) : null}
     </Card>
   )
 }

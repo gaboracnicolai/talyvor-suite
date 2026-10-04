@@ -19,6 +19,7 @@ import (
 //	GET  /api/agents/{id}/transfers                    what the agent sent and received
 //	GET  /api/wallets/requests                         the requests the workspace's agents made and were made
 //	POST /api/wallets/requests/{rid}/accept, …/decline
+//	POST /api/wallets/transfers/{tid}/refund           give back a transfer one of the workspace's agents received
 //	GET  /api/wallets/credit-line                      the company's credit line (404: none)
 //	GET  /api/wallets/loans                            the loans the workspace lends and borrows
 //	POST /api/agents/{id}/loans         {to, principal_ulxc, interest_bps, instalments, every, late_fee_ulxc, memo}
@@ -160,6 +161,21 @@ func (a *app) handleMoneyRequestAnswer(answer string) func(http.ResponseWriter, 
 		}
 		a.agentBankRelay(w, r, t, http.MethodPost, "/money-requests/"+url.PathEscape(id)+"/"+answer, nil)
 	}
+}
+
+// handleTransferRefund — POST /api/wallets/transfers/{tid}/refund (B28.23): the workspace gives back a transfer
+// one of its agents received. Lens moves the same amount back to the sender as one transfer whose refund_of is
+// this one, and refuses one already given back.
+func (a *app) handleTransferRefund(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	id, ok := pathID(w, "transfer id", r.PathValue("tid"))
+	if !ok {
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodPost, "/transfers/"+url.PathEscape(id)+"/refund", nil)
 }
 
 // handleCreditLine — GET /api/wallets/credit-line.

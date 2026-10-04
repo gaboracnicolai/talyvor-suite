@@ -230,6 +230,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/x1/requests", body: `{"from":"@bea","amount_ulxc":1,"memo":""}`},
 		{method: http.MethodPost, path: "/api/wallets/requests/x1/accept", body: `{}`},
 		{method: http.MethodPost, path: "/api/wallets/requests/x1/decline", body: `{}`},
+		{method: http.MethodPost, path: "/api/wallets/transfers/x1/refund", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/x1/loans", body: `{"to":"@co","principal_ulxc":1,"interest_bps":0,"instalments":1,"every":"day","late_fee_ulxc":0,"memo":""}`},
 		{method: http.MethodPost, path: "/api/wallets/loans/x1/accept", body: `{}`},
 		{method: http.MethodPost, path: "/api/wallets/loans/x1/decline", body: `{}`},

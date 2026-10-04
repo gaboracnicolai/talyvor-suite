@@ -18,7 +18,7 @@ import {
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
 import { ACTION_TIMEOUT_MS, agentApproval, agentArchive, agentBalanceStored, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
-import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
+import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
@@ -1355,7 +1355,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // is taken down is 7, 17, …, whose marketplace earnings nobody else reads.
   const other = i - (i % 10) + 9
   switch (i % 10) {
-    case 0: if (other < users) list.push(walletSendRefund(i, other)); break
+    // B28.23 — then the other way round: the other company sends, and the person gives it back on the screen.
+    case 0: if (other < users) list.push(walletSendRefund(i, other), walletGiveBack(i, other)); break
     case 1: if (other < users) list.push(walletRequest(i, other)); break
     case 2: if (other < users) list.push(marketReview(i, other)); break
     case 3: if (other < users) list.push(walletLoan(i, other)); break
