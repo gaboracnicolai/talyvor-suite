@@ -61,7 +61,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
 function SignedOut() {
   // Land back where the user was heading; the BFF re-sanitises this server-side.
-  const returnTo = window.location.pathname + window.location.search
+  const returnTo = window.location.pathname + window.location.search + window.location.hash
   // THE TAB NAMES THIS CARD, NOT THE PAGE BEHIND IT. The address is still /ledger, so anything
   // deriving the title from the location would title a page the reader was refused — the exact
   // shape ConsoleTitle.test.tsx removed from the banner ("a page you are not on", and the name

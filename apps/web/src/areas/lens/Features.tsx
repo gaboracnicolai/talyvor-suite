@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Button, Input, Switch, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, api, getJSON, getJSONArray } from '../../lib/api'
@@ -286,6 +286,7 @@ function SettingSwitch({
 }
 
 function Feature({
+  id,
   name,
   does,
   where,
@@ -293,6 +294,8 @@ function Feature({
   state,
   control,
 }: {
+  /** An address other pages link to (/features#id). */
+  id?: string
   name: string
   does: React.ReactNode
   /** Where it takes effect, in plain words, ending in a link to that screen where one exists. */
@@ -303,7 +306,7 @@ function Feature({
   control?: React.ReactNode
 }) {
   return (
-    <li className="flex items-start justify-between gap-6 border-b border-rule py-5 last:border-b-0">
+    <li id={id} className="flex items-start justify-between gap-6 border-b border-rule py-5 last:border-b-0">
       <div className="min-w-0 space-y-1">
         <h3 className="text-head text-ink">{name}</h3>
         <p className="text-body text-ink">{does}</p>
@@ -403,6 +406,14 @@ export function Features() {
     queryFn: () => getJSON<BudgetReading>('/api/features/budget', { several: 'boolean' }),
   })
   const f = q.data
+
+  // B27.22 — sign-up, Terms and Privacy link to /features#answer-sharing. This screen renders after
+  // the gate has asked /auth/me, so the browser's own jump to the fragment found nothing to jump to.
+  const { hash } = useLocation()
+  useEffect(() => {
+    const el = hash ? document.getElementById(hash.slice(1)) : null
+    if (el !== null && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' })
+  }, [hash])
 
   // While loading, or when the workspace could not be read, every state says so rather than
   // defaulting to Off — "we could not read it" and "it is off" are different facts. Once read, a
@@ -729,6 +740,7 @@ export function Features() {
       <Region index="07" label="Billing and economy">
         <ul>
           <Feature
+            id="answer-sharing"
             name="Answer sharing"
             does="An answer this workspace paid for can be served to another company that asks the same question, and this workspace can be served from theirs. The content of a shared answer leaves the workspace."
             where={

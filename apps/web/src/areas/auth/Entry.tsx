@@ -1,6 +1,7 @@
 import { Button, Card, Mark, ThemeToggle, inlineLink } from '@talyvor/ui'
 import { useSignupProbe, type SignupState } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
+import { SharedAnswersFact } from '../../components/StoredAnswersFacts'
 
 // Entry.tsx — the two front doors: /signup for a stranger, /signin for someone coming back.
 //
@@ -166,6 +167,9 @@ export function SignUp() {
             <a href={loginHref('/')}>Continue</a>
           </Button>
           <AccessLine state={signup} />
+          {/* B27.22 — sharing is on from the first request, so a stranger is told before they
+              continue, with the way to switch it off. */}
+          <SharedAnswersFact className="text-caption text-faint" />
           {/* ⚠ THIS WAS MISSING, ON THE ONE SURFACE THAT NEEDS IT MOST. The sign-in card's
               comment says the policies are "linked on every entry surface", and this is an
               entry surface — the one where a stranger is deciding whether to create an

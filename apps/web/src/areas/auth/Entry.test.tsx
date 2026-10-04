@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
 
@@ -155,6 +155,18 @@ describe('the signup page is written for someone who has never heard of us', () 
     at('/signup')
     await screen.findByRole('heading', { level: 1 })
     expect(document.body.textContent ?? '').toMatch(/no (new )?password/i)
+  })
+
+  // B27.22 — sharing is on by default, so the page says so before Continue, and links to the
+  // switch itself (Features.test.tsx: that address lands on the Answer sharing row's switch).
+  it('says answers may be reused for other companies, and links to the sharing switch', async () => {
+    mockMe({ signup_open: true })
+    at('/signup')
+    const sentence = await screen.findByText(/Answers you get may be reused/)
+    expect(sentence).toHaveTextContent(
+      'Answers you get may be reused to answer the same question for other companies. You can switch sharing off at any time in Features.',
+    )
+    expect(within(sentence).getByRole('link', { name: 'Features' })).toHaveAttribute('href', '/features#answer-sharing')
   })
 })
 
