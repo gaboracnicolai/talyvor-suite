@@ -144,6 +144,17 @@
     "current_month_usd": "number"
    }
   },
+  "/v1/workspaces/{wsID}/savings/current-month": {
+   "status": 200,
+   "shape": {
+    "month_start": "string",
+    "saved_usd": "number",
+    "list_usd": "number",
+    "charged_usd": "number",
+    "requests": "number",
+    "unmeasured_requests": "number"
+   }
+  },
   "/v1/workspaces/{wsID}/deletion-requests": {
    "status": 200,
    "shape": {

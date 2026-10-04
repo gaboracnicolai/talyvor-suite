@@ -33,6 +33,9 @@ function stubFetch() {
         new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } })
       if (path.includes('/api/tokens/history')) return json(fixtureSpendRows)
       if (path.includes('/api/spend/month')) return json({ current_month_usd: 4.31 })
+      // B27.32 — Lens's measured sum over the month's rows: 3.50 list − 2.25 charged.
+      if (path.includes('/api/savings/month'))
+        return json({ month_start: '2026-07-01T00:00:00Z', saved_usd: 1.25, list_usd: 3.5, charged_usd: 2.25, requests: 4, unmeasured_requests: 2 })
       // The LXC ledger — inference debits (negative) + a grant credit. Raw wire shape,
       // carrying the model metadata Lens stamps (#343 requested_model, #355 served_model).
       if (path.includes('/api/lxc/history'))
@@ -69,6 +72,16 @@ function renderSpend() {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Spend (live)', () => {
+  it("shows the saving Lens measured from this month's requests (B27.32)", async () => {
+    stubFetch()
+    renderSpend()
+    const line = await screen.findByTestId('saved-this-month')
+    expect(line).toHaveTextContent('Saved this month: $1.25, measured from your requests')
+    const basis = screen.getByTestId('saved-basis')
+    expect(basis).toHaveTextContent(/4 requests this month would have cost .*\(\$3\.50\), minus what they were charged \(\$2\.25\)/)
+    expect(basis).toHaveTextContent('2 requests Lens has no measurement for (recorded before it began measuring, or the OCR step of a document) are not counted.')
+  })
+
   it('derives per-model rows from the live ledger route with tier dots and counts', async () => {
     stubFetch()
     renderSpend()
@@ -136,6 +149,9 @@ describe('Spend (live)', () => {
         if (path.includes('/api/usage')) return new Response('{}', { status: 500 })
         if (path.includes('/api/tokens/history')) return json(fixtureSpendRows)
         if (path.includes('/api/spend/month')) return json({ current_month_usd: 4.31 })
+      // B27.32 — Lens's measured sum over the month's rows: 3.50 list − 2.25 charged.
+      if (path.includes('/api/savings/month'))
+        return json({ month_start: '2026-07-01T00:00:00Z', saved_usd: 1.25, list_usd: 3.5, charged_usd: 2.25, requests: 4, unmeasured_requests: 2 })
         return json([])
       }),
     )

@@ -481,3 +481,40 @@ func TestRevokeRejectsATraversingID(t *testing.T) {
 		}
 	}
 }
+
+// TestSavingsMonthProxies (B27.32): GET /api/savings/month → Lens savings/current-month for the
+// session's workspace, the measured saving passed through unchanged.
+func TestSavingsMonthProxies(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"saved_usd":1.25,"list_usd":3.5,"charged_usd":2.25,"requests":4,"unmeasured_requests":0}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	cfg := config{
+		lensBaseURL: upstream.URL, provisionSecret: testProvisionSecret,
+		authMode: authModeOIDC, sessionTTL: time.Hour,
+	}
+	auth := newSessionOnlyAuthenticator(cfg)
+	seedProvisionedSession(auth, "sv-sid", "u1", "ng@example.com", "u-test-workspace")
+	a := newApp(cfg, auth)
+	a.cfg.webDist = t.TempDir()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/savings/month", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "sv-sid"})
+	a.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"saved_usd":1.25`) {
+		t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/v1/workspaces/u-test-workspace/savings/current-month" {
+		t.Fatalf("upstream path = %q", gotPath)
+	}
+}

@@ -538,6 +538,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	// The roster of the SESSION's Track workspace — no longer a workspace pinned at startup.
 	a.mux.HandleFunc("/api/members", a.trackWorkspaceProxy("/members", nil, nil))
 	a.mux.HandleFunc("/api/spend/month", a.wsProxyFixed("/spend/current-month"))
+	// B27.32 — this month's MEASURED saving: Lens sums the workspace's own spend rows (what each
+	// request would have cost at the model it asked for with no cache, minus what it was charged).
+	a.mux.HandleFunc("/api/savings/month", a.wsProxyFixed("/savings/current-month"))
 
 	// Unknown /api/* → 401 without a session, JSON 404 with one (never fall through to
 	// the SPA and hand back index.html).

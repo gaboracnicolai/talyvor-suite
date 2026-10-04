@@ -143,7 +143,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   // 4, not 3: `1b58635` (#251) added `FeatureSpendCard` — "Spend by feature". The card arrived as
   // a NEW FILE that Spend.tsx renders, so `grep -c '<CardHeader' Spend.tsx` reads 2 before and
   // after and would have argued the opposite.
-  '/spend': 4,
+  '/spend': 5,
   '/members': 1,
   '/operator': 0,
   // 2 → 3 at B27.27: "Your provider keys".

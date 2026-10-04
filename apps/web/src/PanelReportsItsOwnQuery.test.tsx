@@ -82,6 +82,8 @@ function bodyFor(url: string): unknown {
   if (url.includes('/api/lxc/history'))
     return [{ id: 'x1', workspace_id: 'w', amount_ulxc: -640000, balance_after_ulxc: 49360000, type: 'spend', description: 'settle', metadata: { served_model: 'claude-haiku-4-5' }, created_at: '2026-07-21T10:00:05Z' }]
   if (url.includes('/api/spend/month')) return { current_month_usd: 4.31 }
+  if (url.includes('/api/savings/month'))
+    return { month_start: '2026-07-01T00:00:00Z', saved_usd: 1.25, list_usd: 3.5, charged_usd: 2.25, requests: 4, unmeasured_requests: 0 }
   // The by-feature aggregate. A LIST, and it carries the untagged bucket on purpose: the
   // must-stay-green baseline below would not notice a card that quietly dropped the row
   // that is usually the biggest one.
@@ -151,7 +153,7 @@ const ADDRESS_ROUTES: Record<string, string[]> = {
   '/billing': ['/api/billing/allowance', '/api/docs/membership', '/api/docs/pins', '/api/lxc/balance', '/api/lxc/topup-options'],
   '/keys': ['/api/docs/membership', '/api/docs/pins', '/api/keys'],
   '/setup': ['/api/context', '/api/docs/membership', '/api/docs/pins', '/api/keys'],
-  '/spend': ['/api/docs/membership', '/api/docs/pins', '/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
+  '/spend': ['/api/docs/membership', '/api/docs/pins', '/api/lxc/history', '/api/savings/month', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
   '/members': ['/api/docs/membership', '/api/docs/pins', '/api/members'],
   '/settings': ['/api/distill', '/api/docs/membership', '/api/docs/pins', '/api/provider-keys'],
   // B8.1 made every gated address ask for /api/docs/spaces, for the sidebar's list of spaces. B10.6
@@ -235,9 +237,9 @@ describe('the swept set', () => {
     // quieter one.
     // 36 → 28 at B10.6: the eight sidebar reads of /api/docs/spaces are gone (see the table).
     // 28 → 38 at B18.27: the sidebar's pinned pages are read from Docs on every address.
-    // 38 → 48 at B27.15: the sidebar asks Docs whether the person is a member first, on every address; 48 → 49 at B27.27 (/settings reads the provider keys).
+    // 38 → 48 at B27.15: the sidebar asks Docs whether the person is a member first, on every address; 48 → 49 at B27.27 (/settings reads the provider keys); 49 → 50 at B27.32 (/spend reads the measured saving).
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(49)
+    expect(pairs).toBe(50)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {

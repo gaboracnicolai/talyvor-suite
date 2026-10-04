@@ -363,6 +363,19 @@ export interface MonthSpend {
   current_month_usd: number
 }
 
+/** GET /api/savings/month — Lens savings/current-month (B27.32). MEASURED: the sum over this month's
+ *  spend rows of what each request would have cost at the model it asked for with no Talyvor cache
+ *  (list_usd), minus what it was charged (charged_usd). Rows written before Lens measured them are
+ *  counted in unmeasured_requests and left out of the sums, never estimated. */
+export interface MonthSaving {
+  month_start: string
+  saved_usd: number
+  list_usd: number
+  charged_usd: number
+  requests: number
+  unmeasured_requests: number
+}
+
 /** GET /api/usage → Lens GET /v1/api/usage. Per-model usage plus the cache rollup, one call.
  *
  *  THE CACHE NUMBERS ARE MEASURED, from token_events.serve_source (Lens migration 0100). The
@@ -403,6 +416,8 @@ export interface Usage {
 export const api = {
   me: () => getJSON<AuthMe>('/auth/me'),
   spendMonth: () => getJSON<MonthSpend>('/api/spend/month', { current_month_usd: 'number' }),
+  savingsMonth: () =>
+    getJSON<MonthSaving>('/api/savings/month', { saved_usd: 'number', requests: 'number', unmeasured_requests: 'number' }),
   context: () => getJSON<BffContext>('/api/context', { workspace_id: 'string', lens_public_base_url: 'string' }),
   lxcBalance: () => getJSON<LXCSnapshot>('/api/lxc/balance', { balance_ulxc: 'number' }),
   lensBalance: () => getJSON<LensBalance>('/api/tokens/balance', { balance_ulens: 'number' }),
