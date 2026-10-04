@@ -39,4 +39,14 @@ describe('/pricing', () => {
     expect(screen.queryByText(/buys .* LXC/)).not.toBeInTheDocument()
     expect(screen.getByText(/top up any amount from/i)).toHaveTextContent('from $10 to $10,000')
   })
+
+  // B28.3: plans, BYOK and the marketplace all bill monthly, so the page may not say no charge ever recurs.
+  it('does not claim no charge recurs, and says a plan or BYOK is billed every month', async () => {
+    serve({ min_usd_cents: 1000, max_usd_cents: 1_000_000, preset_usd_cents: [1000] })
+    const { container } = render(<Pricing />)
+    await screen.findByText(/did not confirm its credit rate/i)
+    const text = container.textContent ?? ''
+    expect(text).not.toMatch(/nothing\s+recurs|only charge is the requests you run|self-hosted/i)
+    expect(text).toMatch(/a plan or BYOK, if you choose one, is billed every month/i)
+  })
 })

@@ -254,7 +254,7 @@ export function Documentation() {
       <footer className="border-t border-rule">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-gutter py-6">
           <div className="font-figure text-eyebrow uppercase text-faint">
-            Talyvor Ltd · self-hosted AI development
+            Talyvor Ltd · wallets for AI agents
           </div>
           <div className="text-caption text-faint">
             <a href="/privacy" className={inlineLink}>

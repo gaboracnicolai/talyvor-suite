@@ -210,6 +210,14 @@ describe('the privacy page states the things most likely to be softened', () => 
     ).toBeInTheDocument()
   })
 
+  // B28.3 — a reused answer is charged below list; "cheaper than going direct" was never measured.
+  it('claims only that a reused answer costs less than list, not that the product beats going direct', async () => {
+    mockBff()
+    at('/privacy')
+    expect(await screen.findByText(/charged less than its list price/i)).toBeInTheDocument()
+    expect(document.body.textContent ?? '').not.toMatch(/cheaper than going direct/i)
+  })
+
   // B21.4 — a stored answer does not expire, and its question is stored with it.
   it('says stored answers are kept until you delete them', async () => {
     mockBff()

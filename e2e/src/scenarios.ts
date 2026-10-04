@@ -375,7 +375,7 @@ export function walletHero(): Scenario {
           /budget, spending rules, approvals and a live statement/i.test(text) ? '' : 'the wallet subhead',
           ...[/rules before the money moves/i, /console for your agents/i, /where agents spend/i, /repeated questions cost less/i]
             .map((h) => (sections.some((s) => h.test(s)) ? '' : `a section heading ${h}`)),
-          /toward zero|ninety days|near-zero/i.test(text) ? 'the price-curve claim is still there' : '',
+          /toward zero|ninety\s+days|near-zero/i.test(text) ? 'the price-curve claim is still there' : '',
           /Talyvor Ltd · wallets for AI agents/i.test(footer) ? '' : 'the wallet footer',
         ].filter((m) => m !== '')
         return missing.length === 0
@@ -384,6 +384,36 @@ export function walletHero(): Scenario {
       } finally {
         await page.close()
       }
+    },
+  }
+}
+
+/** B28.3 — the pricing and privacy pages make no claim the code does not keep: nothing says no
+ *  charge recurs (plans and BYOK bill monthly), and privacy does not say the product beats going direct. */
+export function honestPages(): Scenario {
+  return {
+    id: 'honest-pages',
+    title: 'pricing and privacy make no claim the product does not keep',
+    run: async (ctx) => {
+      const missing: string[] = []
+      for (const [path, banned, wanted] of [
+        ['/pricing', /nothing\s+recurs|only charge is the requests you run|self-hosted/i, /a plan or BYOK, if you choose one, is billed every month/i],
+        ['/privacy', /cheaper than going direct/i, /charged less than its list price/i],
+      ] as const) {
+        const page = await ctx.app.tab(path)
+        try {
+          const text = await page.locator('body').innerText()
+          ctx.evidence.push({ note: `${path}: ${text.length} chars read` })
+          const hit = text.match(banned)
+          if (hit) missing.push(`${path} still says "${hit[0]}"`)
+          if (!wanted.test(text)) missing.push(`${path} lacks ${wanted}`)
+        } finally {
+          await page.close()
+        }
+      }
+      return missing.length === 0
+        ? { pass: true, detail: 'pricing says plans and BYOK recur; privacy claims only a below-list reused answer' }
+        : { pass: false, detail: missing.join('; ') }
     },
   }
 }
@@ -1143,7 +1173,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(sidebarStaysHidden()); break
     case 7: list.push(streamsProgressively()); break
     case 8: list.push(socialPreview()); break
-    case 9: list.push(walletHero()); break
+    case 9: list.push(walletHero(), honestPages()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.
