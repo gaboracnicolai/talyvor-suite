@@ -54,6 +54,10 @@ afterEach(() => {
   queryClient.clear()
 })
 
+// The two sweeps render every console address in turn, so their time grows with the console: at 4.86s
+// on CI against vitest's 5s default, one more request on /plans (B28.5) timed the first one out.
+const SWEEP_TIMEOUT_MS = 20_000
+
 describe('the populated fixture answers what the console actually asks for', () => {
   it('every request every address makes has a body — nothing falls through to 404', async () => {
     const missing = new Map<string, string[]>()
@@ -71,7 +75,7 @@ describe('the populated fixture answers what the console actually asks for', () 
       'these requests fell through to 404, so those screens rendered their failure state and any ' +
         'census taken under this fixture is measuring that:\n' + lines.join('\n'),
     ).toEqual([])
-  })
+  }, SWEEP_TIMEOUT_MS)
 
   it('no address renders a failure state under it', async () => {
     const faulted: string[] = []
@@ -90,7 +94,7 @@ describe('the populated fixture answers what the console actually asks for', () 
       faulted,
       'address(es) still showing a failure state under the populated fixture:\n  ' + faulted.join('\n  '),
     ).toEqual([])
-  })
+  }, SWEEP_TIMEOUT_MS)
 
   // ⚠ THE CONTROL ON THE CONTROL, AND ITS FIRST VERSION WAS WRONG IN A WAY WORTH KEEPING.
   //
