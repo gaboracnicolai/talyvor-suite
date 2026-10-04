@@ -1,6 +1,7 @@
 // B17.3 — the harness's own calls to Lens: create and reset the synthetic users (B17.1), read each
 // one's ledger back, and ask the judge. Every call a synthetic user makes uses that user's own token.
 
+import { randomUUID } from 'node:crypto'
 import type { Recorder, Tag } from './coverage.ts'
 import type { CatalogModel } from './oracles.ts'
 
@@ -325,6 +326,8 @@ const SYNTHETIC_KEY_HEADER = 'X-Talyvor-Synthetic-Key'
 const RESET_RUNS_ON_MS = 90_000
 /** B17.32 — how long a ledger read waits out a Lens that answers 502, 503 or 504, or not at all, while it restarts. */
 const LEDGER_RESTART_MS = 60_000
+/** B17.34 — how long a publish is sent again, under its Idempotency-Key, while Lens restarts. */
+const PUBLISH_RESTART_MS = 60_000
 
 export class LensClient {
   readonly baseURL: string
@@ -687,10 +690,14 @@ export class LensClient {
     return r.value
   }
 
-  /** B25.8 — the workspace publishes a public prompt listing with its own token, as another company's software would. */
-  async publishListing(user: SyntheticUser, l: { title: string; template: string; priceULXC: number; model: string }): Promise<Answered<Listing>> {
-    return this.answer('POST', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, user.token, { kind: 'prompt', title: l.title, description: '',
-      price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '' })
+  /**
+   * B25.8 — the workspace publishes a public prompt listing with its own token, as another company's software would.
+   * B17.34 — sent again through a restart under one Idempotency-Key, so Lens publishes it once.
+   */
+  async publishListing(user: SyntheticUser, l: { title: string; template: string; priceULXC: number; model: string },
+    restartMs = PUBLISH_RESTART_MS): Promise<Answered<Listing>> {
+    return this.answerThroughRestart('POST', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, user.token, { kind: 'prompt', title: l.title, description: '',
+      price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '' }, restartMs)
   }
 
   /** B25.8 — takes LXC back from an agent into its workspace, as the workspace's owner. */
@@ -783,6 +790,26 @@ export class LensClient {
     })
     const raw = await res.text()
     return res.ok ? { ok: true, status: res.status, value: (raw === '' ? null : JSON.parse(raw)) as T } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /**
+   * B17.34 — `answer` for a write Lens takes an Idempotency-Key on: sent again with the same key, a second
+   * apart, while Lens answers 502, 503 or 504 or not at all — for up to `restartMs`.
+   */
+  private async answerThroughRestart<T>(method: string, path: string, token: string, body: unknown, restartMs: number): Promise<Answered<T>> {
+    const headers = { ...this.bearer(token), 'Idempotency-Key': randomUUID(), Accept: 'application/json', 'Content-Type': 'application/json' }
+    const deadline = Date.now() + restartMs
+    for (;;) {
+      const res = await this.send(method, path, { headers, body: JSON.stringify(body) }).catch((e: unknown) => e)
+      const restarting = !(res instanceof Response) || [502, 503, 504].includes(res.status)
+      if (!restarting || Date.now() >= deadline) {
+        if (!(res instanceof Response)) throw res
+        const raw = await res.text()
+        return res.ok ? { ok: true, status: res.status, value: (raw === '' ? null : JSON.parse(raw)) as T } : { ok: false, status: res.status, error: refusalOf(raw) }
+      }
+      if (res instanceof Response) await res.body?.cancel()
+      await new Promise((r) => setTimeout(r, 1_000))
+    }
   }
 
   private sessionKey(user: SyntheticUser): Promise<string> {
