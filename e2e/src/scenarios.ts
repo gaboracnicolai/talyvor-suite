@@ -525,6 +525,45 @@ export function tryTarePage(seed: number): Scenario {
   }
 }
 
+/**
+ * B27.37 — the Tare prose model, opted in from its switch on Features. On, Try it shortens a paragraph
+ * of prose and says the prose model did it; switched back off, the same paragraph is sent unchanged —
+ * so the shortening is the switch's doing. Nothing is sent to a model: Try it is Lens's preview.
+ */
+export function tareProseModel(seed: number): Scenario {
+  const prose = `Tester ${seed} wrote this note after the planning meeting, which was, as you might expect, really quite ` +
+    'long. Basically, the team went over the budget for the next quarter in a great deal of detail, and in the end ' +
+    'everyone more or less agreed that the travel line should actually be cut by about a third, while the hiring ' +
+    'plan should stay exactly as it was originally proposed back in the spring.'
+  return {
+    id: 'tare-model',
+    title: 'the Tare prose model, switched on in Features, shortens prose in Try it; switched off, prose is sent unchanged',
+    run: async (ctx) => {
+      const f = await FeaturesScreen.open(ctx.app)
+      try {
+        const was = await f.isOn(TARE_MODEL)
+        if (was === undefined) return { pass: false, detail: `no switch ("${await f.state(TARE_MODEL)}")` }
+        const on = await f.set(TARE_MODEL, true)
+        if (on !== undefined) return { pass: false, detail: `could not be switched on: ${on}` }
+        const shortened = await tryTare(ctx.app, prose, 'prose')
+        ctx.evidence.push({ note: `on — "${await f.state(TARE_MODEL)}": ${shortened.kind}: ${shortened.summary}`, answer: shortened.reduced.slice(0, 500) })
+        const off = await f.set(TARE_MODEL, false)
+        const unchanged = off === undefined ? await tryTare(ctx.app, prose, 'prose') : undefined
+        if (unchanged) ctx.evidence.push({ note: `off: ${unchanged.kind}: ${unchanged.summary}` })
+        if (was) await f.set(TARE_MODEL, true)
+        if (shortened.kind !== 'reduced') return { pass: false, detail: `on, the prose was not shortened: ${shortened.summary}` }
+        if (!shortened.byProseModel) return { pass: false, detail: `on, Try it did not say the prose model shortened it: ${shortened.summary}` }
+        if (!(shortened.reduced.length < prose.length)) return { pass: false, detail: 'on, the result is no shorter than the paste' }
+        if (off !== undefined) return { pass: false, detail: `could not be switched off: ${off}` }
+        if (unchanged?.kind !== 'refused') return { pass: false, detail: `off, the prose was still changed: ${unchanged?.summary}` }
+        return { pass: true, detail: `on: ${shortened.summary}; off: sent unchanged` }
+      } finally {
+        await f.close()
+      }
+    },
+  }
+}
+
 export function tryConversionPage(seed: number): Scenario {
   const { file, word } = memo(seed)
   return {
@@ -599,6 +638,8 @@ async function pastTheLimit(ctx: ScenarioCtx, f: FeaturesScreen, r: () => number
 }
 
 /** The Features switches whose change is a setting Lens records. */
+const TARE_MODEL = 'Tare prose model'
+
 const SWITCHES = ['Tare', 'Document conversion', 'Cost-optimised routing', 'Prompt-injection detection', 'Personal-data detection',
   'Answer sharing', 'Shared document conversions']
 
@@ -1032,7 +1073,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.
   switch (i % 10) {
-    case 0: list.push(featureSwitches(i)); break
+    case 0: list.push(featureSwitches(i), tareProseModel(i)); break
     case 1: list.push(injectionBlocked(i)); break
     case 2: list.push(documentInChat(i)); break
     case 3: list.push(spendingLimit(i)); break

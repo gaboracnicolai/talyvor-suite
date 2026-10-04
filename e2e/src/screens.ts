@@ -124,10 +124,12 @@ export interface TareResult {
   /** The sentence above the reduced text: "About X tokens become Y — Z fewer (estimated)." */
   summary: string
   reduced: string
+  /** B27.37 — the page says the prose model did the shortening. */
+  byProseModel?: boolean
 }
 
 /** Features → Try it on your own content: runs Tare on pasted content and reads what it would send. */
-export async function tryTare(app: AppUser, content: string, kind: '' | 'json' | 'code' | 'log'): Promise<TareResult> {
+export async function tryTare(app: AppUser, content: string, kind: '' | 'json' | 'code' | 'log' | 'prose'): Promise<TareResult> {
   const page = await app.tab('/features/try/tare')
   try {
     return await runTare(page, content, kind)
@@ -145,7 +147,12 @@ async function runTare(page: Page, content: string, kind: string): Promise<TareR
   const alert = page.locator('p[role="alert"]')
   await reduced.or(refused).or(alert).first().waitFor({ state: 'visible', timeout: 60_000 })
   if (await reduced.isVisible()) {
-    return { kind: 'reduced', summary: (await reduced.locator('p').first().innerText()).trim(), reduced: await reduced.locator('pre').innerText() }
+    return {
+      kind: 'reduced',
+      summary: (await reduced.locator('p').first().innerText()).trim(),
+      reduced: await reduced.locator('pre').innerText(),
+      byProseModel: await page.getByTestId('tare-model-ran').isVisible(),
+    }
   }
   if (await refused.isVisible()) return { kind: 'refused', summary: (await refused.innerText()).trim(), reduced: '' }
   return { kind: 'error', summary: (await alert.first().innerText()).trim(), reduced: '' }

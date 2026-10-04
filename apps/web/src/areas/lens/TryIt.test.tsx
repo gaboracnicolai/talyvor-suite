@@ -120,6 +120,29 @@ describe('Try Tare', () => {
     expect(refused.textContent).toContain('content is not valid JSON')
     expect(refused.textContent).not.toContain('$')
   })
+
+  it('prose the prose model shortened says so; with the model off it points to the switch (B27.37)', async () => {
+    const posts: Array<{ url: string; body: unknown; type: string | null }> = []
+    const prose = 'The meeting was, as you might expect, really quite long and it covered the budget in detail.'
+    mockBff(posts, { ...REDUCED, kind: 'prose', reduced: 'Meeting long; covered budget in detail.', tare_model: true })
+    window.history.pushState({}, '', '/features/try/tare')
+    render(<App />)
+    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: prose } })
+    fireEvent.change(screen.getByLabelText('What it is'), { target: { value: 'prose' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Run Tare' }))
+
+    expect((await screen.findByTestId('tare-model-ran')).textContent).toContain('The prose model shortened this')
+    expect(posts[0].body).toMatchObject({ content: prose, kind: 'prose' })
+    cleanup()
+    queryClient.clear()
+    vi.restoreAllMocks()
+
+    mockBff([], { ...REFUSED, reduced: prose, refusal_reasons: null, tare_model: false })
+    render(<App />)
+    fireEvent.change(await screen.findByLabelText('Content'), { target: { value: prose } })
+    fireEvent.click(screen.getByRole('button', { name: 'Run Tare' }))
+    expect((await screen.findByTestId('tare-model-off')).textContent).toContain('Switch it on in Features')
+  })
 })
 
 describe('Try document conversion', () => {

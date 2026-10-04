@@ -21,6 +21,7 @@ import (
 //	GET  /api/features/budget                the workspace's own spending limit       (B18.22)
 //	POST /api/features/budget                → POST or PATCH /v1/workspaces/{ws}/budgets (B18.22)
 //	POST /api/features/pattern-mining        → POST or DELETE /v1/workspaces/{ws}/pattern-mining/opt-in (B18.55)
+//	POST /api/features/tare-model            → PUT /v1/workspaces/{ws}/tare-model     (B27.37)
 //
 // Same posture as /api/distill: session-gated, same-Origin on the write (ServeHTTP), key attached
 // server-side, and a write answers with what Lens RECORDED, never an echo of the request.
@@ -53,6 +54,7 @@ type patternMiningState struct {
 
 type featuresState struct {
 	TarePolicy          *string             `json:"tare_policy"`
+	TareModel           *bool               `json:"tare_model"`
 	DistillPolicy       *string             `json:"distill_policy"`
 	CompressionPolicy   *string             `json:"compression_policy"`
 	LoggingPolicy       *string             `json:"logging_policy"`
@@ -190,6 +192,40 @@ func (a *app) handleFeatureTare(w http.ResponseWriter, r *http.Request, t tenant
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tare_policy": out.TarePolicy})
+}
+
+// handleFeatureTareModel — B27.37: POST /api/features/tare-model {"tare_model": bool} writes Lens's
+// PUT /v1/workspaces/{ws}/tare-model {"enabled": bool} — Tare phase 2a, the prose model, which drops
+// words where phase 1 refused (talyvor-lens B27.35) — and answers what Lens recorded.
+func (a *app) handleFeatureTareModel(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		TareModel *bool `json:"tare_model"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.TareModel == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tare_model (boolean) required"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensTareModelBody: none
+	body, _ := json.Marshal(map[string]bool{"enabled": *in.TareModel})
+	raw, err := a.lensPutWorkspace(r.Context(), t, "/tare-model", body)
+	var out struct {
+		TareModel *bool `json:"tare_model"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err == nil && out.TareModel == nil {
+		err = fmt.Errorf("tare-model: the reply does not state tare_model")
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not record the choice"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tare_model": *out.TareModel})
 }
 
 // handleFeatureCostRouting records the workspace's consent to cost-optimised routing.

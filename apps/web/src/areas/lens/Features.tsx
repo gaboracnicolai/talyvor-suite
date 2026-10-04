@@ -39,6 +39,8 @@ const BUDGET_KEY = ['budget']
 
 export interface FeaturesState {
   tare_policy: ReducerPolicy | null
+  /** B27.37 — whether the workspace has opted in to Tare's prose model (talyvor-lens B27.35). */
+  tare_model: boolean | null
   distill_policy: ReducerPolicy | null
   compression_policy: ReducerPolicy | null
   logging_policy: 'full' | 'metadata' | 'none' | null
@@ -79,6 +81,7 @@ const READ_EVERY_MS = 2_000
 /** Every body this screen sends — one key each, so each write names exactly the setting it changes. */
 type SettingWrite =
   | { tare_policy: ReducerPolicy }
+  | { tare_model: boolean }
   | { distill_policy: ReducerPolicy }
   | { cost_optimize_routing: boolean }
   | { distill_poolable: boolean }
@@ -120,6 +123,13 @@ function reducerState(p: ReducerPolicy | null | undefined, header?: string): str
 
 function switchable(v: boolean | null | undefined): string {
   return v == null ? UNREAD : v ? 'On' : 'Off — switch it on here'
+}
+
+/** The prose model runs only where Tare runs, so "On" with Tare off says when it takes effect. */
+function tareModelState(model: boolean | null | undefined, tare: ReducerPolicy | null | undefined): string {
+  if (model && tare === 'disabled') return 'On — takes effect once Tare is on'
+  if (model && tare === 'opt_in') return 'On for requests that send X-Talyvor-Tare: true'
+  return switchable(model)
 }
 
 const LOGGING: Record<LoggingPolicy, string> = {
@@ -489,6 +499,26 @@ export function Features() {
                   checked={f.tare_policy === 'always'}
                   write={(on) => post('/api/features/tare', { tare_policy: on ? 'always' : 'disabled' })}
                   alsoInvalidate={['tare-savings']}
+                />
+              ) : undefined
+            }
+          />
+          <Feature
+            name="Tare prose model"
+            does="Shortens prose that Tare would otherwise send unchanged — explanations, notes, pasted documents — by dropping the words a small compression model judges the reply does not need. Unlike the rest of Tare it changes the wording, so it is off until you switch it on. Code and JSON are never touched."
+            where={
+              <>
+                The same requests as Tare, only on prose Tare could not shrink. <To to="/features/try/tare">Try it on your own prose</To>
+              </>
+            }
+            evidence="Try it says when the prose model shortened a paste, and the requests it shortens count in Tare’s figures above (estimated)."
+            state={stateOf(tareModelState(f?.tare_model, f?.tare_policy))}
+            control={
+              readable && f?.tare_model != null ? (
+                <SettingSwitch
+                  name="Tare prose model"
+                  checked={f.tare_model}
+                  write={(on) => post('/api/features/tare-model', { tare_model: on })}
                 />
               ) : undefined
             }
