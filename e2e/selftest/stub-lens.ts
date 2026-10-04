@@ -401,6 +401,11 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const shownIn = BREAK === 'price' ? inTok * 2 : inTok
 
   if (!body.stream) {
+    // B28.440 — OpenAI's shape for its chat completions, as the SDK's .openai() reads them.
+    if (provider === 'openai') {
+      return json(res, 200, { choices: [{ index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: shownIn, completion_tokens: outTok } }, headers)
+    }
     return json(res, 200, { content: [{ type: 'text', text: answer }], usage: { input_tokens: shownIn, output_tokens: outTok } }, headers)
   }
   res.writeHead(200, { 'Content-Type': 'text/event-stream', ...headers })

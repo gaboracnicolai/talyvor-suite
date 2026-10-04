@@ -228,6 +228,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       userAt: (index) => users[index],
       userCount: users.length,
       outDir: cfg.outDir,
+      lensSrc: cfg.lensSrc,
     }
 
     try {
