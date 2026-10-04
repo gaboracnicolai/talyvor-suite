@@ -638,6 +638,7 @@ export function IssueList() {
                           className={inlineLink}
                           to={`/track/issues/${it.id}`}
                           data-issue-link={it.id} // issueKeys.ts ISSUE_LINK_ATTR — what j/k step through
+                          data-issue-ref={it.identifier} // issueKeys.ts ISSUE_REF_ATTR — what s/a/x name
                         >
                           {it.title}
                         </Link>
@@ -673,6 +674,8 @@ export function IssueList() {
                 Keys: <kbd className="font-mono">c</kbd> new issue · <kbd className="font-mono">/</kbd> search ·{' '}
                 <kbd className="font-mono">j</kbd> <kbd className="font-mono">k</kbd> next and previous ·{' '}
                 <kbd className="font-mono">Enter</kbd> open · <kbd className="font-mono">e</kbd> edit ·{' '}
+                <kbd className="font-mono">s</kbd> move · <kbd className="font-mono">a</kbd> assign ·{' '}
+                <kbd className="font-mono">x</kbd> close ·{' '}
                 <kbd className="font-mono">Esc</kbd> leave a field
               </p>
             ) : null}

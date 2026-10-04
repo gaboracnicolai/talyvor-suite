@@ -86,6 +86,7 @@ const SIDEBAR_DESTINATIONS = [
   '/earnings',
   // B8.1 — every screen the console mounts, grouped by product.
   '/chat',
+  '/track/board',
   '/track/cycles',
   '/track/projects',
   '/pricing',

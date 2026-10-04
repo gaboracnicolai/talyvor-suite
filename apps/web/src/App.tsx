@@ -33,6 +33,7 @@ import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { Chat } from './areas/chat/Chat'
 import { ChatHelp } from './areas/chat/ChatHelp'
 import { TrackArea } from './areas/track/TrackArea'
+import { PublicBoard } from './areas/board/PublicBoard'
 import { DocsArea } from './areas/docs/DocsArea'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
@@ -353,6 +354,7 @@ function Sidebar() {
       </Group>
       <Group label="Track" {...fold.group('Track')}>
         {item('/track', 'Issues', false, onTrackIssues)}
+        {item('/track/board', 'Board')}
         {item('/track/cycles', 'Cycles')}
         {item('/track/projects', 'Projects')}
       </Group>
@@ -572,6 +574,9 @@ export function App() {
               words: see areas/auth/Entry.tsx. */}
           <Route path="/signup" element={<SignUp />} />
           <Route path="/signin" element={<SignIn />} />
+          {/* B27.30 — a Track board its workspace published as a link, read by anyone holding it.
+              Outside the gate: the reader has no account. Read-only — see areas/board/PublicBoard.tsx. */}
+          <Route path="/board/:token" element={<PublicBoard />} />
           <Route
             path="/*"
             element={

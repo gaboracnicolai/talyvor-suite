@@ -519,6 +519,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/track/teams/{teamID}/cycles", a.trackCycles()) // B4.1 — track_cycles.go
 	a.mux.HandleFunc("/api/track/teams/{teamID}/cycles/{id}/progress", a.trackCycleProgress())
 	a.mux.HandleFunc("/api/track/projects", a.trackProjects()) // B4.2 — track_projects.go
+	// B27.30 — public issue boards (track_boards.go). The links are the session's workspace's; the
+	// board itself is read by a stranger, so /api/public/boards/{token} is the one route here that
+	// reaches Track with no session — and with no gateway secret or identity either.
+	a.mux.HandleFunc("/api/track/boards", a.trackBoards())
+	a.mux.HandleFunc("/api/track/boards/{id}", a.trackBoardRevoke())
+	a.mux.HandleFunc("/api/public/boards/{token}", a.publicBoard())
 
 	// The Track roster and Lens month-spend, both pinned at registration from
 	// config — client input never shapes an upstream path.

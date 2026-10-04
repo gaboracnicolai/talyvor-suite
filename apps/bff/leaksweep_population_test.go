@@ -381,9 +381,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// /api/admin/marketplace/parked-uses/{id}/retry. What it changes is read back through GET
 	// /api/admin/marketplace/parked-uses, which the sweep reaches. It relays Lens's answer (or its
 	// refusal) and adds nothing the BFF holds.
-	if len(methodOnly) > 73 {
+	//
+	// THE SEVENTY-FOURTH IS B27.30'S BOARD-LINK REVOKE, DELETE only: /api/track/boards/{id}. What it
+	// changes is read back through GET /api/track/boards, which the sweep reaches. It relays Track's
+	// answer and holds nothing.
+	if len(methodOnly) > 74 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 73 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 74 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
