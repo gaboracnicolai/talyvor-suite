@@ -19,6 +19,7 @@ function mockBff(
   } = {},
 ) {
   let tare = 'disabled'
+  let tareModel = false
   let distillPoolable = false
   let cachePoolable = true
   let guardrails = { injection: true, pii }
@@ -36,6 +37,12 @@ function mockBff(
       posts.push({ url, body })
       tare = body.tare_policy
       return json({ tare_policy: tare })
+    }
+    if (url === '/api/features/tare-model' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { tare_model: boolean }
+      posts.push({ url, body })
+      tareModel = body.tare_model
+      return json({ tare_model: tareModel })
     }
     if (url === '/api/features/distill-poolable' && init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as { distill_poolable: boolean }
@@ -95,6 +102,7 @@ function mockBff(
     if (url === '/api/features')
       return json({
         tare_policy: tare,
+        tare_model: tareModel,
         distill_policy: 'always',
         compression_policy: 'disabled',
         logging_policy: logging,
@@ -134,6 +142,21 @@ describe('the Features screen', () => {
     fireEvent.click(within(row('Tare')).getByRole('switch'))
     await waitFor(() => expect(within(row('Tare')).getByTestId('state-Tare')).toHaveTextContent('Off'))
     expect(posts[1]).toEqual({ url: '/api/features/tare', body: { tare_policy: 'disabled' } })
+  })
+
+  it('the Tare prose model has its own switch: on writes Lens’s opt-in, and with Tare off says when it takes effect (B27.37)', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts)
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Tare prose model')
+    await waitFor(() => expect(within(r()).getByTestId('state-Tare prose model')).toHaveTextContent('Off'))
+    expect(r()).toHaveTextContent('Code and JSON are never touched')
+    fireEvent.click(within(r()).getByRole('switch'))
+    await waitFor(() =>
+      expect(within(r()).getByTestId('state-Tare prose model')).toHaveTextContent('On — takes effect once Tare is on'),
+    )
+    expect(posts).toEqual([{ url: '/api/features/tare-model', body: { tare_model: true } }])
   })
 
   it('a capability with no control this app can reach shows its state and no switch', async () => {

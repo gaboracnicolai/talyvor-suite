@@ -148,6 +148,7 @@ const BY_PATH: Record<string, unknown> = {
   // B8.2 — the Features screen reads every capability setting on the workspace.
   '/api/features': {
     tare_policy: 'disabled',
+    tare_model: false,
     distill_policy: 'always',
     compression_policy: 'disabled',
     logging_policy: 'metadata',

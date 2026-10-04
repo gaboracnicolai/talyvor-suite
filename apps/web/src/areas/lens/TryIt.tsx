@@ -70,6 +70,8 @@ interface TarePreview {
   tokens_saved_estimated: number
   model?: string
   saving_usd_estimated?: number
+  /** B27.37 — whether the prose model (Tare phase 2a) was in this run: the workspace has opted in. */
+  tare_model?: boolean
 }
 
 const KINDS = [
@@ -77,6 +79,7 @@ const KINDS = [
   { value: 'json', label: 'JSON tool output' },
   { value: 'code', label: 'Go or TypeScript code' },
   { value: 'log', label: 'Log output' },
+  { value: 'prose', label: 'Prose' },
 ]
 
 export function TryTare() {
@@ -105,6 +108,8 @@ export function TryTare() {
           Paste a JSON tool output, Go or TypeScript code, or a log. Tare runs on it here exactly as it would on the
           newest message of a request: repeated JSON rows become one row per shape, function bodies are dropped while
           signatures and types stay, repeated log lines collapse. Anything it cannot shrink safely is sent unchanged.
+          Prose is shortened only when the <Link className={`text-ink ${inlineLink}`} to="/features">Tare prose model</Link>{' '}
+          is on.
         </p>
         <form
           className="mt-6 max-w-3xl space-y-3"
@@ -186,6 +191,15 @@ export function TryTare() {
                   ))}
                 </ul>
               ) : null}
+              {r.tare_model === false ? (
+                <p className="text-body text-muted" data-testid="tare-model-off">
+                  The Tare prose model is off for this workspace, so prose is never shortened.{' '}
+                  <Link className={`text-ink ${inlineLink}`} to="/features">
+                    Switch it on in Features
+                  </Link>
+                  .
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="space-y-4" data-testid="tare-reduced">
@@ -202,6 +216,12 @@ export function TryTare() {
                   <> Lens has no price for {modelName}, so no dollar figure is shown.</>
                 ) : null}
               </p>
+              {r.kind === 'prose' ? (
+                <p className="text-body text-ink" data-testid="tare-model-ran">
+                  The prose model shortened this by dropping words, so the wording changed — read it before relying on
+                  it.
+                </p>
+              ) : null}
               <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded-control border border-rule bg-surface p-3 font-mono text-caption text-ink">
                 {r.reduced}
               </pre>

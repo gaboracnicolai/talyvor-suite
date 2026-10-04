@@ -389,9 +389,12 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE SEVENTY-FIFTH IS B27.27'S PROVIDER KEY, PUT and DELETE only: /api/provider-keys/{provider}. What
 	// it changes is read back through GET /api/provider-keys, which the sweep reaches. It relays Lens's
 	// answer — the provider and the last four characters — and holds nothing.
-	if len(methodOnly) > 75 {
+	//
+	// THE SEVENTY-SIXTH IS B27.37'S PROSE-MODEL SWITCH, /api/features/tare-model: /api/features/tare'S
+	// KIND, read back through GET /api/features as tare_model; it answers only what Lens recorded.
+	if len(methodOnly) > 76 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 75 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 76 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

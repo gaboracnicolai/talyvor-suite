@@ -324,6 +324,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/features/budget", a.requireTenant(a.handleFeatureBudget))
 	// B18.55 — the pattern-mining switch, now that Lens says whether a workspace is opted in (B18.54).
 	a.mux.HandleFunc("/api/features/pattern-mining", a.requireTenant(a.handleFeaturePatternMining))
+	// B27.37 — the Tare prose model's opt-in (talyvor-lens B27.35), beside the Tare policy.
+	a.mux.HandleFunc("/api/features/tare-model", a.requireTenant(a.handleFeatureTareModel))
 	// B21.4 — what the workspace has stored, deleting it, and asking Talyvor to delete everything.
 	// See stored_answers.go.
 	a.mux.HandleFunc("/api/features/stored-answers", a.requireTenant(a.handleStoredAnswers))
