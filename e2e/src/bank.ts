@@ -25,6 +25,13 @@ const ULXC_PER_USD_MICRO = 10
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 export const lxcText = (ulxc: number): string => String(ulxc / 1e6)
 
+/** B28.22 — what the wallet screens show beside an LXC amount, in dollars at the peg: "($1.25)" (apps/web money.tsx). */
+export function usdShown(ulxc: number, usdPerLXC: number): string {
+  const usd = (ulxc / 1e6) * usdPerLXC
+  const fmt = (v: number) => v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return `(${usd > 0 && usd < 0.005 ? `<${fmt(0.01)}` : fmt(usd)})`
+}
+
 /** The card under an `h2` heading (packages/ui CardHeader). */
 export function card(page: Page, heading: string): Locator {
   return page.getByRole('heading', { name: heading, exact: true }).locator('xpath=../..')
@@ -204,6 +211,31 @@ export class AgentBankScreen {
   async balanceShown(agent: Agent): Promise<string> {
     await this.fresh()
     return (await this.page.getByTestId(`agent-balance-${agent.id}`).innerText()).trim()
+  }
+
+  /**
+   * B28.22 — allows `agent` only `model`, picked from the Rules card's model picker, and saves. Answers
+   * what the control is (a SELECT, not a text box) and the save's outcome.
+   */
+  async allowOnlyModel(agent: Agent, model: string): Promise<{ tag: string; err?: string }> {
+    await this.fresh(agent)
+    const picker = this.page.getByLabel(`Allowed models for ${agent.name}`)
+    await picker.waitFor()
+    const tag = await picker.evaluate((el) => el.tagName)
+    if (tag !== 'SELECT') return { tag }
+    await picker.locator(`option[value="${model}"]`).waitFor({ state: 'attached' })
+    await picker.selectOption(model)
+    const form = this.page.locator('form').filter({ has: picker })
+    await form.getByRole('button', { name: 'Save rules' }).click()
+    return { tag, err: await outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form) }
+  }
+
+  /** B28.22 — the Rules card's plain-English sentences for `agent`, as the screen shows them after a reload. */
+  async rulesInWords(agent: Agent): Promise<string> {
+    await this.fresh(agent)
+    const words = this.page.getByTestId('rules-in-words')
+    await words.waitFor()
+    return (await words.innerText()).trim()
   }
 
   /** Downloads "Statement for every agent" for this month as JSON; the file's name and text. */
@@ -633,7 +665,8 @@ export function agentApproval(seed: number): Scenario {
       if (phone !== undefined) return fail(`on a 390px phone, ${phone}`)
       const { row, said: approved } = await bank.approve(payer, payee)
       ctx.evidence.push({ note: `Waiting for a person: ${row}` }, { note: `Approve: ${approved}` })
-      if (!row.endsWith(` 1 LXC — ${memo}`)) return fail(`the row waiting for a person does not say 1 LXC — ${memo}: "${row}"`)
+      const asked = `1 LXC ${usdShown(1e6, ctx.env.usdPerLXC)} — ${memo}`
+      if (!row.endsWith(` ${asked}`)) return fail(`the row waiting for a person does not say ${asked}: "${row}"`)
       if (!/^Approved and paid/.test(approved)) return fail(`approving did not pay: "${approved}"`)
       const after = await bookOf(ctx)
       const [from, to] = [agentIn(after, payer.id)?.balance_ulxc, agentIn(after, payee.id)?.balance_ulxc]
@@ -1044,8 +1077,46 @@ export function agentBalanceStored(seed: number): Scenario {
         return fail(`the book does not add up: ${after.workspace_balance_ulxc} ≠ ${after.allocated_ulxc} + ${after.unallocated_ulxc}`)
       }
       const shown = await bank.balanceShown(a)
-      if (shown !== shownLXC(total)) return fail(`Agent Wallets shows ${a.name} holding "${shown}"; its postings sum to ${shownLXC(total)}`)
+      const want = `${shownLXC(total)} ${usdShown(total, ctx.env.usdPerLXC)}`
+      if (shown !== want) return fail(`Agent Wallets shows ${a.name} holding "${shown}"; its postings sum to ${want}`)
       return { pass: true, detail: `${MANY_FUNDINGS} fundings at once, ${lxcText(total)} LXC: ${a.name}'s stored balance = its ${posted.length} postings = the screen's ${shown}, and the workspace's agents hold that much more` }
+    }),
+  }
+}
+
+/**
+ * B28.22 — an agent funded 12.5 LXC on Agent Wallets shows "12.5 LXC ($1.25)" — its dollar value at the
+ * peg beside it — and its allowed models are picked from the catalog, not typed: the Rules card's model
+ * field is a select, the model picked is the one Lens stores, and the card says so in a sentence.
+ */
+export function walletCurrency(seed: number): Scenario {
+  const amount = 12_500_000
+  return {
+    id: 'wallet-currency',
+    title: 'an agent funded 12.5 LXC shows its dollar value beside it, and its allowed model is picked, not typed: Lens stores exactly the model picked',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const a = await openAgent(ctx, bank, `Priced ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      const err = await bank.move(a, amount, 'Fund')
+      if (err !== undefined) return fail(`funding 12.5 LXC was refused: ${err}`)
+      const held = agentIn(await bookOf(ctx), a.id)?.balance_ulxc
+      if (held !== amount) return fail(`funded ${amount} µLXC; Lens's book has ${a.name} holding ${held}`)
+      const shown = await bank.balanceShown(a)
+      const want = `12.5 LXC ${usdShown(amount, ctx.env.usdPerLXC)}`
+      ctx.evidence.push({ note: `Agent Wallets shows ${a.name} holding "${shown}"` })
+      if (shown !== want) return fail(`Agent Wallets shows ${a.name} holding "${shown}"; at $${ctx.env.usdPerLXC} per LXC it should read "${want}"`)
+      const model = ctx.env.judgeModel
+      const picked = await bank.allowOnlyModel(a, model)
+      if (picked.tag !== 'SELECT') return fail(`the Allowed models field for ${a.name} is a ${picked.tag}, not a picker`)
+      if (picked.err !== undefined) return fail(`saving ${model} as the only allowed model was refused: ${picked.err}`)
+      const stored = (await ctx.env.lens.agentRules(ctx.app.user, a.id)).allowed_models ?? []
+      ctx.evidence.push({ note: `Lens stores ${a.name}'s allowed models as ${JSON.stringify(stored)}` })
+      if (stored.length !== 1 || stored[0] !== model) return fail(`picked ${model}; Lens stores ${JSON.stringify(stored)}`)
+      const words = await bank.rulesInWords(a)
+      const name = ctx.env.catalog.find((m) => m.id === model)?.display_name ?? model
+      ctx.evidence.push({ note: `the Rules card says: ${words}` })
+      if (!words.includes(`It may use only ${name}.`)) return fail(`the Rules card does not say "It may use only ${name}.": ${words}`)
+      return { pass: true, detail: `${a.name} reads "${shown}"; ${name} picked from the model picker, stored by Lens as the one allowed model, and stated as a sentence` }
     }),
   }
 }

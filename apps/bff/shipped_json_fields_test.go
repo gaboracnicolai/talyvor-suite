@@ -75,6 +75,7 @@ var builtByThisService = map[string]string{
 	"docsTranslateBody":    "request body this service POSTs to the Docs translate route",
 	"versionResponse":      "the /api/version payload",
 	"operatorWorkspace":    "one row of the operator screen (B18.25), joined by workspace id from four Lens reads in handleOperatorWorkspaces",
+	"fxRates":              "the ECB's euro rates for /api/fx (B28.22), lifted out of the daily XML file in parseECBDaily",
 }
 
 // decodedFromUpstream: written wholesale by encoding/json from an upstream

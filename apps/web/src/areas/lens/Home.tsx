@@ -5,7 +5,8 @@ import { Button, Card, CardHeader, MuNumeral, Pill, Row, inlineLink } from '@tal
 import { Region, RegionScreen } from '../../components/Region'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { APPROVALS_KEY, BOOK_KEY, FORECAST_KEY, PauseEveryAgent, rulesKey } from './AgentBank'
-import { type Agent, type AgentBook, type AgentRules, type SpendForecast, agentBankApi, formatULXC } from './agentBankApi'
+import { type Agent, type AgentBook, type AgentRules, type SpendForecast, agentBankApi } from './agentBankApi'
+import { Lxc } from './money'
 import { WalletOnboarding } from './Onboarding'
 import { SharingLine } from './Sharing'
 
@@ -22,11 +23,7 @@ import { SharingLine } from './Sharing'
 // first agent a wallet (B28.8, Onboarding.tsx), and the one line that says whether it shares answers. Like Overview's first run, that is a MEASUREMENT — the book answered and
 // listed no agents — never a default: a read that failed is not an empty workspace.
 
-const lxc = (micros: number) => (
-  <>
-    <span className="font-figure">{formatULXC(micros).replace(/ LXC$/, '')}</span> LXC
-  </>
-)
+const lxc = (micros: number) => <Lxc ulxc={micros} />
 
 function Muted({ children }: { children: React.ReactNode }) {
   return <p className="px-gutter py-3 text-body text-muted">{children}</p>
@@ -196,11 +193,11 @@ function Forecast({ forecast }: { forecast: UseQueryResult<SpendForecast> }) {
       ) : (
         <>
           <Row label="Spent so far" hint="Every agent, since the first of the month (UTC)">
-            <span className="font-figure text-body text-ink">{formatULXC(forecast.data.spent_ulxc)}</span>
+            <span className="text-body text-ink">{lxc(forecast.data.spent_ulxc)}</span>
           </Row>
           <Row label="Forecast for the month" hint="The pace so far, run on to the month’s end">
-            <span className="font-figure text-body text-ink" data-testid="home-forecast">
-              {formatULXC(forecast.data.forecast_ulxc)}
+            <span className="text-body text-ink" data-testid="home-forecast">
+              {lxc(forecast.data.forecast_ulxc)}
             </span>
           </Row>
         </>

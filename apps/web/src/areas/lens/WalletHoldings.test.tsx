@@ -145,12 +145,12 @@ describe('escrow, pots, investing and cash-out on Agent Wallets', () => {
     render(<App />)
     fireEvent.change(await screen.findByLabelText('Amount in LXC to move for Rainy day'), { target: { value: '1.2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Move in' }))
-    expect(await within(screen.getByTestId('pot')).findByText('1.2 LXC')).toBeTruthy()
+    expect(await within(screen.getByTestId('pot')).findByText('1.2', { selector: '.font-figure' })).toBeTruthy()
 
     potOut.blips.push(502, 'drop')
     fireEvent.change(screen.getByLabelText('Amount in LXC to move for Rainy day'), { target: { value: '0.4' } })
     fireEvent.click(screen.getByRole('button', { name: 'Move out' }))
-    expect(await within(screen.getByTestId('pot')).findByText('0.8 LXC', undefined, { timeout: 5_000 })).toBeTruthy()
+    expect(await within(screen.getByTestId('pot')).findByText('0.8', { selector: '.font-figure' }, { timeout: 5_000 })).toBeTruthy()
     expect(within(screen.getByTestId('pot')).queryByRole('alert')).toBeNull()
     expect(potOut.keys).toHaveLength(3)
     expect(potOut.keys[0]).not.toBe('')
@@ -171,7 +171,7 @@ describe('escrow, pots, investing and cash-out on Agent Wallets', () => {
 
     fireEvent.change(await screen.findByLabelText('Amount in LXC to move for Rainy day'), { target: { value: '5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Move in' }))
-    expect(await within(screen.getByTestId('pot')).findByText('5 LXC')).toBeTruthy()
+    expect(await within(screen.getByTestId('pot')).findByText('5', { selector: '.font-figure' })).toBeTruthy()
     expect(sent).toContainEqual({ method: 'POST', url: '/api/agents/agt_1/pots/pot_1/in', body: { amount_ulxc: 5_000_000 } })
     fireEvent.change(screen.getByLabelText('Lock Rainy day until'), { target: { value: '2099-01-01' } })
     fireEvent.click(screen.getByRole('button', { name: 'Lock' }))
