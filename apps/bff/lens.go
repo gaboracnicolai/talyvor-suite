@@ -117,6 +117,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B13.3 — start a Stripe Checkout for one of the three plans. Session-gated, same-Origin,
 	// the workspace from the SESSION and the plan from a fixed list. See billing.go.
 	a.mux.HandleFunc("/api/billing/subscribe", a.requireTenant(a.handleSubscribe))
+	// B27.27 — "Your provider keys" for a BYOK subscriber (Lens B27.26). Lens registers the routes only
+	// while it holds custody (LENS_PROVIDER_SECRET_KEK), so absent reads as {enabled:false}. See provider_keys.go.
+	a.mux.HandleFunc("/api/provider-keys", a.requireSession(a.wsProxyGated("/provider-keys", "provider_keys")))
+	a.mux.HandleFunc("/api/provider-keys/{provider}", a.requireTenant(a.handleProviderKey))
 
 	// PRODUCT UPSTREAMS (inc6). Track and Docs gate /v1 behind their gatewayauth
 	// boundary: a request must carry X-Gateway-Auth equal to their GATEWAY_AUTH_SECRET

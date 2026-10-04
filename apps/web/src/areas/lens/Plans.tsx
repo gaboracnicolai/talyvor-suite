@@ -8,6 +8,7 @@ import { isSessionExpired } from '../../lib/productState'
 import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
+  BYOK,
   PLANS,
   planApi,
   planForFee,
@@ -32,6 +33,10 @@ import { formatCents } from './topupApi'
 //
 // B18.20 — a subscriber switches plan from the other plans' cards (Lens B18.14, prorated by Stripe), and
 // the earnings card counts the people their answers helped (/api/earnings' helped_workspaces).
+//
+// B27.27 — BYOK, $199 a month (Lens B27.26), on its own card: it sells no usage, so it grants no allowance
+// and a BYOK subscriber is read from the subscription's `byok`. Lens refuses a move to or from BYOK
+// (cancel, then subscribe), so its card says that instead of offering a switch.
 
 const SUBSCRIBE_FAILURE: Record<SubscribeError['kind'], string> = {
   not_for_sale: 'Plans aren’t on sale on this deployment yet. Nothing was charged.',
@@ -121,6 +126,66 @@ function PlanCard({
         </div>
       ) : null}
     </li>
+  )
+}
+
+function ByokCard({
+  current,
+  canChoose,
+  onAnotherPlan,
+  busy,
+  onChoose,
+}: {
+  current: boolean
+  canChoose: boolean
+  /** Subscribed to Plus, Pro or Max: Lens moves nobody to BYOK in place. */
+  onAnotherPlan: boolean
+  busy: boolean
+  onChoose: () => void
+}) {
+  return (
+    <section
+      aria-labelledby="plan-byok"
+      aria-current={current ? 'true' : undefined}
+      className={`mt-gutter flex flex-col rounded-card border bg-surface ${current ? 'border-accent' : 'border-rule'}`}
+    >
+      <div className="flex flex-col gap-3 px-gutter py-5 wide:flex-row wide:gap-gutter">
+        <div className="flex flex-col gap-3 wide:w-64 wide:shrink-0">
+          <p id="plan-byok" className="font-figure text-eyebrow uppercase text-muted">
+            {BYOK.name} — bring your own keys
+          </p>
+          <p className="flex items-baseline gap-2">
+            <span className="font-figure text-page text-ink">{formatCents(BYOK.usd_cents)}</span>
+            <span className="text-body text-muted">a month</span>
+          </p>
+        </div>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-body text-muted">
+          <li>Your own API keys for OpenAI, Anthropic, Google, Mistral and Groq, added in Settings</li>
+          <li>No Talyvor token charge on a request sent on your key — your provider bills you directly</li>
+          <li>Answers from the shared pool are free, and yours still earn when a paying workspace reuses one</li>
+          <li>{BYOK.usage}; a provider you hold no key for runs on prepaid credits</li>
+        </ul>
+      </div>
+      {current || canChoose || onAnotherPlan ? (
+        <div className="border-t border-rule px-gutter py-3">
+          {current ? (
+            <p className="text-body text-ink">
+              Your plan.{' '}
+              <Link to="/settings" className={inlineLink}>
+                Add your provider keys in Settings
+              </Link>
+              . To move to Plus, Pro or Max, cancel BYOK, then choose a plan when it ends.
+            </p>
+          ) : canChoose ? (
+            <Button variant="primary" disabled={busy} onClick={onChoose}>
+              {busy ? 'Opening checkout…' : `Choose ${BYOK.name}`}
+            </Button>
+          ) : (
+            <p className="text-body text-muted">To move to BYOK, cancel your plan, then choose BYOK when it ends.</p>
+          )}
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -314,6 +379,9 @@ export function Plans({
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
   const earnings = useQuery({ queryKey: ['earnings'], queryFn: () => api.earnings() })
   const me = useAuthMeReader()
+  // B27.27 — BYOK grants no allowance, so the subscription says whether this workspace is on it.
+  const sub = useQuery({ queryKey: SUBSCRIPTION_KEY, queryFn: planApi.subscription, retry: false })
+  const onBYOK = !!(sub.data?.enabled && sub.data.data.subscribed && sub.data.data.byok)
 
   const move = useMutation({
     mutationFn: (p: PlanOffer) => planApi.changePlan(p.id),
@@ -335,9 +403,10 @@ export function Plans({
 
   const forSale = plan.data?.enabled === true
   const summary = plan.data?.enabled ? plan.data.data : null
-  const subscribed = !!summary?.allowance
-  const onFile = subscribed ? planForFee(summary!.allowance!.fee_usd_cents) : null
-  const current = subscribed ? (movedTo ?? onFile) : null
+  const allowance = summary?.allowance ?? null
+  const subscribed = !!allowance || onBYOK
+  const onFile = allowance ? planForFee(allowance.fee_usd_cents) : null
+  const current = onBYOK ? BYOK : subscribed ? (movedTo ?? onFile) : null
   const failure = start.error instanceof SubscribeError ? start.error : null
 
   return (
@@ -366,7 +435,7 @@ export function Plans({
             run every request in the meantime.
           </p>
         ) : null}
-        {subscribed && !onFile && !movedTo ? (
+        {allowance && !onFile && !movedTo ? (
           <p className="mt-2 max-w-2xl text-body text-ink">
             This workspace has a plan at{' '}
             <span className="font-figure">{formatCents(summary!.allowance!.fee_usd_cents)}</span> a month.
@@ -400,7 +469,7 @@ export function Plans({
               busy={start.isPending && start.variables === p.id}
               onChoose={(id) => start.mutate(id)}
               switching={
-                subscribed && current?.id !== p.id
+                subscribed && !onBYOK && current?.id !== p.id
                   ? {
                       from: current,
                       confirming: confirming === p.id,
@@ -417,9 +486,16 @@ export function Plans({
             />
           ))}
         </ul>
+        <ByokCard
+          current={onBYOK}
+          canChoose={forSale && !subscribed}
+          onAnotherPlan={subscribed && !onBYOK}
+          busy={start.isPending && start.variables === 'byok'}
+          onChoose={() => start.mutate('byok')}
+        />
       </Region>
 
-      {subscribed ? (
+      {allowance ? (
         <>
           <Region index="01" label="This month" className="max-w-2xl">
             <UsageMeter summary={summary!} />

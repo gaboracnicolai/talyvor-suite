@@ -402,12 +402,16 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant
 	}
 }
 
-// subscriptionPlans — the plans a subscribe may name (B13.1: Plus, Pro and Max).
+// subscriptionPlans — the plans a subscribe may name (B13.1: Plus, Pro and Max; B27.27: BYOK).
 // Lens decides which of them this deployment actually sells; this list only stops a client from
 // sending Lens anything else.
-var subscriptionPlans = map[string]bool{"plus": true, "pro": true, "max": true}
+var subscriptionPlans = map[string]bool{"plus": true, "pro": true, "max": true, "byok": true}
 
-// handleSubscribe (B13.3) — POST /api/billing/subscribe {"plan":"plus"|"pro"|"max"} starts a
+// switchablePlans — the plans a live subscription may move between (B18.20). Lens refuses a move to or
+// from BYOK (cancel, then subscribe), so it is not offered here either.
+var switchablePlans = map[string]bool{"plus": true, "pro": true, "max": true}
+
+// handleSubscribe (B13.3) — POST /api/billing/subscribe {"plan":"plus"|"pro"|"max"|"byok"} starts a
 // Stripe Checkout in subscription mode for the SESSION's workspace and hands back its URL.
 // Stripe sends the customer to /billing/success, the same return as a top-up.
 func (a *app) handleSubscribe(w http.ResponseWriter, r *http.Request, t tenant) {
@@ -421,7 +425,7 @@ func (a *app) handleSubscribe(w http.ResponseWriter, r *http.Request, t tenant) 
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || !subscriptionPlans[in.Plan] {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "plan must be one of plus, pro, max — nothing was charged"})
+			"error": "plan must be one of plus, pro, max, byok — nothing was charged"})
 		return
 	}
 
@@ -505,7 +509,7 @@ func (a *app) handlePlanChange(w http.ResponseWriter, r *http.Request, t tenant)
 		Plan string `json:"plan"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	if err := json.NewDecoder(r.Body).Decode(&change); err != nil || !subscriptionPlans[change.Plan] {
+	if err := json.NewDecoder(r.Body).Decode(&change); err != nil || !switchablePlans[change.Plan] {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "plan must be one of plus, pro, max — nothing changed"})
 		return
 	}

@@ -8,6 +8,7 @@ import { formatUSD } from './format'
 import { clearPendingTopUp, formatCents, readPendingTopUp } from './topupApi'
 import { clearPendingPlan, planApi, readPendingPlan, type PlanOffer } from './planApi'
 import { isSessionExpired } from '../../lib/productState'
+import { SUBSCRIPTION_KEY } from './Plans'
 
 // /billing/success and /billing/cancel — the URLs Lens ALREADY redirects Stripe
 // back to. Its defaults are literally app.talyvor.com/billing/success?session_id=
@@ -106,16 +107,30 @@ interface ReturnTiming {
  * B13.3 — the return from a PLAN checkout. Stripe sends a subscription to the same success URL as
  * a top-up, so the plan picked on /plans is remembered across the round trip and this waits for
  * Lens to grant the period (the webhook's work), exactly as the top-up waits for its credit.
+ * B27.27 — BYOK grants no period, so its return waits for the subscription to read `byok` instead.
  */
 function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & Required<ReturnTiming>) {
   const [timedOut, setTimedOut] = useState(false)
+  const byok = plan.id === 'byok'
   const read = useQuery({
     queryKey: ['plan-allowance'],
     queryFn: planApi.allowance,
     retry: false,
+    enabled: !byok,
     refetchInterval: (q) => {
       const d = q.state.data
       if (timedOut || q.state.error || (d?.enabled && d.data.allowance)) return false
+      return pollIntervalMs
+    },
+  })
+  const sub = useQuery({
+    queryKey: SUBSCRIPTION_KEY,
+    queryFn: planApi.subscription,
+    retry: false,
+    enabled: byok,
+    refetchInterval: (q) => {
+      const d = q.state.data
+      if (timedOut || q.state.error || (d?.enabled && d.data.byok)) return false
       return pollIntervalMs
     },
   })
@@ -123,7 +138,8 @@ function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & 
     const t = setTimeout(() => setTimedOut(true), timeoutMs)
     return () => clearTimeout(t)
   }, [timeoutMs])
-  const active = !!(read.data?.enabled && read.data.data.allowance)
+  const active = byok ? !!(sub.data?.enabled && sub.data.data.byok) : !!(read.data?.enabled && read.data.data.allowance)
+  const failed = byok ? sub.isError : read.isError
   useEffect(() => {
     if (active) clearPendingPlan()
   }, [active])
@@ -133,19 +149,26 @@ function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & 
       <Region
         index="00"
         label="Plans"
-        heading={active ? `You’re on ${plan.name}.` : timedOut || read.isError ? 'Your payment is recorded at Stripe.' : `Confirming your ${plan.name} plan.`}
+        heading={active ? `You’re on ${plan.name}.` : timedOut || failed ? 'Your payment is recorded at Stripe.' : `Confirming your ${plan.name} plan.`}
         sectionClassName="pb-10 pt-4 wide:pb-12"
         className="max-w-2xl"
       >
         <p className="text-body text-muted">
           {active
-            ? 'This month’s included usage is ready, and chat draws it first.'
-            : timedOut || read.isError
+            ? byok
+              ? 'Add your provider keys in Settings, and requests to those providers run on them with no token charge.'
+              : 'This month’s included usage is ready, and chat draws it first.'
+            : timedOut || failed
               ? 'The plan starts when a webhook from Stripe reaches Lens. It usually takes seconds; check Plans again in a few minutes.'
               : 'The payment succeeded at Stripe. Waiting for Lens to start your plan — this usually takes a few seconds.'}
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button asChild variant="primary">
+          {active && byok ? (
+            <Button asChild variant="primary">
+              <Link to="/settings">Add your provider keys</Link>
+            </Button>
+          ) : null}
+          <Button asChild variant={active && byok ? undefined : 'primary'}>
             <Link to="/plans">See your plan</Link>
           </Button>
           <Button asChild>

@@ -359,8 +359,10 @@ func (a *app) keepsNothing(ctx context.Context, t tenant) bool {
 }
 
 // answerSourceHeaders are the response headers that say where an answer came from: a replay of a
-// cached answer, and a pooled serve's price in µLXC (talyvor-lens internal/proxy setSavingHeaders).
+// cached answer, a pooled serve's price in µLXC (talyvor-lens internal/proxy setSavingHeaders), and
+// B27.27 — an answer sent on the workspace's own provider key and charged no tokens (X-Talyvor-BYOK).
 var answerSourceHeaders = []string{
+	"X-Talyvor-BYOK",
 	"X-Talyvor-Cache-Replay",
 	"X-Talyvor-Pool-List-ULXC",
 	"X-Talyvor-Pool-Charged-ULXC",

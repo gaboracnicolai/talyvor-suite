@@ -192,6 +192,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'subs.post(authed, "/v1/workspaces/{wsID}/billing/subscription/plan", func',
     subject: 'lensPlanChangeBody',
   },
+  // B27.27 — a BYOK subscriber's own provider key, added or replaced on Settings.
+  {
+    route: 'PUT /v1/workspaces/{wsID}/provider-keys/{provider}',
+    file: 'apps/bff/provider_keys.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"key": in.Key})',
+    upstreamFile: 'cmd/lens/provider_keys_routes.go',
+    upstreamAnchor: 'func newProviderKeyPutHandler(s *byok.Store) http.HandlerFunc {',
+    subject: 'lensProviderKeyBody',
+  },
   // B21.4 — Features' Stored answers: deleting them, and asking Talyvor to delete everything.
   {
     route: 'DELETE /v1/workspaces/{wsID}/stored-answers',

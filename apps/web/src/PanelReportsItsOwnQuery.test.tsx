@@ -153,7 +153,7 @@ const ADDRESS_ROUTES: Record<string, string[]> = {
   '/setup': ['/api/context', '/api/docs/membership', '/api/docs/pins', '/api/keys'],
   '/spend': ['/api/docs/membership', '/api/docs/pins', '/api/lxc/history', '/api/spend/by-feature', '/api/spend/month', '/api/tokens/history', '/api/usage'],
   '/members': ['/api/docs/membership', '/api/docs/pins', '/api/members'],
-  '/settings': ['/api/distill', '/api/docs/membership', '/api/docs/pins'],
+  '/settings': ['/api/distill', '/api/docs/membership', '/api/docs/pins', '/api/provider-keys'],
   // B8.1 made every gated address ask for /api/docs/spaces, for the sidebar's list of spaces. B10.6
   // replaced that list with the pages this browser pinned or opened, which needs no read — so only
   // Overview (its product status) and /docs itself still ask for it. B18.27 moved the pins to Docs,
@@ -235,9 +235,9 @@ describe('the swept set', () => {
     // quieter one.
     // 36 → 28 at B10.6: the eight sidebar reads of /api/docs/spaces are gone (see the table).
     // 28 → 38 at B18.27: the sidebar's pinned pages are read from Docs on every address.
-    // 38 → 48 at B27.15: the sidebar asks Docs whether the person is a member first, on every address.
+    // 38 → 48 at B27.15: the sidebar asks Docs whether the person is a member first, on every address; 48 → 49 at B27.27 (/settings reads the provider keys).
     const pairs = Object.values(ADDRESS_ROUTES).reduce((n, r) => n + r.length, 0)
-    expect(pairs).toBe(48)
+    expect(pairs).toBe(49)
   })
 
   for (const [addr, routes] of Object.entries(ADDRESS_ROUTES)) {

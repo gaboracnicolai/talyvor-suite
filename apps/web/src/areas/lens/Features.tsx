@@ -6,6 +6,9 @@ import { Region, RegionScreen } from '../../components/Region'
 import { ApiError, api, getJSON, getJSONArray } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { StoredAnswers } from './StoredAnswers'
+import { BYOK, BYOK_PROVIDERS } from './planApi'
+import { PROVIDER_KEYS_KEY, providerKeysApi } from './providerKeysApi'
+import { formatCents } from './topupApi'
 
 // Features.tsx — B8.2, rebuilt at B11.2 from docs/features-inventory.md: every capability, grouped
 // by product, each saying what it does, where it works (with a link to that screen), and the
@@ -405,6 +408,10 @@ export function Features() {
     queryKey: BUDGET_KEY,
     queryFn: () => getJSON<BudgetReading>('/api/features/budget', { several: 'boolean' }),
   })
+  // B27.27 — BYOK: whether this workspace is on the plan and which of its own keys Lens holds.
+  const ownKeys = useQuery({ queryKey: PROVIDER_KEYS_KEY, queryFn: providerKeysApi.list, retry: false })
+  const byok = ownKeys.data?.enabled ? ownKeys.data.data : null
+  const ownKeyNames = (byok?.keys ?? []).map((k) => BYOK_PROVIDERS[k.provider] ?? k.provider).join(', ')
   const f = q.data
 
   // B27.22 — sign-up, Terms and Privacy link to /features#answer-sharing. This screen renders after
@@ -843,6 +850,47 @@ export function Features() {
                     return p && { pattern_mining: p as FeaturesState['pattern_mining'] }
                   }}
                 />
+              ) : undefined
+            }
+          />
+          <Feature
+            id="byok"
+            name="Bring your own keys (BYOK)"
+            does={`On the BYOK plan, ${formatCents(BYOK.usd_cents)} a month, this workspace stores its own API keys for OpenAI, Anthropic, Google, Mistral and Groq. A request to one of those providers goes upstream on your key and Talyvor charges it no tokens — your provider bills you. Keys are encrypted at rest, sent only to their own provider, and only their last four characters are ever shown.`}
+            where={
+              <>
+                Chat and every API request to a provider you hold a key for; a provider you hold none for runs on
+                prepaid credits. Subscribe on <To to="/plans">Plans</To>, add keys in <To to="/settings">Settings</To>.
+              </>
+            }
+            evidence={reading(ownKeys, () =>
+              !byok ? (
+                'This deployment holds no provider keys (LENS_PROVIDER_SECRET_KEK is not set), so BYOK is not available here.'
+              ) : (
+                <>
+                  {count(byok.keys.length)} of your own keys stored{ownKeyNames ? ` (${ownKeyNames})` : ''} (measured). In{' '}
+                  <To to="/chat">Chat</To>, an answer sent on your key says so under it.
+                </>
+              ),
+            )}
+            state={
+              ownKeys.isPending
+                ? 'Checking…'
+                : ownKeys.isError
+                  ? UNREAD
+                  : !byok
+                    ? 'Not available on this deployment'
+                    : !byok.byok
+                      ? 'Off — not on the BYOK plan. Choose it on Plans'
+                      : byok.keys.length
+                        ? `On — requests to ${ownKeyNames} go on your keys`
+                        : 'On the plan — add a key in Settings'
+            }
+            control={
+              byok ? (
+                <Link className={`text-caption text-ink ${inlineLink}`} to={byok.byok ? '/settings' : '/plans'}>
+                  {byok.byok ? 'Your keys in Settings' : 'See Plans'}
+                </Link>
               ) : undefined
             }
           />
