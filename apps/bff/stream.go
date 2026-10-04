@@ -31,6 +31,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,8 +116,14 @@ func newStreamClient(restartWait time.Duration) *http.Client {
 // ⚠ CACHED PER (workspace, user) AND NOT PER REQUEST. A mint is a database write in Lens plus a
 // round trip; doing it per chat message would put both on the latency path of every keystroke-sized
 // request. The lease is dropped when it nears expiry, never extended in place.
+//
+// ⚠ B27.1 — KEYED ON A HASH OF THE WHOLE TOKEN, NEVER A PREFIX. It was keyed on the token's first 24
+// characters, and a Lens session JWT's first 24 characters are its fixed header — identical for
+// every member. So the cache was per WORKSPACE: two members of one workspace chatted on whichever
+// member's key was minted first, its user_id on the ledger and its spend bound on the answer.
 func (a *app) sessionKeyFor(ctx context.Context, t tenant) (string, error) {
-	cacheKey := t.workspaceID + "\x00" + t.token[:min(len(t.token), 24)]
+	tokenSum := sha256.Sum256([]byte(t.token))
+	cacheKey := t.workspaceID + "\x00" + hex.EncodeToString(tokenSum[:])
 
 	a.skMu.Lock()
 	if lease, ok := a.sessionKeys[cacheKey]; ok && time.Until(lease.expires) > sessionKeyRenewMargin {
@@ -160,6 +168,13 @@ func (a *app) sessionKeyFor(ctx context.Context, t tenant) (string, error) {
 	}
 
 	a.skMu.Lock()
+	// A refreshed workspace token is a new cache key, so leases of tokens that have since been
+	// replaced would otherwise pile up for the life of the process. Mints are rare; the sweep is cheap.
+	for k, lease := range a.sessionKeys {
+		if time.Now().After(lease.expires) {
+			delete(a.sessionKeys, k)
+		}
+	}
 	a.sessionKeys[cacheKey] = sessionKeyLease{key: out.Key, expires: out.ExpiresAt}
 	a.skMu.Unlock()
 	return out.Key, nil
