@@ -136,10 +136,29 @@ export interface AgentApproval {
   decided_at?: string
 }
 
+/** Every kind of agent_postings row Lens writes on an agent's account. */
+export type PostingKind =
+  | 'fund'
+  | 'withdraw'
+  | 'topup'
+  | 'credit_line'
+  | 'spend'
+  | 'hold'
+  | 'settle'
+  | 'release'
+  | 'pay'
+  | 'transfer'
+  | 'escrow'
+  | 'reversal'
+  | 'card'
+  | 'cash_out'
+  | 'pot_in'
+  | 'pot_out'
+
 /** Lens economy.AgentStatementLine. */
 export interface StatementLine {
   entry_id: string
-  kind: 'fund' | 'withdraw' | 'spend' | 'hold' | 'settle' | 'release' | 'pay'
+  kind: PostingKind
   amount_ulxc: number
   counterparty: string
   ref?: string
