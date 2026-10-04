@@ -22,6 +22,7 @@ import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, mark
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
+import { featuresLeadWithWallets } from './features.ts'
 
 export interface Evidence {
   note?: string
@@ -1291,7 +1292,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // user no other scenario reads the earnings of: 9, 19, … take a payment, 8, 18, … sell.
   switch (i % 10) {
     // B28.440 — then the TypeScript SDK's README quickstart, with this user as the signed-in owner.
-    case 0: list.push(agentOpenFund(i), sdkWalletQuickstart(i)); break
+    // B28.441 — then Features, which opens on Agent Wallets and these agents.
+    case 0: list.push(agentOpenFund(i), sdkWalletQuickstart(i), featuresLeadWithWallets(i)); break
     case 1: list.push(agentLimit(i)); break
     case 2: list.push(agentPauseAll(i)); break
     case 3: list.push(agentApproval(i)); break
