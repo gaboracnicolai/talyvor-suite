@@ -87,3 +87,44 @@ func TestProviders_NamesTheProvidersLensRefusesAndNoOther(t *testing.T) {
 		t.Errorf("%d configured provider(s) read a probe body, want %d", len(bodies), len(streamProviders)-len(unconfigured))
 	}
 }
+
+// B27.5 — Lens answers 503 auth_unavailable when it could not CHECK the session key (a database
+// hiccup). That says nothing about any provider, so no provider is reported unconfigured for it.
+func TestProviders_ASessionCheckHiccupHidesNoProvider(t *testing.T) {
+	lens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == provisionPath:
+			serveFakeProvision(w, r)
+		case r.URL.Path == lensSessionKeyPath:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, fmt.Sprintf(`{"key":%q,"expires_at":%q}`,
+				testSessionKey, time.Now().Add(time.Hour).UTC().Format(time.RFC3339)))
+		case strings.HasPrefix(r.URL.Path, "/v1/proxy/"):
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":"your session could not be checked just now; try again","code":"auth_unavailable"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(lens.Close)
+
+	a, sess := streamApp(t, &streamUpstream{srv: lens})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/ai/providers", nil)
+	req.AddCookie(sess)
+	a.ServeHTTP(rec, req)
+
+	var got struct {
+		Unconfigured []string `json:"unconfigured"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/ai/providers = %d %q (%v)", rec.Code, rec.Body.String(), err)
+	}
+	if len(got.Unconfigured) != 0 {
+		t.Fatalf("unconfigured = %v, want none — a session-check hiccup is not a missing provider key",
+			got.Unconfigured)
+	}
+}

@@ -186,6 +186,10 @@ describe('no component leaves a timer running after it unmounts', () => {
     // repaired components; accepting it is how the earlier version of this scan went inert.
     expect('                window.clearTimeout(resetTimer.current)').not.toMatch(cleanupRE)
     expect('const t = setTimeout(fn, 1500)').not.toMatch(cleanupRE)
+    // B27.5 — a timer owned by an AbortSignal that the component aborts on unmount (chatApi.ts's
+    // retry wait; Chat.tsx aborts its turn in a returned cleanup). Clearing it anywhere else is not.
+    expect("    signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(false) }, { once: true })").toMatch(cleanupRE)
+    expect("    signal?.addEventListener('abort', () => resolve(false), { once: true })").not.toMatch(cleanupRE)
   })
 
   it('every timer in the web sources is cleared in the file that schedules it', () => {
@@ -260,9 +264,11 @@ const UI_SRC = join(REPO_ROOT, 'packages', 'ui', 'src')
  */
 /**
  * A cleanup RETURNED to React — `return () => clearTimeout(t)`, or the `useEffect(() => () => …)`
- * double-arrow form. Deliberately NOT "the file mentions clearTimeout": see the case above.
+ * double-arrow form — or a clear inside an AbortSignal's 'abort' listener, for a timer whose owner
+ * aborts that signal on unmount. Deliberately NOT "the file mentions clearTimeout": see the case above.
  */
-const cleanupRE = /(?:return|=>)\s*\(\s*\)\s*=>[^\n]*clear(?:Timeout|Interval)\(/
+const cleanupRE =
+  /(?:return|=>)\s*\(\s*\)\s*=>[^\n]*clear(?:Timeout|Interval)\(|addEventListener\(\s*'abort'[^\n]*clear(?:Timeout|Interval)\(/
 
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')

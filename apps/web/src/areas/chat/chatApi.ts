@@ -328,28 +328,38 @@ export async function streamChat(
     return
   }
 
+  const init: RequestInit = {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
+      ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
+      ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
+    },
+    body: JSON.stringify(requestBody(provider, model, messages)),
+    signal,
+  }
+
   let res: Response
-  try {
-    res = await fetch(`/api/ai/stream/${provider}/${path}`, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
-        ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
-        ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
-      },
-      body: JSON.stringify(requestBody(provider, model, messages)),
-      signal,
-    })
-  } catch (e) {
-    if (signal?.aborted) return
-    handlers.onError(e instanceof Error ? e.message : 'The request could not be sent.')
-    return
+  let detail = ''
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(`/api/ai/stream/${provider}/${path}`, init)
+    } catch (e) {
+      if (signal?.aborted) return
+      handlers.onError(e instanceof Error ? e.message : 'The request could not be sent.')
+      return
+    }
+    if (res.ok) break
+    detail = await res.text().catch(() => '')
+    // B27.5 — Lens could not CHECK the session (a database hiccup). The person is still signed in,
+    // so the turn is sent again, quietly, after the wait Lens asked for.
+    if (!sessionCheckFailed(res.status, detail) || attempt === SESSION_CHECK_RETRIES) break
+    if (!(await waitToRetry(retryAfterMs(res.headers.get('Retry-After')), signal))) return
   }
 
   if (!res.ok) {
-    const detail = await res.text().catch(() => '')
     handlers.onError(refusalMessage(res.status, detail))
     return
   }
@@ -433,6 +443,40 @@ function answerSource(h: Headers): AnswerSource | undefined {
   return undefined
 }
 
+/** B27.5 — how many times a turn is sent again while Lens cannot check the session. */
+const SESSION_CHECK_RETRIES = 3
+
+/**
+ * B27.5 — Lens's 503 for "your session could not be checked just now" (talyvor-lens internal/auth,
+ * code `auth_unavailable`). It is NOT a sign-out and NOT the provider's "not configured" 503 on the
+ * same route, and the code is the only thing that tells them apart.
+ */
+function sessionCheckFailed(status: number, detail: string): boolean {
+  if (status !== 503) return false
+  try {
+    return (JSON.parse(detail) as { code?: unknown }).code === 'auth_unavailable'
+  } catch {
+    return false
+  }
+}
+
+/** Retry-After in seconds → ms, bounded to 10s; 2s when Lens did not say. */
+function retryAfterMs(header: string | null): number {
+  const secs = Number(header ?? NaN)
+  if (header === null || header.trim() === '' || !Number.isFinite(secs) || secs < 0) return 2000
+  return Math.min(secs, 10) * 1000
+}
+
+/** Waits ms; false if the turn was stopped meanwhile, so nothing is sent for a closed question. */
+function waitToRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve(false)
+    const timer = setTimeout(() => resolve(true), ms)
+    // Chat aborts the turn on unmount, so this is the timer's unmount cleanup too.
+    signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(false) }, { once: true })
+  })
+}
+
 /**
  * refusalMessage turns a status into a sentence that names the next action.
  *
@@ -443,6 +487,7 @@ function refusalMessage(status: number, detail: string): string {
   if (status === 401) return 'This session is no longer signed in. Sign in again to continue.'
   if (status === 402) return 'This workspace cannot cover the estimated cost of that request. Top up on Billing.'
   if (status === 429) return 'The provider is rate limiting this workspace. Try again shortly.'
+  if (sessionCheckFailed(status, detail)) return 'Lens could not check this session just now. You are still signed in — send it again in a moment.'
   if (status === 503) return 'Chat is not configured on this deployment.'
   const trimmed = detail.trim()
   return trimmed === ''
