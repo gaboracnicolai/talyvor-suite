@@ -65,6 +65,10 @@ export interface AgentTransfer {
   refund_of?: string
   loan_id?: string
   created_at: string
+  /** B28.299: the refund that gave it back */
+  refunded_by?: string
+  /** B28.299: the reading agent received it and may still give it back */
+  refundable?: boolean
 }
 
 /** B25.4 — Lens economy.MoneyRequest: from_* asked to_* for credits. */
@@ -655,6 +659,11 @@ export class LensClient {
   async transfers(user: SyntheticUser, agentID: string): Promise<AgentTransfer[]> {
     const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/transfers`, this.bearer(user.token))) as { transfers?: AgentTransfer[] | null }
     return body.transfers ?? []
+  }
+
+  /** The workspace's agent `agentID` sends credits to the agent at wallet `to`, as the workspace's owner. */
+  async sendCredits(user: SyntheticUser, agentID: string, to: string, amountULXC: number, memo: string): Promise<Answered<AgentTransfer>> {
+    return this.answer('POST', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/send`, user.token, { to, amount_ulxc: amountULXC, memo })
   }
 
   /** Gives back a transfer the workspace's agent received. */

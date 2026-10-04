@@ -384,6 +384,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/wallets/requests", a.requireTenant(a.handleMoneyRequests))
 	a.mux.HandleFunc("/api/wallets/requests/{rid}/accept", a.requireTenant(a.handleMoneyRequestAnswer("accept")))
 	a.mux.HandleFunc("/api/wallets/requests/{rid}/decline", a.requireTenant(a.handleMoneyRequestAnswer("decline")))
+	a.mux.HandleFunc("/api/wallets/transfers/{tid}/refund", a.requireTenant(a.handleTransferRefund))
 	a.mux.HandleFunc("/api/wallets/credit-line", a.requireTenant(a.handleCreditLine))
 	a.mux.HandleFunc("/api/wallets/loans", a.requireTenant(a.handleLoans))
 	a.mux.HandleFunc("/api/agents/{id}/loans", a.requireTenant(a.handleAgentLoan))

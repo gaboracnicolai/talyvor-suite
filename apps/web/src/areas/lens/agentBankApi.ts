@@ -411,6 +411,8 @@ export const agentBankApi = {
   moneyRequests: () => getJSON<{ requests: MoneyRequest[] | null }>('/api/wallets/requests', { requests: 'list' }),
   answerRequest: (rid: string, accept: boolean) =>
     send<MoneyRequest>('POST', `/api/wallets/requests/${e(rid)}/${accept ? 'accept' : 'decline'}`),
+  // B28.23 — give back a transfer one of the workspace's agents received (Lens B22.3, B28.299).
+  refundTransfer: (tid: string) => send<AgentTransfer>('POST', `/api/wallets/transfers/${e(tid)}/refund`),
   creditLine: async (): Promise<CreditLine | null> => {
     try {
       return await getJSON<CreditLine>('/api/wallets/credit-line', {
@@ -583,6 +585,10 @@ export interface AgentTransfer {
   refund_of?: string
   loan_id?: string
   created_at: string
+  /** B28.299: the refund that gave this transfer back, if one did */
+  refunded_by?: string
+  /** B28.299: this agent received it and may still give it back (not a refund, a loan's movement or given back) */
+  refundable?: boolean
 }
 
 /** Lens economy.MoneyRequest (B22.3): from_* asked to_* for credits. */

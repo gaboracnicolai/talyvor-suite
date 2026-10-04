@@ -397,9 +397,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// /api/agents/{id} (its name and description) and POST /api/agents/{id}/archive. What they change is
 	// read back through GET /api/agents (each agent's name, description and archived_at) and its
 	// statement, which the sweep reaches. Each relays Lens's answer (or its refusal) and holds nothing.
-	if len(methodOnly) > 78 {
+	//
+	// THE SEVENTY-NINTH IS B28.23'S GIVE-BACK, write only: POST /api/wallets/transfers/{tid}/refund. What it
+	// changes is read back through GET /api/agents/{id}/transfers (the refund, and the original's refunded_by)
+	// and GET /api/agents, which the sweep reaches. It relays Lens's answer (or its refusal) and holds nothing.
+	if len(methodOnly) > 79 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 78 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 79 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
