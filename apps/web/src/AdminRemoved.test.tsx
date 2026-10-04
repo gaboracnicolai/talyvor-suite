@@ -55,7 +55,7 @@ describe('the /admin area is gone', () => {
     // became `<a href>` — see ConsoleNavLinks.test.tsx. Left as `button`, the line below would ask
     // whether a role NOTHING in the nav has any more is absent, and no nav item added in future
     // could ever make it fail: an /admin row restored tomorrow would be a link and would pass.
-    expect(await screen.findByRole('link', { name: /^ledger$/i })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /^statements$/i })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /^admin$/i })).toBeNull()
     // the "Operator" group held only Admin, so the group header goes with it
     expect(screen.queryByText('Operator')).toBeNull()

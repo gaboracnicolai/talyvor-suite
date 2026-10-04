@@ -26,6 +26,7 @@ import { Members } from './areas/lens/Members'
 import { Settings } from './areas/lens/Sharing'
 import { Features } from './areas/lens/Features'
 import { AgentBank } from './areas/lens/AgentBank'
+import { ApprovalsScreen, StatementsScreen, usePendingApprovals } from './areas/lens/WalletScreens'
 import { MarketplaceArea } from './areas/marketplace/Marketplace'
 import { TryConversion, TryTare } from './areas/lens/TryIt'
 import { TopUp } from './areas/lens/TopUp'
@@ -87,13 +88,11 @@ export const queryClient: QueryClient = new QueryClient({
  * A path owns itself and everything below it; `/` owns only itself.
  */
 const GROUP_PATHS: Record<string, readonly string[]> = {
-  Lens: ['/', '/overview', '/ledger', '/earnings', '/spend', '/setup', '/keys', '/agents'],
   Marketplace: ['/marketplace'],
-  Chat: ['/chat'],
-  Track: ['/track'],
-  Docs: ['/docs'],
-  Billing: ['/billing', '/plans', '/pricing'],
-  Workspace: ['/features', '/members', '/settings'],
+  Work: ['/track', '/docs'],
+  Developers: ['/setup', '/keys', '/spend', '/features'],
+  Billing: ['/billing', '/plans', '/overview', '/ledger', '/earnings', '/pricing'],
+  Settings: ['/settings', '/members'],
   Operator: ['/operator'],
 }
 const GROUPS = Object.keys(GROUP_PATHS)
@@ -187,6 +186,9 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   // agents, each agent's budget used, approvals waiting, the month forecast and pause-all. Overview —
   // what the workspace has, spends and earns across both tokens — moved one address over, unchanged.
   { path: '/', title: 'Home', element: <Home /> },
+  // B28.7 — the wallet's own destinations, first in the sidebar after Home.
+  { path: '/approvals', title: 'Approvals', element: <ApprovalsScreen /> },
+  { path: '/statements', title: 'Statements', element: <StatementsScreen /> },
   { path: '/overview', title: 'Overview', element: <Overview /> },
   { path: '/ledger', title: 'Ledger', element: <Ledger /> },
   // W4.6.1 step 7 — the earnings screen. It sits beside the Ledger because they answer adjacent
@@ -262,6 +264,7 @@ function NavDestination({
   label,
   wildcard = false,
   active,
+  badge,
   className,
 }: {
   to: string
@@ -269,6 +272,8 @@ function NavDestination({
   wildcard?: boolean
   /** Overrides the exact/prefix rule where a row shares its prefix with a sibling row. */
   active?: boolean
+  /** B28.7 — a count beside the label (approvals waiting); nothing is drawn at zero or while unknown. */
+  badge?: number | null
   className?: string
 }) {
   const { pathname } = useLocation()
@@ -282,6 +287,12 @@ function NavDestination({
       className={className}
     >
       {label}
+      {badge ? (
+        <span className="ml-2 rounded-pill border border-rule bg-surface px-1.5 font-figure text-caption text-ink">
+          {badge}
+          <span className="sr-only"> waiting</span>
+        </span>
+      ) : null}
     </NavItem>
   )
 }
@@ -289,8 +300,20 @@ function NavDestination({
 function Sidebar() {
   const { pathname } = useLocation()
   const me = useAuthMeReader()
-  const item = (to: string, label: string, wildcard = false, active?: boolean) => (
-    <NavDestination to={to} label={label} wildcard={wildcard} active={active} />
+  const pending = usePendingApprovals()
+  const item = (
+    to: string,
+    label: string,
+    opts: { wildcard?: boolean; active?: boolean; badge?: number | null; indent?: boolean } = {},
+  ) => (
+    <NavDestination
+      to={to}
+      label={label}
+      wildcard={opts.wildcard}
+      active={opts.active}
+      badge={opts.badge}
+      className={opts.indent ? 'pl-6' : undefined}
+    />
   )
   // B10.6 — Docs lists the pages a person PINNED and the last five they OPENED, never every page
   // (at fifty it was unusable); every page is one click away on "All documents". B8.1's reason for
@@ -310,7 +333,7 @@ function Sidebar() {
       to={pageHref(d)}
       label={d.title}
       active={pathname === pageHref(d)}
-      className="pl-6"
+      className="pl-9"
     />
   )
   return (
@@ -335,69 +358,73 @@ function Sidebar() {
           {fold.anyOpen ? 'Fold all' : 'Open all'}
         </button>
       </div>
-      {/* B8.1 — GROUPED BY PRODUCT, and every screen the console mounts has a row. /chat was
-          mounted with no row at all, and Track's cycles and projects were a second level down. */}
-      <Group label="Lens" {...fold.group('Lens')}>
+      {/* B28.7 — WALLET-FIRST. The product is agent wallets, so the wallet's own screens lead and never
+          fold away: the home, what is waiting for a person, the agents and their statements, then Chat.
+          Everything else is grouped below them, in the order a person reaches for it. */}
+      <div className="flex flex-col">
         {item('/', 'Home')}
-        {item('/overview', 'Overview')}
-        {item('/ledger', 'Ledger')}
-        {item('/earnings', 'Earnings')}
-        {item('/spend', 'Spend & routing')}
-        {/* Setup sits beside Keys because minting a key and being told what to do with it
-            are one task; a trial user who finds only Keys is stuck holding a credential. */}
-        {item('/setup', 'Setup')}
-        {item('/keys', 'API keys')}
-        {item('/agents', 'Wallets')}
-      </Group>
+        {item('/approvals', 'Approvals', { badge: pending })}
+        {/* The label is the page's title, so the row and the heading it opens are one name. */}
+        {item('/agents', 'Agent Wallets')}
+        {item('/statements', 'Statements')}
+        {item('/chat', 'Chat', { wildcard: true })}
+      </div>
       <Group label="Marketplace" {...fold.group('Marketplace')}>
-        {item('/marketplace', 'Browse', false, pathname === '/marketplace' || pathname.startsWith('/marketplace/listings'))}
+        {item('/marketplace', 'Browse', {
+          active: pathname === '/marketplace' || pathname.startsWith('/marketplace/listings'),
+        })}
         {item('/marketplace/publish', 'Publish')}
         {item('/marketplace/selling', 'Your listings & earnings')}
         {item('/marketplace/bill', 'Your bill')}
         {/* B20.12 — offered only to someone the BFF's operator gate will admit. */}
         {me.data?.operator ? item('/marketplace/review', 'Review queue') : null}
       </Group>
-      <Group label="Chat" {...fold.group('Chat')}>
-        {item('/chat', 'Conversations')}
-      </Group>
-      <Group label="Track" {...fold.group('Track')}>
-        {item('/track', 'Issues', false, onTrackIssues)}
-        {item('/track/board', 'Board')}
-        {item('/track/cycles', 'Cycles')}
-        {item('/track/projects', 'Projects')}
-      </Group>
       {/* Docs is BACK. It left the nav because it served one PINNED workspace shared by every
           signed-in person; it now takes the SESSION's workspace, the same way Track does, so the
           condition written into the removal comment has been met rather than waived. See
           apps/bff docsWorkspaceFor and the Track↔Docs enumeration that broke the cold-start
           deadlock (talyvor-track bf60842, talyvor-docs c970329). */}
-      <Group label="Docs" {...fold.group('Docs')}>
-        {item('/docs', 'All documents', false, onDocsIndex)}
+      <Group label="Work" {...fold.group('Work')}>
+        {item('/track', 'Track', { active: onTrackIssues })}
+        {item('/track/board', 'Board', { indent: true })}
+        {item('/track/cycles', 'Cycles', { indent: true })}
+        {item('/track/projects', 'Projects', { indent: true })}
+        {item('/docs', 'Docs', { active: onDocsIndex })}
         {docsNav.pinned.length > 0 ? (
           <>
-            <p className="px-3 pt-1 text-caption text-faint">Pinned</p>
+            <p className="pl-6 pr-3 pt-1 text-caption text-faint">Pinned</p>
             {docsNav.pinned.map(docLink)}
           </>
         ) : null}
         {docsNav.recent.length > 0 ? (
           <>
-            <p className="px-3 pt-1 text-caption text-faint">Recent</p>
+            <p className="pl-6 pr-3 pt-1 text-caption text-faint">Recent</p>
             {docsNav.recent.map(docLink)}
           </>
         ) : null}
       </Group>
+      <Group label="Developers" {...fold.group('Developers')}>
+        {/* Connecting an agent sits beside Keys because minting a key and being told what to do with
+            it are one task; a trial user who finds only Keys is stuck holding a credential. */}
+        {item('/setup', 'Connect an agent')}
+        {item('/keys', 'API keys')}
+        {item('/spend', 'Spend & routing')}
+        {item('/features', 'Gateway features')}
+      </Group>
       <Group label="Billing" {...fold.group('Billing')}>
         {/* Buying LXC has to be findable, not a URL you have to be told. The
             wildcard keeps it highlighted on the Stripe return pages too. */}
-        {item('/billing', 'Plan & top up', true)}
+        {item('/billing', 'Plan & top up', { wildcard: true })}
         {item('/plans', 'Plans')}
+        {item('/overview', 'Overview')}
+        {item('/ledger', 'Ledger')}
+        {item('/earnings', 'Earnings')}
         {/* The public price list (B5.2). It opens outside the console, as a buyer sees it. */}
         {item('/pricing', 'Pricing')}
       </Group>
-      <Group label="Workspace" {...fold.group('Workspace')}>
-        {item('/features', 'Features')}
-        {item('/members', 'Members')}
+      <Group label="Settings" {...fold.group('Settings')}>
         {item('/settings', 'Settings')}
+        {item('/members', 'Members')}
       </Group>
       {/* B18.25 — offered only to someone the BFF's operator gate will admit. */}
       {me.data?.operator ? (

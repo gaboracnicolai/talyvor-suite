@@ -159,8 +159,8 @@ describe('first run opens Home in onboarding mode', () => {
     // `<button>`s — ConsoleNavLinks.test.tsx) an unscoped `/^ledger$/i` matched both. The claim
     // here is about the NAVIGATION, so it is now asked of the navigation.
     const nav = within(await screen.findByRole('navigation', { name: /sections/i }))
-    expect(nav.getByRole('link', { name: /^overview$/i })).toBeInTheDocument()
-    expect(nav.getByRole('link', { name: /^ledger$/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /^home$/i })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: /^statements$/i })).toBeInTheDocument()
     expect(nav.getByRole('link', { name: /^api keys$/i })).toBeInTheDocument()
   })
 
@@ -170,7 +170,7 @@ describe('first run opens Home in onboarding mode', () => {
     // needs_pooling_choice is false on every login after the one that created the workspace,
     // so the redirect must not fire. Landing a returning user on Setup every time would be a
     // different kind of broken.
-    await screen.findByRole('link', { name: /^ledger$/i })
+    await screen.findByRole('link', { name: /^statements$/i })
     expect(window.location.pathname).toBe('/')
   })
 })
@@ -192,7 +192,7 @@ describe('the /specimen gallery is gone', () => {
     // ⚠ `link`, NOT `button`: sidebar destinations are `<a href>` now (ConsoleNavLinks.test.tsx).
     // As `button` the second line would be constant-true — no nav row carries that role any more,
     // so a /specimen row restored tomorrow would be a link and would slip past this.
-    await screen.findByRole('link', { name: /^ledger$/i })
+    await screen.findByRole('link', { name: /^statements$/i })
     expect(screen.queryByRole('link', { name: /^specimen$/i })).toBeNull()
   })
 })

@@ -105,7 +105,7 @@ describe('the console when its one auth probe fails', () => {
             '"falls through to the app, whose routes already render calm per-card failure ' +
             'states" — measured in Chrome, #root stayed empty for 30s while the dead BFF was ' +
             're-probed 39 times in 20s.',
-        ).toContain('Overview')
+        ).toContain('Statements')
       },
       { timeout: 5000 },
     )
@@ -314,7 +314,7 @@ describe('and the halves that must not change', () => {
   it('still renders the app for a live session, and probes exactly once', async () => {
     answerProbe({ mode: 'oidc', authenticated: true, user: { email: 'a@b.c' } })
     render(<App />)
-    await waitFor(() => expect(document.body.textContent ?? '').toContain('Overview'), { timeout: 5000 })
+    await waitFor(() => expect(document.body.textContent ?? '').toContain('Statements'), { timeout: 5000 })
     await new Promise((r) => setTimeout(r, 300))
     expect(
       probeCalls(),

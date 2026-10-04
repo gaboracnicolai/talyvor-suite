@@ -250,7 +250,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'error={ledger.error}',
     why: 'the CORRECT copy of the seam Spend.tsx had backwards — the whole positive control for that finding is that this line reads `ledger.error` while its guard is `ledger.isError`',
   },
-  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:340|apps/web/src/areas/lens/Overview.tsx:344': {
+  'apps/web/src/PanelReportsItsOwnQuery.test.tsx:341|apps/web/src/areas/lens/Overview.tsx:344': {
     kind: 'LIVE',
     fragment: '<Failed what="the mint ledger" error={ledger.error} />',
     why: 'the same line quoted VERBATIM beside the must-stay-green control that asserts its wording, so the quote and the assertion cannot drift apart',
@@ -401,7 +401,7 @@ const PINS: Record<string, Pin> = {
     fragment: '!body.url',
     why: 'the reason a 200 with no url is NOT the finding — it is already converted, so the gate lets it through',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:59|apps/web/src/App.tsx:62': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:59|apps/web/src/App.tsx:63': {
     kind: 'LIVE',
     fragment: 'onError',
     why: 'the app\'s only global error handler, quoted to show it hangs off the QUERY cache and cannot see a mutation',

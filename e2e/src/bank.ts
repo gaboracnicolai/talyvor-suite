@@ -687,6 +687,55 @@ export function walletHome(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.7 — the navigation is wallet-first. With every group open, the sidebar reads top to bottom: Home,
+ * Approvals, Agent Wallets, Statements, Chat, then Marketplace, Work (Track, Docs), Developers (Connect an
+ * agent, API keys, Spend & routing, Gateway features), Billing and Settings. The Approvals badge is held to
+ * Lens's own pending count, and every link the sidebar offers opens a page rather than the catch-all.
+ */
+export const WALLET_FIRST_NAV = [
+  'Home', 'Approvals', 'Agent Wallets', 'Statements', 'Chat', 'Marketplace', 'Work', 'Track', 'Docs',
+  'Developers', 'Connect an agent', 'API keys', 'Spend & routing', 'Gateway features', 'Billing', 'Settings',
+] as const
+
+export function walletFirstNav(): Scenario {
+  return {
+    id: 'wallet-first-nav',
+    title: 'the sidebar leads with the wallet, its Approvals badge is Lens’s pending count, and every link opens a page',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/')
+      try {
+        const nav = page.getByRole('navigation', { name: 'Sections' })
+        await nav.getByRole('link', { name: 'Statements' }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+        const fold = nav.getByRole('button', { name: 'Fold all' })
+        if ((await fold.count()) > 0) await fold.click()
+        await nav.getByRole('button', { name: 'Open all' }).click()
+        const rows = await nav
+          .locator('a[href], button[aria-expanded]')
+          .evaluateAll((els) => els.map((e) => ({ text: (e.textContent ?? '').trim(), href: e.getAttribute('href') })))
+        const waiting = /(\d+) waiting$/.exec(rows.find((r) => r.href === '/approvals')?.text ?? '')
+        const badge = waiting ? Number(waiting[1]) : 0
+        const named = rows.map((r) => r.text.replace(/\d+ waiting$/, '').trim())
+        // A group and its one same-named link (Settings, then Settings) read as one entry.
+        const order = named.filter((l, i) => (WALLET_FIRST_NAV as readonly string[]).includes(l) && l !== named[i - 1])
+        const pending = (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.status === 'pending').length
+        ctx.evidence.push({ note: `sidebar: ${order.join(' · ')}; Approvals badge ${badge}, Lens pending ${pending}` })
+        if (order.join('|') !== WALLET_FIRST_NAV.join('|')) return fail(`the sidebar reads ${order.join(', ')}, not ${WALLET_FIRST_NAV.join(', ')}`)
+        if (badge !== pending) return fail(`Lens has ${pending} approval(s) pending; the sidebar's Approvals badge says ${badge}`)
+        const hrefs = [...new Set(rows.map((r) => r.href).filter((h): h is string => h !== null && h.startsWith('/')))]
+        for (const href of hrefs) {
+          await page.goto(new URL(href, page.url()).toString())
+          const h1 = (await page.locator('h1').first().innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
+          if (h1 === 'Not found' || (await page.getByText('Nothing at this address').count()) > 0) return fail(`the sidebar's link to ${href} opens no page`)
+        }
+        return { pass: true, detail: `the sidebar leads with the wallet, its badge is Lens's ${pending} pending, and all ${hrefs.length} links open a page` }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 export function companyPayment(seed: number, partner: number): Scenario {
   const amount = 700_000
   return {
