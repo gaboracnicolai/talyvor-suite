@@ -51,6 +51,7 @@ function mockChat({
   catalog = CATALOG,
   catalogStatus = 200,
   streamStatus = 200,
+  sessionCheckFails = 0,
   body,
   sub = 'user-a',
   usdPerLXC,
@@ -61,6 +62,8 @@ function mockChat({
   catalog?: unknown
   catalogStatus?: number
   streamStatus?: number
+  /** B27.5 — how many turns Lens answers 503 auth_unavailable (it could not check the session) first. */
+  sessionCheckFails?: number
   body?: BodyInit | null
   /** Who /auth/me says is signed in — history is kept per identity. */
   sub?: string
@@ -121,6 +124,12 @@ function mockChat({
     }
     if (url.startsWith('/api/ai/stream/')) {
       posted({ url, init })
+      if (posted.mock.calls.length <= sessionCheckFails) {
+        return new Response(JSON.stringify({ error: 'your session could not be checked just now; try again', code: 'auth_unavailable' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+        })
+      }
       if (streamStatus !== 200) return new Response('refused', { status: streamStatus })
       const optedIn = new Headers(init?.headers).get('X-Talyvor-Distill') === 'true'
       return new Response(body ?? '', {
@@ -446,6 +455,19 @@ describe('failures are stated, never swallowed', () => {
     expect(alert.textContent).toMatch(/cannot cover the estimated cost/i)
     // The screen that fixes it is linked, not merely named.
     expect(screen.getByRole('link', { name: 'Billing' }).getAttribute('href')).toBe('/billing')
+  })
+
+  it('B27.5 — a session Lens could not check is retried quietly, not signed out', async () => {
+    const { posted } = mockChat({
+      sessionCheckFails: 2,
+      body: 'data: {"choices":[{"delta":{"content":"still here"}}]}\n\ndata: [DONE]\n\n',
+    })
+    renderChat()
+    await ask('hello')
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('still here'))
+    expect(posted).toHaveBeenCalledTimes(3)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/no longer signed in/i)
   })
 
   it('reports a server error carried INSIDE the stream', async () => {

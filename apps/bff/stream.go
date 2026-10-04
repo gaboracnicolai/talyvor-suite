@@ -57,6 +57,11 @@ const sessionKeyPrefix = "tlv_sk_"
 // see the note on handleAIStream's credential branch.
 const chatCredentialRefusedCode = "CHAT_CREDENTIAL_REFUSED"
 
+// lensAuthUnavailableCode mirrors talyvor-lens internal/auth authUnavailableCode (B27.5): Lens's 503
+// for "your session could not be checked just now" — a database hiccup, not a sign-out. It is
+// relayed to the Chat untouched, with Lens's Retry-After, and the Chat sends the turn again.
+const lensAuthUnavailableCode = "auth_unavailable"
+
 // mintRefused reports that Lens ANSWERED the session-key mint and this BFF came away without a
 // credential. It exists to keep ONE distinction that the previous single error string destroyed:
 // whether Lens spoke at all.
@@ -308,6 +313,10 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		// B23.12 — which request this answer was, so a thumbs-down on it can name it (feedback.go).
 		if v := resp.Header.Get(requestIDHeader); v != "" {
 			w.Header().Set(requestIDHeader, v)
+		}
+		// B27.5 — how long Lens asked to wait before the Chat sends a turn again.
+		if v := resp.Header.Get("Retry-After"); v != "" {
+			w.Header().Set("Retry-After", v)
 		}
 		// A stream must not be cached or buffered by anything between here and the browser.
 		w.Header().Set("Cache-Control", "no-store")
