@@ -84,6 +84,7 @@ var decodedFromUpstream = map[string]string{
 	"provisionResult":        "Lens's POST /v1/provision reply, decoded in provision()",
 	"trackBootstrapResult":   "Track's POST /v1/bootstrap reply, decoded in bootstrapTrackWorkspace()",
 	"trackProjectCreateBody": "request body this service POSTs to Track's project create (B4.2), built from four chosen fields",
+	"trackBoardCreateBody":   "request body this service POSTs to Track's issue-board link create (B27.30), built from the one chosen field",
 	"trackCycleCreateBody":   "request body this service POSTs to Track's cycle create (B4.1), built from three chosen fields",
 	"lensWorkspaceRecord":    "Lens's GET /v1/workspaces/{id} reply, decoded in lensWorkspace() (B17.2)",
 	"passkeyAssertion":       "an approval's passkey assertion, decoded wholesale from the browser's approve/deny body and relayed to Lens as it came (B19.10)",

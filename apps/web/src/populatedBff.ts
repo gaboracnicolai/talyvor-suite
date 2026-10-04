@@ -33,6 +33,15 @@
 
 /** A body per endpoint. Keys are matched by exact URL first, then by pathname. */
 const BODIES: Record<string, unknown> = {
+  // B27.30 — a published board, at the address the public-route sweeps visit (`/board/:token`).
+  '/api/public/boards/%3Atoken': {
+    workspace: 'Fixture workspace',
+    issues: [
+      { identifier: 'IMP-1', title: 'Importer drops the last row', status: 'in_progress', priority: 2, updated_at: '2026-08-20T00:00:00Z' },
+      { identifier: 'IMP-2', title: 'Map Jira priorities on import', status: 'todo', priority: 0, updated_at: '2026-08-19T00:00:00Z' },
+    ],
+    truncated: false,
+  },
   // B27.15 — Docs counts the fixture's person as a member, so the sidebar reads its pins.
   '/api/docs/membership': { member: true },
   '/auth/me': { mode: 'disabled', authenticated: false, user: null },
@@ -424,6 +433,8 @@ const ARRAYS: Record<string, unknown[]> = {
   '/api/track/projects': [
     { id: 'pr-1', team_id: 'team-1', name: 'Importer', identifier: 'IMP', description: '', status: 'active' },
   ],
+  // B27.30 — the board link's live list, on /track/board.
+  '/api/track/boards': [],
   // B18.27 — the sidebar's pinned Docs pages, kept by Docs.
   '/api/docs/pins': [],
   '/api/docs/spaces': [

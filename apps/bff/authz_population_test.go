@@ -111,6 +111,9 @@ var publicReadRoutes = map[string]string{
 	"/auth/synthetic": "B17.2 — the synthetic sign-in, which by definition runs before any session " +
 		"exists. It needs the operator key instead (401 without it) and answers 404 while " +
 		"LENS_SYNTHETIC_KEY is unset, as here; synthetic_test.go owns both refusals",
+	"/api/public/boards/{token}": "B27.30 — the read-only issue board a workspace owner published as a " +
+		"link; a stranger opens it signed out. The token is the credential, checked for shape before " +
+		"any dial, and Track is called with no gateway secret — track_boards_test.go owns both",
 	"/": "the SPA shell. It has to load before anyone can sign in; spa_fallback_test.go owns " +
 		"what it serves and spa_cache_test.go how it is cached. 404 in tests — no bundle is built",
 }

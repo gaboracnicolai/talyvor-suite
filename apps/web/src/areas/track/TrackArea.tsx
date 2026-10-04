@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import { Card, CardHeader, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, inlineLink } from '@talyvor/ui'
+import { Board } from './Board'
 import { Cycles } from './Cycles'
 import { Projects } from './Projects'
 import { WorkspaceSettings } from './WorkspaceSettings'
 import { IssueDetail } from './IssueDetail'
 import { IssueList } from './IssueList'
 import { SearchIssues } from './SearchIssues'
+import { IssuePicker } from './IssuePicker'
 import { useIssueListKeys } from './issueKeys'
 import { useTrackWorkspaces } from './data'
 import { isUnconfigured } from '../../lib/productState'
@@ -103,8 +105,8 @@ function WorkspaceStrip() {
 }
 
 export function TrackArea() {
-  // B4.3 — c, /, j, k, e and Esc, for every Track screen. See issueKeys.ts.
-  useIssueListKeys()
+  // B4.3 — c, /, j, k, e and Esc, for every Track screen; B27.30 — s, a and x. See issueKeys.ts.
+  const keys = useIssueListKeys()
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-gutter px-gutter py-4">
       <WorkspaceStrip />
@@ -117,6 +119,9 @@ export function TrackArea() {
       <nav aria-label="Track" className="flex gap-4 px-gutter text-body">
         <Link className={inlineLink} to="/track">
           All issues
+        </Link>
+        <Link className={inlineLink} to="/track/board">
+          Board
         </Link>
         <Link className={inlineLink} to="/track/cycles">
           Cycles
@@ -133,6 +138,8 @@ export function TrackArea() {
         {/* The ticket. Restored: this route was retired while the detail screen did not exist,
             which left the suite able to LIST issues and unable to open one. */}
         <Route path="issues/:id" element={<IssueDetail />} />
+        {/* B27.30 — the board, and the read-only link that publishes it. */}
+        <Route path="board" element={<Board />} />
         {/* B4.1 — cycles. */}
         <Route path="cycles" element={<Cycles />} />
         {/* B4.2 — projects. */}
@@ -143,6 +150,10 @@ export function TrackArea() {
             old or mistyped link lands somewhere real rather than on a dead end. */}
         <Route path="*" element={<IssueList />} />
       </Routes>
+      {keys.picker ? <IssuePicker key={`${keys.picker.kind}-${keys.picker.issueId}`} target={keys.picker} onClose={keys.closePicker} /> : null}
+      <p role="status" className="px-gutter text-caption text-muted">
+        {keys.notice}
+      </p>
     </div>
   )
 }

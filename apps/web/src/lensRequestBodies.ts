@@ -560,6 +560,11 @@ export const NON_LENS_ANON_SITES = [
       'trackProjects (B4.2) marshals trackProjectCreateBody for talyvor-track’s project Create — team_id, name, identifier and description, four of model.Project’s json tags, chosen here so the browser cannot set status, priority or dates. A Track key set, not a lens one. ASKED BY THE `TrackProject` MIRROR ENTRY: it pins model.Project’s whole json-tag set, and Track’s project Create decodes into model.Project.',
   },
   {
+    file: 'track_boards.go',
+    what:
+      'trackBoards (B27.30) marshals trackBoardCreateBody for talyvor-track’s issue-board link Create — project_id alone, trimmed here so a blank one means “every issue”. A Track key set, not a lens one. ASKED BY THE `TrackBoardLink` MIRROR ENTRY: it pins issueboard.Share’s whole json-tag set, and Track’s link Create decodes into issueboard.Share.',
+  },
+  {
     file: 'track_cycles.go',
     what:
       'trackCycles (B4.1) marshals trackCycleCreateBody for talyvor-track’s cycle Create — name, start_date and end_date, three of model.Cycle’s json tags, chosen here so the browser cannot set status or number. A Track key set, not a lens one. ASKED BY THE `TrackCycle` MIRROR ENTRY: it pins model.Cycle’s whole json-tag set, and Track’s cycle Create decodes into model.Cycle, so the three keys sent here are three of the tags that entry holds.',

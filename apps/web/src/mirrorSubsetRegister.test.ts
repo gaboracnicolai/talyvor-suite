@@ -124,6 +124,7 @@ const MIRRORS: Mirror[] = [
   { file: 'apps/web/src/areas/track/types.ts', iface: 'TrackCycle', repo: 'talyvor-track', path: 'internal/model/model.go', struct: 'Cycle' },
   { file: 'apps/web/src/areas/track/types.ts', iface: 'TrackProject', repo: 'talyvor-track', path: 'internal/model/model.go', struct: 'Project' },
   { file: 'apps/web/src/areas/track/types.ts', iface: 'TrackMember', repo: 'talyvor-track', path: 'internal/member/mgmt_handler.go', struct: 'memberView' },
+  { file: 'apps/web/src/areas/track/types.ts', iface: 'TrackBoardLink', repo: 'talyvor-track', path: 'internal/issueboard/store.go', struct: 'Share' },
   { file: 'apps/web/src/areas/docs/api.ts', iface: 'DocsSpace', repo: 'talyvor-docs', path: 'internal/model/model.go', struct: 'Space' },
   { file: 'apps/web/src/areas/docs/api.ts', iface: 'DocsPage', repo: 'talyvor-docs', path: 'internal/model/model.go', struct: 'Page' },
   { file: 'apps/web/src/lib/api.ts', iface: 'LXCSnapshot', repo: 'talyvor-lens', path: 'internal/economy/dualtoken.go', struct: 'LXCSnapshot' },

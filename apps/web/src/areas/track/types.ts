@@ -174,3 +174,32 @@ export interface TrackProject {
   description: string
   status: string
 }
+
+/** B27.30 — talyvor-track issueboard.Share, as GET/POST /api/track/boards answer it: one live
+ *  read-only board link. The token is the whole credential; the link is /board/{token}.
+ *  UPSTREAM-ONLY TrackBoardLink: workspace_id, created_by */
+export interface TrackBoardLink {
+  id: string
+  project_id?: string
+  token: string
+  created_at: string
+}
+
+/** B27.30 — one issue on a public board (issueboard.BoardIssue): these five fields and nothing else.
+ *  UPSTREAM-ONLY PublicBoardIssue: none */
+export interface PublicBoardIssue {
+  identifier: string
+  title: string
+  status: IssueStatus
+  priority: IssuePriority
+  updated_at: string
+}
+
+/** B27.30 — GET /api/public/boards/{token} → issueboard.Board, answered signed out.
+ *  UPSTREAM-ONLY PublicBoardView: none */
+export interface PublicBoardView {
+  workspace: string
+  project?: string
+  issues: PublicBoardIssue[]
+  truncated: boolean
+}
