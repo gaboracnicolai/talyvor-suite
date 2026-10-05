@@ -272,6 +272,25 @@ const BY_PATH: Record<string, unknown> = {
     active_until: '',
     timezone: '',
   },
+  // B28.31 — the Researcher's rules history: saved with a 5 LXC daily limit, then a person asked to approve above 2 LXC.
+  '/api/agents/agt_research/rules/history': {
+    versions: [
+      {
+        version: 2,
+        rules: { max_per_request_ulxc: 0, daily_limit_ulxc: 5_000_000, monthly_limit_ulxc: 0, approval_above_ulxc: 2_000_000, allowed_models: null, allowed_providers: null, active_from: '', active_until: '', timezone: '' },
+        changed_by: 'jwt:user:ws_1',
+        change: 'set',
+        created_at: '2026-09-27T12:00:00Z',
+      },
+      {
+        version: 1,
+        rules: { max_per_request_ulxc: 0, daily_limit_ulxc: 5_000_000, monthly_limit_ulxc: 0, approval_above_ulxc: 0, allowed_models: null, allowed_providers: null, active_from: '', active_until: '', timezone: '' },
+        changed_by: 'jwt:user:ws_1',
+        change: 'set',
+        created_at: '2026-09-26T09:00:00Z',
+      },
+    ],
+  },
   // B28.6 — the Writer's budget: Home draws each agent's monthly limit against its month's spend.
   '/api/agents/agt_writer/rules': {
     max_per_request_ulxc: 0,

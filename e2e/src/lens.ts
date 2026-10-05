@@ -239,6 +239,15 @@ export interface AgentLine {
   balance_after_ulxc: number
 }
 
+/** B28.31 — Lens economy.AgentRulesVersion: the rules as one change left them, who changed them (the credential) and how. */
+export interface AgentRulesVersion {
+  version: number
+  rules: AgentRulesRead
+  changed_by: string
+  change: string
+  created_at: string
+}
+
 /** Lens economy.AgentRules as its rules read answers them, in µLXC; a zero, an empty list or an empty window is no rule. */
 export interface AgentRulesRead {
   max_per_request_ulxc: number
@@ -580,6 +589,12 @@ export class LensClient {
    */
   async agentRules(user: SyntheticUser, agentID: string): Promise<AgentRulesRead> {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules`, this.bearer(user.token))) as AgentRulesRead
+  }
+
+  /** B28.31 — every version of one agent's rules, newest first (Lens B28.307): the rules each change left, by whom and how. */
+  async agentRulesHistory(user: SyntheticUser, agentID: string): Promise<AgentRulesVersion[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules/history`, this.bearer(user.token))) as { versions?: AgentRulesVersion[] | null }
+    return body.versions ?? []
   }
 
   /** B17.6 — one agent's account, newest first (Lens B19.3). */

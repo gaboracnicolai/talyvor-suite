@@ -65,6 +65,17 @@ export interface RuleSimulation {
   balance_ulxc: number
 }
 
+/** Lens economy.AgentRulesVersion (B28.307): the agent's rules as one change left them, who changed them and how. */
+export interface AgentRulesVersion {
+  version: number
+  rules: AgentRules
+  /** the credential that changed them: "operator", or its method, user and key ("jwt:user:…"); empty when unknown */
+  changed_by: string
+  /** set | template <id> | rollback to <n> | before history (rules set before versions were kept) */
+  change: string
+  created_at: string
+}
+
 /** Lens economy.AgentBook: workspace = allocated + unallocated; spent is what the agents spent. */
 export interface AgentBook {
   workspace_balance_ulxc: number
@@ -387,6 +398,11 @@ export const agentBankApi = {
   setRules: (id: string, rules: AgentRules) => send<AgentRules>('PUT', `/api/agents/${e(id)}/rules`, rules),
   /** B28.30 — would the agent's rules let this request through? Lens judges it and moves nothing. */
   simulate: (id: string, req: SimulatedRequest) => send<RuleSimulation>('POST', `/api/agents/${e(id)}/rules/simulate`, req),
+  /** B28.31 — every version of the agent's rules, newest first: the first is the rules in force. */
+  rulesHistory: (id: string) =>
+    getJSON<{ versions: AgentRulesVersion[] | null }>(`/api/agents/${e(id)}/rules/history`, { versions: 'list' }),
+  /** B28.31 — put the agent's rules back exactly as they were at version; Lens records that as a new version. */
+  rollbackRules: (id: string, version: number) => send<AgentRules>('POST', `/api/agents/${e(id)}/rules/rollback`, { version }),
   statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`, { lines: 'list' }),
   statementFile,
   /** B19.24 — the agent's test-mode card and every purchase on it; null when it has none (Lens answers 404). */

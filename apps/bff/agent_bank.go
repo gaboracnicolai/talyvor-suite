@@ -22,6 +22,8 @@ import (
 //	POST /api/agents/{id}/keys          {"name"}       issue the agent a proxy key of its own, shown once
 //	GET  /api/agents/{id}/rules, PUT {rules}           the agent's spending rules
 //	POST /api/agents/{id}/rules/simulate {"amount_ulxc", "model"?, "provider"?, "payee"?, "at"?}   B28.30: would they let it through? moves nothing
+//	GET  /api/agents/{id}/rules/history                B28.31: every version of the rules, newest first, who changed them and how
+//	POST /api/agents/{id}/rules/rollback {"version"}   B28.31: put the rules back exactly as they were at that version
 //	GET  /api/agents/{id}/statement                    the agent's account, newest first
 //	GET  /api/agents/{id}/statement?from=&to=&format=json|csv   B19.22: its statement for a period, to download
 //	GET  /api/agents/statement?from=&to=&format=json|csv        B19.22: every account in the bank, for a period
@@ -267,6 +269,45 @@ func (a *app) handleAgentRulesSimulate(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 	// UPSTREAM-BINDS-ONLY lensAgentRulesSimulateBody: none
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
+}
+
+// handleAgentRulesHistory — GET /api/agents/{id}/rules/history (B28.31): every version of the agent's rules, newest
+// first — the first is the rules in force — each with who changed them and how (set, template <id>, rollback to <n>).
+// Lens (B28.307) records a version in the transaction of every change that alters the rules.
+func (a *app) handleAgentRulesHistory(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	suffix, ok := agentSuffix(w, r, "rules/history")
+	if !ok {
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodGet, suffix, nil)
+}
+
+// handleAgentRulesRollback — POST /api/agents/{id}/rules/rollback {"version"} (B28.31): Lens (B28.307) writes that
+// version's rules back over the agent's, exactly, and records the rollback as a new version by whoever asked. It
+// answers the rules now in force.
+func (a *app) handleAgentRulesRollback(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	suffix, ok := agentSuffix(w, r, "rules/rollback")
+	if !ok {
+		return
+	}
+	var in struct {
+		Version int `json:"version"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensAgentRulesRollbackBody: none
 	body, _ := json.Marshal(in)
 	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
 }

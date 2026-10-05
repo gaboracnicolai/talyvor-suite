@@ -22,6 +22,7 @@ import {
   type AgentBook,
   type AgentKey,
   type AgentRules,
+  type AgentRulesVersion,
   type AgentSchedule,
   type AgentTopUp as AgentTopUpValue,
   type StatementLine,
@@ -51,6 +52,7 @@ import {
 export const BOOK_KEY = ['agent-book']
 export const APPROVALS_KEY = ['agent-approvals']
 export const rulesKey = (id: string) => ['agent-rules', id]
+export const rulesHistoryKey = (id: string) => ['agent-rules-history', id]
 export const FORECAST_KEY = ['agent-forecast']
 export const statementKey = (id: string) => ['agent-statement', id]
 
@@ -885,7 +887,10 @@ function RulesForm({ agent, agents, rules }: { agent: Agent; agents: Agent[]; ru
         timezone: timezone.trim(),
         pause_on_unusual_spend: pauseOnUnusual,
       }),
-    onSuccess: (saved) => qc.setQueryData(rulesKey(agent.id), saved),
+    onSuccess: (saved) => {
+      qc.setQueryData(rulesKey(agent.id), saved)
+      void qc.invalidateQueries({ queryKey: rulesHistoryKey(agent.id) })
+    },
   })
   return (
     <form
@@ -1149,20 +1154,213 @@ function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agent
 }
 
 function Rules({ agent, agents }: { agent: Agent; agents: Agent[] }) {
+  const qc = useQueryClient()
   const rules = useQuery({ queryKey: rulesKey(agent.id), queryFn: () => agentBankApi.rules(agent.id) })
+  // B28.31 — the form is filled once from the rules it opened with, so a rollback starts it again from the rules
+  // the rollback put back.
+  const [rolledBack, setRolledBack] = useState(0)
+  return (
+    <>
+      <Card>
+        <CardHeader>Rules</CardHeader>
+        {rules.isSuccess ? (
+          <>
+            <RulesInWords agentName={agent.name} rules={rules.data} payeeName={(id) => agents.find((a) => a.id === id)?.name ?? id} />
+            <RulesForm key={`${agent.id}:${rolledBack}`} agent={agent} agents={agents} rules={rules.data} />
+          </>
+        ) : (
+          <p className="px-gutter py-3 text-body text-muted">
+            {rules.isError ? readFailure(rules.error, 'This agent’s rules') : 'Reading…'}
+          </p>
+        )}
+      </Card>
+      <RulesHistory
+        agent={agent}
+        agents={agents}
+        onRolledBack={(back) => {
+          qc.setQueryData(rulesKey(agent.id), back)
+          setRolledBack((n) => n + 1)
+        }}
+      />
+    </>
+  )
+}
+
+/** B28.31 — how a version came to be, from Lens's change: set, template <id>, rollback to <n> or before history. */
+function changeText(change: string): string {
+  if (change === 'set') return 'Saved'
+  if (change === 'before history') return 'As they were before history was kept'
+  const template = /^template (.+)$/.exec(change)?.[1]
+  if (template !== undefined) return `${RULE_TEMPLATES.find((t) => t.id === template)?.name ?? template} template applied`
+  const back = /^rollback to (\d+)$/.exec(change)?.[1]
+  if (back !== undefined) return `Rolled back to version ${back}`
+  return change
+}
+
+/**
+ * B28.31 — who made a version, from the credential Lens names: the operator, a key (by its id), or a signed-in
+ * session — on Talyvor that is the workspace's own, so "you". Lens names nobody for rules set before history.
+ */
+function changedBy(by: string): string {
+  if (by === '') return ''
+  if (by === 'operator') return ' by Talyvor support'
+  const key = /:key:([^:]+)$/.exec(by)?.[1]
+  if (key !== undefined) return ` with key ${key}`
+  if (by.startsWith('jwt')) return ' by you'
+  return ` by ${by}`
+}
+
+const NO_RULES: AgentRules = {
+  max_per_request_ulxc: 0,
+  daily_limit_ulxc: 0,
+  monthly_limit_ulxc: 0,
+  approval_above_ulxc: 0,
+  allowed_models: null,
+  allowed_providers: null,
+  active_from: '',
+  active_until: '',
+  timezone: '',
+}
+
+interface RuleChange {
+  rule: string
+  from: React.ReactNode
+  to: React.ReactNode
+}
+
+/** B28.31 — every rule the screen shows that differs between two versions, as it was and as it became. */
+function ruleChanges(was: AgentRules, now: AgentRules, payeeName: (id: string) => string): RuleChange[] {
+  const out: RuleChange[] = []
+  const amount = (v: number | undefined) => ((v ?? 0) > 0 ? lxc(v ?? 0) : 'none')
+  for (const [field, rule] of LIMITS) {
+    if ((was[field] ?? 0) !== (now[field] ?? 0)) out.push({ rule, from: amount(was[field]), to: amount(now[field]) })
+  }
+  if ((was.requests_per_minute ?? 0) !== (now.requests_per_minute ?? 0)) {
+    const rate = (n: number | undefined) => ((n ?? 0) > 0 ? <span className="font-figure">{n}</span> : 'none')
+    out.push({ rule: 'Requests a minute', from: rate(was.requests_per_minute), to: rate(now.requests_per_minute) })
+  }
+  const lists: [keyof AgentRules, string, string, (id: string) => string][] = [
+    ['allowed_models', 'Allowed models', 'any', (id) => id],
+    ['allowed_providers', 'Allowed providers', 'any', (id) => id],
+    ['allowed_listings', 'Allowed listings', 'any', (id) => id],
+    ['allowed_payees', 'May pay only', 'anyone', payeeName],
+    ['blocked_payees', 'May never pay', 'nobody', payeeName],
+  ]
+  for (const [field, rule, none, name] of lists) {
+    const text = (v: AgentRules[keyof AgentRules]) => {
+      const ids = [...((v as string[] | null | undefined) ?? [])].sort()
+      return ids.length > 0 ? ids.map(name).join(', ') : none
+    }
+    if (text(was[field]) !== text(now[field])) out.push({ rule, from: text(was[field]), to: text(now[field]) })
+  }
+  const caps: ['model_daily_limits_ulxc' | 'payee_daily_limits_ulxc', (id: string) => string][] = [
+    ['model_daily_limits_ulxc', (m) => `Daily limit on ${m}`],
+    ['payee_daily_limits_ulxc', (id) => `Daily limit to ${payeeName(id)}`],
+  ]
+  for (const [field, rule] of caps) {
+    const before = was[field] ?? {}
+    const after = now[field] ?? {}
+    for (const key of [...new Set([...Object.keys(before), ...Object.keys(after)])].sort()) {
+      if ((before[key] ?? 0) !== (after[key] ?? 0)) out.push({ rule: rule(key), from: amount(before[key]), to: amount(after[key]) })
+    }
+  }
+  const hours: ['active_from' | 'active_until', string][] = [
+    ['active_from', 'Works from'],
+    ['active_until', 'Works until'],
+  ]
+  for (const [field, rule] of hours) {
+    if (was[field] !== now[field]) out.push({ rule, from: was[field] || 'any time', to: now[field] || 'any time' })
+  }
+  if ((was.timezone || 'UTC') !== (now.timezone || 'UTC')) out.push({ rule: 'Time zone', from: was.timezone || 'UTC', to: now.timezone || 'UTC' })
+  if (Boolean(was.pause_on_unusual_spend) !== Boolean(now.pause_on_unusual_spend)) {
+    out.push({ rule: 'Pause on unusual spend', from: was.pause_on_unusual_spend ? 'on' : 'off', to: now.pause_on_unusual_spend ? 'on' : 'off' })
+  }
+  return out
+}
+
+/**
+ * B28.31 — every version of an agent's rules (Lens B28.307), newest first: how each came to be, who made it and
+ * what it changed from the version before. Any earlier version can be put back exactly as it was; Lens records the
+ * rollback as a new version, by whoever asked, so a rollback can itself be rolled back.
+ */
+function RulesHistory({ agent, agents, onRolledBack }: { agent: Agent; agents: Agent[]; onRolledBack: (rules: AgentRules) => void }) {
+  const qc = useQueryClient()
+  const history = useQuery({ queryKey: rulesHistoryKey(agent.id), queryFn: () => agentBankApi.rulesHistory(agent.id) })
+  const rollback = useMutation({
+    mutationFn: (version: number) => agentBankApi.rollbackRules(agent.id, version),
+    onSuccess: (back) => {
+      onRolledBack(back)
+      void qc.invalidateQueries({ queryKey: rulesHistoryKey(agent.id) })
+    },
+  })
+  const versions: AgentRulesVersion[] = history.data?.versions ?? []
+  const payeeName = (id: string) => agents.find((a) => a.id === id)?.name ?? id
   return (
     <Card>
-      <CardHeader>Rules</CardHeader>
-      {rules.isSuccess ? (
-        <>
-          <RulesInWords agentName={agent.name} rules={rules.data} payeeName={(id) => agents.find((a) => a.id === id)?.name ?? id} />
-          <RulesForm key={agent.id} agent={agent} agents={agents} rules={rules.data} />
-        </>
+      <CardHeader>Rules history</CardHeader>
+      {history.isError ? (
+        <p className="px-gutter py-3 text-body text-muted">{readFailure(history.error, `${agent.name}’s rules history`)}</p>
+      ) : !history.isSuccess ? (
+        <p className="px-gutter py-3 text-body text-muted">Reading…</p>
+      ) : versions.length === 0 ? (
+        <p className="px-gutter py-3 text-body text-muted">{agent.name}’s rules have not been changed yet. Every save will be kept here.</p>
       ) : (
-        <p className="px-gutter py-3 text-body text-muted">
-          {rules.isError ? readFailure(rules.error, 'This agent’s rules') : 'Reading…'}
-        </p>
+        <ol className="flex flex-col divide-y divide-rule" aria-label={`Versions of ${agent.name}’s rules`}>
+          {versions.map((v, i) => {
+            const older = versions[i + 1] ?? (v.version === 1 ? { rules: NO_RULES } : undefined)
+            const changes = older ? ruleChanges(older.rules, v.rules, payeeName) : []
+            return (
+              <li key={v.version} className="flex flex-col gap-1 px-gutter py-3" data-testid={`rules-version-${v.version}`}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-body text-ink">
+                    Version <span className="font-figure">{v.version}</span>
+                  </span>
+                  {i === 0 ? <Pill status="settled">In force</Pill> : null}
+                  <span className="text-caption text-muted">
+                    {changeText(v.change)}
+                    {changedBy(v.changed_by)}, <span className="font-figure">{formatWhen(v.created_at)}</span>
+                  </span>
+                  {i > 0 ? (
+                    <Button
+                      className="ml-auto"
+                      disabled={rollback.isPending}
+                      aria-label={`Roll ${agent.name}’s rules back to version ${v.version}`}
+                      onClick={() => rollback.mutate(v.version)}
+                    >
+                      Roll back to this
+                    </Button>
+                  ) : null}
+                </div>
+                {older === undefined ? (
+                  <p className="text-caption text-muted">Older versions are not shown.</p>
+                ) : changes.length === 0 ? (
+                  <p className="text-caption text-muted">Only rules this screen does not show changed.</p>
+                ) : (
+                  <ul className="flex list-disc flex-col gap-0.5 pl-6 text-caption text-ink">
+                    {changes.map((c) => (
+                      <li key={c.rule}>
+                        {c.rule}: was {c.from}, now {c.to}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            )
+          })}
+        </ol>
       )}
+      {rollback.isSuccess || rollback.isError ? (
+        <div className="px-gutter pb-3">
+          {rollback.isSuccess ? (
+            <Note ok>
+              {agent.name}’s rules are back as they were at version <span className="font-figure">{rollback.variables}</span>. The
+              rollback is kept as a new version.
+            </Note>
+          ) : (
+            <Note ok={false}>{refusalText(rollback.error)}</Note>
+          )}
+        </div>
+      ) : null}
     </Card>
   )
 }
