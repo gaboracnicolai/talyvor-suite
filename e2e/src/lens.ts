@@ -210,6 +210,15 @@ export interface QueueItem {
   report_reasons: string[] | null
 }
 
+/** B30.115 — one wallet capability as Lens lists it (economy.CapabilityStatus). */
+export interface CapabilityStatus {
+  capability: string
+  name: string
+  class: string
+  real_money: boolean
+  clearance?: unknown
+}
+
 /** Lens economy.AgentBook: workspace = allocated + unallocated. */
 export interface AgentBook {
   workspace_balance_ulxc: number
@@ -573,6 +582,12 @@ export class LensClient {
         pooledULXC: res.headers.has('X-Talyvor-Pool-Charged-ULXC') ? Number(res.headers.get('X-Talyvor-Pool-Charged-ULXC')) : undefined,
       },
     }
+  }
+
+  /** B30.115 — every wallet capability, its class and whether it takes real money now (Lens B22.1, B30.1). */
+  async walletCapabilities(user: SyntheticUser): Promise<CapabilityStatus[]> {
+    const body = (await this.call('GET', '/v1/wallets/capabilities', this.bearer(user.token))) as { capabilities?: CapabilityStatus[] | null }
+    return body.capabilities ?? []
   }
 
   /** B17.6 — the workspace's agents and their balances, reconciled with the workspace (Lens B19.1). */
