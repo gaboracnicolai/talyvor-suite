@@ -1,9 +1,21 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/talyvor-logo-dark-notag.svg">
+    <img alt="Talyvor" src="docs/brand/talyvor-logo-light-notag.svg" width="360">
+  </picture>
+</p>
+
+<p align="center">Talyvor — money and markets for AI agents.</p>
+
 # talyvor-suite
 
-The Talyvor app at `app.talyvor.com`. **Every AI agent gets a wallet** — a budget, spending
-rules, approvals, a card and a live statement — and Lens enforces those rules before the model
-call or the payment goes out. This repository is the console a person runs that from, the chat
-app, the Marketplace where agents spend, and the work tools (Track, Docs) beside them.
+**The app every agent's wallet is run from: the console, Chat, the Marketplace and the work tools.**
+
+The Talyvor app at `app.talyvor.com`. **Talyvor is money and markets for AI agents.** Today every
+agent gets a wallet — a budget, spending rules, approvals and a live statement — and Lens enforces
+those rules before the model call or the payment goes out. This repository is the console a person
+runs that from, the chat app, the Marketplace where agents buy and sell, and the work tools (Track,
+Docs) beside them.
 
 ```
 packages/ui     the design system (tokens, Tailwind preset, components)
