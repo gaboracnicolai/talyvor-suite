@@ -224,6 +224,7 @@ export function RulesInWords({ agentName, rules, payeeName = (id) => id }: { age
   const allowedPayees = rules.allowed_payees ?? []
   const blockedPayees = rules.blocked_payees ?? []
   const modelCaps = Object.entries(rules.model_daily_limits_ulxc ?? {}).filter(([, v]) => v > 0)
+  const payeeCaps = Object.entries(rules.payee_daily_limits_ulxc ?? {}).filter(([, v]) => v > 0)
   return (
     <ul className="flex list-disc flex-col gap-1 py-3 pl-8 pr-gutter text-body text-ink" data-testid="rules-in-words">
       <li>
@@ -277,6 +278,18 @@ export function RulesInWords({ agentName, rules, payeeName = (id) => id }: { age
       ) : null}
       {allowedPayees.length > 0 ? <li>It may pay only {or(allowedPayees.map(payeeName))}.</li> : null}
       {blockedPayees.length > 0 ? <li>It may never pay {and(blockedPayees.map(payeeName))}.</li> : null}
+      {payeeCaps.length > 0 ? (
+        <li>
+          To one payee it may pay at most{' '}
+          {payeeCaps.map(([id, v], i) => (
+            <span key={id}>
+              {i > 0 ? (i === payeeCaps.length - 1 ? ' and ' : ', ') : null}
+              <Lxc ulxc={v} /> a day to {payeeName(id)}
+            </span>
+          ))}
+          .
+        </li>
+      ) : null}
       <li>
         {rules.active_from || rules.active_until
           ? `It works only ${rules.active_from ? `from ${rules.active_from}` : ''}${rules.active_from && rules.active_until ? ' ' : ''}${rules.active_until ? `until ${rules.active_until}` : ''}, ${(rules.timezone || 'UTC').replace(/_/g, ' ')} time.`

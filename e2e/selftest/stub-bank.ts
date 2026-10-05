@@ -79,6 +79,8 @@ interface Rules {
   /** B28.27 — who it may pay and who it may not, by payee id; a save without them keeps the lists. */
   allowed_payees: string[]
   blocked_payees: string[]
+  /** B28.28 — a day's cap per payee, by the id the payee lists name it by; a save without it keeps the caps, one with it replaces them. */
+  payee_daily_limits_ulxc: Record<string, number>
   active_from: string
   active_until: string
   timezone: string
@@ -147,7 +149,7 @@ const CAPABILITIES = [
 ].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
 
 const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, approval_above_ulxc: 0,
-  allowed_models: [], allowed_providers: [], allowed_listings: [], allowed_payees: [], blocked_payees: [], active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
+  allowed_models: [], allowed_providers: [], allowed_listings: [], allowed_payees: [], blocked_payees: [], payee_daily_limits_ulxc: {}, active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
 
 const lxc = (ulxc: number): string => String(ulxc / 1e6)
 
@@ -230,7 +232,7 @@ export class Bank {
 
   /**
    * Lens's agent rules (economy/agent_rules.go), in its order: the pauses, the models, a payment's payee (B28.27), the limit per
-   * request, the hour's, day's, week's and month's limits, the model's day, then the approval amount. A refusal is 403 naming the rule
+   * request, the hour's, day's, week's and month's limits, the model's day, the payee's day (B28.28), then the approval amount. A refusal is 403 naming the rule
    * (429 for the requests-a-minute rule, checked after the models, B28.26);
    * a request above the approval amount files an approval, and an approved one goes through once.
    */
@@ -274,6 +276,19 @@ export class Bank {
         .reduce((s, p) => s - p.amount_ulxc, 0)
       if (onModel + amount > modelCap) {
         return rule(`the agent has spent ${lxc(onModel)} LXC of its daily limit of ${lxc(modelCap)} LXC for the model "${req.model}", and this request would cost up to ${lxc(amount)} LXC`)
+      }
+    }
+    if (req.payment && req.payee !== undefined) {
+      // B28.28 — what it has paid the payee today, by the payee's id or its company's, as Lens's agent_payee_payments counts it.
+      const today = new Date(new Date().toISOString().slice(0, 10)).toISOString()
+      for (const pid of [req.payee.id, req.payee.ws]) {
+        const limit = r.payee_daily_limits_ulxc[pid] ?? 0
+        if (limit <= 0) continue
+        const paid = this.postings.filter((p) => p.account === `agent:${agent.id}` && p.kind === 'pay' && p.amount_ulxc < 0 && p.at >= today &&
+          [p.counterparty.slice('agent:'.length), this.agents.get(p.counterparty.slice('agent:'.length))?.ws].includes(pid)).reduce((s, p) => s - p.amount_ulxc, 0)
+        if (paid + amount > limit) {
+          return rule(`the agent has paid ${lxc(paid)} LXC today of its daily limit of ${lxc(limit)} LXC for "${pid}", and this payment would cost ${lxc(amount)} LXC`)
+        }
       }
     }
     if (r.approval_above_ulxc > 0 && amount > r.approval_above_ulxc) {
@@ -929,6 +944,8 @@ export class Bank {
         if (both !== undefined) return json(res, 400, { error: `"${both}" is both allowed and blocked; give it one` }), true
         a.rules = { ...noRules(), ...r, allowed_listings: r.allowed_listings ?? a.rules.allowed_listings,
           allowed_payees: r.allowed_payees ?? a.rules.allowed_payees, blocked_payees: r.blocked_payees ?? a.rules.blocked_payees,
+          payee_daily_limits_ulxc: r.payee_daily_limits_ulxc == null ? a.rules.payee_daily_limits_ulxc
+            : Object.fromEntries(Object.entries(r.payee_daily_limits_ulxc).filter(([, v]) => v > 0)),
           hourly_limit_ulxc: r.hourly_limit_ulxc ?? a.rules.hourly_limit_ulxc, weekly_limit_ulxc: r.weekly_limit_ulxc ?? a.rules.weekly_limit_ulxc,
           model_daily_limits_ulxc: r.model_daily_limits_ulxc == null ? a.rules.model_daily_limits_ulxc : modelCaps(r.model_daily_limits_ulxc),
           requests_per_minute: r.requests_per_minute ?? a.rules.requests_per_minute,

@@ -191,4 +191,28 @@ describe('amounts in your own currency and plain-English rules', () => {
     await waitFor(() => expect(saved).toHaveLength(2))
     expect(saved[1]).toMatchObject({ allowed_payees: ['ws_acme', 'agt_2'], blocked_payees: [] })
   })
+  // B28.28 — the owner caps what the agent may pay one payee in a day: the workspace's own agent by its box, any
+  // other payee by its id; saved as Lens's map in µLXC, an emptied box leaving its payee out, and stated.
+  it('caps what the agent may pay one payee a day, saves the caps, and states them', async () => {
+    const { saved } = mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+
+    fireEvent.change(await screen.findByLabelText('Daily limit on payments to Writer from Researcher, in LXC'), { target: { value: '0.5' } })
+    fireEvent.change(screen.getByLabelText('A payee’s id for Researcher'), { target: { value: 'merchant_9' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Cap a day' }))
+    fireEvent.change(screen.getByLabelText('Daily limit on payments to merchant_9 from Researcher, in LXC'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0].payee_daily_limits_ulxc).toEqual({ agt_2: 0.5 * M, merchant_9: 2 * M })
+    const words = await screen.findByTestId('rules-in-words')
+    await waitFor(() => expect(words.textContent).toContain('To one payee it may pay at most'))
+    expect(words.textContent).toMatch(/0\.5 LXC.* a day to Writer and .*2 LXC.* a day to merchant_9\./)
+
+    fireEvent.change(screen.getByLabelText('Daily limit on payments to Writer from Researcher, in LXC'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+    await waitFor(() => expect(saved).toHaveLength(2))
+    expect(saved[1].payee_daily_limits_ulxc).toEqual({ merchant_9: 2 * M })
+  })
 })

@@ -213,9 +213,12 @@ func (a *app) handleAgentRules(w http.ResponseWriter, r *http.Request, t tenant)
 		// a card merchant). Absent (null) keeps the lists Lens holds; an empty list clears one.
 		AllowedPayees []string `json:"allowed_payees"`
 		BlockedPayees []string `json:"blocked_payees"`
-		ActiveFrom    string   `json:"active_from"`
-		ActiveUntil   string   `json:"active_until"`
-		Timezone      string   `json:"timezone"`
+		// B28.28 — what the agent may pay one payee in a day, keyed by the payee's id as the lists above name
+		// it. Absent (null) keeps the caps Lens holds; sent, it replaces them whole, so a payee left out has no cap.
+		PayeeDailyLimitsULXC map[string]int64 `json:"payee_daily_limits_ulxc"`
+		ActiveFrom           string           `json:"active_from"`
+		ActiveUntil          string           `json:"active_until"`
+		Timezone             string           `json:"timezone"`
 		// B19.6 — Lens replaces every other rule on a save, so this is carried back as it was read.
 		PauseOnUnusualSpend bool `json:"pause_on_unusual_spend"`
 	}

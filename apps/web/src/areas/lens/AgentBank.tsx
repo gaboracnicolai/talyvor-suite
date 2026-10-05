@@ -824,7 +824,7 @@ function RulesForm({ agent, agents, rules }: { agent: Agent; agents: Agent[]; ru
   const [providers, setProviders] = useState<string[]>(rules.allowed_providers ?? [])
   const choices = useRuleChoices()
   const [listings, setListings] = useState<string[]>(rules.allowed_listings ?? [])
-  const [payees, setPayees] = useState<Payees>(() => ({ allowed: rules.allowed_payees ?? [], blocked: rules.blocked_payees ?? [] }))
+  const [payees, setPayees] = useState<Payees>(() => payeesOf(rules))
   const [pauseOnUnusual, setPauseOnUnusual] = useState(rules.pause_on_unusual_spend ?? false)
   const [from, setFrom] = useState(rules.active_from)
   const [until, setUntil] = useState(rules.active_until)
@@ -846,14 +846,16 @@ function RulesForm({ agent, agents, rules }: { agent: Agent; agents: Agent[]; ru
     setModelLimits(Object.entries(r.model_daily_limits_ulxc ?? {}).map(([m, v]) => [m, limitText(v)]))
     setProviders(r.allowed_providers ?? [])
     setListings(r.allowed_listings ?? [])
-    setPayees({ allowed: r.allowed_payees ?? [], blocked: r.blocked_payees ?? [] })
+    setPayees(payeesOf(r))
     setPauseOnUnusual(r.pause_on_unusual_spend ?? false)
     setFrom(r.active_from)
     setUntil(r.active_until)
     setTimezone(r.timezone)
     setFilled(t)
   }
-  const badAmount = [...LIMITS.map(([f]) => limits[f]), ...modelLimits.map(([, t]) => t)].some((t) => t.trim() !== '' && parseLXC(t) === null)
+  const badAmount = [...LIMITS.map(([f]) => limits[f]), ...modelLimits.map(([, t]) => t), ...Object.values(payees.caps)].some(
+    (t) => t.trim() !== '' && parseLXC(t) === null,
+  )
   const badRate = parseRate(rate) === null
   const bad = badAmount || badRate
   const save = useMutation({
@@ -874,6 +876,9 @@ function RulesForm({ agent, agents, rules }: { agent: Agent; agents: Agent[]; ru
         allowed_listings: listings,
         allowed_payees: payees.allowed,
         blocked_payees: payees.blocked,
+        payee_daily_limits_ulxc: Object.fromEntries(
+          Object.entries(payees.caps).map(([id, t]) => [id, parseLXC(t) ?? 0] as const).filter(([, v]) => v > 0),
+        ),
         active_from: from.trim(),
         active_until: until.trim(),
         timezone: timezone.trim(),
@@ -1013,11 +1018,21 @@ function ListingsPicker({ agent, chosen, onChange }: { agent: Agent; chosen: str
   )
 }
 
-/** B28.27 — who an agent may pay and who it may not, as the Rules form holds them until Save rules. */
+/**
+ * B28.27 — who an agent may pay and who it may not, as the Rules form holds them until Save rules; and (B28.28)
+ * what it may pay each payee in a day, by the payee's id, as typed.
+ */
 interface Payees {
   allowed: string[]
   blocked: string[]
+  caps: Record<string, string>
 }
+
+const payeesOf = (r: AgentRules): Payees => ({
+  allowed: r.allowed_payees ?? [],
+  blocked: r.blocked_payees ?? [],
+  caps: Object.fromEntries(Object.entries(r.payee_daily_limits_ulxc ?? {}).map(([id, v]) => [id, limitText(v)])),
+})
 
 /** What a payee the workspace's agents do not name is, read from its id. */
 function payeeHint(id: string): string {
@@ -1031,35 +1046,39 @@ function payeeHint(id: string): string {
  * can be marked Allowed or Blocked; any other payee — another company (its workspace id), its agent, a
  * marketplace listing or a card merchant — is added by its id. Lens refuses a payment to a Blocked payee
  * and, once any is Allowed, to every payee not Allowed; a refused payment moves nothing. A payee is one or
- * the other, never both (Lens refuses that), so marking it one clears the other.
+ * the other, never both (Lens refuses that), so marking it one clears the other. B28.28 — each payee also
+ * takes a daily cap (Lens B28.304): a payment that would take the day's total to it past the cap is refused
+ * and posts nothing.
  */
 function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agents: Agent[]; payees: Payees; onChange: (p: Payees) => void }) {
   const [typed, setTyped] = useState('')
   const ours = agents.filter((a) => a.id !== agent.id).map((a) => ({ id: a.id, title: a.name, hint: 'Your agent' }))
-  const named = [...payees.allowed, ...payees.blocked]
+  const named = [...new Set([...payees.allowed, ...payees.blocked, ...Object.keys(payees.caps)])]
     .filter((id) => !ours.some((a) => a.id === id))
     .map((id) => ({ id, title: id, hint: payeeHint(id) }))
-  const mark = (id: string, as: keyof Payees | null) =>
+  const mark = (id: string, as: 'allowed' | 'blocked' | null) =>
     onChange({
+      ...payees,
       allowed: as === 'allowed' ? [...payees.allowed.filter((x) => x !== id), id] : payees.allowed.filter((x) => x !== id),
       blocked: as === 'blocked' ? [...payees.blocked.filter((x) => x !== id), id] : payees.blocked.filter((x) => x !== id),
     })
   const id = typed.trim()
-  const add = (as: keyof Payees) => {
+  const add = (as: 'allowed' | 'blocked') => {
     mark(id, as)
     setTyped('')
   }
+  const cap = (payee: string, text: string) => onChange({ ...payees, caps: { ...payees.caps, [payee]: text } })
   return (
     <>
       <Row
         label="Who it may pay"
-        hint={
+        hint={`${
           payees.allowed.length > 0
             ? 'Only the payees marked Allowed — Lens refuses a payment to any other.'
             : payees.blocked.length > 0
               ? 'Anyone but the payees marked Blocked.'
               : 'Anyone. Mark a payee Blocked to refuse it, or Allowed to allow only those.'
-        }
+        } The box beside a payee caps what it may be paid in a day, in LXC.`}
       />
       {[...ours, ...named].map((p) => {
         const allowed = payees.allowed.includes(p.id)
@@ -1085,6 +1104,14 @@ function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agent
               >
                 Blocked
               </Button>
+              <Input
+                aria-label={`Daily limit on payments to ${p.title} from ${agent.name}, in LXC`}
+                inputMode="decimal"
+                placeholder="No daily cap"
+                className="w-28 font-figure"
+                value={payees.caps[p.id] ?? ''}
+                onChange={(e) => cap(p.id, e.target.value)}
+              />
             </div>
           </Row>
         )
@@ -1103,6 +1130,16 @@ function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agent
           </Button>
           <Button type="button" disabled={id === '' || /\s/.test(id)} onClick={() => add('blocked')}>
             Block
+          </Button>
+          <Button
+            type="button"
+            disabled={id === '' || /\s/.test(id)}
+            onClick={() => {
+              cap(id, payees.caps[id] ?? '')
+              setTyped('')
+            }}
+          >
+            Cap a day
           </Button>
         </div>
       </Row>
