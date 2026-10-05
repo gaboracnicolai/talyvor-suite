@@ -60,10 +60,12 @@ export interface RegionProps {
   className?: string
   /** Extra classes for the SECTION — padding overrides for the region that opens a screen. */
   sectionClassName?: string
+  /** B29.8 — the content takes the section's full width instead of the reading measure: Home's card grid. */
+  fullWidth?: boolean
   children: React.ReactNode
 }
 
-export function Region({ index, label, heading, className, sectionClassName, children }: RegionProps) {
+export function Region({ index, label, heading, className, sectionClassName, fullWidth = false, children }: RegionProps) {
   // ⚠ THE ID IS GENERATED, NOT DERIVED FROM `index` — W1.1.13. It was `region-${index}-label`, so
   // two regions given the same index took the same DOM id; `getElementById` returns the FIRST and
   // the second section's accessible name silently became the first section's label. A screen
@@ -108,7 +110,7 @@ export function Region({ index, label, heading, className, sectionClassName, chi
           full column puts its label and its figure ~800px apart, and the eye travels that gap on
           every row. The left edges of every region still line up, so the air on the right reads as
           air rather than as a broken grid. */}
-      {children ? <div className={cn('mt-6 max-w-3xl', className)}>{children}</div> : null}
+      {children ? <div className={cn('mt-6', !fullWidth && 'max-w-3xl', className)}>{children}</div> : null}
     </section>
   )
 }

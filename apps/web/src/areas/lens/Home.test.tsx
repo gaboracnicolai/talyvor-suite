@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { App, queryClient } from '../../App'
+import { App, CONSOLE_ROUTES, queryClient } from '../../App'
+import { PRODUCT_CARDS } from './Home'
 
 // B28.6 — the first screen after sign-in is the wallet home. DONE reads: "after sign-in a returning
 // user lands on Home and sees per-agent budget-used and the approvals count". The mock BFF answers the
@@ -87,7 +88,8 @@ describe('Home — the wallet home (B28.6)', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Your agents’ wallets, at a glance.' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 2, name: 'Welcome to Talyvor' })).toBeInTheDocument()
+    expect(await screen.findByText('Your agents’ wallets, at a glance.')).toBeInTheDocument()
     expect(screen.getByRole('banner')).toHaveTextContent('Home')
 
     // Two pending, one decided: the count is the pending ones.
@@ -113,7 +115,7 @@ describe('Home — the wallet home (B28.6)', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Give every agent a wallet.' })).toBeInTheDocument()
+    expect(await screen.findByText('Give every agent a wallet.')).toBeInTheDocument()
     expect(screen.getByTestId('home-onboarding')).toHaveTextContent('give its first agent a wallet in three steps')
     expect(screen.getByRole('button', { name: 'Create agent' })).toBeDisabled()
     expect(screen.queryByTestId('home-approvals-waiting')).not.toBeInTheDocument()
@@ -179,7 +181,7 @@ describe('Home — three-step wallet onboarding (B28.8)', () => {
     window.history.pushState({}, '', '/')
     render(<App />)
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Give every agent a wallet.' })).toBeInTheDocument()
+    expect(await screen.findByText('Give every agent a wallet.')).toBeInTheDocument()
     expect(screen.queryByText(/Share your answers, and earn from them/i)).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Share answers with other companies/i })).toBeChecked()
 
@@ -213,6 +215,31 @@ describe('Home — three-step wallet onboarding (B28.8)', () => {
 
     // Done hands Home back its wallets view.
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
-    expect(await screen.findByRole('heading', { level: 2, name: 'Your agents’ wallets, at a glance.' })).toBeInTheDocument()
+    expect(await screen.findByText('Your agents’ wallets, at a glance.')).toBeInTheDocument()
+  })
+})
+
+// B29.8 — DONE reads: "every card opens its existing route; every figure the home shows today is still
+// shown". The figures are the first describe's; this clicks each card from a freshly opened Home and reads
+// the address and the top bar's title, which is the route table's own name for the page it landed on.
+describe('Home — the product cards (B29.8)', () => {
+  it('every card opens its existing route', async () => {
+    mockBff({ agents: AGENTS })
+    for (const card of PRODUCT_CARDS) {
+      window.history.pushState({}, '', '/')
+      render(<App />)
+      const cards = await screen.findByRole('list', { name: 'Products' })
+      const link = within(cards).getByRole('link', { name: new RegExp(`^${card.title}`) })
+      expect(link).toHaveAttribute('href', card.to)
+      expect(link.querySelector('svg[data-icon]')).not.toBeNull()
+      fireEvent.click(link)
+      expect(window.location.pathname).toBe(card.to)
+      const route = CONSOLE_ROUTES.find((r) => (r.path.endsWith('/*') ? card.to === r.path.slice(0, -2) : r.path === card.to))
+      expect(route, `${card.to} is not a console route`).toBeDefined()
+      expect(screen.getByRole('banner')).toHaveTextContent(route!.title)
+      cleanup()
+      queryClient.clear()
+    }
+    expect(PRODUCT_CARDS.map((c) => c.title)).toEqual(['Agent Wallets', 'Approvals', 'Statements', 'Chat', 'Marketplace', 'Track', 'Docs', 'Developers'])
   })
 })
