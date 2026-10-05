@@ -6,8 +6,9 @@
 // #F4F7FB, or on bright Teal #3AD6C0 as text, a fill or a border outside the logo and the photographs
 // (the light accent is the deep teal #0F7A6C).
 
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { Page } from 'playwright'
 import { CannotTest, type Scenario } from './scenarios.ts'
 import { DocsPage } from './screens.ts'
@@ -424,6 +425,16 @@ export function docsBrandFaults(l: Look, sidebar: string[]): string[] {
   return faults
 }
 
+/** B29.31 — the oracle for a Docs page's HTML export, opened on its own: it has no sidebar, so the colour and the
+ *  type, and that the file is the page (its title as the heading) rather than whatever else downloaded. */
+export function exportBrandFaults(l: Look, title: string, html: string): string[] {
+  const faults: string[] = []
+  if (!html.includes(`<h1>${title}</h1>`)) faults.push(`not the page: no heading "${title}"`)
+  if (l.amberCount > 0) faults.push(`#f0a030 on ${l.amberCount} element(s): ${l.amber.join(', ')}`)
+  if (l.inter.length > 0) faults.push(`a font stack with Inter: ${l.inter.join(' | ')}`)
+  return faults
+}
+
 /** Each logo in the sidebar on screen: a drawn mark or wordmark, or a logo image that loaded. Self-contained. */
 function sidebarLogosInPage(): string[] {
   const onScreen = (el: Element): boolean => {
@@ -448,15 +459,18 @@ function sidebarLogosInPage(): string[] {
  * B29.28 — the Docs app in the brand: a page this user writes in Docs, at 1440×900 and 390×844 in the dark
  * theme and the light one, each photographed into the day's report. Where the sidebar is a drawer (390), the
  * Menu opens it and the open drawer is photographed too. A view fails on no logo in the sidebar, any computed
- * colour #f0a030, or a font stack that names Inter.
+ * colour #f0a030, or a font stack that names Inter. B29.31: then the page goes out through Export as HTML, and
+ * the file is opened as a person opens a download, at the same sizes in both themes (it follows the browser's):
+ * photographed beside the page's views, and failed on #f0a030 or Inter.
  */
 export function brandDocs(): Scenario {
   return {
     id: 'brand-docs',
-    title: 'a Docs page, at 1440 and 390 in both themes: photographed, the logo in the sidebar, no #f0a030, no Inter',
+    title: 'a Docs page and its HTML export, at 1440 and 390 in both themes: photographed, the logo in the sidebar, no #f0a030, no Inter',
     run: async (ctx) => {
       const stamp = Date.now().toString(36)
-      const doc = await DocsPage.write(ctx.app, `Brand check ${stamp}`, `Brand check ${stamp}`,
+      const title = `Brand check ${stamp}`
+      const doc = await DocsPage.write(ctx.app, title, title,
         'The nightly brand check reads this page at 1440 and 390, in the dark theme and the light one.')
       const page = doc.page
       const url = page.url()
@@ -494,11 +508,42 @@ export function brandDocs(): Scenario {
             if (faults.length > 0) wrong.push(`Docs page ${width} ${theme}: ${faults.join('; ')}`)
           }
         }
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.goto(url)
+        const exported = await doc.exportHTML().catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))))
+        if (exported instanceof Error) {
+          wrong.push(`Docs HTML export: Export as HTML saved no file (${exported.message.split('\n')[0]})`)
+        } else {
+          const saved = join(dir, 'docs-export.html')
+          await writeFile(saved, exported.text)
+          const out = await page.context().newPage()
+          try {
+            for (const theme of THEMES) {
+              await out.emulateMedia({ colorScheme: theme })
+              for (const [width, height] of VIEWPORTS) {
+                await out.setViewportSize({ width, height })
+                await out.goto(pathToFileURL(saved).href)
+                await out.evaluate(async () => { await document.fonts.ready })
+                const look = await out.evaluate(lookInPage)
+                const file = `docs-export-${width}-${theme}.jpg`
+                await out.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
+                const faults = exportBrandFaults(look, title, exported.text)
+                ctx.evidence.push({
+                  note: `Docs HTML export ${exported.name} ${width}×${height} ${theme}: ${faults.length === 0 ? 'the brand' : faults.join('; ')}`,
+                  shot: `${link}/${file}`,
+                })
+                if (faults.length > 0) wrong.push(`Docs HTML export ${width} ${theme}: ${faults.join('; ')}`)
+              }
+            }
+          } finally {
+            await out.close()
+          }
+        }
       } finally {
         await page.close()
       }
       return wrong.length === 0
-        ? { pass: true, detail: 'a Docs page at 1440 and 390 in both themes, photographed: a logo in the sidebar, no #f0a030 and no Inter in any' }
+        ? { pass: true, detail: 'a Docs page and its HTML export at 1440 and 390 in both themes, photographed: a logo in the sidebar, no #f0a030 and no Inter in any' }
         : { pass: false, detail: wrong.join(' | '), where: ['/docs'] }
     },
   }

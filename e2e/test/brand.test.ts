@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, readingFaults, roiBrandFaults } from '../src/brand.ts'
+import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, exportBrandFaults, readingFaults, roiBrandFaults } from '../src/brand.ts'
 
 const brand: Look = {
   scroll: 390, client: 390, logos: ['svg mark', 'svg wordmark'], tiles: [], amberCount: 0, amber: [], inter: [],
@@ -53,6 +53,22 @@ describe('the brand-docs oracle (B29.28)', () => {
       'no logo in the sidebar',
       '#f0a030 on 2 element(s): a.link color',
       'a font stack with Inter: Inter, sans-serif (main)',
+    ])
+  })
+})
+
+describe('the Docs HTML export oracle (B29.31)', () => {
+  const html = '<!DOCTYPE html><html><body><h1>Brand check k1</h1><p>The page.</p></body></html>'
+
+  it('passes the page exported in the brand', () => {
+    expect(exportBrandFaults(brand, 'Brand check k1', html)).toEqual([])
+  })
+
+  it('names another file, #f0a030 and Inter', () => {
+    expect(exportBrandFaults({ ...brand, amberCount: 1, amber: ['a color'], inter: ['Inter, sans-serif (body)'] }, 'Brand check k2', html)).toEqual([
+      'not the page: no heading "Brand check k2"',
+      '#f0a030 on 1 element(s): a color',
+      'a font stack with Inter: Inter, sans-serif (body)',
     ])
   })
 })
