@@ -114,7 +114,8 @@ export function SessionChip() {
   if (!q.data?.authenticated || !q.data.user) return null
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-caption text-muted" title={q.data.user.email}>
+      {/* B28.267 — off on a phone, where the page title needs the width more than the address does. */}
+      <span className="hidden truncate text-caption text-muted wide:block" title={q.data.user.email}>
         {q.data.user.email}
       </span>
       <Button

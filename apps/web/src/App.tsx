@@ -528,8 +528,9 @@ function AppShell() {
               stylesheet: the shipped sheet's only rules naming h1 are preflight's
               `h1,…,h6{font-size:inherit;font-weight:inherit}` and `…,h1,…{margin:0}`, and
               `.text-bar` supplies 20px/500 either way (B29.7). ConsoleHeading.test.tsx pins the name at
-              every address. */}
-          <h1 className="min-w-0 flex-1 truncate text-bar text-ink">{page}</h1>
+              every address.
+              B28.267 — it wraps rather than ellipsises: at 390 "How to use Talyvor Chat" was cut to "H…". */}
+          <h1 className="min-w-0 flex-1 break-words text-bar text-ink">{page}</h1>
           <div className="flex min-w-0 items-center gap-3">
             <SessionChip />
             <ThemeToggle />
