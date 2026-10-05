@@ -207,8 +207,9 @@ describe('the privacy page states the things most likely to be softened', () => 
   it('says answers may be served to other companies', async () => {
     mockBff()
     at('/privacy')
+    // The section's own heading; its contents link (B28.274) carries the same words.
     expect(
-      await screen.findByText(/may be served to other companies|served to other companies/i),
+      await screen.findByRole('heading', { level: 2, name: /served to other companies/i }),
     ).toBeInTheDocument()
   })
 

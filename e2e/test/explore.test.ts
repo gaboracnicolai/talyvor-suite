@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type Finding, Notebook, parseMove } from '../src/explore.ts'
+import { cutText, type Finding, Notebook, parseMove } from '../src/explore.ts'
 
 describe("an explorer's reply", () => {
   it('is read as one move, from the JSON object in it', () => {
@@ -47,5 +47,14 @@ describe('the explorers\' notebook', () => {
     expect(b.leastSeen('/keys')).toBe('/ledger')
     expect(b.leastSeen('/keys')).toBe('/track')
     expect(b.unseen()).toEqual([])
+  })
+})
+
+describe('cutText (B28.274)', () => {
+  it('ends a long screen at a whole line and says how much is below', () => {
+    const page = 'Terms\n\n\nA first paragraph.\nWho decides, on what evidence, whether the user is told, and whether they can contest it.'
+    const cut = cutText(page, 40)
+    expect(cut).toBe('Terms\nA first paragraph.\n[… the screen goes on below: 90 more characters not shown here]')
+    expect(cutText('Short.\n\nScreen.', 60)).toBe('Short.\nScreen.')
   })
 })

@@ -1,4 +1,4 @@
-import { LegalHeader, LegalPage, LawyerReview, Section } from './legalParts'
+import { LegalPage, LawyerReview, Section } from './legalParts'
 import { COMPANY_CONTACT, COMPANY_NAME, COMPANY_NUMBER, REGISTERED_OFFICE } from '../company'
 import { inlineLink } from '@talyvor/ui'
 import { SharedAnswersFact, StoredAnswersFacts } from '../components/StoredAnswersFacts'
@@ -8,12 +8,15 @@ import { SharedAnswersFact, StoredAnswersFacts } from '../components/StoredAnswe
 // The credit claims are the ones most likely to be read by someone with a financial-regulation
 // interest, so they are stated in terms of what the code does (a balance decremented against
 // usage) rather than in terms of what we would prefer them to be.
+
+/** The day these words last changed (B32.2 added who the terms are between). Change it with them. */
+const UPDATED = '2026-10-05'
+
 export function Terms() {
   return (
-    // The site's header and footer and the reading column are LegalPage's, with the `main` in it.
-    <LegalPage>
-      <LegalHeader title="Terms" />
-
+    // The site's header and footer, the title block, the contents and the reading column are
+    // LegalPage's, with the `main` in it.
+    <LegalPage title="Terms" updated={UPDATED}>
       <p className="mb-8 text-reading">
         These terms are between you and {COMPANY_NAME}, a company registered in England and Wales
         (number {COMPANY_NUMBER}) whose registered office is {REGISTERED_OFFICE}. Contact:{' '}

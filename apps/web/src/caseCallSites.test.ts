@@ -402,16 +402,17 @@ const PINS: Record<string, Pin> = {
   // SiteChrome's one header label and one footer line, the legal pages' title gained its eyebrow, and
   // Landing's SectionLabel went with its last user (/documentation now uses Eyebrow).
   // 72 → 73 at B28.268: the Ledger's "balance" label over each balance on a narrow screen.
+  // 73 → 74 at B28.274: the "On this page" eyebrow over the Privacy and Terms contents.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 73,
+    states: 74,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 73,
+    states: 74,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

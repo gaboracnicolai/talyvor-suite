@@ -162,7 +162,7 @@ interface Screen { url: string; title: string; text: string; controls: Control[]
 
 /** What the explorer can see: the page's text and its visible controls, each numbered for its reply. */
 async function observe(page: Page): Promise<Screen> {
-  return page.evaluate(({ textChars, max }) => {
+  return page.evaluate(({ max }) => {
     const sel = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="switch"], [role="tab"], [role="menuitem"], [role="textbox"]'
     document.querySelectorAll('[data-explore]').forEach((el) => el.removeAttribute('data-explore'))
     const shown = Array.from(document.querySelectorAll(sel)).filter((el) => {
@@ -174,8 +174,20 @@ async function observe(page: Page): Promise<Screen> {
       const name = el.getAttribute('aria-label') ?? ((el as HTMLElement).innerText || el.getAttribute('placeholder') || el.getAttribute('name') || '')
       return { i, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') ?? '', type: el.getAttribute('type') ?? '', name: name.replace(/\s+/g, ' ').trim().slice(0, 60) }
     })
-    return { url: location.pathname + location.search, title: document.title, text: document.body.innerText.replace(/\n{2,}/g, '\n').slice(0, textChars), controls }
-  }, { textChars: TEXT_CHARS, max: CONTROLS })
+    return { url: location.pathname + location.search, title: document.title, text: document.body.innerText, controls }
+  }, { max: CONTROLS }).then((s) => ({ ...s, text: cutText(s.text, TEXT_CHARS) }))
+}
+
+/** B28.274 — the screen's text as the explorer reads it: the first `chars`, ended at a whole line,
+ *  and a last line saying how much more is below. A cut mid-word read as a page that ends mid-sentence,
+ *  and /terms and /privacy were reported broken every run for text they show in full. */
+export function cutText(text: string, chars: number): string {
+  const all = text.replace(/\n{2,}/g, '\n')
+  if (all.length <= chars) return all
+  let shown = all.slice(0, chars)
+  const line = shown.lastIndexOf('\n')
+  if (line > chars / 2) shown = shown.slice(0, line)
+  return `${shown}\n[… the screen goes on below: ${all.length - shown.length} more characters not shown here]`
 }
 
 export type Move =
@@ -248,7 +260,7 @@ function prompt(step: number, screen: Screen, trail: string[], seen: string[], f
     ...(features.length > 0 ? ['', `Talyvor's features, each at its address: ${features.map((f) => `${f.feature} (${f.path})`).join(', ')}.`] : []),
     ...(start !== undefined ? [`Start with ${start.feature} (${start.path}): the scripted testers covered it least. Try everything it offers, then go on to the others.`] : []),
     '',
-    `Step ${step} of at most ${MAX_STEPS}. You are at ${screen.url} ("${screen.title}").`,
+    `Today is ${new Date().toISOString().slice(0, 10)}. Step ${step} of at most ${MAX_STEPS}. You are at ${screen.url} ("${screen.title}").`,
     `Your last moves: ${trail.length > 0 ? trail.slice(-6).join(' → ') : 'none yet'}`,
     `Seen by the browser since your last move: ${seen.length > 0 ? seen.join('; ') : 'nothing wrong'}`,
     '',

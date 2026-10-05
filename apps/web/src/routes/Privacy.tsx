@@ -1,5 +1,5 @@
 import { inlineLink } from '@talyvor/ui'
-import { LegalHeader, LegalPage, LawyerReview, Section } from './legalParts'
+import { LegalPage, LawyerReview, Section } from './legalParts'
 import { COMPANY_CONTACT, COMPANY_NAME, COMPANY_NUMBER, REGISTERED_OFFICE } from '../company'
 import {
   KEPT_UNTIL_DELETED_FACT,
@@ -28,12 +28,15 @@ import {
 //   test-mode cards    areas/lens/AgentCardPanel.tsx ("Test mode" unless livemode)
 //   payouts            areas/marketplace/Marketplace.tsx (Stripe asks; Talyvor never sees bank details)
 //   deletion           areas/lens/StoredAnswers.tsx, areas/track/WorkspaceSettings.tsx
+
+/** The day these words last changed (B32.2 added who runs Talyvor). Change it with them. */
+const UPDATED = '2026-10-05'
+
 export function Privacy() {
   return (
-    // The site's header and footer and the reading column are LegalPage's, with the `main` in it.
-    <LegalPage>
-      <LegalHeader title="Privacy" />
-
+    // The site's header and footer, the title block, the contents and the reading column are
+    // LegalPage's, with the `main` in it.
+    <LegalPage title="Privacy" updated={UPDATED}>
       <p className="mb-8 text-reading">
         {COMPANY_NAME} (company number {COMPANY_NUMBER}, registered office {REGISTERED_OFFICE}) runs
         Talyvor and decides how the personal data this notice describes is used. Contact:{' '}

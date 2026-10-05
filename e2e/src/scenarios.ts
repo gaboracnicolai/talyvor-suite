@@ -899,6 +899,44 @@ export function honestPages(): Scenario {
   }
 }
 
+/** B28.274 — /terms and /privacy are read whole and dated: each says the day its words last changed,
+ *  never a day still to come, lists every section it has, keeps its draft warning, and ends with
+ *  "End of Terms." (or Privacy) as the last line of the document. */
+export function legalPagesWhole(): Scenario {
+  return {
+    id: 'legal-pages-whole',
+    title: 'privacy and terms are dated, list every section, and end where they say they end',
+    run: async (ctx) => {
+      const wrong: string[] = []
+      const today = new Date().toISOString().slice(0, 10)
+      for (const title of ['Terms', 'Privacy']) {
+        const path = `/${title.toLowerCase()}`
+        const page = await ctx.app.tab(path)
+        try {
+          const main = page.locator('main')
+          const updated = await main.locator('header time').getAttribute('datetime')
+          ctx.evidence.push({ note: `${path}: last updated ${updated}` })
+          if (updated === null || !/^\d{4}-\d{2}-\d{2}$/.test(updated)) wrong.push(`${path} shows no last-updated date`)
+          else if (updated > today) wrong.push(`${path} is dated ${updated}, after today (${today})`)
+          const listed = await main.getByRole('navigation', { name: 'On this page' }).getByRole('link').allInnerTexts()
+          const headings = await main.getByRole('heading', { level: 2 }).allInnerTexts()
+          if (listed.length === 0 || listed.join('|') !== headings.join('|')) {
+            wrong.push(`${path} lists ${listed.length} sections but has ${headings.length}`)
+          }
+          if (!(await main.getByText(/Draft — needs legal review/).isVisible())) wrong.push(`${path} lost its draft warning`)
+          const last = (await main.innerText()).trim().split('\n').filter((l) => l.trim() !== '').at(-1) ?? ''
+          if (!last.startsWith(`End of ${title}.`)) wrong.push(`${path} ends with "${last.slice(-80)}"`)
+        } finally {
+          await page.close()
+        }
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: 'terms and privacy each carry a date no later than today, list every section, and end with their own last line' }
+        : { pass: false, detail: wrong.join('; ') }
+    },
+  }
+}
+
 /** B28.4 — /pricing lists Plus, Pro, Max and BYOK once each, at the prices the signed-in /plans screen
  *  sells them at, and the Marketplace bill once. The oracle is /plans itself: no price is typed in here. */
 export function pricingTruth(): Scenario {
@@ -1858,7 +1896,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B29.6 — sign-in and sign-up in the brand, signed out.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
     // B29.4 — then /marketing in the board's design, at 1440 and at 390; B29.5 — /pricing in the brand.
-    case 9: list.push(walletHero(), marketingBoard(), honestPages(), pricingTruth(), pricingBoard(), plansIncludedUsage()); break
+    // B28.274 — and /terms and /privacy dated and read to their last line.
+    case 9: list.push(walletHero(), marketingBoard(), honestPages(), legalPagesWhole(), pricingTruth(), pricingBoard(), plansIncludedUsage()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.
