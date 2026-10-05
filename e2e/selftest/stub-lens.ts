@@ -676,6 +676,9 @@ createServer(async (req, res) => {
       }
       if (rest === '/tare/savings') return json(res, 200, { by_work_item: [] })
       if (rest === '/distill/usage') return json(res, 200, { converted: ws.usage.converted, vision_ocr: 0, days: 30 })
+      // B29.12 — Settings reads provider keys. Lens mounts the route only while key custody is armed
+      // (talyvor-lens cmd/lens/main.go, `if byokStore != nil`); unarmed, as here, it is not found.
+      if (rest === '/provider-keys') return json(res, 404, { error: 'not found' })
       if (rest === '/earnings') {
         const held = ws.earnings.filter((e) => e.type.endsWith('_held')).reduce((n, e) => n + e.amount_ulens, 0)
         return json(res, 200, { workspace_id: ws.id, contribution_settled_ulens: 0, capital_settled_ulens: 0, settled_ulens: 0, held_ulens: held, revoked_ulens: 0,

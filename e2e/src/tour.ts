@@ -590,6 +590,104 @@ export function marketBrand(): Scenario {
   }
 }
 
+/**
+ * B29.12 — the remaining signed-in screens in the brand, as the browser paints them in the dark theme at 1440
+ * and 390: Features, Track, Docs, Developers, Billing and Settings each carry an eyebrow, put every card on the
+ * raised plane (a grid of tiles carries it on each tile), fill at most one action teal, and scroll nothing
+ * sideways. Operator is behind the operator boundary, which a synthetic user never passes. Each screen is
+ * photographed into the report.
+ */
+export const BRAND_SCREENS = [
+  { path: '/features', title: 'Features' },
+  { path: '/track', title: 'Track' },
+  { path: '/track/board', title: 'Track' },
+  { path: '/track/cycles', title: 'Track' },
+  { path: '/track/projects', title: 'Track' },
+  { path: '/docs', title: 'Docs' },
+  { path: '/setup', title: 'Setup' },
+  { path: '/keys', title: 'API keys' },
+  { path: '/billing', title: 'Billing' },
+  { path: '/plans', title: 'Plans' },
+  { path: '/overview', title: 'Overview' },
+  { path: '/settings', title: 'Settings' },
+  { path: '/members', title: 'Members' },
+] as const
+
+export function screensBrand(): Scenario {
+  return {
+    id: 'screens-brand',
+    title: 'Features, Track, Docs, Developers, Billing and Settings in the brand: eyebrows, raised cards, one teal action',
+    run: async (ctx) => {
+      const { dir, link } = ctx.env.shots
+      await mkdir(dir, { recursive: true })
+      const wrong: string[] = []
+      for (const screen of BRAND_SCREENS) {
+        const page = await ctx.app.tab(screen.path)
+        try {
+          await page.locator('header h1').filter({ hasText: screen.title }).waitFor({ timeout: HEADING_TIMEOUT_MS })
+          await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined)
+          // The theme first, then a pause: a Button's colour eases over 200ms, and read mid-ease it is neither theme's teal.
+          await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'))
+          await page.waitForTimeout(400)
+          for (const [width, height] of CHAT_VIEWPORTS) {
+            await page.setViewportSize({ width, height })
+            await page.waitForTimeout(200)
+            const seen = await page.evaluate(() => {
+              const token = (v: string) => {
+                const probe = document.createElement('div')
+                probe.style.setProperty('background-color', `var(${v})`)
+                document.body.appendChild(probe)
+                const got = getComputedStyle(probe).backgroundColor
+                probe.remove()
+                return got
+              }
+              const want = { raised: token('--raised'), teal: token('--accent') }
+              const main = document.querySelector('main')
+              if (!main) return null
+              // A switch that is on is a state on the accent, not an action.
+              const teal = Array.from(main.querySelectorAll('button:not([role="switch"]), a'))
+                .filter((b) => getComputedStyle(b).backgroundColor === want.teal)
+                .map((b) => (b.textContent ?? '').trim())
+              // A grid of tiles is one card whose hairlines are its gaps: the tiles carry the plane.
+              const cards = Array.from(main.querySelectorAll('.rounded-card'))
+                .flatMap((c) => (c.classList.contains('bg-rule') ? Array.from(c.children) : [c]))
+                .map((c) => ({ bg: getComputedStyle(c).backgroundColor, text: (c.textContent ?? '').trim().slice(0, 40) }))
+              return {
+                want,
+                teal,
+                cards,
+                eyebrows: main.querySelectorAll('[data-testid="region-label"]').length,
+                scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              }
+            })
+            const file = `screen-${screen.path.slice(1).replace(/\//g, '-')}-${width}-dark.jpg`
+            await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80, fullPage: true })
+            const at = `${screen.path} at ${width}`
+            if (seen === null) {
+              wrong.push(`${at} has no main`)
+              continue
+            }
+            if (seen.teal.length > 1) wrong.push(`${at} fills ${seen.teal.length} actions teal: ${seen.teal.join(', ')}`)
+            const flat = seen.cards.filter((c) => c.bg !== seen.want.raised)
+            if (flat.length > 0) wrong.push(`${at}: ${flat.length} card(s) not on raised ${seen.want.raised}: ${flat.map((c) => `"${c.text}" on ${c.bg}`).join('; ')}`)
+            if (seen.eyebrows === 0) wrong.push(`${at} has no eyebrow`)
+            if (seen.scroll > 0) wrong.push(`${at} scrolls ${seen.scroll}px sideways`)
+            ctx.evidence.push({
+              note: `${screen.path} ${width}×${height} dark: ${seen.eyebrows} eyebrow(s), ${seen.cards.length} card(s), teal [${seen.teal.join(', ')}]`,
+              shot: `${link}/${file}`,
+            })
+          }
+        } finally {
+          await page.close()
+        }
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: `all ${BRAND_SCREENS.length} screens in the brand at 1440 and 390: eyebrows, raised cards, at most one teal action, nothing sideways` }
+        : { pass: false, detail: wrong.join('; '), where: BRAND_SCREENS.map((s) => s.path) }
+    },
+  }
+}
+
 /** The Lens reads a customer's own key can make: GET, and no parameter but its workspace. */
 export function customerReads(lens: readonly Entry[]): Entry[] {
   return lens.filter((e) => e.method === 'GET' && cannotTest(e) === undefined &&

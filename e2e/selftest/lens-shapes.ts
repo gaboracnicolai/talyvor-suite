@@ -49,6 +49,7 @@ export const READS: readonly string[] = [
   '/v1/workspaces/{wsID}/budgets',
   '/v1/workspaces/{wsID}/earnings',
   '/v1/workspaces/{wsID}/distill/usage',
+  '/v1/workspaces/{wsID}/provider-keys',
   '/v1/workspaces/{wsID}/tare/savings',
   '/v1/workspaces/{wsID}/guardrails',
   '/v1/workspaces/{wsID}/agents',

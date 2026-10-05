@@ -20,7 +20,7 @@ export function DocsArea() {
   if (!routed) {
     return (
       <div className="px-gutter py-4">
-        <Card>
+        <Card raised>
           <CardHeader>Docs</CardHeader>
           <p className="px-gutter py-3 text-body text-muted">
             Spaces, page trees and a read-only page renderer, on the BFF&apos;s Docs proxy. Outside the app
@@ -40,7 +40,7 @@ export function DocsArea() {
           path="*"
           element={
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
-              <Card>
+              <Card raised>
                 <CardHeader>Docs</CardHeader>
                 <p className="px-gutter py-3 text-body text-muted">
                   Nothing at this address.{' '}

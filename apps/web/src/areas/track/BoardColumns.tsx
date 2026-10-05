@@ -31,11 +31,11 @@ export function BoardColumns({ cards }: { cards: BoardCard[] }) {
           <section
             key={status}
             aria-label={statusLabel(status)}
-            className="flex min-w-0 flex-col rounded-card border border-rule bg-surface"
+            className="flex min-w-0 flex-col rounded-card border border-rule bg-raised"
           >
             <h3 className="flex items-baseline justify-between gap-2 border-b border-rule px-3 py-2 text-body text-ink">
               {statusLabel(status)}
-              <span className="font-figure text-caption text-faint">{inColumn.length}</span>
+              <span className="font-figure text-caption text-muted">{inColumn.length}</span>
             </h3>
             {/* An empty COLUMN is a status no issue is in. It is never a failed read: Board and
                 PublicBoard answer a refused read themselves and only draw columns for a board that loaded. */}
@@ -56,13 +56,13 @@ export function BoardColumns({ cards }: { cards: BoardCard[] }) {
                       <span className="text-body text-ink">{c.title}</span>
                     )}
                     {c.priority !== 0 ? (
-                      <span className="mt-1 block text-caption text-faint">{priorityLabel(c.priority)}</span>
+                      <span className="mt-1 block text-caption text-muted">{priorityLabel(c.priority)}</span>
                     ) : null}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="px-3 py-3 text-caption text-faint">Nothing here.</p>
+              <p className="px-3 py-3 text-caption text-muted">Nothing here.</p>
             )}
           </section>
         )

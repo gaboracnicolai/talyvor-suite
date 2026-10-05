@@ -153,7 +153,7 @@ export function Projects() {
               No projects yet. Name one above and start it — then put issues in it from their pages.
             </p>
             {/* B3.4 — the empty state goes where it points: the caret lands in Name. */}
-            <Button variant="primary" onClick={() => document.getElementById('project-name')?.focus()}>
+            <Button onClick={() => document.getElementById('project-name')?.focus()}>
               Start the first project
             </Button>
           </div>
@@ -166,7 +166,7 @@ export function Projects() {
                     <span className="font-figure text-caption text-muted">{p.identifier}</span> {p.name}
                   </p>
                   {p.description !== '' ? <p className="text-caption text-muted">{p.description}</p> : null}
-                  <p className="text-caption text-faint">
+                  <p className="text-caption text-muted">
                     {teamIdentifier(teams.data ?? [], p.team_id)} · {p.status}
                   </p>
                 </div>

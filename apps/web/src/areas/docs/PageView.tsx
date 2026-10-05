@@ -290,7 +290,7 @@ export function PageView() {
               Nothing has been written on this page yet. A page is worth writing down once and
               finding again — a runbook, a decision, the thing you explain to every new person.
             </p>
-            <Button variant="primary" className="mt-8" onClick={() => editorRef.current?.focus()}>
+            <Button className="mt-8" onClick={() => editorRef.current?.focus()}>
               Write the first words
             </Button>
           </>

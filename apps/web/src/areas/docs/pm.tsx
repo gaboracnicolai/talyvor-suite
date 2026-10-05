@@ -122,7 +122,7 @@ function PMNodeView({ node }: { node: PMNode }) {
       return (
         <div className="overflow-hidden rounded-control border border-rule bg-sidebar">
           {lang ? (
-            <div className="border-b border-rule px-3 py-1 font-figure text-eyebrow uppercase text-faint">{lang}</div>
+            <div className="border-b border-rule px-3 py-1 font-figure text-eyebrow uppercase text-label">{lang}</div>
           ) : null}
           <pre className="overflow-x-auto px-3 py-2 font-mono text-body text-ink">
             <Children nodes={node.content} />

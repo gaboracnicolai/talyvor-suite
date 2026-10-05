@@ -555,7 +555,7 @@ export function IssueDetail() {
             {formatCost(it.ai_cost_usd, it.ai_tokens)}
           </span>
           {it.ai_tokens > 0 && (
-            <span className="text-caption text-faint">{it.ai_tokens} tokens</span>
+            <span className="text-caption text-muted">{it.ai_tokens} tokens</span>
           )}
           <p className="max-w-2xl text-body text-muted">
             Every AI request Track makes about this issue is metered by Lens and attributed back to

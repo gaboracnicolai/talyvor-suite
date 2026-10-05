@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App, CONSOLE_ROUTES, queryClient } from './App'
 import { BRAND, HOME_TITLE, documentTitle } from './documentTitle'
+import { tokens } from '@talyvor/ui'
 
 /**
  * THE BROWSER TAB NAMED NO PAGE — ON EVERY ADDRESS THE SUITE HAS.
@@ -212,7 +213,7 @@ describe('the format, and the brand it ends in', () => {
     expect(link('icon', '/favicon.ico')).toBe(true)
     expect(link('icon', '/favicon.svg')).toBe(true)
     expect(link('apple-touch-icon', '/apple-touch-icon.png')).toBe(true)
-    expect(/<meta name="theme-color" content="#060A12"/.test(html)).toBe(true)
+    expect(html).toContain(`<meta name="theme-color" content="${tokens.dark.canvas}"`)
 
     const pub = (name: string) => readFileSync(resolve(__dirname, '../public', name))
     // An .ico starts 00 00 01 00; served as anything else, the tab shows a blank page icon.
@@ -223,8 +224,8 @@ describe('the format, and the brand it ends in', () => {
 
     const manifest = JSON.parse(pub('manifest.webmanifest').toString('utf8'))
     expect(manifest.name).toBe('Talyvor')
-    expect(manifest.background_color).toBe('#060A12')
-    expect(manifest.theme_color).toBe('#060A12')
+    expect(manifest.background_color).toBe(tokens.dark.canvas)
+    expect(manifest.theme_color).toBe(tokens.dark.canvas)
     expect(manifest.icons).toEqual([
       { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
       { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },

@@ -48,10 +48,10 @@ export function ParkedUses() {
       ) : rows.length === 0 ? (
         <p className="mt-4 text-body text-muted">No use is parked. A use appears here when Stripe refuses to bill it too many times.</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto rounded-card border border-rule bg-raised">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="whitespace-nowrap border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
+              <tr className="whitespace-nowrap border-b border-rule text-left font-figure text-eyebrow uppercase text-label">
                 <th className="px-gutter py-2 font-semibold">Use</th>
                 <th className="px-gutter py-2 font-semibold">Buyer</th>
                 <th className="px-gutter py-2 text-right font-semibold">Price</th>
@@ -81,7 +81,7 @@ function ParkedRow({ p, onRetried }: { p: ParkedUse; onRetried: (id: string) => 
     <tr data-testid="parked-use" className="border-b border-rule align-top last:border-b-0">
       <td className="px-gutter py-2">
         <div className="font-mono text-caption text-ink">{p.id}</div>
-        <div className="font-mono text-caption text-faint">{p.listing_id}</div>
+        <div className="font-mono text-caption text-muted">{p.listing_id}</div>
       </td>
       <td className="px-gutter py-2 font-mono text-caption text-muted">{p.buyer_workspace_id}</td>
       <td className="whitespace-nowrap px-gutter py-2 text-right font-figure text-body text-ink">{formatULXC(p.price_ulxc)}</td>

@@ -115,7 +115,7 @@ export function SearchDocs() {
   const view = run.data === undefined ? null : readSearch(run.data)
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Search the documentation</CardHeader>
       <form
         className="flex flex-col gap-2 px-gutter py-3"
@@ -138,10 +138,10 @@ export function SearchDocs() {
           />
         </label>
         <div className="flex items-center gap-2">
-          <Button type="submit" variant="primary" disabled={run.isPending}>
+          <Button type="submit" disabled={run.isPending}>
             {run.isPending ? 'Searching…' : 'Search'}
           </Button>
-          <span className="text-caption text-faint">
+          <span className="text-caption text-muted">
             Across the pages you can open, in this workspace.
           </span>
         </div>
@@ -182,7 +182,7 @@ export function SearchDocs() {
           {view.dropped > 0 ? <DroppedNote n={view.dropped} /> : null}
           {/* `false` is not a hedge here: nothing was drawn, so no shown row can carry proof —
               but a DROPPED one still can, and on this route it is the likely carrier. */}
-          <p className="text-caption text-faint">{evidenceNote(view.semantic, false)}</p>
+          <p className="text-caption text-muted">{evidenceNote(view.semantic, false)}</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2 px-gutter pb-3">
@@ -195,7 +195,7 @@ export function SearchDocs() {
           {/* ⚠ `semanticShown`, NOT `semantic`. This used to read the weaker fact and print the
               stronger sentence: with one full-text row drawn and a semantic row dropped it said
               "at least one of THESE came from the semantic index" over a list where none did. */}
-          <p className="text-caption text-faint">{evidenceNote(view.semantic, view.semanticShown)}</p>
+          <p className="text-caption text-muted">{evidenceNote(view.semantic, view.semanticShown)}</p>
         </div>
       )}
     </Card>
@@ -243,20 +243,20 @@ function CostNote({ semantic }: { semantic: 'ran' | 'unknown' | 'not-run' }) {
     // measured at main `252efbfa`, mounted, the whole card read "Across the pages you can open, in
     // this workspace" and the word "metered" appeared nowhere.
     return (
-      <p className="text-caption text-faint">
+      <p className="text-caption text-muted">
         Where Lens is configured, running this search buys a metered Lens call billed to this
         workspace under <code>docs-search</code>, attributed to no single page.
       </p>
     )
   }
   return semantic === 'ran' ? (
-    <p className="text-caption text-faint">
+    <p className="text-caption text-muted">
       Embedding the query was a metered Lens call billed to this workspace under{' '}
       <code>docs-search</code>. Docs attributes it to no single page, so it does not appear in any
       page’s AI cost.
     </p>
   ) : (
-    <p className="text-caption text-faint">
+    <p className="text-caption text-muted">
       Where Lens is configured, embedding the query is a metered Lens call billed to this workspace
       under <code>docs-search</code>, attributed to no single page. Only a row from the semantic
       index proves it happened here.

@@ -329,7 +329,7 @@ function TopUpSuccess({ pollIntervalMs, timeoutMs }: Required<ReturnTiming>) {
           through reads as a balance of nothing. */}
       {balance.data ? (
         <Region index="01" label="What you have">
-          <Card>
+          <Card raised>
             <CardHeader>{credited ? 'New balance' : 'LXC balance'}</CardHeader>
             <Row
               label={credited ? 'New balance' : 'Balance right now'}
@@ -352,7 +352,7 @@ function TopUpSuccess({ pollIntervalMs, timeoutMs }: Required<ReturnTiming>) {
 
       <Region index="02" label="Where to look next">
         {sessionId ? (
-          <Card className="mb-gutter">
+          <Card raised className="mb-gutter">
             <CardHeader>Reference</CardHeader>
             <Reference sessionId={sessionId} />
           </Card>

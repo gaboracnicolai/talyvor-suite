@@ -60,7 +60,7 @@ export function AskAI() {
   const answer = ask.data
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Ask the documentation</CardHeader>
       <form
         className="flex flex-col gap-2 px-gutter py-3"
@@ -81,10 +81,10 @@ export function AskAI() {
           />
         </label>
         <div className="flex items-center gap-2">
-          <Button type="submit" variant="primary" disabled={ask.isPending}>
+          <Button type="submit" disabled={ask.isPending}>
             {ask.isPending ? 'Asking…' : 'Ask'}
           </Button>
-          <span className="text-caption text-faint">
+          <span className="text-caption text-muted">
             Answered from the pages you can open, by Docs through Lens.
           </span>
         </div>

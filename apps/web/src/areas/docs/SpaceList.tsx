@@ -39,7 +39,7 @@ function SpaceRow({ space }: { space: DocsSpace }) {
       hint={space.description || space.slug}
     >
       {space.private ? <Chip title="Visible to invited members only">private</Chip> : null}
-      <span aria-hidden="true" className="text-body text-faint">
+      <span aria-hidden="true" className="text-body text-muted">
         ›
       </span>
     </Row>
@@ -215,7 +215,7 @@ export function SpaceList() {
                 rotor, it names no control, and it had to be kept true by hand across two screens
                 that point opposite ways (SpaceView says "above"). The button puts the caret in the
                 field it is talking about, which is true from anywhere and on any screen reader. */}
-            <Button variant="primary" className="mt-8" onClick={() => nameRef.current?.focus()}>
+            <Button className="mt-8" onClick={() => nameRef.current?.focus()}>
               Name the first space
             </Button>
           </>
@@ -300,7 +300,7 @@ export function SpaceList() {
             distinction itself ("Unavailable." on a 401, "Couldn't load spaces." otherwise). One
             predicate, in the component that owns the sentence, instead of two agreeing by hand. */}
         {q.isSuccess ? (
-          <p className="mt-6 text-body text-faint">
+          <p className="mt-6 text-body text-muted">
             Live from the BFF’s Docs proxy — the workspace is pinned server-side.
           </p>
         ) : null}

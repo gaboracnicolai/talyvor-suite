@@ -72,7 +72,7 @@ function Failed({ what, error }: { what: string; error: unknown }) {
 function LxcCard() {
   const q = useQuery({ queryKey: ["lxc-balance"], queryFn: api.lxcBalance });
   return (
-    <Card>
+    <Card raised>
       <CardHeader>LXC balance</CardHeader>
       {q.isLoading ? (
         <Loading />
@@ -104,7 +104,7 @@ function LxcCard() {
 function LensCard() {
   const q = useQuery({ queryKey: ["lens-balance"], queryFn: api.lensBalance });
   return (
-    <Card>
+    <Card raised>
       <CardHeader>LENS balance</CardHeader>
       {q.isLoading ? (
         <Loading />
@@ -243,7 +243,7 @@ function SpendCard({ now }: { now: Date }) {
     ? windowExceedsPage(lxc.data, LEDGER_PAGE, 30, now)
     : false;
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Spend &amp; earnings — last 30 days</CardHeader>
       <TokenSection token="lxc">Spent — LXC</TokenSection>
       <Row
@@ -407,7 +407,7 @@ async function probeProduct(path: string): Promise<ProbeState> {
 
 function StateMark({ state }: { state: ProbeState }) {
   return (
-    <span className="inline-flex items-center gap-1.5 font-figure text-eyebrow uppercase text-faint">
+    <span className="inline-flex items-center gap-1.5 font-figure text-eyebrow uppercase text-label">
       <span
         className={`h-1.5 w-1.5 rounded-pill ${state === "on" ? "bg-settled" : "bg-faint"}`}
         aria-hidden="true"
@@ -457,7 +457,7 @@ function ProductsCard() {
   const lens = useQuery({ queryKey: ["lxc-balance"], queryFn: api.lxcBalance });
   const bonds = useQuery({ queryKey: ["bonds"], queryFn: api.bonds });
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Products</CardHeader>
       <Row label="Lens" hint="Inference gateway — balances, ledger, keys">
         {lens.isLoading ? (
@@ -527,7 +527,7 @@ function RecentActivity() {
   const q = useHistory();
   const rows = (q.data ?? []).slice(0, 5);
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Recent activity</CardHeader>
       {q.isLoading ? (
         <Loading />
@@ -636,15 +636,15 @@ function FirstSteps() {
     },
   ];
   return (
-    <ol className="mt-8 grid gap-px border border-rule bg-rule wide:grid-cols-2">
+    <ol className="mt-8 grid gap-px overflow-hidden rounded-card border border-rule bg-rule wide:grid-cols-2">
       {steps.map((s) => (
-        <li key={s.index} className="flex flex-col items-start bg-surface px-gutter py-5">
-          <span className="font-figure text-eyebrow uppercase text-faint">
+        <li key={s.index} className="flex flex-col items-start bg-raised px-gutter py-5">
+          <span className="font-figure text-eyebrow uppercase text-label">
             Step {s.index}
           </span>
           <p className="mt-3 text-body text-ink">{s.title}</p>
           <p className="mt-1 text-caption font-normal text-muted">{s.body}</p>
-          <Button asChild variant="primary" className="mt-5">
+          <Button asChild className="mt-5">
             <Link to={s.to}>{s.cta}</Link>
           </Button>
         </li>
@@ -694,7 +694,7 @@ export function Overview({ now = new Date() }: { now?: Date } = {}) {
         <SpendCard now={now} />
       </Region>
       <Region index="03" label="What the cache answered">
-        <CacheCard days={30} />
+        <CacheCard days={30} raised />
       </Region>
       <Region index="04" label="What is switched on">
         <ProductsCard />

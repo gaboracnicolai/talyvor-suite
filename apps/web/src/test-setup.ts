@@ -102,7 +102,7 @@ installCaseAudit()
  * focus.ts declares a 2px accent outline and says it is "applied to every interactive element";
  * only a component that imports it has one, and a hand-rolled control gets the BROWSER'S default
  * ring instead — measured in Chrome 151 as rgb(153,200,255) dark / rgb(0,95,204) light, against
- * an accent of #3AD6C0 / #0F7A6C. A string constant cannot check its own reach, and `asChild`
+ * the `accent` token in either theme. A string constant cannot check its own reach, and `asChild`
  * merges the ring onto an element the source never names, so the DOM is the only place to ask.
  */
 installFocusAudit()

@@ -157,7 +157,7 @@ export function Members() {
           </p>
         ) : null}
 
-        <Card>
+        <Card raised>
           <CardHeader>Workspace members</CardHeader>
           {q.isLoading ? (
             <div className="px-gutter py-3 text-body text-muted">Loading…</div>
@@ -189,7 +189,7 @@ export function Members() {
               return (
                 <Row key={m.id} label={m.name} hint={m.email}>
                   {you ? (
-                    <span className="font-figure text-eyebrow uppercase text-faint">You</span>
+                    <span className="font-figure text-eyebrow uppercase text-label">You</span>
                   ) : null}
                   <span
                     className={cn(
@@ -208,7 +208,7 @@ export function Members() {
         {/* Stated only when Track actually served one — a provenance line under a failed or
             unconfigured read is exactly the "Live from …" bug the Docs area was reviewed for. */}
         {served && roster.length > 0 ? (
-          <p data-testid="roster-provenance" className="mt-4 text-caption font-normal text-faint">
+          <p data-testid="roster-provenance" className="mt-4 text-caption font-normal text-muted">
             Live from Track via the BFF. The workspace is the one your session resolved at login,
             server-side — a workspace named by the browser is ignored.
           </p>

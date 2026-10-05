@@ -70,7 +70,7 @@ export function PageTranslation({ pageId, text, onSpent }: { pageId: string; tex
   const noLanguageChosen = language.trim() === ''
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Translation</CardHeader>
       <div className="flex flex-col gap-2 px-gutter py-3">
         {nothingToTranslate ? (
@@ -105,12 +105,12 @@ export function PageTranslation({ pageId, text, onSpent }: { pageId: string; tex
               // ⚠ THIS SENTENCE IS THE FINDING, MADE VISIBLE. Upstream this exact state is a 200
               // and a billed completion in English. Here it is a button that does not fire and a
               // reason a reader can act on.
-              <span className="text-caption text-faint">
+              <span className="text-caption text-muted">
                 Name a language first — without one, Docs would translate this page into English
                 and still charge for it.
               </span>
             ) : (
-              <span className="text-caption text-faint">
+              <span className="text-caption text-muted">
                 Translates the page as saved, by Docs through Lens.
               </span>
             )}

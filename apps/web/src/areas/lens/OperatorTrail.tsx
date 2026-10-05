@@ -143,10 +143,10 @@ export function OperatorTrail() {
           {filtered ? 'No action matches these filters.' : 'No operator has acted yet. Each action appears here once it is done.'}
         </p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto rounded-card border border-rule bg-raised">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="whitespace-nowrap border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
+              <tr className="whitespace-nowrap border-b border-rule text-left font-figure text-eyebrow uppercase text-label">
                 <th className="px-gutter py-2 font-semibold">When</th>
                 <th className="px-gutter py-2 font-semibold">Operator</th>
                 <th className="px-gutter py-2 font-semibold">Action</th>

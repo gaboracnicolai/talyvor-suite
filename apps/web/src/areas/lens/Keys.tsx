@@ -164,23 +164,23 @@ const HEADLINE_REVEAL = 'Copy your key now — it is not shown again.'
  */
 function WaysToGetAKey() {
   return (
-    <ol className="mt-8 grid gap-px border border-rule bg-rule wide:grid-cols-2">
-      <li className="flex flex-col items-start bg-surface px-gutter py-5">
-        <span className="font-figure text-eyebrow uppercase text-faint">Step 01</span>
+    <ol className="mt-8 grid gap-px overflow-hidden rounded-card border border-rule bg-rule wide:grid-cols-2">
+      <li className="flex flex-col items-start bg-raised px-gutter py-5">
+        <span className="font-figure text-eyebrow uppercase text-label">Step 01</span>
         <p className="mt-3 text-body text-ink">Mint one below.</p>
         <p className="mt-1 text-caption font-normal text-muted">
           It is minted server-side with the proxy scope and shown once, here. Afterwards only its
           identifier remains, which is what the list and every error message use.
         </p>
       </li>
-      <li className="flex flex-col items-start bg-surface px-gutter py-5">
-        <span className="font-figure text-eyebrow uppercase text-faint">Step 02</span>
+      <li className="flex flex-col items-start bg-raised px-gutter py-5">
+        <span className="font-figure text-eyebrow uppercase text-label">Step 02</span>
         <p className="mt-3 text-body text-ink">Point a tool at it.</p>
         <p className="mt-1 text-caption font-normal text-muted">
           A key on its own does nothing. Setup has the two environment variables that send Claude
           Code, Cursor and anything on the OpenAI SDK through Lens instead of the provider.
         </p>
-        <Button asChild variant="primary" className="mt-5">
+        <Button asChild className="mt-5">
           <Link to="/setup">Open Setup</Link>
         </Button>
       </li>
@@ -289,7 +289,7 @@ export function Keys() {
           </div>
         ) : null}
 
-        <Card>
+        <Card raised>
           <CardHeader>New key</CardHeader>
           <Row
             label="Create a key"
@@ -343,7 +343,7 @@ export function Keys() {
           list is missing rather than shown nothing where their keys should be. */}
       {empty && !minted ? null : (
         <Region index="02" label="The keys that exist">
-          <Card>
+          <Card raised>
             <CardHeader>API keys</CardHeader>
             {list.isLoading ? (
               <div className="px-gutter py-3 text-body text-muted">Loading…</div>

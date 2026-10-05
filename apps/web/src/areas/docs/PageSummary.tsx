@@ -48,7 +48,7 @@ export function PageSummary({ pageId, text, onSpent }: { pageId: string; text: s
   const nothingToSummarize = text.trim() === ''
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Summary</CardHeader>
       <div className="flex flex-col gap-2 px-gutter py-3">
         {nothingToSummarize ? (
@@ -65,7 +65,7 @@ export function PageSummary({ pageId, text, onSpent }: { pageId: string; text: s
               <Button disabled={summarize.isPending} onClick={() => summarize.mutate()}>
                 {summarize.isPending ? 'Summarising…' : 'Summarise this page'}
               </Button>
-              <span className="text-caption text-faint">
+              <span className="text-caption text-muted">
                 Summarises the page as saved, by Docs through Lens.
               </span>
             </div>

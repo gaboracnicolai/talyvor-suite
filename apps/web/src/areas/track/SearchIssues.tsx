@@ -71,7 +71,7 @@ export function SearchIssues() {
   const submittable = term.trim() !== '' && !run.isPending
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Search issues</CardHeader>
       <form
         className="flex flex-col gap-2 px-gutter py-3"
@@ -92,10 +92,10 @@ export function SearchIssues() {
           />
         </label>
         <div className="flex items-center gap-2">
-          <Button type="submit" variant="primary" disabled={!submittable}>
+          <Button type="submit" disabled={!submittable}>
             {run.isPending ? 'Searching…' : 'Search'}
           </Button>
-          <span className="text-caption text-faint">
+          <span className="text-caption text-muted">
             Across the issues in this workspace.
           </span>
         </div>
@@ -180,7 +180,7 @@ export function SearchIssues() {
  */
 function CostNote() {
   return (
-    <p className="text-caption text-faint">
+    <p className="text-caption text-muted">
       Where Lens is configured, running this search buys a metered Lens call, billed to this
       workspace under <code>track-search</code> and to no issue. Track’s answer carries no record
       either way, so this app cannot say whether this one was billed.
@@ -208,7 +208,7 @@ function Hit({ row }: { row: IssueSearchRow }) {
       {/* The identifier is Track's own human key. Absent ⇒ nothing is drawn in its place: a
           fabricated key on a link is worse than no key. */}
       {row.identifier ? (
-        <span className="font-figure text-caption text-faint">{row.identifier}</span>
+        <span className="font-figure text-caption text-muted">{row.identifier}</span>
       ) : null}
       <Link
         to={`/track/issues/${encodeURIComponent(row.id)}`}

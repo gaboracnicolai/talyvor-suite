@@ -12,16 +12,16 @@
  *     UA placeholder      rgb(117,117,117) light   rgb(117,117,117)  dark   ← CHROME'S GREY
  *
  * The UA colour is BYTE-IDENTICAL IN BOTH THEMES. It is not derived from `currentColor` (the
- * element's own colour measured #0B1220 light / #E6EEF7 dark beside it) and it is not composited
+ * element's own colour, `ink` in each theme, measured beside it) and it is not composited
  * — `::placeholder` opacity is 1 — so it is a flat neutral grey with none of the palette's blue
- * undertone, painted the same on a #F3F6FA canvas and a #060A12 one.
+ * undertone, painted the same on the light canvas and the dark one.
  *
  * ⚠ AND IT FAILS THE FLOOR THIS REPO ALREADY HOLDS EVERY TEXT TOKEN TO. `contrast.test.ts` scores
  * every text token against every background at AA body (4.5:1) and exists because `faint` at
  * 2.98:1 "had been shipping". Scored with that same instrument, on `bg-canvas`, which is what all
  * three offenders sit on:
  *
- *     #757575 (UA)    on canvas   4.25:1 light   4.30:1 dark   ← BELOW 4.5:1 IN BOTH THEMES
+ *     UA grey         on canvas   4.25:1 light   4.30:1 dark   ← BELOW 4.5:1 IN BOTH THEMES
  *     --faint (token) on canvas   4.84:1 light   4.81:1 dark
  *
  * So the guard that proves the palette clears AA proves it about TOKENS, and this text is not a

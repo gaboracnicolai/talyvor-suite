@@ -190,7 +190,7 @@ export function Cycles() {
                   No cycles yet. Name one above and start it — then put this team’s issues in it.
                 </p>
                 {/* B3.4 — the empty state goes where it points: the caret lands in Name. */}
-                <Button variant="primary" onClick={() => document.getElementById('cycle-name')?.focus()}>
+                <Button onClick={() => document.getElementById('cycle-name')?.focus()}>
                   Start the first cycle
                 </Button>
               </div>
@@ -254,10 +254,10 @@ function CycleCard({ cycle }: { cycle: TrackCycle }) {
   )
 
   return (
-    <div className="rounded-control border border-rule bg-surface px-gutter py-4">
+    <div className="rounded-card border border-rule bg-raised px-gutter py-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <span className="font-figure text-eyebrow uppercase text-faint">Cycle {cycle.number}</span>
+          <span className="font-figure text-eyebrow uppercase text-label">Cycle {cycle.number}</span>
           <p className="text-title text-ink">{cycle.name}</p>
           <p className="font-figure text-caption text-muted">
             {shortDay(cycle.start_date)} – {shortDay(cycle.end_date)} · {cycle.status}

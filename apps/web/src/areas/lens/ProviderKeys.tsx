@@ -151,7 +151,7 @@ export function ProviderKeysCard() {
   const providers = data?.providers.length ? data.providers : Object.keys(BYOK_PROVIDERS)
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Your provider keys</CardHeader>
       <div className="flex flex-col gap-3 border-b border-rule px-gutter py-4">
         <p className="text-body">

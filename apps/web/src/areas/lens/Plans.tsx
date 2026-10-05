@@ -105,11 +105,11 @@ function PlanCard({
 }) {
   return (
     <li
-      className={`flex flex-col rounded-card border bg-surface ${current ? 'border-accent' : 'border-rule'}`}
+      className={`flex flex-col rounded-card border bg-raised ${current ? 'border-accent' : 'border-rule'}`}
       aria-current={current ? 'true' : undefined}
     >
       <div className="flex flex-1 flex-col gap-3 px-gutter py-5">
-        <p className="font-figure text-eyebrow uppercase text-muted">{plan.name}</p>
+        <p className="font-figure text-eyebrow uppercase text-label">{plan.name}</p>
         <p className="flex items-baseline gap-2">
           <span className="font-figure text-page text-ink">{formatCents(plan.usd_cents)}</span>
           <span className="text-body text-muted">a month</span>
@@ -136,7 +136,7 @@ function PlanCard({
           ) : switching ? (
             <SwitchPlan plan={plan} sw={switching} />
           ) : (
-            <Button variant="primary" disabled={busy} onClick={() => onChoose(plan.id)}>
+            <Button disabled={busy} onClick={() => onChoose(plan.id)}>
               {busy ? 'Opening checkout…' : `Choose ${plan.name}`}
             </Button>
           )}
@@ -164,11 +164,11 @@ function ByokCard({
     <section
       aria-labelledby="plan-byok"
       aria-current={current ? 'true' : undefined}
-      className={`mt-gutter flex flex-col rounded-card border bg-surface ${current ? 'border-accent' : 'border-rule'}`}
+      className={`mt-gutter flex flex-col rounded-card border bg-raised ${current ? 'border-accent' : 'border-rule'}`}
     >
       <div className="flex flex-col gap-3 px-gutter py-5 wide:flex-row wide:gap-gutter">
         <div className="flex flex-col gap-3 wide:w-64 wide:shrink-0">
-          <p id="plan-byok" className="font-figure text-eyebrow uppercase text-muted">
+          <p id="plan-byok" className="font-figure text-eyebrow uppercase text-label">
             {BYOK.name} — bring your own keys
           </p>
           <p className="flex items-baseline gap-2">
@@ -194,7 +194,7 @@ function ByokCard({
               . To move to Plus, Pro or Max, cancel BYOK, then choose a plan when it ends.
             </p>
           ) : canChoose ? (
-            <Button variant="primary" disabled={busy} onClick={onChoose}>
+            <Button disabled={busy} onClick={onChoose}>
               {busy ? 'Opening checkout…' : `Choose ${BYOK.name}`}
             </Button>
           ) : (
@@ -210,7 +210,7 @@ function UsageMeter({ summary }: { summary: PlanSummary }) {
   const a = summary.allowance!
   const pct = usedPercent(a)
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Included usage</CardHeader>
       <div className="flex flex-col gap-3 px-gutter py-4">
         <p className="text-body text-ink">
@@ -253,7 +253,7 @@ function EarningsCard({
   const fee = summary.allowance!.fee_usd_cents
   const back = summary.earned_back_usd_cents
   return (
-    <Card>
+    <Card raised>
       <CardHeader>What you earned</CardHeader>
       <div className="flex flex-col gap-2 border-b border-rule px-gutter py-4">
         {sharing === false ? (

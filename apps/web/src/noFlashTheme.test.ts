@@ -24,12 +24,12 @@ import { afterEach, describe, expect, it } from 'vitest'
  *
  *   (2) The page top-level, with the same SecurityError installed on the `localStorage` getter
  *       before any page script runs, so the stylesheet loads and the PAINT is visible:
- *         storage works  · prefers dark   → data-theme=dark   body #060A12  rgb(6,10,18)
- *         storage refused · prefers dark  → data-theme=light  body #F3F6FA  rgb(243,246,250)
- *         storage refused · prefers light → data-theme=light  body #F3F6FA   (right, by accident)
+ *         storage works  · prefers dark   → data-theme=dark   body canvas  rgb(6,10,18)
+ *         storage refused · prefers dark  → data-theme=light  body canvas  rgb(243,246,250)
+ *         storage refused · prefers light → data-theme=light  body canvas   (right, by accident)
  *
  * A reader whose OS says dark, on a browser that refuses site data, got the LIGHT canvas on a
- * product whose brief is "#060A12 near-black". Not for a frame — for the whole session, on every
+ * product whose brief is "Obsidian near-black". Not for a frame — for the whole session, on every
  * load, because the choice they make with the toggle is the one thing that browser cannot keep.
  *
  * ⚠ THE CAUSE IS THE SHAPE, NOT THE VALUE: ONE `try` HELD BOTH READS. The stored choice and
@@ -153,7 +153,7 @@ describe('the no-flash script in index.html — the only thing that decides the 
     expect(
       painted(),
       'a reader whose OS says dark, on a browser that refuses site data, is painted the light ' +
-        'canvas #F3F6FA — measured in Chrome on dist/index.html. The storage read and the media ' +
+        'canvas — measured in Chrome on dist/index.html. The storage read and the media ' +
         'query are two independent questions and only the first can be refused.',
     ).toBe('dark')
   })

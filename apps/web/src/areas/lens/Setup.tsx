@@ -91,7 +91,7 @@ export function CopyBlock({ text, label }: { text: string; label: string }) {
 
 function ToolCard({ tool }: { tool: Tool }) {
   return (
-    <Card>
+    <Card raised>
       <CardHeader>{tool.name}</CardHeader>
       <div className="space-y-3 px-gutter py-3">
         {/* The hazard renders ABOVE the snippet, inside this tool's own card. A page-level
@@ -222,7 +222,7 @@ export function Setup() {
       </Region>
 
       <Region index="01" label="Read this first">
-        <Card>
+        <Card raised>
           <CardHeader>What Talyvor does with your traffic</CardHeader>
           <div className="space-y-2 px-gutter py-3 text-body text-ink">
             <p>
@@ -284,7 +284,7 @@ export function Setup() {
       </Region>
 
       <Region index="02" label="Get a credential">
-        <Card>
+        <Card raised>
           <CardHeader>Your key</CardHeader>
           <div className="space-y-3 px-gutter py-3">
             {minted ? (
@@ -365,14 +365,14 @@ export function Setup() {
             happened yet and a read that FAILED both rendered as a settled fact about somebody
             else's configuration. */}
         {baseUrlState === 'reading' ? (
-          <Card>
+          <Card raised>
             <CardHeader>Setup instructions</CardHeader>
             <div className="px-gutter py-3 text-body text-muted">
               Reading this deployment’s settings…
             </div>
           </Card>
         ) : baseUrlState === 'unreadable' ? (
-          <Card>
+          <Card raised>
             <CardHeader>Setup instructions</CardHeader>
             {/* The shared failure voice: a panel knows its own request failed and cannot know
                 whether every other panel failed for the same reason, so it must not name a cause. */}
@@ -383,7 +383,7 @@ export function Setup() {
             </div>
           </Card>
         ) : baseUrlState === 'unset' ? (
-          <Card>
+          <Card raised>
             <CardHeader>Setup instructions unavailable</CardHeader>
             <div className="px-gutter py-3 text-body text-muted">
               This deployment has no public Lens URL configured, so we cannot tell you which address
@@ -415,7 +415,7 @@ export function Setup() {
           who most needs to know what will break (the one who cannot set up yet) was the one who
           could not see it. */}
       <Region index="04" label="Know the edges">
-        <Card>
+        <Card raised>
           <CardHeader>Worth knowing</CardHeader>
           <ul className="list-disc space-y-1 px-gutter py-3 pl-8 text-body text-ink">
             {MECHANISM_CAVEATS.map((c) => (
@@ -426,7 +426,7 @@ export function Setup() {
       </Region>
 
       <Region index="05" label="Prove it worked">
-        <Card proof>
+        <Card raised proof>
           <CardHeader>Confirm it worked — two requests</CardHeader>
           <div className="space-y-2 px-gutter py-3 text-body text-ink">
             <ol className="list-decimal space-y-1 pl-5">

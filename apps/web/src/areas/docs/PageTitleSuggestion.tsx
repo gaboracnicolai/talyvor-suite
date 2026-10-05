@@ -86,7 +86,7 @@ export function PageTitleSuggestion({
   const suggested = suggest.data?.title.trim() ?? ''
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Title</CardHeader>
       <div className="flex flex-col gap-2 px-gutter py-3">
         {nothingToTitle ? (
@@ -103,7 +103,7 @@ export function PageTitleSuggestion({
               <Button disabled={suggest.isPending} onClick={() => suggest.mutate()}>
                 {suggest.isPending ? 'Suggesting…' : 'Suggest a title'}
               </Button>
-              <span className="text-caption text-faint">
+              <span className="text-caption text-muted">
                 Reads the page as saved, by Docs through Lens. It does not rename anything.
               </span>
             </div>
@@ -159,7 +159,7 @@ export function PageTitleSuggestion({
                     // it is reworded rather than exempted: an EXEMPT entry would assert it IS an
                     // empty state, which is false, and the guard would then be carrying a wrong
                     // claim to stay green.
-                    <span className="text-caption text-faint">
+                    <span className="text-caption text-muted">
                       The page keeps its current title until you press this.
                     </span>
                   )}
@@ -171,7 +171,7 @@ export function PageTitleSuggestion({
                 suggestion too, because that call cost exactly as much as a useful one. What stays
                 HERE is the half that is only true where the second button is: applying is a PATCH
                 this app makes, not a completion, so it buys nothing. */}
-            <p className="text-caption text-faint">Applying it costs nothing.</p>
+            <p className="text-caption text-muted">Applying it costs nothing.</p>
           </>
         ) : null}
       </div>

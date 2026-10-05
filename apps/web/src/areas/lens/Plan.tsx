@@ -41,7 +41,7 @@ export function YourPlan() {
       ? `it ends ${ends} and does not renew`
       : `the allowance renews ${ends}`
   return (
-    <Card className="mt-4">
+    <Card raised className="mt-4">
       <CardHeader>Your plan</CardHeader>
       <div className="border-b border-rule px-gutter py-4">
         {a.fee_usd_cents > 0 ? (

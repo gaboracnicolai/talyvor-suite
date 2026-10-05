@@ -36,7 +36,7 @@ describe('isComponentExport — a component, not merely an export', () => {
     // Each of these was counted as an unrendered component by an earlier draft of the registry.
     expect(isComponentExport('queryClient', { mount: () => {} })).toBe(false)
     expect(isComponentExport('DEFAULT_VIEW', { sort: 'age' })).toBe(false)
-    expect(isComponentExport('tokens', { ink: '#fff' })).toBe(false)
+    expect(isComponentExport('tokens', { ink: 'ink' })).toBe(false)
   })
 
   it('rejects primitives and null', () => {
@@ -52,7 +52,7 @@ describe('the record — registration, and what counts as reached', () => {
     r.registerModule('packages/ui', {
       Button: function Button() {},
       formatUSD: () => '$1',
-      tokens: { ink: '#fff' },
+      tokens: { ink: 'ink' },
     })
     expect(r.registered()).toEqual(['packages/ui#Button'])
   })
