@@ -39,7 +39,7 @@ export const UNTAGGED = 'Untagged — no feature header'
 export interface FeatureSpendRow {
   /** Lens's tag, or {@link UNTAGGED} when the caller sent no `X-Talyvor-Feature`. */
   feature: string
-  /** Provider USD for the window. A float upstream, so every screen dresses it as derived. */
+  /** Provider USD for the window. Lens sends it as a float, so every screen marks it ≈. */
   costUSD: number
   requests: number
 }

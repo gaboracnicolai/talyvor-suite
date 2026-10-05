@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, ledgerReadsCorrectly, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
@@ -1878,7 +1878,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B29.10 — then that conversation in the brand: raised composer, teal Send, eyebrow picker, replies at 15/24.
     // B28.267 — then /chat/help in full at 1440 and 390, its whole title in the top bar.
     // B28.268 — right after the statement's request, the Ledger: all LXC, each balance the row below plus its amount.
-    case 6: list.push(statementReconciles(i), ledgerReadsCorrectly(), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull()); break
+    // B28.269 — then Overview and Spend & routing in plain words, the split note one sentence to the Ledger.
+    case 6: list.push(statementReconciles(i), ledgerReadsCorrectly(), spendPlainWords(), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull()); break
     // B28.8 — first, while the workspace has no agent: Home's three onboarding steps.
     // B29.12 — then Features, Track, Docs, Developers, Billing and Settings in the brand, each photographed.
     case 7: list.push(walletOnboarding(i), everyScreen(), screensBrand()); break

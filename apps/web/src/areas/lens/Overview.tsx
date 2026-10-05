@@ -247,8 +247,8 @@ function SpendCard({ now }: { now: Date }) {
       <CardHeader>Spend &amp; earnings — last 30 days</CardHeader>
       <TokenSection token="lxc">Spent — LXC</TokenSection>
       <Row
-        label="This month"
-        hint="provider spend — a float upstream, so it dresses as derived"
+        label="This month, in US dollars"
+        hint="roughly what your AI calls have cost since the 1st"
       >
         {month.isLoading ? (
           <span className="text-body text-muted">Loading…</span>

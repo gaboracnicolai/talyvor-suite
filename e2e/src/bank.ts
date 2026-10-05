@@ -1867,6 +1867,52 @@ export function ledgerReadsCorrectly(): Scenario {
   }
 }
 
+/** B28.269 — words Overview and Spend & routing must no longer show. */
+const SPEND_JARGON = [/float upstream/i, /dresses as derived/i, /in no row of this split/i, /provenance/i]
+const MONTH_ROW = 'This month, in US dollars'
+const MONTH_HINT = 'roughly what your AI calls have cost since the 1st'
+/** The note under the per-model split, when there is one: one sentence ending at the Ledger. */
+const UNSPLIT_NOTE = /of the total above is not broken down by model, because those charges did not record which model they were for; each one is listed in the Ledger\./
+
+/**
+ * B28.269 — Overview and Spend & routing in plain words: the month row says what it is, no
+ * jargon is left on either screen, and any "not broken down by model" note is a complete
+ * sentence whose Ledger link opens /ledger.
+ */
+export function spendPlainWords(): Scenario {
+  return {
+    id: 'spend-plain-words',
+    title: 'Overview and Spend & routing say "This month, in US dollars" in plain words, and any not-broken-down note is one sentence pointing to the Ledger',
+    run: async (ctx) => {
+      const seen: string[] = []
+      for (const path of ['/overview', '/spend']) {
+        const page = await ctx.app.tab(path)
+        try {
+          await page.getByText(MONTH_ROW, { exact: true }).first().waitFor({ timeout: ACTION_TIMEOUT_MS })
+          const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ')
+          if (!text.includes(MONTH_HINT)) return fail(`${path} shows "${MONTH_ROW}" without "${MONTH_HINT}"`)
+          const jargon = SPEND_JARGON.filter((w) => w.test(text))
+          if (jargon.length > 0) return fail(`${path} still says ${jargon.map(String).join(', ')}`)
+          const note = page.getByTestId('lxc-unsplit')
+          if ((await note.count()) > 0) {
+            const said = (await note.first().innerText()).replace(/\s+/g, ' ').trim()
+            if (said.includes('broken down by model') && !UNSPLIT_NOTE.test(said)) return fail(`${path}'s split note reads "${said}"`)
+            const href = await note.first().getByRole('link', { name: 'Ledger' }).first().getAttribute('href')
+            if (href !== '/ledger') return fail(`${path}'s split note links its Ledger to ${href}`)
+            seen.push(`${path}: "${said}"`)
+          } else {
+            seen.push(`${path}: no split note (every charge names its model)`)
+          }
+        } finally {
+          await page.close()
+        }
+      }
+      ctx.evidence.push({ note: seen.join('; ') })
+      return { pass: true, detail: `both screens say "${MONTH_ROW}" — ${MONTH_HINT}, with none of the old jargon; ${seen.join('; ')}` }
+    },
+  }
+}
+
 /** B28.20 — fundings sent at once, through Lens as the owner; its per-workspace limit (100 a second) is waited out. */
 const MANY_FUNDINGS = 100
 const FUNDING_WORKERS = 5
