@@ -33,9 +33,10 @@ export type NavItemProps = NavItemOwnProps &
     | ({ href?: undefined } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, keyof NavItemOwnProps>)
   )
 
-// Selection is shown by a 2px accent tick + ink label, NOT a filled accent row with
-// white text. That would put a hue on text; the invariant forbids it. A deliberate
-// divergence from macOS's filled selection — see README §Selection.
+// Selection is the board's PRODUCT UI tile (brand-v4 BRAND.md §The product UI): the selected row
+// sits on `accent-tint` with its label and icon in `accent-strong` — Teal in the dark theme, the
+// light theme's deeper teal in light, because light Teal on the tint is 3.95 (planes.ts). The
+// economy hues still never colour text; accent is the board's active state, not one of them.
 export const NavItem = forwardRef<HTMLButtonElement & HTMLAnchorElement, NavItemProps>(
   function NavItem({ active = false, icon, children, className, ...props }, ref) {
     // ONE spelling of the class string and ONE of aria-current, shared by both tags. Two
@@ -43,12 +44,8 @@ export const NavItem = forwardRef<HTMLButtonElement & HTMLAnchorElement, NavItem
     const shared = {
       'aria-current': active ? ('page' as const) : undefined,
       className: cn(
-        'flex w-full items-center gap-2 border-l-2 py-1.5 pl-3 pr-2 text-left text-body transition-colors duration-200',
-        // The accent appears on TOUCH and on SELECTION — as a background tint,
-        // never on the label (the invariant). The tick still marks selection.
-        active
-          ? 'border-l-accent bg-accent-tint text-ink'
-          : 'border-l-transparent text-muted hover:bg-accent-tint hover:text-ink',
+        'flex w-full items-center gap-3 rounded-control px-3 py-2 text-left text-body font-medium transition-colors duration-200',
+        active ? 'bg-accent-tint text-accent-strong' : 'text-muted hover:bg-accent-tint hover:text-ink',
         focusRing,
         className,
       ),
@@ -56,19 +53,10 @@ export const NavItem = forwardRef<HTMLButtonElement & HTMLAnchorElement, NavItem
 
     const body = (
       <>
-        {/* ⚠ `muted`, NOT `faint`, AND THE REASON IS THE PLANE UNDER IT RATHER THAN THE STEP BESIDE
-            it. This row's background is `accent-tint` whenever it is selected OR hovered, and
-            MEASURED on that plane `faint` is 3.97:1 light / 3.63:1 dark — under the 4.5:1 AA body
-            floor contrast.test.ts holds every other pair to. `muted` is 5.51 / 4.74 there and
-            6.72 / 6.27 on the canvas and sidebar, so ONE token clears every plane this row can be
-            on. It was `faint`, unconditionally, and no surface passes an `icon` — so the pair never
-            reached a DOM and five audits stayed green over it (apps/web/src/planeAudit.ts).
-            ⚠ ONE TOKEN, NOT ONE PER STATE, DELIBERATELY: `:hover` never applies in jsdom, so a
-            `group-hover:` answer would be unverifiable by the only instrument that can see the
-            plane at all. The step down from the label survives where it carries meaning — the
-            selected row is ink over muted. */}
+        {/* The icon wears the row's state: `accent-strong` when selected, `muted` otherwise —
+            both clear AA on the tint (the hover plane) and on the sidebar (planes.ts). */}
         {icon ? (
-          <span className="shrink-0 text-muted" aria-hidden="true">
+          <span className={cn('flex shrink-0', active ? 'text-accent-strong' : 'text-muted')} aria-hidden="true">
             {icon}
           </span>
         ) : null}

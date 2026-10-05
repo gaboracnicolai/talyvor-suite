@@ -11,7 +11,18 @@ import {
   useLocation,
   useNavigationType,
 } from 'react-router-dom'
-import { Mark, NavItem, Shell, ThemeToggle, Wordmark, cn, focusRing, inlineLink } from '@talyvor/ui'
+import {
+  Mark,
+  NavIcon,
+  NavItem,
+  Shell,
+  ThemeToggle,
+  Wordmark,
+  cn,
+  focusRing,
+  inlineLink,
+  type NavIconName,
+} from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { useDocumentTitle } from './documentTitle'
 import { ApiError, UnreadableError } from './lib/api'
@@ -127,8 +138,8 @@ function Group({
         aria-controls={regionId}
         onClick={onToggle}
         className={cn(
-          'flex items-center justify-between gap-2 rounded-control px-3 py-1 text-left transition-colors duration-200 hover:text-ink',
-          'font-figure text-eyebrow font-semibold uppercase text-faint',
+          'flex items-center justify-between gap-2 rounded-control px-3 pb-1.5 pt-1 text-left transition-colors duration-200 hover:text-ink',
+          'font-figure text-eyebrow uppercase text-label',
           focusRing,
         )}
       >
@@ -144,7 +155,7 @@ function Group({
           <path d="M3 4.5 6 7.5l3-3" />
         </svg>
       </button>
-      <div id={regionId} hidden={!open} className={open ? 'flex flex-col' : undefined}>
+      <div id={regionId} hidden={!open} className={open ? 'flex flex-col gap-0.5' : undefined}>
         {open ? children : null}
       </div>
     </div>
@@ -266,6 +277,7 @@ function titleFor(pathname: string): string {
 function NavDestination({
   to,
   label,
+  icon,
   wildcard = false,
   active,
   badge,
@@ -273,6 +285,8 @@ function NavDestination({
 }: {
   to: string
   label: string
+  /** B29.7 — the row's 20px line icon. */
+  icon: NavIconName
   wildcard?: boolean
   /** Overrides the exact/prefix rule where a row shares its prefix with a sibling row. */
   active?: boolean
@@ -288,6 +302,7 @@ function NavDestination({
       active={active ?? (wildcard ? pathname.startsWith(to) : pathname === to)}
       href={href}
       onClick={onClick}
+      icon={<NavIcon name={icon} />}
       className={className}
     >
       {label}
@@ -308,15 +323,17 @@ function Sidebar() {
   const item = (
     to: string,
     label: string,
+    icon: NavIconName,
     opts: { wildcard?: boolean; active?: boolean; badge?: number | null; indent?: boolean } = {},
   ) => (
     <NavDestination
       to={to}
       label={label}
+      icon={icon}
       wildcard={opts.wildcard}
       active={opts.active}
       badge={opts.badge}
-      className={opts.indent ? 'pl-6' : undefined}
+      className={opts.indent ? 'pl-8' : undefined}
     />
   )
   // B10.6 — Docs lists the pages a person PINNED and the last five they OPENED, never every page
@@ -336,53 +353,58 @@ function Sidebar() {
       key={`${d.spaceId}/${d.pageId}`}
       to={pageHref(d)}
       label={d.title}
+      icon="page"
       active={pathname === pageHref(d)}
-      className="pl-9"
+      className="pl-8"
     />
   )
   return (
-    <nav className="flex flex-col gap-4 pb-2" aria-label="Sections">
+    <nav className="flex flex-col gap-5 pb-2" aria-label="Sections">
       {/* The corner carries the brand-v4 mark and wordmark, both drawn SVG and themed by
           tokens. The mark is decorative beside the wordmark, which names the product once;
           the product label under it stays text, as an eyebrow. */}
-      <div className="flex items-center gap-2.5 px-3 pb-1 pt-2">
-        <Mark size={26} aria-hidden />
-        <div className="min-w-0">
-          <Wordmark height={12} />
+      <div className="flex items-center gap-2.5 px-3 pb-2 pt-3">
+        <Mark size={28} aria-hidden />
+        <div className="shrink-0">
+          <Wordmark height={13} />
           <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Suite</div>
         </div>
+        {/* An icon beside the wordmark, so the corner holds the board's mark and name without the two
+            words crowding them; its name is the text a screen reader and a pointer's tooltip read. */}
         <button
           type="button"
           onClick={fold.toggleAll}
+          title={fold.anyOpen ? 'Fold all' : 'Open all'}
           className={cn(
-            'ml-auto inline-flex h-7 shrink-0 items-center rounded-control px-2 text-caption text-muted transition-colors duration-200 hover:text-ink',
+            'ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-muted transition-colors duration-200 hover:text-ink',
             focusRing,
           )}
         >
-          {fold.anyOpen ? 'Fold all' : 'Open all'}
+          <NavIcon name={fold.anyOpen ? 'fold' : 'unfold'} />
+          <span className="sr-only">{fold.anyOpen ? 'Fold all' : 'Open all'}</span>
         </button>
       </div>
       {/* B28.7 — WALLET-FIRST. The product is agent wallets, so the wallet's own screens lead and never
           fold away: the home, what is waiting for a person, the agents and their statements, then Chat.
           Everything else is grouped below them, in the order a person reaches for it. */}
-      <div className="flex flex-col">
-        {item('/', 'Home')}
-        {item('/approvals', 'Approvals', { badge: pending })}
+      <div className="flex flex-col gap-0.5">
+        {item('/', 'Home', 'home')}
+        {item('/approvals', 'Approvals', 'approvals', { badge: pending })}
         {/* The label is the page's title, so the row and the heading it opens are one name. */}
-        {item('/agents', 'Agent Wallets')}
-        {item('/statements', 'Statements')}
-        {item('/statements/royalties', 'Royalties', { indent: true })}
-        {item('/chat', 'Chat', { wildcard: true })}
+        {item('/agents', 'Agent Wallets', 'wallet')}
+        {item('/statements', 'Statements', 'statement')}
+        {item('/statements/royalties', 'Royalties', 'coins', { indent: true })}
+        {item('/chat', 'Chat', 'chat', { wildcard: true })}
       </div>
       <Group label="Marketplace" {...fold.group('Marketplace')}>
-        {item('/marketplace', 'Browse', {
+        {item('/marketplace', 'Browse', 'grid', {
           active: pathname === '/marketplace' || pathname.startsWith('/marketplace/listings'),
         })}
-        {item('/marketplace/publish', 'Publish')}
-        {item('/marketplace/selling', 'Your listings & earnings')}
-        {item('/marketplace/bill', 'Your bill')}
+        {item('/marketplace/publish', 'Publish', 'upload')}
+        {item('/marketplace/selling', 'Your listings & earnings', 'tag')}
+        {item('/marketplace/bill', 'Your bill', 'receipt')}
         {/* B20.12 — offered only to someone the BFF's operator gate will admit. */}
-        {me.data?.operator ? item('/marketplace/review', 'Review queue') : null}
+        {me.data?.operator ? item('/marketplace/review', 'Review queue', 'prove') : null}
       </Group>
       {/* Docs is BACK. It left the nav because it served one PINNED workspace shared by every
           signed-in person; it now takes the SESSION's workspace, the same way Track does, so the
@@ -390,20 +412,20 @@ function Sidebar() {
           apps/bff docsWorkspaceFor and the Track↔Docs enumeration that broke the cold-start
           deadlock (talyvor-track bf60842, talyvor-docs c970329). */}
       <Group label="Work" {...fold.group('Work')}>
-        {item('/track', 'Track', { active: onTrackIssues })}
-        {item('/track/board', 'Board', { indent: true })}
-        {item('/track/cycles', 'Cycles', { indent: true })}
-        {item('/track/projects', 'Projects', { indent: true })}
-        {item('/docs', 'Docs', { active: onDocsIndex })}
+        {item('/track', 'Track', 'issues', { active: onTrackIssues })}
+        {item('/track/board', 'Board', 'board', { indent: true })}
+        {item('/track/cycles', 'Cycles', 'cycle', { indent: true })}
+        {item('/track/projects', 'Projects', 'folder', { indent: true })}
+        {item('/docs', 'Docs', 'docs', { active: onDocsIndex })}
         {docsNav.pinned.length > 0 ? (
           <>
-            <p className="pl-6 pr-3 pt-1 text-caption text-faint">Pinned</p>
+            <p className="pl-8 pr-3 pt-1 text-caption text-faint">Pinned</p>
             {docsNav.pinned.map(docLink)}
           </>
         ) : null}
         {docsNav.recent.length > 0 ? (
           <>
-            <p className="pl-6 pr-3 pt-1 text-caption text-faint">Recent</p>
+            <p className="pl-8 pr-3 pt-1 text-caption text-faint">Recent</p>
             {docsNav.recent.map(docLink)}
           </>
         ) : null}
@@ -411,29 +433,29 @@ function Sidebar() {
       <Group label="Developers" {...fold.group('Developers')}>
         {/* Connecting an agent sits beside Keys because minting a key and being told what to do with
             it are one task; a trial user who finds only Keys is stuck holding a credential. */}
-        {item('/setup', 'Connect an agent')}
-        {item('/keys', 'API keys')}
-        {item('/spend', 'Spend & routing')}
-        {item('/features', 'Gateway features')}
+        {item('/setup', 'Connect an agent', 'plug')}
+        {item('/keys', 'API keys', 'key')}
+        {item('/spend', 'Spend & routing', 'route')}
+        {item('/features', 'Gateway features', 'sliders')}
       </Group>
       <Group label="Billing" {...fold.group('Billing')}>
         {/* Buying LXC has to be findable, not a URL you have to be told. The
             wildcard keeps it highlighted on the Stripe return pages too. */}
-        {item('/billing', 'Plan & top up', { wildcard: true })}
-        {item('/plans', 'Plans')}
-        {item('/overview', 'Overview')}
-        {item('/ledger', 'Ledger')}
+        {item('/billing', 'Plan & top up', 'card', { wildcard: true })}
+        {item('/plans', 'Plans', 'layers')}
+        {item('/overview', 'Overview', 'chart')}
+        {item('/ledger', 'Ledger', 'ledger')}
         {/* The public price list (B5.2). It opens outside the console, as a buyer sees it. */}
-        {item('/pricing', 'Pricing')}
+        {item('/pricing', 'Pricing', 'price')}
       </Group>
       <Group label="Settings" {...fold.group('Settings')}>
-        {item('/settings', 'Settings')}
-        {item('/members', 'Members')}
+        {item('/settings', 'Settings', 'settings')}
+        {item('/members', 'Members', 'members')}
       </Group>
       {/* B18.25 — offered only to someone the BFF's operator gate will admit. */}
       {me.data?.operator ? (
         <Group label="Operator" {...fold.group('Operator')}>
-          {item('/operator', 'Workspaces')}
+          {item('/operator', 'Workspaces', 'server')}
         </Group>
       ) : null}
       {/* The first "Operator" group held one item, /admin, and went with it: an operator
@@ -505,9 +527,9 @@ function AppShell() {
               answer rather than three that agree today. MEASURED ZERO-PIXEL out of the built
               stylesheet: the shipped sheet's only rules naming h1 are preflight's
               `h1,…,h6{font-size:inherit;font-weight:inherit}` and `…,h1,…{margin:0}`, and
-              `.text-head` supplies 17px/600 either way. ConsoleHeading.test.tsx pins the name at
+              `.text-bar` supplies 20px/500 either way (B29.7). ConsoleHeading.test.tsx pins the name at
               every address. */}
-          <h1 className="min-w-0 flex-1 truncate text-head text-ink">{page}</h1>
+          <h1 className="min-w-0 flex-1 truncate text-bar text-ink">{page}</h1>
           <div className="flex min-w-0 items-center gap-3">
             <SessionChip />
             <ThemeToggle />

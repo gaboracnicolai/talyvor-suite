@@ -153,6 +153,67 @@ export function brandPlanes(): Scenario {
   }
 }
 
+/**
+ * B29.7 — the shell in the board's PRODUCT UI tile, as the browser paints it in the dark theme: every
+ * destination in the sidebar carries a 20px line icon, the selected row (Home, on /) sits on the
+ * accent tint with Teal text, and the top-bar title is Space Grotesk 500 at 20px.
+ */
+export const DARK_SHELL = { activeBg: 'rgb(14, 43, 46)', activeInk: 'rgb(58, 214, 192)', titleSize: '20px', titleWeight: '500' } as const
+
+export function appShell(): Scenario {
+  return {
+    id: 'app-shell',
+    title: 'every sidebar link carries its icon, the selected row is Teal on the tint, and the top bar is 20px',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/')
+      try {
+        const nav = page.getByRole('navigation', { name: 'Sections' })
+        await nav.locator('a[aria-current="page"]').waitFor({ timeout: HEADING_TIMEOUT_MS })
+        const seen = await page.evaluate(() => {
+          document.documentElement.setAttribute('data-theme', 'dark')
+          const nav = document.querySelector('nav[aria-label="Sections"]')!
+          // Privacy and Terms are the two policy links under the rule, not destinations; they carry no icon.
+          const rows = Array.from(nav.querySelectorAll('a[href]')).filter((a) => !['/privacy', '/terms'].includes(a.getAttribute('href') ?? ''))
+          const bare = rows
+            .filter((a) => {
+              const svg = a.querySelector('svg[data-icon]')
+              return svg === null || svg.getBoundingClientRect().width !== 20
+            })
+            .map((a) => (a.textContent ?? '').trim())
+          const active = nav.querySelector('a[aria-current="page"]')
+          const h1 = document.querySelector('header h1')
+          return {
+            rows: rows.length,
+            bare,
+            active: active ? (active.textContent ?? '').trim() : null,
+            activeBg: active ? getComputedStyle(active).backgroundColor : 'none',
+            activeInk: active ? getComputedStyle(active).color : 'none',
+            titleSize: h1 ? getComputedStyle(h1).fontSize : 'no title',
+            titleWeight: h1 ? getComputedStyle(h1).fontWeight : 'no title',
+            titleFace: h1 ? getComputedStyle(h1).fontFamily : 'no title',
+          }
+        })
+        ctx.evidence.push({
+          note: `${seen.rows} sidebar links, ${seen.bare.length} without an icon; selected "${seen.active}" ${seen.activeInk} on ${seen.activeBg}; title ${seen.titleSize}/${seen.titleWeight} ${seen.titleFace}`,
+        })
+        const wrong: string[] = []
+        if (seen.rows === 0) wrong.push('the sidebar has no links')
+        if (seen.bare.length > 0) wrong.push(`no 20px icon on ${seen.bare.join(', ')}`)
+        if (seen.active !== 'Home') wrong.push(`on / the selected row is ${seen.active ?? 'nothing'}, not Home`)
+        for (const k of ['activeBg', 'activeInk', 'titleSize', 'titleWeight'] as const) {
+          if (seen[k] !== DARK_SHELL[k]) wrong.push(`${k} is ${seen[k]}, not ${DARK_SHELL[k]}`)
+        }
+        if (!seen.titleFace.includes('Space Grotesk')) wrong.push(`the title is set in ${seen.titleFace}`)
+        return wrong.length === 0
+          ? { pass: true, detail: `all ${seen.rows} sidebar links carry an icon; Home is Teal on the tint; the title is 20px Space Grotesk 500` }
+          : { pass: false, detail: wrong.join('; '), where: ['/'] }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 /** The Lens reads a customer's own key can make: GET, and no parameter but its workspace. */
 export function customerReads(lens: readonly Entry[]): Entry[] {
   return lens.filter((e) => e.method === 'GET' && cannotTest(e) === undefined &&

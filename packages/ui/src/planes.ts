@@ -71,8 +71,13 @@ import { tokens, type TokenName } from './tokens'
 /** WCAG 2.2 AA for body text. The same floor `contrast.test.ts` has always applied. */
 export const AA_BODY = 4.5
 
-/** The roles words render in. `accent-ink` is the label ON the accent fill, not a body role. */
-export const TEXT_ROLES = ['ink', 'muted', 'faint', 'label', 'accent', 'accent-ink'] as const
+/**
+ * The roles words render in. `accent-ink` is the label ON the accent fill, not a body role.
+ * `accent-strong` is the board's "accent text" on the selected sidebar row: Teal itself in the
+ * dark theme, and the light theme's deeper teal (#0A5F54) there, because light Teal on the tint
+ * is 3.95.
+ */
+export const TEXT_ROLES = ['ink', 'muted', 'faint', 'label', 'accent', 'accent-ink', 'accent-strong'] as const
 export type TextRole = (typeof TEXT_ROLES)[number]
 
 /**
@@ -82,20 +87,21 @@ export type TextRole = (typeof TEXT_ROLES)[number]
  * `bg-accent text-accent-ink` and its hover/press step is `bg-accent-hover`, so both carry a
  * label and both are scored here rather than only as the accent's states.
  *
- * ⚠ `accent-tint` PERMITS TWO ROLES, and the two it refuses are refused BY MEASUREMENT (3.97 and
+ * ⚠ `accent-tint` PERMITS THREE ROLES, and the two it refuses are refused BY MEASUREMENT (3.97 and
  * 3.95, both under 4.5). The product's own fix for the one place that declared a refused pair is
- * in NavItem.tsx — see its icon. `label` is refused there too: 4.05 light.
+ * in NavItem.tsx — see its icon. `label` is refused there too: 4.05 light. `accent-strong` is the
+ * selected row's label (B29.7): 5.71 light, 8.24 dark.
  *
  * ⚠ `raised` REFUSES `faint`, BY MEASUREMENT: 4.25 dark. The card plane is lighter than the
  * surface it sits on, which eats the margin `faint` was lifted to clear on canvas and surface.
  * A figure's µ-tail on a card wears `muted`.
  */
 export const ROLES_ON_PLANE = {
-  canvas: ['ink', 'muted', 'faint', 'label', 'accent'],
-  surface: ['ink', 'muted', 'faint', 'label', 'accent'],
-  raised: ['ink', 'muted', 'label', 'accent'],
-  sidebar: ['ink', 'muted', 'faint', 'label', 'accent'],
-  'accent-tint': ['ink', 'muted'],
+  canvas: ['ink', 'muted', 'faint', 'label', 'accent', 'accent-strong'],
+  surface: ['ink', 'muted', 'faint', 'label', 'accent', 'accent-strong'],
+  raised: ['ink', 'muted', 'label', 'accent', 'accent-strong'],
+  sidebar: ['ink', 'muted', 'faint', 'label', 'accent', 'accent-strong'],
+  'accent-tint': ['ink', 'muted', 'accent-strong'],
   accent: ['accent-ink'],
   'accent-hover': ['accent-ink'],
 } as const satisfies Record<string, readonly TextRole[]>

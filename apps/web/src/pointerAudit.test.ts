@@ -205,7 +205,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'placeholder={k.key_prefix}',
     why: 'the site that passes a placeholder THROUGH a component, the whole argument for reading the DOM',
   },
-  'apps/web/src/motion.test.tsx:154|packages/ui/src/preset.ts:210': {
+  'apps/web/src/motion.test.tsx:154|packages/ui/src/preset.ts:212': {
     kind: 'LIVE',
     fragment: 'active:scale-[0.98]',
     why: 'the comment that writes the press one way, half of the pair the motion lock exists to keep apart',
@@ -401,7 +401,7 @@ const PINS: Record<string, Pin> = {
     fragment: '!body.url',
     why: 'the reason a 200 with no url is NOT the finding — it is already converted, so the gate lets it through',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:59|apps/web/src/App.tsx:63': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:59|apps/web/src/App.tsx:74': {
     kind: 'LIVE',
     fragment: 'onError',
     why: 'the app\'s only global error handler, quoted to show it hangs off the QUERY cache and cannot see a mutation',

@@ -87,7 +87,8 @@ const CONSOLE_STEPS: Record<string, string> = {
    */
   page: 'the console’s one display step — the heading that opens a screen, clamp(24px, 3vw, 38px)',
   title: 'the top of the console ramp, 24px — what a document title renders at behind the gate',
-  head: 'a card header and the shell title bar',
+  head: 'a card header',
+  bar: 'the shell top-bar title, 20px 500 (B29.7)',
   body: 'the paragraph step, and by count the product',
   caption: 'the small label beside a value',
   micro: 'the µ-tail under a money figure',

@@ -86,6 +86,7 @@ const DEFAULT_ROOT_PX = 16
 const CONSOLE_STEPS_PX: Record<string, number> = {
   title: 24,
   head: 17,
+  bar: 20,
   body: 14,
   caption: 12,
   micro: 12.5,
