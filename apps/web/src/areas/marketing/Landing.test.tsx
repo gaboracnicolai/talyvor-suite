@@ -1,4 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONTACT_EMAIL, Landing, POOLED_DISCOUNT_PERCENT } from './Landing'
 import { LEDGER_HIT, SAVED_MICRO_LXC, micro } from './economics'
@@ -53,7 +55,10 @@ describe('Landing', () => {
   it('prints exactly one kind of percentage — the pooled discount derived from the ledger row', () => {
     const { container } = render(<Landing />)
     expect(POOLED_DISCOUNT_PERCENT).toBe(30)
-    const percents = new Set(container.textContent?.match(/\d+%/g) ?? [])
+    // The page's own <style> block (B29.4's photo scrim and crops) is CSS, not copy a visitor reads.
+    const page = container.cloneNode(true) as HTMLElement
+    page.querySelectorAll('style').forEach((s) => s.remove())
+    const percents = new Set(page.textContent?.match(/\d+%/g) ?? [])
     expect([...percents]).toEqual([`${POOLED_DISCOUNT_PERCENT}%`])
   })
 
@@ -115,7 +120,41 @@ describe('Landing', () => {
     for (const h of [/rules before the money moves/i, /console for your agents/i, /where agents spend/i, /repeated questions cost less/i])
       expect(screen.getByRole('heading', { level: 2, name: h })).toBeInTheDocument()
     expect(text).not.toMatch(/toward zero|ninety\s+days|90 days|near-zero/i)
-    expect(text).toContain('Talyvor Ltd · wallets for AI agents')
+    // B29.4 moved the footer line to the widened product, word for word from the build item.
+    expect(text).toContain('Talyvor Ltd · money and markets for AI agents')
+  })
+
+  // B29.4: the board's WEBSITE HERO. The pieces a visitor sees, each read from the DOM: the drawn
+  // lockup files (one per theme), the hero photograph with the 1200 version for phones and the
+  // SAME srcset and sizes index.html preloads, the verb stack with its teal rule, and the band.
+  it('draws the board: the logo lockup, the preloaded hero photo, the verb stack and the band', () => {
+    const { container } = render(<Landing />)
+    const logos = [...container.querySelectorAll('img[data-brand="logo"]')].map((i) => i.getAttribute('src'))
+    expect(logos).toEqual(['/brand/svg/talyvor-logo-dark-notag.svg', '/brand/svg/talyvor-logo-light-notag.svg'])
+
+    const photo = container.querySelector('figure img')!
+    expect(photo.getAttribute('src')).toBe('/brand/photos/hero.jpg')
+    const srcset = photo.getAttribute('srcset')!
+    expect(srcset).toContain('/brand/photos/hero-1200.jpg 1200w')
+    const html = readFileSync(resolve(__dirname, '../../../index.html'), 'utf8')
+    expect(html, 'index.html must preload the srcset the page uses').toContain(srcset)
+    expect(html, 'index.html must preload with the sizes the page uses').toContain(photo.getAttribute('sizes')!)
+
+    const verbs = container.querySelector('.tal-verbs')!
+    expect([...verbs.querySelectorAll('span.uppercase')].map((s) => s.textContent)).toEqual(['Route', 'Prove', 'Reuse', 'Compound'])
+    expect(verbs.querySelector('.bg-accent'), 'the teal rule under the verbs').not.toBeNull()
+
+    const text = container.textContent ?? ''
+    for (const line of [
+      'SovereignDesigned to run on your own infrastructure.',
+      'MeasurableEvery call and payment on a statement.',
+      'IntegratedAccounts, payments, gateway and marketplace in one.',
+      'CompoundingSavings and earnings build over time.',
+    ])
+      expect(text).toContain(line)
+    // one brand icon per numbered section, in the page's order
+    const icons = [...container.querySelectorAll('section img[src^="/brand/svg/icon-"]')].map((i) => i.getAttribute('src'))
+    expect(icons).toEqual(['prove', 'route', 'compound', 'reuse'].map((n) => `/brand/svg/icon-${n}-teal.svg`))
   })
 
   /**

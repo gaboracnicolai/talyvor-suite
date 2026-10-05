@@ -76,11 +76,12 @@ describe('the marketing page offers a way in', () => {
   it('has a primary action that reaches the signup page, not only an email link', async () => {
     mockBff()
     at('/marketing')
-    const cta = await screen.findByRole('link', { name: /get started/i })
-    // /signup, not /auth/login directly: a stranger is told what this is and what happens next
+    // B29.4: the header carries a "Get started" too, so there are two — and EVERY one must go
+    // to /signup, not /auth/login directly: a stranger is told what this is and what happens next
     // BEFORE being redirected to a third party. A mailto: or an in-app path is not a way in for
     // someone with no session; nor is a bare redirect they cannot evaluate.
-    expect(cta.getAttribute('href')).toBe('/signup')
+    const ctas = await screen.findAllByRole('link', { name: /get started/i })
+    expect(ctas.map((a) => a.getAttribute('href'))).toEqual(['/signup', '/signup'])
   })
 
   // THE PREMISE OF THIS TEST CHANGED, so the test changed with it rather than being deleted.
@@ -98,7 +99,7 @@ describe('the marketing page offers a way in', () => {
   it('promises self-serve signup only when the gate actually allows it', async () => {
     mockBff({ signupOpen: false })
     at('/marketing')
-    await screen.findByRole('link', { name: /get started/i })
+    await screen.findAllByRole('link', { name: /get started/i })
     await waitFor(() => {
       expect(screen.getByText(/closed trial/i)).toBeInTheDocument()
     })
@@ -108,7 +109,7 @@ describe('the marketing page offers a way in', () => {
   it('says a stranger can just start, once the gate is open', async () => {
     mockBff({ signupOpen: true })
     at('/marketing')
-    await screen.findByRole('link', { name: /get started/i })
+    await screen.findAllByRole('link', { name: /get started/i })
     await waitFor(() => {
       expect(screen.getByText(/no invitation needed/i)).toBeInTheDocument()
     })
@@ -120,7 +121,7 @@ describe('the marketing page offers a way in', () => {
     // could have signed up; guessing "open" walks them into a refusal. Neither is printed.
     mockBff()
     at('/marketing')
-    await screen.findByRole('link', { name: /get started/i })
+    await screen.findAllByRole('link', { name: /get started/i })
     expect(screen.queryByText(/closed trial/i)).toBeNull()
     expect(screen.queryByText(/no invitation needed/i)).toBeNull()
   })

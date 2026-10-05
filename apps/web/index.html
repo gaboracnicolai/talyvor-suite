@@ -65,6 +65,23 @@
         document.documentElement.setAttribute('data-theme', t)
       })()
     </script>
+    <!-- B29.4: the /marketing hero photograph, preloaded before the bundle runs. Only on that
+         address — every other screen would pay for a picture it never shows. The srcset and sizes
+         are Landing.tsx's HERO_SRCSET and HERO_SIZES, so the preload is the image the page uses.
+         The attribute keeps it apart from the no-flash script, which noFlashTheme.test.ts runs. -->
+    <script data-preload="marketing-hero">
+      ;(function () {
+        if (!/^\/marketing(\/|$)/.test(location.pathname)) return
+        var l = document.createElement('link')
+        l.rel = 'preload'
+        l.as = 'image'
+        l.href = '/brand/photos/hero.jpg'
+        l.setAttribute('imagesrcset', '/brand/photos/hero-1200.jpg 1200w, /brand/photos/hero.jpg 2400w')
+        l.setAttribute('imagesizes', '(min-width: 840px) 50vw, 100vw')
+        l.setAttribute('fetchpriority', 'high')
+        document.head.appendChild(l)
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
