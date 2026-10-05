@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Locator, Page } from 'playwright'
 import { type AppUser, chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
-import type { Agent, AgentBook, Answered, JudgeReply, SyntheticUser } from './lens.ts'
+import type { Agent, AgentBook, AgentLine, Answered, JudgeReply, SyntheticUser } from './lens.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
@@ -617,6 +617,56 @@ export function agentLimit(seed: number): Scenario {
         return fail(`served: ${a.name}'s balance fell by ${1e6 - after} µLXC; the ledger has ${fresh.length} new spend row(s) for ${charged} µLXC`)
       }
       return { pass: true, detail: `refused (403, the limit per request) with nothing charged; raised, served once from ${a.name}'s own balance (${charged} µLXC)` }
+    }),
+  }
+}
+
+/** The line a served request leaves on the agent's own account: Lens's hold, the stub's spend. */
+const requestLine = (l: AgentLine) => l.kind === 'hold' || l.kind === 'spend'
+
+/**
+ * B28.24 — the DONE line: a hold over the hourly cap writes zero postings; under it, one. The cap is set
+ * on Agent Wallets' Rules card, as a person sets it, and checked in Lens's hold, before the provider.
+ */
+export function agentHourlyLimit(seed: number): Scenario {
+  const r = seeded(seed * 37 + 11)
+  return {
+    id: 'agent-hourly-limit',
+    title: 'an hourly cap set on Agent Wallets refuses a request over it with no posting; raised, the same request writes one',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const a = await openAgent(ctx, bank, `Hourly ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      let err = await bank.move(a, 1e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setLimit(a, 'Hourly limit', 1)
+      if (err !== undefined) return fail(`the hourly limit was not saved: ${err}`)
+      const key = await bank.issueKey(a)
+      const { q, want } = sum(r)
+      const lines0 = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+      const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const refused = await agentAsks(ctx, key, q, 'past an hourly limit of 0.000001 LXC')
+      if (refused.ok) return fail(`the hourly limit of 0.000001 LXC let a request through: "${refused.value.text}"`)
+      if (refused.status !== 403 || !/hourly limit/.test(refused.error)) {
+        return fail(`refused, but not by the hourly limit: ${refused.status} ${refused.error}`)
+      }
+      const lines1 = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+      const early = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id))
+      const charged0 = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
+      if (early.length > 0 || charged0.length > 0) {
+        return fail(`refused by the hourly limit, yet it wrote ${early.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} on ${a.name}'s account and ${charged0.length} spend row(s) on the ledger`)
+      }
+      err = await bank.setLimit(a, 'Hourly limit', 1e6)
+      if (err !== undefined) return fail(`the hourly limit could not be raised: ${err}`)
+      const served = await agentAsks(ctx, key, q, 'the same request, hourly limit raised to 1 LXC')
+      if (!served.ok) return fail(`with the hourly limit raised it was still refused: ${served.status} ${served.error}`)
+      if (!statesNumber(served.value.text, want)) return fail(`answered wrong: expected ${want}, got "${served.value.text}"`)
+      const late = (await ctx.env.lens.agentLines(ctx.app.user, a.id)).filter((l) => !lines1.some((o) => o.entry_id === l.entry_id))
+      const posted = late.filter(requestLine)
+      const charged = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
+      if (posted.length !== 1 || charged.length !== 1) {
+        return fail(`under the hourly limit: ${a.name}'s account has ${late.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} new and the ledger ${charged.length} spend row(s); want one ${posted[0]?.kind ?? 'hold'} posting and one spend row`)
+      }
+      return { pass: true, detail: `over the hourly limit: refused (403) with no posting and no charge; under it: one ${posted[0].kind} posting (${posted[0].amount_ulxc} µLXC) and one spend row` }
     }),
   }
 }

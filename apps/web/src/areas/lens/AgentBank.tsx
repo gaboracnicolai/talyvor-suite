@@ -755,7 +755,9 @@ function Archived({ agent, done }: { agent: Agent; done: AgentArchive | undefine
 
 const LIMITS = [
   ['max_per_request_ulxc', 'Limit per request'],
+  ['hourly_limit_ulxc', 'Hourly limit'],
   ['daily_limit_ulxc', 'Daily limit'],
+  ['weekly_limit_ulxc', 'Weekly limit'],
   ['monthly_limit_ulxc', 'Monthly limit'],
   ['approval_above_ulxc', 'Ask a person above'],
 ] as const
@@ -766,7 +768,9 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
   const qc = useQueryClient()
   const [limits, setLimits] = useState<Record<LimitField, string>>(() => ({
     max_per_request_ulxc: limitText(rules.max_per_request_ulxc),
+    hourly_limit_ulxc: limitText(rules.hourly_limit_ulxc ?? 0),
     daily_limit_ulxc: limitText(rules.daily_limit_ulxc),
+    weekly_limit_ulxc: limitText(rules.weekly_limit_ulxc ?? 0),
     monthly_limit_ulxc: limitText(rules.monthly_limit_ulxc),
     approval_above_ulxc: limitText(rules.approval_above_ulxc),
   }))
@@ -783,7 +787,9 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
     mutationFn: () =>
       agentBankApi.setRules(agent.id, {
         max_per_request_ulxc: parseLXC(limits.max_per_request_ulxc) ?? 0,
+        hourly_limit_ulxc: parseLXC(limits.hourly_limit_ulxc) ?? 0,
         daily_limit_ulxc: parseLXC(limits.daily_limit_ulxc) ?? 0,
+        weekly_limit_ulxc: parseLXC(limits.weekly_limit_ulxc) ?? 0,
         monthly_limit_ulxc: parseLXC(limits.monthly_limit_ulxc) ?? 0,
         approval_above_ulxc: parseLXC(limits.approval_above_ulxc) ?? 0,
         allowed_models: models,

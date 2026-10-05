@@ -129,7 +129,9 @@ export function RulesInWords({ agentName, rules }: { agentName: string; rules: A
   const limits: [number, string][] = (
     [
       [rules.max_per_request_ulxc, 'on one request'],
+      [rules.hourly_limit_ulxc ?? 0, 'an hour'],
       [rules.daily_limit_ulxc, 'a day'],
+      [rules.weekly_limit_ulxc ?? 0, 'a week'],
       [rules.monthly_limit_ulxc, 'a month'],
     ] as [number, string][]
   ).filter(([v]) => v > 0)
