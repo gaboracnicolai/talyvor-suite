@@ -214,25 +214,47 @@ export function Chat() {
     setWaiting(false)
   }, [])
 
+  // B28.275 — a question can be sent before who is signed in is known. Until then its conversation
+  // is held here, and run() reads the scope from a ref, because its closure is from before it was known.
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
+  const activeRef = useRef(activeId)
+  activeRef.current = activeId
+  const unsavedRef = useRef<Conversation[]>([])
+
   // Reopening the tab lands on the most recent conversation — "it is still there", literally.
+  // A conversation begun before the identity was known is saved under it now, and stays on screen.
   useEffect(() => {
     if (scope === null) return
     const read = loadConversations(scope)
+    const unsaved = unsavedRef.current
+    unsavedRef.current = []
+    if (unsaved.length > 0) {
+      const list = [...unsaved, ...read.list.filter((c) => !unsaved.some((u) => u.id === c.id))].sort(
+        (a, b) => b.updated_at - a.updated_at,
+      )
+      setStorageRefused(!saveConversations(scope, list))
+      setHistory({ list, error: null })
+      if (activeRef.current === null) open(list[0])
+      return
+    }
     setHistory(read)
     open(read.list[0])
   }, [scope, open])
 
   // ⚠ READS STORAGE, NOT STATE. It runs after an await inside run(), where `history` from the
   // closure is a render old; merging into that would drop a rename made while it streamed.
-  const store = useCallback(
-    (update: (list: Conversation[]) => Conversation[]) => {
-      if (scope === null) return
-      const next = update(loadConversations(scope).list)
-      setStorageRefused(!saveConversations(scope, next))
-      setHistory({ list: next, error: null })
-    },
-    [scope],
-  )
+  const store = useCallback((update: (list: Conversation[]) => Conversation[]) => {
+    const owner = scopeRef.current
+    if (owner === null) {
+      unsavedRef.current = update(unsavedRef.current)
+      setHistory({ list: unsavedRef.current, error: null })
+      return
+    }
+    const next = update(loadConversations(owner).list)
+    setStorageRefused(!saveConversations(owner, next))
+    setHistory({ list: next, error: null })
+  }, [])
 
   // ⚠ ABORT ON UNMOUNT. r.Context() in the BFF is the browser's connection, and cancelling it
   // cancels the upstream — which is what stops Lens generating, and being billed for, tokens

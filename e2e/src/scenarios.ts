@@ -442,6 +442,69 @@ export function sidebarStaysHidden(): Scenario {
   }
 }
 
+/** B28.275 — a question sent in a tab that does not yet know who is signed in is kept: after a reload it is in
+ *  the list and on screen, not "No conversations yet". The tab's /auth/me is held in this browser until the
+ *  answer is in, and the answer is made up in the browser, so it costs nothing. */
+export function sentBeforeIdentity(seed: number): Scenario {
+  const question = `Kept before the browser knew me, ${seed}-${Date.now().toString(36)}`
+  return {
+    id: 'sent-before-identity',
+    title: 'a message sent before the browser knows who is signed in is still there after a reload',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const page = await app.context.newPage()
+      let known = (): void => undefined
+      const held = new Promise<void>((r) => {
+        known = r
+      })
+      await page.route('**/auth/me', async (route) => {
+        await held
+        await route.continue().catch(() => undefined)
+      }, { times: 1 })
+      try {
+        await page.goto(new URL('/chat', app.page.url()).toString())
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        if (!(await page.getByText('Reading who is signed in…').isVisible())) {
+          return { pass: false, detail: 'the tab knew who was signed in before the question went, so nothing was tested' }
+        }
+        const trigger = page.locator('button[aria-label^="Model: "]').first()
+        const shownModel = ((await trigger.getAttribute('aria-label')) ?? '').replace(/^Model: /, '')
+        const provider = env.catalog.find((m) => m.display_name === shownModel)?.provider ?? 'anthropic'
+        await page.route('**/api/ai/stream/**', (route) =>
+          route.fulfill({ status: 200, contentType: 'text/event-stream', body: madeUpAnswer(provider, 'Kept.', false) }), { times: 1 })
+        await page.locator('#chat-message').fill(question)
+        await page.locator('#chat-message').press('Enter')
+        await page.getByRole('button', { name: 'Send' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        known()
+        const saved = page.getByRole('list', { name: 'Saved conversations' }).getByRole('button', { name: question })
+        await saved.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        const onScreen = (await page.locator('[data-testid="turn-user"]').allInnerTexts()).join(' ')
+
+        await page.reload()
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        const listed = await saved.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        const none = await page.getByText('No conversations yet.').isVisible()
+        const reopened = (await page.locator('[data-testid="turn-user"]').allInnerTexts()).join(' ')
+        ctx.evidence.push({ note: `before the reload the thread showed "${onScreen.slice(0, 120)}"; after it, listed=${listed}, "No conversations yet."=${none}, on screen "${reopened.slice(0, 120)}"` })
+        // The main tab must not reopen into this conversation the next time /chat loads.
+        await page.evaluate((q) => {
+          for (const key of Object.keys(localStorage).filter((k) => k.startsWith('talyvor.chat.v1:'))) {
+            const list = JSON.parse(localStorage.getItem(key) ?? '[]') as Array<{ title?: string }>
+            localStorage.setItem(key, JSON.stringify(list.filter((c) => c.title !== q)))
+          }
+        }, question)
+        if (!onScreen.includes(question)) return { pass: false, detail: 'the thread was cleared when the browser learned who was signed in' }
+        return listed && !none && reopened.includes(question)
+          ? { pass: true, detail: 'sent before the identity was known; after a reload it is listed and reopened' }
+          : { pass: false, detail: `after a reload: ${none ? '"No conversations yet."' : listed ? 'listed but not reopened' : 'not in the list'}` }
+      } finally {
+        known()
+        await page.close().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /** B28.266 — Royalties (the old /earnings address), Members, Setup and API keys, each opened cold in a tab of
  *  its own as a person opens a bookmark: at the load event each already shows its heading, and once its
  *  reads answer none is left on "Loading…". Then on API keys a key is created: its name field is empty
@@ -1882,7 +1945,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       if (i === 0) list.push(everyModelAnswers(streamable))
       break
     case 1: list.push(repeatInNewChat(i)); break
-    case 2: list.push(oneDigitTrap(i)); break
+    // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
+    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i)); break
     case 4: if (i + 5 < users) list.push(acrossAccounts(i, i + 5)); break
