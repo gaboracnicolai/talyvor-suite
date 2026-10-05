@@ -72,6 +72,7 @@ function evidenceLines(evidence: Evidence[]): string[] {
     if (e.answer !== undefined && e.answer !== '') out.push(`  - answer: ${e.answer.replace(/\s+/g, ' ').slice(0, 300)}`)
     if (e.footer !== undefined && e.footer !== '') out.push(`  - under it: ${e.footer}`)
     if (e.error !== undefined) out.push(`  - refused: ${e.error}`)
+    if (e.shot !== undefined) out.push(`  - screenshot: [${e.shot.split('/').pop()}](${e.shot})`)
     if (e.ledger !== undefined) {
       out.push(`  - ledger (${e.ledger.length} rows, newest first): ` +
         e.ledger.slice(0, 12).map((r) => `${r.type} ${r.amount_ulxc} µLXC`).join('; ') + (e.ledger.length > 12 ? '; …' : ''))
@@ -272,6 +273,8 @@ export function renderRun(run: ReportedRun): string {
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
     ...(run.findings ?? []).map((f) => f.feature ?? '(no screen)')])]
+  lines.push(...screenshots(run))
+
   lines.push('', '### By feature', '')
   for (const f of features) {
     const here = run.outcomes.filter((o) => featuresOf(o).includes(f))
@@ -297,6 +300,22 @@ export function renderRun(run: ReportedRun): string {
 }
 
 const escapeHTML = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** B29.21 — every screenshot the run took, a row of thumbnails per verdict, each linking to its file. */
+function screenshots(run: ReportedRun): string[] {
+  const shot = run.outcomes.filter((o) => o.evidence.some((e) => e.shot !== undefined))
+  if (shot.length === 0) return []
+  const lines = ['', '### Screenshots', '']
+  for (const o of shot) {
+    lines.push(`**${o.status} \`${o.scenario}\`** — user ${o.user}`, '')
+    for (const e of o.evidence.filter((x) => x.shot !== undefined)) {
+      const said = escapeHTML(e.note ?? '').replace(/"/g, '&quot;')
+      lines.push(`<a href="${e.shot}"><img src="${e.shot}" height="180" alt="${said.split(': ')[0]}" title="${said}"></a>`)
+    }
+    lines.push('')
+  }
+  return lines
+}
 
 /** The day's report file for a run, by the date (UTC) it started. */
 export function reportPath(dir: string, startedAt: string): string {

@@ -44,3 +44,14 @@ describe("the explorers' leads", () => {
     expect(report).toContain('The most notes one explorer made on one screen: 2.')
   })
 })
+
+// B29.21 — a scenario's screenshots appear in the report, each thumbnail linking to its file.
+describe('screenshots in the report', () => {
+  it('shows each screenshot under its verdict, linked beside the report', () => {
+    const report = renderRun({ ...cutShort, outcomes: [{ scenario: 'brand-visual', title: 'the brand', user: 2, workspace: 'ws2', status: 'PASS', detail: '16 views',
+      evidence: [{ note: '/marketing 1440×900 dark: the brand — logo svg mark', shot: 'shots/2026-10-05T03-00-00-000Z/marketing-1440-dark.jpg' }] }] })
+    expect(report).toContain('### Screenshots')
+    expect(report).toContain('<a href="shots/2026-10-05T03-00-00-000Z/marketing-1440-dark.jpg"><img src="shots/2026-10-05T03-00-00-000Z/marketing-1440-dark.jpg" height="180" alt="/marketing 1440×900 dark"')
+    expect(report).toContain('  - screenshot: [marketing-1440-dark.jpg](shots/2026-10-05T03-00-00-000Z/marketing-1440-dark.jpg)')
+  })
+})

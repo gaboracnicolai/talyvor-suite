@@ -25,6 +25,7 @@ import { CannotTest, type Evidence, type RunEnv, checkLedger, journeyFor } from 
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const reportDirOf = (cfg: RunConfig): string => cfg.reportDir ?? join(REPO, 'docs/e2e')
 
 /** The providers whose stream the web app reads (apps/web/src/areas/chat/chatApi.ts STREAMABLE_PROVIDERS). */
 const STREAMABLE = ['openai', 'anthropic', 'google', 'mistral', 'groq', 'bedrock', 'vllm'] as const
@@ -148,6 +149,7 @@ class Browsers {
  */
 export async function run(cfg: RunConfig): Promise<RunResult> {
   const started = new Date()
+  const shotStamp = started.toISOString().replace(/[:.]/g, '-')
   const incidents: string[] = []
   const outcomes: Outcome[] = []
   const summaries: ExplorerSummary[] = []
@@ -231,6 +233,8 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       userCount: users.length,
       outDir: cfg.outDir,
       lensSrc: cfg.lensSrc,
+      // B29.21 — beside the day's report, one folder a run, so the report's links outlive out/.
+      shots: { dir: join(reportDirOf(cfg), 'shots', shotStamp), link: `shots/${shotStamp}` },
     }
 
     try {
@@ -435,7 +439,7 @@ async function main(): Promise<number> {
 
   // B17.4 — a build item for each scenario that FAILED and is not covered yet, then the day's report,
   // which names each failure's item. B25.5 (4) — then the run's summary for the morning brief.
-  const reportDir = cfg.reportDir ?? join(REPO, 'docs/e2e')
+  const reportDir = reportDirOf(cfg)
   const planned = reportPath(reportDir, result.started_at)
   const shown = planned.startsWith(REPO + '/') ? relative(REPO, planned) : planned
   const filed: Record<string, string> = {}
