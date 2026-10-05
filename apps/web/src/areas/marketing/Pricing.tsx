@@ -1,4 +1,4 @@
-import { Button, ThemeToggle, focusRing, inlineLink } from '@talyvor/ui'
+import { Button, Mark, ThemeToggle, Wordmark, focusRing, inlineLink } from '@talyvor/ui'
 import { useDocumentTitle } from '../../documentTitle'
 import { BYOK, BYOK_PROVIDERS, PLANS, type PlanOffer } from '../lens/planApi'
 import { formatCents, formatLXC, lxcForCents } from '../lens/topupApi'
@@ -166,9 +166,12 @@ export function Pricing() {
     <div className="flex min-h-full flex-col bg-canvas text-ink">
       <header className="sticky top-0 z-10 border-b border-rule bg-canvas">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-gutter py-3">
-          <a href="/marketing" className={`block ${focusRing}`}>
-            <div className="text-head text-ink">Talyvor</div>
-            <div className="text-caption font-normal text-faint">Suite</div>
+          <a href="/marketing" className={`flex items-center gap-2.5 ${focusRing}`}>
+            <Mark size={26} aria-hidden />
+            <div className="min-w-0">
+              <Wordmark height={12} />
+              <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Suite</div>
+            </div>
           </a>
           <div className="flex items-center gap-3">
             <a href="/documentation" className={`text-body text-muted ${inlineLink}`}>

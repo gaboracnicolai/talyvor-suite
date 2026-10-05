@@ -315,12 +315,12 @@ describe('a card header is a section title, so it is a heading element', () => {
         'means something that is not a section title has entered the headings rotor — a balance, ' +
         'a wordmark, a badge.',
     ).toHaveLength(1 + pageScale.length + titles.length)
-    const wordmark = Array.from(document.querySelectorAll('.text-head')).find(
-      (e) => e.textContent?.trim() === 'Talyvor',
-    )
+    // B29.3: the wordmark is the drawn brand SVG now, not a `text-head` div — so it is found by
+    // what it is, and the heading it must not be is any ancestor, not only its own tag.
+    const wordmark = document.querySelector('svg[data-brand="wordmark"]')
     expect(wordmark, 'the sidebar wordmark is gone — this case no longer measures anything').toBeTruthy()
     expect(
-      wordmark!.tagName,
+      wordmark!.closest('h1,h2,h3,h4,h5,h6')?.tagName ?? 'none',
       'the wordmark names the PRODUCT, not a region of this page. As a heading it would appear in ' +
         'the rotor on every screen, above the page name, as a section nobody can navigate to.',
     ).not.toMatch(/^H[1-6]$/)

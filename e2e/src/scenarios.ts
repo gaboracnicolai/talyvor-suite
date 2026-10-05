@@ -523,6 +523,54 @@ export function brandIcons(): Scenario {
   }
 }
 
+/** B29.3 — the logo is the drawn mark and wordmark, not a CSS tile and a typed name: on the sidebar,
+ *  sign-in, /marketing, /pricing and /documentation, in the dark theme and the light one. Each
+ *  theme's fills are read from the browser, so a logo that does not follow the theme fails. */
+export function brandLogo(): Scenario {
+  // The brand-v4 files' colours as the browser reports them: Frost + Teal tip on dark, Obsidian on light.
+  const want = {
+    dark: { mark: 'rgb(230, 238, 247)', wordmark: 'rgb(250, 251, 252)' },
+    light: { mark: 'rgb(6, 10, 18)', wordmark: 'rgb(6, 10, 18)' },
+  }
+  return {
+    id: 'brand-logo',
+    title: 'the sidebar, sign-in and public headers carry the drawn mark and wordmark in both themes',
+    run: async (ctx) => {
+      const seen: string[] = []
+      const wrong: string[] = []
+      for (const path of ['/', '/signin', '/marketing', '/pricing', '/documentation']) {
+        const page = await ctx.app.tab(path)
+        try {
+          await page.locator('svg[data-brand="wordmark"]').first().waitFor({ state: 'visible' })
+          for (const theme of ['dark', 'light'] as const) {
+            const got = await page.evaluate((t) => {
+              document.documentElement.dataset.theme = t
+              const fill = (sel: string) => {
+                const el = document.querySelector(`svg[data-brand="${sel}"] path`)
+                return el === null ? 'absent' : getComputedStyle(el).fill
+              }
+              const lockup = document.querySelector('svg[data-brand="wordmark"]')!.parentElement!.parentElement!
+              return { mark: fill('mark'), wordmark: fill('wordmark'), typed: /talyvor/i.test(lockup.textContent ?? '') }
+            }, theme)
+            seen.push(`${path} ${theme}: mark ${got.mark}, wordmark ${got.wordmark}`)
+            if (got.mark !== want[theme].mark) wrong.push(`${path} ${theme} mark ${got.mark}`)
+            if (got.wordmark !== want[theme].wordmark) wrong.push(`${path} ${theme} wordmark ${got.wordmark}`)
+            if (got.typed) wrong.push(`${path} still types Talyvor beside the logo`)
+          }
+        } catch (e) {
+          wrong.push(`${path}: no drawn wordmark (${(e as Error).message.split('\n')[0]})`)
+        } finally {
+          await page.close()
+        }
+      }
+      ctx.evidence.push({ note: seen.join('; ') })
+      return wrong.length === 0
+        ? { pass: true, detail: 'drawn mark and wordmark on all five screens, each theme in its own colours' }
+        : { pass: false, detail: `logo wrong: ${wrong.join(', ')}` }
+    },
+  }
+}
+
 /** B28.2 — the front door leads with wallets: the hero a visitor reads first, the three product
  *  sections and the one pooling block, and no trace of the retired "toward zero" price curve. */
 export function walletHero(): Scenario {
@@ -1477,8 +1525,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(sidebarStaysHidden(), blankThenRetry(i)); break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
     case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
-    // B29.1 — then the favicon, the Home Screen icon and the install manifest.
-    case 8: list.push(socialPreview(), brandIcons(), walletDocs()); break
+    // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo.
+    case 8: list.push(socialPreview(), brandIcons(), brandLogo(), walletDocs()); break
     case 9: list.push(walletHero(), honestPages(), pricingTruth(), plansIncludedUsage()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users

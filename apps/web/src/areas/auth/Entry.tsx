@@ -1,4 +1,4 @@
-import { Button, Card, Mark, ThemeToggle, inlineLink } from '@talyvor/ui'
+import { Button, Card, Mark, ThemeToggle, Wordmark, inlineLink } from '@talyvor/ui'
 import { useSignupProbe, type SignupState } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
 import { SharedAnswersFact } from '../../components/StoredAnswersFacts'
@@ -45,10 +45,10 @@ function EntryFrame({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen flex-col bg-canvas text-ink">
       <header className="flex items-center justify-between px-gutter py-4">
         <div className="flex items-center gap-2.5">
-          <Mark size={26} />
+          <Mark size={26} aria-hidden />
           <div className="min-w-0">
-            <div className="text-head leading-tight text-ink">Talyvor</div>
-            <div className="text-caption font-normal leading-tight text-faint">Suite</div>
+            <Wordmark height={12} />
+            <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Suite</div>
           </div>
         </div>
         <ThemeToggle />
