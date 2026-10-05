@@ -32,12 +32,12 @@ import { PanelFailure } from '../../components/SessionExpiredBar'
 //
 // The `days` window is passed to Lens, so the number matches whatever window the screen
 // claims in its caption rather than silently always being 30.
-export function CacheCard({ days }: { days: number }) {
+export function CacheCard({ days, raised = false }: { days: number; /** B29.9 — on Spend's raised plane */ raised?: boolean }) {
   const q = useQuery({ queryKey: ['usage', days], queryFn: () => api.usage(days) })
   const cache = q.data?.cache
 
   return (
-    <Card>
+    <Card raised={raised}>
       <CardHeader>Cache</CardHeader>
       <div className="px-gutter pb-1 pt-2.5 text-caption font-normal text-muted">
         A cache hit serves the response without calling the provider.

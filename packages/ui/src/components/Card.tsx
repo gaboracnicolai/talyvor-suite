@@ -1,23 +1,31 @@
+import { createContext } from 'react'
 import { cn } from '../lib/cn'
+
+/** B29.9 — true inside a `raised` Card, so a figure there knows its plane (MuNumeral's µ-tail). */
+export const RaisedPlane = createContext(false)
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   /** The proof-rule variant: a 2px accent rule down the left edge marks a card whose
    *  contents are backed by a proof/verification. Colour in a tick, never on text. */
   proof?: boolean
+  /** B29.9 — the board's card plane: `raised` instead of `surface`. One bg class, so the plane audit
+   *  reads the plane the card is actually painted on — and `raised` refuses `faint` text. */
+  raised?: boolean
   children: React.ReactNode
 }
 
-export function Card({ proof = false, className, children, ...props }: CardProps) {
+export function Card({ proof = false, raised = false, className, children, ...props }: CardProps) {
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-card border border-rule bg-surface',
+        'overflow-hidden rounded-card border border-rule',
+        raised ? 'bg-raised' : 'bg-surface',
         proof && 'border-l-2 border-l-accent',
         className,
       )}
       {...props}
     >
-      {children}
+      <RaisedPlane.Provider value={raised}>{children}</RaisedPlane.Provider>
     </div>
   )
 }

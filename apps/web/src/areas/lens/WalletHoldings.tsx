@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Input, Pill, Row, focusRing, type PillStatus } from '@talyvor/ui'
+import { Button, CardHeader, Input, Pill, Row, focusRing, type PillStatus } from '@talyvor/ui'
+import { Card, pressed } from './walletBrand'
 import { formatUSD, formatWhen } from './format'
 import { Lxc } from './money'
 import {
@@ -165,7 +166,7 @@ export function Pots({ agent }: { agent: Agent }) {
           <Input aria-label="New pot’s name" placeholder="Name" className="wide:w-40" value={name} onChange={(e) => setName(e.target.value)} />
           <div className="flex items-center gap-1" role="group" aria-label="What the pot is for">
             {POT_KINDS.map(([k, label]) => (
-              <Button key={k} aria-pressed={kind === k} variant={kind === k ? 'primary' : 'default'} onClick={() => setKind(k)}>
+              <Button key={k} aria-pressed={kind === k} className={pressed} onClick={() => setKind(k)}>
                 {label}
               </Button>
             ))}
@@ -179,7 +180,7 @@ export function Pots({ agent }: { agent: Agent }) {
             onChange={(e) => setTarget(e.target.value)}
           />
           <Input type="date" aria-label="Locked until (optional)" className="w-40 font-figure" value={until} onChange={(e) => setUntil(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!ready || create.isPending}>
+          <Button type="submit" disabled={!ready || create.isPending}>
             Create pot
           </Button>
         </div>
@@ -236,7 +237,7 @@ export function PayIntoEscrow({ agent }: { agent: Agent }) {
           />
           <Input type="date" aria-label="Release on" className="w-40 font-figure" value={release} onChange={(e) => setRelease(e.target.value)} />
           <Input aria-label="What the escrow is for" placeholder="What it is for" className="wide:w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!ready || pay.isPending}>
+          <Button type="submit" disabled={!ready || pay.isPending}>
             Pay into escrow
           </Button>
         </div>
@@ -309,7 +310,7 @@ function EscrowRow({ escrow, agents }: { escrow: Escrow; agents: Agent[] }) {
       ))}
       {paying && escrow.status === 'held' ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" disabled={act.isPending} onClick={() => act.mutate('confirm')}>
+          <Button disabled={act.isPending} onClick={() => act.mutate('confirm')}>
             Confirm delivered
           </Button>
           <Input aria-label="Why you dispute it" placeholder="Why you dispute it" className="wide:w-56" value={reason} onChange={(e) => setReason(e.target.value)} />
@@ -429,14 +430,14 @@ function PortfolioView({ agent, portfolio, instruments }: { agent: Agent; portfo
         </select>
         <div className="flex items-center gap-1" role="group" aria-label="Buy or sell">
           {(['buy', 'sell'] as const).map((s) => (
-            <Button key={s} aria-pressed={side === s} variant={side === s ? 'primary' : 'default'} onClick={() => setSide(s)}>
+            <Button key={s} aria-pressed={side === s} className={pressed} onClick={() => setSide(s)}>
               {s === 'buy' ? 'Buy' : 'Sell'}
             </Button>
           ))}
         </div>
         <div className="flex items-center gap-1" role="group" aria-label="Order type">
           {(['market', 'limit'] as const).map((t) => (
-            <Button key={t} aria-pressed={type === t} variant={type === t ? 'primary' : 'default'} onClick={() => setType(t)}>
+            <Button key={t} aria-pressed={type === t} className={pressed} onClick={() => setType(t)}>
               {t === 'market' ? 'At market' : 'Limit'}
             </Button>
           ))}
@@ -445,7 +446,7 @@ function PortfolioView({ agent, portfolio, instruments }: { agent: Agent; portfo
         {type === 'limit' ? (
           <Input aria-label="Limit price in US dollars" inputMode="decimal" placeholder="$ limit" className="w-28 font-figure" value={limit} onChange={(e) => setLimit(e.target.value)} />
         ) : null}
-        <Button type="submit" variant="primary" disabled={!ready || place.isPending}>
+        <Button type="submit" disabled={!ready || place.isPending}>
           Place order
         </Button>
       </form>
@@ -532,7 +533,7 @@ export function Portfolios({ agent }: { agent: Agent }) {
           value={cash}
           onChange={(e) => setCash(e.target.value)}
         />
-        <Button type="submit" variant="primary" disabled={!name.trim() || cashMicros === null || open.isPending}>
+        <Button type="submit" disabled={!name.trim() || cashMicros === null || open.isPending}>
           Open portfolio
         </Button>
         {open.isError ? <Note ok={false}>Not opened. {refusalText(open.error)}</Note> : null}
@@ -586,7 +587,7 @@ export function CashOutCard({ agent }: { agent: Agent }) {
             value={destination}
             onChange={(e) => setDestination(e.target.value)}
           />
-          <Button type="submit" variant="primary" disabled={!ready || ask.isPending}>
+          <Button type="submit" disabled={!ready || ask.isPending}>
             Ask to cash out
           </Button>
         </div>

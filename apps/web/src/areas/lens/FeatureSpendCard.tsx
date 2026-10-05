@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Card, CardHeader, Row, inlineLink } from '@talyvor/ui'
+import { CardHeader, Row, inlineLink } from '@talyvor/ui'
+import { Card } from './walletBrand'
 import { api } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 import { readFeatureSpend } from './featureSpend'

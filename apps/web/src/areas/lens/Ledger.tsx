@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, CardHeader, MuNumeral, Pill } from '@talyvor/ui'
+import { Button, CardHeader, MuNumeral, Pill } from '@talyvor/ui'
+import { Card, pressed } from './walletBrand'
 
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
 import { api, type LedgerRow, type Token } from '../../lib/api'
 import { formatWhen, humanizeType, ledgerStatus } from './format'
 import { PanelFailure } from '../../components/SessionExpiredBar'
+import { Region, RegionScreen } from '../../components/Region'
 
 const PAGE = 20
 
@@ -93,85 +95,88 @@ export function Ledger() {
   const hasPrev = shownOffset > 0
   const hasNext = rows.length === PAGE
 
+  // B29.9 — the board's shape: an eyebrow over the section, the table on a raised card.
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-gutter">
-      <div className="flex items-center justify-between gap-gutter">
-        <div className="flex gap-1" role="group" aria-label="Ledger token">
-          {TOKENS.map((t) => (
-            <Button
-              key={t.id}
-              variant={token === t.id ? 'primary' : 'default'}
-              aria-pressed={token === t.id}
-              onClick={() => setToken(t.id)}
-            >
-              {t.label}
-            </Button>
-          ))}
+    <RegionScreen>
+      <Region index="00" label="Ledger" sectionClassName="pb-10 pt-4 wide:pb-12" className="flex flex-col gap-gutter" fullWidth>
+        <div className="flex items-center justify-between gap-gutter">
+          <div className="flex gap-1" role="group" aria-label="Ledger token">
+            {TOKENS.map((t) => (
+              <Button
+                key={t.id}
+                className={pressed}
+                aria-pressed={token === t.id}
+                onClick={() => setToken(t.id)}
+              >
+                {t.label}
+              </Button>
+            ))}
+          </div>
+          <span className="text-caption text-muted">newest first</span>
         </div>
-        <span className="text-caption text-muted">newest first</span>
-      </div>
 
-      <Card>
-        <CardHeader>{token === 'lxc' ? 'LXC ledger' : 'LENS token ledger'}</CardHeader>
-        {q.isLoading ? (
-          <div className="px-gutter py-3 text-body text-muted">Loading…</div>
-        ) : q.isError ? (
-          <PanelFailure error={q.error} what="the ledger" />
-        ) : rows.length === 0 ? (
-          <div className="space-y-2 px-gutter py-3">
-            <div className="text-body text-muted">
-              {hasPrev ? 'No more entries.' : 'No ledger entries yet.'}
-            </div>
-            {/* ⚠ THE POINT OF ABSENCE. A contribution can be genuine and still produce no row — a
-                mechanism under evaluation records what it WOULD have paid and credits nothing — so
-                this empty state is exactly where a tester forms the wrong conclusion. The disclosure
-                screen says it once at signup; the question arrives here.
+        <Card>
+          <CardHeader>{token === 'lxc' ? 'LXC ledger' : 'LENS token ledger'}</CardHeader>
+          {q.isLoading ? (
+            <div className="px-gutter py-3 text-body text-muted">Loading…</div>
+          ) : q.isError ? (
+            <PanelFailure error={q.error} what="the ledger" />
+          ) : rows.length === 0 ? (
+            <div className="space-y-2 px-gutter py-3">
+              <div className="text-body text-muted">
+                {hasPrev ? 'No more entries.' : 'No ledger entries yet.'}
+              </div>
+              {/* ⚠ THE POINT OF ABSENCE. A contribution can be genuine and still produce no row — a
+                  mechanism under evaluation records what it WOULD have paid and credits nothing — so
+                  this empty state is exactly where a tester forms the wrong conclusion. The disclosure
+                  screen says it once at signup; the question arrives here.
             
-                LENS only, and only on the FIRST page: LXC is fiat credit and has nothing to do with
-                unpaid mints, and "no more entries" after paging is not the same as never having
-                earned. Words shared with the disclosure screen so the claim cannot drift. */}
-            {token === 'lens' && !hasPrev ? (
-              <p className="text-caption text-muted">
-                <strong className="text-ink">{UNPAID_NOTICE_HEADLINE}</strong>{' '}
-                {UNPAID_CONTRIBUTION_NOTICE}
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
-                  <th className="px-gutter py-2 font-semibold">When</th>
-                  <th className="px-gutter py-2 font-semibold">Status</th>
-                  <th className="px-gutter py-2 font-semibold">Description</th>
-                  <th className="px-gutter py-2 text-right font-semibold">Amount</th>
-                  <th className="px-gutter py-2 text-right font-semibold">Balance after</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <LedgerTableRow key={r.id} r={r} token={token} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+                  LENS only, and only on the FIRST page: LXC is fiat credit and has nothing to do with
+                  unpaid mints, and "no more entries" after paging is not the same as never having
+                  earned. Words shared with the disclosure screen so the claim cannot drift. */}
+              {token === 'lens' && !hasPrev ? (
+                <p className="text-caption text-muted">
+                  <strong className="text-ink">{UNPAID_NOTICE_HEADLINE}</strong>{' '}
+                  {UNPAID_CONTRIBUTION_NOTICE}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
+                    <th className="px-gutter py-2 font-semibold">When</th>
+                    <th className="px-gutter py-2 font-semibold">Status</th>
+                    <th className="px-gutter py-2 font-semibold">Description</th>
+                    <th className="px-gutter py-2 text-right font-semibold">Amount</th>
+                    <th className="px-gutter py-2 text-right font-semibold">Balance after</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <LedgerTableRow key={r.id} r={r} token={token} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
 
-      <div className="flex items-center justify-between">
-        <span className="font-figure text-body text-muted">
-          Rows {rows.length ? shownOffset + 1 : 0}–{shownOffset + rows.length}
-        </span>
-        <div className="flex gap-2">
-          <Button onClick={() => setOffset((o) => Math.max(0, o - PAGE))} disabled={!hasPrev}>
-            Previous
-          </Button>
-          <Button onClick={() => setOffset((o) => o + PAGE)} disabled={!hasNext}>
-            Next
-          </Button>
+        <div className="flex items-center justify-between">
+          <span className="font-figure text-body text-muted">
+            Rows {rows.length ? shownOffset + 1 : 0}–{shownOffset + rows.length}
+          </span>
+          <div className="flex gap-2">
+            <Button onClick={() => setOffset((o) => Math.max(0, o - PAGE))} disabled={!hasPrev}>
+              Previous
+            </Button>
+            <Button onClick={() => setOffset((o) => o + PAGE)} disabled={!hasNext}>
+              Next
+            </Button>
+          </div>
         </div>
-      </div>
-    </div>
+      </Region>
+    </RegionScreen>
   )
 }

@@ -1,4 +1,6 @@
+import { useContext } from 'react'
 import { cn } from '../lib/cn'
+import { RaisedPlane } from './Card'
 import { CaseSafe } from './CaseSafe'
 
 export interface MuNumeralProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -45,6 +47,7 @@ function UnitLabel({ unit, micro = false }: { unit: 'lens' | 'lxc'; micro?: bool
  * at both scales, rather than two visual treatments of the decimal form. See README §MuNumeral.
  */
 export function MuNumeral({ micros, unit, className, ...props }: MuNumeralProps) {
+  const raised = useContext(RaisedPlane)
   const negative = micros < 0
   const abs = Math.abs(Math.trunc(micros))
   const whole = Math.floor(abs / MICRO)
@@ -73,12 +76,14 @@ export function MuNumeral({ micros, unit, className, ...props }: MuNumeralProps)
     )
   }
 
+  // B29.9 — on a raised card the tail wears `muted`: `raised` refuses `faint` (planes.ts).
+  const tail = raised ? 'text-muted' : 'text-faint'
   const wholeStr = sign + whole.toLocaleString('en-US')
   const microStr = String(micro).padStart(6, '0')
   return (
     <span className={cn(wrap, className)} {...props}>
       <span className="text-head text-ink">{wholeStr}</span>
-      <span className="text-micro text-faint underline">.{microStr}</span>
+      <span className={cn('text-micro underline', tail)}>.{microStr}</span>
       <UnitLabel unit={unit} />
     </span>
   )
