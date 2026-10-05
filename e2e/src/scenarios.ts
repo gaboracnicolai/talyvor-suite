@@ -684,6 +684,84 @@ export function marketingBoard(): Scenario {
   }
 }
 
+/** B29.6 — /signin and /signup in the brand, as a signed-out stranger sees them: at 1440 the lake photo
+ *  fills the right half beside the card; at 390 the photo is not shown (nor fetched), the lockup with
+ *  its tagline sits above the card, and nothing scrolls sideways. One teal action on each page. */
+export function signinBoard(): Scenario {
+  return {
+    id: 'signin-board',
+    title: '/signin and /signup show the brand split at 1440 and the tagline lockup at 390, signed out',
+    run: async (ctx) => {
+      const browser = ctx.app.context.browser()
+      if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
+      const origin = new URL(ctx.app.page.url()).origin
+      const context = await browser.newContext()
+      const wrong: string[] = []
+      try {
+        for (const [path, action] of [['/signin', 'Sign in'], ['/signup', 'Continue']] as const) {
+          const page = await context.newPage()
+          await page.goto(origin + path)
+          await page.locator('h1').waitFor({ state: 'visible' })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            // A page without the photo is a FAIL with its evidence, not a timeout that ERRORs.
+            if (width === 1440) await page.locator('figure img').waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined)
+            const got = await page.evaluate(async (label) => {
+              const photo = document.querySelector<HTMLImageElement>('figure img')
+              const shown = photo !== null && getComputedStyle(photo.parentElement!).display !== 'none'
+              if (shown && !photo.complete) await new Promise((r) => photo.addEventListener('load', r, { once: true }))
+              const logo = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-brand="logo"]'))
+                .find((i) => getComputedStyle(i).display !== 'none' && getComputedStyle(i.parentElement!).display !== 'none')
+              if (logo !== undefined && !logo.complete) await new Promise((r) => logo.addEventListener('load', r, { once: true }))
+              const wordmark = document.querySelector('header svg[data-brand="wordmark"]')
+              const p = shown ? photo.getBoundingClientRect() : null
+              const h1 = document.querySelector('h1')!.getBoundingClientRect()
+              const primary = Array.from(document.querySelectorAll<HTMLAnchorElement>('main a')).filter((a) => a.textContent?.trim() === label)
+              const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+              const probe = document.createElement('i')
+              probe.style.color = accent
+              document.body.append(probe)
+              const accentRGB = getComputedStyle(probe).color
+              probe.remove()
+              return {
+                photo: shown && p !== null ? { left: p.left, right: p.right, loaded: photo.naturalWidth > 0, src: photo.currentSrc } : null,
+                logo: logo === undefined ? '' : `${new URL(logo.src).pathname}${logo.naturalWidth > 0 ? '' : ' (not loaded)'}`,
+                logoAboveH1: logo !== undefined && logo.getBoundingClientRect().bottom <= h1.top,
+                wordmark: wordmark !== null && getComputedStyle(wordmark.parentElement!.parentElement!).display !== 'none',
+                teal: primary.length === 1 && getComputedStyle(primary[0]).backgroundColor === accentRGB,
+                tealCount: Array.from(document.querySelectorAll('a, button')).filter((el) => getComputedStyle(el).backgroundColor === accentRGB).length,
+                scroll: document.documentElement.scrollWidth,
+                client: document.documentElement.clientWidth,
+              }
+            }, action)
+            ctx.evidence.push({ note: `${path} ${width}: photo ${JSON.stringify(got.photo)}; logo ${got.logo || 'none'}; wordmark ${got.wordmark}; teal ${got.tealCount}; scroll ${got.scroll}/${got.client}` })
+            const at = `${path} ${width}px`
+            if (!got.teal || got.tealCount !== 1) wrong.push(`${at}: "${action}" is not the one teal action (${got.tealCount} teal)`)
+            if (got.scroll > got.client) wrong.push(`${at}: scrolls sideways (${got.scroll} > ${got.client})`)
+            if (width === 1440) {
+              if (got.photo === null || !got.photo.loaded) wrong.push(`${at}: the lake photo is not shown`)
+              else if (!/\/brand\/photos\/lake(-1200)?\.jpg$/.test(new URL(got.photo.src).pathname)) wrong.push(`${at}: photo ${got.photo.src}`)
+              else if (got.photo.left < width / 2 - 1 || got.photo.right < width - 1) wrong.push(`${at}: the photo is not the right half (${got.photo.left}–${got.photo.right})`)
+              if (!got.wordmark) wrong.push(`${at}: no mark and wordmark in the header`)
+              if (got.logo !== '') wrong.push(`${at}: the phone lockup shows on a wide screen`)
+            } else {
+              if (got.photo !== null) wrong.push(`${at}: the photo shows on a phone`)
+              if (!/^\/brand\/svg\/talyvor-logo-(dark|light)\.svg$/.test(got.logo)) wrong.push(`${at}: lockup "${got.logo}"`)
+              else if (!got.logoAboveH1) wrong.push(`${at}: the lockup is not above the card`)
+            }
+          }
+          await page.close()
+        }
+      } finally {
+        await context.close()
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: 'signed out: the lake photo on the right half at 1440, the tagline lockup above the card at 390, one teal action, no sideways scroll, on /signin and /signup' }
+        : { pass: false, detail: wrong.join('; ') }
+    },
+  }
+}
+
 /** B28.15 — the public documentation is wallet-first: getting started is create an agent, fund it, issue
  *  its key and watch its statement; Agent Wallets is the first guide, and its routes lead the Lens API. */
 export function walletDocs(): Scenario {
@@ -1680,8 +1758,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(sidebarStaysHidden(), blankThenRetry(i)); break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
     case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
-    // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo.
-    case 8: list.push(socialPreview(), brandIcons(), brandLogo(), walletDocs()); break
+    // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
+    // B29.6 — sign-in and sign-up in the brand, signed out.
+    case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
     // B29.4 — then /marketing in the board's design, at 1440 and at 390; B29.5 — /pricing in the brand.
     case 9: list.push(walletHero(), marketingBoard(), honestPages(), pricingTruth(), pricingBoard(), plansIncludedUsage()); break
   }
