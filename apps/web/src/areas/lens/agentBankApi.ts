@@ -132,6 +132,13 @@ export interface AgentRules {
   allowed_providers: string[] | null
   /** B19.14 — the marketplace listings it may use; empty or null allows any. */
   allowed_listings?: string[] | null
+  /**
+   * B28.27 — who the agent may pay, and who it may not, by payee id: an agent, a listing, a company (its
+   * workspace id) or a card merchant. Lens refuses a payment to a blocked payee and, once allowed_payees names
+   * anyone, to a payee it does not name. Lens always reads them; a save without them keeps the lists.
+   */
+  allowed_payees?: string[] | null
+  blocked_payees?: string[] | null
   active_from: string
   active_until: string
   timezone: string

@@ -76,6 +76,9 @@ interface Rules {
   allowed_models: string[]
   allowed_providers: string[]
   allowed_listings: string[]
+  /** B28.27 — who it may pay and who it may not, by payee id; a save without them keeps the lists. */
+  allowed_payees: string[]
+  blocked_payees: string[]
   active_from: string
   active_until: string
   timezone: string
@@ -144,7 +147,7 @@ const CAPABILITIES = [
 ].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
 
 const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, approval_above_ulxc: 0,
-  allowed_models: [], allowed_providers: [], allowed_listings: [], active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
+  allowed_models: [], allowed_providers: [], allowed_listings: [], allowed_payees: [], blocked_payees: [], active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
 
 const lxc = (ulxc: number): string => String(ulxc / 1e6)
 
@@ -226,7 +229,7 @@ export class Bank {
   }
 
   /**
-   * Lens's agent rules (economy/agent_rules.go), in its order: the pauses, the models, the limit per
+   * Lens's agent rules (economy/agent_rules.go), in its order: the pauses, the models, a payment's payee (B28.27), the limit per
    * request, the hour's, day's, week's and month's limits, the model's day, then the approval amount. A refusal is 403 naming the rule
    * (429 for the requests-a-minute rule, checked after the models, B28.26);
    * a request above the approval amount files an approval, and an approved one goes through once.
@@ -239,6 +242,14 @@ export class Bank {
     const r = agent.rules
     const what = req.payment ? 'payment' : 'request'
     if (r.allowed_models.length > 0 && !req.payment && !r.allowed_models.includes(req.model ?? '')) return rule(`the agent may not use the model "${req.model}"`)
+    if (req.payment && req.payee !== undefined) {
+      // B28.27 — a payee is named by its own id or its company's, as Lens's payeeIDs reads it.
+      const ids = [req.payee.id, req.payee.ws]
+      if (ids.some((x) => r.blocked_payees.includes(x))) return rule(`the agent may not pay agent "${req.payee.id}"`)
+      if (r.allowed_payees.length > 0 && !ids.some((x) => r.allowed_payees.includes(x))) {
+        return rule(`the agent may pay only the payees its rules name, and agent "${req.payee.id}" is not one`)
+      }
+    }
     if (r.requests_per_minute > 0 && !req.payment) {
       const since = Date.now() - 60_000
       const asked = (this.asked.get(agent.id) ?? []).filter((t) => t > since).length
@@ -914,7 +925,10 @@ export class Bank {
       if (action === '/rules' && method === 'GET') return json(res, 200, a.rules), true
       if (action === '/rules' && method === 'PUT') {
         const r = await this.body<Partial<Rules>>(req)
+        const both = (r.allowed_payees ?? []).find((x) => (r.blocked_payees ?? []).includes(x))
+        if (both !== undefined) return json(res, 400, { error: `"${both}" is both allowed and blocked; give it one` }), true
         a.rules = { ...noRules(), ...r, allowed_listings: r.allowed_listings ?? a.rules.allowed_listings,
+          allowed_payees: r.allowed_payees ?? a.rules.allowed_payees, blocked_payees: r.blocked_payees ?? a.rules.blocked_payees,
           hourly_limit_ulxc: r.hourly_limit_ulxc ?? a.rules.hourly_limit_ulxc, weekly_limit_ulxc: r.weekly_limit_ulxc ?? a.rules.weekly_limit_ulxc,
           model_daily_limits_ulxc: r.model_daily_limits_ulxc == null ? a.rules.model_daily_limits_ulxc : modelCaps(r.model_daily_limits_ulxc),
           requests_per_minute: r.requests_per_minute ?? a.rules.requests_per_minute,

@@ -212,6 +212,23 @@ func TestAgentRulesCarryTheRequestsPerMinuteCap(t *testing.T) {
 	}
 }
 
+// B28.27 — the payee lists reach Lens with the other rules; a save that does not name them sends null, which
+// Lens reads as "keep the lists it holds", never as "pay anyone".
+func TestAgentRulesCarryThePayeeLists(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"allowed_payees":["agt_2"],"blocked_payees":["agt_3","merchant_9"]}`)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"daily_limit_ulxc":5000000}`)
+	if len(f.got) != 2 {
+		t.Fatalf("Lens received %d requests, want 2: %q", len(f.got), f.got)
+	}
+	if !strings.Contains(f.got[0], `"allowed_payees":["agt_2"]`) || !strings.Contains(f.got[0], `"blocked_payees":["agt_3","merchant_9"]`) {
+		t.Fatalf("Lens received %q, want both payee lists", f.got[0])
+	}
+	if !strings.Contains(f.got[1], `"allowed_payees":null`) || !strings.Contains(f.got[1], `"blocked_payees":null`) {
+		t.Fatalf("Lens received %q, want both payee lists null when the save does not name them", f.got[1])
+	}
+}
+
 // B19.20 — pausing every agent, and one, reaches Lens on the session's workspace with only the reason;
 // resuming every agent sends nothing but the request.
 func TestAgentPauseSendsOnlyTheReason(t *testing.T) {

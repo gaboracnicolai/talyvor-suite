@@ -22,7 +22,10 @@ function mockBff() {
     if (url === '/api/agents')
       return json({
         workspace_balance_ulxc: 100 * M, allocated_ulxc: 12.5 * M, unallocated_ulxc: 87.5 * M, spent_ulxc: 0,
-        agents: [{ id: 'agt_1', name: 'Researcher', balance_ulxc: 12.5 * M, spent_ulxc: 0, keys: [], created_at: '2026-10-01T09:00:00Z' }],
+        agents: [
+          { id: 'agt_1', name: 'Researcher', balance_ulxc: 12.5 * M, spent_ulxc: 0, keys: [], created_at: '2026-10-01T09:00:00Z' },
+          { id: 'agt_2', name: 'Writer', balance_ulxc: 0, spent_ulxc: 0, keys: [], created_at: '2026-10-01T09:05:00Z' },
+        ],
       })
     if (url === '/api/lxc/topup-options') return json({ allowed_usd_cents: [1000], billing_enabled: true, usd_per_lxc: 0.1 })
     if (url === '/api/fx') return json({ rate_date: '2026-10-02', usd_per_eur: 1.1672, gbp_per_eur: 0.8354 })
@@ -161,5 +164,31 @@ describe('amounts in your own currency and plain-English rules', () => {
     expect(saved[0].requests_per_minute).toBe(60)
     const words = await screen.findByTestId('rules-in-words')
     await waitFor(() => expect(words.textContent).toContain('It may make at most 60 requests a minute.'))
+  })
+  // B28.27 — the owner names who the agent may pay and who it may not: a payee is one or the other, saved
+  // as Lens's two lists and stated.
+  it('blocks one payee and allows another, saves both lists, and states them', async () => {
+    const { saved } = mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Researcher may not pay Writer' }))
+    fireEvent.change(screen.getByLabelText('A payee’s id for Researcher'), { target: { value: ' ws_acme ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Allow' }))
+    expect(screen.getByRole('button', { name: 'Researcher may pay ws_acme' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0]).toMatchObject({ allowed_payees: ['ws_acme'], blocked_payees: ['agt_2'] })
+    const words = await screen.findByTestId('rules-in-words')
+    await waitFor(() => expect(words.textContent).toContain('It may pay only ws_acme.'))
+    expect(words.textContent).toContain('It may never pay Writer.')
+
+    // Allowing a blocked payee unblocks it: Lens refuses a payee on both lists.
+    fireEvent.click(screen.getByRole('button', { name: 'Researcher may pay Writer' }))
+    expect(screen.getByRole('button', { name: 'Researcher may not pay Writer' }).getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+    await waitFor(() => expect(saved).toHaveLength(2))
+    expect(saved[1]).toMatchObject({ allowed_payees: ['ws_acme', 'agt_2'], blocked_payees: [] })
   })
 })

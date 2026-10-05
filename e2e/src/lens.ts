@@ -253,6 +253,9 @@ export interface AgentRulesRead {
   allowed_models: string[] | null
   allowed_providers: string[] | null
   allowed_listings?: string[] | null
+  /** B28.27 — who the agent may pay and who it may not, by payee id. */
+  allowed_payees?: string[] | null
+  blocked_payees?: string[] | null
   active_from: string
   active_until: string
   timezone: string

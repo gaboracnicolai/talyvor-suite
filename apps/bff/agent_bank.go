@@ -209,9 +209,13 @@ func (a *app) handleAgentRules(w http.ResponseWriter, r *http.Request, t tenant)
 		// B19.19 — the marketplace listings the agent may use; empty allows any. Absent (null) keeps
 		// what Lens holds, so a client that does not send it cannot clear it.
 		AllowedListings []string `json:"allowed_listings"`
-		ActiveFrom      string   `json:"active_from"`
-		ActiveUntil     string   `json:"active_until"`
-		Timezone        string   `json:"timezone"`
+		// B28.27 — who the agent may pay and who it may not, by payee id (an agent, a listing, a company or
+		// a card merchant). Absent (null) keeps the lists Lens holds; an empty list clears one.
+		AllowedPayees []string `json:"allowed_payees"`
+		BlockedPayees []string `json:"blocked_payees"`
+		ActiveFrom    string   `json:"active_from"`
+		ActiveUntil   string   `json:"active_until"`
+		Timezone      string   `json:"timezone"`
 		// B19.6 — Lens replaces every other rule on a save, so this is carried back as it was read.
 		PauseOnUnusualSpend bool `json:"pause_on_unusual_spend"`
 	}
