@@ -60,6 +60,7 @@ function mockChat({
   converts = false,
   answerHeaders = {},
   unconfigured = [],
+  identityAfter,
 }: {
   catalog?: unknown
   catalogStatus?: number
@@ -81,6 +82,8 @@ function mockChat({
   answerHeaders?: Record<string, string>
   /** B18.58 — the providers /api/ai/providers says Lens holds no key for. */
   unconfigured?: string[]
+  /** B28.275 — /auth/me answers only once this settles, so a question can be sent before it does. */
+  identityAfter?: Promise<void>
 } = {}) {
   const posted = vi.fn()
   const uploaded = vi.fn()
@@ -104,6 +107,7 @@ function mockChat({
       })
     }
     if (url === '/auth/me') {
+      await identityAfter
       return new Response(
         JSON.stringify({ mode: 'oidc', authenticated: true, user: { sub, email: `${sub}@example.com` } }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -575,6 +579,33 @@ describe('conversation history', () => {
     renderChat()
     expect(await screen.findByRole('button', { name: 'Capital of France?' })).toBeTruthy()
     expect(screen.getByTestId('turn-user').textContent).toContain('Capital of France?')
+    expect(screen.getByTestId('turn-assistant').textContent).toContain('Paris.')
+  })
+
+  it('B28.275 — a question sent before the browser knows who is signed in is kept, and still there after a reload', async () => {
+    let known!: () => void
+    const identity = new Promise<void>((resolve) => (known = resolve))
+    const s = controllableStream()
+    mockChat({ body: s.stream, identityAfter: identity })
+    const tab = renderChat()
+    expect(await screen.findByText('Reading who is signed in…')).toBeTruthy()
+    await ask('Capital of France?')
+    s.push('data: {"choices":[{"delta":{"content":"Par"}}]}\n\n')
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('Par'))
+
+    // Who is signed in becomes known mid-answer: the thread stays on screen and goes into the list.
+    known()
+    expect(await screen.findByRole('button', { name: 'Capital of France?' })).toBeTruthy()
+    expect(screen.getByTestId('turn-user').textContent).toContain('Capital of France?')
+    s.push('data: {"choices":[{"delta":{"content":"is."}}]}\n\ndata: [DONE]\n\n')
+    s.close()
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('Paris.'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy())
+    tab.unmount()
+
+    renderChat()
+    expect(await screen.findByRole('button', { name: 'Capital of France?' })).toBeTruthy()
+    expect(screen.queryByText('No conversations yet.')).toBeNull()
     expect(screen.getByTestId('turn-assistant').textContent).toContain('Paris.')
   })
 
