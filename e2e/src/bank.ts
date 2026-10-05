@@ -54,12 +54,17 @@ export class AgentBankScreen {
 
   static async open(app: AppUser): Promise<AgentBankScreen> {
     const s = new AgentBankScreen(await app.tab('/agents'))
-    await s.page.getByTestId('agent-bank-totals').waitFor()
+    await s.ready()
     return s
   }
 
   async close(): Promise<void> {
     await this.page.close()
+  }
+
+  /** The book is read: its totals, or (B28.271) with no agents yet, the card that creates the first. */
+  private async ready(): Promise<void> {
+    await this.page.getByTestId('agent-bank-totals').or(this.page.getByTestId('agent-first')).first().waitFor()
   }
 
   async totals(): Promise<string> {
@@ -80,7 +85,7 @@ export class AgentBankScreen {
    */
   private async fresh(agent?: Agent): Promise<void> {
     await this.page.reload()
-    await this.page.getByTestId('agent-bank-totals').waitFor()
+    await this.ready()
     if (agent === undefined) return
     const open = this.page.getByTestId('agent-open').filter({ hasText: new RegExp(`^${esc(agent.name)}$`) })
     if (await open.isVisible()) return
@@ -1434,6 +1439,47 @@ export function walletHome(seed: number): Scenario {
         await page.close()
       }
     }),
+  }
+}
+
+/** B28.271 — what Agent Wallets may not show a workspace with no agents: none of these has anything to act on yet. */
+const EMPTY_HIDDEN = [
+  { what: 'the pause-all switch', find: (p: Page) => p.getByRole('button', { name: 'Pause every agent' }) },
+  { what: 'the month-end forecast', find: (p: Page) => p.getByTestId('agents-forecast') },
+  { what: 'the Approvals region', find: (p: Page) => p.getByRole('region', { name: 'Approvals' }) },
+  { what: 'the Spending region', find: (p: Page) => p.getByRole('region', { name: 'Spending' }) },
+  { what: 'the Between owners region', find: (p: Page) => p.getByRole('region', { name: 'Between owners' }) },
+  { what: 'the Held and cashed out region', find: (p: Page) => p.getByRole('region', { name: 'Held and cashed out' }) },
+] as const
+
+/**
+ * B28.271 — Agent Wallets opened by a workspace with no agents is one card, "Create your first agent", with the
+ * create form inside it; the pause-all switch, the forecast, approvals, "between owners" and "held" are not on the
+ * screen. Run while the workspace is empty (before Home's onboarding creates one); creates nothing, spends nothing.
+ */
+export function agentWalletsEmpty(): Scenario {
+  return {
+    id: 'agent-wallets-empty',
+    title: 'Agent Wallets with no agents shows only the "Create your first agent" card — no pause-all, forecast or approvals',
+    run: async (ctx) => {
+      const book = await bookOf(ctx)
+      if (book.agents.length > 0) throw new CannotTest(`the workspace already has ${book.agents.length} agent(s)`)
+      const page = await ctx.app.tab('/agents')
+      try {
+        const card = page.getByTestId('agent-first')
+        const shown = await card.waitFor({ timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!shown) return fail('Agent Wallets with no agents shows no "Create your first agent" card')
+        if ((await card.getByText('Create your first agent', { exact: true }).count()) !== 1) return fail('the first-agent card is not headed "Create your first agent"')
+        if ((await card.getByLabel('New agent name').count()) !== 1) return fail('the first-agent card holds no form to name the agent')
+        const still: string[] = []
+        for (const { what, find } of EMPTY_HIDDEN) if ((await find(page).count()) > 0) still.push(what)
+        if (still.length > 0) return fail(`with no agents the screen still shows ${still.join(', ')}`)
+        ctx.evidence.push({ note: `with no agents: the "Create your first agent" card, and none of ${EMPTY_HIDDEN.map((h) => h.what).join(', ')}` })
+        return { pass: true, detail: 'a workspace with no agents sees only the "Create your first agent" card' }
+      } finally {
+        await page.close()
+      }
+    },
   }
 }
 

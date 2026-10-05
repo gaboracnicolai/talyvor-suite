@@ -120,13 +120,34 @@ async function createAgent(name: string) {
 }
 
 describe('Agent Bank', () => {
+  // B28.271 — with no agents the screen is one card that creates the first: nothing to pause, forecast,
+  // approve, lend or hold shows until the agent exists, and then all of it does.
+  it('shows a workspace with no agents only the card that creates its first', async () => {
+    mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+    const card = await screen.findByTestId('agent-first')
+    expect(within(card).getByText('Create your first agent')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Pause every agent' })).toBeNull()
+    expect(screen.queryByTestId('agents-forecast')).toBeNull()
+    expect(screen.queryByTestId('agent-bank-totals')).toBeNull()
+    for (const region of ['Approvals', 'Spending', 'Between owners', 'Held and cashed out'])
+      expect(screen.queryByRole('region', { name: region })).toBeNull()
+
+    await createAgent('First')
+    expect(screen.queryByTestId('agent-first')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Pause every agent' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Approvals' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Spending' })).toBeInTheDocument()
+  })
+
   // B17.26 — a Take back that meets a deploy's restart (a 502, then no answer) is sent again under one
   // Idempotency-Key and lands, instead of "Nothing changed. You can try again."
   it('takes LXC back through a restart, sending the same key until it is answered', async () => {
     const bff = mockBff()
     window.history.pushState({}, '', '/agents')
     render(<App />)
-    await waitFor(() => expect(screen.getByTestId('agent-bank-totals')).toHaveTextContent('The workspace holds 100 LXC'))
+    await screen.findByTestId('agent-first')
     await createAgent('South')
     fireEvent.change(screen.getByLabelText('Amount in LXC for South'), { target: { value: '1' } })
     fireEvent.click(screen.getByRole('button', { name: 'Fund' }))
@@ -147,7 +168,7 @@ describe('Agent Bank', () => {
     window.history.pushState({}, '', '/agents')
     render(<App />)
 
-    await waitFor(() => expect(screen.getByTestId('agent-bank-totals')).toHaveTextContent('The workspace holds 100 LXC'))
+    await screen.findByTestId('agent-first')
     await createAgent('Writer')
     await createAgent('Researcher')
 
