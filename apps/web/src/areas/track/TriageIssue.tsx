@@ -52,7 +52,7 @@ export function TriageIssue({ issueId }: { issueId: string }) {
   const failed = run.isError && answeredForThisIssue
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Triage suggestion</CardHeader>
       <div className="flex flex-col gap-3 px-gutter py-4">
         <p className="text-body text-muted">
@@ -150,7 +150,7 @@ function Suggestion({ s }: { s: TriageSuggestion }) {
 
       <dl className="flex flex-col gap-1">
         <div className="flex items-baseline gap-2">
-          <dt className="text-caption text-faint">Suggested priority</dt>
+          <dt className="text-caption text-muted">Suggested priority</dt>
           <dd className="text-body text-ink">
             {s.priority === null ? (
               <span className="text-body text-muted">
@@ -165,7 +165,7 @@ function Suggestion({ s }: { s: TriageSuggestion }) {
         </div>
         {s.labels.length > 0 ? (
           <div className="flex items-baseline gap-2">
-            <dt className="text-caption text-faint">Suggested labels</dt>
+            <dt className="text-caption text-muted">Suggested labels</dt>
             <dd className="flex flex-wrap gap-2">
               {s.labels.map((l) => (
                 <span key={l} className="text-body text-ink">

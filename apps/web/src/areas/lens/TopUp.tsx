@@ -189,14 +189,14 @@ function WaysToGetCredit({ canBuy }: { canBuy: boolean }) {
     cta: 'Open Royalties',
   })
   return (
-    <ol className="mt-8 grid gap-px border border-rule bg-rule wide:grid-cols-2">
+    <ol className="mt-8 grid gap-px overflow-hidden rounded-card border border-rule bg-rule wide:grid-cols-2">
       {steps.map((s) => (
-        <li key={s.index} className="flex flex-col items-start bg-surface px-gutter py-5">
-          <span className="font-figure text-eyebrow uppercase text-faint">Step {s.index}</span>
+        <li key={s.index} className="flex flex-col items-start bg-raised px-gutter py-5">
+          <span className="font-figure text-eyebrow uppercase text-label">Step {s.index}</span>
           <p className="mt-3 text-body text-ink">{s.title}</p>
           <p className="mt-1 text-caption font-normal text-muted">{s.body}</p>
           {s.to ? (
-            <Button asChild variant="primary" className="mt-5">
+            <Button asChild className="mt-5">
               <Link to={s.to}>{s.cta}</Link>
             </Button>
           ) : null}
@@ -370,7 +370,7 @@ export function TopUp({
       </Region>
 
       <Region index="01" label="What you have">
-        <Card>
+        <Card raised>
           <CardHeader>LXC balance</CardHeader>
           <Row label="Current balance" hint="LXC is the usage credit inference is billed against">
             {balance.isLoading ? (
@@ -394,7 +394,7 @@ export function TopUp({
             Your agents spend from their own wallets, each with a budget and rules. Move credit from
             this balance into them on Agent Wallets.
           </p>
-          <Button asChild variant="primary">
+          <Button asChild>
             <Link to="/agents">Fund your agents</Link>
           </Button>
         </div>
@@ -402,7 +402,7 @@ export function TopUp({
       </Region>
 
       <Region index="02" label={billingOff ? 'What this deployment can sell' : 'Add credit'}>
-        <Card>
+        <Card raised>
           <CardHeader>{billingOff ? 'Top up' : 'Amounts on offer'}</CardHeader>
           {/* A deployment that cannot sell says so INSTEAD of drawing buttons.
               Billing is off by default, so without this the common case is a full
@@ -414,7 +414,7 @@ export function TopUp({
                 note="Top-up isn’t available on this deployment — no payment can be started here."
               />
               <div className="px-gutter py-3">
-                <p className="text-caption font-normal text-faint">
+                <p className="text-caption font-normal text-muted">
                   LXC can still be spent and its balance read; only buying more is unavailable.
                   It becomes available when Lens is run with billing enabled
                   (LENS_BILLING_ENABLED, plus its Stripe keys).
@@ -435,7 +435,6 @@ export function TopUp({
                   {amounts.map((cents) => (
                     <Button
                       key={cents}
-                      variant="primary"
                       disabled={start.isPending}
                       onClick={() => start.mutate(cents)}
                     >

@@ -175,7 +175,7 @@ export function SpaceView() {
               A page is anything worth writing down once and finding again — a runbook, a decision,
               the thing you explain to every new person.
             </p>
-            <Button variant="primary" className="mt-8" onClick={() => titleRef.current?.focus()}>
+            <Button className="mt-8" onClick={() => titleRef.current?.focus()}>
               Write the first page
             </Button>
           </>

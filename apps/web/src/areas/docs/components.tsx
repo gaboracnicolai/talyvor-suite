@@ -83,7 +83,7 @@ export function MeteredNote({
   children: React.ReactNode
 }) {
   return (
-    <p className="text-caption text-faint">
+    <p className="text-caption text-muted">
       {children} a metered Lens call billed to this workspace under <code>{tag}</code>.{' '}
       {payer === 'page' ? (
         <>Docs attributes it to this page, so it moves this page’s own AI cost.</>

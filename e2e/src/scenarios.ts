@@ -20,7 +20,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { appShell, brandPlanes, chatBrand, everyScreen, homeCards, lensReads, marketBrand, walletBrand } from './tour.ts'
+import { appShell, brandPlanes, chatBrand, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine } from './brand.ts'
@@ -1814,7 +1814,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B29.10 — then that conversation in the brand: raised composer, teal Send, eyebrow picker, replies at 15/24.
     case 6: list.push(statementReconciles(i), agentBalanceStored(i), agentSpendQuestion(i), chatBrand()); break
     // B28.8 — first, while the workspace has no agent: Home's three onboarding steps.
-    case 7: list.push(walletOnboarding(i), everyScreen()); break
+    // B29.12 — then Features, Track, Docs, Developers, Billing and Settings in the brand, each photographed.
+    case 7: list.push(walletOnboarding(i), everyScreen(), screensBrand()); break
     // B28.6 — Home, the first screen after sign-in: an agent's budget used and the approvals waiting.
     // B28.7 — then the wallet-first sidebar, whose Approvals badge counts the approval Home just filed.
     // B29.2 — then the board's dark planes: the canvas Obsidian, the sidebar Surface.

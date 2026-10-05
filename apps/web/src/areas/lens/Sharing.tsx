@@ -8,6 +8,8 @@ import { DocumentFacts, DistillChoice } from './Documents'
 import { StoredAnswersFacts } from '../../components/StoredAnswersFacts'
 import { ProviderKeysCard } from './ProviderKeys'
 import { CompanyLine } from '../../components/CompanyLine'
+import { Region, RegionScreen } from '../../components/Region'
+import { pressed } from './walletBrand'
 
 // Sharing.tsx — cross-tenant answer sharing: the explanation, and the control.
 //
@@ -138,10 +140,10 @@ export function SharingChoice({ onDone }: { onDone?: () => void }) {
       {failed && <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">{failed}</p>}
 
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Button disabled={busy !== null} onClick={() => void choose(false)}>
+        <Button aria-pressed={recorded === false} className={pressed} disabled={busy !== null} onClick={() => void choose(false)}>
           {busy === 'off' ? 'Saving…' : 'Do not share my answers'}
         </Button>
-        <Button disabled={busy !== null} onClick={() => void choose(true)}>
+        <Button aria-pressed={recorded === true} className={pressed} disabled={busy !== null} onClick={() => void choose(true)}>
           {busy === 'on' ? 'Saving…' : 'Share my answers'}
         </Button>
       </div>
@@ -201,31 +203,38 @@ export function SharingLine() {
 
 /** Settings — the standing control, reachable any time from the nav. */
 export function Settings() {
+  // B29.12 — the board's pattern: an eyebrow names each section and its card sits on the raised plane.
   return (
-    <div className="flex flex-col gap-gutter">
-      <Card>
-        <CardHeader>Shared answers (saves on repeated questions)</CardHeader>
-        <div className="flex flex-col gap-4 px-gutter py-4">
-          <SharingFacts />
-          <SharingChoice />
-        </div>
-      </Card>
+    <RegionScreen>
+      <Region index="00" label="Sharing">
+        <Card raised>
+          <CardHeader>Shared answers (saves on repeated questions)</CardHeader>
+          <div className="flex flex-col gap-4 px-gutter py-4">
+            <SharingFacts />
+            <SharingChoice />
+          </div>
+        </Card>
+      </Region>
 
       {/* Document conversion is ON for every workspace by default and had no control anywhere in
           the product. Kept as its OWN card, not folded into sharing: they are different consents
           and a person may reasonably want one without the other. */}
-      <Card>
-        <CardHeader>Documents you attach</CardHeader>
-        <div className="flex flex-col gap-4 px-gutter py-4">
-          <DocumentFacts />
-          <DistillChoice />
-        </div>
-      </Card>
+      <Region index="01" label="Documents">
+        <Card raised>
+          <CardHeader>Documents you attach</CardHeader>
+          <div className="flex flex-col gap-4 px-gutter py-4">
+            <DocumentFacts />
+            <DistillChoice />
+          </div>
+        </Card>
+      </Region>
 
       {/* B27.27 — BYOK's keys: added, replaced and removed here, only their last four ever shown. */}
-      <ProviderKeysCard />
+      <Region index="02" label="Provider keys">
+        <ProviderKeysCard />
+      </Region>
 
-      <CompanyLine />
-    </div>
+      <CompanyLine className="px-gutter pb-10" />
+    </RegionScreen>
   )
 }

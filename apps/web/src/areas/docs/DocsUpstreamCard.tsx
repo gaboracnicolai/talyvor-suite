@@ -36,7 +36,7 @@ export function DocsUpstreamCard({ title, path, reads }: { title: string; path: 
   })
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>{title}</CardHeader>
       <div className="px-gutter py-3 text-body text-muted">
         {q.isLoading ? (

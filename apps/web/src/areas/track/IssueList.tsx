@@ -389,7 +389,6 @@ export function IssueList() {
                 control, and "above" is meaningless to anyone navigating by rotor. The button puts
                 the caret in the field it is talking about. */}
             <Button
-              variant="primary"
               className="mt-8"
               onClick={() => titleRef.current?.focus()}
             >
@@ -575,7 +574,7 @@ export function IssueList() {
       </Region>
 
       <Region index="03" label="What is being tracked">
-        <Card>
+        <Card raised>
           <CardHeader>Issues</CardHeader>
           <div className="flex flex-col gap-4 px-gutter py-4">
             {issues.isLoading ? (

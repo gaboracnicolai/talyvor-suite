@@ -92,7 +92,7 @@ export function PageChangelog({ spaceId, pageId }: { spaceId: string; pageId: st
   const nothingToGenerateFrom = ids.length === 0
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Changelog entry</CardHeader>
       <div className="flex flex-col gap-2 px-gutter py-3">
         <div className="flex items-center gap-2">
@@ -128,12 +128,12 @@ export function PageChangelog({ spaceId, pageId }: { spaceId: string; pageId: st
         {!showGuidance ? null : nothingToGenerateFrom ? (
           // ⚠ THIS SENTENCE IS THE FINDING, MADE VISIBLE. Upstream this exact state is a 201 and a
           // durable, publishable row whose body is the words "No issues."
-          <span className="text-caption text-faint">
+          <span className="text-caption text-muted">
             Name at least one issue — with none, Docs would still create an entry, and its body
             would be the words “No issues.”
           </span>
         ) : (
-          <span className="text-caption text-faint">
+          <span className="text-caption text-muted">
             Groups {ids.length === 1 ? 'this issue' : `these ${ids.length} issues`} by their Track
             labels. Docs writes the entry; it does not ask a model.
           </span>
@@ -158,7 +158,7 @@ export function PageChangelog({ spaceId, pageId }: { spaceId: string; pageId: st
                 and there IS a row to name, so this says what was left behind and where it is not
                 yet. Publishing is a separate upstream act (…/entries/{id}/publish) that this app
                 does not offer. */}
-            <p className="text-caption text-faint">
+            <p className="text-caption text-muted">
               Saved to this page’s changelog as <code>{generate.data.type}</code>. It is not
               published, so it is not in the workspace’s changelog feed yet.
             </p>

@@ -305,7 +305,7 @@ function ConvertPanel({
             {/* ⚠ BEFORE THE BUTTON. The note comes from the server with the quote, so it cannot
                 drift from what the backend actually supports. */}
             {!quote.data.reversible ? (
-              <p className="text-caption text-faint">
+              <p className="text-caption text-muted">
                 ⚠ {quote.data.reversible_note}
               </p>
             ) : null}
@@ -313,7 +313,7 @@ function ConvertPanel({
 
           <div className="flex items-end gap-2">
             <label className="flex flex-col gap-1">
-              <span className="text-caption text-faint">LXC to receive</span>
+              <span className="text-caption text-muted">LXC to receive</span>
               {/* ⚠ `font-figure` IS ON THE FIELD BECAUSE ITS VALUE IS A NUMERAL, and it is the
                   only numeral on this card that was not. The rate, the minimum and the `Costs`
                   line below are all on the face; the amount the irreversible conversion is ABOUT

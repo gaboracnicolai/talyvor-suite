@@ -20,7 +20,7 @@
  *     hand-rolled Row    solid 1px  rgb(58,214,192)   offset 0     ← right hue, half the width
  *     bare control       auto  1px  rgb(153,200,255)  offset 0     ← CHROME'S BLUE
  *
- * and in the light theme the bare control is `rgb(0,95,204)`, against an accent of #0F7A6C.
+ * and in the light theme the bare control is `rgb(0,95,204)`, against the light theme's `accent`.
  * Measured identically for textarea, text input, select, range and button.
  *
  * So this is not "a missing nicety". A design language whose stated premise is ONE electric

@@ -185,6 +185,7 @@
   "src/restingAffordance.test.ts": 9,
   "src/routeParamState.test.ts": 10,
   "src/Royalties.test.tsx": 2,
+  "src/ScreensBrand.test.tsx": 15,
   "src/scrollReset.test.tsx": 31,
   "src/SessionExpired.test.tsx": 20,
   "src/settleCommands.test.ts": 231,

@@ -288,6 +288,9 @@
     "days": "number"
    }
   },
+  "/v1/workspaces/{wsID}/provider-keys": {
+   "status": 404
+  },
   "/v1/workspaces/{wsID}/tare/savings": {
    "status": 200,
    "shape": {

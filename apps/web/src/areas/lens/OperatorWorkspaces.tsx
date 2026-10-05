@@ -88,10 +88,10 @@ export function OperatorWorkspaces() {
               {rows.length.toLocaleString('en-US')} {rows.length === 1 ? 'workspace' : 'workspaces'} ·{' '}
               {usdText(month)} spent this month · <MuNumeral micros={held} unit="lens" /> held
             </p>
-            <div className="mt-4 overflow-x-auto">
+            <div className="mt-4 overflow-x-auto rounded-card border border-rule bg-raised">
               <table className="w-full border-collapse">
                 <thead>
-                  <tr className="whitespace-nowrap border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
+                  <tr className="whitespace-nowrap border-b border-rule text-left font-figure text-eyebrow uppercase text-label">
                     <th className="px-gutter py-2 font-semibold">Workspace</th>
                     <th className="px-gutter py-2 text-right font-semibold">This month</th>
                     <th className="px-gutter py-2 text-right font-semibold">All time</th>
@@ -123,7 +123,7 @@ function WorkspaceRow({ w }: { w: OperatorWorkspace }) {
     <tr data-testid="operator-workspace" className="border-b border-rule last:border-b-0">
       <td className="px-gutter py-2">
         <div className="whitespace-nowrap text-body text-ink">{w.name || w.id}</div>
-        {w.name ? <div className="font-mono text-caption text-faint">{w.id}</div> : null}
+        {w.name ? <div className="font-mono text-caption text-muted">{w.id}</div> : null}
       </td>
       <td className="px-gutter py-2 text-right font-figure text-body text-ink">{usdText(w.current_month_usd)}</td>
       <td className="px-gutter py-2 text-right font-figure text-body text-muted">{usdText(w.all_time_usd)}</td>

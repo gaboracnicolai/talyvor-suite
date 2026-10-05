@@ -391,7 +391,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'ApiError, NOT a bare Error',
     why: 'the same line quoted by the guard, so the finding and its evidence cite one checked place rather than two drifting ones',
   },
-  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:430': {
+  'apps/web/src/checkoutRefusalSurface.test.tsx:23|apps/web/src/areas/track/IssueList.tsx:429': {
     kind: 'LIVE',
     fragment: '.isError ?',
     why: 'the surface #141 fixed, quoted so the two findings are visibly the same shape one area over',

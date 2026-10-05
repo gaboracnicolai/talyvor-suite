@@ -31,7 +31,7 @@ export function UpstreamCard({
   reads: string
 }) {
   return (
-    <Card>
+    <Card raised>
       <CardHeader>{title}</CardHeader>
       <div className="px-gutter py-3 text-body text-muted">
         {state === 'loading' ? (

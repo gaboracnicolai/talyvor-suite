@@ -22,7 +22,7 @@ const SPACES = [
     slug: 'engineering',
     description: 'How we build',
     icon: '📘',
-    color: '#0B7A85',
+    color: '',
     private: false,
     created_by: 'm-1',
     created_at: '2026-06-01T00:00:00Z',

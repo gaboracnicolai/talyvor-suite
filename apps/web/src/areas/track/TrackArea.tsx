@@ -44,7 +44,7 @@ function WorkspaceStrip() {
     // Both messages used to end by promising "a design preview on marked sample data" below.
     // There is no sample data below any more, so the promise is gone with it.
     return isUnconfigured(q.error) ? (
-      <Card>
+      <Card raised>
         <CardHeader>Track is not configured on this deployment</CardHeader>
         <p className="px-gutter py-3 text-body text-muted">
           The BFF has no Track upstream wired (its TRACK_* trio is unset) — off, not broken.
@@ -53,12 +53,12 @@ function WorkspaceStrip() {
     ) : isSessionExpired(q.error) ? (
       // The bar at the top of the app already says what happened and offers the fix; this card
       // must not add a second, differently-worded diagnosis of the same one cause.
-      <Card>
+      <Card raised>
         <CardHeader>Track</CardHeader>
         <p className="px-gutter py-3 text-body text-muted">Unavailable.</p>
       </Card>
     ) : (
-      <Card>
+      <Card raised>
         <CardHeader>Couldn’t load workspaces</CardHeader>
         <p className="px-gutter py-3 text-body text-muted">
           The Track proxy answered with an error — nothing is shown rather than something stale.
@@ -81,7 +81,7 @@ function WorkspaceStrip() {
   return (
     <div className="flex items-center justify-between gap-gutter">
       <div className="flex items-center gap-2">
-        <span className="font-figure text-eyebrow uppercase text-faint">Workspace</span>
+        <span className="font-figure text-eyebrow uppercase text-label">Workspace</span>
         {q.data.length === 1 ? (
           <span className="text-body text-ink">{q.data[0].name}</span>
         ) : (
@@ -99,7 +99,7 @@ function WorkspaceStrip() {
           </Select>
         )}
       </div>
-      <span className="text-caption text-faint">live · membership-scoped</span>
+      <span className="text-caption text-muted">live · membership-scoped</span>
     </div>
   )
 }

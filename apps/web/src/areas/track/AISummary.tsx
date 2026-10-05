@@ -82,7 +82,7 @@ export function AISummary({ issueId }: { issueId: string }) {
   const view = q.data === undefined ? null : readSummary(q.data)
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>AI summary</CardHeader>
       <div className="flex flex-col gap-3 px-gutter py-4">
         {!asked ? (
@@ -152,11 +152,11 @@ export function AISummary({ issueId }: { issueId: string }) {
                 {view.nextAction}
               </p>
             )}
-            {view.sentiment !== '' && <p className="text-caption text-faint">Thread reads as {view.sentiment}.</p>}
+            {view.sentiment !== '' && <p className="text-caption text-muted">Thread reads as {view.sentiment}.</p>}
             {/* ⚠ WHOSE WORDS THESE ARE. A model wrote them from the thread; nobody on the team
                 did. A summary that looks like a colleague's note is the one kind of fake data a
                 tracker must not draw silently. */}
-            <p className="text-caption text-faint">
+            <p className="text-caption text-muted">
               Written by Track’s AI from the comments above, not by a person.
             </p>
           </>

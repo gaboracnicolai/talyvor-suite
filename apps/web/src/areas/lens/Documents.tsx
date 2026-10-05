@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
+import { pressed } from './walletBrand'
 
 // Documents.tsx — what happens to an attached document, and the switch that stops it.
 //
@@ -171,10 +172,10 @@ export function DistillChoice() {
       {failed && <p className="border-l-2 border-l-slashed pl-2 text-body text-ink">{failed}</p>}
 
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Button disabled={busy !== null} onClick={() => void choose('disabled')}>
+        <Button aria-pressed={policy === 'disabled'} className={pressed} disabled={busy !== null} onClick={() => void choose('disabled')}>
           {busy === 'off' ? 'Saving…' : 'Do not convert my documents'}
         </Button>
-        <Button disabled={busy !== null} onClick={() => void choose('always')}>
+        <Button aria-pressed={on} className={pressed} disabled={busy !== null} onClick={() => void choose('always')}>
           {busy === 'on' ? 'Saving…' : 'Convert my documents'}
         </Button>
       </div>

@@ -59,7 +59,7 @@ export function FindDuplicates({ issueId }: { issueId: string }) {
   const failed = run.isError && answeredForThisIssue
 
   return (
-    <Card>
+    <Card raised>
       <CardHeader>Possible duplicates</CardHeader>
       <div className="flex flex-col gap-3 px-gutter py-4">
         <p className="text-body text-muted">
@@ -123,7 +123,7 @@ export function FindDuplicates({ issueId }: { issueId: string }) {
                 <Candidate key={r.id} row={r} />
               ))}
             </ul>
-            <p className="text-caption text-faint">
+            <p className="text-caption text-muted">
               Scored by Track’s AI, not measured — the number is the model’s own claim about how
               alike two issues are.
             </p>
@@ -192,7 +192,7 @@ function Candidate({ row }: { row: DuplicateRow }) {
       {/* The identifier is Track's own human key. Absent ⇒ nothing is drawn in its place: a
           fabricated key on a link is worse than no key. */}
       {row.identifier ? (
-        <span className="font-figure text-caption text-faint">{row.identifier}</span>
+        <span className="font-figure text-caption text-muted">{row.identifier}</span>
       ) : null}
       <Link
         to={`/track/issues/${encodeURIComponent(row.id)}`}

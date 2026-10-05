@@ -188,6 +188,9 @@ function useSettingWrite(alsoInvalidate?: string[]) {
   return { busy, run, note }
 }
 
+/** B29.12 — a section's capabilities on one raised panel, a hairline between each. */
+const featureList = 'rounded-card border border-rule bg-raised px-gutter'
+
 const fieldClass = `rounded-control border border-rule bg-surface text-body text-ink transition-colors duration-200 hover:border-rule-strong ${focusRing}`
 
 /** One of several values, written the way a switch is: Lens's recorded value is what shows. */
@@ -496,7 +499,7 @@ export function Features() {
       </Region>
 
       <Region index="02" label="Agent Wallets">
-        <ul>
+        <ul className={featureList}>
           <Feature
             id="agent-wallets"
             name="Agent Wallets"
@@ -530,7 +533,7 @@ export function Features() {
       </Region>
 
       <Region index="03" label="Lens enforcement">
-        <ul>
+        <ul className={featureList}>
           <Feature
             name="Spending limit"
             does="A limit on what this workspace’s requests may cost. While it is on, a request that would take the spend past it is refused."
@@ -632,7 +635,7 @@ export function Features() {
       </Region>
 
       <Region index="04" label="Chat">
-        <ul>
+        <ul className={featureList}>
           <Feature
             name="Chat"
             does="Ask any model this deployment serves, with each answer’s price and model under it, conversations kept in this browser, and documents converted before the model reads them."
@@ -657,7 +660,7 @@ export function Features() {
       </Region>
 
       <Region index="05" label="Marketplace">
-        <ul>
+        <ul className={featureList}>
           <Feature
             id="marketplace"
             name="Marketplace"
@@ -684,7 +687,7 @@ export function Features() {
       </Region>
 
       <Region index="06" label="Cost savings">
-        <ul>
+        <ul className={featureList}>
           <Feature
             name="Answer cache"
             does="An identical question, or a nearly identical one, is answered from this workspace’s earlier answer instead of calling the model again — instantly, and without paying for the model twice."
@@ -917,7 +920,7 @@ export function Features() {
       </Region>
 
       <Region index="07" label="Track">
-        <ul>
+        <ul className={featureList}>
           <Feature
             name="Issues, cycles and projects"
             does="Plan work as issues, group them into cycles and projects, and export what a view shows."
@@ -944,7 +947,7 @@ export function Features() {
       </Region>
 
       <Region index="08" label="Docs">
-        <ul>
+        <ul className={featureList}>
           <Feature
             name="Pages and AI writing"
             does="Write pages in an editor; write, shorten, lengthen, fix, summarise or translate with AI; ask questions answered from your pages."
@@ -960,7 +963,7 @@ export function Features() {
       </Region>
 
       <Region index="09" label="Code">
-        <ul>
+        <ul className={featureList}>
           <Feature
             name="Talyvor Code"
             does="AI in your editor and terminal — completions, chat, tests, reviews, agent tasks — with every call’s cost recorded against the issue you are working on."
@@ -980,7 +983,7 @@ export function Features() {
       </Region>
 
       <Region index="10" label="Billing">
-        <ul>
+        <ul className={featureList}>
           <Feature
             id="byok"
             name="Bring your own keys (BYOK)"
