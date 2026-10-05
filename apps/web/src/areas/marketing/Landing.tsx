@@ -49,18 +49,6 @@ export const CONTACT_EMAIL: string = import.meta.env.VITE_CONTACT_EMAIL ?? ''
 const CONTACT_MAILTO = `mailto:${CONTACT_EMAIL}`
 const HAS_CONTACT = CONTACT_EMAIL !== ''
 
-/** Numbered section label: a 2px accent tick (colour on a tick, never on text), a mono index, and a
- *  muted caption — the page's recurring instrument marking, carried over from the console. */
-export function SectionLabel({ index, children }: { index: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span className="h-3 w-0.5 bg-accent" aria-hidden="true" />
-      <span className="font-figure text-caption text-faint">{index}</span>
-      <span className="font-figure text-eyebrow uppercase text-muted">{children}</span>
-    </div>
-  )
-}
-
 /** A measured figure. Mono and tabular, with the unit set quieter than the value.
  *
  *  ⚠ THE UNIT GOES THROUGH `CaseSafe` AND MUST. Every unit this page quotes is a µ-prefixed ledger
@@ -91,7 +79,7 @@ export const POOLED_DISCOUNT_PERCENT = Math.round((SAVED_MICRO_LXC / LEDGER_HIT.
 type BrandIcon = 'route' | 'prove' | 'reuse' | 'compound'
 
 /** A section's eyebrow, the board's way: the brand icon, the mono index, the spaced-caps label.
- *  /pricing uses it with no icon (B29.5); SectionLabel above stays for Documentation for now. */
+ *  /pricing (B29.5) and /documentation (B29.13) use it with no icon. */
 export function Eyebrow({ index, icon, children }: { index: string; icon?: BrandIcon; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3">

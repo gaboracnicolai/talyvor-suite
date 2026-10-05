@@ -398,18 +398,19 @@ const PINS: Record<string, Pin> = {
   // 65 → 68 at B29.10: chat's model picker, its provider labels and the wallet lines' eyebrow.
   // 68 → 74 at B29.11: the marketplace's listing card (its kind, Seller and A use), the earnings tiles'
   // label, and the publish form's Kind and preview eyebrows.
-  // 74 → 73 at B29.13: /documentation's and the public board's header labels and footer lines became
-  // SiteChrome's one header label and one footer line, and the legal pages' title gained its eyebrow.
+  // 74 → 72 at B29.13: /documentation's and the public board's header labels and footer lines became
+  // SiteChrome's one header label and one footer line, the legal pages' title gained its eyebrow, and
+  // Landing's SectionLabel went with its last user (/documentation now uses Eyebrow).
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 73,
+    states: 72,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 73,
+    states: 72,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {
