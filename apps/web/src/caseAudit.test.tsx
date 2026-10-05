@@ -398,7 +398,8 @@ describe('the floor', () => {
     )
     expect(missing).toEqual([])
     expect(Object.values(MUST_PROTECT_MICRO_SIGN).every((r) => r.length > 10)).toBe(true)
-    expect(Object.keys(MUST_PROTECT_MICRO_SIGN).length).toBeGreaterThanOrEqual(4)
+    // 3, not 4, since B28.268: the Ledger shows whole units to six decimals and renders no µ.
+    expect(Object.keys(MUST_PROTECT_MICRO_SIGN).length).toBeGreaterThanOrEqual(3)
   })
 
   it('does not list this file — a guard must not be its own floor', () => {

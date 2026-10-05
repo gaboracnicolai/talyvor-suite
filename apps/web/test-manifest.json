@@ -53,6 +53,7 @@
   "src/areas/lens/Ledger.test.tsx": 9,
   "src/areas/lens/ledgerInFlightIdentity.test.tsx": 2,
   "src/areas/lens/ledgerPillVocabulary.test.tsx": 7,
+  "src/areas/lens/ledgerReconciles.test.tsx": 2,
   "src/areas/lens/lxcSplitCoverage.test.tsx": 5,
   "src/areas/lens/Members.test.tsx": 21,
   "src/areas/lens/mintAttribution.test.tsx": 5,

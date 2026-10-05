@@ -1817,6 +1817,56 @@ export function statementReconciles(seed: number): Scenario {
   }
 }
 
+/** A figure as the Ledger shows it (apps/web Ledger.tsx): "+0.001234", "9,998.766000" — whole LXC, six decimals. */
+const LEDGER_FIGURE = /^[+-]?\d{1,3}(,\d{3})*\.\d{6}$/
+const ledgerULXC = (shown: string): number => Math.round(Number(shown.replace(/,/g, '')) * 1e6)
+
+/**
+ * B28.268 — the Ledger reads correctly. Run after statementReconciles, whose request leaves a hold, then
+ * its release and its charge written in one transaction with one timestamp. On the Ledger's first page
+ * every amount and balance is in LXC to six decimals with no µ, each balance is the row below plus that
+ * row's amount, and every row shown is a row of Lens's own ledger, amount and balance alike.
+ */
+export function ledgerReadsCorrectly(): Scenario {
+  return {
+    id: 'ledger-reads-correctly',
+    title: 'the Ledger shows every amount and balance in LXC, and each balance is the row below plus that row’s amount',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/ledger')
+      let shown: { amount: string; balance: string; text: string }[]
+      try {
+        await page.getByTestId('ledger-balance').first().waitFor({ timeout: ACTION_TIMEOUT_MS })
+        shown = await page.evaluate(() => Array.from(document.querySelectorAll('tbody tr')).map((tr) => ({
+          amount: tr.querySelector('[data-testid="ledger-amount"]')?.firstElementChild?.textContent ?? '',
+          balance: tr.querySelector('[data-testid="ledger-balance"]')?.firstElementChild?.textContent ?? '',
+          text: tr.textContent ?? '',
+        })))
+      } finally {
+        await page.close()
+      }
+      const rows = await ctx.env.lens.ledger(ctx.app.user)
+      ctx.evidence.push({
+        note: `the Ledger's first page: ${shown.map((s) => `${s.amount} → ${s.balance}`).join('; ')}`,
+        ledger: rows.slice(0, shown.length).map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })),
+      })
+      if (shown.length < 2) return fail(`the Ledger shows ${shown.length} row(s) after a request; it needs two to add up`)
+      const odd = shown.filter((s) => !LEDGER_FIGURE.test(s.amount) || !LEDGER_FIGURE.test(s.balance) || s.text.includes('µ'))
+      if (odd.length > 0) return fail(`not every figure is in LXC to six decimals: ${odd.map((s) => `"${s.amount}" / "${s.balance}"`).join(', ')}`)
+      const amounts = shown.map((s) => ledgerULXC(s.amount))
+      const balances = shown.map((s) => ledgerULXC(s.balance))
+      for (let i = 0; i + 1 < shown.length; i++) {
+        if (balances[i] !== balances[i + 1] + amounts[i]) {
+          return fail(`row ${i + 1} reads ${shown[i].balance} after ${shown[i].amount}, but the row below ends on ${shown[i + 1].balance}`)
+        }
+      }
+      const fromLens = new Set(rows.map((r) => `${r.amount_ulxc} ${r.balance_after_ulxc}`))
+      const notLens = shown.filter((_, i) => !fromLens.has(`${amounts[i]} ${balances[i]}`))
+      if (notLens.length > 0) return fail(`${notLens.length} row(s) on screen are no row of Lens's ledger: ${notLens.map((s) => `${s.amount} → ${s.balance}`).join(', ')}`)
+      return { pass: true, detail: `${shown.length} rows in LXC; each balance is the row below plus its amount, from ${shown[shown.length - 1].balance} to ${shown[0].balance}, every row Lens's own` }
+    },
+  }
+}
+
 /** B28.20 — fundings sent at once, through Lens as the owner; its per-workspace limit (100 a second) is waited out. */
 const MANY_FUNDINGS = 100
 const FUNDING_WORKERS = 5

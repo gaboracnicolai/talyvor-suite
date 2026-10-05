@@ -7,6 +7,12 @@ export interface MuNumeralProps extends React.HTMLAttributes<HTMLSpanElement> {
   /** Integer micro-units (1e-6). e.g. 12_340567 → 12.340567; 64 → 64 µ. */
   micros: number
   unit: 'lens' | 'lxc'
+  /** Always the decimal form, every digit in ink — for a column that has to add up row to row.
+   *  The µ-split reads one figure well and a column badly: a `64 µLXC` debit above a
+   *  `9.999936 LXC` balance puts two units into one sum. */
+  decimal?: boolean
+  /** A `+` on a positive figure, so a credit and a debit read as the two signs of one sum. */
+  signed?: boolean
 }
 
 const MICRO = 1_000_000
@@ -46,13 +52,13 @@ function UnitLabel({ unit, micro = false }: { unit: 'lens' | 'lxc'; micro?: bool
  * premise (the whole number IS the value) with the same "big part carries meaning" rule
  * at both scales, rather than two visual treatments of the decimal form. See README §MuNumeral.
  */
-export function MuNumeral({ micros, unit, className, ...props }: MuNumeralProps) {
+export function MuNumeral({ micros, unit, decimal = false, signed = false, className, ...props }: MuNumeralProps) {
   const raised = useContext(RaisedPlane)
   const negative = micros < 0
   const abs = Math.abs(Math.trunc(micros))
   const whole = Math.floor(abs / MICRO)
   const micro = abs % MICRO
-  const sign = negative ? '-' : ''
+  const sign = negative ? '-' : signed && abs > 0 ? '+' : ''
 
   // THE FIGURE FACE. Mono with tabular figures — the same shape the public site puts
   // on every quoted number.
@@ -66,6 +72,17 @@ export function MuNumeral({ micros, unit, className, ...props }: MuNumeralProps)
   // separates an identifier from a figure is the tracking and the size step, not the
   // family. See preset.ts §THE FIGURE FACE.
   const wrap = 'inline-flex items-baseline gap-1 font-figure'
+
+  if (decimal) {
+    return (
+      <span className={cn(wrap, className)} {...props}>
+        <span className="text-head text-ink">
+          {sign}{whole.toLocaleString('en-US')}.{String(micro).padStart(6, '0')}
+        </span>
+        <UnitLabel unit={unit} />
+      </span>
+    )
+  }
 
   if (whole === 0) {
     return (

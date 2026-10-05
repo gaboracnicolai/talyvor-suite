@@ -46,7 +46,7 @@
  * The obvious fear is that this rule demands an uppercase that caseAudit forbids. It cannot, and
  * the reason is structural: this judges the element whose OWN class list names `text-eyebrow`;
  * MuNumeral's protection is a `normal-case` span rendered by CaseSafe as a CHILD of that element
- * (MuNumeral.tsx:25 opens the eyebrow, line 27 puts CaseSafe inside it). Different elements, so
+ * (MuNumeral.tsx:31 opens the eyebrow, line 33 puts CaseSafe inside it). Different elements, so
  * both rules are satisfiable at once — and the shipped product satisfies both today.
  *
  * ⚠ It shares `transformInEffect` with caseAudit ON PURPOSE. "The transform in effect" must mean
