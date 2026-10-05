@@ -468,6 +468,128 @@ export function chatBrand(): Scenario {
   }
 }
 
+/**
+ * B29.11 — the marketplace in the brand, as the browser paints it in the dark theme at 1440 and 390: every
+ * listing a card on the raised plane with its kind's icon, its seller and its price in IBM Plex Mono with
+ * tabular figures, and no teal fill on the catalog; the publish form on raised, a kind picked by its icon,
+ * the preview card and Publish its one teal action; a seller's earnings as tiles of IBM Plex Mono figures.
+ * Runs after marketplace-sale, whose listing is in the catalog. Each view is photographed into the report.
+ */
+export const MARKET_VIEWS = [
+  { path: '/marketplace', name: 'catalog', ready: '[data-testid="listing-card"]', teal: null },
+  { path: '/marketplace/publish', name: 'publish', ready: '[data-testid="listing-preview"]', teal: 'Publish' },
+  // A seller with no Stripe account yet has Connect with Stripe as the screen's one teal action, and one who
+  // has published nothing has no listing card here.
+  { path: '/marketplace/selling', name: 'selling', ready: '[data-testid="market-earnings"]', teal: 'Connect with Stripe' },
+] as const
+
+export function marketBrand(): Scenario {
+  return {
+    id: 'market-brand',
+    title: 'the marketplace in the brand: raised listing cards with a kind icon, the seller and a mono price; publish and earnings in the same style',
+    run: async (ctx) => {
+      const { dir, link } = ctx.env.shots
+      await mkdir(dir, { recursive: true })
+      const wrong: string[] = []
+      for (const view of MARKET_VIEWS) {
+        const page = await ctx.app.tab(view.path)
+        try {
+          await page.locator(view.ready).first().waitFor({ timeout: HEADING_TIMEOUT_MS })
+          await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined)
+          // The theme first, then a pause: a Button's colour eases over 200ms, and read mid-ease it is neither theme's teal.
+          await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'))
+          await page.waitForTimeout(400)
+          for (const [width, height] of CHAT_VIEWPORTS) {
+            await page.setViewportSize({ width, height })
+            await page.waitForTimeout(200)
+            const seen = await page.evaluate(() => {
+              const token = (v: string) => {
+                const probe = document.createElement('div')
+                probe.style.setProperty('background-color', `var(${v})`)
+                document.body.appendChild(probe)
+                const got = getComputedStyle(probe).backgroundColor
+                probe.remove()
+                return got
+              }
+              const want = { raised: token('--raised'), teal: token('--accent') }
+              const main = document.querySelector('main')
+              if (!main) return null
+              const mono = (el: Element | null) => {
+                if (!el) return false
+                const st = getComputedStyle(el)
+                return st.fontFamily.includes('IBM Plex Mono') && st.fontFeatureSettings.includes('tnum')
+              }
+              const cards = Array.from(main.querySelectorAll('[data-testid="listing-card"], [data-testid="listing-preview"]')).map((c) => ({
+                bg: getComputedStyle(c).backgroundColor,
+                icon: c.querySelector('svg[data-icon]')?.getAttribute('data-icon') ?? null,
+                seller: (c.querySelector('[data-testid="listing-price"]')?.parentElement?.previousElementSibling?.textContent ?? '').replace(/^Seller/i, '').trim(),
+                price: (c.querySelector('[data-testid="listing-price"]')?.textContent ?? '').trim(),
+                priceMono: mono(c.querySelector('[data-testid="listing-price"]')),
+              }))
+              const teal = Array.from(main.querySelectorAll('button, a'))
+                .filter((b) => getComputedStyle(b).backgroundColor === want.teal)
+                .map((b) => (b.textContent ?? '').trim())
+              const form = main.querySelector('form')?.closest('.rounded-card')
+              const kinds = Array.from(main.querySelectorAll('[role="group"] button')).filter((b) => b.querySelector('svg[data-icon]')).length
+              const earnings = main.querySelector('[data-testid="market-earnings"]')
+              const figures = earnings ? Array.from(earnings.querySelectorAll('.text-title')).map((f) => ({ text: (f.textContent ?? '').trim(), mono: mono(f.querySelector('.font-figure') ?? f) })) : []
+              return {
+                want,
+                cards,
+                teal,
+                form: form ? getComputedStyle(form).backgroundColor : null,
+                kinds,
+                earnings: earnings?.closest('.rounded-card') ? getComputedStyle(earnings.closest('.rounded-card') as Element).backgroundColor : null,
+                figures,
+                scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+              }
+            })
+            const file = `market-${view.name}-${width}-dark.jpg`
+            await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
+            const at = `${view.path} at ${width}`
+            if (seen === null) {
+              wrong.push(`${at} has no main`)
+              continue
+            }
+            if (seen.cards.length === 0 && view.name !== 'selling') wrong.push(`${at} shows no listing card`)
+            for (const c of seen.cards) {
+              if (c.bg !== seen.want.raised) wrong.push(`${at}: a listing card is on ${c.bg}, not raised ${seen.want.raised}`)
+              if (c.icon === null) wrong.push(`${at}: a listing card has no kind icon`)
+              if (c.seller === '') wrong.push(`${at}: a listing card names no seller`)
+              if (!c.priceMono) wrong.push(`${at}: the price "${c.price}" is not IBM Plex Mono with tabular figures`)
+            }
+            const one = view.teal === null ? seen.teal.length === 0
+              : view.name === 'selling' ? seen.teal.every((t) => t === view.teal) && seen.teal.length <= 1
+                : seen.teal.length === 1 && seen.teal[0] === view.teal
+            if (!one) wrong.push(`${at} fills [${seen.teal.join(', ')}] teal; want ${view.teal ?? 'nothing'}`)
+            if (view.name === 'publish') {
+              if (seen.form !== seen.want.raised) wrong.push(`${at}: the publish form is on ${seen.form ?? 'no card'}, not raised`)
+              if (seen.kinds !== 5) wrong.push(`${at}: ${seen.kinds} kind(s) carry an icon, not all five`)
+            }
+            if (view.name === 'selling') {
+              if (seen.earnings !== seen.want.raised) wrong.push(`${at}: the earnings card is on ${seen.earnings ?? 'nothing'}, not raised`)
+              if (seen.figures.length !== 5) wrong.push(`${at}: ${seen.figures.length} earnings figure(s), not five`)
+              const off = seen.figures.filter((f) => !f.mono)
+              if (off.length > 0) wrong.push(`${at}: earnings off IBM Plex Mono: ${off.map((f) => f.text).join(', ')}`)
+            }
+            if (seen.scroll > 0) wrong.push(`${at} scrolls ${seen.scroll}px sideways`)
+            ctx.evidence.push({
+              note: `${view.path} ${width}×${height} dark: ${seen.cards.length} card(s) [${seen.cards.slice(0, 3).map((c) => `${c.icon} by ${c.seller} at ${c.price}`).join('; ')}], teal [${seen.teal.join(', ')}]` +
+                (view.name === 'selling' ? `, earnings ${seen.figures.map((f) => f.text).join(' / ')}` : ''),
+              shot: `${link}/${file}`,
+            })
+          }
+        } finally {
+          await page.close()
+        }
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: 'the marketplace in the brand at 1440 and 390: raised listing cards with kind icon, seller and mono price; publish on raised with Publish the one teal action; earnings as mono tiles' }
+        : { pass: false, detail: wrong.join('; '), where: MARKET_VIEWS.map((v) => v.path) }
+    },
+  }
+}
+
 /** The Lens reads a customer's own key can make: GET, and no parameter but its workspace. */
 export function customerReads(lens: readonly Entry[]): Entry[] {
   return lens.filter((e) => e.method === 'GET' && cannotTest(e) === undefined &&

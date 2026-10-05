@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Input, Pill, focusRing } from '@talyvor/ui'
+import { Button, CardHeader, Input, Pill, focusRing } from '@talyvor/ui'
 import { formatULXC } from '../lens/agentBankApi'
 import { type Listing, type ListingUse, marketApi, refusalText, variablesIn, variablesNamedIn } from './marketApi'
-import { Note, selectClass, useRunnableModels } from './parts'
+import { Card, Note, selectClass, useRunnableModels } from './parts'
 
 // UseListing.tsx — B20.3: using a listing. Lens runs it as this workspace (B20.2): the models it calls
 // are billed as usual, and a paid listing's price goes on the workspace's monthly marketplace bill —

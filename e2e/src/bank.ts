@@ -542,8 +542,9 @@ async function said(scope: Locator): Promise<string> {
 export async function publishPrompt(app: AppUser, l: { title: string; template: string; priceULXC: number; model: string }): Promise<{ id?: string; error?: string }> {
   const page = await app.tab('/marketplace/publish')
   try {
+    // B29.11 — the kind is picked by its icon, one toggle of the group named Kind.
+    await page.getByRole('group', { name: 'Kind' }).getByRole('button', { name: 'Prompt', exact: true }).click()
     // A label that wraps a select or a hint names its control with them too: matched by its start.
-    await page.getByLabel(/^Kind/).selectOption('prompt')
     await page.getByLabel('Price per use, in LXC').fill(lxcText(l.priceULXC))
     await page.getByLabel('Title', { exact: true }).fill(l.title)
     await page.getByRole('textbox', { name: /^Template/ }).fill(l.template)
