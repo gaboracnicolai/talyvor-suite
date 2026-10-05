@@ -47,7 +47,7 @@ const ROSTER = [
   { id: 'mem-1', name: 'Bo Member', email: 'bo@corp.example', role: 'member', avatar_url: '' },
 ]
 
-/** The signed-in identity, in the exact shape /auth/me serves it (apps/bff/auth.go:729). */
+/** The signed-in identity, in the exact shape /auth/me serves it (apps/bff/auth.go:768). */
 function meBody(email: string | null) {
   return email === null
     ? { mode: 'disabled', authenticated: false, user: null }
@@ -182,7 +182,7 @@ describe('the screen has a shape a reader can move through', () => {
 
 describe('which row is YOU — the same key the roster was joined on', () => {
   // The BFF forwards `X-User-Email: sess.email` as "the workspace-membership join key"
-  // (apps/bff/lens.go:947) and /auth/me serves that SAME `s.email` (apps/bff/auth.go:729). Track
+  // (apps/bff/lens.go:947) and /auth/me serves that SAME `s.email` (apps/bff/auth.go:768). Track
   // authorizes with `WHERE email = $1` — an exact SQL comparison — so the marking uses an exact
   // comparison too. Lower-casing here would be a DIFFERENT rule from the one that produced the
   // row, and would claim a match the upstream did not make.
