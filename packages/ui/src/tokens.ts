@@ -9,10 +9,12 @@
 // tokens of the same name, in both themes. Every other token carries its relationship to
 // the board in __tests__/site-parity.test.ts, which fails if any of it drifts.
 //
-// ⚠ THE LIGHT THEME IS NOT YET THE BOARD'S, apart from raised and label. It was derived
-// when the only reference was a dark-only site: the same blue undertone, the same accent
-// hue darkened until it clears AA on a light field, and the same structure (the rail is
-// the canvas, separated by a rule). B29.15 is the light pass.
+// ── WHERE THE LIGHT VALUES COME FROM ─────────────────────────────────────────────────
+//
+// The same file's light column (B29.15): canvas #F4F7FB, white surfaces and sidebar, ink
+// Obsidian, the board's light hairlines, and the deep teal #0F7A6C as the accent — bright
+// Teal stays in the logo and the photographs. site-parity.test.ts holds every light token to
+// the board's, apart from faint and the ledger hues, which the board does not have.
 //
 // ── THE INVARIANT ────────────────────────────────────────────────────────────────────
 //
@@ -26,9 +28,9 @@
 // change a value here without running it.
 export const tokens = {
   light: {
-    canvas: '#F3F6FA', surface: '#FFFFFF', raised: '#FFFFFF', sidebar: '#F3F6FA',
-    rule: 'rgba(11,18,32,.10)', 'rule-strong': 'rgba(11,18,32,.20)',
-    ink: '#0B1220', muted: '#46586E', faint: '#5A6E85', label: '#646B79',
+    canvas: '#F4F7FB', surface: '#FFFFFF', raised: '#FFFFFF', sidebar: '#FFFFFF',
+    rule: 'rgba(6,10,18,.10)', 'rule-strong': 'rgba(6,10,18,.20)',
+    ink: '#060A12', muted: '#46586E', faint: '#5A6E85', label: '#646B79',
     accent: '#0F7A6C', 'accent-hover': '#0A5F54', 'accent-ink': '#FFFFFF', 'accent-tint': '#C9E6E0',
     'accent-strong': '#0A5F54',
     lens: '#A85A2C', lxc: '#42688C',

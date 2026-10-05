@@ -98,13 +98,13 @@
    to theme just its subtree (the specimen renders light and dark side by side). */
 :root,
 [data-theme='light'] {
-  --canvas: #F3F6FA;
+  --canvas: #F4F7FB;
   --surface: #FFFFFF;
   --raised: #FFFFFF;
-  --sidebar: #F3F6FA;
-  --rule: rgba(11, 18, 32, .10);
-  --rule-strong: rgba(11, 18, 32, .20);
-  --ink: #0B1220;
+  --sidebar: #FFFFFF;
+  --rule: rgba(6, 10, 18, .10);
+  --rule-strong: rgba(6, 10, 18, .20);
+  --ink: #060A12;
   --muted: #46586E;
   --faint: #5A6E85;
   --label: #646B79;
