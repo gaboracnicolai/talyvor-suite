@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App, queryClient } from './App'
+import { PENDING_POLL_MS } from './areas/lens/WalletScreens'
 import { SIDEBAR_FOLD_KEY } from './sidebarFold'
 
 // B28.7 — the navigation is wallet-first. Drives the real <App /> as an operator, so every row the
@@ -92,6 +93,49 @@ describe('the navigation is wallet-first (B28.7)', () => {
       const h1 = await screen.findByRole('heading', { level: 1 })
       expect(h1.textContent, `${href} opened no page`).not.toBe('Not found')
       expect(screen.queryByText(/Nothing at this address/), `${href} fell to the catch-all`).toBeNull()
+    }
+  })
+
+  it('B28.45 — approving one takes the badge from 3 to 2 without a reload', async () => {
+    const waiting = [...APPROVALS, { ...APPROVALS[0], id: 'apr_4', created_at: '2026-10-04T12:00:00Z' }]
+    mockBff()
+    const lens = vi.mocked(globalThis.fetch).getMockImplementation()!
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const url = String(input).split('?')[0]
+      if (url === '/api/agents/approvals') return Response.json({ approvals: waiting })
+      const decided = /^\/api\/agents\/approvals\/([^/]+)\/approve$/.exec(url)
+      if (decided && init?.method === 'POST') {
+        const i = waiting.findIndex((a) => a.id === decided[1])
+        waiting[i] = { ...waiting[i], status: 'approved' }
+        return Response.json(waiting[i])
+      }
+      return lens(input, init)
+    })
+    const nav = await sidebarAt('/approvals')
+    await within(nav).findByRole('link', { name: 'Approvals 3 waiting' })
+    const main = within(screen.getByRole('main'))
+    await waitFor(() => expect(main.getAllByRole('button', { name: 'Approve' })).toHaveLength(3))
+    fireEvent.click(main.getAllByRole('button', { name: 'Approve' })[0])
+    await within(nav).findByRole('link', { name: 'Approvals 2 waiting' })
+    expect(main.getAllByRole('button', { name: 'Approve' })).toHaveLength(2)
+  })
+
+  it('B28.45 — an approval an agent files while the page is open reaches the badge on its own', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const waiting = [...APPROVALS]
+      mockBff()
+      const lens = vi.mocked(globalThis.fetch).getMockImplementation()!
+      vi.mocked(globalThis.fetch).mockImplementation(async (input, init) =>
+        String(input).split('?')[0] === '/api/agents/approvals' ? Response.json({ approvals: [...waiting] }) : lens(input, init),
+      )
+      const nav = await sidebarAt('/')
+      await within(nav).findByRole('link', { name: 'Approvals 2 waiting' })
+      waiting.push({ ...APPROVALS[0], id: 'apr_5', created_at: '2026-10-04T13:00:00Z' })
+      await vi.advanceTimersByTimeAsync(PENDING_POLL_MS)
+      await within(nav).findByRole('link', { name: 'Approvals 3 waiting' })
+    } finally {
+      vi.useRealTimers()
     }
   })
 

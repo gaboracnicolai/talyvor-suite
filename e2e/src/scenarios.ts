@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentRequestRate, agentRuleTemplate, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentRequestRate, agentRuleTemplate, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1342,7 +1342,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.21 — then an agent renamed, described and archived: one withdraw sweeps it, and its key writes no hold.
     // B28.305 — then an agent created from a rule template: Lens holds exactly the template's rules.
     // B28.38 — then a payment approved from its push notification, with the app not opened.
-    case 3: list.push(agentApproval(i), agentArchive(i), agentRuleTemplate(i), agentApprovalPush(i)); break
+    // B28.45 — then the Approvals badge, live: one approved here and one in another tab, no reload.
+    case 3: list.push(agentApproval(i), agentArchive(i), agentRuleTemplate(i), agentApprovalPush(i), approvalsBadge(i)); break
     // B28.26 — first, 61 requests in a minute under a 60-a-minute rule: the 61st writes no hold.
     case 4:
       list.push(agentRequestRate(i))
