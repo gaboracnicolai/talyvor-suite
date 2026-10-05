@@ -101,7 +101,7 @@ describe('the marketing page offers a way in', () => {
     at('/marketing')
     await screen.findAllByRole('link', { name: /get started/i })
     await waitFor(() => {
-      expect(screen.getByText(/closed trial/i)).toBeInTheDocument()
+      expect(screen.getByText(/closed trial just now/i)).toBeInTheDocument()
     })
     expect(screen.queryByText(/no invitation needed/i)).toBeNull()
   })
@@ -113,7 +113,7 @@ describe('the marketing page offers a way in', () => {
     await waitFor(() => {
       expect(screen.getByText(/no invitation needed/i)).toBeInTheDocument()
     })
-    expect(screen.queryByText(/closed trial/i)).toBeNull()
+    expect(screen.queryByText(/closed trial just now/i)).toBeNull()
   })
 
   it('claims NOTHING about access while the answer is unknown', async () => {
@@ -122,7 +122,7 @@ describe('the marketing page offers a way in', () => {
     mockBff()
     at('/marketing')
     await screen.findAllByRole('link', { name: /get started/i })
-    expect(screen.queryByText(/closed trial/i)).toBeNull()
+    expect(screen.queryByText(/closed trial just now/i)).toBeNull()
     expect(screen.queryByText(/no invitation needed/i)).toBeNull()
   })
 })

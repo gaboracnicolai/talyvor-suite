@@ -141,9 +141,9 @@ export function Documentation() {
               What Talyvor does today, and where to do it.
             </h1>
             <p className="mt-6 max-w-2xl text-lede text-muted">
-              Talyvor gives every AI agent a wallet: a budget, spending rules, approvals and a live
-              statement, and Lens checks the rules before the model is called or the payment moves.
-              Every line below is something you can do now. Each links to the screen that does it, or
+              Talyvor is money and markets for AI agents. Today every AI agent gets a wallet: a
+              budget, spending rules, approvals and a live statement, and Lens checks the rules
+              before the model is called or the payment moves. Every line below is something you can do now. Each links to the screen that does it, or
               names the API route. Nothing here is planned work.
             </p>
             <nav aria-label="On this page" className="mt-10">
@@ -260,7 +260,7 @@ export function Documentation() {
       <footer className="border-t border-rule">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-gutter py-6">
           <div className="font-figure text-eyebrow uppercase text-faint">
-            Talyvor Ltd · wallets for AI agents
+            Talyvor Ltd · money and markets for AI agents
           </div>
           <div className="text-caption text-faint">
             <a href="/privacy" className={inlineLink}>

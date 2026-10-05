@@ -51,11 +51,11 @@ afterEach(() => {
 })
 
 describe('a signed-out visitor arrives from talyvor.com and can act', () => {
-  it('lands on the page and is told the product — a wallet for every agent — not a placeholder', async () => {
+  it('lands on the page and is told the product — money and markets for AI agents — not a placeholder', async () => {
     mockBff()
     at('/marketing')
     // The claim the page exists to make. If this heading goes, the page has lost its argument.
-    expect(await screen.findByRole('heading', { level: 1, name: /give every ai agent a wallet/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: /money and markets for ai agents/i })).toBeInTheDocument()
     // And what a wallet is, in the page's own voice.
     expect(screen.getByText(/enforced before the model call or the payment/i)).toBeInTheDocument()
   })

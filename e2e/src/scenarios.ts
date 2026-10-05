@@ -464,10 +464,10 @@ export function socialPreview(): Scenario {
             `og:description="${meta('property', 'og:description')}" og:image="${image}" -> ${img?.status() ?? 'not fetched'} ${imgType}`,
         })
         const missing = [
-          title === 'Talyvor — wallets for AI agents' ? '' : '<title>',
+          title === 'Talyvor — money and markets for AI agents' ? '' : '<title>',
           tab === title ? '' : 'the tab title after the app ran',
           meta('name', 'description') === '' ? 'meta description' : '',
-          meta('property', 'og:title') === '' ? 'og:title' : '',
+          meta('property', 'og:title') === 'Talyvor — money and markets for AI agents' ? '' : 'og:title',
           meta('property', 'og:description') === '' ? 'og:description' : '',
           img?.status() === 200 && imgType.startsWith('image/') ? '' : 'og:image that loads',
           meta('name', 'twitter:card') === 'summary_large_image' ? '' : 'twitter:card',
@@ -613,7 +613,7 @@ export function walletHero(): Scenario {
         const footer = await page.locator('footer').innerText()
         ctx.evidence.push({ note: `h1="${h1}" h2=${JSON.stringify(sections)} footer="${footer.split('\n')[0]}"` })
         const missing = [
-          h1 === 'Give every AI agent a wallet.' ? '' : `the wallet hero (h1 reads "${h1}")`,
+          h1 === 'Money and markets for AI agents.' ? '' : `the hero (h1 reads "${h1}")`,
           /budget, spending rules, approvals and a live statement/i.test(text) ? '' : 'the wallet subhead',
           ...[/rules before the money moves/i, /console for your agents/i, /where agents spend/i, /repeated questions cost less/i]
             .map((h) => (sections.some((s) => h.test(s)) ? '' : `a section heading ${h}`)),

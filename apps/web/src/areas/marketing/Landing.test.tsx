@@ -112,7 +112,7 @@ describe('Landing', () => {
   // the "near-zero" ninety-day bill were a projected shape, and no ledger row supports either.
   it('leads with wallets, and makes no price-curve claim', () => {
     const { container } = render(<Landing />)
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Give every AI agent a wallet.')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Money and markets for AI agents.')
     const text = container.textContent ?? ''
     expect(text).toMatch(/budget, spending rules, approvals and a live statement/i)
     expect(text).toMatch(/enforced before the model call or the payment/i)

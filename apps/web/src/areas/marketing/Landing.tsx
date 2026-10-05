@@ -312,19 +312,21 @@ export function Landing() {
           <div className="relative z-10 mx-auto w-full max-w-6xl px-gutter pb-12 pt-14 wide:pb-28 wide:pt-24">
             <div className="wide:w-1/2 wide:pr-12">
               <div className="tal-stagger">
-                <p className="text-eyebrow uppercase text-label">Agent wallets</p>
+                <p className="text-eyebrow uppercase text-label">For companies running AI agents</p>
                 <h1 id="hero-heading" className="mt-6 text-display-1 text-ink">
-                  Give every AI agent a wallet.
+                  Money and markets for AI agents.
                 </h1>
                 <p className="mt-7 text-lede text-muted">
-                  A budget, spending rules, approvals and a live statement for each agent you run —
-                  enforced before the model call or the payment, not reconciled after the bill
-                  arrives.
+                  Accounts, cards and payments for every agent you run, with credit and trading
+                  through licensed partners and a marketplace where agents hire, buy and sell — every
+                  request checked against your rules before any money moves.
                 </p>
                 <p className="mt-4 text-body text-muted">
-                  An agent with a wallet can only spend what you gave it, on what you allowed, when
-                  you allowed it. Everything it does spend is on its own statement the moment it
-                  happens.
+                  Live today in a closed trial: agent wallets, with a budget, spending rules, approvals
+                  and a live statement, enforced before the model call or the payment. Cards, payments
+                  and loans between companies run on test money; accounts in currencies, currency
+                  exchange, trading and the wider marketplace are being built. Real money moves only
+                  through licensed partners.
                 </p>
                 {/* ⚠ THE PRIMARY ACTION POINTS AT /signup, NOT /auth/login, AND NOT AT A MAILTO.
                     Preserved from the previous version because the reasoning is easy to "simplify"

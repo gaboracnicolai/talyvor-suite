@@ -160,8 +160,8 @@ const NO_SUCH_PAGE = ['/admin', '/specimen', '/nonesuch', '/keys/extra', '/billi
 
 /** Public addresses and the WHOLE title each must carry. `/marketing` is the front door. */
 const PINNED_PUBLIC: ReadonlyArray<readonly [string, string]> = [
-  ['/marketing', 'Talyvor — wallets for AI agents'],
-  ['/marketing/pricing', 'Talyvor — wallets for AI agents'],
+  ['/marketing', 'Talyvor — money and markets for AI agents'],
+  ['/marketing/pricing', 'Talyvor — money and markets for AI agents'],
   ['/privacy', 'Privacy | Talyvor'],
   ['/terms', 'Terms | Talyvor'],
   ['/signup', 'Create a workspace | Talyvor'],
@@ -169,11 +169,11 @@ const PINNED_PUBLIC: ReadonlyArray<readonly [string, string]> = [
 ]
 
 describe('the format, and the brand it ends in', () => {
-  it('is "<page> | Talyvor", and the front door is the wallet line', () => {
+  it('is "<page> | Talyvor", and the front door is the money-and-markets line', () => {
     // Hardcoded on both sides. A guard that builds its expectation from the constant it is
     // checking passes for every value of that constant.
     expect(documentTitle('Ledger')).toBe('Ledger | Talyvor')
-    expect(documentTitle(null)).toBe('Talyvor — wallets for AI agents')
+    expect(documentTitle(null)).toBe('Talyvor — money and markets for AI agents')
     expect(BRAND).toBe('Talyvor')
   })
 
@@ -193,9 +193,9 @@ describe('the format, and the brand it ends in', () => {
     const tag = (attr: 'name' | 'property', key: string) =>
       new RegExp(`<meta\\s+${attr}="${key}"\\s+content="([^"]*)"`).exec(html)?.[1]
     const description =
-      'Give every AI agent a wallet: a budget, spending rules, approvals, a card and a live statement, enforced before the model call or payment.'
+      "Accounts, cards and payments for AI agents, with credit and trading through licensed partners and a marketplace, all under the owner's rules."
     expect(tag('name', 'description')).toBe(description)
-    expect(tag('property', 'og:title')).toBe('Talyvor — wallets for AI agents')
+    expect(tag('property', 'og:title')).toBe('Talyvor — money and markets for AI agents')
     expect(tag('property', 'og:description')).toBe(description)
     expect(tag('property', 'og:image')).toBe('https://app.talyvor.com/og-image.png')
     expect(tag('name', 'twitter:card')).toBe('summary_large_image')

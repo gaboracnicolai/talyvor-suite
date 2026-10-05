@@ -202,8 +202,9 @@ export function SignUp() {
           <TealRule />
           {/* WHAT IT IS, in one line. A stranger decides here whether to keep reading. */}
           <p className="text-body text-muted">
-            Talyvor gives every AI agent a wallet: a budget, spending rules, approvals and a live
-            statement, enforced before the model call or the payment.
+            Talyvor is money and markets for AI agents. Today each agent gets a wallet: a budget,
+            spending rules, approvals and a live statement, enforced before the model call or the
+            payment.
           </p>
         </div>
 
