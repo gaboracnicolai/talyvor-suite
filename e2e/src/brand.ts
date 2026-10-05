@@ -8,6 +8,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from 'playwright'
 import { CannotTest, type Scenario } from './scenarios.ts'
+import { DocsPage } from './screens.ts'
 
 const VIEWPORTS = [[1440, 900], [390, 844]] as const
 const THEMES = ['dark', 'light'] as const
@@ -161,6 +162,95 @@ export function brandVisual(): Scenario {
       return wrong.length === 0
         ? { pass: true, detail: '16 views photographed: no sideways scroll, a drawn SVG logo on screen, no CSS tile, no #f0a030 and no Inter in any' }
         : { pass: false, detail: wrong.join(' | '), where: [...where] }
+    },
+  }
+}
+
+/** B29.28 — the oracle for a Docs page: what is off-brand about it, in words; nothing when it is the brand. */
+export function docsBrandFaults(l: Look, sidebar: string[]): string[] {
+  const faults: string[] = []
+  if (sidebar.length === 0) faults.push('no logo in the sidebar')
+  if (l.amberCount > 0) faults.push(`#f0a030 on ${l.amberCount} element(s): ${l.amber.join(', ')}`)
+  if (l.inter.length > 0) faults.push(`a font stack with Inter: ${l.inter.join(' | ')}`)
+  return faults
+}
+
+/** Each logo in the sidebar on screen: a drawn mark or wordmark, or a logo image that loaded. Self-contained. */
+function sidebarLogosInPage(): string[] {
+  const onScreen = (el: Element): boolean => {
+    const r = el.getBoundingClientRect()
+    return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' &&
+      r.width > 0 && r.height > 0 && r.right > 0 && r.left < window.innerWidth
+  }
+  const found: string[] = []
+  for (const side of Array.from(document.querySelectorAll('aside'))) {
+    for (const s of Array.from(side.querySelectorAll('svg[data-brand="mark"], svg[data-brand="wordmark"]'))) {
+      if (onScreen(s)) found.push(`svg ${s.getAttribute('data-brand')}`)
+    }
+    for (const i of Array.from(side.querySelectorAll<HTMLImageElement>('img'))) {
+      const path = new URL(i.currentSrc || i.src, location.href).pathname
+      if ((i.dataset.brand === 'logo' || /logo/i.test(path)) && i.naturalWidth > 0 && onScreen(i)) found.push(path)
+    }
+  }
+  return found
+}
+
+/**
+ * B29.28 — the Docs app in the brand: a page this user writes in Docs, at 1440×900 and 390×844 in the dark
+ * theme and the light one, each photographed into the day's report. Where the sidebar is a drawer (390), the
+ * Menu opens it and the open drawer is photographed too. A view fails on no logo in the sidebar, any computed
+ * colour #f0a030, or a font stack that names Inter.
+ */
+export function brandDocs(): Scenario {
+  return {
+    id: 'brand-docs',
+    title: 'a Docs page, at 1440 and 390 in both themes: photographed, the logo in the sidebar, no #f0a030, no Inter',
+    run: async (ctx) => {
+      const stamp = Date.now().toString(36)
+      const doc = await DocsPage.write(ctx.app, `Brand check ${stamp}`, `Brand check ${stamp}`,
+        'The nightly brand check reads this page at 1440 and 390, in the dark theme and the light one.')
+      const page = doc.page
+      const url = page.url()
+      const { dir, link } = ctx.env.shots
+      await mkdir(dir, { recursive: true })
+      const wrong: string[] = []
+      try {
+        for (const theme of THEMES) {
+          await page.emulateMedia({ colorScheme: theme })
+          for (const [width, height] of VIEWPORTS) {
+            await page.setViewportSize({ width, height })
+            const { look, note } = await view(page, url, theme)
+            const file = `docs-page-${width}-${theme}.jpg`
+            await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
+            const shots = [file]
+            let sidebar = await page.evaluate(sidebarLogosInPage)
+            const menu = page.getByRole('button', { name: 'Menu', exact: true })
+            if (sidebar.length === 0 && await menu.isVisible()) {
+              await menu.click()
+              await page.locator('aside').first().waitFor({ state: 'visible', timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined)
+              sidebar = await page.evaluate(sidebarLogosInPage)
+              const open = `docs-page-${width}-${theme}-menu.jpg`
+              await page.screenshot({ path: join(dir, open), type: 'jpeg', quality: 80 })
+              shots.push(open)
+              await page.keyboard.press('Escape')
+            }
+            const faults = docsBrandFaults(look, sidebar)
+            for (const [n, f] of shots.entries()) {
+              ctx.evidence.push({
+                note: `Docs page ${width}×${height} ${theme}${n > 0 ? ', Menu open' : ''}${note}: ` +
+                  `${faults.length === 0 ? 'the brand' : faults.join('; ')} — sidebar logo ${sidebar.join(', ') || 'none'}`,
+                shot: `${link}/${f}`,
+              })
+            }
+            if (faults.length > 0) wrong.push(`Docs page ${width} ${theme}: ${faults.join('; ')}`)
+          }
+        }
+      } finally {
+        await page.close()
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: 'a Docs page at 1440 and 390 in both themes, photographed: a logo in the sidebar, no #f0a030 and no Inter in any' }
+        : { pass: false, detail: wrong.join(' | '), where: ['/docs'] }
     },
   }
 }
