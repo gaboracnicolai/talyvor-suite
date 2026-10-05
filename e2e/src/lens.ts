@@ -239,6 +239,24 @@ export interface AgentLine {
   balance_after_ulxc: number
 }
 
+/** Lens economy.AgentRules as its rules read answers them, in µLXC; a zero, an empty list or an empty window is no rule. */
+export interface AgentRulesRead {
+  max_per_request_ulxc: number
+  hourly_limit_ulxc?: number
+  daily_limit_ulxc: number
+  weekly_limit_ulxc?: number
+  monthly_limit_ulxc: number
+  approval_above_ulxc: number
+  model_daily_limits_ulxc?: Record<string, number>
+  allowed_models: string[] | null
+  allowed_providers: string[] | null
+  allowed_listings?: string[] | null
+  active_from: string
+  active_until: string
+  timezone: string
+  pause_on_unusual_spend?: boolean
+}
+
 /** Lens economy.AgentPayment. `via` is "marketplace" for a payment to another company's agent (B19.15). */
 export interface AgentPayment {
   entry_id: string
@@ -551,20 +569,10 @@ export class LensClient {
 
   /**
    * B28.8 — one agent's rules as Lens stored them: its limits and its approval amount, in µLXC; B28.22 — and
-   * its models; B28.25 — and each model's daily cap.
+   * its models; B28.25 — and each model's daily cap; B28.305 — and every other rule.
    */
-  async agentRules(user: SyntheticUser, agentID: string): Promise<{
-    monthly_limit_ulxc: number
-    approval_above_ulxc: number
-    allowed_models: string[] | null
-    model_daily_limits_ulxc?: Record<string, number>
-  }> {
-    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules`, this.bearer(user.token))) as {
-      monthly_limit_ulxc: number
-      approval_above_ulxc: number
-      allowed_models: string[] | null
-      model_daily_limits_ulxc?: Record<string, number>
-    }
+  async agentRules(user: SyntheticUser, agentID: string): Promise<AgentRulesRead> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules`, this.bearer(user.token))) as AgentRulesRead
   }
 
   /** B17.6 — one agent's account, newest first (Lens B19.3). */
