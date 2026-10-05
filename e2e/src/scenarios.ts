@@ -23,6 +23,7 @@ import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, everyScreen, lensReads } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
+import { brandVisual } from './brand.ts'
 
 export interface Evidence {
   note?: string
@@ -31,6 +32,8 @@ export interface Evidence {
   footer?: string
   error?: string
   ledger?: { type: string; amount_ulxc: number; created_at: string }[]
+  /** B29.21 — a screenshot of what the note describes, as the day's report links it. */
+  shot?: string
 }
 
 export interface Verdict {
@@ -59,6 +62,8 @@ export interface RunEnv {
   outDir: string
   /** B28.440 — the run's checkout of talyvor-lens (--lens-src), whose sdk/typescript the SDK quickstart runs; 'none' when not given. */
   lensSrc: string
+  /** B29.21 — where the run's screenshots for the report go: `dir` on disk, `link` the same place as the report links it. */
+  shots: { dir: string; link: string }
 }
 
 export interface ScenarioCtx {
@@ -1845,6 +1850,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   }
   // B25.5 — every Lens read a customer's key can make, a few times a run.
   if (i % 100 === 8) list.push(lensReads())
+  // B29.21 — the brand on the public pages and Home, photographed into the report: once a run.
+  if (i === 2) list.push(brandVisual())
   // B17.10, one in ten again. The contributor (7, 17, …) changes no setting and its partner is one of 9,
   // 19, …. The plan comes last, on a user nobody else asks as: what is asked after it is drawn from its
   // allowance, which the ledger read-back does not expect.
