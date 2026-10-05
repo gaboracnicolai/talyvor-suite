@@ -122,6 +122,7 @@
   "src/caseCallSites.test.ts": 9,
   "src/checkoutRefusalSurface.test.tsx": 5,
   "src/ClaimsAudit.test.tsx": 38,
+  "src/CompanyLine.test.tsx": 12,
   "src/ConsoleDeepHeading.test.tsx": 11,
   "src/ConsoleHeading.test.tsx": 26,
   "src/ConsoleNavLinks.test.tsx": 34,

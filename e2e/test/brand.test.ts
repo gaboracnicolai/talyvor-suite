@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type Look, type ReportLook, brandFaults, docsBrandFaults, roiBrandFaults } from '../src/brand.ts'
+import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, roiBrandFaults } from '../src/brand.ts'
 
 const brand: Look = { scroll: 390, client: 390, logos: ['svg mark', 'svg wordmark'], tiles: [], amberCount: 0, amber: [], inter: [] }
 
@@ -54,6 +54,23 @@ describe('the brand-roi oracle (B29.29)', () => {
       'a font stack with Inter: Inter, sans-serif (h1)',
       'a dark canvas on paper (rgb(26, 26, 46))',
       '1 request(s) to another host: http://fonts.invalid/inter.css',
+    ])
+  })
+})
+
+describe('the company-line oracle (B32.2)', () => {
+  const terms = 'These terms are between you and TALYVOR LTD, a company registered in England and Wales (number 17299143) ' +
+    'whose registered office is 71-75 Shelton Street, Covent Garden, London, United Kingdom, WC2H 9JQ. Contact: nicolai@talyvor.com.'
+
+  it('passes a page that names the company, and Terms opening with who it is between', () => {
+    expect(companyFaults('/pricing', `Pricing … ${COMPANY_LINE}`, '')).toEqual([])
+    expect(companyFaults('/terms', `Terms ${terms} … ${COMPANY_LINE}`, terms)).toEqual([])
+  })
+
+  it('names a missing line and a legal page that opens with something else', () => {
+    expect(companyFaults('/terms', 'Terms', 'This is a trial.')).toEqual([
+      'no company line',
+      'opens with "This is a trial.", not who runs Talyvor',
     ])
   })
 })

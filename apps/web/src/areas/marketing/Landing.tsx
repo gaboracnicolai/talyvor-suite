@@ -3,6 +3,7 @@ import { Button, CaseSafe, Mark, ThemeToggle, focusRing, inlineLink } from '@tal
 import { useSignupProbe } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
 import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, micro } from './economics'
+import { CompanyLine } from '../../components/CompanyLine'
 
 // The marketing landing (/marketing, OUTSIDE the AuthGate — see App.tsx). It must render with no
 // session, no router context, and no providers: Landing.test.tsx renders <Landing /> bare, so
@@ -587,6 +588,9 @@ export function Landing() {
               Repeated questions
             </a>
           </div>
+        </div>
+        <div className="mx-auto w-full max-w-6xl px-gutter pb-6">
+          <CompanyLine />
         </div>
       </footer>
     </div>

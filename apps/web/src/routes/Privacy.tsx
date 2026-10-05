@@ -1,4 +1,6 @@
-import { LegalHeader, LawyerReview, Section } from './legalParts'
+import { inlineLink } from '@talyvor/ui'
+import { LegalFooter, LegalHeader, LawyerReview, Section } from './legalParts'
+import { COMPANY_CONTACT, COMPANY_NAME, COMPANY_NUMBER, REGISTERED_OFFICE } from '../company'
 import {
   KEPT_UNTIL_DELETED_FACT,
   LOGGING_NONE_FACT,
@@ -37,6 +39,15 @@ export function Privacy() {
     // sticky top bar is what a banner is for. LandmarkCoverage.test.tsx holds the proportion.
     <main className="mx-auto w-full max-w-3xl px-gutter py-10">
       <LegalHeader title="Privacy" />
+
+      <p className="mb-8 text-body">
+        {COMPANY_NAME} (company number {COMPANY_NUMBER}, registered office {REGISTERED_OFFICE}) runs
+        Talyvor and decides how the personal data this notice describes is used. Contact:{' '}
+        <a className={inlineLink} href={`mailto:${COMPANY_CONTACT}`}>
+          {COMPANY_CONTACT}
+        </a>
+        .
+      </p>
 
       <LawyerReview>
         This is an honest engineering account of what the software does, written from the code so a
@@ -276,6 +287,8 @@ export function Privacy() {
           outside a closed trial.
         </LawyerReview>
       </Section>
+
+      <LegalFooter />
     </main>
   )
 }
