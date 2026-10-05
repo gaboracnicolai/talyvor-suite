@@ -134,6 +134,20 @@ const ICONS = {
   // B29.8 — the Home cards' Developers icon and the arrow each card ends on.
   code: <path d="m8 7.5-4.5 4.5L8 16.5M16 7.5l4.5 4.5-4.5 4.5M13.5 5l-3 14" />,
   arrow: <path d="M4.5 12h15M13.5 6l6 6-6 6" />,
+  // B29.11 — the marketplace's kinds: an agent and a prompt; a skill, an evaluation and a pipeline wear
+  // layers, prove and route.
+  agent: (
+    <>
+      <rect x="5" y="8" width="14" height="11" rx="3" />
+      <path d="M12 8V4.5M9.5 12.5v1.5M14.5 12.5v1.5M3 12.5V15M21 12.5V15" />
+    </>
+  ),
+  prompt: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <path d="m7.5 10 2.5 2.5-2.5 2.5M12.5 15h4" />
+    </>
+  ),
   server: (
     <>
       <rect x="4" y="4" width="16" height="7" rx="1.5" />

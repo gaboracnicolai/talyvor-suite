@@ -20,7 +20,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { appShell, brandPlanes, chatBrand, everyScreen, homeCards, lensReads, walletBrand } from './tour.ts'
+import { appShell, brandPlanes, chatBrand, everyScreen, homeCards, lensReads, marketBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine } from './brand.ts'
@@ -1807,7 +1807,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       list.push(agentRequestRate(i))
       if (i + 5 < users) list.push(companyPayment(i, i + 5))
       break
-    case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3)); break
+    // B29.11 — then the marketplace in the brand, that sale's listing among the catalog's cards.
+    case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3), marketBrand()); break
     // B28.20 — then one agent funded 100 times at once: Lens's stored balance agrees with its postings.
     // B28.349 — then asked in Chat what an agent spent: 1.23 LXC, through Lens's wallet tool, linked to its pay line.
     // B29.10 — then that conversation in the brand: raised composer, teal Send, eyebrow picker, replies at 15/24.

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, Pill, Row, focusRing, inlineLink } from '@talyvor/ui'
+import { Button, CardHeader, Pill, Row, focusRing, inlineLink } from '@talyvor/ui'
 import { Region } from '../../components/Region'
 import { isSessionExpired } from '../../lib/productState'
 import { formatULXC } from '../lens/agentBankApi'
@@ -17,7 +17,7 @@ import {
   marketApi,
   refusalText,
 } from './marketApi'
-import { Note, Price, readFailure } from './parts'
+import { Card, Note, Price, readFailure } from './parts'
 
 // Review.tsx — B20.12: Talyvor's marketplace review queue, for operators. Lens (B20.4) lists every
 // listing held at review and every one with an open report, most reported first; the operator keeps

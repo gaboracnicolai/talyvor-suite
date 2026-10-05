@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
-import { Card, CardHeader, Row, inlineLink } from '@talyvor/ui'
+import { CardHeader, Row, inlineLink } from '@talyvor/ui'
 import { Region } from '../../components/Region'
 import { ApiError } from '../../lib/api'
 import { formatWhen } from '../lens/format'
 import { kindLabel, marketApi } from './marketApi'
-import { Price, readFailure } from './parts'
+import { Card, Price, readFailure } from './parts'
 import { ReportListing } from './Report'
 import { UseListing } from './UseListing'
 

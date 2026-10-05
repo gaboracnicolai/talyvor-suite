@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Route, Routes, useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Card, CardHeader, Input, Pill, Row, focusRing, inlineLink } from '@talyvor/ui'
+import { Button, CardHeader, Input, NavIcon, Pill, Row, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { formatULXC } from '../lens/agentBankApi'
 import { formatUSD, formatWhen } from '../lens/format'
@@ -17,13 +17,30 @@ import {
   refusalText,
   variablesIn,
 } from './marketApi'
-import { CATALOG_KEY, EARNINGS_KEY, ListingRow, MINE_KEY, Note, readFailure, selectClass, useRunnableModels } from './parts'
+import {
+  CATALOG_KEY,
+  Card,
+  EARNINGS_KEY,
+  FigureTile,
+  KIND_ICON,
+  ListingCard,
+  ListingGrid,
+  MINE_KEY,
+  Note,
+  pressed,
+  readFailure,
+  selectClass,
+  useRunnableModels,
+} from './parts'
 
 // Marketplace.tsx — B20.3: the marketplace. Browse and search what other teams published (agents,
 // prompts, skills, evaluations and pipelines — Lens B20.1), open a listing and use it (ListingPage;
 // B20.2: run through Lens as this workspace, a paid listing's price metered onto its monthly
 // marketplace bill, never taken from prepaid credits), publish one, and read what this workspace's
 // listings earned.
+//
+// B29.11 — in the brand: listings are raised cards with their kind's icon, seller and price, the publish
+// form picks a kind by its icon and shows the card it will make, and a seller's earnings are figure tiles.
 //
 // Lens decides everything: who may publish (the workspace's owner or an admin), whether a listing
 // carries a secret, personal data or an injection, what a use costs and who earns. These screens show
@@ -59,7 +76,7 @@ function Browse() {
           and earn when others use it.
         </p>
       </Region>
-      <Region index="01" label="Browse" className="flex flex-col gap-3">
+      <Region index="01" label="Browse" fullWidth className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <Input
             aria-label="Search listings"
@@ -68,16 +85,12 @@ function Browse() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <Button aria-pressed={kind === ''} variant={kind === '' ? 'primary' : undefined} onClick={() => setKind('')}>
+          <Button aria-pressed={kind === ''} className={pressed} onClick={() => setKind('')}>
             Everything
           </Button>
           {KINDS.map((k) => (
-            <Button
-              key={k.kind}
-              aria-pressed={kind === k.kind}
-              variant={kind === k.kind ? 'primary' : undefined}
-              onClick={() => setKind(k.kind)}
-            >
+            <Button key={k.kind} aria-pressed={kind === k.kind} className={pressed} onClick={() => setKind(k.kind)}>
+              <NavIcon name={KIND_ICON[k.kind]} className="h-4 w-4" />
               {k.plural}
             </Button>
           ))}
@@ -91,12 +104,7 @@ function Browse() {
             {words !== '' ? 'Nothing published matches that search.' : 'Nothing is published here yet.'}
           </p>
         ) : (
-          <Card>
-            <CardHeader>Listings</CardHeader>
-            {shown.map((l) => (
-              <ListingRow key={l.id} l={l} />
-            ))}
-          </Card>
+          <ListingGrid listings={shown} label="Listings" />
         )}
       </Region>
     </>
@@ -175,6 +183,7 @@ function Publish() {
   })
   const vars = kind === 'prompt' ? variablesIn(body) : []
   const ready = title.trim() !== '' && body.trim() !== '' && micros !== null
+  const kindLabelID = useId()
   return (
     <Region
       index="00"
@@ -188,99 +197,125 @@ function Publish() {
         injection. Buyers pay per use on their monthly bill; what they pay reaches you after their payment clears and a
         holdback for refunds.
       </p>
-      <form
-        className="flex flex-col gap-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (ready && !publish.isPending) publish.mutate()
-        }}
-      >
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-caption text-muted">
-            Kind
-            <select className={selectClass} value={kind} onChange={(e) => setKind(e.target.value as ListingKind)}>
+      <Card>
+        <form
+          className="flex flex-col gap-4 p-gutter"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (ready && !publish.isPending) publish.mutate()
+          }}
+        >
+          <div className="flex flex-col gap-1.5">
+            <span id={kindLabelID} className="font-figure text-eyebrow uppercase text-label">
+              Kind
+            </span>
+            <div role="group" aria-labelledby={kindLabelID} className="flex flex-wrap gap-2">
               {KINDS.map((k) => (
-                <option key={k.kind} value={k.kind}>
+                <Button key={k.kind} aria-pressed={kind === k.kind} className={pressed} onClick={() => setKind(k.kind)}>
+                  <NavIcon name={KIND_ICON[k.kind]} className="h-4 w-4" />
                   {k.label}
-                </option>
+                </Button>
               ))}
-            </select>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-caption text-muted">
+              Visibility
+              <select
+                className={selectClass}
+                value={visibility}
+                onChange={(e) => setVisibility(e.target.value as Visibility)}
+              >
+                {VISIBILITY.map(([v, label]) => (
+                  <option key={v} value={v}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-caption text-muted">
+              Price per use, in LXC
+              <Input
+                className="mt-1 block w-32 font-figure"
+                inputMode="decimal"
+                placeholder="Free"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+              />
+            </label>
+          </div>
+          <label className="flex flex-col gap-1 text-caption text-muted">
+            Title
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </label>
-          <label className="text-caption text-muted">
-            Visibility
-            <select
-              className={selectClass}
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value as Visibility)}
-            >
-              {VISIBILITY.map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-caption text-muted">
-            Price per use, in LXC
-            <Input
-              className="mt-1 block w-32 font-figure"
-              inputMode="decimal"
-              placeholder="Free"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
+          <label className="flex flex-col gap-1 text-caption text-muted">
+            Description
+            <textarea
+              className={`min-h-28 w-full rounded-control border border-rule bg-surface p-3 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
             />
           </label>
-        </div>
-        <label className="flex flex-col gap-1 text-caption text-muted">
-          Title
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <label className="flex flex-col gap-1 text-caption text-muted">
-          Description
-          <textarea
-            className={`min-h-28 w-full rounded-control border border-rule bg-surface p-3 text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-caption text-muted">
-          {ARTIFACT[kind].label}
-          <textarea
-            className={`min-h-40 w-full rounded-control border border-rule bg-surface p-3 font-mono text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
-            spellCheck={false}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
-          <span>{ARTIFACT[kind].hint}</span>
-        </label>
-        {vars.length > 0 ? (
-          <p className="text-caption text-muted">Whoever uses it fills in: {vars.join(', ')}.</p>
-        ) : null}
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-caption text-muted">
-            Model
-            <select className={selectClass} value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="">The buyer chooses</option>
-              {runnable.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.display_name}
-                </option>
-              ))}
-            </select>
+          <label className="flex flex-col gap-1 text-caption text-muted">
+            {ARTIFACT[kind].label}
+            <textarea
+              className={`min-h-40 w-full rounded-control border border-rule bg-surface p-3 font-mono text-body text-ink placeholder:text-faint transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+              spellCheck={false}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+            <span>{ARTIFACT[kind].hint}</span>
           </label>
-          <label className="flex grow flex-col gap-1 text-caption text-muted">
-            What this version is
-            <Input value={changelog} onChange={(e) => setChangelog(e.target.value)} placeholder="First version" />
-          </label>
-        </div>
-        {micros === null ? <Note ok={false}>A price is an amount of LXC, like 0.5 — or empty for free.</Note> : null}
-        <div>
-          <Button type="submit" variant="primary" disabled={!ready || publish.isPending}>
-            {publish.isPending ? 'Publishing…' : 'Publish'}
-          </Button>
-        </div>
-        {publish.isError ? <Note ok={false}>{refusalText(publish.error)}</Note> : null}
-      </form>
+          {vars.length > 0 ? (
+            <p className="text-caption text-muted">Whoever uses it fills in: {vars.join(', ')}.</p>
+          ) : null}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-caption text-muted">
+              Model
+              <select className={selectClass} value={model} onChange={(e) => setModel(e.target.value)}>
+                <option value="">The buyer chooses</option>
+                {runnable.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex grow flex-col gap-1 text-caption text-muted">
+              What this version is
+              <Input value={changelog} onChange={(e) => setChangelog(e.target.value)} placeholder="First version" />
+            </label>
+          </div>
+          {micros === null ? <Note ok={false}>A price is an amount of LXC, like 0.5 — or empty for free.</Note> : null}
+          <div className="flex flex-col gap-1.5 border-t border-rule pt-4">
+            <span className="font-figure text-eyebrow uppercase text-label">How it shows in the marketplace</span>
+            <ul className="max-w-sm" aria-label="Preview">
+              <ListingCard
+                preview
+                own
+                l={{
+                  id: '',
+                  workspace_id: '',
+                  kind,
+                  title: title.trim() || 'Your listing’s title',
+                  description: description.trim(),
+                  price_per_use_ulxc: micros ?? 0,
+                  visibility,
+                  latest_version: 1,
+                  created_at: '',
+                  updated_at: '',
+                }}
+              />
+            </ul>
+          </div>
+          <div>
+            <Button type="submit" variant="primary" disabled={!ready || publish.isPending}>
+              {publish.isPending ? 'Publishing…' : 'Publish'}
+            </Button>
+          </div>
+          {publish.isError ? <Note ok={false}>{refusalText(publish.error)}</Note> : null}
+        </form>
+      </Card>
     </Region>
   )
 }
@@ -295,31 +330,32 @@ function EarningsCard() {
   return (
     <Card>
       <CardHeader>Earnings</CardHeader>
-      <Row
-        label="Waiting for buyers to pay"
-        hint={
-          <>
-            <span className="font-figure">{e.pending_uses}</span> {e.pending_uses === 1 ? 'use' : 'uses'} on bills not
-            yet paid
-          </>
-        }
-      >
-        <span className="font-figure text-body text-ink" data-testid="market-pending">
-          {formatUSD(e.pending_usd_micros)}
-        </span>
-      </Row>
-      <Row label="Earned" hint="Your share of every use whose bill was paid">
-        <span className="font-figure text-body text-ink">{formatUSD(e.payable_usd_micros)}</span>
-      </Row>
-      <Row label="In the holdback" hint="Held for refunds after the buyer pays">
-        <span className="font-figure text-body text-ink">{formatUSD(e.in_holdback_usd_micros)}</span>
-      </Row>
-      <Row label="Available" hint="Past the holdback">
-        <span className="font-figure text-body text-ink">{formatUSD(e.available_usd_micros)}</span>
-      </Row>
-      <Row label="Lifetime sales" hint="Everything buyers have paid for your listings">
-        <span className="font-figure text-body text-ink">{formatUSD(e.lifetime_gross_usd_micros)}</span>
-      </Row>
+      <div className="grid gap-px bg-rule wide:grid-cols-2" data-testid="market-earnings">
+        <FigureTile
+          label="Waiting for buyers to pay"
+          testid="market-pending"
+          hint={
+            <>
+              <span className="font-figure">{e.pending_uses}</span> {e.pending_uses === 1 ? 'use' : 'uses'} on bills not
+              yet paid
+            </>
+          }
+        >
+          <span className="font-figure">{formatUSD(e.pending_usd_micros)}</span>
+        </FigureTile>
+        <FigureTile label="Earned" hint="Your share of every use whose bill was paid">
+          <span className="font-figure">{formatUSD(e.payable_usd_micros)}</span>
+        </FigureTile>
+        <FigureTile label="In the holdback" hint="Held for refunds after the buyer pays">
+          <span className="font-figure">{formatUSD(e.in_holdback_usd_micros)}</span>
+        </FigureTile>
+        <FigureTile label="Available" hint="Past the holdback">
+          <span className="font-figure">{formatUSD(e.available_usd_micros)}</span>
+        </FigureTile>
+        <FigureTile label="Lifetime sales" hint="Everything buyers have paid for your listings" className="wide:col-span-2">
+          <span className="font-figure">{formatUSD(e.lifetime_gross_usd_micros)}</span>
+        </FigureTile>
+      </div>
     </Card>
   )
 }
@@ -538,7 +574,7 @@ function Selling() {
         <EarningsCard />
         <PayoutsCard />
       </Region>
-      <Region index="01" label="Your listings" className="flex max-w-2xl flex-col gap-3">
+      <Region index="01" label="Your listings" fullWidth className="flex flex-col gap-3">
         {mine.isError ? (
           <p className="text-body text-muted">{readFailure(mine.error, 'Your listings')}</p>
         ) : mine.isPending ? (
@@ -551,12 +587,7 @@ function Selling() {
             </Link>
           </p>
         ) : (
-          <Card>
-            <CardHeader>Your listings</CardHeader>
-            {mine.data.map((l) => (
-              <ListingRow key={l.id} l={l} />
-            ))}
-          </Card>
+          <ListingGrid listings={mine.data} own label="Your listings" />
         )}
       </Region>
     </>
