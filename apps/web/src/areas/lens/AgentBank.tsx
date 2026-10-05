@@ -475,7 +475,7 @@ function TopUpForm({ agent, current }: { agent: Agent; current: AgentTopUpValue 
  * B28.305 — a new agent can start from a rule template: created, then its rules saved as the template, in
  * the one click. When Lens refuses the rules the agent still exists, so it opens and the note says so.
  */
-function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
+function CreateAgent({ first = false, onCreated }: { first?: boolean; onCreated: (a: Agent) => void }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
   const [template, setTemplate] = useState<RuleTemplate | null>(null)
@@ -496,7 +496,7 @@ function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
     },
     onSettled: () => qc.invalidateQueries({ queryKey: BOOK_KEY }),
   })
-  return (
+  const form = (
     <form
       className="flex flex-col gap-2"
       onSubmit={(e) => {
@@ -533,6 +533,22 @@ function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
       {create.isError ? <Note ok={false}>{refusalText(create.error)}</Note> : null}
       {create.data?.unsaved ? <Note ok={false}>{create.data.unsaved}</Note> : null}
     </form>
+  )
+  // B28.271 — a workspace with no agents sees this one card. The same component stays mounted once the
+  // agent exists, so a note about rules that were not saved survives the screen filling in.
+  return first ? (
+    <Card data-testid="agent-first">
+      <CardHeader>Create your first agent</CardHeader>
+      <div className="flex flex-col gap-3 px-gutter py-3">
+        <p className="text-body text-muted">
+          Name it and choose the rules it starts with. Then fund it and issue its key; its spending, approvals and
+          statement appear here once it exists.
+        </p>
+        {form}
+      </div>
+    </Card>
+  ) : (
+    form
   )
 }
 
@@ -2065,6 +2081,11 @@ export function AgentBank() {
   const live = agents.filter((a) => !a.archived_at)
   const agent = agents.find((a) => a.id === chosen) ?? live[0] ?? agents[0] ?? null
   const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? 'an agent'
+  // B28.271 — until an agent exists there is nothing to pause, forecast, approve, lend or hold: the screen is
+  // the one card that creates it. Every region below keeps its place in the tree (null while hidden), so the
+  // create form is the same instance before and after the first agent.
+  const hasAgents = agents.length > 0
+  const first = book.isSuccess && !hasAgents
   return (
     <RegionScreen>
       <Region
@@ -2079,12 +2100,13 @@ export function AgentBank() {
           person must approve, and read every movement on its statement. Lens checks the rules before a provider is
           called or a payment moves.
         </p>
-        <CurrencyPicker />
+        {first ? null : <CurrencyPicker />}
         {book.isSuccess ? (
           <>
-            <Totals book={book.data} />
-            <PauseEveryAgent book={book.data} />
-            {book.data.agents.length > 0 ? (
+            {hasAgents ? <Totals book={book.data} /> : null}
+            {/* A pause already set still says so: it holds an agent created later too. */}
+            {hasAgents || book.data.all_paused_at ? <PauseEveryAgent book={book.data} /> : null}
+            {hasAgents ? (
               <Card>
                 <CardHeader>Statement for every agent</CardHeader>
                 <StatementDownload agent={null} />
@@ -2096,34 +2118,36 @@ export function AgentBank() {
         )}
       </Region>
 
-      <Region index="01" label="Approvals">
-        <Approvals
-          nameOf={nameOf}
-          held={held}
-          onSent={(id) =>
-            setHeld((h) => {
-              const next = { ...h }
-              delete next[id]
-              return next
-            })
-          }
-        />
-      </Region>
+      {hasAgents ? (
+        <Region index="01" label="Approvals">
+          <Approvals
+            nameOf={nameOf}
+            held={held}
+            onSent={(id) =>
+              setHeld((h) => {
+                const next = { ...h }
+                delete next[id]
+                return next
+              })
+            }
+          />
+        </Region>
+      ) : null}
 
-      <Region index="02" label="Agents" className="flex flex-col gap-3">
-        <CreateAgent onCreated={(a) => setChosen(a.id)} />
+      <Region index={hasAgents ? '02' : '01'} label="Agents" className="flex flex-col gap-3">
+        <CreateAgent first={first} onCreated={(a) => setChosen(a.id)} />
         {book.isError ? (
           <p className="text-body text-muted">{readFailure(book.error, 'The agents')}</p>
-        ) : book.isSuccess && agents.length === 0 ? (
-          <p className="text-body text-muted">No agents yet. Create one, then fund it and set its rules.</p>
-        ) : agents.length > 0 ? (
+        ) : hasAgents ? (
           <AgentList agents={agents} selected={agent?.id ?? null} onSelect={setChosen} />
         ) : null}
       </Region>
 
-      <Region index="03" label="Spending">
-        <Spending nameOf={nameOf} />
-      </Region>
+      {hasAgents ? (
+        <Region index="03" label="Spending">
+          <Spending nameOf={nameOf} />
+        </Region>
+      ) : null}
 
       {agent && book.data ? (
         <Region index="04" label="Agent" className="flex flex-col gap-gutter">
@@ -2187,7 +2211,7 @@ export function AgentBank() {
         </Region>
       ) : null}
 
-      {book.isSuccess ? (
+      {book.isSuccess && hasAgents ? (
         <Region index="05" label="Between owners" className="flex flex-col gap-gutter">
           <MoneyRequests agents={agents} />
           <CreditLinePanel />
@@ -2195,7 +2219,7 @@ export function AgentBank() {
         </Region>
       ) : null}
 
-      {book.isSuccess ? (
+      {book.isSuccess && hasAgents ? (
         <Region index="06" label="Held and cashed out" className="flex flex-col gap-gutter">
           <Escrows agents={agents} />
           <CashOuts agents={agents} />

@@ -26,7 +26,7 @@
   "src/areas/docs/searchDocs.test.tsx": 18,
   "src/areas/docs/tree.test.ts": 4,
   "src/areas/documentation/Documentation.test.tsx": 5,
-  "src/areas/lens/AgentBank.test.tsx": 2,
+  "src/areas/lens/AgentBank.test.tsx": 3,
   "src/areas/lens/AgentBankFaceID.test.tsx": 2,
   "src/areas/lens/AgentCard.test.tsx": 2,
   "src/areas/lens/AgentLifecycle.test.tsx": 1,
