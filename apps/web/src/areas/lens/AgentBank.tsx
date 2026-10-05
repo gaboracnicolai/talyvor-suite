@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input, Pill, RevealOnce, Row, focusRing, type PillStatus } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
@@ -1457,9 +1458,15 @@ function lineText(l: StatementLine, nameOf: (id: string) => string): string {
   }
 }
 
-export function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string) => string }) {
+export function Statement({ agent, nameOf, entry }: { agent: Agent; nameOf: (id: string) => string; entry?: string }) {
   const st = useQuery({ queryKey: statementKey(agent.id), queryFn: () => agentBankApi.statement(agent.id) })
   const lines = st.data?.lines ?? []
+  // B28.349 — a line linked to (from a spend answer in Chat) is marked, and brought into view.
+  const linked = useRef<HTMLTableRowElement | null>(null)
+  const found = entry !== undefined && lines.some((l) => l.entry_id === entry)
+  useEffect(() => {
+    if (found) linked.current?.scrollIntoView?.({ block: 'center' })
+  }, [found])
   return (
     <Card>
       <CardHeader>Statement</CardHeader>
@@ -1481,7 +1488,13 @@ export function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string
           </thead>
           <tbody>
             {lines.map((l) => (
-              <tr key={`${l.entry_id}-${l.kind}`} className="border-t border-rule text-ink">
+              <tr
+                key={`${l.entry_id}-${l.kind}`}
+                ref={l.entry_id === entry ? linked : undefined}
+                aria-current={l.entry_id === entry ? 'true' : undefined}
+                data-testid={l.entry_id === entry ? 'statement-line-linked' : undefined}
+                className={`border-t border-rule text-ink${l.entry_id === entry ? ' bg-accent-tint' : ''}`}
+              >
                 <td className="px-gutter py-2 font-figure text-caption text-muted">{formatWhen(l.at)}</td>
                 <td className="py-2">{lineText(l, nameOf)}</td>
                 <td className="py-2 text-right font-figure">
@@ -1493,6 +1506,11 @@ export function Statement({ agent, nameOf }: { agent: Agent; nameOf: (id: string
           </tbody>
         </table>
       )}
+      {entry !== undefined && st.isSuccess && !found ? (
+        <p className="border-t border-rule px-gutter py-3 text-body text-muted">
+          The line you followed is older than the ones shown here. Download this agent’s statement for its period below.
+        </p>
+      ) : null}
       <div className="border-t border-rule">
         <StatementDownload key={`statement-${agent.id}`} agent={agent} />
       </div>
@@ -1815,7 +1833,14 @@ export function Approvals({
 
 export function AgentBank() {
   const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
-  const [chosen, setChosen] = useState<string | null>(null)
+  // B28.349 — /agents?agent=…&entry=… (a statement line a spend answer in Chat links to) opens that agent at that line.
+  const [params] = useSearchParams()
+  const linkedAgent = params.get('agent')
+  const linkedEntry = params.get('entry') ?? undefined
+  const [chosen, setChosen] = useState<string | null>(linkedAgent)
+  useEffect(() => {
+    if (linkedAgent !== null) setChosen(linkedAgent)
+  }, [linkedAgent])
   const [held, setHeld] = useState<Record<string, HeldPayment>>({})
   const [archived, setArchived] = useState<Record<string, AgentArchive>>({})
   const agents = book.data?.agents ?? []
@@ -1897,7 +1922,7 @@ export function AgentBank() {
             <>
               <Archived agent={agent} done={archived[agent.id]} />
               <AgentDetails key={`details-${agent.id}`} agent={agent} />
-              <Statement agent={agent} nameOf={nameOf} />
+              <Statement agent={agent} nameOf={nameOf} entry={agent.id === linkedAgent ? linkedEntry : undefined} />
             </>
           ) : (
             <>
@@ -1934,7 +1959,7 @@ export function AgentBank() {
               <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
               <IssueKey key={`key-${agent.id}`} agent={agent} />
               <AgentCardPanel key={`card-${agent.id}`} agent={agent} />
-              <Statement agent={agent} nameOf={nameOf} />
+              <Statement agent={agent} nameOf={nameOf} entry={agent.id === linkedAgent ? linkedEntry : undefined} />
               <ArchiveAgent
                 key={`archive-${agent.id}`}
                 agent={agent}

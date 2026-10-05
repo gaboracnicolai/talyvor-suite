@@ -225,6 +225,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPatch, path: "/api/agents/x1", body: `{"name":"Renamed"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/archive", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/x1/rules/simulate", body: `{"amount_ulxc":1}`},
+		{method: http.MethodPost, path: "/api/chat/tools/call", body: `{"name":"wallet_agents_spend","arguments":{}}`},
 		// B22.10 — money between owners.
 		{method: http.MethodPut, path: "/api/agents/x1/handle", body: `{"handle":"acme"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/send", body: `{"to":"@bea","amount_ulxc":1,"memo":""}`},

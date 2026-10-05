@@ -405,9 +405,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE EIGHTIETH IS B28.30'S RULE SIMULATOR, POST only: /api/agents/{id}/rules/simulate. It changes nothing —
 	// Lens judges the request inside a transaction it always rolls back — and answers only Lens's verdict, reason
 	// and the agent's balance, which GET /api/agents and GET /api/agents/{id}/rules already show the sweep.
-	if len(methodOnly) > 80 {
+	//
+	// THE EIGHTY-FIRST IS B28.349'S CHAT TOOL CALL, POST only: /api/chat/tools/call. It runs one read-only Lens MCP
+	// tool (chat_tools.go's chatTools: what the agents spent) and changes nothing; what it answers is the agents'
+	// statement lines, which GET /api/agents/{id}/statement already shows the sweep.
+	if len(methodOnly) > 81 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 80 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 81 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

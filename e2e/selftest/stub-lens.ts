@@ -155,9 +155,19 @@ function monthUSD(ws: Workspace): number {
   return (ulxc / 1e6) * USD_PER_LXC
 }
 
-type Block = { type: string; text?: string; source?: { data?: string; media_type?: string; file_id?: string }; file?: { file_data?: string; file_id?: string } }
-type Msg = { role: string; content: string | Block[] }
-const text = (m: Msg): string => (typeof m.content === 'string' ? m.content : m.content.map((c) => c.text ?? '').join(''))
+type Block = { type: string; text?: string; source?: { data?: string; media_type?: string; file_id?: string }; file?: { file_data?: string; file_id?: string }; content?: string }
+type Msg = { role: string; content: string | Block[] | null; tool_calls?: unknown[] }
+const text = (m: Msg): string => (typeof m.content === 'string' ? m.content : (m.content ?? []).map((c) => c.text ?? '').join(''))
+
+/** B28.349 — what Lens's wallet tool answered, when the conversation ends with it (Anthropic's tool_result, or OpenAI's tool turn). */
+function toolResultOf(messages: Msg[]): string | undefined {
+  const last = messages[messages.length - 1]
+  if (last?.role === 'tool' && typeof last.content === 'string') return last.content
+  if (last?.role === 'user' && Array.isArray(last.content)) return last.content.find((c) => c.type === 'tool_result')?.content
+  return undefined
+}
+/** B28.349 — a question the stand-in model answers with Lens's wallet tool, when it is offered. */
+const SPEND_QUESTION = /^What did (.+?) spend today\?/
 
 /** HTML (or anything else, as it is) to the Markdown Lens's conversion produces. */
 function toMarkdown(raw: string, mediaType: string): string {
@@ -209,6 +219,15 @@ function shrink(v: unknown): unknown {
 
 /** The stand-in model: arithmetic, capitals, and the harness's own fixed prompts. */
 function think(messages: Msg[]): string {
+  // B28.349 — told what the agents spent, it says the total in LXC.
+  const spent = toolResultOf(messages)
+  if (spent !== undefined) {
+    try {
+      return `Your agents spent ${(JSON.parse(spent) as { total_ulxc: number }).total_ulxc / 1e6} LXC today.`
+    } catch {
+      return 'The wallet tool did not answer.'
+    }
+  }
   const q = text(messages[messages.length - 1])
   const all = messages.map(text).join('\n')
   let m
@@ -305,12 +324,13 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
   const raw = await read(req)
   if (!CONFIGURED.has(provider)) return json(res, 503, { error: `provider ${provider} not configured` })
-  const body = JSON.parse(raw || '{}') as { model?: string; stream?: boolean; max_tokens?: number; messages?: Msg[] }
+  const body = JSON.parse(raw || '{}') as { model?: string; stream?: boolean; max_tokens?: number; messages?: Msg[]; tools?: { name?: string; function?: { name?: string } }[] }
   const model = CATALOG.find((c) => c.id === body.model)
   if (model === undefined || (provider === 'anthropic') !== (path === 'v1/messages')) return json(res, 400, { error: 'bad request' })
   const messages = body.messages ?? []
   // B28.78 — Anthropic refuses a conversation holding an answer that said nothing, as a stopped one does.
-  const blank = messages.findIndex((m, i) => m.role === 'assistant' && i < messages.length - 1 && text(m).trim() === '')
+  const blank = messages.findIndex((m, i) => m.role === 'assistant' && i < messages.length - 1 && text(m).trim() === '' &&
+    !(Array.isArray(m.content) && m.content.some((c) => c.type === 'tool_use')))
   if (provider === 'anthropic' && blank >= 0) {
     return json(res, 400, { type: 'error', error: { type: 'invalid_request_error',
       message: `messages.${blank}: all messages must have non-empty content except for the optional final assistant message` } })
@@ -334,13 +354,41 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   if (BREAK !== 'budget' && ws.budgets.some((b) => b.enforcement === 'hard_block' && b.spent_usd >= b.limit_usd)) {
     return json(res, 402, { error: 'budget exceeded for workspace/team/sprint' })
   }
+  // B28.349 — offered Lens's wallet tool and asked what the agents spent, the stand-in model calls it, as a model does.
+  // An answer that used a tool depends on the books at that moment, so none of it is kept or replayed; a question that
+  // was only offered one is kept as any other.
+  const tooled = messages.some((m) => m.role === 'tool' || (Array.isArray(m.content) && m.content.some((c) => c.type === 'tool_use' || c.type === 'tool_result')))
+  const asked = SPEND_QUESTION.exec(text(messages[messages.length - 1] ?? { role: 'user', content: '' }))
+  if ((body.tools ?? []).some((t) => (t.name ?? t.function?.name) === 'wallet_agents_spend') && toolResultOf(messages) === undefined && asked !== null && body.stream) {
+    const inTok = tokens(messages.map(text).join(' ')) + 8
+    const args = JSON.stringify({ from: new Date().toISOString().slice(0, 10), ...(asked[1] === 'my agents' ? {} : { agent: asked[1] }) })
+    const outTok = tokens(args) + 8
+    book(ws, -Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6), 'spend', `${model.id} tool call`)
+    ws.usage.total++
+    res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    const call = 'call_' + randomBytes(6).toString('hex')
+    if (provider === 'anthropic') {
+      const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+      send('message_start', { type: 'message_start', message: { usage: { input_tokens: inTok, output_tokens: 0 } } })
+      send('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: call, name: 'wallet_agents_spend', input: {} } })
+      send('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: args } })
+      send('content_block_stop', { type: 'content_block_stop', index: 0 })
+      send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: outTok } })
+      send('message_stop', { type: 'message_stop' })
+    } else {
+      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: call, type: 'function', function: { name: 'wallet_agents_spend', arguments: args } }] }, finish_reason: 'tool_calls' }] })}\n\n`)
+      res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: inTok, completion_tokens: outTok } })}\n\n`)
+      res.write('data: [DONE]\n\n')
+    }
+    return void res.end()
+  }
   // Document conversion: asked for by the app, applied unless the workspace switched it off. A document
   // uploaded first and referenced by its tdoc_ id (B18.24) is converted whatever the switch says, as in
   // Lens: the id means nothing to a provider.
   const distill = req.headers['x-talyvor-distill'] === 'true' && ws.settings.distill_policy !== 'disabled'
   let converted = 0
   for (const m of messages) {
-    if (typeof m.content === 'string') continue
+    if (typeof m.content === 'string' || m.content === null) continue
     const blocks: Block[] = []
     for (const c of m.content) {
       const ref = fileRef(c)
@@ -361,15 +409,15 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   }
   // Request logging "none" keeps nothing new. As in Lens (talyvor-lens storeCaches), an answer kept
   // before the switch is still there to replay; the BFF asks such a repeat again (B17.12).
-  const keep = !personal && (ws.settings.logging_policy !== 'none' || BREAK === 'logging')
+  const keep = !personal && !tooled && (ws.settings.logging_policy !== 'none' || BREAK === 'logging')
   ws.usage.total++
 
   const key = JSON.stringify([model.id, messages.map((m) => [m.role, text(m)])])
   const bypass = req.headers['x-talyvor-cache'] === 'bypass' && !(BREAK === 'logging' && ws.settings.logging_policy === 'none')
   let answer: string
   let charge = 0
-  const own = personal ? undefined : ws.answers.get(key)
-  const shared = messages.length === 1 && !personal ? pool.get(key) : undefined
+  const own = personal || tooled ? undefined : ws.answers.get(key)
+  const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) : undefined
   const inTok = tokens(messages.map(text).join(' ')) + 8
   if (!bypass && own !== undefined) {
     answer = own
@@ -539,6 +587,8 @@ createServer(async (req, res) => {
     const ws = byToken.get(bearer) ?? byKey.get(bearer)
     if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
     if (p === '/v1/catalog/models') return json(res, 200, CATALOG)
+    // B28.349 — Lens's MCP JSON-RPC route, on the workspace's own token: Chat's read-only wallet tool.
+    if (p === '/mcp' && req.method === 'POST') return json(res, 200, bank.mcp(ws.id, JSON.parse((await read(req)) || '{}')))
     if (bank.publicRoute(res, p, url, ws.id)) return
     if (await bank.publicWrite(req, res, p, ws.id)) return
     if (p === '/v1/catalog/discovered') return json(res, 200, [])

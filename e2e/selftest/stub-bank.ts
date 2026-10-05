@@ -382,6 +382,37 @@ export class Bank {
   }
 
   /** An agent key paying from its own agent — the one workspace route an agent's key may take. */
+  /**
+   * B28.349 — Lens's /mcp as Chat uses it (talyvor-lens B28.83): tools/list offers wallet_agents_spend, and tools/call
+   * answers what the workspace's agents spent in [from, to) — every line that took money out of an agent to someone
+   * else — per agent, each line by its entry, as JSON text.
+   */
+  mcp(ws: string, rpc: { id?: unknown; method?: string; params?: { name?: string; arguments?: { from?: string; to?: string; agent?: string } } }): object {
+    const reply = (result: object) => ({ jsonrpc: '2.0', id: rpc.id ?? null, result })
+    if (rpc.method === 'tools/list') {
+      return reply({ tools: [{ name: 'wallet_agents_spend',
+        description: 'What this workspace’s agents spent over a period, per agent, with every statement line it was spent in. Amounts are µLXC (1 LXC = 1,000,000 µLXC).',
+        inputSchema: { type: 'object', properties: { from: { type: 'string', description: 'when the period starts: RFC 3339, or YYYY-MM-DD (midnight UTC); today when not given' },
+          to: { type: 'string', description: 'when it ends, the same way; now when not given' },
+          agent: { type: 'string', description: 'one agent, by its id or name; every agent when not given' } }, required: [] } }] })
+    }
+    if (rpc.method !== 'tools/call' || rpc.params?.name !== 'wallet_agents_spend') {
+      return { jsonrpc: '2.0', id: rpc.id ?? null, error: { code: -32601, message: `unknown tool: ${rpc.params?.name ?? rpc.method}` } }
+    }
+    const day = new Date().toISOString().slice(0, 10)
+    const from = new Date(rpc.params.arguments?.from || day).toISOString()
+    const to = rpc.params.arguments?.to ? new Date(rpc.params.arguments.to).toISOString() : new Date(Date.now() + 1000).toISOString()
+    const spentKinds = new Set(['spend', 'settle', 'pay', 'transfer', 'card', 'escrow'])
+    const only = rpc.params.arguments?.agent
+    const agents = [...this.agents.values()].filter((a) => a.ws === ws && (!only || a.id === only || a.name === only)).map((a) => {
+      const lines = this.postings.filter((p) => p.account === `agent:${a.id}` && spentKinds.has(p.kind) && p.amount_ulxc < 0 && p.at >= from && p.at < to)
+        .map((p) => ({ entry_id: p.entry_id, kind: p.kind, amount_ulxc: p.amount_ulxc, at: p.at }))
+      return { agent_id: a.id, name: a.name, spent_ulxc: -lines.reduce((s, l) => s + l.amount_ulxc, 0), lines }
+    }).filter((a) => a.lines.length > 0)
+    const total = agents.reduce((s, a) => s + a.spent_ulxc, 0)
+    return reply({ content: [{ type: 'text', text: JSON.stringify({ from, to, total_ulxc: total, agents }) }] })
+  }
+
   async agentPay(req: IncomingMessage, res: ServerResponse, key: string, path: string): Promise<boolean> {
     const m = /^\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/pay$/.exec(path)
     const who = this.agentOfKey(key)

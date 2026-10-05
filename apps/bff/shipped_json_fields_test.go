@@ -52,6 +52,8 @@ import (
 // builtByThisService: the BFF fills these itself, so an unfilled field is a
 // value this process invented. These are the ones worth checking.
 var builtByThisService = map[string]string{
+	"chatTool":             "a Lens MCP tool Chat may offer a model, rebuilt from Lens's tools/list in handleChatTools (B28.349)",
+	"chatToolResult":       "one Chat tool call's text and isError, assembled from Lens's tools/call content in handleChatToolCall (B28.349)",
 	"binaryVersion":        "build identity of this binary; assembled by describeBinary",
 	"sealedSession":        "the session sealed into its own cookie id, filled from a session in sessionSealer.seal (B17.40)",
 	"bundleVersion":        "identity of the web bundle on disk; assembled by readBundleVersion",
@@ -82,6 +84,7 @@ var builtByThisService = map[string]string{
 // reply. The BFF never fills these, so "no assignment" is correct rather than
 // suspicious and checking them would report the decoder as a defect.
 var decodedFromUpstream = map[string]string{
+	"mcpReply":               "Lens's POST /mcp JSON-RPC reply, decoded in mcpCall() (B28.349)",
 	"provisionResult":        "Lens's POST /v1/provision reply, decoded in provision()",
 	"trackBootstrapResult":   "Track's POST /v1/bootstrap reply, decoded in bootstrapTrackWorkspace()",
 	"trackProjectCreateBody": "request body this service POSTs to Track's project create (B4.2), built from four chosen fields",
