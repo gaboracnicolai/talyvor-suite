@@ -318,6 +318,34 @@ export class AppUser {
     this.conversationChars += question.length
   }
 
+  /**
+   * B28.81 — asks `question` and has its answer arrive as `sse`, a stream this browser makes up in the app
+   * server's place: a blank answer, or one cut off at the length limit, which no real model sends on demand.
+   * The request never leaves the browser, so it costs nothing. Returns the answer once it has ended.
+   */
+  async askAnswered(question: string, sse: string): Promise<Locator> {
+    const stream = '**/api/ai/stream/**'
+    const turn = this.page.locator('[data-testid="turn-assistant"]').nth(await this.page.locator('[data-testid="turn-assistant"]').count())
+    await this.page.route(stream, (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse }), { times: 1 })
+    try {
+      await this.page.locator('#chat-message').fill(question)
+      await this.page.locator('#chat-message').press('Enter')
+      await turn.locator('[data-testid="turn-blank"], [data-testid="turn-cost"]').first().waitFor({ state: 'visible', timeout: ANSWER_TIMEOUT_MS })
+    } finally {
+      await this.page.unroute(stream).catch(() => undefined)
+    }
+    this.conversationChars += question.length + sse.length
+    return turn
+  }
+
+  /** B28.81 — presses Retry on a blank last answer — the model is asked afresh — and reads the new answer. */
+  async retry(question: string): Promise<Turn> {
+    const hold = this.reserve(0)
+    const last = this.page.locator('[data-testid="turn-assistant"]').last()
+    await last.getByRole('button', { name: 'Retry' }).click()
+    return this.finish(question, last, hold)
+  }
+
   /** Presses Regenerate on the last answer — the model is asked afresh — and reads the new answer. */
   async regenerate(question: string): Promise<Turn> {
     const hold = this.reserve(0)

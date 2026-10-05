@@ -53,6 +53,7 @@ function mockChat({
   streamStatus = 200,
   sessionCheckFails = 0,
   body,
+  bodies,
   sub = 'user-a',
   usdPerLXC,
   converts = false,
@@ -65,6 +66,8 @@ function mockChat({
   /** B27.5 — how many turns Lens answers 503 auth_unavailable (it could not check the session) first. */
   sessionCheckFails?: number
   body?: BodyInit | null
+  /** B28.81 — the SSE body of each answer in turn, when they differ; `body` is every answer's otherwise. */
+  bodies?: string[]
   /** Who /auth/me says is signed in — history is kept per identity. */
   sub?: string
   /** The credit peg /api/lxc/topup-options confirms. Absent ⇒ that read 404s, as on economy-off. */
@@ -132,7 +135,7 @@ function mockChat({
       }
       if (streamStatus !== 200) return new Response('refused', { status: streamStatus })
       const optedIn = new Headers(init?.headers).get('X-Talyvor-Distill') === 'true'
-      return new Response(body ?? '', {
+      return new Response(bodies?.[posted.mock.calls.length - 1 - sessionCheckFails] ?? body ?? '', {
         status: 200,
         headers: {
           'Content-Type': 'text/event-stream',
@@ -825,6 +828,43 @@ describe('the reading column (B10.3)', () => {
     const bypass = (i: number) => new Headers(posted.mock.calls[i][0].init.headers).get('X-Talyvor-Cache')
     expect(bypass(0)).toBeNull()
     expect(bypass(1)).toBe('bypass')
+  })
+
+  // B28.81
+  it('an answer that came back blank says so, and Retry asks the model again', async () => {
+    const { posted } = mockChat({
+      bodies: [
+        'data: {"type":"message_start","message":{"model":"claude-opus-5"}}\n\n' +
+          'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":0}}\n\n' +
+          'data: {"type":"message_stop"}\n\n',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Paris."}}\n\n' +
+          'data: {"type":"message_stop"}\n\n',
+      ],
+    })
+    renderChat()
+    await ask('Capital of France?')
+    expect((await screen.findByTestId('turn-blank')).textContent).toContain('No answer came back.')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('Paris.'))
+    expect(screen.queryByTestId('turn-blank')).toBeNull()
+    // The same question, asked of the model afresh rather than replayed.
+    expect(JSON.parse(String(posted.mock.calls[1][0].init.body)).messages).toEqual([{ role: 'user', content: 'Capital of France?' }])
+    expect(new Headers(posted.mock.calls[1][0].init.headers).get('X-Talyvor-Cache')).toBe('bypass')
+  })
+
+  it('an answer the model stopped at its length limit is marked cut off', async () => {
+    mockChat({
+      body:
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"The first of many"}}\n\n' +
+        'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4096}}\n\n' +
+        'data: {"type":"message_stop"}\n\n',
+    })
+    renderChat()
+    await ask('Write me a long story')
+    expect((await screen.findByTestId('turn-cut-off')).textContent).toBe(
+      'Cut off The model reached its length limit before it finished this answer.',
+    )
+    expect(screen.getByTestId('turn-assistant').textContent).toContain('The first of many')
   })
 
   it('links to the how-to page from the rail', async () => {

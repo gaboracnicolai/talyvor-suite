@@ -25,6 +25,14 @@ export interface Extraction {
   usage?: Usage
   /** The model the provider says served the request, if this frame names one. */
   model?: string
+  /** B28.81 — why the model stopped, as the provider names it: OpenAI's finish_reason (every provider
+   *  Lens translates sends that shape) or Anthropic's stop_reason. */
+  finish?: string
+}
+
+/** B28.81 — the stop reasons that mean the model ran out of room, not out of answer. */
+export function cutOff(finish: string | undefined): boolean {
+  return finish === 'length' || finish === 'max_tokens'
 }
 
 /**
@@ -128,6 +136,7 @@ export function extractDeltas(frame: string): Extraction {
   let error: string | undefined
   let usage: Usage | undefined
   let model: string | undefined
+  let finish: string | undefined
 
   for (const payload of dataLines(frame)) {
     if (payload === '') continue
@@ -190,6 +199,9 @@ export function extractDeltas(frame: string): Extraction {
             output_tokens: count(obj.usage.output_tokens),
           })
         }
+        if (type === 'message_delta' && isRecord(obj.delta) && typeof obj.delta.stop_reason === 'string') {
+          finish = obj.delta.stop_reason
+        }
         continue
       }
       unrecognised += 1
@@ -214,6 +226,7 @@ export function extractDeltas(frame: string): Extraction {
         if (isRecord(d) && typeof d.content === 'string' && d.content !== '') {
           deltas.push({ text: d.content })
         }
+        if (typeof c.finish_reason === 'string') finish = c.finish_reason
       }
       // An empty choices array is Lens's usage-only final frame — a known shape, not a mystery.
       continue
@@ -226,5 +239,6 @@ export function extractDeltas(frame: string): Extraction {
   if (error !== undefined) out.error = error
   if (usage !== undefined) out.usage = usage
   if (model !== undefined) out.model = model
+  if (finish !== undefined) out.finish = finish
   return out
 }

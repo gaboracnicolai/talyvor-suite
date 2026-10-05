@@ -86,6 +86,9 @@ export interface ChatMessage {
   request_id?: string
   /** B23.12 — this answer was marked wrong, and Lens removed it so it is not served again. */
   marked_wrong?: boolean
+  /** B28.81 — on an answer that is not whole: the model sent nothing back (`blank`), or it stopped at
+   *  its length limit (`cut_off`). */
+  incomplete?: 'blank' | 'cut_off'
 }
 
 /** An upload Lens refused or could not take, with the sentence to show. */
@@ -298,6 +301,8 @@ export interface StreamHandlers {
     saved?: DistillSaved
     /** B23.12 — Lens's id for this request, when it said. */
     requestId?: string
+    /** B28.81 — why the model stopped, as the provider named it (chatStream.ts), when it said. */
+    finish?: string
   }) => void
   /** A server-reported error inside the stream, or a transport failure. */
   onError: (message: string) => void
@@ -384,6 +389,7 @@ export async function streamChat(
   let unrecognised = 0
   let usage: Usage | undefined
   let served: string | undefined
+  let finish: string | undefined
 
   try {
     for (;;) {
@@ -397,13 +403,14 @@ export async function streamChat(
         unrecognised += got.unrecognised
         usage = mergeUsage(usage, got.usage)
         served = got.model ?? served
+        finish = got.finish ?? finish
         if (got.error !== undefined) {
           handlers.onError(got.error)
           return
         }
         for (const d of got.deltas) handlers.onDelta(d.text)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish })
           return
         }
       }
@@ -418,7 +425,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish })
 }
 
 /**
