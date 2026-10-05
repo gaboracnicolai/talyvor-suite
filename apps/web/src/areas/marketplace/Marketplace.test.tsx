@@ -62,7 +62,8 @@ function mockBff() {
       const mine = uses.filter((u) => u.seller === state.as)
       return json({
         pending_uses: mine.length,
-        pending_usd_micros: mine.reduce((s, u) => s + u.price / 10, 0),
+        // B32.8: the seller's share is 85% of the price, rounded down; Talyvor keeps 15%.
+        pending_usd_micros: mine.reduce((s, u) => s + Math.floor(((u.price / 10) * 8500) / 10000), 0),
         payable_usd_micros: 0,
         in_holdback_usd_micros: 0,
         available_usd_micros: 0,
@@ -147,10 +148,16 @@ describe('the marketplace', () => {
     await waitFor(() => expect(screen.getByTestId('market-bill-total').textContent).toBe('0.5 LXC · $0.05'))
     expect(screen.getByRole('link', { name: 'Translate to French' })).toBeTruthy()
 
+    // B32.9 — the seller is told the terms: 85% of the price to them, 15% to Talyvor, and no first-million tier.
     state.as = 'ws_seller'
     await at('/marketplace/selling')
-    await waitFor(() => expect(screen.getByTestId('market-pending').textContent).toBe('$0.05'))
+    await waitFor(() => expect(screen.getByTestId('market-pending').textContent).toBe('$0.04'))
     expect(screen.getByRole('link', { name: 'Translate to French' })).toBeTruthy()
+    const terms = screen.getByText(/earns you 85% of its price/)
+    expect(terms.textContent?.replace(/\s+/g, ' ')).toBe(
+      'A buyer’s use, rental or purchase of your listing earns you 85% of its price once their bill is paid; Talyvor keeps 15%. Your own uses, and uses by a workspace linked to yours, earn nothing.',
+    )
+    expect(document.body.textContent).not.toMatch(/first\s+million/)
   })
 
   it('a listing Lens refuses to publish says why, and stays unpublished', async () => {

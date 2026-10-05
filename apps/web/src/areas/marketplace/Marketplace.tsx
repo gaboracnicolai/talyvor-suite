@@ -568,8 +568,8 @@ function Selling() {
         className="flex max-w-2xl flex-col gap-3"
       >
         <p className="text-body text-muted">
-          A buyer’s use of your listing earns you its price once their monthly bill is paid. You keep all of your first
-          million dollars in sales. Your own uses, and uses by a workspace linked to yours, earn nothing.
+          A buyer’s use, rental or purchase of your listing earns you 85% of its price once their bill is paid; Talyvor
+          keeps 15%. Your own uses, and uses by a workspace linked to yours, earn nothing.
         </p>
         <EarningsCard />
         <PayoutsCard />

@@ -106,15 +106,15 @@ export function Terms() {
           can take one down for good, which refunds every use of it still inside the 14-day holdback.
         </p>
         <p className="mt-3 text-reading text-muted">
-          Only a workspace&rsquo;s owner or an admin can publish. A seller earns a share of every use
-          whose bill was paid. Earnings are held for 14 days for refunds, then paid once a month to a
+          Only a workspace&rsquo;s owner or an admin can publish. A seller earns 85% of every use,
+          rental and purchase whose bill was paid; Talyvor keeps 15%. Earnings are held for 14 days for refunds, then paid once a month to a
           Stripe account the seller connects, less Stripe&rsquo;s fees at cost — or taken at once as
           Talyvor credits, with no fees and no minimum. A refund after the seller was paid is
           recovered from their next earnings.
         </p>
         <LawyerReview compact>
-          Talyvor&rsquo;s share of a sale, the licence a buyer receives to a listing, and who is
-          liable for what a listing does are not defined in this document.
+          The licence a buyer receives to a listing, and who is liable for what a listing does, are
+          not defined in this document.
         </LawyerReview>
       </Section>
 
