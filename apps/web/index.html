@@ -11,6 +11,9 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- B29.15: the browser's own bar follows the light canvas when the reader prefers light; the first
+         theme-color whose media matches wins, so the unconditioned dark one is the default. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#F4F7FB" />
     <meta name="theme-color" content="#060A12" />
     <title>Talyvor — money and markets for AI agents</title>
     <!-- B28.1: what a search result and a shared link show. One static set for every address: this

@@ -7,7 +7,7 @@
   "src/__tests__/promotions.test.tsx": 10,
   "src/__tests__/rowHintWraps.test.tsx": 3,
   "src/__tests__/selection.test.ts": 15,
-  "src/__tests__/site-parity.test.ts": 24,
+  "src/__tests__/site-parity.test.ts": 42,
   "src/__tests__/theme-storage.test.tsx": 8,
   "src/__tests__/tokens.test.ts": 46,
   "src/__tests__/typeface.test.tsx": 25

@@ -214,6 +214,7 @@ describe('the format, and the brand it ends in', () => {
     expect(link('icon', '/favicon.svg')).toBe(true)
     expect(link('apple-touch-icon', '/apple-touch-icon.png')).toBe(true)
     expect(html).toContain(`<meta name="theme-color" content="${tokens.dark.canvas}"`)
+    expect(html).toContain(`<meta name="theme-color" media="(prefers-color-scheme: light)" content="${tokens.light.canvas}"`)
 
     const pub = (name: string) => readFileSync(resolve(__dirname, '../public', name))
     // An .ico starts 00 00 01 00; served as anything else, the tab shows a blank page icon.

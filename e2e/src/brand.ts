@@ -2,7 +2,9 @@
 // signed-out stranger sees them, and / signed in, each at 1440×900 and 390×844 in the dark theme and
 // the light one: sixteen views, each photographed into the day's report. A view fails on sideways
 // scroll, no drawn SVG logo on screen, the old CSS tile, any computed colour #f0a030 (the retired
-// amber), or a font stack that names Inter.
+// amber), or a font stack that names Inter. B29.15: a light view also fails on a canvas other than
+// #F4F7FB, or on bright Teal #3AD6C0 as text, a fill or a border outside the logo and the photographs
+// (the light accent is the deep teal #0F7A6C).
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -34,22 +36,35 @@ export interface Look {
   amber: string[]
   /** Each distinct font stack that names Inter, with the first element set in it. */
   inter: string[]
+  /** The body's computed background: the page canvas. */
+  canvas: string
+  /** How many elements outside the logo and a dark-scoped photograph paint bright Teal, and the first few. */
+  brightCount: number
+  bright: string[]
 }
 
-/** The oracle: what is wrong with a view, in words; nothing when it is the brand. */
-export function brandFaults(l: Look): string[] {
+/** B29.15 — the light canvas, as the browser computes #F4F7FB. */
+const LIGHT_CANVAS = 'rgb(244, 247, 251)'
+
+/** The oracle: what is wrong with a view, in words; nothing when it is the brand. A light view is also
+ *  held to the light canvas and to no bright Teal outside the logo. */
+export function brandFaults(l: Look, theme?: 'dark' | 'light'): string[] {
   const faults: string[] = []
   if (l.scroll > l.client) faults.push(`scrolls sideways (${l.scroll} > ${l.client})`)
   if (l.logos.length === 0) faults.push('no drawn SVG logo on screen')
   if (l.tiles.length > 0) faults.push(`the old CSS tile (${l.tiles.join(', ')})`)
   if (l.amberCount > 0) faults.push(`#f0a030 on ${l.amberCount} element(s): ${l.amber.join(', ')}`)
   if (l.inter.length > 0) faults.push(`a font stack with Inter: ${l.inter.join(' | ')}`)
+  if (theme === 'light' && l.canvas !== LIGHT_CANVAS) faults.push(`a light canvas other than #F4F7FB (${l.canvas})`)
+  if (theme === 'light' && l.brightCount > 0) faults.push(`bright Teal #3AD6C0 in the light theme on ${l.brightCount} element(s): ${l.bright.join(', ')}`)
   return faults
 }
 
 /** Reads a view in the page. Self-contained: Playwright sends it to the browser as source. */
 function lookInPage(): Look {
   const AMBER = /rgba?\(240, 160, 48[,)]/
+  const TEAL = /rgba?\(58, 214, 192[,)]/
+  const TEAL_PROPS = ['color', 'background-color', 'border-top-color', 'border-bottom-color']
   const PROPS = ['color', 'background-color', 'border-top-color', 'border-right-color', 'border-bottom-color', 'border-left-color',
     'outline-color', 'text-decoration-color', 'fill', 'stroke', 'background-image', 'box-shadow']
   const name = (el: Element): string => {
@@ -66,6 +81,8 @@ function lookInPage(): Look {
 
   let amberCount = 0
   const amber: string[] = []
+  let brightCount = 0
+  const bright: string[] = []
   const stacks = new Set<string>()
   const inter: string[] = []
   for (const el of Array.from(document.querySelectorAll('*'))) {
@@ -76,6 +93,12 @@ function lookInPage(): Look {
       if (hit !== undefined) {
         amberCount++
         if (amber.length < 5) amber.push(`${name(el)}${pseudo ?? ''} ${hit}`)
+      }
+      // The logo is drawn in SVG and the photographs sit in a dark-scoped figure: bright Teal belongs there only.
+      const teal = TEAL_PROPS.find((p) => TEAL.test(cs.getPropertyValue(p)))
+      if (teal !== undefined && el.closest('svg, [data-theme="dark"]') === null) {
+        brightCount++
+        if (bright.length < 5) bright.push(`${name(el)}${pseudo ?? ''} ${teal}`)
       }
       if (!stacks.has(cs.fontFamily)) {
         stacks.add(cs.fontFamily)
@@ -96,6 +119,9 @@ function lookInPage(): Look {
     amberCount,
     amber,
     inter,
+    canvas: getComputedStyle(document.body).backgroundColor,
+    brightCount,
+    bright,
   }
 }
 
@@ -144,7 +170,7 @@ export function brandVisual(): Scenario {
                 const file = `${path === '/' ? 'home' : path.slice(1)}-${width}-${theme}.jpg`
                 // The first screen, as a person sees it at this size; the checks above read the whole page.
                 await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
-                const faults = brandFaults(look)
+                const faults = brandFaults(look, theme)
                 ctx.evidence.push({
                   note: `${path} ${width}×${height} ${theme}${note}: ${faults.length === 0 ? 'the brand' : faults.join('; ')} — ` +
                     `logo ${look.logos.join(', ') || 'none'}; scroll ${look.scroll}/${look.client}`,
@@ -164,7 +190,7 @@ export function brandVisual(): Scenario {
         }
       }
       return wrong.length === 0
-        ? { pass: true, detail: '16 views photographed: no sideways scroll, a drawn SVG logo on screen, no CSS tile, no #f0a030 and no Inter in any' }
+        ? { pass: true, detail: '16 views photographed: no sideways scroll, a drawn SVG logo on screen, no CSS tile, no #f0a030 and no Inter in any; every light view on #F4F7FB with no bright Teal outside the logo' }
         : { pass: false, detail: wrong.join(' | '), where: [...where] }
     },
   }

@@ -256,3 +256,47 @@ describe('the dark theme is the board, or says exactly where it is not', () => {
     ).toBeGreaterThanOrEqual(tightestOther)
   })
 })
+
+/**
+ * B29.15 — the light theme is the board's light column. Each light token here IS the board file's
+ * light value of the named token; the rest are the colours the board does not have, the same set
+ * the dark theme classifies as diverged-by-addition or no-counterpart.
+ */
+const LIGHT: Partial<Record<TokenName, string>> = {
+  canvas: 'canvas',
+  surface: 'surface',
+  raised: 'raised',
+  sidebar: 'surface',
+  rule: 'line',
+  'rule-strong': 'line-strong',
+  ink: 'ink',
+  muted: 'ink-muted',
+  label: 'label',
+  accent: 'accent',
+  'accent-hover': 'accent-hover',
+  'accent-ink': 'on-accent',
+  'accent-tint': 'accent-tint',
+  'accent-strong': 'accent-hover',
+  settled: 'positive',
+  held: 'caution',
+  slashed: 'critical',
+}
+const LIGHT_NO_COUNTERPART: readonly TokenName[] = ['faint', ...NO_COUNTERPART]
+
+describe("the light theme is the board's light column (B29.15)", () => {
+  const norm = (v: string) => v.replace(/\s+/g, '').replace(/([,(])0\./g, '$1.').toLowerCase()
+
+  it('every light token is the board, or one the board has no colour for', () => {
+    const declared = Object.keys(tokens.light) as TokenName[]
+    const unclassified = declared.filter((t) => !(t in LIGHT) && !LIGHT_NO_COUNTERPART.includes(t))
+    expect(unclassified, `light token(s) with no board counterpart named: ${unclassified.join(', ')}`).toEqual([])
+  })
+
+  for (const [token, name] of Object.entries(LIGHT) as [TokenName, string][]) {
+    it(`light ${token} IS the board's light ${name}`, () => {
+      const v = boardToken(name).value
+      expect(typeof v, `${name} is not themed in the board file`).toBe('object')
+      expect(norm(tokens.light[token])).toBe(norm((v as { light: string }).light))
+    })
+  }
+})

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, readingFaults, roiBrandFaults } from '../src/brand.ts'
 
-const brand: Look = { scroll: 390, client: 390, logos: ['svg mark', 'svg wordmark'], tiles: [], amberCount: 0, amber: [], inter: [] }
+const brand: Look = {
+  scroll: 390, client: 390, logos: ['svg mark', 'svg wordmark'], tiles: [], amberCount: 0, amber: [], inter: [],
+  canvas: 'rgb(244, 247, 251)', brightCount: 0, bright: [],
+}
 
 describe("the brand-visual oracle (B29.21)", () => {
   it('passes a view in the brand', () => {
@@ -12,6 +15,7 @@ describe("the brand-visual oracle (B29.21)", () => {
     expect(brandFaults({
       scroll: 412, client: 390, logos: [], tiles: ['span.inline-flex.shrink-0'],
       amberCount: 7, amber: ['button.bg-amber color'], inter: ['Inter, sans-serif (body)'],
+      canvas: 'rgb(6, 10, 18)', brightCount: 0, bright: [],
     })).toEqual([
       'scrolls sideways (412 > 390)',
       'no drawn SVG logo on screen',
@@ -19,6 +23,23 @@ describe("the brand-visual oracle (B29.21)", () => {
       '#f0a030 on 7 element(s): button.bg-amber color',
       'a font stack with Inter: Inter, sans-serif (body)',
     ])
+  })
+})
+
+describe('the light pass (B29.15)', () => {
+  it('passes a light view on #F4F7FB with no bright Teal outside the logo', () => {
+    expect(brandFaults(brand, 'light')).toEqual([])
+  })
+
+  it('names a light view on another canvas, or with bright Teal as text or a fill', () => {
+    expect(brandFaults({ ...brand, canvas: 'rgb(243, 246, 250)', brightCount: 2, bright: ['a.link color', 'button.primary background-color'] }, 'light')).toEqual([
+      'a light canvas other than #F4F7FB (rgb(243, 246, 250))',
+      'bright Teal #3AD6C0 in the light theme on 2 element(s): a.link color, button.primary background-color',
+    ])
+  })
+
+  it('holds the dark theme to neither', () => {
+    expect(brandFaults({ ...brand, canvas: 'rgb(6, 10, 18)', brightCount: 3, bright: ['a.link color'] }, 'dark')).toEqual([])
   })
 })
 
