@@ -32,6 +32,7 @@ import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
 import { useRevealedText } from './reveal'
+import { cutOff } from './chatStream'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
 import { topupApi } from '../lens/topupApi'
 
@@ -252,6 +253,7 @@ export function Chat() {
       let source: AnswerSource | undefined
       let saved: DistillSaved | undefined
       let requestId: string | undefined
+      let incomplete: ChatMessage['incomplete']
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
       const asked = turn.length - 1
       const carriedDocs = turn[asked]?.attachments?.some((a) => a.file_id !== undefined) === true
@@ -277,7 +279,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid, finish }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -316,6 +318,17 @@ export function Chat() {
                 return next
               })
             }
+            // B28.81 — an answer that finished having said nothing, or stopped at the length limit, says so
+            // rather than looking like a whole answer.
+            incomplete = answer.trim() === '' ? 'blank' : cutOff(finish) ? 'cut_off' : undefined
+            if (incomplete !== undefined) {
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, incomplete }
+                return next
+              })
+            }
             setPending(false)
             setUnreadable(unrecognised)
           },
@@ -328,7 +341,7 @@ export function Chat() {
         fresh,
       )
       store((list) =>
-        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId }], Date.now()),
+        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId, incomplete }], Date.now()),
       )
     },
     [activeId, catalog.data, pending, selected, store],
@@ -914,11 +927,25 @@ function Reply({
       <span className="sr-only">{message.cost?.model ?? fallbackModel ?? 'Assistant'}: </span>
       {message.content === '' && answering ? (
         <p className="text-body text-muted">Answering…</p>
+      ) : message.incomplete === 'blank' && !answering ? (
+        // B28.81 — a blank answer says so and offers to ask again, rather than leaving an empty space
+        // that reads as an answer.
+        <div role="alert" data-testid="turn-blank" className="flex flex-wrap items-center gap-3">
+          <p className="text-body text-ink">No answer came back.</p>
+          {canRegenerate ? <Button onClick={onRegenerate}>Retry</Button> : null}
+        </div>
       ) : (
         <Markdown source={shown.text} />
       )}
-      {message.content !== '' && !answering && !shown.revealing ? (
+      {message.content !== '' && message.incomplete !== 'blank' && !answering && !shown.revealing ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
+          {message.incomplete === 'cut_off' ? (
+            // B28.81 — the model stopped at its length limit: the answer ends mid-way, and says so.
+            <p className="mb-1 w-full text-caption text-muted" data-testid="turn-cut-off">
+              <span className="mr-1 rounded-control border border-rule px-1.5 py-0.5 text-ink">Cut off</span>{' '}
+              The model reached its length limit before it finished this answer.
+            </p>
+          ) : null}
           <CopyButton text={message.content} label="Copy" className="-ml-2" />
           {canRegenerate ? (
             <button

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { extractDeltas, splitFrames } from './chatStream'
+import { cutOff, extractDeltas, splitFrames } from './chatStream'
 
 // THE SSE PARSER — the half of the chat screen that a rendering test cannot see.
 //
@@ -107,8 +107,9 @@ describe('extractDeltas — Anthropic shape', () => {
       'data: {"type":"ping"}',
       'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}',
     ]) {
-      const got = extractDeltas(frame)
-      expect({ frame, ...got }).toEqual({ frame, deltas: [], done: false, unrecognised: 0 })
+      // B28.81 — message_delta names why the model stopped; that is not text and not unrecognised.
+      const { deltas, done, unrecognised } = extractDeltas(frame)
+      expect({ frame, deltas, done, unrecognised }).toEqual({ frame, deltas: [], done: false, unrecognised: 0 })
     }
   })
 })
@@ -140,4 +141,13 @@ describe('extractDeltas — what it refuses to swallow', () => {
   it('ignores a comment/keepalive line without counting it', () => {
     expect(extractDeltas(': keep-alive')).toEqual({ deltas: [], done: false, unrecognised: 0 })
   })
+})
+
+// B28.81 — why the model stopped, in each shape, so a cut-off answer can say it was cut off.
+it('reads the stop reason from both shapes; only the length limit counts as cut off', () => {
+  const openai = extractDeltas('data: {"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}')
+  const anthropic = extractDeltas('data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4096}}')
+  expect([openai.finish, anthropic.finish]).toEqual(['length', 'max_tokens'])
+  expect([openai.finish, anthropic.finish].map(cutOff)).toEqual([true, true])
+  expect(['stop', 'end_turn', undefined].map(cutOff)).toEqual([false, false, false])
 })

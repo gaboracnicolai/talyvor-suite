@@ -323,6 +323,49 @@ export function stoppedThenAnswers(seed: number): Scenario {
   }
 }
 
+/** B28.81 — an answer stream as the model's provider shapes it: `text`, then why the model stopped. */
+function madeUpAnswer(provider: string, text: string, cutOff: boolean): string {
+  const frame = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`
+  if (provider === 'anthropic') {
+    return (text === '' ? '' : frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })) +
+      frame({ type: 'message_delta', delta: { stop_reason: cutOff ? 'max_tokens' : 'end_turn' }, usage: { output_tokens: 0 } }) +
+      frame({ type: 'message_stop' })
+  }
+  return (text === '' ? '' : frame({ choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })) +
+    frame({ choices: [{ index: 0, delta: {}, finish_reason: cutOff ? 'length' : 'stop' }] }) +
+    'data: [DONE]\n\n'
+}
+
+export function blankThenRetry(seed: number): Scenario {
+  const r = seeded(seed * 29 + 7)
+  const [a, b] = [0, 0].map(() => 10 + Math.floor(r() * 89))
+  const question = `What is ${a} + ${b}? ${NUMBER_ONLY}`
+  return {
+    id: 'blank-retry-cut-off',
+    title: 'a blank answer offers Retry, which asks the model; an answer stopped at the length limit is marked cut off',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const provider = env.catalog.find((m) => m.display_name === app.modelNameInUse)?.provider ?? 'anthropic'
+      const blank = await app.askAnswered(question, madeUpAnswer(provider, '', false))
+      const shown = (await blank.innerText()).trim()
+      ctx.evidence.push({ note: 'a blank answer, made up in the browser', question, answer: shown })
+      if (!(await blank.getByRole('button', { name: 'Retry' }).isVisible())) {
+        return { pass: false, detail: `a blank answer offered no Retry; the screen showed "${shown}"` }
+      }
+      const t = record(ctx, await app.retry(question), 'Retry')
+      if (t.error !== undefined) return { pass: false, detail: `Retry was refused: ${t.error}` }
+      if (!statesNumber(t.answer, a + b)) return { pass: false, detail: `Retry: expected ${a + b}, got ${describe(t)}` }
+      const cut = await app.askAnswered('Tell me a very long story.', madeUpAnswer(provider, 'Once upon a time, far away', true))
+      const mark = cut.locator('[data-testid="turn-cut-off"]')
+      const marked = (await mark.isVisible()) ? (await mark.innerText()).trim() : ''
+      ctx.evidence.push({ note: 'an answer stopped at the length limit, made up in the browser', answer: (await cut.innerText()).trim() })
+      return /^Cut off/.test(marked)
+        ? { pass: true, detail: `Retry asked the model and it answered ${a + b}; the cut-off answer said "${marked}"` }
+        : { pass: false, detail: 'an answer stopped at the length limit carried no "Cut off" mark' }
+    },
+  }
+}
+
 export function sidebarStaysHidden(): Scenario {
   return {
     id: 'sidebar-stays-hidden',
@@ -1334,7 +1377,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 4: if (i + 5 < users) list.push(acrossAccounts(i, i + 5)); break
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
     case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break
-    case 6: list.push(sidebarStaysHidden()); break
+    // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
+    case 6: list.push(sidebarStaysHidden(), blankThenRetry(i)); break
     case 7: list.push(streamsProgressively()); break
     case 8: list.push(socialPreview(), walletDocs()); break
     case 9: list.push(walletHero(), honestPages(), pricingTruth(), plansIncludedUsage()); break
