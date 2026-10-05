@@ -38,20 +38,63 @@ function loginHref(returnTo?: string): string {
   return returnTo ? `/auth/login?return_to=${encodeURIComponent(returnTo)}` : '/auth/login'
 }
 
-/** The shell both entry pages share: centred card, mark, theme toggle. Public pages, so no
- *  Shell/sidebar — there is no workspace to navigate yet. */
+/** The lake photograph — brand-v4 photos/lake.jpg (2400w) and lake-1200.jpg. It fills the right
+ *  half from 840px, so it is drawn at half the viewport. */
+const LAKE_SRCSET = '/brand/photos/lake-1200.jpg 1200w, /brand/photos/lake.jpg 2400w'
+
+/** The teal rule: 32×2 accent under a heading, one per card. */
+function TealRule() {
+  return <span className="block h-0.5 w-8 bg-accent" aria-hidden="true" />
+}
+
+/** The shell both entry pages share — the brand's split: the card on Obsidian at the left, the lake
+ *  photograph behind an Obsidian gradient at the right. On a phone the photo steps out and the logo
+ *  lockup with its tagline sits above the card instead of the mark in the header. Public pages, so
+ *  no Shell/sidebar — there is no workspace to navigate yet. */
 function EntryFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col bg-canvas text-ink">
-      <header className="flex items-center justify-between px-gutter py-4">
-        <div className="flex items-center gap-2.5">
+    <div className="relative flex min-h-screen flex-col overflow-hidden bg-canvas text-ink">
+      {/* The pieces the preset has no token for: the lockup per theme and the photo's scrim. The
+          figure carries data-theme="dark", so its scrim is Obsidian in both themes — text and
+          gradient sit on the photo's dark side. */}
+      <style>{`
+        .tal-entry-logo-light { display: none }
+        [data-theme='light'] .tal-entry-logo-dark { display: none }
+        [data-theme='light'] .tal-entry-logo-light { display: block }
+        .tal-entry-photo { display: none }
+        @media (min-width: 840px) {
+          .tal-entry-photo { display: block; position: absolute; top: 0; bottom: 0; left: 50%; right: 0; margin: 0; background: var(--canvas) }
+          .tal-entry-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 72% 50% }
+          .tal-entry-scrim {
+            position: absolute; inset: 0;
+            background: linear-gradient(90deg, var(--canvas) 0%, color-mix(in srgb, var(--canvas) 72%, transparent) 28%,
+              color-mix(in srgb, var(--canvas) 20%, transparent) 100%);
+          }
+        }
+      `}</style>
+      {/* Decorative, so `loading="lazy"`: below 840px the figure is display:none and a lazy image
+          there is never fetched, so a phone does not pay for a photo it does not show. */}
+      <figure data-theme="dark" className="tal-entry-photo" aria-hidden="true">
+        <img
+          src="/brand/photos/lake.jpg"
+          srcSet={LAKE_SRCSET}
+          sizes="50vw"
+          width={2400}
+          height={1357}
+          loading="lazy"
+          alt=""
+        />
+        <div className="tal-entry-scrim" />
+      </figure>
+      <header className="relative z-10 flex items-center justify-between px-gutter py-4">
+        <div className="hidden items-center gap-2.5 wide:flex">
           <Mark size={26} aria-hidden />
           <div className="min-w-0">
             <Wordmark height={12} />
             <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Suite</div>
           </div>
         </div>
-        <ThemeToggle />
+        <ThemeToggle className="ml-auto" />
       </header>
       {/* `main`, NOT `div` — the element and its classes are unchanged; only the tag moved. A DOM
           census over every address found 93% of /signin's text and 97% of /signup's outside any
@@ -62,7 +105,27 @@ function EntryFrame({ children }: { children: React.ReactNode }) {
           Zero-pixel: the built stylesheet contains NO rule naming `main`, `header`, `footer`,
           `section`, `article` or `aside` — every box here is drawn by the utility classes, which
           are untouched. LandmarkCoverage.test.tsx measures the proportion at every address. */}
-      <main className="flex flex-1 items-start justify-center px-gutter pb-16 pt-4 wide:items-center wide:pt-0">
+      <main className="relative z-10 flex flex-1 flex-col items-center justify-start px-gutter pb-16 pt-4 wide:w-1/2 wide:justify-center wide:pt-0">
+        {/* The board's lockup with its tagline, the file as drawn — one per theme, the other hidden
+            by the <style> above. Phones only: from 840px the header carries the mark. */}
+        <div className="mb-8 wide:hidden">
+          <img
+            src="/brand/svg/talyvor-logo-dark.svg"
+            alt="Talyvor"
+            width={221}
+            height={48}
+            data-brand="logo"
+            className="tal-entry-logo-dark block h-12 w-auto"
+          />
+          <img
+            src="/brand/svg/talyvor-logo-light.svg"
+            alt="Talyvor"
+            width={221}
+            height={48}
+            data-brand="logo"
+            className="tal-entry-logo-light h-12 w-auto"
+          />
+        </div>
         <Card className="w-full max-w-md">{children}</Card>
       </main>
     </div>
@@ -104,11 +167,12 @@ function AccessLine({ state }: { state: SignupState }) {
 function AlreadyIn() {
   return (
     <div className="flex flex-col gap-4 p-gutter">
-      <h1 className="text-title text-ink">You’re signed in</h1>
+      <h1 className="text-display-3 text-ink">You’re signed in</h1>
+      <TealRule />
       <p className="text-body text-muted">
         This browser already has a Talyvor session, so there is nothing to sign up for.
       </p>
-      <Button asChild variant="primary">
+      <Button asChild variant="primary" className="h-10 px-5">
         <a href="/">Open the app</a>
       </Button>
     </div>
@@ -134,7 +198,8 @@ export function SignUp() {
     <EntryFrame>
       <div className="flex flex-col gap-5 p-gutter">
         <div className="flex flex-col gap-3">
-          <h1 className="text-title text-ink">Create your Talyvor workspace</h1>
+          <h1 className="text-display-3 text-ink">Create your Talyvor workspace</h1>
+          <TealRule />
           {/* WHAT IT IS, in one line. A stranger decides here whether to keep reading. */}
           <p className="text-body text-muted">
             Talyvor gives every AI agent a wallet: a budget, spending rules, approvals and a live
@@ -163,7 +228,7 @@ export function SignUp() {
         </ul>
 
         <div className="flex flex-col gap-3 border-t border-rule pt-4">
-          <Button asChild variant="primary">
+          <Button asChild variant="primary" className="h-10 px-5">
             <a href={loginHref('/')}>Continue</a>
           </Button>
           <AccessLine state={signup} />
@@ -222,7 +287,8 @@ export function SignIn({ returnTo }: { returnTo?: string } = {}) {
 export function SignInCard({ returnTo }: { returnTo?: string }) {
   return (
     <div className="flex flex-col gap-4 p-gutter">
-      <h1 className="text-title text-ink">Sign in to Talyvor</h1>
+      <h1 className="text-display-3 text-ink">Sign in to Talyvor</h1>
+      <TealRule />
       {/* Linked on every entry surface, not only a footer: someone deciding whether to create an
           account must be able to read what the service does with their data BEFORE they do. Both
           routes are public for that reason. */}
@@ -235,7 +301,7 @@ export function SignInCard({ returnTo }: { returnTo?: string }) {
         Use the same account you signed up with. You’ll be taken there to confirm it’s you, and
         returned here — there is no password for Talyvor itself.
       </p>
-      <Button asChild variant="primary">
+      <Button asChild variant="primary" className="h-10 px-5">
         <a href={loginHref(returnTo)}>Sign in</a>
       </Button>
       <p className="text-caption text-faint">

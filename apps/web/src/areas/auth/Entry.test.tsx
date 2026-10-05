@@ -238,6 +238,37 @@ describe('an already-signed-in person is not asked to sign up again', () => {
   })
 })
 
+// ─── B29.6: the brand's split ───────────────────────────────────────────────
+
+describe('both pages wear the brand', () => {
+  it('the lake photo, the tagline lockup per theme, the teal rule and one teal action', async () => {
+    for (const [path, action] of [
+      ['/signin', /^sign in$/i],
+      ['/signup', /^continue$/i],
+    ] as const) {
+      mockMe({ signup_open: true })
+      const { container } = at(path)
+      const h1 = await screen.findByRole('heading', { level: 1 })
+      // The photograph is the board's file, decorative, and lazy so a phone (where it is hidden)
+      // never fetches it.
+      const photo = container.querySelector('figure.tal-entry-photo img')!
+      expect(photo.getAttribute('srcset')).toBe('/brand/photos/lake-1200.jpg 1200w, /brand/photos/lake.jpg 2400w')
+      expect(photo.getAttribute('loading')).toBe('lazy')
+      expect(container.querySelector('figure.tal-entry-photo')).toHaveAttribute('data-theme', 'dark')
+      // The lockup WITH the tagline, the drawn file, one per theme — never the name in a font.
+      const logos = Array.from(container.querySelectorAll('img[data-brand="logo"]')).map((i) => i.getAttribute('src'))
+      expect(logos).toEqual(['/brand/svg/talyvor-logo-dark.svg', '/brand/svg/talyvor-logo-light.svg'])
+      // The teal rule straight under the heading, and the page's one primary action in accent.
+      expect(h1.nextElementSibling).toHaveClass('h-0.5', 'w-8', 'bg-accent')
+      expect(container.querySelectorAll('a.bg-accent')).toHaveLength(1)
+      expect(screen.getByRole('link', { name: action })).toHaveClass('bg-accent')
+      cleanup()
+      queryClient.clear()
+      vi.restoreAllMocks()
+    }
+  })
+})
+
 // ─── the returning person's page ────────────────────────────────────────────
 
 describe('the sign-in page is written for someone who already has a workspace', () => {
