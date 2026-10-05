@@ -538,7 +538,29 @@ export function brandLogo(): Scenario {
     run: async (ctx) => {
       const seen: string[] = []
       const wrong: string[] = []
-      for (const path of ['/', '/signin', '/marketing', '/pricing', '/documentation']) {
+      // B29.4: /marketing's header is the board's lockup FILE (svg/talyvor-logo-<theme>-notag.svg), one
+      // per theme — so there it is the shown file, loaded, that each theme must name.
+      const page = await ctx.app.tab('/marketing')
+      try {
+        await page.locator('img[data-brand="logo"]').first().waitFor({ state: 'attached' })
+        for (const theme of ['dark', 'light'] as const) {
+          const got = await page.evaluate(async (t) => {
+            document.documentElement.dataset.theme = t
+            const shown = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-brand="logo"]'))
+              .filter((i) => getComputedStyle(i).display !== 'none')
+            await Promise.all(shown.map((i) => (i.complete ? null : new Promise((r) => i.addEventListener('load', r, { once: true })))))
+            return shown.map((i) => `${new URL(i.src).pathname}${i.naturalWidth > 0 ? '' : ' (not loaded)'}`)
+          }, theme)
+          seen.push(`/marketing ${theme}: ${got.join(', ')}`)
+          if (got.length !== 1 || got[0] !== `/brand/svg/talyvor-logo-${theme}-notag.svg`)
+            wrong.push(`/marketing ${theme} lockup ${JSON.stringify(got)}`)
+        }
+      } catch (e) {
+        wrong.push(`/marketing: no lockup (${(e as Error).message.split('\n')[0]})`)
+      } finally {
+        await page.close()
+      }
+      for (const path of ['/', '/signin', '/pricing', '/documentation']) {
         const page = await ctx.app.tab(path)
         try {
           await page.locator('svg[data-brand="wordmark"]').first().waitFor({ state: 'visible' })
@@ -565,7 +587,7 @@ export function brandLogo(): Scenario {
       }
       ctx.evidence.push({ note: seen.join('; ') })
       return wrong.length === 0
-        ? { pass: true, detail: 'drawn mark and wordmark on all five screens, each theme in its own colours' }
+        ? { pass: true, detail: 'drawn mark and wordmark on four screens and the lockup file on /marketing, each theme in its own colours' }
         : { pass: false, detail: `logo wrong: ${wrong.join(', ')}` }
     },
   }
@@ -591,7 +613,7 @@ export function walletHero(): Scenario {
           ...[/rules before the money moves/i, /console for your agents/i, /where agents spend/i, /repeated questions cost less/i]
             .map((h) => (sections.some((s) => h.test(s)) ? '' : `a section heading ${h}`)),
           /toward zero|ninety\s+days|near-zero/i.test(text) ? 'the price-curve claim is still there' : '',
-          /Talyvor Ltd · wallets for AI agents/i.test(footer) ? '' : 'the wallet footer',
+          /Talyvor Ltd · money and markets for AI agents/i.test(footer) ? '' : 'the footer line',
         ].filter((m) => m !== '')
         return missing.length === 0
           ? { pass: true, detail: 'leads with wallets; wallets, chat, marketplace and pooling sections present; no price curve' }
@@ -599,6 +621,65 @@ export function walletHero(): Scenario {
       } finally {
         await page.close()
       }
+    },
+  }
+}
+
+/** B29.4 — /marketing in the board's design: the drawn lockup, the hero photograph (no more than
+ *  350 KB as served), the verb stack and its teal rule, and the positioning band. At 1440 the photo
+ *  bleeds off the right edge beside the text; at 390 it sits under the text and nothing scrolls sideways. */
+export function marketingBoard(): Scenario {
+  return {
+    id: 'marketing-board',
+    title: "/marketing shows the board's hero — lockup, photograph, verb stack — at 1440 and at 390",
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/marketing')
+      const wrong: string[] = []
+      try {
+        for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+          await page.setViewportSize({ width, height })
+          await page.locator('figure img').waitFor({ state: 'visible' })
+          const got = await page.evaluate(async () => {
+            const photo = document.querySelector<HTMLImageElement>('figure img')!
+            if (!photo.complete) await new Promise((r) => photo.addEventListener('load', r, { once: true }))
+            const box = (el: Element | null) => (el === null ? null : el.getBoundingClientRect())
+            const p = box(photo)!
+            const h1 = box(document.querySelector('h1'))!
+            const verbs = document.querySelector<HTMLElement>('.tal-verbs')
+            const logo = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-brand="logo"]')).find((i) => getComputedStyle(i).display !== 'none')
+            return {
+              src: photo.currentSrc,
+              loaded: photo.naturalWidth > 0,
+              photo: { left: p.left, right: p.right, top: p.top, width: p.width },
+              h1Bottom: h1.bottom,
+              verbs: verbs === null ? '' : verbs.innerText.replace(/\s+/g, ' ').trim(),
+              verbsInPhoto: verbs !== null && photo.parentElement!.contains(verbs),
+              rule: verbs?.querySelector('.bg-accent') !== null && verbs !== null,
+              logo: logo === undefined ? '' : `${new URL(logo.src).pathname}${logo.naturalWidth > 0 ? '' : ' (not loaded)'}`,
+              band: document.body.innerText.includes('Designed to run on your own infrastructure.'),
+              scroll: document.documentElement.scrollWidth,
+              client: document.documentElement.clientWidth,
+            }
+          })
+          const bytes = (await (await page.request.get(got.src)).body()).length
+          ctx.evidence.push({ note: `${width}: photo ${new URL(got.src).pathname} ${bytes} B at ${JSON.stringify(got.photo)}; verbs "${got.verbs}"; logo ${got.logo}; scroll ${got.scroll}/${got.client}` })
+          const at = `${width}px`
+          if (!got.loaded) wrong.push(`${at}: the hero photo did not load`)
+          if (bytes > 350_000) wrong.push(`${at}: the hero photo served ${bytes} bytes, over 350 KB`)
+          if (got.verbs !== 'ROUTE PROVE REUSE COMPOUND' || !got.verbsInPhoto) wrong.push(`${at}: verb stack "${got.verbs}"${got.verbsInPhoto ? '' : ' not over the photo'}`)
+          if (!got.rule) wrong.push(`${at}: no teal rule under the verbs`)
+          if (!/^\/brand\/svg\/talyvor-logo-(dark|light)-notag\.svg$/.test(got.logo)) wrong.push(`${at}: logo "${got.logo}"`)
+          if (!got.band) wrong.push(`${at}: no positioning band`)
+          if (got.scroll > got.client) wrong.push(`${at}: scrolls sideways (${got.scroll} > ${got.client})`)
+          if (width === 1440 && (got.photo.left < width / 2 - 1 || got.photo.right < width - 1)) wrong.push(`${at}: the photo does not bleed off the right edge (${got.photo.left}–${got.photo.right})`)
+          if (width === 390 && (got.photo.top < got.h1Bottom || got.photo.width < got.client - 1)) wrong.push(`${at}: the photo is not full width under the text`)
+        }
+      } finally {
+        await page.close()
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: 'lockup, photo (≤350 KB), verb stack, teal rule and band at 1440 and 390; the photo bleeds right on desktop and sits under the text on a phone' }
+        : { pass: false, detail: `/marketing: ${wrong.join('; ')}` }
     },
   }
 }
@@ -1527,7 +1608,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), walletDocs()); break
-    case 9: list.push(walletHero(), honestPages(), pricingTruth(), plansIncludedUsage()); break
+    // B29.4 — then /marketing in the board's design, at 1440 and at 390.
+    case 9: list.push(walletHero(), marketingBoard(), honestPages(), pricingTruth(), plansIncludedUsage()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.
