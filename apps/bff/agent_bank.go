@@ -191,9 +191,12 @@ func (a *app) handleAgentRules(w http.ResponseWriter, r *http.Request, t tenant)
 	// Lens's economy.AgentRules. Lens decodes it with DisallowUnknownFields, so a field named here
 	// that Lens does not have is a 400, never a rule silently dropped.
 	var in struct {
-		MaxPerRequestULXC int64    `json:"max_per_request_ulxc"`
-		DailyLimitULXC    int64    `json:"daily_limit_ulxc"`
-		MonthlyLimitULXC  int64    `json:"monthly_limit_ulxc"`
+		MaxPerRequestULXC int64 `json:"max_per_request_ulxc"`
+		DailyLimitULXC    int64 `json:"daily_limit_ulxc"`
+		MonthlyLimitULXC  int64 `json:"monthly_limit_ulxc"`
+		// B28.24 — absent (null) keeps the cap Lens holds, as AllowedListings does; zero clears it.
+		HourlyLimitULXC   *int64   `json:"hourly_limit_ulxc"`
+		WeeklyLimitULXC   *int64   `json:"weekly_limit_ulxc"`
 		ApprovalAboveULXC int64    `json:"approval_above_ulxc"`
 		AllowedModels     []string `json:"allowed_models"`
 		AllowedProviders  []string `json:"allowed_providers"`

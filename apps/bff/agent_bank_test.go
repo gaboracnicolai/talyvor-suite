@@ -161,6 +161,23 @@ func TestAgentRulesCarryTheAllowedListings(t *testing.T) {
 	}
 }
 
+// B28.24 — the hourly and weekly caps reach Lens with the other rules; a save that does not name them
+// sends null, which Lens reads as "keep the caps it holds", never as "no cap".
+func TestAgentRulesCarryTheHourlyAndWeeklyCaps(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"hourly_limit_ulxc":1000000,"weekly_limit_ulxc":20000000}`)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"daily_limit_ulxc":5000000}`)
+	if len(f.got) != 2 {
+		t.Fatalf("Lens received %d requests, want 2: %q", len(f.got), f.got)
+	}
+	if !strings.Contains(f.got[0], `"hourly_limit_ulxc":1000000`) || !strings.Contains(f.got[0], `"weekly_limit_ulxc":20000000`) {
+		t.Fatalf("Lens received %q, want both caps", f.got[0])
+	}
+	if !strings.Contains(f.got[1], `"hourly_limit_ulxc":null`) || !strings.Contains(f.got[1], `"weekly_limit_ulxc":null`) {
+		t.Fatalf("Lens received %q, want both caps null when the save does not name them", f.got[1])
+	}
+}
+
 // B19.20 — pausing every agent, and one, reaches Lens on the session's workspace with only the reason;
 // resuming every agent sends nothing but the request.
 func TestAgentPauseSendsOnlyTheReason(t *testing.T) {

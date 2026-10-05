@@ -64,7 +64,9 @@ export interface BankDeps {
 
 interface Rules {
   max_per_request_ulxc: number
+  hourly_limit_ulxc: number
   daily_limit_ulxc: number
+  weekly_limit_ulxc: number
   monthly_limit_ulxc: number
   approval_above_ulxc: number
   allowed_models: string[]
@@ -137,7 +139,7 @@ const CAPABILITIES = [
   ['rules_approvals_statements_pots', 'Rules, approvals, statements and pots'], ['cash_out', 'Cash out'], ['company_credit_line', 'Company credit line'],
 ].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
 
-const noRules = (): Rules => ({ max_per_request_ulxc: 0, daily_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0,
+const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0,
   allowed_models: [], allowed_providers: [], allowed_listings: [], active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
 
 const lxc = (ulxc: number): string => String(ulxc / 1e6)
@@ -212,7 +214,7 @@ export class Bank {
 
   /**
    * Lens's agent rules (economy/agent_rules.go), in its order: the pauses, the models, the limit per
-   * request, the day's and month's limits, then the approval amount. A refusal is 403 naming the rule;
+   * request, the hour's, day's, week's and month's limits, then the approval amount. A refusal is 403 naming the rule;
    * a request above the approval amount files an approval, and an approved one goes through once.
    */
   judge(agent: Agent, amount: number, req: { model?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }): { status: number; error: string } | undefined {
@@ -228,7 +230,7 @@ export class Bank {
     }
     const spent = this.postings.filter((p) => p.account === `agent:${agent.id}` && (p.kind === 'spend' || (p.kind === 'pay' && p.amount_ulxc < 0)))
       .reduce((s, p) => s - p.amount_ulxc, 0)
-    for (const [limit, name] of [[r.daily_limit_ulxc, 'daily'], [r.monthly_limit_ulxc, 'monthly']] as const) {
+    for (const [limit, name] of [[r.hourly_limit_ulxc, 'hourly'], [r.daily_limit_ulxc, 'daily'], [r.weekly_limit_ulxc, 'weekly'], [r.monthly_limit_ulxc, 'monthly']] as const) {
       if (limit > 0 && spent + amount > limit) {
         return rule(`the agent has spent ${lxc(spent)} LXC of its ${name} limit of ${lxc(limit)} LXC, and this ${what} would cost up to ${lxc(amount)} LXC`)
       }
@@ -882,6 +884,7 @@ export class Bank {
       if (action === '/rules' && method === 'PUT') {
         const r = await this.body<Partial<Rules>>(req)
         a.rules = { ...noRules(), ...r, allowed_listings: r.allowed_listings ?? a.rules.allowed_listings,
+          hourly_limit_ulxc: r.hourly_limit_ulxc ?? a.rules.hourly_limit_ulxc, weekly_limit_ulxc: r.weekly_limit_ulxc ?? a.rules.weekly_limit_ulxc,
           allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [] }
         return json(res, 200, a.rules), true
       }

@@ -111,7 +111,11 @@ export interface SpendForecast {
 /** Lens economy.AgentRules. A zero limit and an empty list are "no rule". */
 export interface AgentRules {
   max_per_request_ulxc: number
+  /** B28.24 — spend in the clock hour; Lens always reads it, and a save without it keeps the cap. */
+  hourly_limit_ulxc?: number
   daily_limit_ulxc: number
+  /** B28.24 — spend in the week from Monday; Lens always reads it, and a save without it keeps the cap. */
+  weekly_limit_ulxc?: number
   monthly_limit_ulxc: number
   approval_above_ulxc: number
   allowed_models: string[] | null

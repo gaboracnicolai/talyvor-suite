@@ -97,4 +97,22 @@ describe('amounts in your own currency and plain-English rules', () => {
     expect(saved[0].allowed_models).toEqual(['claude-haiku-4-5'])
     await waitFor(() => expect(words.textContent).toContain('It may use only Claude Haiku 4.5.'))
   })
+
+  // B28.24 — the hourly and weekly caps are typed like the others, saved, and read back as one sentence.
+  it('saves an hourly and a weekly cap and states them with the daily one', async () => {
+    const { saved } = mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+
+    fireEvent.change(await screen.findByLabelText('Hourly limit for Researcher, in LXC'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText('Weekly limit for Researcher, in LXC'), { target: { value: '50' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0]).toMatchObject({ hourly_limit_ulxc: 1 * M, daily_limit_ulxc: 20 * M, weekly_limit_ulxc: 50 * M })
+    const words = await screen.findByTestId('rules-in-words')
+    await waitFor(() =>
+      expect(words.textContent).toContain('Researcher may spend at most 1 LXC ($0.10) an hour, 20 LXC ($2.00) a day and 50 LXC ($5.00) a week.'),
+    )
+  })
 })
