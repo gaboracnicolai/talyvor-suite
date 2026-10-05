@@ -260,7 +260,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'normal-case',
     why: 'the ONE applied `normal-case` in the product; the sentence says "exactly ONE ... in the product" in the present tense',
   },
-  'apps/web/src/caseAudit.ts:42|apps/web/src/areas/marketing/Landing.tsx:79': {
+  'apps/web/src/caseAudit.ts:42|apps/web/src/areas/marketing/Landing.tsx:67': {
     kind: 'LIVE',
     fragment: 'font-figure text-eyebrow uppercase text-label',
     why: 'the uppercase label whose µ arrives as a prop from 130 lines away — the reason the rule cannot be a source rule',
@@ -271,17 +271,17 @@ const PINS: Record<string, Pin> = {
     why: 'a DEVELOPER-FACING FAILURE MESSAGE naming the shape to copy — read exactly when somebody is already confused',
   },
 
-  'apps/web/src/areas/lens/Overview.tsx:333|apps/web/src/areas/marketing/Landing.tsx:179': {
+  'apps/web/src/areas/lens/Overview.tsx:333|apps/web/src/areas/marketing/Landing.tsx:167': {
     kind: 'LIVE',
     fragment: 'transition-colors duration-200',
     why: "the SITE's motion shape, quoted where the console copies it — W1.1.0's rule is that a console link moves the way the public page moves, so the call site names the line it is imitating rather than inventing a fifth hover shape",
   },
-  'apps/web/src/areas/lens/CacheCard.tsx:58|apps/web/src/areas/marketing/Landing.tsx:179': {
+  'apps/web/src/areas/lens/CacheCard.tsx:58|apps/web/src/areas/marketing/Landing.tsx:167': {
     kind: 'LIVE',
     fragment: 'transition-colors duration-200',
     why: 'the same shape on the card Overview renders in region 04 — this card is on BOTH /overview and /spend, so the pointer is what says the affordance is one component having one answer',
   },
-  'apps/web/src/areas/lens/Overview.test.tsx:392|apps/web/src/areas/marketing/Landing.tsx:179': {
+  'apps/web/src/areas/lens/Overview.test.tsx:392|apps/web/src/areas/marketing/Landing.tsx:167': {
     kind: 'LIVE',
     fragment: 'transition-colors duration-200',
     why: "the failure message of Overview's motion sweep, naming the line a developer should copy — read exactly when somebody is already confused, the same argument motion.test.tsx:154 makes",

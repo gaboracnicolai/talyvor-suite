@@ -389,7 +389,7 @@ describe('a brand-new workspace with zero data', () => {
     expect(
       still,
       'these links change nothing under a pointer. The site moves on every state change ' +
-        '(Landing.tsx:179 — transition-colors duration-200, hover on text-ink); a console link ' +
+        '(Landing.tsx:167 — transition-colors duration-200, hover on text-ink); a console link ' +
         'that does not is the "it does not read as the same product" report, one element at a time.',
     ).toEqual([])
     // and every transition names its duration, which is motion.test.tsx's repo-wide rule restated

@@ -1,6 +1,6 @@
-import { Button, Mark, ThemeToggle, Wordmark, focusRing, inlineLink } from '@talyvor/ui'
+import { focusRing, inlineLink } from '@talyvor/ui'
 import { useDocumentTitle } from '../../documentTitle'
-import { SectionLabel } from '../marketing/Landing'
+import { Eyebrow, TealRule } from '../marketing/Landing'
 import {
   CAPABILITIES,
   CHANGE_DATE,
@@ -13,7 +13,7 @@ import {
   type Claim,
 } from './content'
 import lensRoutes from './lens-routes.json'
-import { CompanyLine } from '../../components/CompanyLine'
+import { SiteFooter, SiteHeader } from '../../components/SiteChrome'
 
 // /documentation (B27.31) — what Talyvor does today, one claim per thing a person can do, each
 // linked to the screen or route that does it. Public, OUTSIDE the AuthGate like /marketing and
@@ -26,7 +26,7 @@ import { CompanyLine } from '../../components/CompanyLine'
 function ClaimRow({ claim }: { claim: Claim }) {
   return (
     <li className="flex flex-col gap-1 border-t border-rule py-4 wide:flex-row wide:items-baseline wide:justify-between wide:gap-8">
-      <p className="max-w-2xl text-body text-ink">{claim.text}</p>
+      <p className="max-w-lg text-reading text-ink">{claim.text}</p>
       <a href={claim.href} className={`shrink-0 text-caption text-muted ${inlineLink}`}>
         {claim.label}
       </a>
@@ -58,7 +58,7 @@ function LensReference() {
             </span>
           </summary>
           <div className="border-t border-rule px-gutter py-4">
-            <p className="max-w-2xl text-body text-muted">{g.about}</p>
+            <p className="max-w-lg text-reading text-muted">{g.about}</p>
             {g.screen ? (
               <p className="mt-2 text-caption text-muted">
                 In the app:{' '}
@@ -98,6 +98,16 @@ function LensReference() {
   )
 }
 
+const HEADER_LINKS = [
+  { href: '/pricing', label: 'Pricing' },
+  { href: DOCUMENTATION_PATH, label: 'Documentation' },
+]
+const FOOTER_LINKS = [
+  { href: '/privacy', label: 'Privacy' },
+  { href: '/terms', label: 'Terms' },
+  { href: '/pricing', label: 'Pricing' },
+]
+
 // B28.15 — the guides first, Agent Wallets leading them, then the Lens API reference.
 const CONTENTS: Array<{ id: string; label: string }> = [
   { id: 'start', label: 'Start here' },
@@ -110,38 +120,17 @@ export function Documentation() {
   useDocumentTitle('Documentation')
   return (
     <div className="flex min-h-full flex-col bg-canvas text-ink">
-      <header className="sticky top-0 z-10 border-b border-rule bg-canvas">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-gutter py-3">
-          <a href="/marketing" className={`flex items-center gap-2.5 ${focusRing}`}>
-            <Mark size={26} aria-hidden />
-            <div className="min-w-0">
-              <Wordmark height={12} />
-              <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Suite</div>
-            </div>
-          </a>
-          <div className="flex items-center gap-3">
-            <a href="/pricing" className={`text-body text-muted ${inlineLink}`}>
-              Pricing
-            </a>
-            <a href={DOCUMENTATION_PATH} aria-current="page" className={`text-body text-ink ${inlineLink}`}>
-              Documentation
-            </a>
-            <ThemeToggle />
-            <Button asChild>
-              <a href="/">Open the app</a>
-            </Button>
-          </div>
-        </div>
-      </header>
+      <SiteHeader product="Suite" links={HEADER_LINKS} current={DOCUMENTATION_PATH} />
 
       <main className="flex-1">
         <section aria-labelledby="documentation-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter pb-12 pt-16 wide:pt-20">
-            <SectionLabel index="00">Documentation</SectionLabel>
+            <Eyebrow index="00">Documentation</Eyebrow>
             <h1 id="documentation-heading" className="mt-7 max-w-3xl text-display-2 text-ink">
               What Talyvor does today, and where to do it.
             </h1>
-            <p className="mt-6 max-w-2xl text-lede text-muted">
+            <TealRule className="mt-6" />
+            <p className="mt-6 max-w-xl text-lede text-muted">
               Talyvor is money and markets for AI agents. Today every AI agent gets a wallet: a
               budget, spending rules, approvals and a live statement, and Lens checks the rules
               before the model is called or the payment moves. Every line below is something you can do now. Each links to the screen that does it, or
@@ -163,10 +152,11 @@ export function Documentation() {
 
         <section id="start" aria-labelledby="start-heading" className="scroll-mt-16 border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="01">Start here</SectionLabel>
+            <Eyebrow index="01">Start here</Eyebrow>
             <h2 id="start-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               From sign-up to an agent spending from its own wallet.
             </h2>
+            <TealRule className="mt-5" />
             <Claims claims={START} />
           </div>
         </section>
@@ -179,11 +169,12 @@ export function Documentation() {
             className="scroll-mt-16 border-b border-rule"
           >
             <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-              <SectionLabel index={String(i + 2).padStart(2, '0')}>{c.role}</SectionLabel>
+              <Eyebrow index={String(i + 2).padStart(2, '0')}>{c.role}</Eyebrow>
               <h2 id={`${c.id}-heading`} className="mt-6 max-w-2xl text-display-3 text-ink">
                 {c.name}
               </h2>
-              <p className="mt-4 max-w-2xl text-body text-muted">{c.lede}</p>
+              <TealRule className="mt-5" />
+              <p className="mt-5 max-w-lg text-reading text-muted">{c.lede}</p>
               <Claims claims={c.claims} />
             </div>
           </section>
@@ -191,12 +182,13 @@ export function Documentation() {
 
         <section id="lens" aria-labelledby="lens-heading" className="scroll-mt-16 border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index={String(CAPABILITIES.length + 2).padStart(2, '0')}>Lens API</SectionLabel>
+            <Eyebrow index={String(CAPABILITIES.length + 2).padStart(2, '0')}>Lens API</Eyebrow>
             <h2 id="lens-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               One gateway for every model call and every agent payment.
             </h2>
+            <TealRule className="mt-5" />
             <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
-              <p className="text-body text-muted">
+              <p className="max-w-lg text-reading text-muted">
                 The hosted gateway is <span className="font-mono text-ink">{LENS_ORIGIN}</span>. Every
                 route except the public ones takes your key as{' '}
                 <span className="font-mono text-ink">Authorization: Bearer &lt;key&gt;</span> or{' '}
@@ -204,7 +196,7 @@ export function Documentation() {
                 <span className="font-mono text-ink">{'{wsID}'}</span> in a path is your workspace’s id,
                 and a key only reaches its own workspace.
               </p>
-              <p className="text-body text-muted">
+              <p className="max-w-lg text-reading text-muted">
                 Below is every route a customer can call, {ROUTE_COUNT} of them, read from Lens’s
                 source and each answered by the hosted gateway. Admin and operator routes are not
                 listed. The core routes are also described in the gateway’s{' '}
@@ -224,11 +216,12 @@ export function Documentation() {
 
         <section id="licences" aria-labelledby="licences-heading" className="scroll-mt-16">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index={String(CAPABILITIES.length + 3).padStart(2, '0')}>Licences</SectionLabel>
+            <Eyebrow index={String(CAPABILITIES.length + 3).padStart(2, '0')}>Licences</Eyebrow>
             <h2 id="licences-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               Source-available, not open source.
             </h2>
-            <p className="mt-4 max-w-2xl text-body text-muted">
+            <TealRule className="mt-5" />
+            <p className="mt-5 max-w-lg text-reading text-muted">
               Each repository is under the Business Source License 1.1, which lets you read the source
               and use it on the terms in its LICENSE file; it is not an open-source licence. On the
               Change Date, <span className="font-figure text-ink">{CHANGE_DATE}</span> — or four years
@@ -241,7 +234,7 @@ export function Documentation() {
                   key={l.repo}
                   className="flex flex-col gap-1 border-t border-rule py-4 wide:flex-row wide:items-baseline wide:justify-between wide:gap-8"
                 >
-                  <div className="max-w-2xl">
+                  <div className="max-w-lg">
                     <p className="font-mono text-body text-ink">{l.repo}</p>
                     <p className="text-caption text-muted">{l.what}</p>
                   </div>
@@ -258,29 +251,7 @@ export function Documentation() {
         </section>
       </main>
 
-      <footer className="border-t border-rule">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-gutter py-6">
-          <div className="font-figure text-eyebrow uppercase text-faint">
-            Talyvor Ltd · money and markets for AI agents
-          </div>
-          <div className="text-caption text-faint">
-            <a href="/privacy" className={inlineLink}>
-              Privacy
-            </a>
-            {' · '}
-            <a href="/terms" className={inlineLink}>
-              Terms
-            </a>
-            {' · '}
-            <a href="/pricing" className={inlineLink}>
-              Pricing
-            </a>
-          </div>
-        </div>
-        <div className="mx-auto w-full max-w-5xl px-gutter pb-6">
-          <CompanyLine />
-        </div>
-      </footer>
+      <SiteFooter links={FOOTER_LINKS} />
     </div>
   )
 }

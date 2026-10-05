@@ -1,5 +1,5 @@
 import { inlineLink } from '@talyvor/ui'
-import { LegalFooter, LegalHeader, LawyerReview, Section } from './legalParts'
+import { LegalHeader, LegalPage, LawyerReview, Section } from './legalParts'
 import { COMPANY_CONTACT, COMPANY_NAME, COMPANY_NUMBER, REGISTERED_OFFICE } from '../company'
 import {
   KEPT_UNTIL_DELETED_FACT,
@@ -30,17 +30,11 @@ import {
 //   deletion           areas/lens/StoredAnswers.tsx, areas/track/WorkspaceSettings.tsx
 export function Privacy() {
   return (
-    // `main`, NOT `div` — same element, same classes. 6,447 of this page's 6,584 characters (98%)
-    // sat outside every landmark region: the only region was LegalHeader's <header>, which holds
-    // the title block. A person deciding whether to hand us their data reads this page BEFORE they
-    // have an account, and could not jump to its content. ⚠ ONE CONSEQUENCE, STATED: that <header>
-    // is now INSIDE main, so it is no longer a `banner` — the page trades one region holding 2% of
-    // itself for one holding all of it. That block is a document title, not site chrome; Landing's
-    // sticky top bar is what a banner is for. LandmarkCoverage.test.tsx holds the proportion.
-    <main className="mx-auto w-full max-w-3xl px-gutter py-10">
+    // The site's header and footer and the reading column are LegalPage's, with the `main` in it.
+    <LegalPage>
       <LegalHeader title="Privacy" />
 
-      <p className="mb-8 text-body">
+      <p className="mb-8 text-reading">
         {COMPANY_NAME} (company number {COMPANY_NUMBER}, registered office {REGISTERED_OFFICE}) runs
         Talyvor and decides how the personal data this notice describes is used. Contact:{' '}
         <a className={inlineLink} href={`mailto:${COMPANY_CONTACT}`}>
@@ -58,11 +52,11 @@ export function Privacy() {
       </LawyerReview>
 
       <Section title="What we store">
-        <p className="text-body">
+        <p className="text-reading">
           Talyvor sits between your tools and an AI provider. Handling your requests means holding
           some of them. Specifically:
         </p>
-        <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-body text-muted">
+        <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-reading text-muted">
           <li>
             <strong className="text-ink">Your identity.</strong> When you sign in with Google we
             receive your account&rsquo;s subject identifier, email address and basic profile. We
@@ -89,11 +83,11 @@ export function Privacy() {
       </Section>
 
       <Section title="What Agent Wallets stores">
-        <p className="text-body">
+        <p className="text-reading">
           Every agent you create gets a wallet. Running it means keeping a record of what it holds,
           what it may do, and everything it did:
         </p>
-        <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-body text-muted">
+        <ul className="mt-3 flex list-disc flex-col gap-2 pl-5 text-reading text-muted">
           <li>
             <strong className="text-ink">Statements.</strong> Every movement into and out of each
             agent&rsquo;s wallet: funding, spending on requests, payments to other agents, card
@@ -125,13 +119,13 @@ export function Privacy() {
       </Section>
 
       <Section title="What the Marketplace stores and shows">
-        <p className="text-body">
+        <p className="text-reading">
           A listing you publish — an agent, prompt, skill, evaluation or pipeline — is stored and{' '}
           <strong>shown to every other Talyvor workspace</strong>. Lens checks it before it is
           published and refuses one that carries a secret, personal data or a prompt injection; that
           check is a safeguard, not a reason to put anything private into a listing.
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           Each use of a listing is recorded with its price, for the buyer&rsquo;s monthly bill and the
           seller&rsquo;s earnings. A report someone files about a listing is kept with its reason
           and details. If you connect a Stripe account to be paid, Stripe asks who you are and where
@@ -140,37 +134,37 @@ export function Privacy() {
       </Section>
 
       <Section title="Whether your prompt text is kept">
-        <p className="text-body">
+        <p className="text-reading">
           <strong>With each reusable answer, yes.</strong> {QUESTION_STORED_FACT}
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           Separately, each workspace has a logging setting for its request log. An unconfigured
           workspace gets <code>metadata</code>, under which the log records the prompt text as an
           empty string.
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           There is a <code>full</code> setting that <em>does</em> persist prompt text, so that
           popular questions can be pre-warmed. It is not the default and nothing in the app turns it
           on. If an operator sets it on your workspace, your prompt text is retained — and you would
           have no way to tell from the product that this had happened. We are stating that plainly
           because it is the kind of thing a policy usually omits.
         </p>
-        <p className="mt-3 text-body text-muted">{LOGGING_NONE_FACT}</p>
+        <p className="mt-3 text-reading text-muted">{LOGGING_NONE_FACT}</p>
       </Section>
 
       <Section title="⚠ Documents you attach become the prompt">
-        <p className="text-body">
+        <p className="text-reading">
           When you attach a document, we convert it to Markdown before the model sees it, and{' '}
           <strong>the converted text is what everything downstream treats as your prompt</strong>.
           It is what gets hashed, what gets embedded, and what gets cached. Everything this page
           says about prompts applies to the contents of your documents.
         </p>
-        <p className="mt-3 text-body">
+        <p className="mt-3 text-reading">
           <strong>If a file has no text to extract</strong> — a scan, a photograph, an image-only
           PDF — it is sent to a <strong>vision model</strong> to be read. Your document is
           transmitted to a model provider to have its contents recovered.
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           Read this together with the section below. An answer often restates the question it was
           answering, and that is truer of a document than of a typed question: a question about a
           contract may be a sentence, while an answer derived from the contract can quote it. With
@@ -180,49 +174,49 @@ export function Privacy() {
             not attach it.
           </strong>
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           Conversion is <strong>on</strong> for every workspace unless you turn it off, in Settings.
         </p>
       </Section>
 
       <Section title="⚠ Answers you generate may be served to other companies">
-        <p className="text-body">
+        <p className="text-reading">
           This is the part that matters most, and it is on by default.
         </p>
-        <p className="mt-3 text-body">
+        <p className="mt-3 text-reading">
           If another company asks a question close enough in meaning to one you have already asked,
           they may be served <strong>the answer that was generated for you</strong>, in full, rather
           than paying a provider to generate it again. The reverse is also true: you may be served
           answers generated for them. This is what makes reuse earn, and it is why a reused answer is
           charged less than its list price.
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           <strong className="text-ink">Your prompts are not served to anyone.</strong> Matching uses
           the hash and the embedding; only the answer is transmitted. But an answer often restates
           the question it was answering, so if a prompt contained something confidential the answer
           may contain it too. Treat &ldquo;the answer leaves the workspace&rdquo; as the operative
           fact, not &ldquo;the prompt does not&rdquo;.
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           Sharing is <strong>on</strong> for a new workspace and one click turns it off, on Home and
           in Settings at any time.{' '}
           {SHARING_OFF_FACT} Your API keys, balance, ledger and agent wallets are never shared under
           either setting.
         </p>
-        <SharedAnswersFact className="mt-3 text-body text-muted" />
-        <p className="mt-3 text-body text-muted">
+        <SharedAnswersFact className="mt-3 text-reading text-muted" />
+        <p className="mt-3 text-reading text-muted">
           Sharing is additionally gated deployment-wide by the operator. On a deployment where that
           switch is off, nothing pools regardless of your setting.
         </p>
       </Section>
 
       <Section title="How long we keep it">
-        <p className="text-body">
+        <p className="text-reading">
           Usage and billing records, and every agent wallet&rsquo;s statement, are kept for as long
           as the account exists — they are the ledger, and a balance you cannot audit is not a
           balance.
         </p>
-        <p className="mt-3 text-body">
+        <p className="mt-3 text-reading">
           <strong>{KEPT_UNTIL_DELETED_FACT}</strong> This applies identically to shared and unshared
           answers. In Features you can delete the answers this workspace shared, or everything it has
           stored, or ask Talyvor to delete all of your data. Answers already given to other users stay
@@ -235,7 +229,7 @@ export function Privacy() {
       </Section>
 
       <Section title="What leaves this system">
-        <ul className="flex list-disc flex-col gap-2 pl-5 text-body text-muted">
+        <ul className="flex list-disc flex-col gap-2 pl-5 text-reading text-muted">
           <li>
             <strong className="text-ink">The AI provider</strong> receives your prompt. It has to —
             that is the request. Their handling is governed by their terms, not ours.
@@ -262,21 +256,21 @@ export function Privacy() {
             when an agent pays another owner&rsquo;s agent, that payment.
           </li>
         </ul>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           Nothing else leaves. There is no analytics vendor, no advertising network and no session
           recording in this application.
         </p>
       </Section>
 
       <Section title="Deleting your data">
-        <p className="text-body">
+        <p className="text-reading">
           In Features, a workspace&rsquo;s owner or an admin can delete the answers it shared, or
           everything it has stored, at once, by typing the workspace&rsquo;s name to confirm. The
           same screen asks Talyvor to delete <strong>all</strong> of the workspace&rsquo;s data and
           shows that request until it is done. In Track, a workspace&rsquo;s owner can delete it and
           restore it within 14 days.
         </p>
-        <p className="mt-3 text-body text-muted">
+        <p className="mt-3 text-reading text-muted">
           Deleting all of your data is carried out by an operator, not automatically, and no
           turnaround is promised. Billing and ledger records — agent wallet statements included —
           are kept, because the law requires them.
@@ -288,7 +282,6 @@ export function Privacy() {
         </LawyerReview>
       </Section>
 
-      <LegalFooter />
-    </main>
+    </LegalPage>
   )
 }

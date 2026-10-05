@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, roiBrandFaults } from '../src/brand.ts'
+import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, readingFaults, roiBrandFaults } from '../src/brand.ts'
 
 const brand: Look = { scroll: 390, client: 390, logos: ['svg mark', 'svg wordmark'], tiles: [], amberCount: 0, amber: [], inter: [] }
 
@@ -71,6 +71,25 @@ describe('the company-line oracle (B32.2)', () => {
     expect(companyFaults('/terms', 'Terms', 'This is a trial.')).toEqual([
       'no company line',
       'opens with "This is a trial.", not who runs Talyvor',
+    ])
+  })
+})
+
+describe('the reading-pages oracle (B29.13)', () => {
+  const page = { headerLogo: true, eyebrow: 'Talyvor', rule: true, measure: 66, footer: true }
+
+  it('passes a reading page in the brand, and a phone view whatever its measure', () => {
+    expect(readingFaults(page, true)).toEqual([])
+    expect(readingFaults({ ...page, measure: 42 }, false)).toEqual([])
+  })
+
+  it('names a missing header logo, eyebrow, rule and footer, and lines far from 65 on a desktop', () => {
+    expect(readingFaults({ headerLogo: false, eyebrow: '', rule: false, measure: 89, footer: false }, true)).toEqual([
+      'no drawn logo in the header',
+      'no eyebrow over the title',
+      'no teal rule under the title',
+      'lines of 89 characters, not near 65',
+      'no footer with the mark and the company line',
     ])
   })
 })

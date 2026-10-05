@@ -55,7 +55,7 @@ export function CacheCard({ days, raised = false }: { days: number; /** B29.9 �
               screen reader and it made Overview's own test resolve to whichever came first. */}
           No requests recorded in this window yet. The rate appears once traffic goes through
           Lens —{' '}
-          {/* ⚠ THE SAME MOTION SHAPE AS OVERVIEW'S OWN LINKS (Landing.tsx:179 — the site's
+          {/* ⚠ THE SAME MOTION SHAPE AS OVERVIEW'S OWN LINKS (Landing.tsx:167 — the site's
               `transition-colors duration-200` with the hover on `text-ink`). This card renders on
               BOTH /overview and /spend, so the affordance lands on both; that is one component
               having one answer, not a second change smuggled in. W1.1.0's proof screen renders

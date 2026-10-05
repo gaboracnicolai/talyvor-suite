@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom'
 import { useAuthMeReader } from '../lib/authMe'
 import { useDocumentTitle } from '../documentTitle'
 import { inlineLink } from '@talyvor/ui'
-import { CompanyLine } from '../components/CompanyLine'
+import { SiteFooter, SiteHeader } from '../components/SiteChrome'
+import { TealRule } from '../areas/marketing/Landing'
 
 // legalParts — the shared furniture for /privacy and /terms.
 //
@@ -61,12 +62,13 @@ export function LegalHeader({ title }: { title: string }) {
   useDocumentTitle(title)
   return (
     <header className="mb-8">
-      <div className="mb-6">
+      <div className="mb-8">
         <ReturnLink />
       </div>
-      <div className="text-caption text-faint">Talyvor</div>
-      <h1 className="mt-2 text-title text-ink">{title}</h1>
-      <p className="mt-3 text-body text-muted">
+      <div className="text-eyebrow uppercase text-label">Talyvor</div>
+      <h1 className="mt-4 text-display-2 text-ink">{title}</h1>
+      <TealRule className="mt-6" />
+      <p className="mt-6 text-reading text-muted">
         Last updated 28 July 2026. Written from the code, for a closed trial.{' '}
         <Link className={inlineLink} to={title === 'Privacy' ? '/terms' : '/privacy'}>
           {title === 'Privacy' ? 'Terms' : 'Privacy'}
@@ -93,30 +95,56 @@ export function LawyerReview({
   return (
     <div
       className={
-        'rounded-control border border-rule border-l-2 border-l-held bg-canvas px-4 ' + (compact ? 'py-3 mt-4' : 'py-4 mb-8')
+        'rounded-card border border-rule border-l-2 border-l-held bg-raised px-4 ' + (compact ? 'py-3 mt-4' : 'py-4 mb-10')
       }
     >
       <div className="text-caption font-medium text-ink">
         {compact ? 'Needs legal review' : 'Draft — needs legal review before it is relied on'}
       </div>
-      <p className="mt-1 text-body text-muted">{children}</p>
+      <p className="mt-1 text-reading text-muted">{children}</p>
     </div>
   )
 }
 
-/** LegalFooter — the company line at the bottom of both documents (B32.2). */
-export function LegalFooter() {
+const HEADER_LINKS = [
+  { href: '/pricing', label: 'Pricing' },
+  { href: '/documentation', label: 'Documentation' },
+]
+const FOOTER_LINKS = [
+  { href: '/privacy', label: 'Privacy' },
+  { href: '/terms', label: 'Terms' },
+  ...HEADER_LINKS,
+]
+
+/**
+ * LegalPage — the frame both documents sit in (B29.13): the site's logo header and footer, and
+ * between them a reading column on canvas at the 15/24 reading step, left on the same edge as the
+ * logo. `max-w-lg` (32rem) is what sets about 65 characters a line: measured in Chrome, a full line
+ * here holds 66 on median. `max-w-prose` (65ch) set 82, because a `ch` is the width of a zero and
+ * Space Grotesk's zero is wider than its average letter.
+ *
+ * `main` holds the whole document, title block included, so a reader deciding whether to hand us
+ * their data can jump straight to it; LandmarkCoverage.test.tsx holds the proportion. The company
+ * line (B32.2) is in the footer, as on every other page of the website.
+ */
+export function LegalPage({ children }: { children: React.ReactNode }) {
   return (
-    <footer className="mt-12 border-t border-rule pt-6">
-      <CompanyLine />
-    </footer>
+    <div className="flex min-h-full flex-col bg-canvas text-ink">
+      <SiteHeader product="Suite" links={HEADER_LINKS} />
+      <main className="flex-1">
+        <div className="mx-auto w-full max-w-5xl px-gutter pb-16 pt-10 wide:pt-14">
+          <div className="max-w-lg text-reading">{children}</div>
+        </div>
+      </main>
+      <SiteFooter links={FOOTER_LINKS} />
+    </div>
   )
 }
 
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mb-8">
-      <h2 className="mb-3 text-head text-ink">{title}</h2>
+    <section className="mb-10">
+      <h2 className="mb-4 text-display-4 text-ink">{title}</h2>
       {children}
     </section>
   )

@@ -6,8 +6,8 @@ import { cn } from '@talyvor/ui'
 //
 // It landed with W1.1.1 (the Overview rebuild) inside that one screen and moved here the moment a
 // second screen wanted it, because two copies of a marking are how a language stops being one:
-// `areas/marketing/Landing.tsx` §SectionLabel is the site's version and this is the console's, and
-// there should not be a third.
+// `areas/marketing/Landing.tsx` §Eyebrow is the site's version (§SectionLabel until B29.13) and this
+// is the console's, and there should not be a third.
 //
 // What it is, and why each part:
 //   · a 2px accent TICK — colour lands on a tick, never on text. The palette rests on that.

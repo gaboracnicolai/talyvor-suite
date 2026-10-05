@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import { Button, Mark, ThemeToggle, Wordmark, focusRing, inlineLink } from '@talyvor/ui'
 import { useParams } from 'react-router-dom'
 import { useDocumentTitle } from '../../documentTitle'
 import { ApiError } from '../../lib/api'
 import { BoardColumns } from '../track/BoardColumns'
 import type { PublicBoardView } from '../track/types'
-import { CompanyLine } from '../../components/CompanyLine'
+import { SiteFooter, SiteHeader } from '../../components/SiteChrome'
+import { TealRule } from '../marketing/Landing'
 
 // B27.30 — a Track board a workspace owner published as a link, opened by anyone who has it,
 // signed out. OUTSIDE the AuthGate (App.tsx) for the same reason as /pricing: the reader has no
@@ -31,7 +31,8 @@ function Body({ token }: { token: string }) {
     return (
       <>
         <h1 className="text-display-3 text-ink">{gone ? 'This board isn’t available' : 'The board couldn’t be read'}</h1>
-        <p className="mt-4 max-w-2xl text-body text-muted">
+        <TealRule className="mt-5" />
+        <p className="mt-5 max-w-lg text-reading text-muted">
           {gone
             ? 'The link may be mistyped, or the workspace that published it has turned it off. Ask whoever shared it for a new one.'
             : 'Track didn’t answer just now, so nothing is shown rather than something stale. Try again in a moment.'}
@@ -43,9 +44,10 @@ function Body({ token }: { token: string }) {
   const b = board.data
   return (
     <>
-      <p className="font-figure text-eyebrow uppercase text-muted">Read-only board</p>
-      <h1 className="mt-3 text-display-3 text-ink">{b.project ? `${b.workspace} · ${b.project}` : b.workspace}</h1>
-      <p className="mt-3 max-w-2xl text-body text-muted">
+      <p className="text-eyebrow uppercase text-label">Read-only board</p>
+      <h1 className="mt-4 text-display-3 text-ink">{b.project ? `${b.workspace} · ${b.project}` : b.workspace}</h1>
+      <TealRule className="mt-5" />
+      <p className="mt-5 max-w-lg text-reading text-muted">
         {b.issues.length === 0
           ? 'Nothing is being tracked on this board yet.'
           : `${b.issues.length} issue${b.issues.length === 1 ? '' : 's'}, by where each one stands. Shared from Talyvor Track — only the people in this workspace can change it.`}
@@ -58,28 +60,17 @@ function Body({ token }: { token: string }) {
   )
 }
 
+const FOOTER_LINKS = [
+  { href: '/privacy', label: 'Privacy' },
+  { href: '/terms', label: 'Terms' },
+]
+
 export function PublicBoard() {
   useDocumentTitle('Board')
   const { token = '' } = useParams()
   return (
     <div className="flex min-h-full flex-col bg-canvas text-ink">
-      <header className="sticky top-0 z-10 border-b border-rule bg-canvas">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-y-2 px-gutter py-3">
-          <a href="/marketing" className={`flex items-center gap-2.5 ${focusRing}`}>
-            <Mark size={26} aria-hidden />
-            <div className="min-w-0">
-              <Wordmark height={12} />
-              <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Track</div>
-            </div>
-          </a>
-          <div className="flex items-center gap-3">
-            <ThemeToggle />
-            <Button asChild>
-              <a href="/">Open the app</a>
-            </Button>
-          </div>
-        </div>
-      </header>
+      <SiteHeader product="Track" width="max-w-6xl" />
 
       <main className="flex-1">
         <div className="mx-auto w-full max-w-6xl px-gutter py-12">
@@ -87,23 +78,7 @@ export function PublicBoard() {
         </div>
       </main>
 
-      <footer className="border-t border-rule">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-gutter py-6">
-          <div className="font-figure text-eyebrow uppercase text-faint">Talyvor Ltd · money and markets for AI agents</div>
-          <div className="text-caption text-faint">
-            <a href="/privacy" className={inlineLink}>
-              Privacy
-            </a>
-            {' · '}
-            <a href="/terms" className={inlineLink}>
-              Terms
-            </a>
-          </div>
-        </div>
-        <div className="mx-auto w-full max-w-6xl px-gutter pb-6">
-          <CompanyLine />
-        </div>
-      </footer>
+      <SiteFooter links={FOOTER_LINKS} width="max-w-6xl" />
     </div>
   )
 }
