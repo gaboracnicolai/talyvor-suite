@@ -289,6 +289,35 @@ export class AppUser {
     }, nth)
   }
 
+  /**
+   * B28.78 — asks `question` and presses Stop before any of the answer has arrived, which leaves an empty
+   * answer in the conversation. The request is held inside this browser until Stop and never reaches
+   * the app's server, so it costs nothing and Stop is never too late.
+   */
+  async stopBeforeAnswer(question: string): Promise<void> {
+    const stream = '**/api/ai/stream/**'
+    let release = (): void => undefined
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    await this.page.route(stream, async (route) => {
+      await held
+      // The page has already given the request up; nothing is left to refuse.
+      await route.abort().catch(() => undefined)
+    }, { times: 1 })
+    try {
+      await this.page.locator('#chat-message').fill(question)
+      await this.page.locator('#chat-message').press('Enter')
+      await this.page.getByRole('button', { name: 'Stop' }).click()
+      await this.page.getByRole('button', { name: 'Send' }).waitFor({ state: 'visible' })
+    } finally {
+      release()
+      await this.page.unroute(stream).catch(() => undefined)
+    }
+    // The question stays in the conversation and is sent again with the next one.
+    this.conversationChars += question.length
+  }
+
   /** Presses Regenerate on the last answer — the model is asked afresh — and reads the new answer. */
   async regenerate(question: string): Promise<Turn> {
     const hold = this.reserve(0)

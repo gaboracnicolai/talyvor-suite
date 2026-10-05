@@ -375,6 +375,28 @@ describe('streaming', () => {
       { role: 'user', content: 'second' },
     ])
   })
+
+  it('B28.78 — an answer stopped before it said anything is not sent with the next question, which still answers', async () => {
+    const s = controllableStream()
+    mockChat({ body: s.stream })
+    renderChat()
+    await chooseModel('Claude Opus 5')
+    await ask('first')
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeTruthy())
+
+    const { posted } = mockChat({
+      body: 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"answered"}}\n\ndata: {"type":"message_stop"}\n\n',
+    })
+    await ask('second')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    // ⚠ NO EMPTY ASSISTANT TURN BETWEEN THEM: Anthropic refuses the whole request over one.
+    expect(JSON.parse(String(posted.mock.calls[0][0].init.body)).messages).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'user', content: 'second' },
+    ])
+    await waitFor(() => expect(screen.getAllByTestId('turn-assistant').at(-1)?.textContent).toContain('answered'))
+  })
 })
 
 describe('the keyboard sends (B10.2)', () => {
