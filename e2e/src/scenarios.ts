@@ -23,7 +23,7 @@ import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, everyScreen, homeCards, lensReads } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
-import { brandVisual } from './brand.ts'
+import { brandDocs, brandVisual } from './brand.ts'
 
 export interface Evidence {
   note?: string
@@ -1852,7 +1852,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B25.5 — every Lens read a customer's key can make, a few times a run.
   if (i % 100 === 8) list.push(lensReads())
   // B29.21 — the brand on the public pages and Home, photographed into the report: once a run.
-  if (i === 2) list.push(brandVisual())
+  // B29.28 — and a Docs page, by the same user.
+  if (i === 2) list.push(brandVisual(), brandDocs())
   // B17.10, one in ten again. The contributor (7, 17, …) changes no setting and its partner is one of 9,
   // 19, …. The plan comes last, on a user nobody else asks as: what is asked after it is drawn from its
   // allowance, which the ledger read-back does not expect.

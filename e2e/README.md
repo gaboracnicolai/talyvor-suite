@@ -124,6 +124,7 @@ spent before it stopped. A run that stopped early exits 1.
 | `every-screen` | 1 in 10 | every screen a customer can open (from the map, operator screens left out), opened as a person does — a screen with a parameter from the first link on the one above it: the console's heading names it (a public page shows a heading), nothing says "Nothing at this address", and while it loads there is no page error and no 5xx |
 | `lens-reads` | 1 in 100 | every Lens read a customer's key can make (GET, no parameter but the workspace, from the map) answers within 15 s, never with a 5xx; 401/403/404 are counted, not failed |
 | `brand-visual` | user 2, once a run | B29.21 — `/marketing`, `/pricing` and `/signin` signed out and `/` signed in, at 1440×900 and 390×844 in the dark theme and the light one: each view's first screen is saved to `<report dir>/shots/<run start>/` and shown in the report under **Screenshots**; a view fails on sideways scroll, no drawn SVG logo on screen, the old CSS tile, any computed colour #f0a030, or a font stack naming Inter |
+| `brand-docs` | user 2, once a run | B29.28 — a Docs page the user writes, at 1440×900 and 390×844 in the dark theme and the light one: each view's first screen, and at 390 the sidebar opened from Menu, is saved beside `brand-visual`'s and shown under **Screenshots**; a view fails on no logo in the sidebar, any computed colour #f0a030, or a font stack naming Inter |
 
 ## Catalog v1, and each scenario's oracle
 
