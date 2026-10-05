@@ -1,5 +1,5 @@
 import { ApiError, readableList } from '../../lib/api'
-import { type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
+import { type ToolCallPiece, type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
 import type { AnswerCost, AnswerSource } from './price'
 
 // chatApi.ts — the wire for W4.6.1 step 6.
@@ -8,6 +8,7 @@ import type { AnswerCost, AnswerSource } from './price'
 //   GET  /api/models                      the deployment's catalog (Lens /v1/catalog/models)
 //   GET  /api/ai/providers                the providers Lens holds no key for (B18.58)
 //   POST /api/ai/stream/{provider}/{path} the flushing SSE relay built in step 3
+//   GET  /api/chat/tools, POST /api/chat/tools/call   B28.349: Lens's read-only wallet MCP tools (askChat)
 //
 // ⚠ THE BROWSER NEVER HOLDS A WORKSPACE KEY. The relay mints and leases a {proxy}-scoped Lens
 // SESSION key server-side (apps/bff/stream.go). That is step 4's whole purpose and it is why this
@@ -89,6 +90,118 @@ export interface ChatMessage {
   /** B28.81 — on an answer that is not whole: the model sent nothing back (`blank`), or it stopped at
    *  its length limit (`cut_off`). */
   incomplete?: 'blank' | 'cut_off'
+  /** B28.349 — on an answer: the statement lines Lens's wallet tool read it from, each linked to its row. */
+  spend?: SpendLine[]
+  /** B28.349 — on an answer that took more than one request to the model (it called a tool first): how many. Each is charged. */
+  requests?: number
+}
+
+/** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
+export interface ChatTool {
+  name: string
+  description: string
+  input_schema: unknown
+}
+
+/** B28.349 — one tool call the model made: its id in the answer, the tool, and its arguments as JSON text. */
+export interface ToolCall {
+  id: string
+  name: string
+  args: string
+}
+
+/** B28.349 — what a tool answered: Lens's text, and whether it refused (the model is told either way). */
+export interface ToolResult {
+  text: string
+  is_error: boolean
+}
+
+/** B28.349 — the tool spend questions are answered with: Lens's wallet_agents_spend (talyvor-lens B28.83). */
+export const SPEND_TOOL = 'wallet_agents_spend'
+
+/** B28.349 — one statement line a spend answer was read from: which agent, which entry, how much. */
+export interface SpendLine {
+  agent_id: string
+  agent: string
+  entry_id: string
+  amount_ulxc: number
+  at?: string
+}
+
+/**
+ * B28.349 — the providers whose chat endpoint Lens passes a tool definition to as sent. Lens translates
+ * Google's and Bedrock's request shapes, and a provider's own tool format is not part of that, so those
+ * models are asked without tools rather than refused.
+ */
+export const TOOL_PROVIDERS: readonly string[] = ['openai', 'anthropic']
+
+/** B28.349 — the tools this workspace's Lens offers Chat. A failed read offers none: Chat still answers. */
+export async function fetchChatTools(): Promise<ChatTool[]> {
+  const res = await fetch('/api/chat/tools', { credentials: 'same-origin' })
+  if (!res.ok) return []
+  const list = ((await res.json().catch(() => null)) as { tools?: unknown } | null)?.tools
+  return Array.isArray(list)
+    ? list.filter((t): t is ChatTool => typeof t?.name === 'string' && typeof t?.description === 'string' && typeof t?.input_schema === 'object')
+    : []
+}
+
+/** B28.349 — runs one tool call through the BFF. Every failure is a result the model is told, never a throw. */
+export async function callChatTool(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
+  let args: unknown
+  try {
+    args = call.args.trim() === '' ? {} : JSON.parse(call.args)
+  } catch {
+    return { text: 'The arguments were not valid JSON.', is_error: true }
+  }
+  try {
+    const res = await fetch('/api/chat/tools/call', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ name: call.name, arguments: args }),
+      signal,
+    })
+    const body = (await res.json().catch(() => ({}))) as { text?: unknown; is_error?: unknown; error?: unknown }
+    if (!res.ok) return { text: typeof body.error === 'string' ? body.error : `The tool could not be run (${res.status}).`, is_error: true }
+    return { text: typeof body.text === 'string' ? body.text : '', is_error: body.is_error === true }
+  } catch {
+    return { text: 'The tool could not be reached.', is_error: true }
+  }
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null
+}
+
+/**
+ * B28.349 — the statement lines in what wallet_agents_spend answered, as Lens writes it:
+ * {"agents": [{"agent_id", "name", "spent_ulxc", "lines": [{"entry_id", "kind", "amount_ulxc", "at"}]}]}.
+ * A line without an entry cannot be linked to, so it is left out; text that is not that shape names none.
+ */
+export function spendLines(text: string): SpendLine[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return []
+  }
+  const agents = isObject(parsed) ? parsed.agents : undefined
+  if (!Array.isArray(agents)) return []
+  const out: SpendLine[] = []
+  for (const a of agents) {
+    if (!isObject(a) || typeof a.agent_id !== 'string' || !Array.isArray(a.lines)) continue
+    const agent = typeof a.name === 'string' && a.name !== '' ? a.name : a.agent_id
+    for (const l of a.lines) {
+      if (!isObject(l) || typeof l.entry_id !== 'string' || l.entry_id === '' || typeof l.amount_ulxc !== 'number') continue
+      out.push({ agent_id: a.agent_id, agent, entry_id: l.entry_id, amount_ulxc: l.amount_ulxc, ...(typeof l.at === 'string' ? { at: l.at } : {}) })
+    }
+  }
+  return out
+}
+
+/** B28.349 — where a statement line is: Agent Wallets with its agent open and its row marked. */
+export function statementLineHref(l: Pick<SpendLine, 'agent_id' | 'entry_id'>): string {
+  return `/agents?${new URLSearchParams({ agent: l.agent_id, entry: l.entry_id }).toString()}`
 }
 
 /** An upload Lens refused or could not take, with the sentence to show. */
@@ -250,7 +363,7 @@ export function pickerCatalog(all: ChatModel[], unconfiguredProviders: readonly 
  * Bedrock serves Anthropic's models and Lens fills in 1024 when it is absent, which cuts long
  * answers short, so it is sent there too.
  */
-function requestBody(provider: string, model: string, turns: ChatMessage[]): unknown {
+function requestBody(provider: string, model: string, turns: ChatMessage[], tools: ChatTool[] = [], exchange: unknown[] = []): unknown {
   // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
   // refuses a message with a field it does not know.
   // B28.78 — and never an answer that said nothing. A stopped, failed or blank answer stays in the
@@ -279,10 +392,55 @@ function requestBody(provider: string, model: string, turns: ChatMessage[]): unk
       content: [{ type: 'text', text: content }, ...docs.map((d) => ({ type: 'file', file: { file_id: d.file_id } }))],
     }
   })
+  // B28.349 — the tool calls this question has made so far and what they answered, in the provider's shape.
+  messages.push(...(exchange as typeof messages))
+  const offered =
+    tools.length === 0
+      ? {}
+      : provider === 'anthropic'
+        ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })) }
+        : { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })) }
   if (provider === 'anthropic' || provider === 'bedrock') {
-    return { model, max_tokens: 4096, stream: true, messages }
+    return { model, max_tokens: 4096, stream: true, messages, ...offered }
   }
-  return { model, stream: true, messages }
+  return { model, stream: true, messages, ...offered }
+}
+
+/** B28.349 — a tool call's arguments as the object Anthropic's tool_use block carries. */
+function inputOf(c: ToolCall): unknown {
+  try {
+    const v: unknown = JSON.parse(c.args)
+    return isObject(v) ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+/** B28.349 — the model's tool calls and what they answered, as the next request carries them. */
+function toolTurns(provider: string, said: string, calls: ToolCall[], results: ToolResult[]): unknown[] {
+  if (provider === 'anthropic') {
+    return [
+      {
+        role: 'assistant',
+        content: [
+          ...(said.trim() !== '' ? [{ type: 'text', text: said }] : []),
+          ...calls.map((c) => ({ type: 'tool_use', id: c.id, name: c.name, input: inputOf(c) })),
+        ],
+      },
+      {
+        role: 'user',
+        content: calls.map((c, i) => ({ type: 'tool_result', tool_use_id: c.id, content: results[i].text, ...(results[i].is_error ? { is_error: true } : {}) })),
+      },
+    ]
+  }
+  return [
+    {
+      role: 'assistant',
+      content: said.trim() !== '' ? said : null,
+      tool_calls: calls.map((c) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.args.trim() === '' ? '{}' : c.args } })),
+    },
+    ...calls.map((c, i) => ({ role: 'tool', tool_call_id: c.id, content: results[i].text })),
+  ]
 }
 
 export interface StreamHandlers {
@@ -303,6 +461,12 @@ export interface StreamHandlers {
     requestId?: string
     /** B28.81 — why the model stopped, as the provider named it (chatStream.ts), when it said. */
     finish?: string
+    /** B28.349 — the tools the model called in this answer, whole, in the order it made them. */
+    toolCalls?: ToolCall[]
+    /** B28.349 — askChat: the statement lines Lens's wallet tool read the answer from. */
+    spend?: SpendLine[]
+    /** B28.349 — askChat: how many requests to the model the answer took, when more than one. */
+    requests?: number
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
@@ -328,6 +492,9 @@ export async function streamChat(
   signal?: AbortSignal,
   /** B15.6 — ask the model afresh rather than be served a cached answer (Regenerate). */
   fresh = false,
+  /** B28.349 — the tools the model may call, and the calls made so far and their answers. */
+  tools: ChatTool[] = [],
+  exchange: unknown[] = [],
 ): Promise<void> {
   const path = chatPath(provider)
   if (path === undefined) {
@@ -346,7 +513,7 @@ export async function streamChat(
       ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
       ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
     },
-    body: JSON.stringify(requestBody(provider, model, messages)),
+    body: JSON.stringify(requestBody(provider, model, messages, tools, exchange)),
     signal,
   }
 
@@ -391,6 +558,16 @@ export async function streamChat(
   let usage: Usage | undefined
   let served: string | undefined
   let finish: string | undefined
+  // B28.349 — the tool calls arriving in pieces, by their index in the answer.
+  const pieces = new Map<number, ToolCall>()
+  const gather = (p: ToolCallPiece) => {
+    const c = pieces.get(p.index) ?? { id: '', name: '', args: '' }
+    pieces.set(p.index, { id: p.id || c.id, name: p.name || c.name, args: c.args + p.args })
+  }
+  const toolCalls = () => {
+    const calls = [...pieces.entries()].sort(([a], [b]) => a - b).map(([, c]) => c).filter((c) => c.name !== '')
+    return calls.length > 0 ? calls : undefined
+  }
 
   try {
     for (;;) {
@@ -410,8 +587,9 @@ export async function streamChat(
           return
         }
         for (const d of got.deltas) handlers.onDelta(d.text)
+        for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls() })
           return
         }
       }
@@ -426,7 +604,86 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls() })
+}
+
+/** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */
+const MAX_TOOL_ROUNDS = 3
+
+/** Token counts of two requests that answered one question, added. */
+function addUsage(a: Usage | undefined, b: Usage | undefined): Usage | undefined {
+  if (a === undefined || b === undefined) return a ?? b
+  return { input_tokens: (a.input_tokens ?? 0) + (b.input_tokens ?? 0), output_tokens: (a.output_tokens ?? 0) + (b.output_tokens ?? 0) }
+}
+
+/**
+ * B28.349 — asks one question with Lens's wallet tools on offer: "what did my agents spend?" is answered
+ * from the agents' own statements. When the model calls a tool, the call runs through the BFF (only
+ * read-only tools — apps/bff/chat_tools.go), its answer goes back to the model, and the model answers
+ * from it. The text of every round streams into the one answer, its tokens are priced together, and the
+ * statement lines the wallet tool read are handed to the screen to link. With no tools, or a provider
+ * that takes none (TOOL_PROVIDERS), it is streamChat.
+ */
+export async function askChat(
+  provider: string,
+  model: string,
+  messages: ChatMessage[],
+  handlers: StreamHandlers,
+  signal?: AbortSignal,
+  fresh = false,
+  tools: ChatTool[] = [],
+): Promise<void> {
+  const offered = TOOL_PROVIDERS.includes(provider) ? tools : []
+  let exchange: unknown[] = []
+  let usage: Usage | undefined
+  let unrecognised = 0
+  let written = false
+  const spend: SpendLine[] = []
+  for (let round = 1; ; round++) {
+    let said = ''
+    let ended: Parameters<StreamHandlers['onDone']>[0] | undefined
+    await streamChat(
+      provider,
+      model,
+      messages,
+      {
+        onDelta: (text) => {
+          // A round's text starts a paragraph of its own after what an earlier round said.
+          if (said === '' && written) handlers.onDelta('\n\n')
+          said += text
+          handlers.onDelta(text)
+        },
+        onDone: (info) => {
+          ended = info
+        },
+        onError: handlers.onError,
+      },
+      signal,
+      fresh,
+      offered,
+      exchange,
+    )
+    // Failed (already said) or stopped.
+    if (ended === undefined) return
+    const done: Parameters<StreamHandlers['onDone']>[0] = ended
+    written ||= said !== ''
+    usage = addUsage(usage, done.usage)
+    unrecognised += done.unrecognised
+    const calls = done.toolCalls ?? []
+    if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
+      handlers.onDone({ ...done, usage, unrecognised, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
+      return
+    }
+    const results = await Promise.all(calls.map((c) => callChatTool(c, signal)))
+    if (signal?.aborted) return
+    calls.forEach((c, i) => {
+      if (c.name !== SPEND_TOOL || results[i].is_error) return
+      for (const l of spendLines(results[i].text)) {
+        if (!spend.some((s) => s.agent_id === l.agent_id && s.entry_id === l.entry_id)) spend.push(l)
+      }
+    })
+    exchange = [...exchange, ...toolTurns(provider, said, calls, results)]
+  }
 }
 
 /**

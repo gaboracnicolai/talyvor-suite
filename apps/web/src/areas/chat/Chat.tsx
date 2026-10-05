@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -13,11 +13,14 @@ import {
   type DistillSaved,
   type PickerCatalog,
   type Refusal,
+  type SpendLine,
+  askChat,
+  fetchChatTools,
   fetchModels,
   fetchUnconfiguredProviders,
   markAnswerWrong,
   pickerCatalog,
-  streamChat,
+  statementLineHref,
   uploadDocument,
 } from './chatApi'
 import {
@@ -36,6 +39,8 @@ import { useRevealedText } from './reveal'
 import { cutOff } from './chatStream'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
 import { topupApi } from '../lens/topupApi'
+import { formatWhen } from '../lens/format'
+import { Lxc } from '../lens/money'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
 //
@@ -144,6 +149,7 @@ export function Chat() {
   // The credit peg, from the deployment. Absent ⇒ answers are priced in dollars, never at a guess.
   const peg = useQuery({ queryKey: ['topup-options'], queryFn: topupApi.options, retry: false })
   const usdPerLXC = peg.data?.usd_per_lxc
+  const qc = useQueryClient()
 
   const [modelId, setModelId] = useState<string>('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -255,12 +261,16 @@ export function Chat() {
       let saved: DistillSaved | undefined
       let requestId: string | undefined
       let incomplete: ChatMessage['incomplete']
+      let spend: SpendLine[] | undefined
+      let requests: number | undefined
+      // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
+      const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
       const asked = turn.length - 1
       const carriedDocs = turn[asked]?.attachments?.some((a) => a.file_id !== undefined) === true
       let sentTurn = turn
 
-      await streamChat(
+      await askChat(
         selected.provider,
         selected.id,
         turn,
@@ -280,7 +290,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid, finish }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid, finish, spend: lines, requests: took }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -302,10 +312,12 @@ export function Chat() {
             if (priced !== undefined || from !== undefined) {
               cost = priced
               source = from
+              // B28.349 — an answer that called a tool first took more than one request, and each was charged.
+              requests = took
               setMessages((prev) => {
                 const next = [...prev]
                 const last = next[next.length - 1]
-                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved }
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved, requests: took }
                 return next
               })
             }
@@ -316,6 +328,16 @@ export function Chat() {
                 const next = [...prev]
                 const last = next[next.length - 1]
                 if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, request_id: rid }
+                return next
+              })
+            }
+            // B28.349 — the statement lines a spend answer was read from, linked under it.
+            if (lines !== undefined) {
+              spend = lines
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, spend: lines }
                 return next
               })
             }
@@ -340,12 +362,13 @@ export function Chat() {
         },
         controller.signal,
         fresh,
+        tools,
       )
       store((list) =>
-        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId, incomplete }], Date.now()),
+        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId, incomplete, spend, requests }], Date.now()),
       )
     },
-    [activeId, catalog.data, pending, selected, store],
+    [activeId, catalog.data, pending, qc, selected, store],
   )
 
   const send = useCallback(
@@ -943,6 +966,7 @@ function Reply({
       ) : (
         <Markdown source={shown.text} />
       )}
+      {message.spend !== undefined && message.spend.length > 0 && !answering && !shown.revealing ? <StatementLines lines={message.spend} /> : null}
       {message.content !== '' && message.incomplete !== 'blank' && !answering && !shown.revealing ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {message.incomplete === 'cut_off' ? (
@@ -986,7 +1010,8 @@ function Reply({
               : message.cost !== undefined
                 ? `${formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model} · ` +
                   `${message.cost.input_tokens.toLocaleString('en-US')} in / ` +
-                  `${message.cost.output_tokens.toLocaleString('en-US')} out tokens`
+                  `${message.cost.output_tokens.toLocaleString('en-US')} out tokens` +
+                  (message.requests !== undefined && message.requests > 1 ? ` · ${message.requests} requests` : '')
                 : 'Price not known — the provider reported no token counts for this answer'}
           </p>
           {message.marked_wrong ? (
@@ -1006,6 +1031,29 @@ function Reply({
         </div>
       ) : null}
     </div>
+  )
+}
+
+/** B28.349 — the statement lines a spend answer was read from, each a link to its row on Agent Wallets. */
+function StatementLines({ lines }: { lines: SpendLine[] }) {
+  const shown = lines.slice(0, 8)
+  return (
+    <nav aria-label="Statement lines this answer read" className="mt-2" data-testid="turn-statement-lines">
+      <p className="text-caption text-muted">From your agents’ statements</p>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {shown.map((l) => (
+          <li key={`${l.agent_id}-${l.entry_id}`} className="text-caption text-muted">
+            <Link className={inlineLink} to={statementLineHref(l)}>
+              {l.agent}: <Lxc ulxc={Math.abs(l.amount_ulxc)} sign={l.amount_ulxc < 0 ? '−' : '+'} />
+              {l.at !== undefined ? <> · <span className="font-figure">{formatWhen(l.at)}</span></> : null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {lines.length > shown.length ? (
+        <p className="text-caption text-muted">and {lines.length - shown.length} more on the agents’ statements</p>
+      ) : null}
+    </nav>
   )
 }
 

@@ -582,6 +582,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'type SimulatedRequest struct {',
     subject: 'lensAgentRulesSimulateBody',
   },
+  // B28.349 — Chat lists and calls Lens's read-only wallet MCP tools (tools/list, tools/call) on its JSON-RPC route.
+  {
+    route: 'POST /mcp',
+    file: 'apps/bff/chat_tools.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})',
+    upstreamFile: 'internal/mcp/server.go',
+    upstreamAnchor: 'type rpcRequest struct {',
+    subject: 'lensMCPBody',
+  },
   // B23.12 — the chat's thumbs-down: Lens removes the stored answer the request was served.
   {
     route: 'POST /v1/feedback',

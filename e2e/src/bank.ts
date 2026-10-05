@@ -1030,6 +1030,69 @@ export function agentRuleSimulator(seed: number): Scenario {
 }
 
 /**
+ * B28.349 — B28.83's DONE line: with 1.23 LXC of seeded agent spend, the answer says 1.23 and links the statement row.
+ * An agent funded 2 LXC pays another of the workspace's agents 1.23 LXC on Agent Wallets — the pay line Lens posts is
+ * the seeded spend. Asked in Chat what that agent spent today, the model answers through Lens's wallet tool: its own
+ * words say 1.23, and under them is a link to exactly that pay line on the agent's statement, which opens Agent Wallets
+ * with the row marked. Asking moves nothing: the agent's account has the same lines after. Until Lens offers Chat
+ * wallet_agents_spend (talyvor-lens B28.83) there is no tool to answer with, and this is a SKIP.
+ */
+export function agentSpendQuestion(seed: number): Scenario {
+  return {
+    id: 'agent-spend-question',
+    title: 'Asked what an agent spent, Chat answers 1.23 LXC through Lens’s wallet tool and links the statement line',
+    run: async (ctx) => {
+      const page = ctx.app.page
+      const offered = await page.evaluate(async () => {
+        const r = await fetch('/api/chat/tools', { credentials: 'same-origin' })
+        return r.ok ? ((await r.json()) as { tools?: { name: string }[] }).tools?.map((t) => t.name) ?? [] : []
+      })
+      if (!offered.includes('wallet_agents_spend')) throw new CannotTest('Lens offers Chat no wallet_agents_spend tool yet (talyvor-lens B28.83)')
+      return withBank(ctx, async (bank) => {
+        const opened: Agent[] = []
+        for (const name of [`Spending payer ${seed}`, `Spending payee ${seed}`]) {
+          const a = await openAgent(ctx, bank, name)
+          if (typeof a === 'string') return fail(a)
+          opened.push(a)
+        }
+        const [payer, payee] = opened
+        const err = await bank.move(payer, 2e6, 'Fund')
+        if (err !== undefined) return fail(`funding was refused: ${err}`)
+        ctx.evidence.push({ note: `paid: ${await bank.pay(payer, payee, 1_230_000, 'research')}` })
+        const before = await ctx.env.lens.agentLines(ctx.app.user, payer.id)
+        const seeded = before.find((l) => l.kind === 'pay' && l.amount_ulxc === -1_230_000)
+        if (seeded === undefined) return fail(`${payer.name}'s account on Lens has no pay line of -1230000 µLXC: ${JSON.stringify(before)}`)
+
+        const t = await ctx.app.ask(`What did ${payer.name} spend today?`)
+        const turn = page.locator('[data-testid="turn-assistant"]').last()
+        const lines = turn.getByTestId('turn-statement-lines')
+        const listed = (await lines.count()) > 0 ? (await lines.innerText()).trim() : ''
+        const said = t.answer.replace(listed, '').trim()
+        const hrefs = (await lines.count()) > 0 ? await lines.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href') ?? '')) : []
+        ctx.evidence.push({ question: t.question, answer: said, footer: t.footerText, error: t.error, note: `statement links: ${hrefs.join(' ')}` })
+        if (t.error !== undefined) return fail(`the question was refused: ${t.error}`)
+        if (!/(^|[^\d.])1\.23(?![\d])/.test(said)) return fail(`the answer does not say 1.23: "${said}"`)
+        const want = `/agents?agent=${encodeURIComponent(payer.id)}&entry=${encodeURIComponent(seeded.entry_id)}`
+        if (!hrefs.includes(want)) return fail(`no link to the pay line ${seeded.entry_id} under the answer (want ${want}): ${JSON.stringify(hrefs)}`)
+
+        const opens = await ctx.app.tab(want)
+        try {
+          const row = opens.getByTestId('statement-line-linked')
+          await row.waitFor({ timeout: ACTION_TIMEOUT_MS })
+          const rowText = (await row.innerText()).trim()
+          if ((await row.getAttribute('aria-current')) !== 'true' || !/1\.23 LXC/.test(rowText)) return fail(`the link opened a row that is not the pay line marked: "${rowText}"`)
+        } finally {
+          await opens.close()
+        }
+        const after = await ctx.env.lens.agentLines(ctx.app.user, payer.id)
+        if (after.length !== before.length) return fail(`asking moved money: ${payer.name}'s account went from ${before.length} lines to ${after.length}`)
+        return { pass: true, detail: `"${said}" — linked to ${seeded.entry_id}, the -1230000 µLXC pay line on ${payer.name}'s account, which opened marked; the account still has ${after.length} lines` }
+      })
+    },
+  }
+}
+
+/**
  * B28.305 — the rule templates on Agent Wallets, written here from what each template sets (apps/web
  * ruleTemplates.ts), not imported, like every oracle here: every rule Lens holds, in µLXC.
  */

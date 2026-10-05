@@ -275,6 +275,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/documents", a.requireTenant(a.handleDocumentUpload))
 	// B23.12 — the chat's thumbs-down: Lens removes the answer marked wrong. See feedback.go.
 	a.mux.HandleFunc("/api/ai/feedback", a.requireTenant(a.handleAIFeedback))
+	// B28.349 — Chat asks what the agents spent through Lens's wallet MCP tools, read-only ones only. See chat_tools.go.
+	a.mux.HandleFunc("/api/chat/tools", a.requireTenant(a.handleChatTools))
+	a.mux.HandleFunc("/api/chat/tools/call", a.requireTenant(a.handleChatToolCall))
 
 	// W4.6.1 step 6 — THE MODEL CATALOG, so the chat screen can offer what this DEPLOYMENT serves
 	// rather than a list someone typed into the front end.

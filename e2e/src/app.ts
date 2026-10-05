@@ -105,9 +105,10 @@ export function chargeULXC(usd: number, usdPerLXC: number): number {
 export class ChargeBook {
   private readonly charged = new Map<string, Charged>()
 
-  add(workspaceID: string, ulxc: number, slack = 0): void {
+  /** `requests`: B28.349 — an answer that called a tool first is that many requests, each its own spend row. */
+  add(workspaceID: string, ulxc: number, slack = 0, requests = 1): void {
     const c = this.of(workspaceID)
-    this.charged.set(workspaceID, { count: c.count + 1, ulxc: c.ulxc + ulxc, slack: c.slack + slack })
+    this.charged.set(workspaceID, { count: c.count + requests, ulxc: c.ulxc + ulxc, slack: c.slack + slack })
   }
 
   of(workspaceID: string): Charged {
@@ -421,7 +422,7 @@ export class AppUser {
       costUSD = m === undefined ? undefined : listPriceUSD(m, parsed.inputTokens, parsed.outputTokens)
       // A model the catalog does not name cannot be priced: its charge is anyone's guess.
       this.book.add(this.user.workspaceID, costUSD === undefined ? 0 : chargeULXC(costUSD, this.usdPerLXC),
-        costUSD === undefined ? Number.POSITIVE_INFINITY : 0)
+        costUSD === undefined ? Number.POSITIVE_INFINITY : 0, parsed.requests)
     } else if (parsed.kind === 'cache') {
       costUSD = 0
     } else if (parsed.kind === 'pool') {

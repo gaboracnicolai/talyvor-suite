@@ -14,6 +14,19 @@ export interface Delta {
   text: string
 }
 
+/**
+ * B28.349 — a piece of a tool call the model is making, by its index in the answer. OpenAI streams
+ * `delta.tool_calls[]` — the id and name first, then the arguments a few characters at a time; Anthropic
+ * opens a `tool_use` content block with the id and name, then sends its input as `input_json_delta`
+ * pieces. Pieces with the same index are one call, `args` concatenated in order.
+ */
+export interface ToolCallPiece {
+  index: number
+  id?: string
+  name?: string
+  args: string
+}
+
 export interface Extraction {
   deltas: Delta[]
   done: boolean
@@ -28,6 +41,8 @@ export interface Extraction {
   /** B28.81 — why the model stopped, as the provider names it: OpenAI's finish_reason (every provider
    *  Lens translates sends that shape) or Anthropic's stop_reason. */
   finish?: string
+  /** B28.349 — pieces of the tool calls the model is making in this frame. */
+  toolCalls?: ToolCallPiece[]
 }
 
 /** B28.81 — the stop reasons that mean the model ran out of room, not out of answer. */
@@ -137,6 +152,7 @@ export function extractDeltas(frame: string): Extraction {
   let usage: Usage | undefined
   let model: string | undefined
   let finish: string | undefined
+  const toolCalls: ToolCallPiece[] = []
 
   for (const payload of dataLines(frame)) {
     if (payload === '') continue
@@ -177,7 +193,17 @@ export function extractDeltas(frame: string): Extraction {
         if (isRecord(d) && d.type === 'text_delta' && typeof d.text === 'string') {
           if (d.text !== '') deltas.push({ text: d.text })
         }
-        // A non-text delta (thinking, input_json) is a known shape carrying no answer text.
+        // B28.349 — a tool call's input, a piece at a time.
+        if (isRecord(d) && d.type === 'input_json_delta' && typeof d.partial_json === 'string' && typeof obj.index === 'number') {
+          toolCalls.push({ index: obj.index, args: d.partial_json })
+        }
+        // A non-text delta (thinking) is a known shape carrying no answer text.
+        continue
+      }
+      // B28.349 — a tool call opens as its own content block, naming the tool.
+      const block = obj.content_block
+      if (type === 'content_block_start' && isRecord(block) && block.type === 'tool_use' && typeof obj.index === 'number') {
+        toolCalls.push({ index: obj.index, id: String(block.id ?? ''), name: String(block.name ?? ''), args: '' })
         continue
       }
       if (ANTHROPIC_CONTROL.has(type)) {
@@ -226,6 +252,19 @@ export function extractDeltas(frame: string): Extraction {
         if (isRecord(d) && typeof d.content === 'string' && d.content !== '') {
           deltas.push({ text: d.content })
         }
+        // B28.349 — the tool calls the model is making, a piece at a time.
+        if (isRecord(d) && Array.isArray(d.tool_calls)) {
+          for (const tc of d.tool_calls) {
+            if (!isRecord(tc) || typeof tc.index !== 'number') continue
+            const fn = isRecord(tc.function) ? tc.function : {}
+            toolCalls.push({
+              index: tc.index,
+              ...(typeof tc.id === 'string' ? { id: tc.id } : {}),
+              ...(typeof fn.name === 'string' ? { name: fn.name } : {}),
+              args: typeof fn.arguments === 'string' ? fn.arguments : '',
+            })
+          }
+        }
         if (typeof c.finish_reason === 'string') finish = c.finish_reason
       }
       // An empty choices array is Lens's usage-only final frame — a known shape, not a mystery.
@@ -240,5 +279,6 @@ export function extractDeltas(frame: string): Extraction {
   if (usage !== undefined) out.usage = usage
   if (model !== undefined) out.model = model
   if (finish !== undefined) out.finish = finish
+  if (toolCalls.length > 0) out.toolCalls = toolCalls
   return out
 }

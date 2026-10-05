@@ -13,13 +13,13 @@ export interface CatalogModel {
 
 /** What the line under an answer says (apps/web/src/areas/chat/Chat.tsx, data-testid="turn-cost"). */
 export type Footer =
-  | { kind: 'priced'; figure: number; unit: 'USD' | 'LXC'; model: string; inputTokens: number; outputTokens: number }
+  | { kind: 'priced'; figure: number; unit: 'USD' | 'LXC'; model: string; inputTokens: number; outputTokens: number; requests?: number }
   | { kind: 'cache' }
   | { kind: 'pool'; discountPct: number; figure: number }
   | { kind: 'unpriced' }
   | { kind: 'unreadable'; text: string }
 
-const PRICED = /^≈ (\$?)([\d,.]+)( LXC)? · (.+) · ([\d,]+) in \/ ([\d,]+) out tokens$/
+const PRICED = /^≈ (\$?)([\d,.]+)( LXC)? · (.+) · ([\d,]+) in \/ ([\d,]+) out tokens(?: · (\d+) requests)?$/
 const POOL = /^shared answer · (\d+)% off · ≈ ([\d,.]+) LXC$/
 
 export function parseFooter(raw: string): Footer {
@@ -37,6 +37,8 @@ export function parseFooter(raw: string): Footer {
       model: p[4],
       inputTokens: num(p[5]),
       outputTokens: num(p[6]),
+      // B28.349 — an answer that called a tool first was more than one request, each charged.
+      ...(p[7] !== undefined ? { requests: Number(p[7]) } : {}),
     }
   }
   return { kind: 'unreadable', text }
