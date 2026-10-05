@@ -108,6 +108,17 @@ export class AgentBankScreen {
     return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
   }
 
+  /** B28.26 — sets how many requests a minute the agent may make on the Rules card, and saves its rules. */
+  async setRate(agent: Agent, perMinute: number): Promise<string | undefined> {
+    await this.fresh(agent)
+    const box = this.page.getByLabel(`Requests per minute for ${agent.name}`)
+    await box.waitFor()
+    await box.fill(String(perMinute))
+    const form = this.page.locator('form').filter({ has: box })
+    await form.getByRole('button', { name: 'Save rules' }).click()
+    return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
+  }
+
   /** Issues the agent a key and reads it off the card that shows it once. */
   async issueKey(agent: Agent): Promise<string> {
     await this.fresh(agent)
@@ -774,12 +785,76 @@ export function agentModelLimit(seed: number): Scenario {
   }
 }
 
+/** B28.26 — the cap the DONE line names, and how many of its requests are in flight at once. */
+const PER_MINUTE = 60
+const RATE_CONCURRENCY = 10
+
+/**
+ * B28.26 — the DONE line: the 61st request in a minute under a 60/min rule writes no hold. The rule is set
+ * on Agent Wallets' Rules card; the first 60 requests, each a different sum, are sent ten at a time so they
+ * all land well inside one minute, and each writes one posting. The 61st is refused by the rule (429, not
+ * 403: it would go through once the minute has room) before the provider, with no posting and no charge.
+ */
+export function agentRequestRate(seed: number): Scenario {
+  const r = seeded(seed * 43 + 17)
+  return {
+    id: 'agent-request-rate',
+    title: `the ${PER_MINUTE + 1}st request in a minute under a ${PER_MINUTE}-a-minute rule set on Agent Wallets is refused with no hold; the ${PER_MINUTE} before it each write one`,
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const { env } = ctx
+      const a = await openAgent(ctx, bank, `Rate ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      let err = await bank.move(a, 1e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setRate(a, PER_MINUTE)
+      if (err !== undefined) return fail(`the requests-per-minute rule was not saved: ${err}`)
+      const stored = (await env.lens.agentRules(ctx.app.user, a.id)).requests_per_minute
+      if (stored !== PER_MINUTE) return fail(`saved ${PER_MINUTE} requests a minute on the screen; Lens holds ${stored}`)
+      const key = await bank.issueKey(a)
+      // A different sum each: the same question twice could be answered from a cache rather than asked.
+      const asks = Array.from({ length: PER_MINUTE + 1 }, (_, k) => {
+        const x = 1000 + Math.floor(r() * 9000)
+        return { q: `What is ${x} + ${100 + k}? ${NUMBER_ONLY}`, want: x + 100 + k }
+      })
+      const lines0 = await env.lens.agentLines(ctx.app.user, a.id)
+      const started = Date.now()
+      const refusedEarly: string[] = []
+      let next = 0
+      await Promise.all(Array.from({ length: RATE_CONCURRENCY }, async () => {
+        while (next < PER_MINUTE) {
+          const k = next++
+          const got = await agentAsks(ctx, key, asks[k].q, `request ${k + 1} of ${PER_MINUTE}, under ${PER_MINUTE} a minute`)
+          if (!got.ok) refusedEarly.push(`request ${k + 1}: ${got.status} ${got.error}`)
+        }
+      }))
+      const took = Date.now() - started
+      if (refusedEarly.length > 0) return fail(`under a rule of ${PER_MINUTE} a minute, ${refusedEarly.length} of the first ${PER_MINUTE} were refused: ${refusedEarly.slice(0, 3).join('; ')}`)
+      const lines1 = await env.lens.agentLines(ctx.app.user, a.id)
+      const served = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id)).filter(requestLine)
+      if (served.length !== PER_MINUTE) return fail(`${PER_MINUTE} requests were served and ${a.name}'s account has ${served.length} new request posting(s); want one each`)
+      const spends1 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const last = await agentAsks(ctx, key, asks[PER_MINUTE].q, `request ${PER_MINUTE + 1}, past ${PER_MINUTE} a minute`)
+      const at = Date.now() - started
+      if (last.ok) return fail(`the ${PER_MINUTE + 1}st request, ${at} ms after the first, was served under a rule of ${PER_MINUTE} a minute: "${last.value.text}"`)
+      if (last.status !== 429 || !/requests a minute/.test(last.error)) {
+        return fail(`the ${PER_MINUTE + 1}st request was refused, but not by the requests-per-minute rule: ${last.status} ${last.error}`)
+      }
+      const wrote = (await env.lens.agentLines(ctx.app.user, a.id)).filter((l) => !lines1.some((o) => o.entry_id === l.entry_id))
+      const charged = (await spendRows(ctx)).filter((x) => !spends1.has(x.id))
+      if (wrote.length > 0 || charged.length > 0) {
+        return fail(`the ${PER_MINUTE + 1}st request was refused (429), yet it wrote ${wrote.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} on ${a.name}'s account and ${charged.length} spend row(s) on the ledger`)
+      }
+      return { pass: true, detail: `${PER_MINUTE} requests in ${took} ms: one ${served[0].kind} posting each; the ${PER_MINUTE + 1}st, at ${at} ms, refused (429) with no posting and no charge` }
+    }),
+  }
+}
+
 /**
  * B28.305 — the rule templates on Agent Wallets, written here from what each template sets (apps/web
  * ruleTemplates.ts), not imported, like every oracle here: every rule Lens holds, in µLXC.
  */
 const TEMPLATE_RULES: Record<'Support bot' | 'Researcher', AgentRulesRead> = (() => {
-  const open = { hourly_limit_ulxc: 0, weekly_limit_ulxc: 0, model_daily_limits_ulxc: {}, allowed_models: [], allowed_providers: [],
+  const open = { hourly_limit_ulxc: 0, weekly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, allowed_models: [], allowed_providers: [],
     allowed_listings: [], active_from: '', active_until: '', timezone: 'UTC', pause_on_unusual_spend: false }
   return {
     'Support bot': { ...open, max_per_request_ulxc: 500_000, hourly_limit_ulxc: 20e6, daily_limit_ulxc: 200e6, monthly_limit_ulxc: 4000e6,
@@ -792,7 +867,7 @@ const TEMPLATE_RULES: Record<'Support bot' | 'Researcher', AgentRulesRead> = (()
 /** Each rule where Lens's read-back differs from the template, as "rule: Lens has x, the template y". */
 function rulesDiffer(got: AgentRulesRead, want: AgentRulesRead): string[] {
   const norm = (r: AgentRulesRead) => ({ ...r, hourly_limit_ulxc: r.hourly_limit_ulxc ?? 0, weekly_limit_ulxc: r.weekly_limit_ulxc ?? 0,
-    model_daily_limits_ulxc: r.model_daily_limits_ulxc ?? {}, allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [],
+    model_daily_limits_ulxc: r.model_daily_limits_ulxc ?? {}, requests_per_minute: r.requests_per_minute ?? 0, allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [],
     allowed_listings: r.allowed_listings ?? [], pause_on_unusual_spend: r.pause_on_unusual_spend ?? false })
   const g = norm(got) as Record<string, unknown>
   const w = norm(want) as Record<string, unknown>

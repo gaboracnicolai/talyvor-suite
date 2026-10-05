@@ -19,6 +19,7 @@ const OPEN: Omit<AgentRules, 'max_per_request_ulxc' | 'daily_limit_ulxc' | 'mont
   hourly_limit_ulxc: 0,
   weekly_limit_ulxc: 0,
   model_daily_limits_ulxc: {},
+  requests_per_minute: 0,
   allowed_models: [],
   allowed_providers: [],
   allowed_listings: [],

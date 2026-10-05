@@ -122,6 +122,11 @@ export interface AgentRules {
    * lower-cased and without a dated suffix. Saved, it replaces the caps whole; a save without it keeps them.
    */
   model_daily_limits_ulxc?: Record<string, number>
+  /**
+   * B28.26 — the requests the agent may make in any sixty seconds; the one past it is refused 429 and holds
+   * nothing. Lens always reads it, zero is no cap, and a save without it keeps the cap.
+   */
+  requests_per_minute?: number
   approval_above_ulxc: number
   allowed_models: string[] | null
   allowed_providers: string[] | null

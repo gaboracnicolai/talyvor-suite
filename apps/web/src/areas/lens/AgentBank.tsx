@@ -794,6 +794,17 @@ const LIMITS = [
 
 type LimitField = (typeof LIMITS)[number][0]
 
+/** B28.26 — a cap on requests a minute as typed: a whole number Lens can hold, or empty for none; null when neither. */
+function parseRate(text: string): number | null {
+  const t = text.trim()
+  if (t === '') return 0
+  if (!/^\d+$/.test(t)) return null
+  const n = Number(t)
+  return n <= 2_147_483_647 ? n : null
+}
+
+const rateText = (n: number) => (n > 0 ? String(n) : '')
+
 function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
   const qc = useQueryClient()
   const [limits, setLimits] = useState<Record<LimitField, string>>(() => ({
@@ -804,6 +815,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
     monthly_limit_ulxc: limitText(rules.monthly_limit_ulxc),
     approval_above_ulxc: limitText(rules.approval_above_ulxc),
   }))
+  const [rate, setRate] = useState(() => rateText(rules.requests_per_minute ?? 0))
   const [models, setModels] = useState<string[]>(rules.allowed_models ?? [])
   // B28.25 — each capped model with its amount as typed; saved, they replace Lens's caps whole.
   const [modelLimits, setModelLimits] = useState<[string, string][]>(() =>
@@ -828,6 +840,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
       monthly_limit_ulxc: limitText(r.monthly_limit_ulxc),
       approval_above_ulxc: limitText(r.approval_above_ulxc),
     })
+    setRate(rateText(r.requests_per_minute ?? 0))
     setModels(r.allowed_models ?? [])
     setModelLimits(Object.entries(r.model_daily_limits_ulxc ?? {}).map(([m, v]) => [m, limitText(v)]))
     setProviders(r.allowed_providers ?? [])
@@ -838,7 +851,9 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
     setTimezone(r.timezone)
     setFilled(t)
   }
-  const bad = [...LIMITS.map(([f]) => limits[f]), ...modelLimits.map(([, t]) => t)].some((t) => t.trim() !== '' && parseLXC(t) === null)
+  const badAmount = [...LIMITS.map(([f]) => limits[f]), ...modelLimits.map(([, t]) => t)].some((t) => t.trim() !== '' && parseLXC(t) === null)
+  const badRate = parseRate(rate) === null
+  const bad = badAmount || badRate
   const save = useMutation({
     mutationFn: () =>
       agentBankApi.setRules(agent.id, {
@@ -848,6 +863,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         weekly_limit_ulxc: parseLXC(limits.weekly_limit_ulxc) ?? 0,
         monthly_limit_ulxc: parseLXC(limits.monthly_limit_ulxc) ?? 0,
         approval_above_ulxc: parseLXC(limits.approval_above_ulxc) ?? 0,
+        requests_per_minute: parseRate(rate) ?? 0,
         model_daily_limits_ulxc: Object.fromEntries(
           modelLimits.map(([m, t]) => [m, parseLXC(t) ?? 0] as const).filter(([, v]) => v > 0),
         ),
@@ -892,6 +908,16 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
           />
         </Row>
       ))}
+      <Row label="Requests per minute" hint="Past it a request is refused until the minute has room; empty for no limit">
+        <Input
+          aria-label={`Requests per minute for ${agent.name}`}
+          inputMode="numeric"
+          placeholder="No limit"
+          className="w-28 font-figure"
+          value={rate}
+          onChange={(e) => setRate(e.target.value)}
+        />
+      </Row>
       <ChoicePicker
         label="Allowed models"
         agentName={agent.name}
@@ -931,7 +957,8 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
             {save.isPending ? 'Saving…' : 'Save rules'}
           </Button>
         </div>
-        {bad ? <Note ok={false}>A limit is an amount of LXC with at most six decimals, or empty.</Note> : null}
+        {badAmount ? <Note ok={false}>A limit is an amount of LXC with at most six decimals, or empty.</Note> : null}
+        {badRate ? <Note ok={false}>Requests per minute is a whole number, or empty.</Note> : null}
         {save.isSuccess ? <Note ok>Saved. Lens applies these rules to the next request or payment.</Note> : null}
         {save.isError ? <Note ok={false}>{refusalText(save.error)}</Note> : null}
       </div>

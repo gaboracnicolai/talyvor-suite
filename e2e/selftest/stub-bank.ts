@@ -70,6 +70,8 @@ interface Rules {
   monthly_limit_ulxc: number
   /** B28.25 — a day's cap per model, by modelCapKey; a save without it keeps the caps, one with it replaces them. */
   model_daily_limits_ulxc: Record<string, number>
+  /** B28.26 — the requests it may make in any sixty seconds; zero is no cap, and a save without it keeps the cap. */
+  requests_per_minute: number
   approval_above_ulxc: number
   allowed_models: string[]
   allowed_providers: string[]
@@ -141,7 +143,7 @@ const CAPABILITIES = [
   ['rules_approvals_statements_pots', 'Rules, approvals, statements and pots'], ['cash_out', 'Cash out'], ['company_credit_line', 'Company credit line'],
 ].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
 
-const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, approval_above_ulxc: 0,
+const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, approval_above_ulxc: 0,
   allowed_models: [], allowed_providers: [], allowed_listings: [], active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
 
 const lxc = (ulxc: number): string => String(ulxc / 1e6)
@@ -164,6 +166,8 @@ export class Bank {
   private readonly postings: Posting[] = []
   private readonly approvals: Approval[] = []
   private readonly allPaused = new Map<string, { at: string; reason: string }>()
+  /** B28.26 — when each agent's admitted requests were held, as Lens counts its holds for the per-minute rule. */
+  private readonly asked = new Map<string, number[]>()
   private readonly listings = new Map<string, Listing>()
   private readonly uses: Use[] = []
   private nextPosting = 1
@@ -223,7 +227,8 @@ export class Bank {
 
   /**
    * Lens's agent rules (economy/agent_rules.go), in its order: the pauses, the models, the limit per
-   * request, the hour's, day's, week's and month's limits, the model's day, then the approval amount. A refusal is 403 naming the rule;
+   * request, the hour's, day's, week's and month's limits, the model's day, then the approval amount. A refusal is 403 naming the rule
+   * (429 for the requests-a-minute rule, checked after the models, B28.26);
    * a request above the approval amount files an approval, and an approved one goes through once.
    */
   judge(agent: Agent, amount: number, req: { model?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }): { status: number; error: string } | undefined {
@@ -234,6 +239,13 @@ export class Bank {
     const r = agent.rules
     const what = req.payment ? 'payment' : 'request'
     if (r.allowed_models.length > 0 && !req.payment && !r.allowed_models.includes(req.model ?? '')) return rule(`the agent may not use the model "${req.model}"`)
+    if (r.requests_per_minute > 0 && !req.payment) {
+      const since = Date.now() - 60_000
+      const asked = (this.asked.get(agent.id) ?? []).filter((t) => t > since).length
+      if (asked >= r.requests_per_minute) {
+        return { status: 429, error: `the agent's spending rules refuse this request: the agent may make ${r.requests_per_minute} requests a minute and has made ${asked} in the last minute; try again shortly` }
+      }
+    }
     if (r.max_per_request_ulxc > 0 && amount > r.max_per_request_ulxc && this.d.brk !== 'agent-limit') {
       return rule(`this ${what} would cost up to ${lxc(amount)} LXC; the agent's limit per request is ${lxc(r.max_per_request_ulxc)} LXC`)
     }
@@ -273,6 +285,7 @@ export class Bank {
     const refused = this.judge(agent, worst, { model, fingerprint: createHash('sha256').update(`${agent.id}\0${model}\0${prompt}`).digest('hex') })
     if (refused !== undefined) return refused
     if (worst > this.balance(`agent:${agent.id}`)) return { status: 402, error: 'agent LXC sub-budget exceeded or insufficient balance' }
+    this.asked.set(agent.id, [...(this.asked.get(agent.id) ?? []), Date.now()])
     return undefined
   }
 
@@ -904,6 +917,7 @@ export class Bank {
         a.rules = { ...noRules(), ...r, allowed_listings: r.allowed_listings ?? a.rules.allowed_listings,
           hourly_limit_ulxc: r.hourly_limit_ulxc ?? a.rules.hourly_limit_ulxc, weekly_limit_ulxc: r.weekly_limit_ulxc ?? a.rules.weekly_limit_ulxc,
           model_daily_limits_ulxc: r.model_daily_limits_ulxc == null ? a.rules.model_daily_limits_ulxc : modelCaps(r.model_daily_limits_ulxc),
+          requests_per_minute: r.requests_per_minute ?? a.rules.requests_per_minute,
           allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [] }
         return json(res, 200, a.rules), true
       }

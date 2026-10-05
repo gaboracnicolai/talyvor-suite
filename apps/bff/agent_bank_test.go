@@ -195,6 +195,23 @@ func TestAgentRulesCarryTheModelDailyCaps(t *testing.T) {
 	}
 }
 
+// B28.26 — the owner's cap on requests a minute reaches Lens; a save that does not name it sends null, which
+// Lens reads as "keep the cap it holds", never as "no cap".
+func TestAgentRulesCarryTheRequestsPerMinuteCap(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"requests_per_minute":60}`)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"daily_limit_ulxc":5000000}`)
+	if len(f.got) != 2 {
+		t.Fatalf("Lens received %d requests, want 2: %q", len(f.got), f.got)
+	}
+	if !strings.Contains(f.got[0], `"requests_per_minute":60`) {
+		t.Fatalf("Lens received %q, want the cap of 60 a minute", f.got[0])
+	}
+	if !strings.Contains(f.got[1], `"requests_per_minute":null`) {
+		t.Fatalf("Lens received %q, want the cap null when the save does not name it", f.got[1])
+	}
+}
+
 // B19.20 — pausing every agent, and one, reaches Lens on the session's workspace with only the reason;
 // resuming every agent sends nothing but the request.
 func TestAgentPauseSendsOnlyTheReason(t *testing.T) {

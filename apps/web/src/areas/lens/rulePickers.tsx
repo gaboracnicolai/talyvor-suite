@@ -239,6 +239,12 @@ export function RulesInWords({ agentName, rules }: { agentName: string; rules: A
           <>{agentName} may spend everything its wallet holds — no limit is set.</>
         )}
       </li>
+      {(rules.requests_per_minute ?? 0) > 0 ? (
+        <li>
+          It may make at most <span className="font-figure">{rules.requests_per_minute}</span>{' '}
+          {rules.requests_per_minute === 1 ? 'request' : 'requests'} a minute.
+        </li>
+      ) : null}
       {rules.approval_above_ulxc > 0 ? (
         <li>
           A person must approve any request or payment above <Lxc ulxc={rules.approval_above_ulxc} />.
