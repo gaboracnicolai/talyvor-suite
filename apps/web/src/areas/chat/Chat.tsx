@@ -41,6 +41,7 @@ import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost,
 import { topupApi } from '../lens/topupApi'
 import { formatWhen } from '../lens/format'
 import { Lxc } from '../lens/money'
+import { Card } from '../lens/walletBrand'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
 //
@@ -79,6 +80,13 @@ import { Lxc } from '../lens/money'
 // column, and a composer pinned to the bottom with the model picker inside it. Replies render as
 // Markdown. Explanations live on /chat/help (./ChatHelp.tsx), not on this screen; what stays here
 // is what a reader needs at the moment of reading — a price, a failure, where history is kept.
+//
+// ── B29.10: IN THE BRAND ─────────────────────────────────────────────────────
+//
+// As minimal as before, on the board's planes: the composer on `raised` with a line-strong border and
+// the teal Send as the view's one primary action, the model picker in the eyebrow style, questions and
+// replies in Space Grotesk 15/24 with code and numbers in IBM Plex Mono, and the wallet lines a spend
+// answer reads in the wallet screens' raised card.
 
 /**
  * B10.3 — the documents a question can carry: exactly the formats Lens's converter reads
@@ -620,7 +628,7 @@ export function Chat() {
                     className={m.role === 'user' ? 'flex justify-end' : undefined}
                   >
                     {m.role === 'user' ? (
-                      <div className="max-w-prose rounded-card bg-surface px-4 py-3 text-body text-ink">
+                      <div className="max-w-prose rounded-card border border-rule bg-raised px-4 py-3 text-reading text-ink">
                         <span className="sr-only">You: </span>
                         {m.attachments !== undefined && m.attachments.length > 0 ? (
                           <SentDocuments message={m} answering={pending && i === messages.length - 2} />
@@ -794,10 +802,11 @@ function ChatRail({
                 <button
                   type="button"
                   className={cn(
-                    'block w-full truncate rounded-control px-2 py-2 text-left text-body text-ink',
+                    'block w-full truncate rounded-control px-2 py-2 text-left text-body',
                     'transition-colors duration-200 hover:bg-surface',
                     'disabled:cursor-not-allowed disabled:opacity-50',
-                    c.id === activeId ? 'bg-surface' : undefined,
+                    // B29.10 — the open conversation as the app's sidebar marks the page you are on.
+                    c.id === activeId ? 'bg-accent-tint text-accent-strong hover:bg-accent-tint' : 'text-ink',
                     focusRing,
                   )}
                   aria-current={c.id === activeId ? 'true' : undefined}
@@ -900,7 +909,7 @@ function Greeting({ disabled, onAsk }: { disabled: boolean; onAsk: (prompt: stri
               disabled={disabled}
               onClick={() => onAsk(p)}
               className={cn(
-                'h-full w-full rounded-card border border-rule bg-surface px-4 py-3 text-left text-body text-ink',
+                'h-full w-full rounded-card border border-rule bg-raised px-4 py-3 text-left text-body text-ink',
                 'transition-colors duration-200 hover:border-rule-strong',
                 'disabled:cursor-not-allowed disabled:opacity-50',
                 focusRing,
@@ -1037,23 +1046,28 @@ function Reply({
 /** B28.349 — the statement lines a spend answer was read from, each a link to its row on Agent Wallets. */
 function StatementLines({ lines }: { lines: SpendLine[] }) {
   const shown = lines.slice(0, 8)
+  // B29.10 — the wallet lines in the wallet screens' own card: raised, an eyebrow, amounts in IBM Plex Mono.
   return (
-    <nav aria-label="Statement lines this answer read" className="mt-2" data-testid="turn-statement-lines">
-      <p className="text-caption text-muted">From your agents’ statements</p>
-      <ul className="mt-1 flex flex-col gap-0.5">
-        {shown.map((l) => (
-          <li key={`${l.agent_id}-${l.entry_id}`} className="text-caption text-muted">
-            <Link className={inlineLink} to={statementLineHref(l)}>
-              {l.agent}: <Lxc ulxc={Math.abs(l.amount_ulxc)} sign={l.amount_ulxc < 0 ? '−' : '+'} />
-              {l.at !== undefined ? <> · <span className="font-figure">{formatWhen(l.at)}</span></> : null}
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {lines.length > shown.length ? (
-        <p className="text-caption text-muted">and {lines.length - shown.length} more on the agents’ statements</p>
-      ) : null}
-    </nav>
+    <Card className="mt-3 px-4 py-3">
+      <nav aria-label="Statement lines this answer read" data-testid="turn-statement-lines">
+        <p className="font-figure text-eyebrow uppercase text-label">From your agents’ statements</p>
+        <ul className="mt-2 flex flex-col gap-1">
+          {shown.map((l) => (
+            <li key={`${l.agent_id}-${l.entry_id}`} className="text-caption text-muted">
+              <Link className={inlineLink} to={statementLineHref(l)}>
+                {l.agent}: <Lxc ulxc={Math.abs(l.amount_ulxc)} sign={l.amount_ulxc < 0 ? '−' : '+'} />
+                {l.at !== undefined ? <> · <span className="font-figure">{formatWhen(l.at)}</span></> : null}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        {lines.length > shown.length ? (
+          <p className="mt-1 text-caption text-muted">
+            and <span className="font-figure">{lines.length - shown.length}</span> more on the agents’ statements
+          </p>
+        ) : null}
+      </nav>
+    </Card>
   )
 }
 
@@ -1105,8 +1119,8 @@ function Composer({
     <form
       className={cn(
         // `relative` so the model picker's panel opens above the whole composer.
-        'relative rounded-card border border-rule bg-surface transition-colors duration-200',
-        'focus-within:border-rule-strong',
+        // B29.10 — on the board's raised plane, edged in line-strong.
+        'relative rounded-card border border-rule-strong bg-raised transition-colors duration-200',
       )}
       onSubmit={(e) => {
         e.preventDefault()
@@ -1147,7 +1161,7 @@ function Composer({
         ref={boxRef}
         id="chat-message"
         className={cn(
-          'block max-h-60 w-full resize-none rounded-t-card bg-surface px-4 pt-3 text-body text-ink',
+          'block max-h-60 w-full resize-none rounded-t-card bg-raised px-4 pt-3 text-reading text-ink',
           'placeholder:text-faint',
           // ⚠ THE SAME CONTRACT Input.tsx GIVES EVERY OTHER TEXT FIELD. controlParity.test.ts
           // refused this field without it, correctly: a hand-rolled control that hovers,

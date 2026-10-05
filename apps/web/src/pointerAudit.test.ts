@@ -185,7 +185,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'reaches Lens never',
     why: 'the measurement that keeps generateChangelog out of the metered markers — the one Docs\' census names as its single excluded surface',
   },
-  'apps/web/src/meteredSurfacePopulation.test.ts:71|apps/web/src/areas/chat/Chat.tsx:64': {
+  'apps/web/src/meteredSurfacePopulation.test.ts:71|apps/web/src/areas/chat/Chat.tsx:65': {
     kind: 'LIVE',
     fragment: 'NOTHING HERE CLAIMS THE CONVERSATION IS BILLED',
     why: 'the measurement that keeps areas/chat out of the population entirely, so an absent area reads as decided rather than forgotten',
@@ -205,7 +205,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'placeholder={k.key_prefix}',
     why: 'the site that passes a placeholder THROUGH a component, the whole argument for reading the DOM',
   },
-  'apps/web/src/motion.test.tsx:154|packages/ui/src/preset.ts:212': {
+  'apps/web/src/motion.test.tsx:154|packages/ui/src/preset.ts:214': {
     kind: 'LIVE',
     fragment: 'active:scale-[0.98]',
     why: 'the comment that writes the press one way, half of the pair the motion lock exists to keep apart',

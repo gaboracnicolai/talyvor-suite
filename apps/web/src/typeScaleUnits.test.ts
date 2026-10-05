@@ -88,6 +88,7 @@ const CONSOLE_STEPS_PX: Record<string, number> = {
   head: 17,
   bar: 20,
   body: 14,
+  reading: 15,
   caption: 12,
   micro: 12.5,
   eyebrow: 11,

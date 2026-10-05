@@ -96,8 +96,9 @@ export function ModelPicker({
         // and the chat's main column says which. The picker itself never reads the catalog.
         disabled={disabled || catalog.defaultModel === undefined}
         onClick={() => (open ? close() : setOpen(true))}
+        // B29.10 — in the eyebrow style: spaced caps in IBM Plex Mono, in the label colour.
         className={cn(
-          'inline-flex h-8 max-w-60 items-center gap-1 rounded-control px-2 text-caption text-muted',
+          'inline-flex h-8 max-w-60 items-center gap-1.5 rounded-control px-2 font-figure text-eyebrow uppercase text-label',
           'transition-colors duration-200 hover:text-ink disabled:opacity-50',
           focusRing,
         )}
@@ -146,7 +147,7 @@ export function ModelPicker({
             {groups.length > 0 ? (
               groups.map((g) => (
                 <div key={g.provider} role="group" aria-label={g.label}>
-                  <p className="px-3 pb-1 pt-2 text-caption text-muted">{g.label}</p>
+                  <p className="px-3 pb-1 pt-2 font-figure text-eyebrow uppercase text-label">{g.label}</p>
                   {g.streamable ? null : (
                     <p className="px-3 pb-1 text-caption text-faint">
                       Not in chat yet: Lens has no streaming route for this provider.
