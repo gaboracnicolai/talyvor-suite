@@ -428,6 +428,14 @@ export class LensClient {
     }
   }
 
+  /** B29.29 — the workspace's executive ROI report, as the HTML Lens renders it for this user's own token. */
+  async roiReportHTML(user: SyntheticUser): Promise<Answered<string>> {
+    const res = await this.send('GET', `/v1/workspaces/${user.workspaceID}/roi/report?format=html`,
+      { headers: { ...this.bearer(user.token), Accept: 'text/html' } })
+    const body = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: body } : { ok: false, status: res.status, error: body.slice(0, 300) }
+  }
+
   /**
    * B26.18 — undefined while Lens answers at all (any status will do), else why it does not: asked three
    * times, two seconds apart, so one dropped connection does not end a run.

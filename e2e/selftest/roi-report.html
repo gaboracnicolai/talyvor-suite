@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Executive AI-Cost Report — ws-selftest</title>
+<style>
+:root{
+  --tv-canvas:#060A12; --tv-surface:#081220; --tv-raised:#0E1A2A;
+  --tv-line:rgba(126,147,171,.18); --tv-line-strong:rgba(126,147,171,.32);
+  --tv-ink:#E6EEF7; --tv-ink-muted:#7E93AB; --tv-label:#90ACC0;
+  --tv-accent:#3AD6C0; --tv-accent-hover:#55DFCC; --tv-on-accent:#060A12; --tv-accent-tint:#0E2B2E;
+  --tv-positive:#45C77F; --tv-caution:#D6A93C; --tv-critical:#F0685C;
+  --tv-font-sans:"Space Grotesk",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --tv-font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --tv-radius-sm:6px; --tv-radius-md:10px; --tv-radius-pill:999px;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --tv-canvas:#F4F7FB; --tv-surface:#FFFFFF; --tv-raised:#FFFFFF;
+    --tv-line:rgba(6,10,18,.10); --tv-line-strong:rgba(6,10,18,.20);
+    --tv-ink:#060A12; --tv-ink-muted:#46586E; --tv-label:#646B79;
+    --tv-accent:#0F7A6C; --tv-accent-hover:#0A5F54; --tv-on-accent:#FFFFFF; --tv-accent-tint:#C9E6E0;
+    --tv-positive:#1D7A45; --tv-caution:#8A6A12; --tv-critical:#BF3B2E;
+    color-scheme:light;
+  }
+}
+.tv-mark{display:inline-flex; flex:none}
+.tv-mark-dark,.tv-mark-light{display:block; width:100%; height:100%}
+.tv-mark-light{display:none}
+.tv-mark svg{display:block; width:100%; height:100%}
+@media (prefers-color-scheme: light){
+  .tv-mark-dark{display:none} .tv-mark-light{display:block}
+}
+.tv-rule{display:block; width:32px; height:2px; background:var(--tv-accent); border:0; margin:0}
+@media print{
+  :root{
+    --tv-canvas:#F4F7FB; --tv-surface:#FFFFFF; --tv-raised:#FFFFFF;
+    --tv-line:rgba(6,10,18,.10); --tv-line-strong:rgba(6,10,18,.20);
+    --tv-ink:#060A12; --tv-ink-muted:#46586E; --tv-label:#646B79;
+    --tv-accent:#0F7A6C; --tv-accent-hover:#0A5F54; --tv-on-accent:#FFFFFF; --tv-accent-tint:#C9E6E0;
+    --tv-positive:#1D7A45; --tv-caution:#8A6A12; --tv-critical:#BF3B2E;
+    color-scheme:light;
+  }
+  .tv-mark-dark{display:none} .tv-mark-light{display:block}
+}
+
+  *{box-sizing:border-box}
+  body{margin:0;padding:40px 24px;background:var(--tv-canvas);color:var(--tv-ink);
+       font-family:var(--tv-font-sans);font-size:15px;line-height:24px;-webkit-font-smoothing:antialiased}
+  main{max-width:880px;margin:0 auto}
+  .num{font-family:var(--tv-font-mono);font-variant-numeric:tabular-nums}
+  header{display:flex;align-items:flex-start;gap:16px;margin-bottom:24px}
+  header .tv-mark{width:40px;height:40px;margin-top:4px}
+  .eyebrow{font-size:12px;line-height:16px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--tv-label)}
+  h1{margin:4px 0 6px;font-size:28px;line-height:34px;font-weight:500;letter-spacing:-.01em}
+  header .tv-rule{margin-top:14px}
+  .meta{color:var(--tv-ink-muted);font-size:13px;line-height:20px}
+  .meta .num{white-space:nowrap}
+  section{background:var(--tv-surface);border:1px solid var(--tv-line);border-radius:var(--tv-radius-md);
+          padding:18px 20px;margin-bottom:16px;break-inside:avoid}
+  section h2{margin:0 0 8px}
+  .headline{background:var(--tv-raised)}
+  .total{font-family:var(--tv-font-mono);font-variant-numeric:tabular-nums;font-size:36px;line-height:42px;
+         font-weight:500;margin:6px 0 4px}
+  table{border-collapse:collapse;width:100%;font-size:14px;line-height:20px}
+  th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--tv-line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  th{color:var(--tv-label);font-weight:500;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+  td.num{text-align:right;font-family:var(--tv-font-mono);font-variant-numeric:tabular-nums}
+  th.num{text-align:right}
+  td.id{font-family:var(--tv-font-mono);overflow-wrap:anywhere}
+  .proj{font-family:var(--tv-font-mono);font-variant-numeric:tabular-nums;font-weight:500}
+  .note{color:var(--tv-ink-muted);font-size:13px;line-height:20px;font-style:italic;margin:0 0 4px}
+  td.note{text-align:left}
+  .pill{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+  .pill::before{content:"";width:7px;height:7px;flex:none;border-radius:var(--tv-radius-pill);background:var(--tv-ink-muted)}
+  .pill.ok::before{background:var(--tv-positive)}
+  .pill.warn::before{background:var(--tv-caution)}
+  .pill.over::before,.pill.high::before{background:var(--tv-critical)}
+  .banner{display:flex;align-items:center;gap:12px;margin:0;font-weight:500}
+  .banner::before{content:"";width:10px;height:10px;flex:none;border-radius:var(--tv-radius-pill);background:var(--tv-caution)}
+  footer{color:var(--tv-ink-muted);font-size:13px;line-height:20px;margin-top:28px}
+  @media (max-width:600px){
+    body{padding:28px 16px}
+    h1{font-size:24px;line-height:30px}
+    header .tv-mark{width:32px;height:32px}
+    section{padding:14px 12px}
+    .total{font-size:28px;line-height:34px}
+    table{font-size:13px}
+    th,td{padding:8px 5px}
+    th{letter-spacing:.04em}
+    td.split span{display:block}
+  }
+  @page{margin:16mm}
+  @media print{
+    body{padding:0}
+    section{border-color:var(--tv-line-strong)}
+  }
+</style></head><body>
+<main>
+<header>
+  <span class="tv-mark" aria-hidden="true"><span class="tv-mark-dark"><svg viewBox="44.5 48 566 566" width="512" height="512" role="img" aria-label="Talyvor mark"><title>Talyvor mark</title><path fill="#E6EEF7" d="M58 52Q58 48 62 48L89.32 48C283.7 48 276.73 228 397.9 228L464.57 298L398.08 298C211.52 298 246.28 127 90.37 127L62 127Q58 127 58 123Z"/><path fill="#E6EEF7" d="M58 220Q58 216 62 216L138.61 216C199.23 216 200.46 331 402 331L197.86 331C153.13 313.86 149.25 287 118.28 287L62 287Q58 287 58 283Z"/><path fill="#BCCBDA" d="M58 442Q58 446 62 446L138.61 446C199.23 446 200.46 331 402 331L197.86 331C153.13 348.14 149.25 375 118.28 375L62 375Q58 375 58 379Z"/><path fill="#3AD6C0" d="M58 610Q58 614 62 614L89.32 614C283.7 614 276.73 434 397.9 434L464.57 364L398.08 364C211.52 364 246.28 535 90.37 535L62 535Q58 535 58 539Z"/><path fill="#3AD6C0" d="M407.9 228L512.77 228Q517.77 228 520.82 231.96L594.56 327.83Q597 331 594.56 334.17L520.82 430.04Q517.77 434 512.77 434L407.9 434L506 331Z"/></svg></span><span class="tv-mark-light"><svg viewBox="44.5 48 566 566" width="512" height="512" role="img" aria-label="Talyvor mark"><title>Talyvor mark</title><path fill="#060A12" d="M58 52Q58 48 62 48L89.32 48C283.7 48 276.73 228 397.9 228L464.57 298L398.08 298C211.52 298 246.28 127 90.37 127L62 127Q58 127 58 123Z"/><path fill="#060A12" d="M58 220Q58 216 62 216L138.61 216C199.23 216 200.46 331 402 331L197.86 331C153.13 313.86 149.25 287 118.28 287L62 287Q58 287 58 283Z"/><path fill="#2E4A5A" d="M58 442Q58 446 62 446L138.61 446C199.23 446 200.46 331 402 331L197.86 331C153.13 348.14 149.25 375 118.28 375L62 375Q58 375 58 379Z"/><path fill="#0F3440" d="M58 610Q58 614 62 614L89.32 614C283.7 614 276.73 434 397.9 434L464.57 364L398.08 364C211.52 364 246.28 535 90.37 535L62 535Q58 535 58 539Z"/><path fill="#3AD6C0" d="M407.9 228L512.77 228Q517.77 228 520.82 231.96L594.56 327.83Q597 331 594.56 334.17L520.82 430.04Q517.77 434 512.77 434L407.9 434L506 331Z"/></svg></span></span>
+  <div>
+    <div class="eyebrow">Talyvor Lens · ROI report</div>
+    <h1>Executive AI-Cost Report</h1>
+    <div class="meta"><span class="num">ws-selftest</span> · monthly · <span class="num">2026-05-01 → 2026-06-01</span> · generated <span class="num">2026-05-16 12:00 UTC</span></div>
+    <span class="tv-rule"></span>
+  </div>
+</header>
+
+<section class="headline">
+  <h2 class="eyebrow">Total AI spend</h2>
+  <div class="total">$100.00</div>
+
+  <div class="meta">vs previous period: <span class="num">&#43;20.00 (&#43;25.0%)</span> — previous <span class="num">$80.00</span></div>
+</section>
+
+<section>
+<h2 class="eyebrow">Spend by team</h2>
+<table><tr><th>Team</th><th class="num">Cost</th><th class="num">%</th><th class="num">Δ vs prev</th></tr>
+<tr><td>core</td><td class="num">$60.00</td><td class="num">60.0%</td><td class="num">&#43;10.00</td></tr><tr><td>infra</td><td class="num">$40.00</td><td class="num">40.0%</td><td class="num">&#43;10.00</td></tr>
+</table>
+</section>
+
+<section>
+<h2 class="eyebrow">Spend by feature (issue)</h2>
+<table><tr><th>Issue</th><th class="num">Cost</th><th class="num">%</th></tr>
+<tr><td class="id">ENG-1</td><td class="num">$70.00</td><td class="num">70.0%</td></tr><tr><td class="id">ENG-2</td><td class="num">$30.00</td><td class="num">30.0%</td></tr>
+</table>
+</section>
+
+
+<section>
+<h2 class="eyebrow">Spend by engineer</h2>
+<p class="note">Cost attribution (which work a dollar landed against), not a performance judgment.</p>
+<table><tr><th>Engineer</th><th class="num">Cost</th><th class="num">Requests</th></tr>
+<tr><td>alice</td><td class="num">$70.00</td><td class="num">10</td></tr><tr><td>bob</td><td class="num">$30.00</td><td class="num">5</td></tr>
+</table>
+</section>
+
+
+<section>
+<h2 class="eyebrow">Cost per feature — trend</h2>
+<table><tr><th>Month</th><th class="num">Avg cost / issue</th><th class="num">Issues</th></tr>
+<tr><td class="id">2025-12</td><td class="num">$0.00</td><td class="num">0</td></tr><tr><td class="id">2026-01</td><td class="num">$0.00</td><td class="num">0</td></tr><tr><td class="id">2026-02</td><td class="num">$0.00</td><td class="num">0</td></tr><tr><td class="id">2026-03</td><td class="num">$0.00</td><td class="num">0</td></tr><tr><td class="id">2026-04</td><td class="num">$0.00</td><td class="num">0</td></tr><tr><td class="id">2026-05</td><td class="num">$50.00</td><td class="num">2</td></tr>
+</table>
+</section>
+
+<section>
+<h2 class="eyebrow">Budget status</h2>
+<table><tr><th>Scope</th><th>ID</th><th class="num">Spent / Limit</th><th class="num">Util</th><th>Status</th></tr>
+<tr><td>workspace</td><td class="id">ws1</td><td class="num split"><span>$100.00 /</span> <span>$1000.00</span></td><td class="num">10%</td><td><span class="pill ok">ok</span></td></tr><tr><td>team</td><td class="id">core</td><td class="num split"><span>$60.00 /</span> <span>$50.00</span></td><td class="num">120%</td><td><span class="pill over">over</span></td></tr>
+</table>
+</section>
+
+<section>
+<h2 class="eyebrow">Forward forecast</h2>
+
+  
+    <p><span class="proj">≈ $200.00</span> projected period total (a projection, not a guarantee).
+     vs budget <span class="num">$1000.00</span>: <span class="pill ok">within budget</span></p>
+    <p class="note">based on 16 days of data — reasonable confidence</p>
+  
+
+</section>
+
+<section>
+<h2 class="eyebrow">Top cost outliers</h2>
+<p class="note">Statistical flags, not verdicts — a high multiple of the median is a fact, not a judgment that anything is wrong.</p>
+<table><tr><th>Unit</th><th class="num">Cost</th><th class="num">× median</th><th>Severity</th></tr>
+<tr><td class="id">ENG-9</td><td class="num">$90.00</td><td class="num">9.0×</td><td><span class="pill high">high</span></td></tr><tr><td class="id">ENG-2</td><td class="num">$30.00</td><td class="num">3.5×</td><td><span class="pill warn">warn</span></td></tr>
+</table>
+</section>
+
+<footer>Print to PDF to share. Figures are read-only aggregations of recorded AI spend; projections and statistical flags are labeled as such.</footer>
+</main>
+</body></html>

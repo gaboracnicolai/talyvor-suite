@@ -25,6 +25,8 @@
 //   agent-limit — an agent's limit per request is recorded but never refuses (B17.6, stub-bank.ts)
 //   subscribe   — the test card is taken and Stripe sends the browser back, but no allowance is granted
 //   royalty     — an answer served from the pool to another synthetic workspace mints its contributor nothing
+//   roi-brand   — the ROI report wears the old navy and Inter, loads a font from another host, loses its
+//                 mark and prints on a dark canvas (B29.29)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -43,6 +45,7 @@
 // "stub lens: no such route", which the self-test names — never a `{}` that a screen then throws on.
 
 import { randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank } from './stub-bank.ts'
 
@@ -50,6 +53,8 @@ const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
 const KEY = process.env.LENS_SYNTHETIC_KEY ?? 'selftest-key'
 const BREAK = process.env.STUB_BREAK ?? ''
+// B29.29 — the executive ROI report as Lens's own renderer (internal/roi RenderHTML, talyvor-lens 1d936fd) wrote it.
+const ROI_REPORT = readFileSync(new URL('./roi-report.html', import.meta.url), 'utf8')
 const USD_PER_LXC = 0.1
 const GRANT_ULXC = 1_000_000_000
 /** Where Stripe sends the browser back to: the app's /billing/success (LENS_BILLING_SUCCESS_URL). */
@@ -750,6 +755,16 @@ createServer(async (req, res) => {
       if (rest === '/billing/subscription' || rest === '/billing/subscription/cancel' || rest === '/billing/subscription/resume') {
         return json(res, 200, { subscribed: ws.plan !== undefined, status: ws.plan === undefined ? undefined : 'active',
           current_period_end: new Date(Date.now() + 30 * 86400e3).toISOString(), cancel_at_period_end: ws.plan?.cancel ?? false, livemode: false })
+      }
+      if (rest === '/roi/report' && url.searchParams.get('format') === 'html') {
+        let html = ROI_REPORT.replaceAll('ws-selftest', ws.id)
+        if (BREAK === 'roi-brand') {
+          html = html.replace(/<span class="tv-mark"[\s\S]*?<\/svg><\/span><\/span>/, '').replace('</style>',
+            'h1{color:#1a1a2e;font-family:Inter,sans-serif}@media print{body{background:#1a1a2e}}</style>' +
+            '<link rel="stylesheet" href="http://fonts.invalid/inter.css">')
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        return void res.end(html)
       }
       if (rest === '/tokens/history') {
         const limit = Number(url.searchParams.get('limit') ?? 20)

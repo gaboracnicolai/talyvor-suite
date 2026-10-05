@@ -125,6 +125,7 @@ spent before it stopped. A run that stopped early exits 1.
 | `lens-reads` | 1 in 100 | every Lens read a customer's key can make (GET, no parameter but the workspace, from the map) answers within 15 s, never with a 5xx; 401/403/404 are counted, not failed |
 | `brand-visual` | user 2, once a run | B29.21 — `/marketing`, `/pricing` and `/signin` signed out and `/` signed in, at 1440×900 and 390×844 in the dark theme and the light one: each view's first screen is saved to `<report dir>/shots/<run start>/` and shown in the report under **Screenshots**; a view fails on sideways scroll, no drawn SVG logo on screen, the old CSS tile, any computed colour #f0a030, or a font stack naming Inter |
 | `brand-docs` | user 2, once a run | B29.28 — a Docs page the user writes, at 1440×900 and 390×844 in the dark theme and the light one: each view's first screen, and at 390 the sidebar opened from Menu, is saved beside `brand-visual`'s and shown under **Screenshots**; a view fails on no logo in the sidebar, any computed colour #f0a030, or a font stack naming Inter |
+| `brand-roi` | user 2, once a run | B29.29 — Lens's executive ROI report for the user's workspace (`GET /v1/workspaces/{ws}/roi/report?format=html`), opened at Lens's address at 1440×900 and 390×844 in the dark theme and the light one, and once under print media (794 wide, preferring dark): each first screen, and the whole report on paper, is saved beside `brand-visual`'s and shown under **Screenshots**; a view fails on sideways scroll, no inline mark (`tv-mark`) on screen, any computed colour #1a1a2e or #f0a030, a font stack naming Inter, a request to a host other than Lens's, or a dark canvas on paper |
 
 ## Catalog v1, and each scenario's oracle
 
@@ -260,8 +261,9 @@ Track and Docs are stood in for by `selftest/stub-products.ts`.
 `cross-replay`, and for catalog v2 `pii`, `injection`, `distill`, `tare`, `conversion`, `budget`,
 `setting`, `logging` (stub-lens.ts), `docs-ai`, `track-ai`, `export` (stub-products.ts) and, for
 catalog v3, `agent-limit` (stub-bank.ts, the stub's Agent Bank and marketplace), and for B17.10 `subscribe`
-and `royalty` (stub-lens.ts, which stands in for Stripe's hosted checkout too), each file saying what each
-breaks. Catalog v4's sixteen and B25.8's five (`loan-repay-lost`, `loan-default-never`, `card-free`,
+and `royalty` (stub-lens.ts, which stands in for Stripe's hosted checkout too), for B29.29 `roi-brand`
+(stub-lens.ts, which serves an ROI report Lens's own renderer wrote, `selftest/roi-report.html`), each file
+saying what each breaks. Catalog v4's sixteen and B25.8's five (`loan-repay-lost`, `loan-default-never`, `card-free`,
 `payout-uncredited`, `bill-refund-kept`; stub-bank.ts) may be named together, comma-separated, one per scenario.
 The run clones talyvor-lens's main beside its results, for the coverage map and `lens-reads`
 (`E2E_LENS_SRC` names a checkout to use instead).
