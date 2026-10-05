@@ -43,6 +43,28 @@ export interface AgentArchive {
   archived_at: string
 }
 
+/**
+ * B28.30 — a request to judge without making it (Lens economy.SimulatedRequest, B28.306). With a payee it is a
+ * payment to that payee; without one a question to the model through the provider.
+ */
+export interface SimulatedRequest {
+  amount_ulxc: number
+  model?: string
+  provider?: string
+  payee?: { kind: 'agent' | 'listing' | 'company' | 'merchant'; id: string }
+}
+
+/** Lens economy.RuleSimulation (B28.306): what the agent's rules would say to it. Nothing was spent or posted. */
+export interface RuleSimulation {
+  verdict: 'allowed' | 'refused' | 'approval_required'
+  /** why, when it is not allowed: the rule's own sentence */
+  reason: string
+  amount_ulxc: number
+  at: string
+  /** what the agent holds now; the rules do not judge it, but a request beyond it is still refused */
+  balance_ulxc: number
+}
+
 /** Lens economy.AgentBook: workspace = allocated + unallocated; spent is what the agents spent. */
 export interface AgentBook {
   workspace_balance_ulxc: number
@@ -363,6 +385,8 @@ export const agentBankApi = {
       approval_above_ulxc: 'number',
     }),
   setRules: (id: string, rules: AgentRules) => send<AgentRules>('PUT', `/api/agents/${e(id)}/rules`, rules),
+  /** B28.30 — would the agent's rules let this request through? Lens judges it and moves nothing. */
+  simulate: (id: string, req: SimulatedRequest) => send<RuleSimulation>('POST', `/api/agents/${e(id)}/rules/simulate`, req),
   statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`, { lines: 'list' }),
   statementFile,
   /** B19.24 — the agent's test-mode card and every purchase on it; null when it has none (Lens answers 404). */

@@ -571,6 +571,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Patch("/v1/workspaces/{wsID}/agents/{agentID}", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentUpdateBody',
   },
+  // B28.30 — would the agent's rules let this request through? Lens judges it and moves nothing.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/rules/simulate',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentRulesSimulate(',
+    anchor: 'var in struct {',
+    upstreamFile: 'internal/economy/agent_rule_simulator.go',
+    upstreamAnchor: 'type SimulatedRequest struct {',
+    subject: 'lensAgentRulesSimulateBody',
+  },
   // B23.12 — the chat's thumbs-down: Lens removes the stored answer the request was served.
   {
     route: 'POST /v1/feedback',

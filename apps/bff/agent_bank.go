@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // agent_bank.go — B19.4: the Agent Bank screen. Lens's agent accounts (B19.1), their spending rules
@@ -20,6 +21,7 @@ import (
 //	POST /api/agents/{id}/withdraw      {"amount_ulxc"}   take it back
 //	POST /api/agents/{id}/keys          {"name"}       issue the agent a proxy key of its own, shown once
 //	GET  /api/agents/{id}/rules, PUT {rules}           the agent's spending rules
+//	POST /api/agents/{id}/rules/simulate {"amount_ulxc", "model"?, "provider"?, "payee"?, "at"?}   B28.30: would they let it through? moves nothing
 //	GET  /api/agents/{id}/statement                    the agent's account, newest first
 //	GET  /api/agents/{id}/statement?from=&to=&format=json|csv   B19.22: its statement for a period, to download
 //	GET  /api/agents/statement?from=&to=&format=json|csv        B19.22: every account in the bank, for a period
@@ -229,6 +231,44 @@ func (a *app) handleAgentRules(w http.ResponseWriter, r *http.Request, t tenant)
 	// UPSTREAM-BINDS-ONLY lensAgentRulesBody: none
 	body, _ := json.Marshal(in)
 	a.agentBankRelay(w, r, t, http.MethodPut, suffix, body)
+}
+
+// simulatedPayee is Lens's economy.Payee: who a simulated payment goes to — an agent, a listing, a company or
+// a card merchant, by its id.
+type simulatedPayee struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
+// handleAgentRulesSimulate — POST /api/agents/{id}/rules/simulate (B28.30): would the agent's rules let this
+// request through? Lens (B28.306) judges it as it judges a real one, against what the agent has really spent,
+// and moves nothing. It answers the verdict (allowed, refused or approval_required), the reason and the
+// agent's balance.
+func (a *app) handleAgentRulesSimulate(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	suffix, ok := agentSuffix(w, r, "rules/simulate")
+	if !ok {
+		return
+	}
+	// Lens's economy.SimulatedRequest. With a payee it is a payment to that payee; without one a question to
+	// model through provider. at (when it is asked, for the active hours and the periods) is now when absent.
+	var in struct {
+		AmountULXC int64           `json:"amount_ulxc"`
+		Model      string          `json:"model"`
+		Provider   string          `json:"provider"`
+		Payee      *simulatedPayee `json:"payee"`
+		At         *time.Time      `json:"at"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensAgentRulesSimulateBody: none
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
 }
 
 // handleAgentStatement — GET /api/agents/{id}/statement: the agent's last 100 lines. With ?from=, ?to=
