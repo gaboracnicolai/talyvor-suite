@@ -170,6 +170,168 @@ export function brandVisual(): Scenario {
   }
 }
 
+/** B29.13 — what a reading page shows around its text, as the browser computed it. */
+export interface ReadingLook {
+  /** The drawn mark and wordmark on screen in the page's site header. */
+  headerLogo: boolean
+  /** The spaced-caps label right before the h1, if any. */
+  eyebrow: string
+  /** A 32×2 filled rule after the h1, in the same block. */
+  rule: boolean
+  /** Median characters on a full line of the page's prose; 0 when no paragraph runs past one line. */
+  measure: number
+  /** The site footer carries the mark and the company line. */
+  footer: boolean
+}
+
+/** The oracle: what is off-brand about a reading page, in words. `wide` is a desktop view, where the
+ *  prose must run near 65 characters a line; on a phone the column is the screen. */
+export function readingFaults(l: ReadingLook, wide: boolean): string[] {
+  const faults: string[] = []
+  if (!l.headerLogo) faults.push('no drawn logo in the header')
+  if (l.eyebrow === '') faults.push('no eyebrow over the title')
+  if (!l.rule) faults.push('no teal rule under the title')
+  if (wide && l.measure > 0 && (l.measure < 55 || l.measure > 75)) faults.push(`lines of ${l.measure} characters, not near 65`)
+  if (!l.footer) faults.push('no footer with the mark and the company line')
+  return faults
+}
+
+/** Reads a reading page in the browser. Self-contained: Playwright sends it to the browser as source. */
+function readingInPage(companyLine: string): ReadingLook {
+  const onScreen = (el: Element): boolean => {
+    const r = el.getBoundingClientRect()
+    return el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' && r.width > 0 && r.height > 0
+  }
+  const site = (tag: string): Element | undefined => Array.from(document.querySelectorAll(tag)).find((el) => el.closest('main') === null)
+  const header = site('header')
+  const headerLogo = header !== undefined &&
+    Array.from(header.querySelectorAll('svg[data-brand="mark"]')).some(onScreen) &&
+    Array.from(header.querySelectorAll('svg[data-brand="wordmark"]')).some(onScreen)
+
+  const h1 = document.querySelector('main h1')
+  const block = h1?.parentElement
+  let eyebrow = ''
+  let rule = false
+  if (h1 && block) {
+    for (const el of Array.from(block.querySelectorAll('*'))) {
+      const cs = getComputedStyle(el)
+      const before = (el.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+      if (before && cs.textTransform === 'uppercase' && parseFloat(cs.letterSpacing) > 1 && (el.textContent ?? '').trim() !== '') {
+        eyebrow = (el.textContent ?? '').trim()
+      }
+      const r = el.getBoundingClientRect()
+      if (!before && el !== h1 && Math.round(r.width) === 32 && Math.round(r.height) === 2 && cs.backgroundColor !== 'rgba(0, 0, 0, 0)') rule = true
+    }
+  }
+
+  // Characters on each full line (every line of a paragraph but its last), read off the layout. Prose
+  // only: a block with a block inside it (a board's issue card, a list of paragraphs) is not a paragraph.
+  const full: number[] = []
+  for (const p of Array.from(document.querySelectorAll('main p, main li'))) {
+    if (!onScreen(p) || Array.from(p.querySelectorAll('*')).some((c) => !getComputedStyle(c).display.startsWith('inline'))) continue
+    const lines = new Map<number, number>()
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode() as Text | null; n !== null; n = walker.nextNode() as Text | null) {
+      for (let i = 0; i < n.data.length; i++) {
+        const range = document.createRange()
+        range.setStart(n, i)
+        range.setEnd(n, i + 1)
+        const box = range.getClientRects()[0]
+        if (box === undefined) continue
+        const top = Math.round(box.top / 4)
+        lines.set(top, (lines.get(top) ?? 0) + 1)
+      }
+    }
+    const counts = [...lines.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1])
+    full.push(...counts.slice(0, -1))
+  }
+  full.sort((a, b) => a - b)
+
+  const footer = site('footer')
+  return {
+    headerLogo,
+    eyebrow,
+    rule,
+    measure: full.length === 0 ? 0 : full[Math.floor(full.length / 2)],
+    footer: footer !== undefined && footer.querySelector('svg[data-brand="mark"]') !== null &&
+      (footer as HTMLElement).innerText.includes(companyLine),
+  }
+}
+
+/**
+ * B29.13 — /documentation, /privacy, /terms and a board this user publishes, opened by a stranger at
+ * 1440×900 and 390×844 in the dark theme and the light one, each photographed into the day's report. A
+ * view fails on what brand-visual fails on, and on no logo in the header, no eyebrow over the title, no
+ * teal rule under it, prose lines far from 65 characters on a desktop, or no footer with the mark and
+ * the company line. The board link is turned off again afterwards.
+ */
+export function readingPages(): Scenario {
+  return {
+    id: 'reading-pages',
+    title: 'Documentation, Privacy, Terms and a published board, at 1440 and 390 in both themes: photographed, the logo header, an eyebrow, the teal rule, lines near 65 characters and the footer',
+    run: async (ctx) => {
+      const browser = ctx.app.context.browser()
+      if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
+      const owner = ctx.app.page
+      const origin = new URL(owner.url()).origin
+      const link = await owner.evaluate(async () => {
+        const res = await fetch('/api/track/boards', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: '{}',
+        })
+        if (!res.ok) return `publishing a board answered ${res.status}`
+        const b = (await res.json()) as { id: string; token: string }
+        return { id: b.id, token: b.token }
+      })
+      if (typeof link === 'string') return { pass: false, detail: link, where: ['/board'] }
+      const pages = ['/documentation', '/privacy', '/terms', `/board/${link.token}`]
+      const { dir, link: shots } = ctx.env.shots
+      await mkdir(dir, { recursive: true })
+      const wrong: string[] = []
+      const where = new Set<string>()
+      try {
+        for (const theme of THEMES) {
+          const stranger = await browser.newContext({ colorScheme: theme })
+          try {
+            const page = await stranger.newPage()
+            await page.emulateMedia({ colorScheme: theme })
+            for (const path of pages) {
+              const name = path.startsWith('/board/') ? 'board' : path.slice(1)
+              for (const [width, height] of VIEWPORTS) {
+                await page.setViewportSize({ width, height })
+                const { look, note } = await view(page, origin + path, theme)
+                const reading = await page.evaluate(readingInPage, COMPANY_LINE)
+                const file = `reading-${name}-${width}-${theme}.jpg`
+                await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
+                const faults = [...brandFaults(look), ...readingFaults(reading, width >= 840)]
+                ctx.evidence.push({
+                  note: `/${name} ${width}×${height} ${theme}${note}: ${faults.length === 0 ? 'the brand' : faults.join('; ')} — ` +
+                    `eyebrow ${reading.eyebrow || 'none'}; ${reading.measure} characters a line`,
+                  shot: `${shots}/${file}`,
+                })
+                if (faults.length > 0) {
+                  wrong.push(`/${name} ${width} ${theme}: ${faults.join('; ')}`)
+                  where.add(`/${name}`)
+                }
+              }
+            }
+          } finally {
+            await stranger.close()
+          }
+        }
+      } finally {
+        await owner.evaluate(async (id) => {
+          await fetch(`/api/track/boards/${encodeURIComponent(id)}`, { method: 'DELETE', headers: { Accept: 'application/json' } })
+        }, link.id)
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: '16 views photographed: the logo header, an eyebrow, the teal rule, lines near 65 characters and the footer in each' }
+        : { pass: false, detail: wrong.join(' | '), where: [...where] }
+    },
+  }
+}
+
 /** B29.28 — the oracle for a Docs page: what is off-brand about it, in words; nothing when it is the brand. */
 // B32.2 — the company line on every page of the website, and who runs Talyvor at the top of the legal
 // pages. Typed here, not imported from the app: the oracle is the register's words, not the code's.

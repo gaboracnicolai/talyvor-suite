@@ -180,6 +180,7 @@
   "src/reachAudit.test.ts": 12,
   "src/reachGateScope.test.ts": 5,
   "src/readFailedState.test.tsx": 2,
+  "src/ReadingPages.test.tsx": 4,
   "src/registerProseIsNotExecuted.test.ts": 4,
   "src/renderedClock.test.ts": 3,
   "src/restingAffordance.test.ts": 9,

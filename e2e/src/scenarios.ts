@@ -23,7 +23,7 @@ import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, chatBrand, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
-import { brandDocs, brandROI, brandVisual, companyLine } from './brand.ts'
+import { brandDocs, brandROI, brandVisual, companyLine, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
 
 export interface Evidence {
@@ -1860,6 +1860,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 2) list.push(brandVisual(), brandDocs(), brandROI())
   // B32.2 — the company line on every page of the website, once a run.
   if (i === 2) list.push(companyLine())
+  // B29.13 — Documentation, Privacy, Terms and a published board as reading pages in the brand, once a run.
+  if (i === 2) list.push(readingPages())
   // B17.10, one in ten again. The contributor (7, 17, …) changes no setting and its partner is one of 9,
   // 19, …. The plan comes last, on a user nobody else asks as: what is asked after it is drawn from its
   // allowance, which the ledger read-back does not expect.
