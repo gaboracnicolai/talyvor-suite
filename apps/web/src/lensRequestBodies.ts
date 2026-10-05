@@ -582,6 +582,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'type SimulatedRequest struct {',
     subject: 'lensAgentRulesSimulateBody',
   },
+  // B28.31 — put an agent's rules back exactly as they were at an earlier version.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/rules/rollback',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentRulesRollback(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/rules/rollback", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentRulesRollbackBody',
+  },
   // B28.349 — Chat lists and calls Lens's read-only wallet MCP tools (tools/list, tools/call) on its JSON-RPC route.
   {
     route: 'POST /mcp',

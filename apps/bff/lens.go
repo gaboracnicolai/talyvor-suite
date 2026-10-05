@@ -356,6 +356,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/{id}/keys", a.requireTenant(a.handleAgentKeys))
 	a.mux.HandleFunc("/api/agents/{id}/rules", a.requireTenant(a.handleAgentRules))
 	a.mux.HandleFunc("/api/agents/{id}/rules/simulate", a.requireTenant(a.handleAgentRulesSimulate)) // B28.30
+	a.mux.HandleFunc("/api/agents/{id}/rules/history", a.requireTenant(a.handleAgentRulesHistory))   // B28.31
+	a.mux.HandleFunc("/api/agents/{id}/rules/rollback", a.requireTenant(a.handleAgentRulesRollback)) // B28.31
 	a.mux.HandleFunc("/api/agents/{id}/statement", a.requireTenant(a.handleAgentStatement))
 	a.mux.HandleFunc("/api/agents/statement", a.requireTenant(a.handleBankStatement)) // B19.22
 	a.mux.HandleFunc("/api/agents/{id}/pay", a.requireTenant(a.handleAgentPay))

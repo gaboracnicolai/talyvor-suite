@@ -86,7 +86,9 @@ interface Rules {
   timezone: string
   pause_on_unusual_spend: boolean
 }
-interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string }
+interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string; versions?: RulesVersion[] }
+/** B28.31 — Lens B28.307's agent_rules_versions: the rules as each change left them, newest first, by whom and how. */
+interface RulesVersion { version: number; rules: Rules; changed_by: string; change: string; created_at: string }
 interface Posting { posting_id: number; entry_id: string; at: string; ws: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string; model?: string }
 interface Approval {
   id: string; ws: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; decided_at?: string; fingerprint: string
@@ -455,6 +457,16 @@ export class Bank {
 
   private broken(name: string): boolean {
     return this.d.brk.split(',').includes(name)
+  }
+
+  /**
+   * B28.31 — records the agent's rules as its next version, as Lens's recordRulesVersion does, unless they are its
+   * latest: by the workspace's session (Lens mints it with the workspace as its user), and how.
+   */
+  private recordRules(a: Agent, ws: string, change: string): void {
+    const versions = (a.versions ??= [])
+    if (versions.length > 0 && JSON.stringify(versions[0].rules) === JSON.stringify(a.rules)) return
+    versions.unshift({ version: versions.length + 1, rules: structuredClone(a.rules), changed_by: `jwt:user:${ws}`, change, created_at: new Date().toISOString() })
   }
 
   /**
@@ -930,6 +942,19 @@ export class Bank {
       else this.allPaused.delete(ws.id)
       return json(res, 200, { all_paused: rest === '/agents/pause-all' }), true
     }
+    // B28.31 — Lens B28.307's rules history, newest first, and a rollback that writes a version's rules back whole.
+    if ((m = /^\/agents\/([^/]+)\/rules\/(history|rollback)$/.exec(rest)) !== null && (method === 'GET') === (m[2] === 'history')) {
+      const a = this.agents.get(m[1])
+      if (a === undefined || a.ws !== ws.id) return json(res, 404, { error: 'economy: no such agent in this workspace' }), true
+      if (m[2] === 'history') return json(res, 200, { versions: a.versions ?? [] }), true
+      const { version = 0 } = await this.body<{ version?: number }>(req)
+      if (!(version > 0)) return json(res, 400, { error: 'body must be {"version": <the version to roll back to>}' }), true
+      const back = (a.versions ?? []).find((v) => v.version === version)
+      if (back === undefined) return json(res, 404, { error: 'economy: the agent has no such version of its rules' }), true
+      a.rules = structuredClone(back.rules)
+      this.recordRules(a, ws.id, `rollback to ${version}`)
+      return json(res, 200, a.rules), true
+    }
     // B28.30 — Lens B28.306's simulator: the rules' judgement of a request, with nothing posted and no approval filed.
     if ((m = /^\/agents\/([^/]+)\/rules\/simulate$/.exec(rest)) !== null && method === 'POST') {
       const a = this.agents.get(m[1])
@@ -996,6 +1021,7 @@ export class Bank {
           model_daily_limits_ulxc: r.model_daily_limits_ulxc == null ? a.rules.model_daily_limits_ulxc : modelCaps(r.model_daily_limits_ulxc),
           requests_per_minute: r.requests_per_minute ?? a.rules.requests_per_minute,
           allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [] }
+        this.recordRules(a, ws.id, 'set')
         return json(res, 200, a.rules), true
       }
       if (action === '/statement' && method === 'GET') {

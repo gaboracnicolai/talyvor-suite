@@ -409,9 +409,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE EIGHTY-FIRST IS B28.349'S CHAT TOOL CALL, POST only: /api/chat/tools/call. It runs one read-only Lens MCP
 	// tool (chat_tools.go's chatTools: what the agents spent) and changes nothing; what it answers is the agents'
 	// statement lines, which GET /api/agents/{id}/statement already shows the sweep.
-	if len(methodOnly) > 81 {
+	//
+	// THE EIGHTY-SECOND IS B28.31'S RULES ROLLBACK, POST only: /api/agents/{id}/rules/rollback. It writes an earlier
+	// version of the agent's rules back and answers the rules now in force, which GET /api/agents/{id}/rules and
+	// GET /api/agents/{id}/rules/history already show the sweep.
+	if len(methodOnly) > 82 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 81 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 82 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

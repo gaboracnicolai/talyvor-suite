@@ -161,6 +161,21 @@ export class AgentBankScreen {
     return (await said.innerText()).trim()
   }
 
+  /** B28.31 — rolls the agent's rules back to `version` on Rules history; undefined, or the refusal's words. */
+  async rollBackRules(agent: Agent, version: number): Promise<string | undefined> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Rules history')
+    await c.getByRole('button', { name: `Roll ${agent.name}’s rules back to version ${version}`, exact: true }).click()
+    return outcome(c.getByRole('status').filter({ hasText: `back as they were at version ${version}` }), c)
+  }
+
+  /** B28.31 — what Rules history says of one version: how it came to be, by whom, and what it changed. */
+  async rulesVersion(version: number): Promise<string> {
+    const row = card(this.page, 'Rules history').getByTestId(`rules-version-${version}`)
+    await row.waitFor({ timeout: ACTION_TIMEOUT_MS })
+    return (await row.innerText()).replace(/\s+/g, ' ').trim()
+  }
+
   /** Issues the agent a key and reads it off the card that shows it once. */
   async issueKey(agent: Agent): Promise<string> {
     await this.fresh(agent)
@@ -1089,6 +1104,49 @@ export function agentSpendQuestion(seed: number): Scenario {
         return { pass: true, detail: `"${said}" — linked to ${seeded.entry_id}, the -1230000 µLXC pay line on ${payer.name}'s account, which opened marked; the account still has ${after.length} lines` }
       })
     },
+  }
+}
+
+/**
+ * B28.31 — the DONE line: rolling back restores the earlier agent_rules exactly and records who changed it. An agent's
+ * rules are saved with a daily limit of 1 LXC (version 1), then changed twice on Agent Wallets — a 3 LXC daily limit, then
+ * a 0.5 LXC approval amount. Rolled back to version 1 on Rules history, Lens's rules read is byte for byte what it was at
+ * version 1, and Lens's newest version is "rollback to 1" by the same credential that saved version 1 — the session's.
+ */
+export function agentRulesRollback(seed: number): Scenario {
+  return {
+    id: 'agent-rules-rollback',
+    title: 'Rolling an agent’s rules back on Rules history restores the earlier rules exactly and records who did it',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const a = await openAgent(ctx, bank, `Rolled back ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      let err = await bank.setLimit(a, 'Daily limit', 1e6)
+      if (err !== undefined) return fail(`the 1 LXC daily limit was not saved: ${err}`)
+      const first = (await ctx.env.lens.agentRulesHistory(ctx.app.user, a.id))[0]
+      if (first?.version !== 1 || first.change !== 'set') return fail(`saving the first rules made no version 1 "set": ${JSON.stringify(first)}`)
+      const was = JSON.stringify(await ctx.env.lens.agentRules(ctx.app.user, a.id))
+      err = await bank.setLimit(a, 'Daily limit', 3e6)
+      if (err !== undefined) return fail(`the 3 LXC daily limit was not saved: ${err}`)
+      err = await bank.setLimit(a, 'Ask a person above', 500_000)
+      if (err !== undefined) return fail(`the 0.5 LXC approval amount was not saved: ${err}`)
+      const changed = JSON.stringify(await ctx.env.lens.agentRules(ctx.app.user, a.id))
+      if (changed === was) return fail(`two saves left Lens's rules as they were: ${changed}`)
+
+      err = await bank.rollBackRules(a, 1)
+      if (err !== undefined) return fail(`rolling back to version 1 was refused: ${err}`)
+      const now = JSON.stringify(await ctx.env.lens.agentRules(ctx.app.user, a.id))
+      ctx.evidence.push({ note: `Lens's rules at version 1: ${was}; after the rollback: ${now}` })
+      if (now !== was) return fail(`the rollback did not restore version 1 exactly: Lens holds ${now}, version 1 was ${was}`)
+      const versions = await ctx.env.lens.agentRulesHistory(ctx.app.user, a.id)
+      const newest = versions[0]
+      ctx.evidence.push({ note: `Lens's versions: ${versions.map((v) => `${v.version} ${v.change} by ${v.changed_by || '(nobody)'}`).join('; ')}` })
+      if (versions.length !== 4 || newest.change !== 'rollback to 1' || newest.changed_by === '' || newest.changed_by !== first.changed_by) {
+        return fail(`the rollback was not recorded as version 4, "rollback to 1", by ${first.changed_by || '(nobody)'}: ${versions.map((v) => `${v.version} ${v.change} by ${v.changed_by || '(nobody)'}`).join('; ')}`)
+      }
+      const row = await bank.rulesVersion(4)
+      if (!row.includes('Rolled back to version 1 by you')) return fail(`Rules history does not say who rolled back: "${row}"`)
+      return { pass: true, detail: `rolled back to version 1: Lens's rules are byte for byte version 1's (${now}); version 4 "rollback to 1" by ${newest.changed_by}, and Rules history reads "${row}"` }
+    }),
   }
 }
 
