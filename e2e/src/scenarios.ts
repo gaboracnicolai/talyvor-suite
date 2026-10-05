@@ -24,6 +24,7 @@ import { appShell, brandPlanes, everyScreen, homeCards, lensReads, walletBrand }
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual } from './brand.ts'
+import { b30Capabilities } from './clearances.ts'
 
 export interface Evidence {
   note?: string
@@ -1849,7 +1850,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(marketBillRefund(i, i - 5)); break
   }
   // B25.5 — every Lens read a customer's key can make, a few times a run.
-  if (i % 100 === 8) list.push(lensReads())
+  // B30.115 — then the money-and-markets capabilities, each in its class and on test money only.
+  if (i % 100 === 8) list.push(lensReads(), b30Capabilities())
   // B29.21 — the brand on the public pages and Home, photographed into the report: once a run.
   // B29.28 — and a Docs page, by the same user. B29.29 — and Lens's ROI report for that user's workspace.
   if (i === 2) list.push(brandVisual(), brandDocs(), brandROI())

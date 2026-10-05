@@ -28,6 +28,7 @@
 //   report-lost         — a report is acknowledged and never reaches the moderators' queue
 //   takedown-no-refund  — taking a listing down refunds nobody
 //   connect-none        — Connect with Stripe sends the browser to Stripe but records no account
+//   b30-capability-gone — fx, one of B30.1's money-and-markets capabilities, is missing from the list (B30.115)
 //
 // B25.8 adds what Lens (B25.7) brings due for a test workspace with the synthetic key: a loan's instalment
 // (taken or missed by tick(), as Lens's minute tick does), a buyer's bill paid and refunded, a purchase on
@@ -149,6 +150,13 @@ const CAPABILITIES = [
   ['pay_another_owner', 'Pay another owner'], ['loans_between_companies', 'Loans between companies'], ['escrow', 'Escrow'],
   ['rules_approvals_statements_pots', 'Rules, approvals, statements and pots'], ['cash_out', 'Cash out'], ['company_credit_line', 'Company credit line'],
 ].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
+/** B30.115 — and the money-and-markets ones B30.1 added, in Lens's classes; `b30-capability-gone` drops fx. */
+const B30_CAPABILITIES = [
+  ['currency_accounts', 'RED'], ['account_details', 'RED'], ['payments_in', 'RED'], ['payments_out', 'RED'], ['pay_by_bank', 'AMBER'],
+  ['fx', 'RED'], ['stablecoins', 'RED'], ['x402', 'RED'], ['merchant_acceptance', 'RED'], ['b2b_credit', 'AMBER'], ['seller_advances', 'AMBER'],
+  ['lending_marketplace', 'AMBER'], ['trade_equities', 'RED'], ['trade_crypto', 'RED'], ['trade_prediction', 'RED'], ['treasury_sweep', 'RED'],
+  ['price_lock', 'AMBER'], ['cover', 'RED'], ['payouts_to_people', 'RED'],
+].map(([capability, cls]) => ({ capability, name: capability, class: cls, real_money: false }))
 
 const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, approval_above_ulxc: 0,
   allowed_models: [], allowed_providers: [], allowed_listings: [], allowed_payees: [], blocked_payees: [], payee_daily_limits_ulxc: {}, active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
@@ -635,7 +643,10 @@ export class Bank {
   /** Writes a signed-in person makes outside their workspace: a report on a listing; and wallet lookups. */
   async publicWrite(req: IncomingMessage, res: ServerResponse, path: string, viewer: string): Promise<boolean> {
     const { json } = this.d
-    if (path === '/v1/wallets/capabilities') return json(res, 200, { capabilities: CAPABILITIES }), true
+    if (path === '/v1/wallets/capabilities') {
+      const b30 = this.broken('b30-capability-gone') ? B30_CAPABILITIES.filter((c) => c.capability !== 'fx') : B30_CAPABILITIES
+      return json(res, 200, { capabilities: [...CAPABILITIES, ...b30] }), true
+    }
     let m = /^\/v1\/wallets\/([^/]+)$/.exec(path)
     if (m !== null) {
       const a = this.wallet(decodeURIComponent(m[1]))
