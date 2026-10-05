@@ -15,6 +15,7 @@
   "src/areas/docs/DocsArea.test.tsx": 44,
   "src/areas/docs/docsRefusal.test.tsx": 2,
   "src/areas/docs/docsWrites.test.tsx": 22,
+  "src/areas/docs/exportHTML.test.tsx": 2,
   "src/areas/docs/meteredCostCensus.test.tsx": 28,
   "src/areas/docs/pageChangelog.test.tsx": 7,
   "src/areas/docs/pageSummary.test.tsx": 7,

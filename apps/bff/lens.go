@@ -224,6 +224,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/docs/pins", a.docsPins())
 	a.mux.HandleFunc("/api/docs/membership", a.docsMembership()) // B27.15 — see docs_membership.go
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/pin", a.docsPagePin())
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/export", a.docsExportPage()) // B29.30 — see docs_export.go
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			a.docsUpdatePage()(w, r)
@@ -977,6 +978,10 @@ func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, ba
 
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		w.Header().Set("Content-Type", ct)
+	}
+	// A download's filename is the upstream's (Docs' page export names the file after the page).
+	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+		w.Header().Set("Content-Disposition", cd)
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)

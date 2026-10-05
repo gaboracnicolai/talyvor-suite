@@ -427,4 +427,14 @@ export const docsApi = {
       'PATCH',
       patch,
     ),
+
+  /** B29.30 — the page as an HTML file, rendered by Docs in the brand. The filename is Docs' own
+   *  (named after the page's title), read off Content-Disposition. */
+  exportPageHTML: async (spaceId: string, pageId: string): Promise<{ filename: string; html: string }> => {
+    const path = `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}/export`
+    const res = await fetch(`${path}?format=html`, { headers: { Accept: 'text/html' } })
+    if (!res.ok) throw new ApiError(res.status, path)
+    const named = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')
+    return { filename: named?.[1] ?? 'page.html', html: await res.text() }
+  },
 }
