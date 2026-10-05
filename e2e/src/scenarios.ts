@@ -477,6 +477,52 @@ export function socialPreview(): Scenario {
   }
 }
 
+/** B29.1 — the brand package: the tab icon, the Home Screen icon and the install manifest, each
+ *  fetched from the app under test at the path the page names, and each answered as itself. */
+export function brandIcons(): Scenario {
+  return {
+    id: 'brand-icons',
+    title: 'the tab icon, the Home Screen icon and the install manifest load as the brand',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/marketing')
+      try {
+        const html = await (await page.request.get(page.url())).text()
+        const at = (path: string) => page.request.get(new URL(path, page.url()).href)
+        const seen: string[] = []
+        const missing: string[] = []
+        const want = async (path: string, type: string, linked: boolean) => {
+          const res = await at(path)
+          const ct = res.headers()['content-type'] ?? ''
+          seen.push(`${path} -> ${res.status()} ${ct}${linked ? '' : ' (not linked from the page)'}`)
+          if (!linked || res.status() !== 200 || !ct.startsWith(type)) missing.push(path)
+          return res
+        }
+        const linked = (rel: string, href: string) => new RegExp(`<link rel="${rel}" href="${href}"`).test(html)
+        await want('/favicon.ico', 'image/x-icon', linked('icon', '/favicon.ico'))
+        await want('/favicon.svg', 'image/svg+xml', linked('icon', '/favicon.svg'))
+        await want('/apple-touch-icon.png', 'image/png', linked('apple-touch-icon', '/apple-touch-icon.png'))
+        const res = await want('/manifest.webmanifest', 'application/manifest+json', linked('manifest', '/manifest.webmanifest'))
+        let manifest: { theme_color?: string; background_color?: string; icons?: { src: string }[] } = {}
+        try {
+          manifest = (await res.json()) as typeof manifest
+        } catch {
+          missing.push('a manifest that parses')
+        }
+        for (const icon of manifest.icons ?? []) await want(icon.src, 'image/png', true)
+        if ((manifest.icons ?? []).length !== 3) missing.push(`three manifest icons (found ${(manifest.icons ?? []).length})`)
+        if (manifest.theme_color !== '#060A12' || manifest.background_color !== '#060A12') missing.push('manifest colours #060A12')
+        if (!/<meta name="theme-color" content="#060A12"/.test(html)) missing.push('theme-color #060A12')
+        ctx.evidence.push({ note: `${seen.join('; ')}; manifest theme ${manifest.theme_color} background ${manifest.background_color}` })
+        return missing.length === 0
+          ? { pass: true, detail: 'favicon (.ico and .svg), apple-touch-icon and three manifest icons all load; #060A12 throughout' }
+          : { pass: false, detail: `brand package is missing: ${missing.join(', ')}` }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 /** B28.2 — the front door leads with wallets: the hero a visitor reads first, the three product
  *  sections and the one pooling block, and no trace of the retired "toward zero" price curve. */
 export function walletHero(): Scenario {
@@ -1431,7 +1477,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(sidebarStaysHidden(), blankThenRetry(i)); break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
     case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
-    case 8: list.push(socialPreview(), walletDocs()); break
+    // B29.1 — then the favicon, the Home Screen icon and the install manifest.
+    case 8: list.push(socialPreview(), brandIcons(), walletDocs()); break
     case 9: list.push(walletHero(), honestPages(), pricingTruth(), plansIncludedUsage()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
