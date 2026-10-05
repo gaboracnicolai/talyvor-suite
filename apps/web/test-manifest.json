@@ -188,6 +188,7 @@
   "src/renderedClock.test.ts": 3,
   "src/restingAffordance.test.ts": 9,
   "src/routeParamState.test.ts": 10,
+  "src/routes/legalPages.test.tsx": 3,
   "src/Royalties.test.tsx": 2,
   "src/ScreensBrand.test.tsx": 15,
   "src/scrollReset.test.tsx": 31,
