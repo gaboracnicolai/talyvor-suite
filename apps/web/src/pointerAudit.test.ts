@@ -195,7 +195,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'text-eyebrow uppercase',
     why: "the console's densest eyebrow, the surface `319335c` dropped `uppercase` from to prove 678 tests could not see it",
   },
-  'apps/web/src/eyebrowAudit.ts:49|packages/ui/src/components/MuNumeral.tsx:25': {
+  'apps/web/src/eyebrowAudit.ts:49|packages/ui/src/components/MuNumeral.tsx:31': {
     kind: 'LIVE',
     fragment: 'text-eyebrow uppercase',
     why: 'the element that OPENS the eyebrow, quoted to show CaseSafe sits inside it rather than on it',

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Button, CardHeader, MuNumeral, Pill } from '@talyvor/ui'
 import { Card, pressed } from './walletBrand'
@@ -6,6 +6,7 @@ import { Card, pressed } from './walletBrand'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
 import { api, type LedgerRow, type Token } from '../../lib/api'
 import { formatWhen, humanizeType, ledgerStatus } from './format'
+import { chainOrder } from './ledgerChain'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 import { Region, RegionScreen } from '../../components/Region'
 
@@ -30,22 +31,34 @@ function StatusCell({ type, token }: { type: string; token: Token }) {
   return <span className="font-figure text-eyebrow uppercase text-muted">{humanizeType(type)}</span>
 }
 
+// B28.268 — every figure in the table is in ONE unit, the token's, to six decimals: the amount signed,
+// the balance after it beside it, so each row reads as the row below plus this amount. A held mint is
+// the one row that does not move the balance, and it says so.
+//
+// Below `wide` the five columns do not fit, and a sideways scroll hid exactly the two figures that have to
+// add up. So a narrow row is a two-column grid — status, description and time on the left, the amount
+// over the balance on the right — laid out by CSS alone, each cell rendered once.
+const cell = 'wide:px-gutter wide:py-2'
+
 function LedgerTableRow({ r, token }: { r: LedgerRow; token: Token }) {
+  const held = ledgerStatus(r.type, token) === 'held'
   return (
-    <tr className="border-b border-rule last:border-b-0">
-      <td className="whitespace-nowrap px-gutter py-2 font-figure text-body text-muted">{formatWhen(r.created_at)}</td>
-      <td className="px-gutter py-2">
+    <tr className="grid gap-x-gutter gap-y-1 border-b border-rule px-gutter py-3 last:border-b-0 wide:table-row wide:p-0">
+      <td className={`order-5 col-start-1 whitespace-nowrap font-figure text-caption text-muted wide:text-body ${cell}`}>{formatWhen(r.created_at)}</td>
+      <td className={`order-1 col-start-1 ${cell}`}>
         <StatusCell type={r.type} token={token} />
       </td>
-      <td className="px-gutter py-2 text-body text-ink">{r.description || humanizeType(r.type)}</td>
-      <td className="px-gutter py-2 text-right">
-        <div className="flex justify-end">
-          <MuNumeral micros={r.amount} unit={token} />
+      <td className={`order-3 col-start-1 text-body text-ink ${cell}`}>{r.description || humanizeType(r.type)}</td>
+      <td className={`order-2 col-start-2 text-right ${cell}`}>
+        <div className="flex flex-col items-end">
+          <MuNumeral micros={r.amount} unit={token} decimal signed data-testid="ledger-amount" />
+          {held ? <span className="text-caption text-muted">held · not in the balance</span> : null}
         </div>
       </td>
-      <td className="px-gutter py-2 text-right">
-        <div className="flex justify-end">
-          <MuNumeral micros={r.balanceAfter} unit={token} />
+      <td className={`order-4 col-start-2 text-right ${cell}`}>
+        <div className="flex flex-col items-end">
+          <span className="font-figure text-eyebrow uppercase text-muted wide:hidden">balance</span>
+          <MuNumeral micros={r.balanceAfter} unit={token} decimal data-testid="ledger-balance" />
         </div>
       </td>
     </tr>
@@ -89,7 +102,7 @@ export function Ledger() {
     // not apply to it. Dropping the placeholder returns this screen to its own `Loading…`.
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === token ? prev : undefined),
   })
-  const rows = q.data?.rows ?? []
+  const rows = useMemo(() => chainOrder(q.data?.rows ?? []), [q.data])
   /** The offset the ROWS came from — `offset` is the one in flight. */
   const shownOffset = q.data?.offset ?? offset
   const hasPrev = shownOffset > 0
@@ -143,8 +156,8 @@ export function Ledger() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
+              <table className="block w-full border-collapse wide:table">
+                <thead className="hidden wide:table-header-group">
                   <tr className="border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
                     <th className="px-gutter py-2 font-semibold">When</th>
                     <th className="px-gutter py-2 font-semibold">Status</th>
@@ -153,12 +166,15 @@ export function Ledger() {
                     <th className="px-gutter py-2 text-right font-semibold">Balance after</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="block wide:table-row-group">
                   {rows.map((r) => (
                     <LedgerTableRow key={r.id} r={r} token={token} />
                   ))}
                 </tbody>
               </table>
+              <p className="border-t border-rule px-gutter py-2 text-caption text-muted">
+                Each balance is the balance on the row below plus that row’s amount.
+              </p>
             </div>
           )}
         </Card>

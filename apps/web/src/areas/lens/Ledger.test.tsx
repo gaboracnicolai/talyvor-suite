@@ -52,7 +52,7 @@ describe('Ledger renders both real token ledgers', () => {
     expect(screen.getByText('purchase')).toBeInTheDocument()
     expect(screen.getByText('admin grant')).toBeInTheDocument()
     expect(screen.getByText('spend')).toBeInTheDocument()
-    expect(screen.getByText('-64')).toBeInTheDocument() // signed µ-integer
+    expect(screen.getByText('-0.000064')).toBeInTheDocument() // the debit in LXC, like its balance (B28.268)
 
     // movements carry NO economic pill …
     expect(screen.queryByText('held')).toBeNull()
@@ -62,7 +62,7 @@ describe('Ledger renders both real token ledgers', () => {
     expect(container.querySelector('.bg-lens')).toBeNull()
   })
 
-  it('switches to the LENS mint ledger: held + settled pills, µ-integer amounts', async () => {
+  it('switches to the LENS mint ledger: held + settled pills, amounts in LENS', async () => {
     mockBothLedgers()
     renderLedger()
     await screen.findByText('trial top-up via admin grant') // LXC loaded first (default)
@@ -72,7 +72,7 @@ describe('Ledger renders both real token ledgers', () => {
     expect(await screen.findByText('pattern shared (held)')).toBeInTheDocument()
     expect(screen.getByText('held')).toBeInTheDocument()
     expect(screen.getByText('settled')).toBeInTheDocument()
-    expect(screen.getAllByText('1,000').length).toBeGreaterThan(0) // sub-unit → µLENS integer
+    expect(screen.getAllByText('+0.001000').length).toBe(2) // in LENS, like the balance (B28.268)
   })
 
   it('surfaces an upstream failure honestly rather than faking rows', async () => {

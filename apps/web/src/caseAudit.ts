@@ -7,7 +7,7 @@
  *     µ (U+00B5) to Greek capital Mu, and µLENS/µLXC sit inside these labels. It is applied
  *     at the call site, where MuNumeral can keep its µ in a `normal-case` span.
  *
- * "It is applied at the call site" is true and is the whole problem: 72 uppercase class lists in
+ * "It is applied at the call site" is true and is the whole problem: 73 uppercase class lists in
  * the two packages apply it, against exactly ONE `normal-case` in the product (CaseSafe.tsx:85).
  * The rule was stated in the token that deliberately does NOT carry the transform, so the one
  * file that could not enforce it is the only file that documents it.
@@ -87,7 +87,7 @@
  * also REFUSES them: either appearing in a class list in either package fails until somebody
  * classifies it here, so narrowing this map cannot silently under-report.
  *
- * `uppercase` (72 class lists apply it) and `normal-case` (1) are spelled out because the product
+ * `uppercase` (73 class lists apply it) and `normal-case` (1) are spelled out because the product
  * renders both — CLASS LISTS, not occurrences of the word; the census is in caseCallSites.test.ts,
  * which also records why this sentence and the one at the top of this file used to disagree.
  *
@@ -314,7 +314,8 @@ export function takeCaseOffenders(): CaseOffender[] {
  * A floor, not a census: a new surface is audited the moment its test renders it, listed or not.
  */
 export const MUST_PROTECT_MICRO_SIGN: Record<string, string> = {
-  'src/areas/lens/Ledger.test.tsx': 'every µLENS and µLXC row amount is a MuNumeral unit label',
+  // Ledger.test.tsx left this list with B28.268: the Ledger now shows every figure in whole units to
+  // six decimals, so a row reads as the row below plus its amount, and it renders no µ to protect.
   'src/areas/lens/Overview.test.tsx': 'the LXC and LENS balance cards render MuNumeral unit labels',
   'src/areas/lens/Held.test.tsx': 'the held µLENS amount, under its own fixture',
   'src/areas/lens/spendHolds.test.tsx': 'Spend with holds — MuNumeral over a second fixture',
