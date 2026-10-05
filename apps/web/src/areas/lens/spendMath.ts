@@ -260,6 +260,50 @@ export function debitTotal(rows: SignedRow[], days: number, now: Date): number {
   return total
 }
 
+// B32.69 — THE PLATFORM FEE ON AI SPEND (B32.11), and why it is not a SETTLED_CHARGE.
+//
+// Lens writes the fee as its own lxc_ledger row, type platform_fee, in the same transaction as the
+// spend it is on, and its description is the line's own words: "Platform fee 3%", "Platform fee
+// 5.5%". A refund of an over-estimated fee is a POSITIVE row of the same type ("Platform fee 3%,
+// refunded with the estimate"). It names no model, so adding it to SETTLED_CHARGE would put every fee
+// into splitShortfall's "not broken down by model" sentence. It is spent, so the screens count it in
+// the window's total: debitTotal + the fee lines.
+const PLATFORM_FEE = 'platform_fee'
+
+/** One of Lens's fee lines in the window: its words, the µLXC it took, and how many rows wrote it. */
+export interface FeeLine {
+  /** Lens's description, verbatim. The rate is in it and is never retyped here. */
+  label: string
+  /** µLXC, positive for a fee taken; a refund line is negative. */
+  ulxc: number
+  rows: number
+}
+
+/** A signed row that still carries its lxc_ledger description. */
+export interface DescribedRow extends SignedRow {
+  description: string
+}
+
+// platformFees groups the window's platform_fee rows by Lens's words, largest first. Grouped by the
+// description and not by the rate in metadata, so the label on screen is the one Lens wrote.
+export function platformFees(rows: DescribedRow[], days: number, now: Date): FeeLine[] {
+  const cutoff = now.getTime() - days * 24 * 60 * 60 * 1000
+  const agg = new Map<string, FeeLine>()
+  for (const r of rows) {
+    const t = Date.parse(r.created_at)
+    if (!Number.isFinite(t) || t < cutoff || r.type !== PLATFORM_FEE) continue
+    const label = r.description || 'Platform fee'
+    const a = agg.get(label) ?? { label, ulxc: 0, rows: 0 }
+    a.rows += 1
+    a.ulxc += -r.amount
+    agg.set(label, a)
+  }
+  return [...agg.values()].sort((a, b) => b.ulxc - a.ulxc || a.label.localeCompare(b.label))
+}
+
+/** What Talyvor's platform fee took in the window, in µLXC. */
+export const feeTotal = (fees: readonly FeeLine[]): number => fees.reduce((n, f) => n + f.ulxc, 0)
+
 /** What a RENDERED per-model split leaves out of the window total it sits directly under. */
 export interface SplitShortfall {
   /** µLXC of settled charges in the window whose row names NO model. */

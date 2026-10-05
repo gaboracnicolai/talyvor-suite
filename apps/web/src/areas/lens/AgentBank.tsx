@@ -1667,6 +1667,10 @@ function lineText(l: StatementLine, nameOf: (id: string) => string): string {
       return 'Released after a request'
     case 'settle':
       return 'Settled a request'
+    case 'platform_fee':
+      // B32.69 — Lens's words, rate and all; never retyped here.
+      if (l.label) return l.label
+      return out ? 'Money out' : 'Money in'
     default:
       // A kind Lens added after this screen: say which way it moved rather than guess what it was.
       return out ? 'Money out' : 'Money in'

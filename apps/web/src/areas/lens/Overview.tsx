@@ -18,11 +18,14 @@ import {
   LEDGER_PAGE,
   byModel,
   debitTotal,
+  feeTotal,
   inWindow,
   lxcDebitsByModel,
+  platformFees,
   splitShortfall,
   windowExceedsPage,
 } from "./spendMath";
+import { PlatformFeeLines, totalHint } from "./PlatformFeeLines";
 import { SplitShortfall } from "./SplitShortfall";
 import { WindowFigure, WindowIncomplete } from "./WindowFloor";
 
@@ -226,6 +229,8 @@ function SpendCard({ now }: { now: Date }) {
   const lxcSplit = lxc.data
     ? lxcDebitsByModel(lxc.data, 30, now).slice(0, 5)
     : [];
+  // B32.69 — the platform fee, each of Lens's fee lines on its own row and counted in the total.
+  const fees = lxc.data ? platformFees(lxc.data, 30, now) : [];
   // ⚠ THE SLICE IS A SECOND WAY THIS SPLIT UNDER-SUMS THE TOTAL ABOVE IT, and unlike the
   // unattributed rows it is this screen's own doing. `lxcSplit` is what is RENDERED, so the
   // shortfall is measured against the five rows a reader can actually add up — not against the
@@ -262,7 +267,7 @@ function SpendCard({ now }: { now: Date }) {
       </Row>
       <Row
         label="Inference debits"
-        hint="every model — the window total that left the balance"
+        hint={totalHint(fees)}
       >
         {lxc.isLoading ? (
           <span className="text-body text-muted">Loading…</span>
@@ -270,13 +275,15 @@ function SpendCard({ now }: { now: Date }) {
           <InlineFailure error={lxc.error} />
         ) : (
           <WindowFigure
-            micros={debitTotal(lxc.data, 30, now)}
+            micros={debitTotal(lxc.data, 30, now) + feeTotal(fees)}
             unit="lxc"
             floor={lxcTruncated}
             testId="lxc-debit-total"
           />
         )}
       </Row>
+      {/* B32.69 — under the total, not under "Spend by model": the fee is on the calls, not a model. */}
+      <PlatformFeeLines fees={fees} floor={lxcTruncated} />
       {/* The per-model split of that total. This row is the correction of a caption that
           said it was impossible: Lens stamps requested_model on every agent-lane writer
           and served_model on the delivered-charge row, and api.lxcLedger was discarding

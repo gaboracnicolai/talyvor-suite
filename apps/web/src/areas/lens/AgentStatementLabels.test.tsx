@@ -34,6 +34,8 @@ const rows: Array<[StatementLine, string]> = [
   [line('cash_out', 8, 'cash_out:co_1'), 'Cash-out returned'],
   [line('pot_in', -9, 'pot:pot_1'), 'Moved into a pot'],
   [line('pot_out', 9, 'pot:pot_1'), 'Moved out of a pot'],
+  // B32.69 — the platform fee on a call is its own line, in the words Lens labels it with.
+  [{ ...line('platform_fee', 0, 'spend', 'rq_1'), amount_ulxc: -300_000, label: 'Platform fee 3%' }, 'Platform fee 3%'],
 ]
 
 afterEach(() => {
@@ -62,7 +64,7 @@ describe('the agent statement', () => {
       .map((r) => within(r).getByTestId('statement-what').textContent)
     expect(what).toEqual(rows.map(([, label]) => label))
     // Every kind Lens posts is on this statement, and none of them falls through to another's words.
-    const kinds: PostingKind[] = ['fund', 'withdraw', 'topup', 'credit_line', 'spend', 'hold', 'settle', 'release', 'pay', 'transfer', 'escrow', 'reversal', 'card', 'cash_out', 'pot_in', 'pot_out']
+    const kinds: PostingKind[] = ['fund', 'withdraw', 'topup', 'credit_line', 'spend', 'hold', 'settle', 'release', 'pay', 'transfer', 'escrow', 'reversal', 'card', 'cash_out', 'pot_in', 'pot_out', 'platform_fee']
     expect(new Set(rows.map(([l]) => l.kind))).toEqual(new Set(kinds))
     expect(what.filter((t) => t === 'Spent on a request')).toHaveLength(1)
     // The DONE line's four: four different labels, each the right one.
@@ -72,5 +74,7 @@ describe('the agent statement', () => {
     // A received transfer reads as money in, signed +.
     const received = within(table).getByText('Transfer from Writer').closest('tr')!
     expect(within(received).getAllByRole('cell')[2].textContent).toBe('+5 LXC')
+    const fee = within(table).getByText('Platform fee 3%').closest('tr')!
+    expect(within(fee).getAllByRole('cell')[2].textContent).toBe('−0.3 LXC')
   })
 })

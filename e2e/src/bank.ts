@@ -1963,6 +1963,66 @@ export function spendPlainWords(): Scenario {
   }
 }
 
+/** A figure as WindowFigure shows it: "300,000 µLXC" under one LXC, "10.300000 LXC" from one up. */
+function shownULXC(shown: string): number | undefined {
+  const m = /(-?[\d,]+)(?:\.(\d{6}))?\s*(µ?)LXC/i.exec(shown.replace(/\s+/g, ' '))
+  if (m === null) return undefined
+  const whole = Number(m[1].replace(/,/g, ''))
+  if (m[3] !== '') return whole
+  return Math.sign(whole || 1) * (Math.abs(whole) * 1e6 + Number(m[2] ?? '0'))
+}
+
+/**
+ * B32.69 — the platform fee on AI spend (B32.11) is its own line on Overview and Spend & routing. Run after
+ * statementReconciles, whose agent request is charged on credits: Lens's ledger holds its platform_fee row,
+ * and each screen shows every fee line in the window with Lens's own words and exactly the µLXC Lens's rows
+ * add up to, and counts it in the window's total — the spend rows plus the fee rows, to the µLXC.
+ */
+export function spendPlatformFee(): Scenario {
+  return {
+    id: 'spend-platform-fee',
+    title: 'Overview and Spend & routing show each platform fee as its own line in Lens’s words, and count it in the total spent',
+    run: async (ctx) => {
+      const rows = await ctx.env.lens.ledger(ctx.app.user)
+      const seen: string[] = []
+      for (const { path, days } of [{ path: '/spend', days: 7 }, { path: '/overview', days: 30 }]) {
+        const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+        const inWindow = rows.filter((r) => Date.parse(r.created_at) >= cutoff)
+        const want = new Map<string, number>()
+        for (const r of inWindow.filter((x) => x.type === 'platform_fee')) want.set(r.description, (want.get(r.description) ?? 0) - r.amount_ulxc)
+        const spent = inWindow.filter((r) => r.type === 'spend').reduce((n, r) => n - r.amount_ulxc, 0)
+        const fees = [...want.values()].reduce((n, x) => n + x, 0)
+        ctx.evidence.push({ note: `${path}: Lens's ledger over ${days} days — spend ${spent} µLXC, fees ${[...want].map(([l, n]) => `"${l}" ${n}`).join(', ') || 'none'}` })
+        if (spent === 0) throw new CannotTest(`nothing was charged on credits over ${days} days, so there is no fee to show`)
+        if (want.size === 0) return fail(`Lens charged ${spent} µLXC on credits over ${days} days and wrote no platform_fee row`)
+        const page = await ctx.app.tab(path)
+        try {
+          await page.getByTestId('lxc-platform-fees').waitFor({ timeout: ACTION_TIMEOUT_MS })
+          const lines = await page.evaluate(() => {
+            const labels = Array.from(document.querySelectorAll('[data-testid="platform-fee-label"]')).map((e) => e.textContent ?? '')
+            const amounts = Array.from(document.querySelectorAll('[data-testid="platform-fee-amount"]')).map((e) => (e as HTMLElement).innerText)
+            return labels.map((label, i) => ({ label, amount: amounts[i] ?? '' }))
+          })
+          const total = await page.getByTestId('lxc-debit-total').innerText()
+          seen.push(`${path}: ${lines.map((l) => `"${l.label}" ${l.amount}`).join(', ')}; total ${total}`)
+          if (lines.length !== want.size) return fail(`${path} shows ${lines.length} fee line(s); Lens wrote ${want.size}: ${seen.at(-1)}`)
+          for (const l of lines) {
+            if (!want.has(l.label)) return fail(`${path} shows a fee line "${l.label}" that no platform_fee row of Lens's says`)
+            if (shownULXC(l.amount) !== want.get(l.label)) return fail(`${path} shows "${l.label}" as ${l.amount}; Lens's rows add up to ${want.get(l.label)} µLXC`)
+          }
+          if (!/at least/.test(total) && shownULXC(total) !== spent + fees) {
+            return fail(`${path}'s total reads ${total}; Lens's spend and fee rows add up to ${spent + fees} µLXC`)
+          }
+        } finally {
+          await page.close()
+        }
+      }
+      ctx.evidence.push({ note: seen.join('; ') })
+      return { pass: true, detail: `each fee line in Lens's words and amount, counted in the total — ${seen.join('; ')}` }
+    },
+  }
+}
+
 /** B28.270 — what the two pages Stripe returns to say when no checkout is coming back, and what neither may say. */
 const RETURN_PAGES = [
   { path: '/billing/success', heading: 'No payment to confirm here.' },
