@@ -66,4 +66,32 @@ describe('/pricing', () => {
     expect(screen.getAllByText('$199')).toHaveLength(1)
     expect(screen.getAllByRole('heading', { name: /one bill a month/i })).toHaveLength(1)
   })
+
+  // B29.5: the board's look — raised plan cards, one teal button each, Pro outlined, mono prices,
+  // and an eyebrow over every section.
+  it('puts each plan on a raised card with one teal button, outlines Pro, and sets every price in mono', async () => {
+    serve({ min_usd_cents: 1000, max_usd_cents: 1_000_000, preset_usd_cents: [1000] })
+    const { container } = render(<Pricing />)
+    await screen.findByText(/did not confirm its credit rate/i)
+
+    const cards = screen.getAllByTestId('pricing-plan')
+    for (const [i, card] of cards.entries()) {
+      const name = [...PLANS, BYOK][i].name
+      expect(card).toHaveClass('bg-raised', 'rounded-card')
+      const buttons = within(card).getAllByRole('link')
+      expect(buttons).toHaveLength(1)
+      expect(buttons[0]).toHaveAccessibleName(`Choose ${name}`)
+      expect(buttons[0]).toHaveAttribute('href', '/plans')
+      expect(buttons[0]).toHaveClass('bg-accent')
+      expect(within(card).getByTestId('pricing-plan-price')).toHaveClass('font-figure')
+    }
+    expect(cards.filter((c) => c.classList.contains('border-accent')).map((c) => within(c).getByTestId('pricing-plan-name').textContent)).toEqual(['Pro'])
+    // Every section opens with an eyebrow in the label colour, and its headline is unchanged.
+    for (const section of container.querySelectorAll('main section')) {
+      const heading = section.querySelector('h1, h2')!
+      if (heading.id === 'pricing-close-heading') continue
+      expect(section.querySelector('.text-eyebrow.text-label')).not.toBeNull()
+    }
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Credit for your agents. A plan for your people.')
+  })
 })

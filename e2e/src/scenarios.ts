@@ -809,6 +809,80 @@ export function pricingTruth(): Scenario {
   }
 }
 
+/** B29.5 — /pricing in the brand, at 1440 and at 390: every plan card on the raised plane with one
+ *  teal button to /plans, Pro and only Pro outlined in accent, every price set in IBM Plex Mono (the
+ *  font loaded, not just named), an eyebrow over each section, the H1 unchanged, nothing sideways. */
+export function pricingBoard(): Scenario {
+  return {
+    id: 'pricing-board',
+    title: '/pricing shows raised plan cards, one teal button each, Pro outlined and mono prices, at 1440 and 390',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/pricing')
+      const wrong: string[] = []
+      try {
+        await page.getByTestId('pricing-plan').first().waitFor({ state: 'visible' })
+        for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+          await page.setViewportSize({ width, height })
+          const got = await page.evaluate(async () => {
+            await document.fonts.ready
+            // A token's colour as the browser resolves it, so the check follows the theme in force.
+            const resolve = (prop: string, value: string) => {
+              const probe = document.createElement('div')
+              probe.style.setProperty(prop, value)
+              document.body.append(probe)
+              const c = getComputedStyle(probe).getPropertyValue(prop)
+              probe.remove()
+              return c
+            }
+            const raised = resolve('background-color', 'var(--raised)')
+            const accent = resolve('background-color', 'var(--accent)')
+            const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="pricing-plan"]')).map((card) => {
+              const price = card.querySelector<HTMLElement>('[data-testid="pricing-plan-price"]')!
+              const links = Array.from(card.querySelectorAll<HTMLAnchorElement>('a'))
+              const style = getComputedStyle(card)
+              return {
+                name: card.querySelector('[data-testid="pricing-plan-name"]')!.textContent ?? '',
+                raised: style.backgroundColor === raised,
+                outlined: style.borderTopColor === accent,
+                buttons: links.map((a) => ({ text: a.innerText.trim(), href: new URL(a.href).pathname, teal: getComputedStyle(a).backgroundColor === accent })),
+                mono: /IBM Plex Mono/.test(getComputedStyle(price).fontFamily) && document.fonts.check(`28px "IBM Plex Mono"`),
+              }
+            })
+            const main = document.querySelector('main')!.innerText
+            return {
+              cards,
+              h1: document.querySelector('h1')!.textContent!.trim(),
+              eyebrows: ['PRICING', 'CREDIT FOR AGENTS', 'WHAT A REQUEST COSTS', 'PLANS FOR PEOPLE', 'THE MARKETPLACE BILL', 'WHAT YOU ARE NOT CHARGED FOR'].filter((e) => !main.includes(e)),
+              scroll: document.documentElement.scrollWidth,
+              client: document.documentElement.clientWidth,
+            }
+          })
+          ctx.evidence.push({ note: `${width}: ${JSON.stringify(got.cards.map((c) => ({ ...c, buttons: c.buttons.map((b) => b.text) })))}; scroll ${got.scroll}/${got.client}` })
+          const at = `${width}px`
+          if (got.cards.length !== 4) wrong.push(`${at}: ${got.cards.length} plan cards, not 4`)
+          for (const c of got.cards) {
+            if (!c.raised) wrong.push(`${at}: ${c.name} is not on the raised plane`)
+            if (c.buttons.length !== 1 || c.buttons[0].text !== `Choose ${c.name}` || c.buttons[0].href !== '/plans' || !c.buttons[0].teal) {
+              wrong.push(`${at}: ${c.name}'s buttons are ${JSON.stringify(c.buttons)}, not one teal "Choose ${c.name}" to /plans`)
+            }
+            if (!c.mono) wrong.push(`${at}: ${c.name}'s price is not in IBM Plex Mono`)
+          }
+          const outlined = got.cards.filter((c) => c.outlined).map((c) => c.name)
+          if (outlined.join() !== 'Pro') wrong.push(`${at}: outlined in accent: [${outlined.join(', ')}], not [Pro]`)
+          if (got.h1 !== 'Credit for your agents. A plan for your people.') wrong.push(`${at}: the H1 reads "${got.h1}"`)
+          if (got.eyebrows.length > 0) wrong.push(`${at}: no eyebrow ${got.eyebrows.join(', ')}`)
+          if (got.scroll > got.client) wrong.push(`${at}: scrolls sideways (${got.scroll} > ${got.client})`)
+        }
+      } finally {
+        await page.close()
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: 'four raised plan cards with one teal "Choose" each, Pro outlined, mono prices, every eyebrow, at 1440 and 390' }
+        : { pass: false, detail: `/pricing: ${wrong.join('; ')}` }
+    },
+  }
+}
+
 export function streamsProgressively(): Scenario {
   return {
     id: 'streaming',
@@ -1608,8 +1682,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), walletDocs()); break
-    // B29.4 — then /marketing in the board's design, at 1440 and at 390.
-    case 9: list.push(walletHero(), marketingBoard(), honestPages(), pricingTruth(), plansIncludedUsage()); break
+    // B29.4 — then /marketing in the board's design, at 1440 and at 390; B29.5 — /pricing in the brand.
+    case 9: list.push(walletHero(), marketingBoard(), honestPages(), pricingTruth(), pricingBoard(), plansIncludedUsage()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.
