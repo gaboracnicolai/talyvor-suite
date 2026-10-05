@@ -918,6 +918,97 @@ export function agentApproval(seed: number): Scenario {
   }
 }
 
+/** What the app's service worker (apps/web/public/sw.js) declares, as a scenario reaches it. */
+interface ApprovalWorker {
+  registration: ServiceWorkerRegistration
+  decideFromNotification: (n: Notification, action: 'approve' | 'deny') => Promise<void>
+}
+
+/**
+ * B28.38 — Approve and Deny in the push notification. A payment above the approval amount is held; the
+ * push Lens sends for it is delivered to the app's service worker, which must show it with Approve and
+ * Deny. Approve, run in the service worker on that notification, must move Lens's approval row to
+ * approved with no page opened or moved and no money moved; the payment sent again is then paid once.
+ */
+export function agentApprovalPush(seed: number): Scenario {
+  return {
+    id: 'agent-approval-push',
+    title: 'Approve on the approval push decides it from the service worker: Lens’s row is approved without opening the app',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const payer = await openAgent(ctx, bank, `Push payer ${seed}`)
+      if (typeof payer === 'string') return fail(payer)
+      const payee = await openAgent(ctx, bank, `Push payee ${seed}`)
+      if (typeof payee === 'string') return fail(payee)
+      let err = await bank.move(payer, 2e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setLimit(payer, 'Ask a person above', 500_000)
+      if (err !== undefined) return fail(`the approval amount was not saved: ${err}`)
+      const memo = `push check ${seed}`
+      const said = await bank.pay(payer, payee, 1e6, memo)
+      if (!/waiting in Approvals/.test(said)) return fail(`a payment above the approval amount was not held for a person: "${said}"`)
+      const filed = (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.agent_id === payer.id)
+      if (filed.length !== 1 || filed[0].status !== 'pending') return fail(`Lens has ${filed.length} approval(s) for ${payer.name}: ${JSON.stringify(filed)}`)
+      const id = filed[0].id
+
+      // This device takes pushes: the service worker "Notify this device" registers, with notifications allowed.
+      const { page } = bank
+      const origin = new URL(page.url()).origin
+      await ctx.app.context.grantPermissions(['notifications'], { origin })
+      const cdp = await ctx.app.context.newCDPSession(page)
+      const registered = new Promise<string>((ok) => cdp.on('ServiceWorker.workerRegistrationUpdated', ({ registrations }) => {
+        const r = registrations.find((x) => x.scopeURL === `${origin}/` && !x.isDeleted)
+        if (r !== undefined) ok(r.registrationId)
+      }))
+      await cdp.send('ServiceWorker.enable')
+      await page.evaluate(async () => {
+        await navigator.serviceWorker.register('/sw.js')
+        await navigator.serviceWorker.ready
+      })
+      const registrationId = await registered
+      const sw = ctx.app.context.serviceWorkers().find((w) => new URL(w.url()).pathname === '/sw.js')
+      if (sw === undefined) return fail('/sw.js registered, but no service worker runs it')
+
+      // The push Lens sends for a waiting approval (talyvor-lens economy/agent_approval_auth.go), delivered as a push.
+      const push = { type: 'agent_approval', approval_id: id, agent_name: payer.name, amount_ulxc: 1e6, amount_lxc: '1', reason: memo }
+      await cdp.send('ServiceWorker.deliverPushMessage', { origin, registrationId, data: JSON.stringify(push) })
+      const shown = await sw.evaluate(async ({ tag, ms }) => {
+        const w = globalThis as unknown as ApprovalWorker
+        for (let waited = 0; waited < ms; waited += 100) {
+          const [n] = await w.registration.getNotifications({ tag })
+          if (n !== undefined) return { title: n.title, actions: (n as Notification & { actions: { action: string }[] }).actions.map((a) => a.action) }
+          await new Promise((ok) => setTimeout(ok, 100))
+        }
+        return { permission: Notification.permission, shown: (await w.registration.getNotifications()).map((n) => n.tag) }
+      }, { tag: id, ms: ACTION_TIMEOUT_MS })
+      if (shown.actions === undefined) return fail(`the push for approval ${id} showed no notification (notifications ${shown.permission}; showing ${JSON.stringify(shown.shown)})`)
+      ctx.evidence.push({ note: `the push: "${shown.title}" with ${shown.actions.join(', ') || 'no actions'}` })
+      if (shown.actions.join() !== 'approve,deny') return fail(`the push for approval ${id} does not carry Approve and Deny: ${JSON.stringify(shown)}`)
+
+      // Approve, on the notification — run where the notification's click runs, in the service worker.
+      const [pages, at] = [ctx.app.context.pages().length, page.url()]
+      await sw.evaluate(async (tag) => {
+        const w = globalThis as unknown as ApprovalWorker
+        const [n] = await w.registration.getNotifications({ tag })
+        await w.decideFromNotification(n, 'approve')
+      }, id)
+      const state = (await ctx.env.lens.agentApprovals(ctx.app.user)).find((x) => x.id === id)?.status
+      ctx.evidence.push({ note: `after Approve on the push, Lens's approval ${id} is ${state ?? 'gone'}` })
+      if (state !== 'approved') return fail(`Approve on the push left the approval ${state ?? 'gone'}, not approved`)
+      if (ctx.app.context.pages().length !== pages || page.url() !== at) return fail(`Approve on the push opened the app: ${ctx.app.context.pages().map((p) => p.url()).join(', ')}`)
+      if ((await ctx.env.lens.agentLines(ctx.app.user, payer.id)).some((l) => l.kind === 'pay')) return fail('money moved on the approval alone, before the payment was sent again')
+
+      // The payment, sent again: paid once against the approval the push decided.
+      const again = await bank.pay(payer, payee, 1e6, memo)
+      ctx.evidence.push({ note: `Pay again: ${again}` })
+      const pays = (await ctx.env.lens.agentLines(ctx.app.user, payer.id)).filter((l) => l.kind === 'pay')
+      if (pays.length !== 1 || pays[0].amount_ulxc !== -1e6) return fail(`${payer.name}'s account has ${pays.length} payment line(s): ${JSON.stringify(pays)}`)
+      const used = (await ctx.env.lens.agentApprovals(ctx.app.user)).find((x) => x.id === id)?.status
+      if (used !== 'used') return fail(`the payment was sent again and the approval is ${used ?? 'gone'}, not used`)
+      return { pass: true, detail: `the push showed Approve and Deny; Approve in the service worker approved ${id} with no page opened; sent again, paid once (one pay line, the approval used)` }
+    }),
+  }
+}
+
 /**
  * B28.6 — the first screen after sign-in is the wallet home. An agent spends once, asks again above its
  * approval amount (Lens files the approval), and is given a monthly budget of four times what it spent;

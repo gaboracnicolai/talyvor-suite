@@ -117,7 +117,9 @@ class Browsers {
   }
 
   private launch(): Promise<Browser> {
-    const launched: Promise<Browser> = chromium.launch({ headless: !this.headed }).then((b) => {
+    // B28.38: the full Chromium, in its new headless mode — the headless shell refuses notifications, so
+    // the approval push could not be shown.
+    const launched: Promise<Browser> = chromium.launch({ headless: !this.headed, channel: 'chromium' }).then((b) => {
       b.on('disconnected', () => {
         if (this.closing) return
         this.incidents.push(`${stamp()} the browser went away mid-run (it crashed or was killed); the users in it errored and the rest had a new one`)
