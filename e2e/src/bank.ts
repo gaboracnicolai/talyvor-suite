@@ -1306,8 +1306,9 @@ interface ApprovalWorker {
 /**
  * B28.38 — Approve and Deny in the push notification. A payment above the approval amount is held; the
  * push Lens sends for it is delivered to the app's service worker, which must show it with Approve and
- * Deny. Approve, run in the service worker on that notification, must move Lens's approval row to
- * approved with no page opened or moved and no money moved; the payment sent again is then paid once.
+ * Deny, and (B29.14) with the app icon as its icon and badge. Approve, run in the service worker on that
+ * notification, must move Lens's approval row to approved with no page opened or moved and no money moved;
+ * the payment sent again is then paid once.
  */
 export function agentApprovalPush(seed: number): Scenario {
   return {
@@ -1354,7 +1355,7 @@ export function agentApprovalPush(seed: number): Scenario {
         const w = globalThis as unknown as ApprovalWorker
         for (let waited = 0; waited < ms; waited += 100) {
           const [n] = await w.registration.getNotifications({ tag })
-          if (n !== undefined) return { title: n.title, actions: (n as Notification & { actions: { action: string }[] }).actions.map((a) => a.action) }
+          if (n !== undefined) return { title: n.title, icon: n.icon, badge: n.badge, actions: (n as Notification & { actions: { action: string }[] }).actions.map((a) => a.action) }
           await new Promise((ok) => setTimeout(ok, 100))
         }
         return { permission: Notification.permission, shown: (await w.registration.getNotifications()).map((n) => n.tag) }
@@ -1362,6 +1363,8 @@ export function agentApprovalPush(seed: number): Scenario {
       if (shown.actions === undefined) return fail(`the push for approval ${id} showed no notification (notifications ${shown.permission}; showing ${JSON.stringify(shown.shown)})`)
       ctx.evidence.push({ note: `the push: "${shown.title}" with ${shown.actions.join(', ') || 'no actions'}` })
       if (shown.actions.join() !== 'approve,deny') return fail(`the push for approval ${id} does not carry Approve and Deny: ${JSON.stringify(shown)}`)
+      // B29.14: the push carries the Talyvor app icon, as its picture and its badge.
+      if (shown.icon !== `${origin}/icon-192.png` || shown.badge !== `${origin}/icon-192.png`) return fail(`the push for approval ${id} does not carry the app icon as icon and badge: ${JSON.stringify(shown)}`)
 
       // Approve, on the notification — run where the notification's click runs, in the service worker.
       const [pages, at] = [ctx.app.context.pages().length, page.url()]
@@ -1383,7 +1386,7 @@ export function agentApprovalPush(seed: number): Scenario {
       if (pays.length !== 1 || pays[0].amount_ulxc !== -1e6) return fail(`${payer.name}'s account has ${pays.length} payment line(s): ${JSON.stringify(pays)}`)
       const used = (await ctx.env.lens.agentApprovals(ctx.app.user)).find((x) => x.id === id)?.status
       if (used !== 'used') return fail(`the payment was sent again and the approval is ${used ?? 'gone'}, not used`)
-      return { pass: true, detail: `the push showed Approve and Deny; Approve in the service worker approved ${id} with no page opened; sent again, paid once (one pay line, the approval used)` }
+      return { pass: true, detail: `the push showed Approve and Deny and the app icon; Approve in the service worker approved ${id} with no page opened; sent again, paid once (one pay line, the approval used)` }
     }),
   }
 }

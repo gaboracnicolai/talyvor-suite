@@ -506,7 +506,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'X-User-Email',
     why: 'the screen marks YOUR row by comparing /auth/me\'s email to the roster; the claim that this header is the membership join key is the whole basis for that being a join rather than a guess',
   },
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/auth.go:729': {
+  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/auth.go:768': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'the other half of the same argument — the browser may only mark a row if /auth/me serves the SAME value the BFF forwards upstream',
@@ -531,7 +531,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'TRACK_BASE_URL',
     why: 'the same claim at the case that asserts it, so the case and the header cannot drift apart',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:50|apps/bff/auth.go:729': {
+  'apps/web/src/areas/lens/Members.test.tsx:50|apps/bff/auth.go:768': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
@@ -541,7 +541,7 @@ const PINS: Record<string, Pin> = {
     fragment: 'X-User-Email',
     why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/auth.go:729': {
+  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/auth.go:768': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'same sentence, the /auth/me half',

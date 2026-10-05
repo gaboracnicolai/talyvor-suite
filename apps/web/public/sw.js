@@ -8,6 +8,9 @@
 
 const APPROVALS_URL = '/approvals'
 
+// B29.14: every notification carries the Talyvor app icon, as its picture and as its status-bar badge.
+const ICON = '/icon-192.png'
+
 /** Shows the notification for one push from Lens: {approval_id, agent_name, amount_lxc, reason}. */
 function showApproval(d) {
   const who = d.agent_name || 'An agent'
@@ -15,6 +18,8 @@ function showApproval(d) {
   const id = d.approval_id || ''
   return self.registration.showNotification(`${who} asks you to approve ${amount}`, {
     body: d.reason || 'Open Agent Wallets to approve or deny it.',
+    icon: ICON,
+    badge: ICON,
     tag: id || 'agent-approval',
     data: { url: APPROVALS_URL, approval_id: id, who, amount },
     // Only a push naming its approval can be decided from the notification.
@@ -72,6 +77,8 @@ async function decideFromNotification(notification, action) {
   const approved = action === 'approve'
   return self.registration.showNotification(`${approved ? 'Approved' : 'Denied'}: ${data.who}, ${data.amount}`, {
     body: approved ? 'Its next identical request goes through, once.' : 'Its request will be refused.',
+    icon: ICON,
+    badge: ICON,
     tag: data.approval_id,
     data: { url },
   })

@@ -9,7 +9,7 @@ const SW = readFileSync(resolve(import.meta.dirname, '../../../public/sw.js'), '
 
 function worker(fetchStatus: number) {
   const listeners: Record<string, (e: unknown) => void> = {}
-  const shown: { title: string; options: { tag?: string; data?: unknown; actions?: { action: string }[] } }[] = []
+  const shown: { title: string; options: { tag?: string; data?: unknown; icon?: string; badge?: string; actions?: { action: string }[] } }[] = []
   const fetch = vi.fn(async () => ({ ok: fetchStatus < 300, status: fetchStatus }))
   const openWindow = vi.fn(async () => undefined)
   const self = {
@@ -57,5 +57,13 @@ describe('the approval push (B28.38)', () => {
     expect(sw.fetch).toHaveBeenCalledWith('/api/agents/approvals/apr_7/deny', expect.anything())
     expect(sw.openWindow).toHaveBeenCalledWith('/approvals')
     expect(sw.shown).toHaveLength(1)
+  })
+
+  it('B29.14 — the push and the notification after a decision carry the app icon as icon and badge', async () => {
+    const sw = worker(200)
+    await sw.push(LENS_PUSH)
+    await sw.tap('approve')
+    for (const n of sw.shown) expect(n.options).toMatchObject({ icon: '/icon-192.png', badge: '/icon-192.png' })
+    expect(sw.shown).toHaveLength(2)
   })
 })

@@ -20,6 +20,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -587,29 +588,54 @@ func (a *app) startSession(w http.ResponseWriter, r *http.Request, s session, ma
 // LEAKS NOTHING: no allowlist name, size, membership, or refusal cause. Every refusal cause —
 // not-on-list, empty list, issuer-unverified email — renders this same page, so a refused
 // stranger learns only that they were refused. The precise cause stays in the server log.
+//
+// IN THE BRAND (B29.14): Obsidian canvas, Frost text, a Surface panel, the teal rule and one teal
+// button, with the flat mark inline — the brand-v4 files themselves, embedded, never redrawn. Dark
+// is primary; a light-scheme browser gets the light tokens and the light mark.
 var deniedPageTmpl = template.Must(template.New("denied").Parse(`<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#060A12">
 <title>Access not granted — Talyvor</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: dark light;
+          --tv-canvas: #060A12; --tv-surface: #081220; --tv-line: rgba(126,147,171,.18);
+          --tv-ink: #E6EEF7; --tv-ink-muted: #7E93AB;
+          --tv-accent: #3AD6C0; --tv-accent-hover: #55DFCC; --tv-on-accent: #060A12; }
   body { margin: 0; min-height: 100vh; display: grid; place-items: center;
-         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
-         background: #fafaf9; color: #1c1917; }
-  @media (prefers-color-scheme: dark) { body { background: #131110; color: #e7e5e4; } }
-  main { max-width: 26rem; padding: 2.5rem 1.5rem; }
-  h1 { font-size: 1.25rem; margin: 0 0 1rem; letter-spacing: -0.01em; }
+         font: 15px/24px "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: var(--tv-canvas); color: var(--tv-ink); }
+  main { box-sizing: border-box; width: calc(100% - 2rem); max-width: 28rem; padding: 2rem 1.75rem;
+         background: var(--tv-surface); border: 1px solid var(--tv-line); border-radius: 10px; }
+  .mark-dark, .mark-light { width: 40px; height: 40px; margin: 0 0 1.5rem; }
+  .mark-light { display: none; }
+  .mark-dark svg, .mark-light svg { display: block; width: 40px; height: 40px; }
+  h1 { font-size: 28px; line-height: 34px; font-weight: 500; letter-spacing: -0.01em; margin: 0; }
+  .rule { width: 32px; height: 2px; background: var(--tv-accent); margin: 1rem 0 1.25rem; }
   p { margin: 0 0 0.85rem; }
-  .muted { opacity: 0.72; }
+  .muted { color: var(--tv-ink-muted); }
   strong { font-weight: 600; overflow-wrap: anywhere; }
-  a.switch { display: inline-block; margin-top: 1rem; padding: 0.55rem 1rem;
-             border: 1px solid currentColor; border-radius: 0.5rem;
-             color: inherit; text-decoration: none; font-weight: 500; }
+  a.switch { display: inline-block; margin-top: 0.75rem; padding: 10px 18px; border-radius: 6px;
+             background: var(--tv-accent); color: var(--tv-on-accent);
+             font-size: 14px; line-height: 20px; font-weight: 600; text-decoration: none; }
+  a.switch:hover { background: var(--tv-accent-hover); }
+  a.switch:focus-visible { outline: 2px solid var(--tv-accent); outline-offset: 2px; }
+  /* last, so the light scheme wins the cascade */
+  @media (prefers-color-scheme: light) {
+    :root { --tv-canvas: #F4F7FB; --tv-surface: #FFFFFF; --tv-line: rgba(6,10,18,.10);
+            --tv-ink: #060A12; --tv-ink-muted: #46586E;
+            --tv-accent: #0F7A6C; --tv-accent-hover: #0A5F54; --tv-on-accent: #FFFFFF; }
+    .mark-dark { display: none; }
+    .mark-light { display: block; }
+  }
 </style>
 <main>
+  <div class="mark-dark">{{.MarkDark}}</div>
+  <div class="mark-light">{{.MarkLight}}</div>
   <h1>Access not granted</h1>
+  <div class="rule"></div>
   {{if .Email}}<p>You are signed in as <strong>{{.Email}}</strong> — the sign-in itself worked.</p>
   {{else}}<p>Your sign-in itself worked.</p>{{end}}
   <p>This workspace has not granted you access.</p>
@@ -620,6 +646,15 @@ var deniedPageTmpl = template.Must(template.New("denied").Parse(`<!doctype html>
 </html>
 `))
 
+// The flat mark, both themes, copied byte for byte from brand-v4/svg (the same files B29.1 put in
+// apps/web/public/brand/svg). Embedded, so the page still needs no asset request.
+var (
+	//go:embed brand/talyvor-mark-flat-dark.svg
+	markFlatDark string
+	//go:embed brand/talyvor-mark-flat-light.svg
+	markFlatLight string
+)
+
 // writeDeniedPage renders the refusal. 403 stays 403 — the page is for the human, the status for
 // the tooling. No session was created and none of this response's headers may set one (the only
 // Set-Cookie a refusal carries is the pending-flow CLEAR the callback already wrote). no-store:
@@ -628,7 +663,11 @@ func writeDeniedPage(w http.ResponseWriter, email string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusForbidden)
-	if err := deniedPageTmpl.Execute(w, struct{ Email string }{Email: email}); err != nil {
+	data := struct {
+		Email               string
+		MarkDark, MarkLight template.HTML
+	}{Email: email, MarkDark: template.HTML(markFlatDark), MarkLight: template.HTML(markFlatLight)}
+	if err := deniedPageTmpl.Execute(w, data); err != nil {
 		log.Printf("bff: denied page render: %v", err)
 	}
 }

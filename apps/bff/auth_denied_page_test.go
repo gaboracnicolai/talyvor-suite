@@ -17,6 +17,7 @@ package main
 
 import (
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 )
@@ -61,6 +62,33 @@ func TestDeniedPage_StyledHTMLWithIdentityEchoInOrder(t *testing.T) {
 			t.Errorf("denied page element %q out of order", m)
 		}
 		pos = i
+	}
+}
+
+// (1b) B29.14 — the page carries the brand: none of the old stone colours, the Obsidian canvas,
+// Frost text and teal action instead, and the flat mark inline as the very brand file the web app
+// serves (apps/web/public/brand/svg), not a redrawing of it.
+func TestDeniedPage_CarriesTheBrand(t *testing.T) {
+	_, body := deniedFlow(t, "mallory@example.com", nil, nil)
+	lower := strings.ToLower(body)
+	for _, old := range []string{"#fafaf9", "#1c1917", "#131110", "#e7e5e4"} {
+		if strings.Contains(lower, old) {
+			t.Errorf("denied page still uses the old colour %s", old)
+		}
+	}
+	for _, c := range []string{"#060A12", "#E6EEF7", "#3AD6C0"} {
+		if !strings.Contains(body, c) {
+			t.Errorf("denied page lacks the brand colour %s", c)
+		}
+	}
+	for _, f := range []string{"talyvor-mark-flat-dark.svg", "talyvor-mark-flat-light.svg"} {
+		mark, err := os.ReadFile("../web/public/brand/svg/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(body, string(mark)) {
+			t.Errorf("denied page does not carry %s inline, byte for byte", f)
+		}
 	}
 }
 
