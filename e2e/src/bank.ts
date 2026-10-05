@@ -148,6 +148,19 @@ export class AgentBankScreen {
     return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
   }
 
+  /** B28.30 — asks Would it pass? whether `from`'s rules would let a payment of `ulxc` to `to` through; the card's answer. */
+  async wouldPass(from: Agent, to: Agent, ulxc: number): Promise<string> {
+    await this.fresh(from)
+    const c = card(this.page, 'Would it pass?')
+    await c.getByRole('group', { name: 'What to try' }).getByRole('button', { name: 'A payment', exact: true }).click()
+    await c.getByLabel(`Who ${from.name} would pay`).selectOption(to.id)
+    await c.getByLabel(`Amount in LXC to try for ${from.name}`).fill(lxcText(ulxc))
+    await c.getByRole('button', { name: 'Would it pass?', exact: true }).click()
+    const said = c.getByRole('status').or(c.getByRole('alert')).first()
+    await said.waitFor({ timeout: ACTION_TIMEOUT_MS })
+    return (await said.innerText()).trim()
+  }
+
   /** Issues the agent a key and reads it off the card that shows it once. */
   async issueKey(agent: Agent): Promise<string> {
     await this.fresh(agent)
@@ -967,6 +980,51 @@ export function agentPayeeDailyCap(seed: number): Scenario {
         return fail(`after one paid and one refused 0.5 LXC payment to ${payee.name}, ${payer.name} has pay line(s) ${JSON.stringify(from)} and ${payee.name} ${JSON.stringify(to)}`)
       }
       return { pass: true, detail: `${payee.name} capped at 0.5 LXC a day on the screen; the first 0.5 LXC payment posted -0.5 / +0.5 LXC, the second was refused ("${second}") and left exactly that pair` }
+    }),
+  }
+}
+
+/**
+ * B28.30 — the DONE line: the simulator says refused for an over-cap request and the postings count is unchanged.
+ * An agent funded 2 LXC with a daily limit of 1 LXC asks Would it pass? of a 1.5 LXC payment to another of the
+ * workspace's agents: Lens answers Refused, by the daily limit. Asked of 0.5 LXC it answers Allowed. Neither
+ * question adds a line to either agent's account, and the payer still holds its 2 LXC.
+ */
+export function agentRuleSimulator(seed: number): Scenario {
+  return {
+    id: 'agent-rule-simulator',
+    title: 'Would it pass? refuses a payment over the daily limit and allows one under it, and neither posts anything',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const opened: Agent[] = []
+      for (const name of [`Simulating payer ${seed}`, `Simulated payee ${seed}`]) {
+        const a = await openAgent(ctx, bank, name)
+        if (typeof a === 'string') return fail(a)
+        opened.push(a)
+      }
+      const [payer, payee] = opened
+      let err = await bank.move(payer, 2e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setLimit(payer, 'Daily limit', 1e6)
+      if (err !== undefined) return fail(`the daily limit was not saved: ${err}`)
+      const postings = async () => ({
+        [payer.name]: (await ctx.env.lens.agentLines(ctx.app.user, payer.id)).length,
+        [payee.name]: (await ctx.env.lens.agentLines(ctx.app.user, payee.id)).length,
+      })
+      const before = await postings()
+
+      const refused = await bank.wouldPass(payer, payee, 1_500_000)
+      ctx.evidence.push({ note: `Would it pass? 1.5 LXC to ${payee.name}: ${refused}` })
+      if (!/^Refused\./.test(refused) || !/daily limit/.test(refused)) return fail(`1.5 LXC over a 1 LXC daily limit was not refused by it: "${refused}"`)
+      const allowed = await bank.wouldPass(payer, payee, 500_000)
+      ctx.evidence.push({ note: `Would it pass? 0.5 LXC to ${payee.name}: ${allowed}` })
+      if (!/^Allowed\./.test(allowed)) return fail(`0.5 LXC under a 1 LXC daily limit was not allowed: "${allowed}"`)
+
+      const after = await postings()
+      const held = agentIn(await bookOf(ctx), payer.id)?.balance_ulxc
+      if (JSON.stringify(after) !== JSON.stringify(before) || held !== 2e6) {
+        return fail(`two simulations moved something: postings ${JSON.stringify(before)} → ${JSON.stringify(after)}; ${payer.name} holds ${held} µLXC of 2000000`)
+      }
+      return { pass: true, detail: `1.5 LXC refused ("${refused}") and 0.5 LXC allowed; postings unchanged at ${JSON.stringify(after)} and ${payer.name} still holds 2 LXC` }
     }),
   }
 }

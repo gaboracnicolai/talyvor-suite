@@ -90,6 +90,7 @@ var decodedFromUpstream = map[string]string{
 	"lensWorkspaceRecord":    "Lens's GET /v1/workspaces/{id} reply, decoded in lensWorkspace() (B17.2)",
 	"passkeyAssertion":       "an approval's passkey assertion, decoded wholesale from the browser's approve/deny body and relayed to Lens as it came (B19.10)",
 	"pricedPlan":             "Lens's public GET /v1/billing/plans reply, decoded in readPlans() and served on /api/pricing (B28.5)",
+	"simulatedPayee":         "a simulated payment's payee, decoded from the browser's rules/simulate body and relayed to Lens as it came (B28.30)",
 }
 
 // filledByAssignment names fields that are NOT set in a composite literal but

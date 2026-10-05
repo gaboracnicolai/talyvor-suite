@@ -52,6 +52,8 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 		case strings.HasSuffix(r.URL.Path, "/transfers/xfr_given/refund"):
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "economy: this transfer was already refunded"})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules/simulate"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"verdict": "refused", "reason": "the agent has spent 0 LXC of its daily limit of 5 LXC, and this request would cost up to 6 LXC", "amount_ulxc": 6_000_000, "balance_ulxc": 10_000_000})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/archive"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "swept_ulxc": 750_000, "revoked_keys": []string{"key_1"}})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1") && r.Method == http.MethodPatch:
@@ -381,6 +383,23 @@ func TestAgentRenameAndArchiveReachLens(t *testing.T) {
 	}
 	if !strings.HasPrefix(f.got[1], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[1], "/agents/agt_1/archive ") {
 		t.Fatalf("Lens got %q; want POST …/agents/agt_1/archive with no body", f.got[1])
+	}
+}
+
+// B28.30 — "would this pass my rules?" reaches Lens's simulator with only the request's fields (a browser's
+// workspace id goes nowhere) and answers Lens's verdict and reason.
+func TestRuleSimulationReachesLens(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/rules/simulate",
+		`{"amount_ulxc":6000000,"payee":{"kind":"agent","id":"agt_bea"},"at":"2026-10-05T09:00:00Z","workspace_id":"ws_other"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"verdict":"refused"`) || !strings.Contains(rec.Body.String(), "daily limit of 5 LXC") {
+		t.Fatalf("simulate = %d %s", rec.Code, rec.Body.String())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	want := `/agents/agt_1/rules/simulate {"amount_ulxc":6000000,"model":"","provider":"","payee":{"kind":"agent","id":"agt_bea"},"at":"2026-10-05T09:00:00Z"}`
+	if len(f.got) != 1 || !strings.HasPrefix(f.got[0], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[0], want) || strings.Contains(f.got[0], "ws_other") {
+		t.Fatalf("Lens got %q; want POST …%s", f.got, want)
 	}
 }
 

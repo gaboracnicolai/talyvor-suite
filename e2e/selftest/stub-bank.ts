@@ -899,6 +899,21 @@ export class Bank {
       else this.allPaused.delete(ws.id)
       return json(res, 200, { all_paused: rest === '/agents/pause-all' }), true
     }
+    // B28.30 — Lens B28.306's simulator: the rules' judgement of a request, with nothing posted and no approval filed.
+    if ((m = /^\/agents\/([^/]+)\/rules\/simulate$/.exec(rest)) !== null && method === 'POST') {
+      const a = this.agents.get(m[1])
+      if (a === undefined || a.ws !== ws.id) return json(res, 404, { error: 'economy: no such agent in this workspace' }), true
+      const b = await this.body<{ amount_ulxc?: number; model?: string; payee?: { kind: string; id: string } }>(req)
+      const n = b.amount_ulxc ?? 0
+      if (n < 0) return json(res, 400, { error: 'economy: the simulated request cannot be judged: amount_ulxc cannot be negative' }), true
+      const filed = this.approvals.length
+      const fingerprint = `simulated\0${randomBytes(8).toString('hex')}`
+      const refused = b.payee ? this.judge(a, n, { payment: true, payee: this.agents.get(b.payee.id), fingerprint }) : this.judge(a, n, { model: b.model, fingerprint })
+      this.approvals.splice(0, this.approvals.length - filed) // judge() files an approval first in the list; a simulation keeps none
+      const verdict = refused === undefined ? 'allowed' : /approval amount/.test(refused.error) ? 'approval_required' : 'refused'
+      const reason = refused === undefined ? '' : refused.error.replace(/^(economy: )?the agent's spending rules refuse this request: /, '')
+      return json(res, 200, { verdict, reason, amount_ulxc: n, at: now, balance_ulxc: this.balance(`agent:${a.id}`) }), true
+    }
     if ((m = /^\/agents\/([^/]+)(\/[a-z-]+)?$/.exec(rest)) !== null) {
       const a = this.agents.get(m[1])
       if (a === undefined || a.ws !== ws.id) return json(res, 404, { error: 'economy: no such agent in this workspace' }), true
