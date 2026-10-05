@@ -99,11 +99,12 @@ describe('correction 3 — the accent appears on interaction (never on text)', (
     expect(tokens.light['accent-tint']).toBe('#C9E6E0')
     expect(tokens.dark['accent-tint']).toBe('#0E2B2E')
   })
-  it('nav hover and selection are accent-tinted; the label stays ink', () => {
+  // B29.7 — the board's PRODUCT UI tile puts the selected row's label in the accent, on the tint.
+  it('nav hover and selection are accent-tinted; the selected label is accent-strong', () => {
     render(<NavItem active>Ledger</NavItem>)
     const active = screen.getByRole('button', { name: 'Ledger' })
     expect(active.className).toContain('bg-accent-tint')
-    expect(active.className).toContain('text-ink')
+    expect(active.className).toContain('text-accent-strong')
     render(<NavItem>Keys</NavItem>)
     expect(screen.getByRole('button', { name: 'Keys' }).className).toContain('hover:bg-accent-tint')
   })

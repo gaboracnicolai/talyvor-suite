@@ -20,7 +20,7 @@ const preset = {
         muted: 'var(--muted)',
         faint: 'var(--faint)',
         label: 'var(--label)',
-        accent: { DEFAULT: 'var(--accent)', hover: 'var(--accent-hover)', ink: 'var(--accent-ink)', tint: 'var(--accent-tint)' },
+        accent: { DEFAULT: 'var(--accent)', hover: 'var(--accent-hover)', ink: 'var(--accent-ink)', tint: 'var(--accent-tint)', strong: 'var(--accent-strong)' },
         lens: 'var(--lens)',
         lxc: 'var(--lxc)',
         tier1: 'var(--tier1)',
@@ -135,6 +135,8 @@ const preset = {
         page: ['clamp(1.5rem, 3vw, 38px)', { lineHeight: '1.15', letterSpacing: '-0.02em', fontWeight: '500' }],
         title: ['1.5rem', { lineHeight: '1.2', fontWeight: '640' }], // 24px at a 16px root
         head: ['1.0625rem', { lineHeight: '1.3', fontWeight: '600' }], // 17px
+        // B29.7 — the shell's top-bar title: the board's PRODUCT UI tile sets it in Space Grotesk 500.
+        bar: ['1.25rem', { lineHeight: '1.3', fontWeight: '500' }], // 20px
         body: ['0.875rem', { lineHeight: '1.45', fontWeight: '400' }], // 14px
         caption: ['0.75rem', { lineHeight: '1.35', fontWeight: '600' }], // 12px
         // the µ-tail: 12.5px, dimmed + underscored in MuNumeral (moves with the scale).

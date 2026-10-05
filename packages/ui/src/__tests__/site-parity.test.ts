@@ -62,6 +62,9 @@ const PORTED: Partial<Record<TokenName, BoardColour>> = {
   ink: 'Frost',
   muted: 'Muted',
   accent: 'Teal',
+  // B29.7 — the selected sidebar row's text. Teal in the dark theme; the light theme's value is the
+  // board's light accent-hover, because light Teal on the tint is 3.95.
+  'accent-strong': 'Teal',
 }
 
 /** Tokens that ARE the board file's themed token, light and dark: this name → the board's name. */

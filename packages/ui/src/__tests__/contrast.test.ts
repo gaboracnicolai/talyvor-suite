@@ -22,7 +22,7 @@ import { AA_BODY, TEXT_PLANES, TEXT_ROLES as PLANE_TEXT_ROLES, permits, ratio } 
  */
 
 // Text roles: words render in these, so AA body applies (4.5:1).
-const TEXT_ROLES = ['ink', 'muted', 'faint', 'label', 'accent'] as const
+const TEXT_ROLES = ['ink', 'muted', 'faint', 'label', 'accent', 'accent-strong'] as const
 // Backgrounds: the opaque planes text and affordances land on.
 const BACKGROUNDS = ['canvas', 'surface', 'sidebar'] as const
 // The card plane. Its text is scored by the plane table below, which refuses `faint` on it by

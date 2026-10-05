@@ -59,7 +59,7 @@ export function Shell({ sidebar, nav, children, className }: ShellProps) {
           if ((e.target as Element).closest('a')) setOpen(false)
         }}
       >
-        <div className="sticky top-0 max-h-screen overflow-y-auto p-2">{sidebar}</div>
+        <div className="sticky top-0 max-h-screen overflow-y-auto p-3">{sidebar}</div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <header
