@@ -83,6 +83,88 @@ export function ChoicePicker({
   )
 }
 
+/**
+ * B28.25 — the name a per-model daily cap knows a model by, as Lens reads it back (economy.modelCapKey):
+ * lower-case, without a dated snapshot's or a -latest alias's suffix.
+ */
+export const modelCapKey = (model: string) =>
+  model.trim().toLowerCase().replace(/-(\d{8}|\d{4}-\d{2}-\d{2}|latest)$/, '')
+
+/** A catalog model's display name for a model the rules name, by its id or by its cap key. */
+function modelLabel(groups: { options: Option[] }[], id: string): string {
+  const all = groups.flatMap((g) => g.options)
+  return (all.find((o) => o.value === id) ?? all.find((o) => modelCapKey(o.value) === modelCapKey(id)))?.label ?? id
+}
+
+/**
+ * B28.25 — a daily cap per model: each capped model is a row with its amount, and a select adds one more.
+ * Lens refuses a request to a capped model once the day's spend on it would pass the cap; other models
+ * are held only by the agent's other limits.
+ */
+export function ModelLimitsPicker({
+  agentName,
+  limits,
+  onChange,
+  groups,
+}: {
+  agentName: string
+  limits: [string, string][]
+  onChange: (next: [string, string][]) => void
+  groups: { label: string; options: Option[] }[]
+}) {
+  const capped = (v: string) => limits.some(([m]) => modelCapKey(m) === modelCapKey(v))
+  return (
+    <>
+      <Row
+        label="Daily limit per model"
+        hint={limits.length > 0 ? 'Lens refuses a request to a model once its day’s spend would pass its cap' : 'No model has its own cap'}
+      >
+        <select
+          aria-label={`Cap a model a day for ${agentName}`}
+          className={`${selectClass} w-48`}
+          value=""
+          onChange={(e) => {
+            if (e.target.value && !capped(e.target.value)) onChange([...limits, [e.target.value, '']])
+          }}
+        >
+          <option value="">{limits.length > 0 ? 'Cap another model…' : 'Cap a model…'}</option>
+          {groups
+            .filter((g) => g.options.length > 0)
+            .map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.options.map((o) => (
+                  <option key={o.value} value={o.value} disabled={capped(o.value)}>
+                    {o.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+        </select>
+      </Row>
+      {limits.map(([model, text]) => {
+        const name = modelLabel(groups, model)
+        return (
+          <Row key={model} label={name} hint="LXC a day; empty for no cap" className="pl-8">
+            <div className="flex items-center gap-2">
+              <Input
+                aria-label={`Daily limit on ${name} for ${agentName}, in LXC`}
+                inputMode="decimal"
+                placeholder="No limit"
+                className="w-28 font-figure"
+                value={text}
+                onChange={(e) => onChange(limits.map(([m, t]) => (m === model ? [m, e.target.value] : [m, t])))}
+              />
+              <Button type="button" aria-label={`Remove the daily limit on ${name} for ${agentName}`} onClick={() => onChange(limits.filter(([m]) => m !== model))}>
+                ×
+              </Button>
+            </div>
+          </Row>
+        )
+      })}
+    </>
+  )
+}
+
 /** Every IANA time zone the browser knows, UTC first, plus the one already saved if it is not among them. */
 function timeZones(current: string): string[] {
   const known = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
@@ -124,7 +206,7 @@ const or = (items: string[]) => new Intl.ListFormat('en', { type: 'disjunction' 
 /** The agent's saved rules, one plain sentence each. */
 export function RulesInWords({ agentName, rules }: { agentName: string; rules: AgentRules }) {
   const choices = useRuleChoices()
-  const modelName = (id: string) => choices.models.flatMap((g) => g.options).find((o) => o.value === id)?.label ?? id
+  const modelName = (id: string) => modelLabel(choices.models, id)
   const providerName = (id: string) => choices.providers.find((p) => p.value === id)?.label ?? id
   const limits: [number, string][] = (
     [
@@ -138,6 +220,7 @@ export function RulesInWords({ agentName, rules }: { agentName: string; rules: A
   const models = rules.allowed_models ?? []
   const providers = rules.allowed_providers ?? []
   const listings = rules.allowed_listings ?? []
+  const modelCaps = Object.entries(rules.model_daily_limits_ulxc ?? {}).filter(([, v]) => v > 0)
   return (
     <ul className="flex list-disc flex-col gap-1 py-3 pl-8 pr-gutter text-body text-ink" data-testid="rules-in-words">
       <li>
@@ -165,6 +248,18 @@ export function RulesInWords({ agentName, rules }: { agentName: string; rules: A
         {models.length > 0 ? `It may use only ${or(models.map(modelName))}` : 'It may use any model'}
         {providers.length > 0 ? `, from ${or(providers.map(providerName))}` : models.length > 0 ? '' : ' from any provider'}.
       </li>
+      {modelCaps.length > 0 ? (
+        <li>
+          On one model it may spend at most{' '}
+          {modelCaps.map(([model, v], i) => (
+            <span key={model}>
+              {i > 0 ? (i === modelCaps.length - 1 ? ' and ' : ', ') : null}
+              <Lxc ulxc={v} /> a day on {modelName(model)}
+            </span>
+          ))}
+          .
+        </li>
+      ) : null}
       {listings.length > 0 ? (
         <li>
           It may use only the {listings.length === 1 ? 'one marketplace listing' : `${listings.length} marketplace listings`} marked

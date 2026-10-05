@@ -115,4 +115,32 @@ describe('amounts in your own currency and plain-English rules', () => {
       expect(words.textContent).toContain('Researcher may spend at most 1 LXC ($0.10) an hour, 20 LXC ($2.00) a day and 50 LXC ($5.00) a week.'),
     )
   })
+
+  // B28.25 — a model is picked and given its own daily cap; the caps are saved as one map and stated.
+  it('caps one model a day, saves the cap by the model, and states it', async () => {
+    const { saved } = mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+
+    const pick = await screen.findByLabelText('Cap a model a day for Researcher')
+    expect(pick.tagName).toBe('SELECT')
+    await waitFor(() => expect(within(pick).getByRole('option', { name: 'GPT-4o' })).toBeTruthy())
+    fireEvent.change(pick, { target: { value: 'gpt-4o' } })
+    fireEvent.change(screen.getByLabelText('Daily limit on GPT-4o for Researcher, in LXC'), { target: { value: '0.5' } })
+    fireEvent.change(pick, { target: { value: 'claude-haiku-4-5' } })
+    fireEvent.change(screen.getByLabelText('Daily limit on Claude Haiku 4.5 for Researcher, in LXC'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0].model_daily_limits_ulxc).toEqual({ 'gpt-4o': 0.5 * M, 'claude-haiku-4-5': 2 * M })
+    const words = await screen.findByTestId('rules-in-words')
+    await waitFor(() =>
+      expect(words.textContent).toContain('On one model it may spend at most 0.5 LXC ($0.05) a day on GPT-4o and 2 LXC ($0.20) a day on Claude Haiku 4.5.'),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove the daily limit on GPT-4o for Researcher' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+    await waitFor(() => expect(saved).toHaveLength(2))
+    expect(saved[1].model_daily_limits_ulxc).toEqual({ 'claude-haiku-4-5': 2 * M })
+  })
 })

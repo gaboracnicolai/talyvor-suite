@@ -117,6 +117,11 @@ export interface AgentRules {
   /** B28.24 — spend in the week from Monday; Lens always reads it, and a save without it keeps the cap. */
   weekly_limit_ulxc?: number
   monthly_limit_ulxc: number
+  /**
+   * B28.25 — what the agent may spend on one model in a day, by the model's name; Lens reads it back
+   * lower-cased and without a dated suffix. Saved, it replaces the caps whole; a save without it keeps them.
+   */
+  model_daily_limits_ulxc?: Record<string, number>
   approval_above_ulxc: number
   allowed_models: string[] | null
   allowed_providers: string[] | null

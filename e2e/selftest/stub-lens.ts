@@ -396,7 +396,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     if (keep) ws.answers.set(key, answer)
     if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
   }
-  if (agentCall !== undefined) bank.spent(agentCall.agent, charge)
+  if (agentCall !== undefined) bank.spent(agentCall.agent, charge, model.id)
   const outTok = tokens(answer)
   const shownIn = BREAK === 'price' ? inTok * 2 : inTok
 

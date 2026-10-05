@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1337,7 +1337,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.22 — then an agent's balance in dollars and its allowed model picked, not typed.
     // B28.24 — then an hourly cap: over it, no posting; raised, one.
     case 1: list.push(agentLimit(i), walletCurrency(i), agentHourlyLimit(i)); break
-    case 2: list.push(agentPauseAll(i)); break
+    // B28.25 — then a daily cap on one model: over it, no posting; another model under its own, one.
+    case 2: list.push(agentPauseAll(i), agentModelLimit(i)); break
     // B28.21 — then an agent renamed, described and archived: one withdraw sweeps it, and its key writes no hold.
     case 3: list.push(agentApproval(i), agentArchive(i)); break
     case 4: if (i + 5 < users) list.push(companyPayment(i, i + 5)); break

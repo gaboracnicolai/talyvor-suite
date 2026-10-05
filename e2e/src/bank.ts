@@ -230,6 +230,27 @@ export class AgentBankScreen {
     return { tag, err: await outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form) }
   }
 
+  /**
+   * B28.25 — gives each model its own daily cap on the Rules card: picked from the "Cap a model a day"
+   * select (or found already capped), its amount typed, and the rules saved.
+   */
+  async setModelLimits(agent: Agent, caps: { model: string; name: string; ulxc: number }[]): Promise<string | undefined> {
+    await this.fresh(agent)
+    const picker = this.page.getByLabel(`Cap a model a day for ${agent.name}`)
+    await picker.waitFor()
+    for (const c of caps) {
+      const box = this.page.getByLabel(`Daily limit on ${c.name} for ${agent.name}, in LXC`)
+      if (!(await box.isVisible())) {
+        await picker.locator(`option[value="${c.model}"]`).waitFor({ state: 'attached' })
+        await picker.selectOption(c.model)
+      }
+      await box.fill(lxcText(c.ulxc))
+    }
+    const form = this.page.locator('form').filter({ has: picker })
+    await form.getByRole('button', { name: 'Save rules' }).click()
+    return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
+  }
+
   /** B28.22 — the Rules card's plain-English sentences for `agent`, as the screen shows them after a reload. */
   async rulesInWords(agent: Agent): Promise<string> {
     await this.fresh(agent)
@@ -515,14 +536,14 @@ export async function spendRows(ctx: ScenarioCtx): Promise<{ id: string; amount_
  * An agent asks one question with its own key. Its worst case is held against the cap first; a served
  * answer is booked, as every charged answer is, for the ledger read-back.
  */
-async function agentAsks(ctx: ScenarioCtx, key: string, prompt: string, note: string): Promise<Answered<JudgeReply>> {
+async function agentAsks(ctx: ScenarioCtx, key: string, prompt: string, note: string, modelID = ctx.env.judgeModel): Promise<Answered<JudgeReply>> {
   const { env, app } = ctx
-  const model = env.catalog.find((m) => m.id === env.judgeModel)
-  if (model === undefined) throw new Error(`the catalog has no model ${env.judgeModel}`)
+  const model = env.catalog.find((m) => m.id === modelID)
+  if (model === undefined) throw new Error(`the catalog has no model ${modelID}`)
   const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(prompt.length), AGENT_MAX_TOKENS))
   let r: Answered<JudgeReply>
   try {
-    r = await env.lens.askAsAgent(key, env.judgeProvider, env.judgeModel, prompt, AGENT_MAX_TOKENS)
+    r = await env.lens.askAsAgent(key, env.judgeProvider, modelID, prompt, AGENT_MAX_TOKENS)
   } catch (e) {
     env.cap.settle(hold, undefined)
     throw e
@@ -667,6 +688,63 @@ export function agentHourlyLimit(seed: number): Scenario {
         return fail(`under the hourly limit: ${a.name}'s account has ${late.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} new and the ledger ${charged.length} spend row(s); want one ${posted[0]?.kind ?? 'hold'} posting and one spend row`)
       }
       return { pass: true, detail: `over the hourly limit: refused (403) with no posting and no charge; under it: one ${posted[0].kind} posting (${posted[0].amount_ulxc} µLXC) and one spend row` }
+    }),
+  }
+}
+
+/**
+ * B28.25 — the DONE line: an Opus hold over its daily cap writes nothing while a Haiku hold writes one
+ * posting. Both caps are set on Agent Wallets' Rules card — a model picked, its amount typed — and Lens
+ * judges them in its hold, before the provider, so the refused model is never called. Where the catalog
+ * has no Opus beside the judge model, its dearest sibling from the same provider stands in.
+ */
+export function agentModelLimit(seed: number): Scenario {
+  const r = seeded(seed * 41 + 13)
+  return {
+    id: 'agent-model-limit',
+    title: 'a daily cap on one model, set on Agent Wallets, refuses a request to it with no posting while another model under its own cap writes one',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const { env } = ctx
+      const cheap = env.catalog.find((m) => m.id === env.judgeModel)
+      const siblings = env.catalog.filter((m) => m.provider === env.judgeProvider && m.id !== env.judgeModel && !m.deprecated)
+      const dear = siblings.find((m) => /opus/i.test(m.id)) ?? [...siblings].sort((x, y) => y.output_per_1m - x.output_per_1m)[0]
+      if (cheap === undefined || dear === undefined) throw new CannotTest(`the catalog has no second ${env.judgeProvider} model to cap beside ${env.judgeModel}`)
+      const a = await openAgent(ctx, bank, `Per model ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      let err = await bank.move(a, 1e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setModelLimits(a, [
+        { model: dear.id, name: dear.display_name, ulxc: 1 },
+        { model: cheap.id, name: cheap.display_name, ulxc: 1e6 },
+      ])
+      if (err !== undefined) return fail(`the per-model daily limits were not saved: ${err}`)
+      const stored = (await env.lens.agentRules(ctx.app.user, a.id)).model_daily_limits_ulxc ?? {}
+      ctx.evidence.push({ note: `Lens stores ${a.name}'s per-model daily limits as ${JSON.stringify(stored)}` })
+      const key = await bank.issueKey(a)
+      const { q, want } = sum(r)
+      const lines0 = await env.lens.agentLines(ctx.app.user, a.id)
+      const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const refused = await agentAsks(ctx, key, q, `${dear.id}, past its daily limit of 0.000001 LXC`, dear.id)
+      if (refused.ok) return fail(`${dear.id}'s daily limit of 0.000001 LXC let a request through: "${refused.value.text}"`)
+      if (refused.status !== 403 || !/daily limit .* for the model/.test(refused.error)) {
+        return fail(`${dear.id} was refused, but not by its daily limit: ${refused.status} ${refused.error}`)
+      }
+      const lines1 = await env.lens.agentLines(ctx.app.user, a.id)
+      const early = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id))
+      const charged0 = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
+      if (early.length > 0 || charged0.length > 0) {
+        return fail(`${dear.id} was refused by its daily limit, yet it wrote ${early.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} on ${a.name}'s account and ${charged0.length} spend row(s) on the ledger`)
+      }
+      const served = await agentAsks(ctx, key, q, `${cheap.id}, under its daily limit of 1 LXC`)
+      if (!served.ok) return fail(`${cheap.id}, under its own daily limit, was refused: ${served.status} ${served.error}`)
+      if (!statesNumber(served.value.text, want)) return fail(`answered wrong: expected ${want}, got "${served.value.text}"`)
+      const late = (await env.lens.agentLines(ctx.app.user, a.id)).filter((l) => !lines1.some((o) => o.entry_id === l.entry_id))
+      const posted = late.filter(requestLine)
+      const charged = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
+      if (posted.length !== 1 || charged.length !== 1) {
+        return fail(`${cheap.id} under its daily limit: ${a.name}'s account has ${late.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} new and the ledger ${charged.length} spend row(s); want one ${posted[0]?.kind ?? 'hold'} posting and one spend row`)
+      }
+      return { pass: true, detail: `${dear.id} over its daily limit: refused (403) with no posting and no charge; ${cheap.id} under its own: one ${posted[0].kind} posting (${posted[0].amount_ulxc} µLXC) and one spend row` }
     }),
   }
 }

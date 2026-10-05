@@ -9,7 +9,7 @@ import { CATALOG_KEY } from '../marketplace/parts'
 import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
 import { AgentCardPanel } from './AgentCardPanel'
 import { CurrencyPicker, Lxc } from './money'
-import { ChoicePicker, RulesInWords, TimePicker, TimeZonePicker, useRuleChoices } from './rulePickers'
+import { ChoicePicker, ModelLimitsPicker, RulesInWords, TimePicker, TimeZonePicker, useRuleChoices } from './rulePickers'
 import { AgentAddress, AgentTransfers, CreditLinePanel, Loans, MoneyRequests, OfferLoan, RecurringTransfer, SendAndRequest } from './WalletMoney'
 import { CashOutCard, CashOuts, Escrows, PayIntoEscrow, Portfolios, Pots } from './WalletHoldings'
 import {
@@ -775,6 +775,10 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
     approval_above_ulxc: limitText(rules.approval_above_ulxc),
   }))
   const [models, setModels] = useState<string[]>(rules.allowed_models ?? [])
+  // B28.25 — each capped model with its amount as typed; saved, they replace Lens's caps whole.
+  const [modelLimits, setModelLimits] = useState<[string, string][]>(() =>
+    Object.entries(rules.model_daily_limits_ulxc ?? {}).map(([m, v]) => [m, limitText(v)]),
+  )
   const [providers, setProviders] = useState<string[]>(rules.allowed_providers ?? [])
   const choices = useRuleChoices()
   const [listings, setListings] = useState<string[]>(rules.allowed_listings ?? [])
@@ -782,7 +786,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
   const [from, setFrom] = useState(rules.active_from)
   const [until, setUntil] = useState(rules.active_until)
   const [timezone, setTimezone] = useState(rules.timezone)
-  const bad = LIMITS.some(([f]) => limits[f].trim() !== '' && parseLXC(limits[f]) === null)
+  const bad = [...LIMITS.map(([f]) => limits[f]), ...modelLimits.map(([, t]) => t)].some((t) => t.trim() !== '' && parseLXC(t) === null)
   const save = useMutation({
     mutationFn: () =>
       agentBankApi.setRules(agent.id, {
@@ -792,6 +796,9 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         weekly_limit_ulxc: parseLXC(limits.weekly_limit_ulxc) ?? 0,
         monthly_limit_ulxc: parseLXC(limits.monthly_limit_ulxc) ?? 0,
         approval_above_ulxc: parseLXC(limits.approval_above_ulxc) ?? 0,
+        model_daily_limits_ulxc: Object.fromEntries(
+          modelLimits.map(([m, t]) => [m, parseLXC(t) ?? 0] as const).filter(([, v]) => v > 0),
+        ),
         allowed_models: models,
         allowed_providers: providers,
         allowed_listings: listings,
@@ -830,6 +837,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         anyText="Any model"
         hint={choices.failed ? 'The model list could not be read just now; the models already chosen are kept.' : undefined}
       />
+      <ModelLimitsPicker agentName={agent.name} limits={modelLimits} onChange={setModelLimits} groups={choices.models} />
       <ChoicePicker
         label="Allowed providers"
         agentName={agent.name}
