@@ -191,5 +191,6 @@ describe('Agent Bank', () => {
     expect(screen.queryByRole('alert')).toBeNull()
     await waitFor(() => expect(screen.getByTestId('agent-balance-agt_2')).toHaveTextContent('7 LXC'))
     expect(screen.getByTestId('agent-balance-agt_1')).toHaveTextContent('3 LXC')
-  })
+    // A long walk: on CI it took 3.9–4.5 s of the default 5 s before B28.24 added two limits to the form.
+  }, 15_000)
 })
