@@ -72,7 +72,7 @@ import { tokens, type TokenName } from './tokens'
 export const AA_BODY = 4.5
 
 /** The roles words render in. `accent-ink` is the label ON the accent fill, not a body role. */
-export const TEXT_ROLES = ['ink', 'muted', 'faint', 'accent', 'accent-ink'] as const
+export const TEXT_ROLES = ['ink', 'muted', 'faint', 'label', 'accent', 'accent-ink'] as const
 export type TextRole = (typeof TEXT_ROLES)[number]
 
 /**
@@ -84,12 +84,17 @@ export type TextRole = (typeof TEXT_ROLES)[number]
  *
  * ⚠ `accent-tint` PERMITS TWO ROLES, and the two it refuses are refused BY MEASUREMENT (3.97 and
  * 3.95, both under 4.5). The product's own fix for the one place that declared a refused pair is
- * in NavItem.tsx — see its icon.
+ * in NavItem.tsx — see its icon. `label` is refused there too: 4.05 light.
+ *
+ * ⚠ `raised` REFUSES `faint`, BY MEASUREMENT: 4.25 dark. The card plane is lighter than the
+ * surface it sits on, which eats the margin `faint` was lifted to clear on canvas and surface.
+ * A figure's µ-tail on a card wears `muted`.
  */
 export const ROLES_ON_PLANE = {
-  canvas: ['ink', 'muted', 'faint', 'accent'],
-  surface: ['ink', 'muted', 'faint', 'accent'],
-  sidebar: ['ink', 'muted', 'faint', 'accent'],
+  canvas: ['ink', 'muted', 'faint', 'label', 'accent'],
+  surface: ['ink', 'muted', 'faint', 'label', 'accent'],
+  raised: ['ink', 'muted', 'label', 'accent'],
+  sidebar: ['ink', 'muted', 'faint', 'label', 'accent'],
   'accent-tint': ['ink', 'muted'],
   accent: ['accent-ink'],
   'accent-hover': ['accent-ink'],

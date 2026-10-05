@@ -252,14 +252,11 @@ const EXTRACT_SHAPE = /\bgrep -[A-Za-z]*o[A-Za-z]*\b/
  * documented arrival case and nothing in either repository can see it. Comparing the captured list
  * is the only shape that can.
  *
- * ⚠ THE ONE `grep -o` COMMAND THIS RULE DOES NOT REACH IS EXCLUDED DELIBERATELY, AND NOT BY BEING
- * OVERLOOKED. The palette entry pipes `curl` through `grep -o` and PRINTS nine values for a
- * deployer to compare against packages/ui site-parity.test.ts. A previous session measured what
- * fail-closing it would cost — the nine values written down a THIRD time, which that file's own
- * header exists to warn against — and left it a human read on purpose. It reads a third-party
- * origin rather than a file in a checkout, which is the line drawn here: a command that extracts
- * from a FILE has a source of truth to be compared against, and one that extracts from a live
- * origin does not.
+ * ⚠ A `grep -o` COMMAND THAT READS A LIVE ORIGIN THROUGH `curl` IS EXCLUDED, AND NONE REMAINS. The
+ * line drawn here: a command that extracts from a FILE has a source of truth to be compared against,
+ * and one that extracts from a live origin does not. The one such entry was the palette premise,
+ * which read talyvor.higgsfield.app's stylesheet; since B29.2 it reads the brand board's token file
+ * and compares what it extracts, so it is an extraction like any other.
  */
 /**
  * ⚠ THE EXPECTED LITERAL MAY BE SINGLE-QUOTED, AND IT HAD TO BECOME SO RATHER THAN THE COMMAND
@@ -563,10 +560,10 @@ describe('R11 — a struct-mirror entry says the declaration is still the wire',
  * the thing this register hands a deployer to run before a deploy.
  *
  * The rule is population completeness, not a fourth dialect: an entry outside every family is
- * an entry nothing here polices, and nothing said so. The curl palette entry is the ONE
+ * an entry nothing here polices, and nothing said so. A curl (live-origin) entry is the ONE
  * deliberate exclusion, recognised by its command rather than by name, and the second assertion
- * pins that it is still exactly one — a rule whose escape hatch quietly widens is the same
- * defect one level up.
+ * pins how many there are — none since B29.2 — because a rule whose escape hatch quietly widens
+ * is the same defect one level up.
  */
 describe('R10 — no settle command falls outside every rule in this file', () => {
   const CURL = ENTRIES.filter((e) => /\bcurl\b/.test(codeOf(e.command)))
@@ -596,14 +593,14 @@ describe('R10 — no settle command falls outside every rule in this file', () =
     ).toEqual([])
   })
 
-  it('keeps the deliberate exclusion at exactly one, and it is the palette entry', () => {
+  it('keeps the deliberate exclusion at zero — the palette entry reads a file since B29.2', () => {
     expect(
       CURL.length,
       'the curl exclusion covers a command that reads a LIVE ORIGIN rather than a file in a ' +
-        'checkout, which is the line drawn for it higher up this file. A second one means ' +
+        'checkout, which is the line drawn for it higher up this file. One appearing means ' +
         'either a new live-origin premise (say so here) or an entry that has quietly escaped ' +
         'every rule through the one door left open.',
-    ).toBe(1)
+    ).toBe(0)
   })
 })
 
@@ -659,9 +656,9 @@ const declaredSubjects = (where: string): { repo: string | null; paths: string[]
 }
 
 /**
- * The palette entry declares "talyvor.higgsfield.app — a third-party deployment, not a
- * repository", which is prose ON PURPOSE and is excluded here for the same reason it is excluded
- * from EXTRACT: it reads a live origin, not a file in a checkout. Recognised by the absence of a
+ * The palette entry declares "brand-v4/tokens/tokens.json in ~/talyvor-queue — the brand package,
+ * not a repository", which is prose ON PURPOSE and is excluded here: it names a file outside every
+ * checkout, so there is no repo-relative subject to police. Recognised by the absence of a
  * repo-shaped first token rather than by name, so a second such entry is covered without an edit.
  */
 const WITH_SUBJECTS = ENTRIES.map((e) => ({ entry: e, ...declaredSubjects(e.where) })).filter(

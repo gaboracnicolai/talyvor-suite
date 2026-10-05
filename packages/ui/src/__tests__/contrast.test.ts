@@ -22,9 +22,12 @@ import { AA_BODY, TEXT_PLANES, TEXT_ROLES as PLANE_TEXT_ROLES, permits, ratio } 
  */
 
 // Text roles: words render in these, so AA body applies (4.5:1).
-const TEXT_ROLES = ['ink', 'muted', 'faint', 'accent'] as const
+const TEXT_ROLES = ['ink', 'muted', 'faint', 'label', 'accent'] as const
 // Backgrounds: the opaque planes text and affordances land on.
 const BACKGROUNDS = ['canvas', 'surface', 'sidebar'] as const
+// The card plane. Its text is scored by the plane table below, which refuses `faint` on it by
+// measurement; its affordances are scored here with the backgrounds.
+const CARD_PLANES = ['raised'] as const
 // Affordance roles: dots, 2px ticks, 4px bars, pills — non-text, so the 3:1 UI floor.
 const AFFORDANCE_ROLES = ['lens', 'lxc', 'tier1', 'tier3', 'settled', 'held', 'slashed'] as const
 // Ink that lands ON the accent fill (the primary button label). Scored against the fill.
@@ -73,6 +76,7 @@ describe('the classification is total', () => {
   const classified = [
     ...TEXT_ROLES,
     ...BACKGROUNDS,
+    ...CARD_PLANES,
     ...AFFORDANCE_ROLES,
     ...ON_ACCENT,
     ...ACCENT_STATES,
@@ -112,7 +116,7 @@ for (const theme of ['light', 'dark'] as const) {
 
   describe(`${theme}: affordances meet the 3:1 non-text floor`, () => {
     for (const role of AFFORDANCE_ROLES) {
-      for (const bg of BACKGROUNDS) {
+      for (const bg of [...BACKGROUNDS, ...CARD_PLANES]) {
         it(`${role} on ${bg}`, () => {
           const r = contrastRatio(t[role], t[bg])
           expect(r, `${role} (${t[role]}) on ${bg} (${t[bg]}) = ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(3)
@@ -177,8 +181,8 @@ describe('the tint is a plane, so every role is asked about it', () => {
     expect(phantom, `plane names a non-token: ${phantom.join(', ')}`).toEqual([])
   })
 
-  it('every background the matrix scores is also a classified plane', () => {
-    const missing = BACKGROUNDS.filter((b) => !(TEXT_PLANES as string[]).includes(b))
+  it('every background the matrix scores, and the card plane, is also a classified plane', () => {
+    const missing = [...BACKGROUNDS, ...CARD_PLANES].filter((b) => !(TEXT_PLANES as string[]).includes(b))
     expect(missing, `background(s) absent from ROLES_ON_PLANE: ${missing.join(', ')}`).toEqual([])
   })
 

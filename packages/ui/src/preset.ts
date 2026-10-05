@@ -13,11 +13,13 @@ const preset = {
       colors: {
         canvas: 'var(--canvas)',
         surface: 'var(--surface)',
+        raised: 'var(--raised)',
         sidebar: 'var(--sidebar)',
         rule: { DEFAULT: 'var(--rule)', strong: 'var(--rule-strong)' },
         ink: 'var(--ink)',
         muted: 'var(--muted)',
         faint: 'var(--faint)',
+        label: 'var(--label)',
         accent: { DEFAULT: 'var(--accent)', hover: 'var(--accent-hover)', ink: 'var(--accent-ink)', tint: 'var(--accent-tint)' },
         lens: 'var(--lens)',
         lxc: 'var(--lxc)',
