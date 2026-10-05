@@ -366,6 +366,56 @@ export function blankThenRetry(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.348 — Lens's refusals as B28.82 sends them (`{"error", "code"}`), each with the sentence and the remedy
+ * the chat must show for it. Only credit is fixed by topping up, and nothing Lens refused is "not configured".
+ */
+const REFUSALS: { code: string; status: number; text: RegExp; remedy?: { link: string } | { button: string } }[] = [
+  { code: 'spending_cap', status: 402, text: /monthly spending cap/ },
+  { code: 'budget_exceeded', status: 402, text: /spending limit on this workspace, team or sprint is used up/, remedy: { link: '/features' } },
+  { code: 'allowance_exhausted', status: 402, text: /plan allowance is used up/, remedy: { link: '/billing' } },
+  { code: 'session_limit', status: 402, text: /This chat has spent the most one chat may/, remedy: { button: 'Start a new chat' } },
+  { code: 'guardrail_blocked', status: 400, text: /guardrails blocked that message/, remedy: { link: '/features' } },
+  { code: 'provider_overloaded', status: 503, text: /provider is overloaded/ },
+  { code: 'workspace_rate_limited', status: 429, text: /its own rate limit/ },
+]
+
+export function refusalsReadAsThemselves(seed: number): Scenario {
+  return {
+    id: 'refusal-reasons',
+    title: 'each of Lens’s refusals — cap, budget, allowance, session limit, guardrail, overloaded, rate limit — shows its own text and remedy',
+    run: async (ctx) => {
+      const { app } = ctx
+      const seen = new Set<string>()
+      for (const r of REFUSALS) {
+        await app.newChat()
+        const alert = await app.askRefused(`Refusal check ${r.code} (tester ${seed})`, r.status, JSON.stringify({ error: 'refused', code: r.code }))
+        const said = (await alert.innerText()).trim()
+        ctx.evidence.push({ note: `Lens refused with ${r.status} ${r.code}, made up in the browser`, answer: said })
+        if (!r.text.test(said)) return { pass: false, detail: `${r.code}: expected ${r.text}, the screen said "${said}"` }
+        if (r.code !== 'allowance_exhausted' && /top up/i.test(said)) return { pass: false, detail: `${r.code} told the person to top up: "${said}"` }
+        if (/not configured/i.test(said)) return { pass: false, detail: `${r.code} read as "not configured": "${said}"` }
+        if (r.remedy !== undefined && 'link' in r.remedy) {
+          const href = await alert.getByRole('link').first().getAttribute('href').catch(() => null)
+          if (href !== r.remedy.link) return { pass: false, detail: `${r.code}: the remedy linked ${href ?? 'nowhere'}, not ${r.remedy.link}` }
+        }
+        if (r.remedy !== undefined && 'button' in r.remedy) {
+          await alert.getByRole('button', { name: r.remedy.button, exact: true }).click()
+          try {
+            await app.page.locator('[data-testid="turn-user"]').first().waitFor({ state: 'detached', timeout: 10_000 })
+          } catch {
+            return { pass: false, detail: `${r.code}: "${r.remedy.button}" did not start a new chat` }
+          }
+        }
+        seen.add(said)
+      }
+      return seen.size === REFUSALS.length
+        ? { pass: true, detail: `${REFUSALS.length} refusals, ${seen.size} different sentences, each with its remedy` }
+        : { pass: false, detail: `${REFUSALS.length} refusals read as only ${seen.size} different sentences` }
+    },
+  }
+}
+
 export function sidebarStaysHidden(): Scenario {
   return {
     id: 'sidebar-stays-hidden',
@@ -731,7 +781,7 @@ export function injectionBlocked(seed: number): Scenario {
         const before = await spendRows(ctx)
         const t = await ask(ctx, q, 'detection on')
         const after = await spendRows(ctx)
-        if (!refusedBy(t, /refused \(4\d\d\)/)) return { pass: false, detail: `the injection was not refused: ${describe(t)}` }
+        if (!refusedBy(t, /guardrails blocked that message/)) return { pass: false, detail: `the injection was not refused: ${describe(t)}` }
         if (after !== before) return { pass: false, detail: `refused, but the ledger gained ${after - before} spend row(s)` }
         return { pass: true, detail: 'refused' }
       })
@@ -889,7 +939,7 @@ async function pastTheLimit(ctx: ScenarioCtx, f: FeaturesScreen, r: () => number
     const before = await spendRows(ctx)
     const t = await ask(ctx, q, `past the limit, try ${i + 1}`)
     if (t.error !== undefined) {
-      if (!/cannot cover/.test(t.error)) return { pass: false, detail: `refused, but not by the limit: ${t.error}` }
+      if (!/spending limit .* is used up/.test(t.error)) return { pass: false, detail: `refused, but not by the limit: ${t.error}` }
       const after = await spendRows(ctx)
       if (after !== before) return { pass: false, detail: `refused, but the ledger gained ${after - before} spend row(s)` }
       refused = t
@@ -1379,7 +1429,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     case 6: list.push(sidebarStaysHidden(), blankThenRetry(i)); break
-    case 7: list.push(streamsProgressively()); break
+    // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
+    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
     case 8: list.push(socialPreview(), walletDocs()); break
     case 9: list.push(walletHero(), honestPages(), pricingTruth(), plansIncludedUsage()); break
   }

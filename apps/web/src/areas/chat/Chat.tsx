@@ -12,6 +12,7 @@ import {
   type ChatModel,
   type DistillSaved,
   type PickerCatalog,
+  type Refusal,
   fetchModels,
   fetchUnconfiguredProviders,
   markAnswerWrong,
@@ -154,7 +155,7 @@ export function Chat() {
   // B26.20 — a question sent before its documents are up: it goes the moment they are.
   const [waiting, setWaiting] = useState(false)
   const [pending, setPending] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [failure, setFailure] = useState<Refusal | null>(null)
   const [unreadable, setUnreadable] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -332,9 +333,9 @@ export function Chat() {
             setPending(false)
             setUnreadable(unrecognised)
           },
-          onError: (message) => {
+          onError: (message, remedy) => {
             setPending(false)
-            setFailure(message)
+            setFailure({ text: message, remedy })
           },
         },
         controller.signal,
@@ -622,8 +623,13 @@ export function Chat() {
 
             {failure !== null ? (
               <p className="mb-4 text-body text-ink" role="alert">
-                {failure}{' '}
-                {failure.includes('Top up') ? <Link className={inlineLink} to="/billing">Billing</Link> : null}
+                {failure.text}{' '}
+                {/* B28.348 — each refusal's own remedy: the screen that fixes it, or a fresh chat. */}
+                {failure.remedy === undefined ? null : 'to' in failure.remedy ? (
+                  <Link className={inlineLink} to={failure.remedy.to}>{failure.remedy.label}</Link>
+                ) : (
+                  <Button onClick={() => open(undefined)}>{failure.remedy.label}</Button>
+                )}
               </p>
             ) : null}
 

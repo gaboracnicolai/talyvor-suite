@@ -338,6 +338,26 @@ export class AppUser {
     return turn
   }
 
+  /**
+   * B28.348 — asks `question` and has it refused with `status` and Lens's JSON `body`, made up in the app
+   * server's place: a spending cap, a used-up budget, a chat at its limit, which no test workspace reaches
+   * on demand. The request never leaves the browser, so it costs nothing. Returns the refusal line.
+   */
+  async askRefused(question: string, status: number, body: string): Promise<Locator> {
+    const stream = '**/api/ai/stream/**'
+    const alert = this.page.locator('ol ~ p[role="alert"]')
+    await this.page.route(stream, (route) => route.fulfill({ status, contentType: 'application/json', body }), { times: 1 })
+    try {
+      await this.page.locator('#chat-message').fill(question)
+      await this.page.locator('#chat-message').press('Enter')
+      await alert.waitFor({ state: 'visible', timeout: ANSWER_TIMEOUT_MS })
+    } finally {
+      await this.page.unroute(stream).catch(() => undefined)
+    }
+    this.conversationChars += question.length
+    return alert
+  }
+
   /** B28.81 — presses Retry on a blank last answer — the model is asked afresh — and reads the new answer. */
   async retry(question: string): Promise<Turn> {
     const hold = this.reserve(0)

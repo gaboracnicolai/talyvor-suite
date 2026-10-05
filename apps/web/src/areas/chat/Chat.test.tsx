@@ -51,6 +51,7 @@ function mockChat({
   catalog = CATALOG,
   catalogStatus = 200,
   streamStatus = 200,
+  refusedWith = 'refused',
   sessionCheckFails = 0,
   body,
   bodies,
@@ -63,6 +64,8 @@ function mockChat({
   catalog?: unknown
   catalogStatus?: number
   streamStatus?: number
+  /** B28.348 — the body Lens refuses with when streamStatus is not 200. */
+  refusedWith?: string
   /** B27.5 — how many turns Lens answers 503 auth_unavailable (it could not check the session) first. */
   sessionCheckFails?: number
   body?: BodyInit | null
@@ -133,7 +136,7 @@ function mockChat({
           headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
         })
       }
-      if (streamStatus !== 200) return new Response('refused', { status: streamStatus })
+      if (streamStatus !== 200) return new Response(refusedWith, { status: streamStatus })
       const optedIn = new Headers(init?.headers).get('X-Talyvor-Distill') === 'true'
       return new Response(bodies?.[posted.mock.calls.length - 1 - sessionCheckFails] ?? body ?? '', {
         status: 200,
@@ -480,6 +483,18 @@ describe('failures are stated, never swallowed', () => {
     expect(alert.textContent).toMatch(/cannot cover the estimated cost/i)
     // The screen that fixes it is linked, not merely named.
     expect(screen.getByRole('link', { name: 'Billing' }).getAttribute('href')).toBe('/billing')
+  })
+
+  it('B28.348 — a chat at its spending limit says so and offers a new chat, not a top-up', async () => {
+    mockChat({ streamStatus: 402, refusedWith: JSON.stringify({ error: 'refused', code: 'session_limit' }) })
+    renderChat()
+    await ask('one more')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/This chat has spent the most one chat may/)
+    expect(alert.textContent).not.toMatch(/top up/i)
+    fireEvent.click(within(alert).getByRole('button', { name: 'Start a new chat' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(screen.queryByTestId('turn-user')).toBeNull()
   })
 
   it('B27.5 — a session Lens could not check is retried quietly, not signed out', async () => {
