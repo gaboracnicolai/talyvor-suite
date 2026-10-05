@@ -13,6 +13,7 @@ import type { ReportedRun } from './report.ts'
 /** Where a scenario's failure is looked for first: the repo that does the work it checks. */
 const OWNER: Record<string, string> = {
   'sidebar-stays-hidden': 'talyvor-suite',
+  'console-screens-draw': 'talyvor-suite',
   streaming: 'talyvor-suite',
   'features-switches': 'talyvor-suite',
   'track-export': 'talyvor-suite',

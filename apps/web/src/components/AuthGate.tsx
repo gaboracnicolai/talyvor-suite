@@ -28,14 +28,50 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       navigate('/', { replace: true })
     }
   }, [newWorkspace, navigate])
+  const signedOut = q.data?.mode === 'oidc' && !q.data.authenticated
+  useEffect(() => {
+    if (q.data === undefined) return
+    rememberSession(!signedOut)
+  }, [q.data, signedOut])
   if (q.isLoading) {
-    // One quiet beat while the probe answers; no spinner theatre for ~20ms.
-    return null
+    // B28.266 — never a blank page while the probe answers. It returned null here, and on the live
+    // app a cold load of /keys, /members, /setup or /earnings measured 0 characters of text at the
+    // load event: the 1.2 MB bundle had run, the probe had not answered. A browser that was signed
+    // in last time draws the screen now, so its headings and its own reads start beside the probe;
+    // the probe still decides, and a dead session swaps to the sign-in card when it answers.
+    if (hadSession()) return <>{children}</>
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-canvas px-gutter">
+        <p className="text-body text-muted">Checking your session…</p>
+      </main>
+    )
   }
-  if (q.data && q.data.mode === 'oidc' && !q.data.authenticated) {
+  if (signedOut) {
     return <SignedOut />
   }
   return <>{children}</>
+}
+
+// Whether this browser was signed in when the probe last answered. A hint for what to draw while
+// the next probe is in flight, never a credential: the session is the BFF's cookie, and every read
+// the screen makes is refused server-side without it.
+const SESSION_HINT = 'talyvor.had-session'
+
+function hadSession(): boolean {
+  try {
+    return localStorage.getItem(SESSION_HINT) === '1'
+  } catch {
+    return false
+  }
+}
+
+function rememberSession(on: boolean) {
+  try {
+    if (on) localStorage.setItem(SESSION_HINT, '1')
+    else localStorage.removeItem(SESSION_HINT)
+  } catch {
+    // Storage refused (private mode, quota): the next cold load shows the wait line instead.
+  }
 }
 
 function SignedOut() {

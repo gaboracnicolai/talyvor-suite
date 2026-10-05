@@ -82,7 +82,7 @@ function KeyRow({ k }: { k: WorkspaceAPIKey }) {
 
   return (
     <>
-      <Row label={k.name} hint={`${k.scopes.join(', ')} · created ${formatWhen(k.created_at)}`}>
+      <Row stack label={k.name} hint={keyFacts(k)}>
         <span className="font-mono text-caption text-muted">{k.key_prefix}</span>
         {!confirming ? (
           // The accessible name carries the identifier, so the control names WHICH key it destroys
@@ -139,6 +139,16 @@ function KeyRow({ k }: { k: WorkspaceAPIKey }) {
       ) : null}
     </>
   )
+}
+
+// B28.266 — what tells one key from another: three keys minted a minute apart read identically as
+// "proxy · created Oct 4, 03:29". Lens stamps last_used_at on every key check it passes, so whether a
+// key is in use is the fact a reader revoking one most needs; expiry is drawn only when one is set.
+function keyFacts(k: WorkspaceAPIKey): string {
+  const facts = [k.scopes.join(', '), `created ${formatWhen(k.created_at)}`]
+  facts.push(k.last_used_at ? `last used ${formatWhen(k.last_used_at)}` : 'never used')
+  if (k.expires_at) facts.push(`expires ${formatWhen(k.expires_at)}`)
+  return facts.join(' · ')
 }
 
 // The three headlines. Written out together so the screen's one page-scale claim is readable in
@@ -199,6 +209,7 @@ export function Keys() {
     mutationFn: () => keysApi.mint(name.trim(), ['proxy']),
     onSuccess: (result) => {
       setMinted(result) // held in local state only; rendered once
+      setName('') // B28.266 — the name went with the key; the next one starts empty
       // The list refetches NOW, not on dismiss: a reveal left open used to hold "The keys that
       // exist" on Loading… (B26.23). The row comes back BY PREFIX — no credential in it.
       void qc.invalidateQueries({ queryKey: ['keys'] })
@@ -292,6 +303,7 @@ export function Keys() {
         <Card raised>
           <CardHeader>New key</CardHeader>
           <Row
+            stack
             label="Create a key"
             hint="Minted server-side with the proxy scope; the key is shown once, then only its identifier remains"
           >
@@ -350,9 +362,12 @@ export function Keys() {
             ) : list.isError ? (
               <PanelFailure error={list.error} what="your keys" />
             ) : keys.length === 0 ? (
-              // Reachable only in the moment between a mint and its refetch (started by the mint's
-              // onSuccess), where `minted` holds the reveal open over a list not yet re-served.
-              <div className="px-gutter py-3 text-body text-muted">Loading…</div>
+              // Reached between a mint and its refetch, where `minted` holds the reveal open over a
+              // list not yet re-served. B28.266 — it said "Loading…" after that refetch had answered
+              // too, so a list served empty read to every explorer as one stuck loading.
+              <div className="px-gutter py-3 text-body text-muted">
+                {list.isFetching ? 'Loading…' : 'Lens lists no keys for this workspace yet.'}
+              </div>
             ) : (
               keys.map((k) => <KeyRow key={k.id} k={k} />)
             )}
