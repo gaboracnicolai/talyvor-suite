@@ -35,23 +35,23 @@ export function SplitShortfall({
         <p>
           {floor ? 'At least ' : ''}
           <MuNumeral micros={unattributed} unit="lxc" className="align-baseline" /> of the total
-          above is in no row of this split: those charges record no model, and a bucket named
-          &ldquo;unknown&rdquo; would present absence of provenance as one. The{' '}
+          above is not broken down by model, because those charges did not record which model
+          they were for; each one is listed in the{' '}
           <Link className={inlineLink} to="/ledger">
-            ledger
-          </Link>{' '}
-          has the rows.
+            Ledger
+          </Link>
+          .
         </p>
       ) : null}
       {notShown > 0 ? (
         <p>
           {floor ? 'At least ' : ''}
-          <MuNumeral micros={notShown} unit="lxc" className="align-baseline" /> more is attributed
-          to models outside the {shownCount} shown here. The{' '}
+          <MuNumeral micros={notShown} unit="lxc" className="align-baseline" /> more went to
+          models other than the {shownCount} shown here; every charge is listed in the{' '}
           <Link className={inlineLink} to="/ledger">
-            ledger
-          </Link>{' '}
-          has every row.
+            Ledger
+          </Link>
+          .
         </p>
       ) : null}
     </div>

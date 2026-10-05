@@ -357,8 +357,8 @@ export interface AuthMe {
   operator?: boolean
 }
 
-/** GET /api/spend/month — Lens spend/current-month. A float upstream, so the
- *  UI dresses it as derived (≈), never as a numeral. */
+/** GET /api/spend/month — Lens spend/current-month. Lens sends a float, so the
+ *  UI marks it ≈, never as a numeral. */
 export interface MonthSpend {
   current_month_usd: number
 }

@@ -205,7 +205,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
 
         <Card>
           <CardHeader>Spent — LXC</CardHeader>
-          <Row label="Provider spend, month to date" hint="Lens spend/current-month — a float upstream, so it dresses as derived">
+          <Row label="This month, in US dollars" hint="roughly what your AI calls have cost since the 1st">
             {month.isLoading ? (
               <span className="text-body text-muted">Loading…</span>
             ) : month.isError || !month.data ? (
