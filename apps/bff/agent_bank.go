@@ -200,9 +200,12 @@ func (a *app) handleAgentRules(w http.ResponseWriter, r *http.Request, t tenant)
 		// B28.25 — a daily cap per model, keyed by the model as the agent asks for it. Absent (null) keeps
 		// the caps Lens holds; sent, it replaces them whole, so a model left out has no cap.
 		ModelDailyLimitsULXC map[string]int64 `json:"model_daily_limits_ulxc"`
-		ApprovalAboveULXC    int64            `json:"approval_above_ulxc"`
-		AllowedModels        []string         `json:"allowed_models"`
-		AllowedProviders     []string         `json:"allowed_providers"`
+		// B28.26 — the questions the agent may ask in any sixty seconds. Absent (null) keeps the cap Lens
+		// holds; zero clears it.
+		RequestsPerMinute *int64   `json:"requests_per_minute"`
+		ApprovalAboveULXC int64    `json:"approval_above_ulxc"`
+		AllowedModels     []string `json:"allowed_models"`
+		AllowedProviders  []string `json:"allowed_providers"`
 		// B19.19 — the marketplace listings the agent may use; empty allows any. Absent (null) keeps
 		// what Lens holds, so a client that does not send it cannot clear it.
 		AllowedListings []string `json:"allowed_listings"`

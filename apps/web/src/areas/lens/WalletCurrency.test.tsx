@@ -143,4 +143,23 @@ describe('amounts in your own currency and plain-English rules', () => {
     await waitFor(() => expect(saved).toHaveLength(2))
     expect(saved[1].model_daily_limits_ulxc).toEqual({ 'claude-haiku-4-5': 2 * M })
   })
+
+  // B28.26 — the owner caps the agent's requests a minute: a whole number, saved and stated.
+  it('saves a cap on requests a minute and states it', async () => {
+    const { saved } = mockBff()
+    window.history.pushState({}, '', '/agents')
+    render(<App />)
+
+    const rate = await screen.findByLabelText('Requests per minute for Researcher')
+    fireEvent.change(rate, { target: { value: '6.5' } })
+    expect(screen.getByText('Requests per minute is a whole number, or empty.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save rules' })).toHaveProperty('disabled', true)
+    fireEvent.change(rate, { target: { value: '60' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save rules' }))
+
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(saved[0].requests_per_minute).toBe(60)
+    const words = await screen.findByTestId('rules-in-words')
+    await waitFor(() => expect(words.textContent).toContain('It may make at most 60 requests a minute.'))
+  })
 })

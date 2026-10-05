@@ -248,6 +248,8 @@ export interface AgentRulesRead {
   monthly_limit_ulxc: number
   approval_above_ulxc: number
   model_daily_limits_ulxc?: Record<string, number>
+  /** B28.26 — the requests the agent may make in any sixty seconds; zero is no cap. */
+  requests_per_minute?: number
   allowed_models: string[] | null
   allowed_providers: string[] | null
   allowed_listings?: string[] | null

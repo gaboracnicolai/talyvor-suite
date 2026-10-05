@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentRuleTemplate, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentRequestRate, agentRuleTemplate, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1343,7 +1343,11 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.305 — then an agent created from a rule template: Lens holds exactly the template's rules.
     // B28.38 — then a payment approved from its push notification, with the app not opened.
     case 3: list.push(agentApproval(i), agentArchive(i), agentRuleTemplate(i), agentApprovalPush(i)); break
-    case 4: if (i + 5 < users) list.push(companyPayment(i, i + 5)); break
+    // B28.26 — first, 61 requests in a minute under a 60-a-minute rule: the 61st writes no hold.
+    case 4:
+      list.push(agentRequestRate(i))
+      if (i + 5 < users) list.push(companyPayment(i, i + 5))
+      break
     case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3)); break
     // B28.20 — then one agent funded 100 times at once: Lens's stored balance agrees with its postings.
     case 6: list.push(statementReconciles(i), agentBalanceStored(i)); break

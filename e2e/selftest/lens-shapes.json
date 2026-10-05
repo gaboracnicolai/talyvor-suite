@@ -414,6 +414,7 @@
     "weekly_limit_ulxc": "number",
     "monthly_limit_ulxc": "number",
     "model_daily_limits_ulxc": {},
+    "requests_per_minute": "number",
     "approval_above_ulxc": "number",
     "allowed_models": [],
     "allowed_providers": [],
