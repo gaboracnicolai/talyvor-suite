@@ -1913,6 +1913,47 @@ export function spendPlainWords(): Scenario {
   }
 }
 
+/** B28.270 — what the two pages Stripe returns to say when no checkout is coming back, and what neither may say. */
+const RETURN_PAGES = [
+  { path: '/billing/success', heading: 'No payment to confirm here.' },
+  { path: '/billing/cancel', heading: 'No payment was taken.' },
+] as const
+const RETURN_CONTRADICTIONS = [/payment went through/i, /applied either way/i, /purchase entry/i]
+
+/**
+ * B28.270 — /billing/success opened without a checkout (no session_id) says there is no payment to
+ * confirm, and /billing/cancel says no payment was taken; neither claims a payment went through,
+ * that a credit is "applied either way", or sends anyone to look for a purchase entry. Neither spends.
+ */
+export function billingReturnPages(): Scenario {
+  return {
+    id: 'billing-return-pages',
+    title: '/billing/success with no checkout says "No payment to confirm here." and /billing/cancel says "No payment was taken."',
+    run: async (ctx) => {
+      const seen: string[] = []
+      for (const { path, heading } of RETURN_PAGES) {
+        const page = await ctx.app.tab(path)
+        try {
+          const shown = await page.getByRole('heading', { level: 2, name: heading, exact: true })
+            .waitFor({ timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+          if (!shown) {
+            const said = (await page.locator('main h2').first().innerText({ timeout: 1_000 }).catch(() => '')).trim()
+            return fail(`${path} does not head itself "${heading}"${said !== '' ? ` (it says "${said}")` : ''}`)
+          }
+          const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ')
+          const wrong = RETURN_CONTRADICTIONS.filter((w) => w.test(text))
+          if (wrong.length > 0) return fail(`${path} still says ${wrong.map(String).join(', ')}`)
+          seen.push(`${path}: "${heading}"`)
+        } finally {
+          await page.close()
+        }
+      }
+      ctx.evidence.push({ note: seen.join('; ') })
+      return { pass: true, detail: `neither return page claims a payment it did not see — ${seen.join('; ')}` }
+    },
+  }
+}
+
 /** B28.20 — fundings sent at once, through Lens as the owner; its per-workspace limit (100 a second) is waited out. */
 const MANY_FUNDINGS = 100
 const FUNDING_WORKERS = 5

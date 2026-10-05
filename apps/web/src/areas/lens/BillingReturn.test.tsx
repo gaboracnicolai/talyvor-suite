@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BillingCancel, BillingSuccess } from './BillingReturn'
 import { PENDING_TOPUP_KEY } from './topupApi'
+import { PENDING_PLAN_KEY } from './planApi'
 
 // /billing/success and /billing/cancel — the URLs Lens ALREADY redirects Stripe
 // back to (LENS_BILLING_SUCCESS_URL defaults to
@@ -155,6 +156,38 @@ describe('BillingSuccess — it polls, it does not assert', () => {
     expect(screen.queryByText(/added to your balance/i)).not.toBeInTheDocument()
   })
 
+  it('B28.270 — a return with no record heads itself as unconfirmed and points at Top up and Plans, not a purchase row', async () => {
+    mockBalance(0)
+    renderSuccess()
+
+    const heading = await screen.findByRole('heading', { level: 2, name: 'We can’t confirm this payment from this browser.' })
+    expect(heading).toBeInTheDocument()
+    expect(screen.queryByText(/payment went through/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/purchase/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'See plans' })).toHaveAttribute('href', '/plans')
+  })
+
+  it('B28.270 — opened with no session_id it says there is no payment to confirm, and reads nothing', async () => {
+    stashPending()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    renderSuccess('/billing/success')
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'No payment to confirm here.' })).toBeInTheDocument()
+    expect(screen.queryByText(/payment went through|recorded at Stripe|confirming/i)).not.toBeInTheDocument()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    // The marker is the real return's baseline; a stray visit must not spend it.
+    expect(window.sessionStorage.getItem(PENDING_TOPUP_KEY)).not.toBeNull()
+  })
+
+  it('B28.270 — an expired session says it cannot confirm the credit, never that it is applied either way', async () => {
+    stashPending()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 401 }))
+    renderSuccess()
+
+    expect(await screen.findByText(/can’t read your balance to confirm the credit/i)).toBeInTheDocument()
+    expect(screen.queryByText(/either way/i)).not.toBeInTheDocument()
+  })
+
   it('treats a stale recorded balance as absent instead of comparing against an old figure', async () => {
     window.sessionStorage.setItem(
       PENDING_TOPUP_KEY,
@@ -194,6 +227,17 @@ describe('BillingCancel', () => {
       </MemoryRouter>,
     )
     expect(window.sessionStorage.getItem(PENDING_TOPUP_KEY)).toBeNull()
+  })
+
+  it('B28.270 — says no payment was taken, and clears an abandoned plan checkout too', () => {
+    window.sessionStorage.setItem(PENDING_PLAN_KEY, JSON.stringify({ plan: 'pro', at: Date.now() }))
+    render(
+      <MemoryRouter initialEntries={['/billing/cancel']}>
+        <BillingCancel />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('heading', { level: 2, name: 'No payment was taken.' })).toBeInTheDocument()
+    expect(window.sessionStorage.getItem(PENDING_PLAN_KEY)).toBeNull()
   })
 })
 

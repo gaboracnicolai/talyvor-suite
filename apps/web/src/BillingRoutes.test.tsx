@@ -61,7 +61,8 @@ afterEach(() => {
 describe('the billing routes Lens already redirects to', () => {
   it('resolves /billing/success — the exact path in LENS_BILLING_SUCCESS_URL', async () => {
     at('/billing/success?session_id=cs_test_a1b2c3')
-    expect(await screen.findByText(/your payment went through/i)).toBeInTheDocument()
+    // B28.270 — this browser started no checkout, so the page claims no payment.
+    expect(await screen.findByRole('heading', { name: 'We can’t confirm this payment from this browser.' })).toBeInTheDocument()
     // And it carries the session id Stripe appended, as the support reference.
     expect(await screen.findByText(/cs_test_a1b2c3/)).toBeInTheDocument()
   })

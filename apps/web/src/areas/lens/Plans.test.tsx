@@ -48,11 +48,11 @@ function serve(allowance: unknown, { sharing = true, pooled = 9 } = {}) {
   return fetchSpy
 }
 
-function renderIn(node: React.ReactElement) {
+function renderIn(node: React.ReactElement, url = '/') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>{node}</MemoryRouter>
+      <MemoryRouter initialEntries={[url]}>{node}</MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -131,7 +131,7 @@ describe('the plan checkout’s return (B13.3)', () => {
         ? json({ capability: 'subscriptions', enabled: true, data: granted ? { ...SUBSCRIBED, allowance: { ...PERIOD, fee_usd_cents: 20000 } } : UNSUBSCRIBED })
         : new Response('null', { status: 404 }),
     )
-    renderIn(<BillingSuccess pollIntervalMs={5} timeoutMs={2000} />)
+    renderIn(<BillingSuccess pollIntervalMs={5} timeoutMs={2000} />, '/billing/success?session_id=cs_test_plan')
 
     expect(await screen.findByRole('heading', { name: 'Confirming your Max plan.' })).toBeInTheDocument()
     granted = true
