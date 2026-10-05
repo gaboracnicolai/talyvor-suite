@@ -205,6 +205,37 @@ describe('the format, and the brand it ends in', () => {
     expect(png.subarray(1, 4).toString('latin1')).toBe('PNG')
     expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1200, 630])
   })
+
+  it('ships the brand icons the tab, the Home Screen and an install name (B29.1)', () => {
+    const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
+    const link = (rel: string, href: string) => new RegExp(`<link rel="${rel}" href="${href}"`).test(html)
+    expect(link('icon', '/favicon.ico')).toBe(true)
+    expect(link('icon', '/favicon.svg')).toBe(true)
+    expect(link('apple-touch-icon', '/apple-touch-icon.png')).toBe(true)
+    expect(/<meta name="theme-color" content="#060A12"/.test(html)).toBe(true)
+
+    const pub = (name: string) => readFileSync(resolve(__dirname, '../public', name))
+    // An .ico starts 00 00 01 00; served as anything else, the tab shows a blank page icon.
+    expect([...pub('favicon.ico').subarray(0, 4)]).toEqual([0, 0, 1, 0])
+    expect(pub('favicon.svg').toString('utf8')).toContain('<svg')
+    const side = (name: string) => [pub(name).readUInt32BE(16), pub(name).readUInt32BE(20)]
+    expect(side('apple-touch-icon.png')).toEqual([180, 180])
+
+    const manifest = JSON.parse(pub('manifest.webmanifest').toString('utf8'))
+    expect(manifest.name).toBe('Talyvor')
+    expect(manifest.background_color).toBe('#060A12')
+    expect(manifest.theme_color).toBe('#060A12')
+    expect(manifest.icons).toEqual([
+      { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ])
+    // Each icon the manifest names is in the build, at the size it claims.
+    for (const icon of manifest.icons as { src: string; sizes: string }[]) {
+      const n = Number(icon.sizes.split('x')[0])
+      expect(side(icon.src.slice(1)), icon.src).toEqual([n, n])
+    }
+  })
 })
 
 describe('every console address names itself to the browser', () => {

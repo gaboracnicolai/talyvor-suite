@@ -6,6 +6,12 @@
     <!-- B19.10: installable, so an iPhone can take approval pushes once it is on the Home Screen. -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- B29.1: the brand-v4 icons, copied as drawn. The .ico first so a browser that cannot read
+         the SVG still has the mark; the SVG wins where it can. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#060A12" />
     <title>Talyvor — wallets for AI agents</title>
     <!-- B28.1: what a search result and a shared link show. One static set for every address: this
          is a single-page app, so a crawler reads these bytes and never runs the script. -->

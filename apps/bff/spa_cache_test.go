@@ -203,3 +203,28 @@ func indexOf(h, n string) int {
 	}
 	return -1
 }
+
+// TestBrandIconsAreServedAsThemselves — B29.1. The tab icon and the install manifest are files in
+// the bundle, answered with their own types, not index.html.
+func TestBrandIconsAreServedAsThemselves(t *testing.T) {
+	a := newBundleApp(t)
+	ico := []byte{0, 0, 1, 0, 1, 0}
+	if err := os.WriteFile(filepath.Join(a.cfg.webDist, "favicon.ico"), ico, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(a.cfg.webDist, "manifest.webmanifest"), []byte(`{"name":"Talyvor"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ path, wantType, wantBody string }{
+		{"/favicon.ico", "image/x-icon", string(ico)},
+		{"/manifest.webmanifest", "application/manifest+json", `"name":"Talyvor"`},
+	} {
+		rec := get(t, a, tc.path)
+		if rec.Code != http.StatusOK || !contains(rec.Body.String(), tc.wantBody) {
+			t.Fatalf("%s: status %d body %q, want the file", tc.path, rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != tc.wantType {
+			t.Errorf("%s: Content-Type %q, want %q", tc.path, ct, tc.wantType)
+		}
+	}
+}
