@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { Button } from '../components/Button'
@@ -5,6 +7,7 @@ import { Input } from '../components/Input'
 import { Mark } from '../components/Mark'
 import { MuNumeral } from '../components/MuNumeral'
 import { NavItem } from '../components/NavItem'
+import { Wordmark } from '../components/Wordmark'
 import preset from '../preset'
 import { tokens } from '../tokens'
 
@@ -149,16 +152,59 @@ describe('button-fit — a fixed-height control must never let its label wrap', 
   })
 })
 
-describe('correction 4 — the mark', () => {
-  it('renders a rounded tile holding a partially-filled hairline (the hold indicator abstracted)', () => {
+describe('correction 4 — the mark and the wordmark', () => {
+  // B29.3: the brand-v4 vectors replace the CSS tile (a hairline track, 62.5% accent) and the
+  // name typed in a font. Each is checked against the brand file B29.1 shipped in the web app,
+  // so a redrawn or recoloured logo fails here: the paths must be the file's, and in each theme
+  // the fills must resolve to that theme's file.
+  const svgDir = resolve(import.meta.dirname, '../../../../apps/web/public/brand/svg')
+  const css = readFileSync(resolve(import.meta.dirname, '../theme.css'), 'utf8')
+  const brandPaths = (file: string) =>
+    [...readFileSync(resolve(svgDir, file), 'utf8').matchAll(/<path fill="([^"]+)" d="([^"]+)"/g)].map((m) => ({
+      fill: m[1],
+      d: m[2],
+    }))
+  // The logo's colours: the two theme.css blocks that declare --wordmark, keyed by their selector.
+  const logoBlocks = [...css.matchAll(/([^{}]*)\{([^{}]*--wordmark[^{}]*)\}/g)]
+  expect(logoBlocks).toHaveLength(2)
+  const logoVars = (theme: string) => {
+    const block = logoBlocks.find((m) => m[1].includes(`[data-theme='${theme}']`))![2]
+    return Object.fromEntries([...block.matchAll(/--([\w-]+)\s*:\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]))
+  }
+  const themes = { dark: logoVars('dark'), light: logoVars('light') }
+  const resolveFill = (el: Element, vars: Record<string, string>) =>
+    vars[(el as SVGElement).style.fill.match(/^var\(--([\w-]+)\)$/)![1]]
+
+  it('the mark is the flat mark file, path for path, in each theme its own file’s colours', () => {
     render(<Mark />)
-    const mark = screen.getByRole('img', { name: /talyvor/i })
-    // The tile: rounded, hairline-bordered, themed surface.
-    expect(mark.className).toContain('rounded-control')
-    expect(mark.className).toContain('border-rule')
-    // The fill: accent, partial — the one place the accent lives permanently.
-    const fill = mark.querySelector('[data-fill]')!
-    expect(fill.className).toContain('bg-accent')
-    expect((fill as HTMLElement).style.width).toBe('62.5%')
+    const mark = screen.getByRole('img', { name: 'Talyvor' })
+    expect(mark.tagName.toLowerCase()).toBe('svg')
+    expect(mark.querySelector('[data-fill]'), 'the CSS tile is gone').toBeNull()
+    const drawn = [...mark.querySelectorAll('path')]
+    for (const [theme, file] of [
+      ['dark', 'talyvor-mark-flat-dark.svg'],
+      ['light', 'talyvor-mark-flat-light.svg'],
+    ] as const) {
+      const brand = brandPaths(file)
+      expect(brand).toHaveLength(5)
+      expect(drawn.map((p) => p.getAttribute('d'))).toEqual(brand.map((p) => p.d))
+      expect(drawn.map((p) => resolveFill(p, themes[theme])), theme).toEqual(brand.map((p) => p.fill))
+    }
+  })
+
+  it('the wordmark is drawn, not typed: the wordmark file’s path, white in dark and obsidian in light', () => {
+    render(<Wordmark />)
+    const wordmark = screen.getByRole('img', { name: 'Talyvor' })
+    expect(wordmark.tagName.toLowerCase()).toBe('svg')
+    expect(wordmark.textContent, 'no live-text TALYVOR').toBe('')
+    const [drawn] = wordmark.querySelectorAll('path')
+    for (const [theme, file] of [
+      ['dark', 'talyvor-wordmark-white.svg'],
+      ['light', 'talyvor-wordmark-obsidian.svg'],
+    ] as const) {
+      const [brand] = brandPaths(file)
+      expect(drawn.getAttribute('d')).toBe(brand.d)
+      expect(resolveFill(drawn, themes[theme]), theme).toBe(brand.fill)
+    }
   })
 })

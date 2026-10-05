@@ -11,7 +11,7 @@ import {
   useLocation,
   useNavigationType,
 } from 'react-router-dom'
-import { Mark, NavItem, Shell, ThemeToggle, cn, focusRing, inlineLink } from '@talyvor/ui'
+import { Mark, NavItem, Shell, ThemeToggle, Wordmark, cn, focusRing, inlineLink } from '@talyvor/ui'
 import { AuthGate, SessionChip } from './components/AuthGate'
 import { useDocumentTitle } from './documentTitle'
 import { ApiError, UnreadableError } from './lib/api'
@@ -342,14 +342,14 @@ function Sidebar() {
   )
   return (
     <nav className="flex flex-col gap-4 pb-2" aria-label="Sections">
-      {/* The corner carries a MARK, not only text: the hold indicator abstracted
-          (rounded hairline tile, accent fill) beside the wordmark, both themes free
-          via tokens. */}
+      {/* The corner carries the brand-v4 mark and wordmark, both drawn SVG and themed by
+          tokens. The mark is decorative beside the wordmark, which names the product once;
+          the product label under it stays text, as an eyebrow. */}
       <div className="flex items-center gap-2.5 px-3 pb-1 pt-2">
-        <Mark size={26} />
+        <Mark size={26} aria-hidden />
         <div className="min-w-0">
-          <div className="text-head leading-tight text-ink">Talyvor</div>
-          <div className="text-caption font-normal leading-tight text-faint">Suite</div>
+          <Wordmark height={12} />
+          <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Suite</div>
         </div>
         <button
           type="button"

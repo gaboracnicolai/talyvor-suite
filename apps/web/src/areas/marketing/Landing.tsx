@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, CaseSafe, ThemeToggle, focusRing, inlineLink } from '@talyvor/ui'
+import { Button, CaseSafe, Mark, ThemeToggle, Wordmark, focusRing, inlineLink } from '@talyvor/ui'
 import { useSignupProbe } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
 import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, micro } from './economics'
@@ -208,9 +208,12 @@ export function Landing() {
             wrap it reads 320. Zero-pixel while it fits: a row-gap applies only BETWEEN wrapped
             lines, and the header measured 63.29px high with and without at the default root. */}
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-gutter py-3">
-          <div>
-            <div className="text-head text-ink">Talyvor</div>
-            <div className="text-caption font-normal text-faint">Agent Wallets</div>
+          <div className="flex items-center gap-2.5">
+            <Mark size={26} aria-hidden />
+            <div className="min-w-0">
+              <Wordmark height={12} />
+              <div className="mt-1 text-eyebrow uppercase leading-tight text-label">Agent Wallets</div>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <a href="/pricing" className={`text-body text-muted ${inlineLink}`}>
