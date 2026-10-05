@@ -229,6 +229,23 @@ func TestAgentRulesCarryThePayeeLists(t *testing.T) {
 	}
 }
 
+// B28.28 — the per-payee daily caps reach Lens with the other rules; a save that does not name them sends null, which
+// Lens reads as "keep the caps it holds", never as "no caps".
+func TestAgentRulesCarryThePayeeDailyCaps(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"payee_daily_limits_ulxc":{"agt_2":500000}}`)
+	doJSON(a, http.MethodPut, "/api/agents/agt_1/rules", `{"daily_limit_ulxc":5000000}`)
+	if len(f.got) != 2 {
+		t.Fatalf("Lens received %d requests, want 2: %q", len(f.got), f.got)
+	}
+	if !strings.Contains(f.got[0], `"payee_daily_limits_ulxc":{"agt_2":500000}`) {
+		t.Fatalf("Lens received %q, want the payee's daily cap", f.got[0])
+	}
+	if !strings.Contains(f.got[1], `"payee_daily_limits_ulxc":null`) {
+		t.Fatalf("Lens received %q, want the payee caps null when the save does not name them", f.got[1])
+	}
+}
+
 // B19.20 — pausing every agent, and one, reaches Lens on the session's workspace with only the reason;
 // resuming every agent sends nothing but the request.
 func TestAgentPauseSendsOnlyTheReason(t *testing.T) {

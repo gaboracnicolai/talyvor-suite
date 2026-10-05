@@ -139,6 +139,11 @@ export interface AgentRules {
    */
   allowed_payees?: string[] | null
   blocked_payees?: string[] | null
+  /**
+   * B28.28 — what the agent may pay one payee in a day, in µLXC, keyed by the payee's id as the lists above name it.
+   * Lens refuses a payment that would take the day's total to that payee past its cap. A save without it keeps the caps.
+   */
+  payee_daily_limits_ulxc?: Record<string, number> | null
   active_from: string
   active_until: string
   timezone: string

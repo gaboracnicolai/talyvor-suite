@@ -134,6 +134,20 @@ export class AgentBankScreen {
     return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
   }
 
+  /**
+   * B28.28 — types, on the Rules card, what `agent` may pay each payee (one of the workspace's other agents) in a
+   * day, and saves its rules.
+   */
+  async setPayeeDailyCaps(agent: Agent, caps: { payee: Agent; ulxc: number }[]): Promise<string | undefined> {
+    await this.fresh(agent)
+    const save = this.page.getByRole('button', { name: 'Save rules' })
+    await save.waitFor()
+    for (const c of caps) await this.page.getByLabel(`Daily limit on payments to ${c.payee.name} from ${agent.name}, in LXC`, { exact: true }).fill(lxcText(c.ulxc))
+    const form = this.page.locator('form').filter({ has: save })
+    await save.click()
+    return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
+  }
+
   /** Issues the agent a key and reads it off the card that shows it once. */
   async issueKey(agent: Agent): Promise<string> {
     await this.fresh(agent)
@@ -914,12 +928,56 @@ export function agentPayeeLists(seed: number): Scenario {
 }
 
 /**
+ * B28.28 — the DONE line: exactly one pay posting for the pair after a second payment over the cap is refused. On
+ * Agent Wallets' Rules card the payer caps what it may pay one of the workspace's agents in a day at 0.5 LXC, and
+ * Lens holds exactly that cap. A first 0.5 LXC payment to it, from Pay another agent, posts its pair; a second
+ * would take the day past the cap, is refused by the payee's daily limit, and leaves exactly that one pair.
+ */
+export function agentPayeeDailyCap(seed: number): Scenario {
+  return {
+    id: 'agent-payee-daily-cap',
+    title: 'a second payment to one payee past its daily cap is refused and leaves exactly the first pay posting',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const opened: Agent[] = []
+      for (const name of [`Capped payer ${seed}`, `Capped payee ${seed}`]) {
+        const a = await openAgent(ctx, bank, name)
+        if (typeof a === 'string') return fail(a)
+        opened.push(a)
+      }
+      const [payer, payee] = opened
+      let err = await bank.move(payer, 2e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setPayeeDailyCaps(payer, [{ payee, ulxc: 500_000 }])
+      if (err !== undefined) return fail(`the payee's daily cap was not saved: ${err}`)
+      const stored = await ctx.env.lens.agentRules(ctx.app.user, payer.id)
+      if (JSON.stringify(stored.payee_daily_limits_ulxc) !== JSON.stringify({ [payee.id]: 500_000 })) {
+        return fail(`capped ${payee.name} at 0.5 LXC a day on the screen; Lens holds ${JSON.stringify(stored.payee_daily_limits_ulxc)}`)
+      }
+      const pays = async (a: Agent) => (await ctx.env.lens.agentLines(ctx.app.user, a.id)).filter((l) => l.kind === 'pay')
+
+      const first = await bank.pay(payer, payee, 500_000, `under the payee's cap ${seed}`)
+      ctx.evidence.push({ note: `Pay ${payee.name} 0.5 LXC: ${first}` })
+      if (!/^Paid /.test(first)) return fail(`a first 0.5 LXC payment, at the cap, was not paid: "${first}"`)
+
+      const second = await bank.pay(payer, payee, 500_000, `over the payee's cap ${seed}`)
+      ctx.evidence.push({ note: `Pay ${payee.name} 0.5 LXC again: ${second}` })
+      if (!/^Refused\./.test(second) || !/daily limit/.test(second)) return fail(`a second payment past ${payee.name}'s daily cap was not refused by it: "${second}"`)
+      const [from, to] = [await pays(payer), await pays(payee)]
+      if (from.length !== 1 || from[0].amount_ulxc !== -500_000 || to.length !== 1 || to[0].amount_ulxc !== 500_000) {
+        return fail(`after one paid and one refused 0.5 LXC payment to ${payee.name}, ${payer.name} has pay line(s) ${JSON.stringify(from)} and ${payee.name} ${JSON.stringify(to)}`)
+      }
+      return { pass: true, detail: `${payee.name} capped at 0.5 LXC a day on the screen; the first 0.5 LXC payment posted -0.5 / +0.5 LXC, the second was refused ("${second}") and left exactly that pair` }
+    }),
+  }
+}
+
+/**
  * B28.305 — the rule templates on Agent Wallets, written here from what each template sets (apps/web
  * ruleTemplates.ts), not imported, like every oracle here: every rule Lens holds, in µLXC.
  */
 const TEMPLATE_RULES: Record<'Support bot' | 'Researcher', AgentRulesRead> = (() => {
   const open = { hourly_limit_ulxc: 0, weekly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, allowed_models: [], allowed_providers: [],
-    allowed_listings: [], allowed_payees: [], blocked_payees: [], active_from: '', active_until: '', timezone: 'UTC', pause_on_unusual_spend: false }
+    allowed_listings: [], allowed_payees: [], blocked_payees: [], payee_daily_limits_ulxc: {}, active_from: '', active_until: '', timezone: 'UTC', pause_on_unusual_spend: false }
   return {
     'Support bot': { ...open, max_per_request_ulxc: 500_000, hourly_limit_ulxc: 20e6, daily_limit_ulxc: 200e6, monthly_limit_ulxc: 4000e6,
       approval_above_ulxc: 5e6, pause_on_unusual_spend: true },
@@ -933,6 +991,7 @@ function rulesDiffer(got: AgentRulesRead, want: AgentRulesRead): string[] {
   const norm = (r: AgentRulesRead) => ({ ...r, hourly_limit_ulxc: r.hourly_limit_ulxc ?? 0, weekly_limit_ulxc: r.weekly_limit_ulxc ?? 0,
     model_daily_limits_ulxc: r.model_daily_limits_ulxc ?? {}, requests_per_minute: r.requests_per_minute ?? 0, allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [],
     allowed_listings: r.allowed_listings ?? [], allowed_payees: r.allowed_payees ?? [], blocked_payees: r.blocked_payees ?? [],
+    payee_daily_limits_ulxc: r.payee_daily_limits_ulxc ?? {},
     pause_on_unusual_spend: r.pause_on_unusual_spend ?? false })
   const g = norm(got) as Record<string, unknown>
   const w = norm(want) as Record<string, unknown>

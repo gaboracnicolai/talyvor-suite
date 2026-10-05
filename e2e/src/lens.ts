@@ -256,6 +256,8 @@ export interface AgentRulesRead {
   /** B28.27 — who the agent may pay and who it may not, by payee id. */
   allowed_payees?: string[] | null
   blocked_payees?: string[] | null
+  /** B28.28 — what the agent may pay one payee in a day, in µLXC, by the payee's id. */
+  payee_daily_limits_ulxc?: Record<string, number> | null
   active_from: string
   active_until: string
   timezone: string

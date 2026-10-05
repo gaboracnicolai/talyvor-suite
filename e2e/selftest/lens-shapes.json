@@ -421,6 +421,7 @@
     "allowed_listings": [],
     "allowed_payees": [],
     "blocked_payees": [],
+    "payee_daily_limits_ulxc": {},
     "active_from": "string",
     "active_until": "string",
     "timezone": "string",

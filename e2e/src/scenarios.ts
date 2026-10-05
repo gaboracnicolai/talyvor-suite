@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeLists, agentRequestRate, agentRuleTemplate, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleTemplate, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { everyScreen, lensReads } from './tour.ts'
@@ -1364,7 +1364,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 1: list.push(agentLimit(i), walletCurrency(i), agentHourlyLimit(i)); break
     // B28.25 — then a daily cap on one model: over it, no posting; another model under its own, one.
     // B28.27 — then a payee blocked and another allowed: no pay posting to the one, its pair to the other.
-    case 2: list.push(agentPauseAll(i), agentModelLimit(i), agentPayeeLists(i)); break
+    // B28.28 — then one payee capped a day: the payment at the cap posts its pair, the next is refused and posts nothing.
+    case 2: list.push(agentPauseAll(i), agentModelLimit(i), agentPayeeLists(i), agentPayeeDailyCap(i)); break
     // B28.21 — then an agent renamed, described and archived: one withdraw sweeps it, and its key writes no hold.
     // B28.305 — then an agent created from a rule template: Lens holds exactly the template's rules.
     // B28.38 — then a payment approved from its push notification, with the app not opened.
