@@ -316,6 +316,21 @@ export class TrackScreen {
     await this.page.getByRole('link', { name: title, exact: true }).waitFor()
   }
 
+  /**
+   * B28.444 — types a title key by key and presses Enter, never the button, as a person filing in a hurry
+   * does. How many rows the list then shows under that title (0 when none came within the timeout), and
+   * what the title field holds once one does.
+   */
+  async createWithEnter(title: string): Promise<{ listed: number; field: string }> {
+    const field = this.page.locator('#new-issue-title')
+    await field.pressSequentially(title)
+    await field.press('Enter')
+    const row = this.page.getByRole('link', { name: title, exact: true })
+    const shown = await row.first().waitFor({ timeout: SAVE_TIMEOUT_MS }).then(() => true, () => false)
+    if (shown) await this.page.waitForFunction(() => (document.getElementById('new-issue-title') as HTMLInputElement | null)?.value === '', undefined, { timeout: 2_000 }).catch(() => {})
+    return { listed: shown ? await row.count() : 0, field: await field.inputValue() }
+  }
+
   async openIssue(title: string): Promise<void> {
     await this.page.getByRole('link', { name: title, exact: true }).click()
     await this.page.locator('#new-comment').waitFor()
