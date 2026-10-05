@@ -9,6 +9,8 @@
 //
 // Neither spends: no screen is submitted, and a read costs nothing.
 
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Page } from 'playwright'
 import { type Entry, Matcher, cannotTest } from './coverage.ts'
 import type { Scenario, ScenarioCtx } from './scenarios.ts'
@@ -346,6 +348,122 @@ export function walletBrand(): Scenario {
       return wrong.length === 0
         ? { pass: true, detail: `all ${WALLET_SCREENS.length} wallet screens in the brand: ${seenAll.join(' | ')}` }
         : { pass: false, detail: wrong.join('; '), where: WALLET_SCREENS.map((w) => w.path) }
+    },
+  }
+}
+
+/**
+ * B29.10 — Chat in the brand, as the browser paints it in the dark theme: the composer on the raised plane
+ * edged in line-strong with the teal Send, the model picker in spaced caps of IBM Plex Mono in the label
+ * colour, the newest reply in Space Grotesk 15/24 with its numbers and price line in IBM Plex Mono, and the
+ * wallet lines under a spend answer on the raised card. Opens the newest conversation in a tab of its own,
+ * asking one question first if there is none, and photographs it at 1440 and 390.
+ */
+export const CHAT_VIEWPORTS = [[1440, 900], [390, 844]] as const
+
+export function chatBrand(): Scenario {
+  return {
+    id: 'chat-brand',
+    title: 'Chat in the brand: the composer on raised with the teal Send, the picker in eyebrow caps, replies at 15/24 with mono figures',
+    run: async (ctx) => {
+      if ((await ctx.app.page.locator('[data-testid="turn-assistant"]').count()) === 0) {
+        const t = await ctx.app.ask('What is 12 + 30? Reply with the number only.')
+        if (t.error !== undefined) return { pass: false, detail: `no reply to read: the question was refused: ${t.error}`, where: ['/chat'] }
+      }
+      const { dir, link } = ctx.env.shots
+      await mkdir(dir, { recursive: true })
+      const page = await ctx.app.tab('/chat')
+      const wrong: string[] = []
+      try {
+        await page.locator('[data-testid="turn-reply"]').last().waitFor({ timeout: HEADING_TIMEOUT_MS })
+        await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'))
+        await page.waitForTimeout(400)
+        for (const [width, height] of CHAT_VIEWPORTS) {
+          await page.setViewportSize({ width, height })
+          await page.waitForTimeout(200)
+          const seen = await page.evaluate(() => {
+            // The token as this theme computes it, so a value is compared in the browser's own spelling.
+            const token = (prop: 'backgroundColor' | 'borderTopColor' | 'color', v: string) => {
+              const probe = document.createElement('div')
+              probe.style.setProperty(prop === 'borderTopColor' ? 'border-top-color' : prop === 'color' ? 'color' : 'background-color', `var(${v})`)
+              document.body.appendChild(probe)
+              const got = getComputedStyle(probe)[prop]
+              probe.remove()
+              return got
+            }
+            const want = { raised: token('backgroundColor', '--raised'), strong: token('borderTopColor', '--rule-strong'), teal: token('backgroundColor', '--accent'), label: token('color', '--label') }
+            const form = document.getElementById('chat-message')?.closest('form')
+            if (!form) return null
+            const f = getComputedStyle(form)
+            const send = form.querySelector('button[type="submit"]')
+            const picker = form.querySelector('button[aria-haspopup="listbox"]')
+            const p = picker ? getComputedStyle(picker) : null
+            const replies = document.querySelectorAll('[data-testid="turn-reply"]')
+            const reply = replies[replies.length - 1]
+            const r = reply ? getComputedStyle(reply) : null
+            const turn = reply?.closest('[data-testid="turn-assistant"]')
+            const figures = reply ? Array.from(reply.querySelectorAll('span.font-figure')).map((s) => getComputedStyle(s).fontFamily) : []
+            // A number standing on its own, in prose rather than code, that is not on the figure face.
+            const bare: string[] = []
+            if (reply) {
+              const walker = document.createTreeWalker(reply, NodeFilter.SHOW_TEXT)
+              for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+                if (n.parentElement?.closest('code, pre, .font-figure')) continue
+                const m = /(?<![\p{L}\p{N}_])[$£€]?\p{N}(?:[\p{N},.]*\p{N})?%?(?![\p{L}\p{N}_])/u.exec(n.textContent ?? '')
+                if (m) bare.push(m[0])
+              }
+            }
+            const cost = turn?.querySelector('[data-testid="turn-cost"]')
+            const lines = turn?.querySelector('[data-testid="turn-statement-lines"]')
+            return {
+              want,
+              composer: { bg: f.backgroundColor, border: f.borderTopColor },
+              send: send ? getComputedStyle(send).backgroundColor : null,
+              picker: p ? { transform: p.textTransform, family: p.fontFamily, color: p.color } : null,
+              reply: r ? { size: r.fontSize, leading: r.lineHeight, family: r.fontFamily } : null,
+              figures,
+              bare,
+              cost: cost ? getComputedStyle(cost).fontFamily : null,
+              lines: lines?.parentElement ? getComputedStyle(lines.parentElement).backgroundColor : null,
+              scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            }
+          })
+          const file = `chat-${width}-dark.jpg`
+          await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
+          if (seen === null) {
+            wrong.push(`${width}: /chat has no composer`)
+            continue
+          }
+          const at = `${width}`
+          if (seen.composer.bg !== seen.want.raised) wrong.push(`${at}: the composer is on ${seen.composer.bg}, not raised ${seen.want.raised}`)
+          if (seen.composer.border !== seen.want.strong) wrong.push(`${at}: the composer is edged ${seen.composer.border}, not line-strong ${seen.want.strong}`)
+          if (seen.send !== seen.want.teal) wrong.push(`${at}: Send is ${seen.send ?? 'missing'}, not teal ${seen.want.teal}`)
+          if (seen.picker === null) wrong.push(`${at}: no model picker in the composer`)
+          else if (seen.picker.transform !== 'uppercase' || !seen.picker.family.includes('IBM Plex Mono') || seen.picker.color !== seen.want.label)
+            wrong.push(`${at}: the model picker is ${seen.picker.transform} ${seen.picker.family} in ${seen.picker.color}, not eyebrow caps of IBM Plex Mono in ${seen.want.label}`)
+          if (seen.reply === null) wrong.push(`${at}: no reply on screen`)
+          else {
+            if (seen.reply.size !== '15px' || seen.reply.leading !== '24px' || !seen.reply.family.includes('Space Grotesk'))
+              wrong.push(`${at}: the reply is ${seen.reply.size}/${seen.reply.leading} ${seen.reply.family}, not Space Grotesk 15/24`)
+            if (seen.bare.length > 0) wrong.push(`${at}: number(s) in the reply off the figure face: ${seen.bare.slice(0, 3).join(', ')}`)
+          }
+          const offFace = seen.figures.filter((fam) => !fam.includes('IBM Plex Mono'))
+          if (offFace.length > 0) wrong.push(`${at}: ${offFace.length} number(s) in the reply not in IBM Plex Mono: ${offFace[0]}`)
+          if (seen.cost !== null && !seen.cost.includes('IBM Plex Mono')) wrong.push(`${at}: the price line is in ${seen.cost}`)
+          if (seen.lines !== null && seen.lines !== seen.want.raised) wrong.push(`${at}: the wallet lines' card is on ${seen.lines}, not raised`)
+          if (seen.scroll > 0) wrong.push(`${at}: /chat scrolls ${seen.scroll}px sideways`)
+          ctx.evidence.push({
+            note: `/chat ${width}×${height} dark: composer ${seen.composer.bg} edged ${seen.composer.border}, Send ${seen.send}, picker ${seen.picker?.transform ?? '—'} ${seen.picker?.color ?? ''}, ` +
+              `reply ${seen.reply?.size ?? '—'}/${seen.reply?.leading ?? '—'}, ${seen.figures.length} figure(s) in mono, wallet lines ${seen.lines ?? 'none under this reply'}`,
+            shot: `${link}/${file}`,
+          })
+        }
+      } finally {
+        await page.close()
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: 'Chat in the brand at 1440 and 390: composer on raised in line-strong, teal Send, eyebrow picker, replies at 15/24 with mono figures' }
+        : { pass: false, detail: wrong.join('; '), where: ['/chat'] }
     },
   }
 }

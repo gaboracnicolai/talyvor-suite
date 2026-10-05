@@ -90,6 +90,7 @@ const CONSOLE_STEPS: Record<string, string> = {
   head: 'a card header',
   bar: 'the shell top-bar title, 20px 500 (B29.7)',
   body: 'the paragraph step, and by count the product',
+  reading: 'a chat reply and question, 15/24 (B29.10)',
   caption: 'the small label beside a value',
   micro: 'the µ-tail under a money figure',
   eyebrow: 'the one small uppercase label in the system',

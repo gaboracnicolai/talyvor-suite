@@ -20,7 +20,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { appShell, brandPlanes, everyScreen, homeCards, lensReads, walletBrand } from './tour.ts'
+import { appShell, brandPlanes, chatBrand, everyScreen, homeCards, lensReads, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine } from './brand.ts'
@@ -1810,7 +1810,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 5: if (i + 3 < users) list.push(marketplaceSale(i, i + 3)); break
     // B28.20 — then one agent funded 100 times at once: Lens's stored balance agrees with its postings.
     // B28.349 — then asked in Chat what an agent spent: 1.23 LXC, through Lens's wallet tool, linked to its pay line.
-    case 6: list.push(statementReconciles(i), agentBalanceStored(i), agentSpendQuestion(i)); break
+    // B29.10 — then that conversation in the brand: raised composer, teal Send, eyebrow picker, replies at 15/24.
+    case 6: list.push(statementReconciles(i), agentBalanceStored(i), agentSpendQuestion(i), chatBrand()); break
     // B28.8 — first, while the workspace has no agent: Home's three onboarding steps.
     case 7: list.push(walletOnboarding(i), everyScreen()); break
     // B28.6 — Home, the first screen after sign-in: an agent's budget used and the approvals waiting.

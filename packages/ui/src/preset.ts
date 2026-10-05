@@ -138,6 +138,8 @@ const preset = {
         // B29.7 — the shell's top-bar title: the board's PRODUCT UI tile sets it in Space Grotesk 500.
         bar: ['1.25rem', { lineHeight: '1.3', fontWeight: '500' }], // 20px
         body: ['0.875rem', { lineHeight: '1.45', fontWeight: '400' }], // 14px
+        // B29.10 — a chat reply and question, read at length: the board's body step, 15/24.
+        reading: ['0.9375rem', { lineHeight: '1.6', fontWeight: '400' }], // 15px on 24px
         caption: ['0.75rem', { lineHeight: '1.35', fontWeight: '600' }], // 12px
         // the µ-tail: 12.5px, dimmed + underscored in MuNumeral (moves with the scale).
         micro: ['0.78125rem', { lineHeight: '1', fontWeight: '500' }], // 12.5px

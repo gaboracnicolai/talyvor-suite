@@ -213,7 +213,7 @@ function renderInline(text: string, key: string): ReactNode[] {
     const k = `${key}.${n++}`
     if (m[2] !== undefined) {
       out.push(
-        <code key={k} className="rounded-control bg-surface px-1 font-mono text-ink">
+        <code key={k} className="rounded-control bg-raised px-1 font-mono text-ink">
           {m[2].replace(/^ (.*) $/, '$1')}
         </code>,
       )
@@ -252,14 +252,37 @@ function renderInline(text: string, key: string): ReactNode[] {
 /** A single newline inside a paragraph is a soft break in Markdown; a reply reads better keeping it. */
 function withBreaks(text: string, key: string): ReactNode[] {
   const parts = text.replace(/\\([\\`*_[\]()#|>-])/g, '$1').split('\n')
-  return parts.flatMap((p, i) => (i === 0 ? [p] : [<br key={`${key}.br${i}`} />, p]))
+  return parts.flatMap((p, i) => (i === 0 ? figures(p, `${key}.l${i}`) : [<br key={`${key}.br${i}`} />, ...figures(p, `${key}.l${i}`)]))
+}
+
+/**
+ * B29.10 — a number standing on its own: digits with their separators, an optional currency sign in
+ * front and a percent sign behind. A digit inside a word (gpt-4o, B29) is part of the word, not a figure.
+ */
+const FIGURE = /(?<![\p{L}\p{N}_])[$£€]?\p{N}(?:[\p{N},.]*\p{N})?%?(?![\p{L}\p{N}_])/gu
+
+/** B29.10 — the numbers in a reply on the figure face, IBM Plex Mono with tabular digits; the rest as written. */
+function figures(text: string, key: string): ReactNode[] {
+  const out: ReactNode[] = []
+  let last = 0
+  for (const m of text.matchAll(FIGURE)) {
+    if (m.index > last) out.push(text.slice(last, m.index))
+    out.push(
+      <span key={`${key}.f${m.index}`} className="font-figure">
+        {m[0]}
+      </span>,
+    )
+    last = m.index + m[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
 }
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   return (
-    <div className="overflow-hidden rounded-card border border-rule bg-surface">
+    <div className="overflow-hidden rounded-card border border-rule bg-raised">
       <div className="flex items-center justify-between border-b border-rule pl-3 pr-1">
-        <span className="font-figure text-eyebrow uppercase text-faint">{lang === '' ? 'code' : lang}</span>
+        <span className="font-figure text-eyebrow uppercase text-label">{lang === '' ? 'code' : lang}</span>
         <CopyButton text={code} label="Copy code" />
       </div>
       <pre className="overflow-x-auto px-3 py-3 font-mono text-body text-ink">
@@ -272,7 +295,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
 const HEADING_CLASS: Record<number, string> = {
   1: 'text-title text-ink',
   2: 'text-head text-ink',
-  3: 'text-body font-semibold text-ink',
+  3: 'text-reading font-semibold text-ink',
 }
 
 const ALIGN_CLASS: Record<Exclude<Align, null>, string> = {
@@ -290,7 +313,7 @@ function renderBlocks(blocks: Block[], key: string, tight = false): ReactNode[] 
         // <h3>; a model's "# Title" must not claim the page.
         const Tag = (['h3', 'h4', 'h5', 'h6', 'h6', 'h6'] as const)[b.level - 1]
         return (
-          <Tag key={k} className={HEADING_CLASS[b.level] ?? 'text-body font-semibold text-ink'}>
+          <Tag key={k} className={HEADING_CLASS[b.level] ?? 'text-reading font-semibold text-ink'}>
             {renderInline(b.text, k)}
           </Tag>
         )
@@ -334,7 +357,7 @@ function renderBlocks(blocks: Block[], key: string, tight = false): ReactNode[] 
       case 'table':
         return (
           <div key={k} className="overflow-x-auto">
-            <table className="w-full border-collapse text-body">
+            <table className="w-full border-collapse text-reading">
               <thead>
                 <tr>
                   {b.header.map((h, j) => (
@@ -365,7 +388,11 @@ function renderBlocks(blocks: Block[], key: string, tight = false): ReactNode[] 
   })
 }
 
-/** A chat reply, rendered from Markdown. */
+/** A chat reply, rendered from Markdown: Space Grotesk at 15/24, code and numbers in IBM Plex Mono (B29.10). */
 export function Markdown({ source }: { source: string }) {
-  return <div className="space-y-3 text-body text-ink">{renderBlocks(parseBlocks(source), 'md')}</div>
+  return (
+    <div className="space-y-3 font-sans text-reading text-ink" data-testid="turn-reply">
+      {renderBlocks(parseBlocks(source), 'md')}
+    </div>
+  )
 }
