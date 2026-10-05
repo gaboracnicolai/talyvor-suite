@@ -631,12 +631,13 @@ export function walletHero(): Scenario {
 }
 
 /** B29.4 — /marketing in the board's design: the drawn lockup, the hero photograph (no more than
- *  350 KB as served), the verb stack and its teal rule, and the positioning band. At 1440 the photo
- *  bleeds off the right edge beside the text; at 390 it sits under the text and nothing scrolls sideways. */
+ *  350 KB as served), and the positioning band. At 1440 the photo bleeds off the right edge beside
+ *  the text; at 390 it sits under the text and nothing scrolls sideways. B32.1: the verb stack
+ *  ROUTE · PROVE · REUSE · COMPOUND was retired with the tagline, so no verb shows as a word. */
 export function marketingBoard(): Scenario {
   return {
     id: 'marketing-board',
-    title: "/marketing shows the board's hero — lockup, photograph, verb stack — at 1440 and at 390",
+    title: "/marketing shows the board's hero — lockup without the tagline, photograph, no verb stack — at 1440 and at 390",
     run: async (ctx) => {
       const page = await ctx.app.tab('/marketing')
       const wrong: string[] = []
@@ -650,16 +651,14 @@ export function marketingBoard(): Scenario {
             const box = (el: Element | null) => (el === null ? null : el.getBoundingClientRect())
             const p = box(photo)!
             const h1 = box(document.querySelector('h1'))!
-            const verbs = document.querySelector<HTMLElement>('.tal-verbs')
             const logo = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-brand="logo"]')).find((i) => getComputedStyle(i).display !== 'none')
             return {
               src: photo.currentSrc,
               loaded: photo.naturalWidth > 0,
               photo: { left: p.left, right: p.right, top: p.top, width: p.width },
               h1Bottom: h1.bottom,
-              verbs: verbs === null ? '' : verbs.innerText.replace(/\s+/g, ' ').trim(),
-              verbsInPhoto: verbs !== null && photo.parentElement!.contains(verbs),
-              rule: verbs?.querySelector('.bg-accent') !== null && verbs !== null,
+              stack: document.querySelector('.tal-verbs') !== null,
+              verbs: document.body.innerText.match(/\b(route|prove|reuse|compound)\b/gi) ?? [],
               logo: logo === undefined ? '' : `${new URL(logo.src).pathname}${logo.naturalWidth > 0 ? '' : ' (not loaded)'}`,
               band: document.body.innerText.includes('Designed to run on your own infrastructure.'),
               scroll: document.documentElement.scrollWidth,
@@ -667,12 +666,11 @@ export function marketingBoard(): Scenario {
             }
           })
           const bytes = (await (await page.request.get(got.src)).body()).length
-          ctx.evidence.push({ note: `${width}: photo ${new URL(got.src).pathname} ${bytes} B at ${JSON.stringify(got.photo)}; verbs "${got.verbs}"; logo ${got.logo}; scroll ${got.scroll}/${got.client}` })
+          ctx.evidence.push({ note: `${width}: photo ${new URL(got.src).pathname} ${bytes} B at ${JSON.stringify(got.photo)}; verbs ${JSON.stringify(got.verbs)}; logo ${got.logo}; scroll ${got.scroll}/${got.client}` })
           const at = `${width}px`
           if (!got.loaded) wrong.push(`${at}: the hero photo did not load`)
           if (bytes > 350_000) wrong.push(`${at}: the hero photo served ${bytes} bytes, over 350 KB`)
-          if (got.verbs !== 'ROUTE PROVE REUSE COMPOUND' || !got.verbsInPhoto) wrong.push(`${at}: verb stack "${got.verbs}"${got.verbsInPhoto ? '' : ' not over the photo'}`)
-          if (!got.rule) wrong.push(`${at}: no teal rule under the verbs`)
+          if (got.stack || got.verbs.length > 0) wrong.push(`${at}: the retired verb stack shows (${got.stack ? '.tal-verbs; ' : ''}${got.verbs.join(' ')})`)
           if (!/^\/brand\/svg\/talyvor-logo-(dark|light)-notag\.svg$/.test(got.logo)) wrong.push(`${at}: logo "${got.logo}"`)
           if (!got.band) wrong.push(`${at}: no positioning band`)
           if (got.scroll > got.client) wrong.push(`${at}: scrolls sideways (${got.scroll} > ${got.client})`)
@@ -683,19 +681,19 @@ export function marketingBoard(): Scenario {
         await page.close()
       }
       return wrong.length === 0
-        ? { pass: true, detail: 'lockup, photo (≤350 KB), verb stack, teal rule and band at 1440 and 390; the photo bleeds right on desktop and sits under the text on a phone' }
+        ? { pass: true, detail: 'lockup without the tagline, photo (≤350 KB) and band at 1440 and 390, and no verb stack; the photo bleeds right on desktop and sits under the text on a phone' }
         : { pass: false, detail: `/marketing: ${wrong.join('; ')}` }
     },
   }
 }
 
 /** B29.6 — /signin and /signup in the brand, as a signed-out stranger sees them: at 1440 the lake photo
- *  fills the right half beside the card; at 390 the photo is not shown (nor fetched), the lockup with
- *  its tagline sits above the card, and nothing scrolls sideways. One teal action on each page. */
+ *  fills the right half beside the card; at 390 the photo is not shown (nor fetched), the logo without
+ *  the tagline (B32.1) sits above the card, and nothing scrolls sideways. One teal action on each page. */
 export function signinBoard(): Scenario {
   return {
     id: 'signin-board',
-    title: '/signin and /signup show the brand split at 1440 and the tagline lockup at 390, signed out',
+    title: '/signin and /signup show the brand split at 1440 and the logo without the tagline at 390, signed out',
     run: async (ctx) => {
       const browser = ctx.app.context.browser()
       if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
@@ -751,7 +749,7 @@ export function signinBoard(): Scenario {
               if (got.logo !== '') wrong.push(`${at}: the phone lockup shows on a wide screen`)
             } else {
               if (got.photo !== null) wrong.push(`${at}: the photo shows on a phone`)
-              if (!/^\/brand\/svg\/talyvor-logo-(dark|light)\.svg$/.test(got.logo)) wrong.push(`${at}: lockup "${got.logo}"`)
+              if (!/^\/brand\/svg\/talyvor-logo-(dark|light)-notag\.svg$/.test(got.logo)) wrong.push(`${at}: lockup "${got.logo}"`)
               else if (!got.logoAboveH1) wrong.push(`${at}: the lockup is not above the card`)
             }
           }
@@ -761,7 +759,7 @@ export function signinBoard(): Scenario {
         await context.close()
       }
       return wrong.length === 0
-        ? { pass: true, detail: 'signed out: the lake photo on the right half at 1440, the tagline lockup above the card at 390, one teal action, no sideways scroll, on /signin and /signup' }
+        ? { pass: true, detail: 'signed out: the lake photo on the right half at 1440, the logo without the tagline above the card at 390, one teal action, no sideways scroll, on /signin and /signup' }
         : { pass: false, detail: wrong.join('; ') }
     },
   }

@@ -393,16 +393,18 @@ const PINS: Record<string, Pin> = {
   // 63 → 69 at B29.4: /marketing in the board's design — the hero eyebrow, the section eyebrow, the
   // band's eyebrow and the four verbs of the verb stack, less the header's product label (the drawn
   // lockup replaced it).
+  //
+  // 69 → 65 at B32.1: the four verbs of the verb stack left /marketing with the retired tagline.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 69,
+    states: 65,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 69,
+    states: 65,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

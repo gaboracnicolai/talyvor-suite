@@ -126,8 +126,9 @@ describe('Landing', () => {
 
   // B29.4: the board's WEBSITE HERO. The pieces a visitor sees, each read from the DOM: the drawn
   // lockup files (one per theme), the hero photograph with the 1200 version for phones and the
-  // SAME srcset and sizes index.html preloads, the verb stack with its teal rule, and the band.
-  it('draws the board: the logo lockup, the preloaded hero photo, the verb stack and the band', () => {
+  // SAME srcset and sizes index.html preloads, and the band. The verb stack ROUTE · PROVE · REUSE ·
+  // COMPOUND was retired with the tagline on 5 Oct 2026 (B32.1): no verb sits on the photograph.
+  it('draws the board: the logo lockup, the preloaded hero photo without the verbs, and the band', () => {
     const { container } = render(<Landing />)
     const logos = [...container.querySelectorAll('img[data-brand="logo"]')].map((i) => i.getAttribute('src'))
     expect(logos).toEqual(['/brand/svg/talyvor-logo-dark-notag.svg', '/brand/svg/talyvor-logo-light-notag.svg'])
@@ -140,9 +141,14 @@ describe('Landing', () => {
     expect(html, 'index.html must preload the srcset the page uses').toContain(srcset)
     expect(html, 'index.html must preload with the sizes the page uses').toContain(photo.getAttribute('sizes')!)
 
-    const verbs = container.querySelector('.tal-verbs')!
-    expect([...verbs.querySelectorAll('span.uppercase')].map((s) => s.textContent)).toEqual(['Route', 'Prove', 'Reuse', 'Compound'])
-    expect(verbs.querySelector('.bg-accent'), 'the teal rule under the verbs').not.toBeNull()
+    const figure = container.querySelector('figure.tal-hero-photo')!
+    expect(figure.querySelector('.tal-hero-scrim'), 'the scrim stays').not.toBeNull()
+    expect(container.querySelector('.tal-verbs')).toBeNull()
+    // Per text node: the page's textContent joins adjacent spans, so "Route" + "Prove" reads as one word.
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+    const words: string[] = []
+    while (walker.nextNode()) words.push(...(walker.currentNode.textContent!.match(/\b(route|prove|reuse|compound)\b/gi) ?? []))
+    expect(words, 'a retired verb shows as a word').toEqual([])
 
     const text = container.textContent ?? ''
     for (const line of [

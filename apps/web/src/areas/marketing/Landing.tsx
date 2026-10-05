@@ -16,9 +16,9 @@ import { HOLDBACK_HOURS, LEDGER_HIT, SAVED_MICRO_LXC, micro } from './economics'
 // logo lockup in the header, an eyebrow over every headline, one teal rule per section, raised
 // panels with a 1px line border instead of shadows, the four brand icons, and every money figure in
 // IBM Plex Mono with tabular figures. The hero photograph bleeds off the right edge behind a gradient
-// from the canvas, with the verb stack over its dark wall; on a phone it moves under the text. The
+// from the canvas; on a phone it moves under the text. The
 // copy is unchanged — only the look moved. Display sizes are still the preset's; anything the
-// preset has no token for (the photo, the scrim, the verbs) lives in the page's own <style> block,
+// preset has no token for (the photo, the scrim) lives in the page's own <style> block,
 // on the theme's variables, so the tokens stay the one source of colour.
 //
 // The one thing a visitor should remember is the PRODUCT: every AI agent gets a wallet, and the
@@ -222,9 +222,9 @@ export function Landing() {
           prefers-reduced-motion, because a page about trust should.
 
           Below the motion: the board's pieces the preset has no token for — the logo lockup per
-          theme, the hero photograph and its scrim, and the verb stack. Colour comes only from the
+          theme, and the hero photograph and its scrim. Colour comes only from the
           theme's variables. The photograph's figure carries data-theme="dark", so its scrim is
-          Obsidian and its verbs are Frost in both themes: text on a photo sits on the dark side. */}
+          Obsidian in both themes. */}
       <style>{`
         @keyframes tal-rise { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
         .tal-rise { animation: tal-rise .42s cubic-bezier(.2,.7,.3,1) both }
@@ -246,8 +246,6 @@ export function Landing() {
           background: linear-gradient(90deg, color-mix(in srgb, var(--canvas) 72%, transparent) 0%,
             color-mix(in srgb, var(--canvas) 40%, transparent) 42%, color-mix(in srgb, var(--canvas) 20%, transparent) 100%);
         }
-        .tal-verbs { position: absolute; left: 6%; top: 50%; transform: translateY(-50%); color: var(--ink) }
-        .tal-verbs span { display: block; font-size: 0.8125rem; font-weight: 500; letter-spacing: .32em; line-height: 1.85 }
         @media (min-width: 840px) {
           .tal-hero-photo { position: absolute; top: 0; bottom: 0; left: 50%; right: 0; aspect-ratio: auto }
           .tal-hero-photo img { object-position: 62% 50% }
@@ -255,8 +253,6 @@ export function Landing() {
             background: linear-gradient(90deg, var(--canvas) 0%, color-mix(in srgb, var(--canvas) 72%, transparent) 26%,
               color-mix(in srgb, var(--canvas) 20%, transparent) 100%);
           }
-          .tal-verbs { left: 13%; top: 22%; transform: none }
-          .tal-verbs span { font-size: 0.9375rem; line-height: 2 }
         }
       `}</style>
 
@@ -379,7 +375,7 @@ export function Landing() {
             </div>
           </div>
           {/* The board's photograph: off the right edge from 840px, under the text on a phone. The
-              figure at the glass stays in frame at both crops; the verbs sit on the concrete. */}
+              figure at the glass stays in frame at both crops. */}
           <figure data-theme="dark" className="tal-hero-photo">
             <img
               src="/brand/photos/hero.jpg"
@@ -390,13 +386,6 @@ export function Landing() {
               alt="A person standing at a glass wall, looking out over a lake and mountains"
             />
             <div className="tal-hero-scrim" aria-hidden="true" />
-            <div className="tal-verbs" aria-hidden="true">
-              <span className="uppercase">Route</span>
-              <span className="uppercase">Prove</span>
-              <span className="uppercase">Reuse</span>
-              <span className="uppercase">Compound</span>
-              <TealRule className="mt-4" />
-            </div>
           </figure>
         </section>
 

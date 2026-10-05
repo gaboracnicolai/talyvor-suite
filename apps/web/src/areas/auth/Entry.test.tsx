@@ -241,7 +241,7 @@ describe('an already-signed-in person is not asked to sign up again', () => {
 // ─── B29.6: the brand's split ───────────────────────────────────────────────
 
 describe('both pages wear the brand', () => {
-  it('the lake photo, the tagline lockup per theme, the teal rule and one teal action', async () => {
+  it('the lake photo, the logo without the tagline per theme, the teal rule and one teal action', async () => {
     for (const [path, action] of [
       ['/signin', /^sign in$/i],
       ['/signup', /^continue$/i],
@@ -255,9 +255,10 @@ describe('both pages wear the brand', () => {
       expect(photo.getAttribute('srcset')).toBe('/brand/photos/lake-1200.jpg 1200w, /brand/photos/lake.jpg 2400w')
       expect(photo.getAttribute('loading')).toBe('lazy')
       expect(container.querySelector('figure.tal-entry-photo')).toHaveAttribute('data-theme', 'dark')
-      // The lockup WITH the tagline, the drawn file, one per theme — never the name in a font.
+      // The logo WITHOUT the tagline (retired 5 Oct 2026), the drawn file, one per theme — never
+      // the name in a font.
       const logos = Array.from(container.querySelectorAll('img[data-brand="logo"]')).map((i) => i.getAttribute('src'))
-      expect(logos).toEqual(['/brand/svg/talyvor-logo-dark.svg', '/brand/svg/talyvor-logo-light.svg'])
+      expect(logos).toEqual(['/brand/svg/talyvor-logo-dark-notag.svg', '/brand/svg/talyvor-logo-light-notag.svg'])
       // The teal rule straight under the heading, and the page's one primary action in accent.
       expect(h1.nextElementSibling).toHaveClass('h-0.5', 'w-8', 'bg-accent')
       expect(container.querySelectorAll('a.bg-accent')).toHaveLength(1)

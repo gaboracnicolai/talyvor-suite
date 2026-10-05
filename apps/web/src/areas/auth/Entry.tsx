@@ -106,21 +106,21 @@ function EntryFrame({ children }: { children: React.ReactNode }) {
           `section`, `article` or `aside` — every box here is drawn by the utility classes, which
           are untouched. LandmarkCoverage.test.tsx measures the proportion at every address. */}
       <main className="relative z-10 flex flex-1 flex-col items-center justify-start px-gutter pb-16 pt-4 wide:w-1/2 wide:justify-center wide:pt-0">
-        {/* The board's lockup with its tagline, the file as drawn — one per theme, the other hidden
+        {/* The board's logo without the tagline, the file as drawn — one per theme, the other hidden
             by the <style> above. Phones only: from 840px the header carries the mark. */}
         <div className="mb-8 wide:hidden">
           <img
-            src="/brand/svg/talyvor-logo-dark.svg"
+            src="/brand/svg/talyvor-logo-dark-notag.svg"
             alt="Talyvor"
-            width={221}
+            width={287}
             height={48}
             data-brand="logo"
             className="tal-entry-logo-dark block h-12 w-auto"
           />
           <img
-            src="/brand/svg/talyvor-logo-light.svg"
+            src="/brand/svg/talyvor-logo-light-notag.svg"
             alt="Talyvor"
-            width={221}
+            width={287}
             height={48}
             data-brand="logo"
             className="tal-entry-logo-light h-12 w-auto"
