@@ -438,33 +438,23 @@ cannot "Lens still offers \$10 / \$50 / \$100 as its one-click sizes and accepts
     "talyvor-lens internal/billing/billing.go" \
     "[ \"\$(grep -c '^var topUpPresets = \[\]int64{1000, 5000, 10000}\$' internal/billing/billing.go)\" = 1 ] && [ \"\$(grep -cE '^[[:space:]]+minTopUpCents int64 = 1_000\$' internal/billing/billing.go)\" = 1 ] && [ \"\$(grep -cE '^[[:space:]]+maxTopUpCents int64 = 1_000_000\$' internal/billing/billing.go)\" = 1 ]   # in a talyvor-lens checkout; the WHOLE declaration lines, so an APPENDED fourth size or a moved bound fails it — and a count of 0, which is also what an absent file produces, is the failure grep -c's own exit status cannot see. B5.1 replaced Lens's allowedTopUps with these three declarations."
 
-# ── W1.1's premise, and it is not in ANY repository ──────────────────────────
-# DECISION: the console's dark theme IS the public site's palette — canvas/surface/ink/muted/
-#           accent taken byte for byte, with every divergence named and measured.
-# PREMISE:  the site still serves those values.
+# ── The palette's premise, and it is not in ANY repository ──────────────────
+# DECISION: the console's dark theme IS the brand board of 4 Oct 2026 — canvas/surface/sidebar/
+#           ink/muted/accent are its five colours byte for byte, raised and label its themed
+#           tokens, with every divergence named in packages/ui site-parity.test.ts.
+# PREMISE:  packages/ui/brand/tokens.json, the copy that test reads, is still the board.
 #
-# ⚠ THIS IS THE WEAKEST PREMISE IN THE FILE, because the artifact it rests on is not a repo we
-# control, is not pinned to a commit, and can be redeployed by someone who has never heard of
-# this console. site-parity.test.ts guards OUR side — that nobody quietly drifts a token away
-# from what was measured — and it cannot guard the site's. Nothing in CI can: the runner has no
-# business reaching out to a third-party origin mid-build, and a check that fails when a CDN
-# hiccups is a check people learn to re-run rather than read.
+# ⚠ THE BOARD LIVES IN THE BRAND PACKAGE (~/talyvor-queue/brand-v4), WHICH IS NOT A REPOSITORY.
+# site-parity.test.ts guards OUR side — that tokens.ts still says what the in-repo copy says — and
+# it cannot see the brand package move: a new board would leave the copy, the tokens and the test
+# agreeing with each other and all three stale. Nothing in CI can read a path outside the checkout,
+# so this is UNCHECKABLE here, and the command reads the board's values where the board is.
 #
-# ⚠ AND THE FIRST VERSION OF THIS CHECK PINNED THE STYLESHEET'S HASHED FILENAME, reasoning that
-# "if the filename still resolves, the bytes behind it are the bytes that were measured". That
-# direction is sound. The one it was actually used in is not, and it went wrong on 2026-08-09:
-# the site was redeployed, /assets/styles-CGSz1SmS.css began returning 404 — and ALL NINE VALUES
-# WERE UNCHANGED at the new name (styles-AuqlUACj.css, re-measured byte for byte). Content
-# hashing means the name moves when ANY byte of the site's CSS moves; it says nothing about
-# these five variables. So the check read STALE while the premise held perfectly, which is the
-# "people learn to re-run it rather than read it" failure this file warns about, arriving
-# through the other door.
-#
-# The command below therefore pins the VALUES and resolves the filename from the served HTML.
-# It survives a redeploy, and it goes quiet only when the palette genuinely moves.
-cannot "the console's dark palette IS the public site's (canvas #060A12, surface #0B1220, ink #E6EEF7, muted #7E93AB, accent #3AD6C0)" \
-    "talyvor.higgsfield.app — a third-party deployment, not a repository" \
-    "curl -s https://talyvor.higgsfield.app/\$(curl -s https://talyvor.higgsfield.app/ | grep -o 'assets/styles-[A-Za-z0-9_-]*\.css' | head -1) | grep -o -- '--color-\(ink\|txt\|acc\|hairline\)[a-z-]*:[^;]*' | sort -u   # expect exactly the 9 values in packages/ui site-parity.test.ts (the old pattern missed hairline and returned 8); do NOT pin the hash — it moves on every unrelated redeploy"
+# Until B29.2 this premise named talyvor.higgsfield.app's served stylesheet instead, and its
+# surface (#0B1220) was the one value the board does not share.
+cannot "the console's dark palette IS the brand board's (canvas #060A12, surface #081220, ink #E6EEF7, muted #7E93AB, accent #3AD6C0)" \
+    "brand-v4/tokens/tokens.json in ~/talyvor-queue — the brand package, not a repository" \
+    "[ \"\$(grep -A3 -E '\"name\": \"(raised|label|brand-(obsidian|surface|teal|frost|muted))\"' ~/talyvor-queue/brand-v4/tokens/tokens.json | grep -oE '[0-9A-F]{6}' | tr '\\n' ' ' | sed 's/ \$//')\" = '0E1A2A FFFFFF 90ACC0 646B79 060A12 081220 3AD6C0 E6EEF7 7E93AB' ]   # the board's raised and label (dark, light), then its five colours, as packages/ui tokens.ts carries them. A miss means the board moved: copy it over packages/ui/brand/tokens.json and run site-parity.test.ts"
 
 # ── D8 ───────────────────────────────────────────────────────────────────────
 # DECISION: the login nudge sends the transit proof and NO identity headers.

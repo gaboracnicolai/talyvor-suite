@@ -122,6 +122,37 @@ export function everyScreen(): Scenario {
   }
 }
 
+/** B29.2 — the brand board's two dark planes, as the browser paints them: Obsidian and Surface. */
+export const DARK_PLANES = { canvas: 'rgb(6, 10, 18)', sidebar: 'rgb(8, 18, 32)' } as const
+
+export function brandPlanes(): Scenario {
+  return {
+    id: 'brand-planes',
+    title: 'in the dark theme the page canvas is the board’s Obsidian and the sidebar its Surface',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/')
+      try {
+        await page.locator('aside[aria-label="Primary"]').waitFor({ state: 'attached', timeout: HEADING_TIMEOUT_MS })
+        // The theme a person picks is the attribute on <html>; setting it here leaves their stored choice alone.
+        const seen = await page.evaluate(() => {
+          document.documentElement.setAttribute('data-theme', 'dark')
+          const bg = (el: Element | null) => (el === null ? 'no element' : getComputedStyle(el).backgroundColor)
+          return { canvas: bg(document.body), sidebar: bg(document.querySelector('aside[aria-label="Primary"]')) }
+        })
+        ctx.evidence.push({ note: `dark: canvas ${seen.canvas}, sidebar ${seen.sidebar}` })
+        const wrong = (Object.keys(DARK_PLANES) as (keyof typeof DARK_PLANES)[])
+          .filter((k) => seen[k] !== DARK_PLANES[k])
+          .map((k) => `the ${k} is ${seen[k]}, not ${DARK_PLANES[k]}`)
+        return wrong.length === 0
+          ? { pass: true, detail: `dark canvas ${seen.canvas} and sidebar ${seen.sidebar}, as on the board` }
+          : { pass: false, detail: wrong.join('; '), where: ['/'] }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 /** The Lens reads a customer's own key can make: GET, and no parameter but its workspace. */
 export function customerReads(lens: readonly Entry[]): Entry[] {
   return lens.filter((e) => e.method === 'GET' && cannotTest(e) === undefined &&

@@ -3,16 +3,16 @@
 //
 // ── WHERE THE DARK VALUES COME FROM ──────────────────────────────────────────────────
 //
-// From the public site, MEASURED rather than described: the `@theme` block of
-// https://talyvor.higgsfield.app/assets/styles-CGSz1SmS.css, fetched 2026-08-09.
-// canvas/surface/ink/muted/accent are that file's --color-ink / -ink-raise / -txt /
-// -txt-dim / -acc byte for byte. The handful of tokens that could NOT be ported verbatim
-// each carry their reason and their number in __tests__/site-parity.test.ts, which fails
-// if any of it drifts. A port nobody can audit is a repaint.
+// From the brand board of 4 Oct 2026, whose token file ships beside this package as
+// brand/tokens.json. canvas/surface/sidebar/ink/muted/accent are its five board colours —
+// Obsidian, Surface, Frost, Muted, Teal — byte for byte; raised and label are its themed
+// tokens of the same name, in both themes. Every other token carries its relationship to
+// the board in __tests__/site-parity.test.ts, which fails if any of it drifts.
 //
-// ⚠ THE LIGHT THEME IS NOT ON THE SITE. The site is dark-only, so light is derived, not
-// ported: the same blue undertone, the same accent hue darkened until it clears AA on a
-// light field, and the same structure (the rail is the canvas, separated by a rule).
+// ⚠ THE LIGHT THEME IS NOT YET THE BOARD'S, apart from raised and label. It was derived
+// when the only reference was a dark-only site: the same blue undertone, the same accent
+// hue darkened until it clears AA on a light field, and the same structure (the rail is
+// the canvas, separated by a rule). B29.15 is the light pass.
 //
 // ── THE INVARIANT ────────────────────────────────────────────────────────────────────
 //
@@ -26,9 +26,9 @@
 // change a value here without running it.
 export const tokens = {
   light: {
-    canvas: '#F3F6FA', surface: '#FFFFFF', sidebar: '#F3F6FA',
+    canvas: '#F3F6FA', surface: '#FFFFFF', raised: '#FFFFFF', sidebar: '#F3F6FA',
     rule: 'rgba(11,18,32,.10)', 'rule-strong': 'rgba(11,18,32,.20)',
-    ink: '#0B1220', muted: '#46586E', faint: '#5A6E85',
+    ink: '#0B1220', muted: '#46586E', faint: '#5A6E85', label: '#646B79',
     accent: '#0F7A6C', 'accent-hover': '#0A5F54', 'accent-ink': '#FFFFFF', 'accent-tint': '#C9E6E0',
     lens: '#A85A2C', lxc: '#42688C',
     // The routing ramp is TWO CATEGORIES, not four: tier1 = cheap/fast (cool),
@@ -37,9 +37,9 @@ export const tokens = {
     settled: '#1D7A45', held: '#8A6A12', slashed: '#BF3B2E',
   },
   dark: {
-    canvas: '#060A12', surface: '#0B1220', sidebar: '#060A12',
+    canvas: '#060A12', surface: '#081220', raised: '#0E1A2A', sidebar: '#081220',
     rule: 'rgba(156,196,224,.14)', 'rule-strong': 'rgba(156,196,224,.26)',
-    ink: '#E6EEF7', muted: '#7E93AB', faint: '#6B7F96',
+    ink: '#E6EEF7', muted: '#7E93AB', faint: '#6B7F96', label: '#90ACC0',
     accent: '#3AD6C0', 'accent-hover': '#55DFCC', 'accent-ink': '#060A12', 'accent-tint': '#0E2B2E',
     lens: '#D08A5C', lxc: '#7FA6CC',
     tier1: '#54B4C2', tier3: '#D6A85C',

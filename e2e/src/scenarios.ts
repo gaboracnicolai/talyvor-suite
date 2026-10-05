@@ -20,7 +20,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { everyScreen, lensReads } from './tour.ts'
+import { brandPlanes, everyScreen, lensReads } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 
@@ -1528,7 +1528,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 7: list.push(walletOnboarding(i), everyScreen()); break
     // B28.6 — Home, the first screen after sign-in: an agent's budget used and the approvals waiting.
     // B28.7 — then the wallet-first sidebar, whose Approvals badge counts the approval Home just filed.
-    case 8: list.push(walletHome(i), walletFirstNav()); break
+    // B29.2 — then the board's dark planes: the canvas Obsidian, the sidebar Surface.
+    case 8: list.push(walletHome(i), walletFirstNav(), brandPlanes()); break
   }
   // Catalog v4 (B25.4): test users trade with each other through every wallet, bank and marketplace
   // function, one in ten again. The other company is 9, 19, …: nobody pauses its agents, and a trade
