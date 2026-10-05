@@ -2,7 +2,7 @@ import { Button, Mark, ThemeToggle, Wordmark, focusRing, inlineLink } from '@tal
 import { useDocumentTitle } from '../../documentTitle'
 import { BYOK, BYOK_PROVIDERS, PLANS, type PlanOffer } from '../lens/planApi'
 import { formatCents, formatLXC, lxcForCents } from '../lens/topupApi'
-import { Figure, SectionLabel } from './Landing'
+import { Eyebrow, Figure, TealRule } from './Landing'
 import {
   PRICING_PATH,
   formatPeg,
@@ -31,6 +31,12 @@ import {
 // plan and BYOK prices are planApi.ts's PLANS and BYOK, the same objects the signed-in /plans screen
 // sells from, so this page cannot quote a price that screen does not charge. Pooling is one line
 // under what a request costs: a saving, not the price.
+//
+// B29.5 — the brand board's look, copy and figures unchanged: an eyebrow over every section and a
+// teal rule under its headline (Landing's pieces), every card a raised panel with a 1px line border,
+// every price in IBM Plex Mono with tabular figures, one teal button on each plan card, and Pro
+// outlined in accent. Nothing here says "most popular": no figure measures it, so only the outline
+// marks it.
 
 /** An illustrative "any amount" top-up, shown beside the presets only when the served range
  *  admits it. It is an AMOUNT, not a price — what it buys is computed from the served peg. */
@@ -39,14 +45,14 @@ const ANY_AMOUNT_EXAMPLE_CENTS = 250_000
 function RateCard({ state }: { state: PricingState }) {
   const peg = state.status === 'ok' ? state.pricing.usd_per_lxc : undefined
   return (
-    <div className="overflow-hidden rounded-card border border-rule bg-surface">
+    <div className="overflow-hidden rounded-card border border-rule bg-raised">
       <div className="px-gutter py-6">
-        <p className="font-figure text-eyebrow uppercase text-muted">One credit</p>
+        <p className="text-eyebrow uppercase text-label">One credit</p>
         <div className="mt-3" aria-live="polite">
           {typeof peg === 'number' && peg > 0 ? (
             <p className="flex flex-wrap items-baseline gap-x-3">
               <Figure value="1" unit="LXC" />
-              <span className="font-figure text-figure text-faint">=</span>
+              <span className="font-figure text-figure text-label">=</span>
               <Figure value={formatPeg(peg)} unit="USD" />
             </p>
           ) : state.status === 'loading' ? (
@@ -59,7 +65,7 @@ function RateCard({ state }: { state: PricingState }) {
           )}
         </div>
       </div>
-      <p className="border-t border-rule px-gutter py-3 text-caption text-faint">
+      <p className="border-t border-rule px-gutter py-3 text-caption text-label">
         Served live, not typed into this page. Check it yourself:{' '}
         <a href={PRICING_PATH} className={`font-mono ${inlineLink}`}>
           GET {PRICING_PATH}
@@ -82,9 +88,9 @@ function TopUps({ pricing }: { pricing: PricingData }) {
         Top up any amount from <span className="font-figure">{formatCents(min)}</span> to{' '}
         <span className="font-figure">{formatCents(max)}</span>.
       </p>
-      <div className="mt-6 grid gap-px border border-rule bg-rule wide:grid-cols-4">
+      <div className="mt-6 grid gap-px overflow-hidden rounded-card border border-rule bg-rule wide:grid-cols-4">
         {rows.map(({ cents, lxc }) => (
-          <div key={cents} className="bg-surface px-5 py-4">
+          <div key={cents} className="bg-raised px-5 py-4">
             <p className="font-figure text-figure text-ink">{formatCents(cents)}</p>
             <p className="mt-1 font-figure text-caption text-muted">
               {lxc === null ? 'credits at the served rate' : `buys ${formatLXC(lxc)}`}
@@ -111,10 +117,21 @@ function TopUps({ pricing }: { pricing: PricingData }) {
   )
 }
 
-/** One priced offer — a plan or BYOK — with what it includes. Name and price come from planApi.ts. */
+/** The plan outlined in accent. The board marks one; nothing measures which plan sells most, so
+ *  the outline is the only mark — no "most popular" claim is printed. */
+const OUTLINED_PLAN = 'pro'
+
+/** One priced offer — a plan or BYOK — with what it includes, on a raised panel with its one teal
+ *  button. Name and price come from planApi.ts. The button opens /plans, where a plan is chosen;
+ *  a visitor with no session meets sign-in there first and returns to it. */
 function Offer({ plan, title, points }: { plan: PlanOffer; title?: string; points: string[] }) {
+  const outlined = plan.id === OUTLINED_PLAN
   return (
-    <div data-testid="pricing-plan" className="flex flex-col gap-3 bg-surface px-5 py-5">
+    <div
+      data-testid="pricing-plan"
+      data-outlined={outlined ? 'true' : undefined}
+      className={`flex flex-col gap-3 rounded-card border bg-raised p-6 ${outlined ? 'border-accent' : 'border-rule'}`}
+    >
       <p className="text-head text-ink">
         <span data-testid="pricing-plan-name">{plan.name}</span>
         {title ? ` — ${title}` : ''}
@@ -130,6 +147,11 @@ function Offer({ plan, title, points }: { plan: PlanOffer; title?: string; point
           <li key={p}>{p}</li>
         ))}
       </ul>
+      <div className="mt-auto pt-3">
+        <Button asChild variant="primary" className="h-10 px-5">
+          <a href="/plans">Choose {plan.name}</a>
+        </Button>
+      </div>
     </div>
   )
 }
@@ -164,7 +186,7 @@ export function Pricing() {
   const state = usePricing()
   return (
     <div className="flex min-h-full flex-col bg-canvas text-ink">
-      <header className="sticky top-0 z-10 border-b border-rule bg-canvas">
+      <header className="border-b border-rule bg-canvas wide:sticky wide:top-0 wide:z-10">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-gutter py-3">
           <a href="/marketing" className={`flex items-center gap-2.5 ${focusRing}`}>
             <Mark size={26} aria-hidden />
@@ -188,7 +210,7 @@ export function Pricing() {
       <main className="flex-1">
         <section aria-labelledby="pricing-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter pb-16 pt-16 wide:pt-20">
-            <SectionLabel index="00">Pricing</SectionLabel>
+            <Eyebrow index="00">Pricing</Eyebrow>
             <h1 id="pricing-heading" className="mt-7 max-w-3xl text-display-2 text-ink">
               Credit for your agents. A plan for your people.
             </h1>
@@ -197,6 +219,7 @@ export function Pricing() {
               calls. The people who chat can add a monthly plan with usage included, or bring their own
               provider keys. Paid Marketplace listings come on one bill a month.
             </p>
+            <TealRule className="mt-8" />
             <div className="mt-10">
               <RateCard state={state} />
             </div>
@@ -205,10 +228,11 @@ export function Pricing() {
 
         <section aria-labelledby="topup-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="01">Credit for agents</SectionLabel>
+            <Eyebrow index="01">Credit for agents</Eyebrow>
             <h2 id="topup-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               Top up the workspace, then fund each agent from it.
             </h2>
+            <TealRule className="mt-5" />
             <p className="mt-6 max-w-2xl text-body text-muted">
               Credit is bought by the workspace and handed to each agent from its balance. An agent
               spends only what it was given: when its wallet is empty, its next call is refused rather
@@ -231,11 +255,12 @@ export function Pricing() {
 
         <section aria-labelledby="request-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="02">What a request costs</SectionLabel>
+            <Eyebrow index="02">What a request costs</Eyebrow>
             <h2 id="request-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               The model’s list price, converted to credits.
             </h2>
-            <p className="mt-8 max-w-2xl text-body text-muted">
+            <TealRule className="mt-5" />
+            <p className="mt-6 max-w-2xl text-body text-muted">
               A request is charged the tokens its provider reports, times that model’s catalog rate
               per million tokens, converted at the rate above — rounded up to the millionth of a
               credit, never down. Each model’s rate is shown beside it when you pick it in the app.
@@ -255,21 +280,22 @@ export function Pricing() {
 
         <section aria-labelledby="plans-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="03">Plans for people</SectionLabel>
+            <Eyebrow index="03">Plans for people</Eyebrow>
             <h2 id="plans-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               Every model, on every plan.
             </h2>
+            <TealRule className="mt-5" />
             <p className="mt-6 max-w-2xl text-body text-muted">
               One plan per workspace, billed monthly by card. The plans differ only in how much usage
               is included each month; every plan reaches every model from every provider. Past it,
               chat continues on prepaid credit — a plan never bills an overage.
             </p>
-            <div className="mt-8 grid gap-px border border-rule bg-rule wide:grid-cols-3">
+            <div className="mt-8 grid gap-3 wide:grid-cols-3">
               {PLANS.map((p) => (
                 <Offer key={p.id} plan={p} points={['Every model from every provider', p.usage]} />
               ))}
             </div>
-            <div className="mt-gutter border border-rule">
+            <div className="mt-3">
               <Offer
                 plan={BYOK}
                 title="bring your own keys"
@@ -289,10 +315,11 @@ export function Pricing() {
 
         <section aria-labelledby="marketplace-bill-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="04">The Marketplace bill</SectionLabel>
+            <Eyebrow index="04">The Marketplace bill</Eyebrow>
             <h2 id="marketplace-bill-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               Paid listings, on one bill a month.
             </h2>
+            <TealRule className="mt-5" />
             <div className="mt-8 grid gap-x-12 gap-y-6 wide:grid-cols-2">
               <p className="text-body text-muted">
                 Agents, prompts, skills and evaluations other teams publish on the Marketplace. Each
@@ -309,15 +336,15 @@ export function Pricing() {
 
         <section aria-labelledby="not-charged-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <SectionLabel index="05">What you are not charged for</SectionLabel>
+            <Eyebrow index="05">What you are not charged for</Eyebrow>
             <h2 id="not-charged-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
               What prepaid credit does not charge for.
             </h2>
-            <div className="mt-10 grid gap-x-12 gap-y-8 wide:grid-cols-2">
+            <TealRule className="mt-5" />
+            <div className="mt-8 grid gap-3 wide:grid-cols-2">
               {NOT_CHARGED.map((n) => (
-                <div key={n.title}>
-                  <div className="h-0.5 w-8 bg-accent" aria-hidden="true" />
-                  <p className="mt-4 text-head text-ink">{n.title}</p>
+                <div key={n.title} className="rounded-card border border-rule bg-raised p-6">
+                  <p className="text-head text-ink">{n.title}</p>
                   <p className="mt-2 text-body text-muted">{n.body}</p>
                 </div>
               ))}
@@ -330,11 +357,12 @@ export function Pricing() {
             <h2 id="pricing-close-heading" className="max-w-3xl text-display-3 text-ink">
               Start with the smallest top-up and read the ledger.
             </h2>
+            <TealRule className="mt-6" />
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Button asChild variant="primary">
+              <Button asChild variant="primary" className="h-10 px-5">
                 <a href="/signup">Create your workspace</a>
               </Button>
-              <Button asChild>
+              <Button asChild className="h-10 px-5">
                 <a href="/marketing">Back to the overview</a>
               </Button>
             </div>

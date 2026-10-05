@@ -90,11 +90,11 @@ export const POOLED_DISCOUNT_PERCENT = Math.round((SAVED_MICRO_LXC / LEDGER_HIT.
 type BrandIcon = 'route' | 'prove' | 'reuse' | 'compound'
 
 /** A section's eyebrow, the board's way: the brand icon, the mono index, the spaced-caps label.
- *  SectionLabel above stays for Pricing and Documentation until their own brand items land. */
-function Eyebrow({ index, icon, children }: { index: string; icon: BrandIcon; children: React.ReactNode }) {
+ *  /pricing uses it with no icon (B29.5); SectionLabel above stays for Documentation for now. */
+export function Eyebrow({ index, icon, children }: { index: string; icon?: BrandIcon; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3">
-      <img src={`/brand/svg/icon-${icon}-teal.svg`} alt="" width={24} height={24} className="shrink-0" />
+      {icon ? <img src={`/brand/svg/icon-${icon}-teal.svg`} alt="" width={24} height={24} className="shrink-0" /> : null}
       <span className="font-figure text-caption text-faint">{index}</span>
       <span className="text-eyebrow uppercase text-label">{children}</span>
     </div>
@@ -102,7 +102,7 @@ function Eyebrow({ index, icon, children }: { index: string; icon: BrandIcon; ch
 }
 
 /** The teal rule: 32×2 accent, once per section, under its headline. */
-function TealRule({ className = '' }: { className?: string }) {
+export function TealRule({ className = '' }: { className?: string }) {
   return <span className={`block h-0.5 w-8 bg-accent ${className}`} aria-hidden="true" />
 }
 
