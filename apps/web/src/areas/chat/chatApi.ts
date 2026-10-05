@@ -304,8 +304,8 @@ export interface StreamHandlers {
     /** B28.81 — why the model stopped, as the provider named it (chatStream.ts), when it said. */
     finish?: string
   }) => void
-  /** A server-reported error inside the stream, or a transport failure. */
-  onError: (message: string) => void
+  /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
+  onError: (message: string, remedy?: Remedy) => void
 }
 
 /**
@@ -369,7 +369,8 @@ export async function streamChat(
   }
 
   if (!res.ok) {
-    handlers.onError(refusalMessage(res.status, detail))
+    const r = refusal(res.status, detail)
+    handlers.onError(r.text, r.remedy)
     return
   }
 
@@ -490,20 +491,104 @@ function waitToRetry(ms: number, signal?: AbortSignal): Promise<boolean> {
   })
 }
 
+/** B28.348 — what fixes a refusal: a screen in this app, or a fresh chat. */
+export type Remedy = { label: string; to: string } | { label: string; action: 'new_chat' }
+
+/** B28.348 — a refusal as the person reads it: the sentence, and what to do about it when this app can help. */
+export interface Refusal {
+  text: string
+  remedy?: Remedy
+}
+
 /**
- * refusalMessage turns a status into a sentence that names the next action.
- *
- * ⚠ 402 IS NOT "SOMETHING WENT WRONG". Lens answers 402 when the workspace cannot cover the
- * estimated cost, and that has a specific remedy on a specific screen in this app.
+ * B28.348 — the refusals Lens tells apart, by the `code` it puts beside `error` in the JSON body
+ * (`{"error": "...", "code": "spending_cap"}`). B28.82 adds the codes on the Lens side; until a Lens
+ * names one, the same refusal is recognised by the sentence Lens writes for it today (REFUSAL_TEXT).
  */
-function refusalMessage(status: number, detail: string): string {
-  if (status === 401) return 'This session is no longer signed in. Sign in again to continue.'
-  if (status === 402) return 'This workspace cannot cover the estimated cost of that request. Top up on Billing.'
-  if (status === 429) return 'The provider is rate limiting this workspace. Try again shortly.'
-  if (sessionCheckFailed(status, detail)) return 'Lens could not check this session just now. You are still signed in — send it again in a moment.'
-  if (status === 503) return 'Chat is not configured on this deployment.'
+export const REFUSAL_CODES = [
+  'spending_cap',
+  'budget_exceeded',
+  'allowance_exhausted',
+  'session_limit',
+  'guardrail_blocked',
+  'provider_overloaded',
+  'workspace_rate_limited',
+] as const
+export type RefusalCode = (typeof REFUSAL_CODES)[number]
+
+/** Lens's own sentences for the same refusals, before it names a code (talyvor-lens internal/proxy). */
+const REFUSAL_TEXT: [RegExp, RefusalCode][] = [
+  [/^spending cap reached/i, 'spending_cap'],
+  [/^budget exceeded/i, 'budget_exceeded'],
+  [/plan allowance is used up/i, 'allowance_exhausted'],
+  [/chat session has reached its spending limit/i, 'session_limit'],
+  [/^guardrail violation/i, 'guardrail_blocked'],
+  [/^rate limit reached: this workspace allows/i, 'workspace_rate_limited'],
+  [/overloaded/i, 'provider_overloaded'],
+]
+
+interface RefusalBody {
+  error?: unknown
+  code?: unknown
+  violations?: { type?: unknown }[]
+}
+
+function refusalBody(detail: string): RefusalBody {
+  try {
+    const parsed: unknown = JSON.parse(detail)
+    return parsed !== null && typeof parsed === 'object' ? (parsed as RefusalBody) : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Which of Lens's refusals this is: the code it named, else the sentence it wrote, else none. */
+export function refusalCode(status: number, detail: string): RefusalCode | undefined {
+  const body = refusalBody(detail)
+  if ((REFUSAL_CODES as readonly unknown[]).includes(body.code)) return body.code as RefusalCode
+  if (status === 529) return 'provider_overloaded' // Anthropic's "overloaded", relayed as sent
+  const said = typeof body.error === 'string' ? body.error : detail
+  return REFUSAL_TEXT.find(([re]) => re.test(said))?.[1]
+}
+
+const BILLING: Remedy = { label: 'Billing', to: '/billing' }
+const FEATURES: Remedy = { label: 'Features', to: '/features' }
+
+/**
+ * refusal turns a status and Lens's body into a sentence that names the next action.
+ *
+ * ⚠ 402 IS NOT ONE THING. Lens answers 402 for a spending cap, a budget, a used-up allowance, a
+ * chat session's limit and an empty balance, and only the last two are fixed by topping up. Each
+ * reads as itself (B28.348); "Top up on Billing" is for credit alone.
+ */
+export function refusal(status: number, detail: string): Refusal {
+  switch (refusalCode(status, detail)) {
+    case 'spending_cap':
+      return { text: 'This workspace has reached its monthly spending cap, so nothing was sent. A workspace admin can raise the cap to continue.' }
+    case 'budget_exceeded':
+      return { text: 'A spending limit on this workspace, team or sprint is used up, so nothing was sent. Raise it or switch it off on Features.', remedy: FEATURES }
+    case 'allowance_exhausted':
+      return { text: 'This period’s plan allowance is used up and prepaid credit does not cover the request. Top up on Billing to continue.', remedy: BILLING }
+    case 'session_limit':
+      return { text: 'This chat has spent the most one chat may. Start a new chat to continue.', remedy: { label: 'Start a new chat', action: 'new_chat' } }
+    case 'guardrail_blocked': {
+      const kinds = [...new Set((refusalBody(detail).violations ?? []).map((v) => v.type).filter((t): t is string => typeof t === 'string' && t !== ''))]
+      const named = kinds.length > 0 ? ` (${kinds.join(', ')})` : ''
+      return { text: `This workspace’s guardrails blocked that message${named}. Remove the flagged content and send it again; guardrails are set on Features.`, remedy: FEATURES }
+    }
+    case 'provider_overloaded':
+      return { text: 'The model’s provider is overloaded right now. Send it again in a moment, or pick another model.' }
+    case 'workspace_rate_limited':
+      return { text: 'This workspace has reached its own rate limit. Wait a minute and send it again, or ask a workspace admin to raise the limit.' }
+  }
+  if (status === 401) return { text: 'This session is no longer signed in. Sign in again to continue.' }
+  if (status === 402) return { text: 'This workspace cannot cover the estimated cost of that request. Top up on Billing.', remedy: BILLING }
+  if (status === 429) return { text: 'The provider is rate limiting this workspace. Try again shortly.' }
+  if (sessionCheckFailed(status, detail)) return { text: 'Lens could not check this session just now. You are still signed in — send it again in a moment.' }
+  if (status === 503 && /not configured/i.test(detail)) return { text: 'Chat is not configured on this deployment.' }
+  if (status === 503) return { text: 'The model’s provider is unavailable right now. Send it again in a moment, or pick another model.' }
   const trimmed = detail.trim()
-  return trimmed === ''
-    ? `The request was refused (${status}).`
-    : `The request was refused (${status}): ${trimmed}`
+  return {
+    text: trimmed === '' ? `The request was refused (${status}).` : `The request was refused (${status}): ${trimmed}`,
+  }
 }
