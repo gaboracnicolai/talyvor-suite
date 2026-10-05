@@ -68,6 +68,8 @@ interface Rules {
   daily_limit_ulxc: number
   weekly_limit_ulxc: number
   monthly_limit_ulxc: number
+  /** B28.25 — a day's cap per model, by modelCapKey; a save without it keeps the caps, one with it replaces them. */
+  model_daily_limits_ulxc: Record<string, number>
   approval_above_ulxc: number
   allowed_models: string[]
   allowed_providers: string[]
@@ -78,7 +80,7 @@ interface Rules {
   pause_on_unusual_spend: boolean
 }
 interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string }
-interface Posting { posting_id: number; entry_id: string; at: string; ws: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string }
+interface Posting { posting_id: number; entry_id: string; at: string; ws: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string; model?: string }
 interface Approval {
   id: string; ws: string; agent_id: string; amount_ulxc: number; model: string; status: string; created_at: string; decided_at?: string; fingerprint: string
   /** Who a payment goes to, and its memo (Lens economy.AgentApproval since B23.5); none for a request to a model. */
@@ -139,10 +141,17 @@ const CAPABILITIES = [
   ['rules_approvals_statements_pots', 'Rules, approvals, statements and pots'], ['cash_out', 'Cash out'], ['company_credit_line', 'Company credit line'],
 ].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
 
-const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0,
+const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, approval_above_ulxc: 0,
   allowed_models: [], allowed_providers: [], allowed_listings: [], active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
 
 const lxc = (ulxc: number): string => String(ulxc / 1e6)
+
+/** The name a per-model cap knows a model by, as Lens's economy.modelCapKey: lower-case, no dated or -latest suffix. */
+const modelCapKey = (model: string): string => model.trim().toLowerCase().replace(/-(\d{8}|\d{4}-\d{2}-\d{2}|latest)$/, '')
+
+/** The caps a save names, by modelCapKey, the zeros (no cap) left out — as Lens stores them. */
+const modelCaps = (caps: Record<string, number>): Record<string, number> =>
+  Object.fromEntries(Object.entries(caps).filter(([, v]) => v > 0).map(([m, v]) => [modelCapKey(m), v]))
 /** µLXC per µUSD (LXC is pegged at $0.10), and µUSD a penny buys, at the stub's fixed pound. */
 const ULXC_PER_USD_MICRO = 10
 const USD_MICROS_PER_PENNY = 12_700
@@ -186,11 +195,11 @@ export class Bank {
     return this.postings.filter((p) => p.account === account).reduce((s, p) => s + p.amount_ulxc, 0)
   }
 
-  private post(ws: string, kind: string, legs: [string, number, string][], ref?: string): string {
+  private post(ws: string, kind: string, legs: [string, number, string][], ref?: string, model?: string): string {
     const entry = id('ent_')
     const at = new Date().toISOString()
     for (const [account, amount, counterparty] of legs) {
-      this.postings.push({ posting_id: this.nextPosting++, entry_id: entry, at, ws, account, kind, amount_ulxc: amount, counterparty, ref })
+      this.postings.push({ posting_id: this.nextPosting++, entry_id: entry, at, ws, account, kind, amount_ulxc: amount, counterparty, ref, ...(model === undefined ? {} : { model }) })
     }
     return entry
   }
@@ -214,7 +223,7 @@ export class Bank {
 
   /**
    * Lens's agent rules (economy/agent_rules.go), in its order: the pauses, the models, the limit per
-   * request, the hour's, day's, week's and month's limits, then the approval amount. A refusal is 403 naming the rule;
+   * request, the hour's, day's, week's and month's limits, the model's day, then the approval amount. A refusal is 403 naming the rule;
    * a request above the approval amount files an approval, and an approved one goes through once.
    */
   judge(agent: Agent, amount: number, req: { model?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }): { status: number; error: string } | undefined {
@@ -233,6 +242,15 @@ export class Bank {
     for (const [limit, name] of [[r.hourly_limit_ulxc, 'hourly'], [r.daily_limit_ulxc, 'daily'], [r.weekly_limit_ulxc, 'weekly'], [r.monthly_limit_ulxc, 'monthly']] as const) {
       if (limit > 0 && spent + amount > limit) {
         return rule(`the agent has spent ${lxc(spent)} LXC of its ${name} limit of ${lxc(limit)} LXC, and this ${what} would cost up to ${lxc(amount)} LXC`)
+      }
+    }
+    const modelCap = r.model_daily_limits_ulxc[modelCapKey(req.model ?? '')] ?? 0
+    if (modelCap > 0 && !req.payment) {
+      const today = new Date(new Date().toISOString().slice(0, 10)).toISOString()
+      const onModel = this.postings.filter((p) => p.account === `agent:${agent.id}` && p.kind === 'spend' && p.model === modelCapKey(req.model ?? '') && p.at >= today)
+        .reduce((s, p) => s - p.amount_ulxc, 0)
+      if (onModel + amount > modelCap) {
+        return rule(`the agent has spent ${lxc(onModel)} LXC of its daily limit of ${lxc(modelCap)} LXC for the model "${req.model}", and this request would cost up to ${lxc(amount)} LXC`)
       }
     }
     if (r.approval_above_ulxc > 0 && amount > r.approval_above_ulxc) {
@@ -258,9 +276,9 @@ export class Bank {
     return undefined
   }
 
-  /** What a served request cost, posted from the agent to spend — beside the workspace's ledger row. */
-  spent(agent: Agent, charge: number): void {
-    if (charge > 0) this.post(agent.ws, 'spend', [[`agent:${agent.id}`, -charge, 'spend'], ['spend', charge, `agent:${agent.id}`]])
+  /** What a served request cost, posted from the agent to spend, naming its model — beside the workspace's ledger row. */
+  spent(agent: Agent, charge: number, model: string): void {
+    if (charge > 0) this.post(agent.ws, 'spend', [[`agent:${agent.id}`, -charge, 'spend'], ['spend', charge, `agent:${agent.id}`]], undefined, modelCapKey(model))
   }
 
   private statement(ws: string, agentID: string | undefined, url: URL): object | string {
@@ -885,6 +903,7 @@ export class Bank {
         const r = await this.body<Partial<Rules>>(req)
         a.rules = { ...noRules(), ...r, allowed_listings: r.allowed_listings ?? a.rules.allowed_listings,
           hourly_limit_ulxc: r.hourly_limit_ulxc ?? a.rules.hourly_limit_ulxc, weekly_limit_ulxc: r.weekly_limit_ulxc ?? a.rules.weekly_limit_ulxc,
+          model_daily_limits_ulxc: r.model_daily_limits_ulxc == null ? a.rules.model_daily_limits_ulxc : modelCaps(r.model_daily_limits_ulxc),
           allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [] }
         return json(res, 200, a.rules), true
       }

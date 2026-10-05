@@ -413,6 +413,7 @@
     "daily_limit_ulxc": "number",
     "weekly_limit_ulxc": "number",
     "monthly_limit_ulxc": "number",
+    "model_daily_limits_ulxc": {},
     "approval_above_ulxc": "number",
     "allowed_models": [],
     "allowed_providers": [],
