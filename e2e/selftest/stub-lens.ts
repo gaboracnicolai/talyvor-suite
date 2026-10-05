@@ -309,6 +309,12 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const model = CATALOG.find((c) => c.id === body.model)
   if (model === undefined || (provider === 'anthropic') !== (path === 'v1/messages')) return json(res, 400, { error: 'bad request' })
   const messages = body.messages ?? []
+  // B28.78 — Anthropic refuses a conversation holding an answer that said nothing, as a stopped one does.
+  const blank = messages.findIndex((m, i) => m.role === 'assistant' && i < messages.length - 1 && text(m).trim() === '')
+  if (provider === 'anthropic' && blank >= 0) {
+    return json(res, 400, { type: 'error', error: { type: 'invalid_request_error',
+      message: `messages.${blank}: all messages must have non-empty content except for the optional final assistant message` } })
+  }
   const headers: Record<string, string> = {}
 
   // The guardrails first: an injection is refused before the budget, the cache and the model; personal

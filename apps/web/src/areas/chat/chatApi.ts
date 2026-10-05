@@ -250,7 +250,12 @@ export function pickerCatalog(all: ChatModel[], unconfiguredProviders: readonly 
 function requestBody(provider: string, model: string, turns: ChatMessage[]): unknown {
   // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
   // refuses a message with a field it does not know.
-  const messages = turns.map(({ role, content, attachments }) => {
+  // B28.78 — and never an answer that said nothing. A stopped, failed or blank answer stays in the
+  // conversation as an empty assistant turn, and Anthropic refuses the whole request over it, so
+  // every later question in that chat failed until a reload. The two questions either side of it are
+  // read by Anthropic as one turn.
+  const said = turns.filter((t) => t.role !== 'assistant' || t.content.trim() !== '')
+  const messages = said.map(({ role, content, attachments }) => {
     const docs = (attachments ?? []).filter((a) => a.file_id !== undefined)
     if (docs.length === 0) return { role, content }
     // ⚠ THE TWO SHAPES LENS READS AN UPLOADED DOCUMENT FROM (talyvor-lens B18.13): Anthropic's

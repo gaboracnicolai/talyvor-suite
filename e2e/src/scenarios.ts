@@ -299,6 +299,30 @@ export function followUpNotCached(seed: number): Scenario {
   }
 }
 
+export function stoppedThenAnswers(seed: number): Scenario {
+  const r = seeded(seed * 17 + 3)
+  const [a, b] = [0, 0].map(() => 10 + Math.floor(r() * 89))
+  const question = `What is ${a} + ${b}? ${NUMBER_ONLY}`
+  return {
+    id: 'stopped-then-answers',
+    title: 'after an answer is stopped, the next question in the same chat still answers',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      // B28.78 — Anthropic is the provider that refused a conversation holding the empty answer.
+      const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+      if (model?.provider !== 'anthropic') throw new CannotTest(`needs an Anthropic model; this run asks ${app.modelNameInUse}`)
+      await app.stopBeforeAnswer(question)
+      ctx.evidence.push({ note: 'stopped before any of the answer arrived', question })
+      // Asked again, as a person does after Stop.
+      const t = await ask(ctx, question, 'the next question, same chat')
+      if (t.error !== undefined) return { pass: false, detail: `the next question was refused: ${t.error}` }
+      return statesNumber(t.answer, a + b)
+        ? { pass: true, detail: `answered ${a + b} after the stopped answer` }
+        : { pass: false, detail: `expected ${a + b}, got ${describe(t)}` }
+    },
+  }
+}
+
 export function sidebarStaysHidden(): Scenario {
   return {
     id: 'sidebar-stays-hidden',
@@ -1308,7 +1332,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 2: list.push(oneDigitTrap(i)); break
     case 3: list.push(rephraseSameAccount(i)); break
     case 4: if (i + 5 < users) list.push(acrossAccounts(i, i + 5)); break
-    case 5: list.push(followUpNotCached(i)); break
+    // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
+    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break
     case 6: list.push(sidebarStaysHidden()); break
     case 7: list.push(streamsProgressively()); break
     case 8: list.push(socialPreview(), walletDocs()); break
