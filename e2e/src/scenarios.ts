@@ -442,6 +442,69 @@ export function sidebarStaysHidden(): Scenario {
   }
 }
 
+/** B28.266 — Royalties (the old /earnings address), Members, Setup and API keys, each opened cold in a tab of
+ *  its own as a person opens a bookmark: at the load event each already shows its heading, and once its
+ *  reads answer none is left on "Loading…". Then on API keys a key is created: its name field is empty
+ *  again, its row says it was never used, and it is revoked. */
+export function consoleScreensDraw(seed: number): Scenario {
+  const SCREENS = ['/earnings', '/members', '/setup', '/keys']
+  return {
+    id: 'console-screens-draw',
+    title: 'Royalties, Members, Setup and API keys draw their heading at once and their data after',
+    run: async (ctx) => {
+      const failed: string[] = []
+      for (const path of SCREENS) {
+        const page = await ctx.app.tab(path)
+        // Read at the load event, without waiting: the explorers read every one of these as blank here.
+        const atLoad = await page.evaluate(() => ({
+          heading: document.querySelector('main h2')?.textContent?.trim() ?? '',
+          chars: document.querySelector('main')?.textContent?.trim().length ?? 0,
+        }))
+        const settled = await page
+          .waitForFunction(() => {
+            const main = document.querySelector('main')
+            return main !== null && !main.textContent!.includes('Loading…') && main.textContent!.trim().length > 0
+          }, undefined, { timeout: 15_000 })
+          .then(() => true, () => false)
+        ctx.evidence.push({ note: `${path}: at load, heading "${atLoad.heading}" and ${atLoad.chars} characters in main; ${settled ? 'settled' : 'still loading after 15 s'}` })
+        if (atLoad.heading === '') failed.push(`${path} had no heading at the load event`)
+        if (!settled) failed.push(`${path} was still loading after 15 s`)
+        if (path !== '/keys') {
+          await page.close()
+          continue
+        }
+        const name = `e2e-b28266-${seed}-${Date.now() % 100_000}`
+        const field = page.getByLabel('New key name')
+        await field.fill(name)
+        await page.getByRole('button', { name: 'Create key' }).click()
+        await page.getByRole('button', { name: 'Copy key' }).waitFor({ state: 'visible', timeout: 15_000 })
+        const left = await field.inputValue()
+        // The row is its name, then its facts line, then its identifier.
+        const list = page.getByRole('region', { name: /the keys that exist/i })
+        await list.getByText(name, { exact: true }).waitFor({ state: 'visible', timeout: 15_000 }).catch(() => undefined)
+        const lines = (await list.innerText()).split('\n').map((l) => l.trim())
+        const at = lines.indexOf(name)
+        const facts = at < 0 ? '' : lines.slice(at, at + 3).join(' | ')
+        ctx.evidence.push({ note: `after creating "${name}": the name field holds "${left}"; its row reads "${facts.slice(0, 160)}"` })
+        if (left !== '') failed.push(`the key name field still held "${left}" after the key was created`)
+        if (!facts.includes('never used')) failed.push('the new key\'s row did not say it was never used')
+        await page.getByRole('button', { name: /i stored it/i }).click()
+        const prefix = /tlv_ws_[0-9a-f]+/.exec(facts)?.[0]
+        if (prefix !== undefined) {
+          await page.getByRole('button', { name: `Revoke ${prefix}` }).click()
+          await page.getByLabel(`Type ${prefix} to confirm`).fill(prefix)
+          await page.getByRole('button', { name: 'Revoke key' }).click()
+          await page.getByRole('button', { name: `Revoke ${prefix}` }).waitFor({ state: 'detached', timeout: 15_000 }).catch(() => undefined)
+        }
+        await page.close()
+      }
+      return failed.length === 0
+        ? { pass: true, detail: 'all four drew their heading at the load event and their data after; a new key cleared the name field and read "never used"' }
+        : { pass: false, detail: failed.join('; ') }
+    },
+  }
+}
+
 /** B28.1 — what a search result and a shared link show: the front door's bytes as a crawler reads them
  *  (no script runs), the image they name, and the tab title once the app has run. */
 export function socialPreview(): Scenario {
@@ -1754,7 +1817,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       break
     case 1: list.push(repeatInNewChat(i)); break
     case 2: list.push(oneDigitTrap(i)); break
-    case 3: list.push(rephraseSameAccount(i)); break
+    // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
+    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i)); break
     case 4: if (i + 5 < users) list.push(acrossAccounts(i, i + 5)); break
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
     case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break

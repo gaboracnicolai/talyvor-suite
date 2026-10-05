@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Keys } from './Keys'
+import type { WorkspaceAPIKey } from './keysApi'
 
 // /keys is LIVE — wired to the BFF's GET + POST /api/keys (apps/bff/keys.go). The
 // screen exists because the mint response has `key` and `prefix` ADJACENT and
@@ -28,7 +29,7 @@ const writeText = vi.fn(() => Promise.resolve())
 /** Mock GET /api/keys (list) and POST /api/keys (mint). `postStatus` lets a test
  *  force the mint to fail; `existing` is what the list holds before the mint. Records the POST
  *  init so the write shape is asserted. */
-function mockKeys({ postStatus = 201, existing = EXISTING }: { postStatus?: number; existing?: typeof EXISTING } = {}) {
+function mockKeys({ postStatus = 201, existing = EXISTING }: { postStatus?: number; existing?: WorkspaceAPIKey[] } = {}) {
   let minted = false
   const post = vi.fn()
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -87,6 +88,32 @@ describe('Keys — the live list', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('boom', { status: 502 }))
     renderKeys()
     expect(await screen.findByText(/Couldn’t load your keys/)).toBeInTheDocument()
+  })
+})
+
+describe('B28.266 — Keys tells one key from another, and the name field starts empty again', () => {
+  it('each row states when the key was last used (or that it never was) and its expiry when set', async () => {
+    mockKeys({
+      existing: [
+        { ...EXISTING[0], last_used_at: '2026-07-20T10:05:00Z' },
+        { id: 'key_02', workspace_id: 'default', key_prefix: 'tlv_ws_0b7e11aa', name: 'Laptop', scopes: ['proxy'], created_at: '2026-07-14T09:12:00Z', expires_at: '2026-12-31T00:00:00Z' },
+      ],
+    })
+    renderKeys()
+    await screen.findByText('CI pipeline')
+    expect(screen.getByText(/proxy · created .* · last used Jul 21, 00:05/)).toBeInTheDocument()
+    expect(screen.getByText(/proxy · created .* · never used · expires Dec 31, 14:00/)).toBeInTheDocument()
+  })
+
+  it('the "New key name" field is cleared once the key is created', async () => {
+    mockKeys()
+    renderKeys()
+    await screen.findByText('CI pipeline')
+    const field = screen.getByLabelText(/new key name/i)
+    fireEvent.change(field, { target: { value: 'Laptop' } })
+    fireEvent.click(screen.getByRole('button', { name: /create key/i }))
+    await screen.findByText(MINTED.key)
+    expect(field).toHaveValue('')
   })
 })
 

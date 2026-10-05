@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { AuthGate } from './components/AuthGate'
 import type { AuthMe } from './lib/api'
@@ -70,5 +70,32 @@ describe('AuthGate', () => {
     renderGate()
     await waitFor(() => expect(screen.getByTestId('the-app')).toBeInTheDocument())
     expect(screen.queryByRole('link', { name: /sign in/i })).not.toBeInTheDocument()
+  })
+})
+
+// B28.266 — on the live app a cold load of any signed-in address measured 0 characters of text at
+// the load event: the gate drew nothing until /auth/me answered.
+describe('AuthGate — while the probe is in flight', () => {
+  function probeNeverAnswers() {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})))
+  }
+  beforeEach(() => localStorage.removeItem('talyvor.had-session'))
+
+  it('a browser that has never been signed in sees a line saying so, not a blank page', () => {
+    probeNeverAnswers()
+    renderGate()
+    expect(screen.getByRole('main')).toHaveTextContent('Checking your session…')
+    expect(screen.queryByTestId('the-app')).not.toBeInTheDocument()
+  })
+
+  it('a browser that was signed in when the probe last answered draws the app at once', async () => {
+    stubMe({ mode: 'oidc', authenticated: true, user: { sub: 's', email: 'a@b.c' } })
+    const first = renderGate()
+    await screen.findByTestId('the-app')
+    first.unmount()
+
+    probeNeverAnswers()
+    renderGate()
+    expect(screen.getByTestId('the-app')).toBeInTheDocument()
   })
 })
