@@ -214,6 +214,63 @@ export function appShell(): Scenario {
   }
 }
 
+/**
+ * B29.8 — Home opens like the board's PRODUCT UI tile: "Welcome to Talyvor" and a raised card for each
+ * product. Each card is clicked from a freshly opened Home, as a person does, and must land on its route
+ * with the console's own heading naming the page there — not the catch-all's "Not found".
+ */
+export const HOME_CARDS = [
+  { title: 'Agent Wallets', path: '/agents', heading: 'Agent Wallets' },
+  { title: 'Approvals', path: '/approvals', heading: 'Approvals' },
+  { title: 'Statements', path: '/statements', heading: 'Statements' },
+  { title: 'Chat', path: '/chat', heading: 'Chat' },
+  { title: 'Marketplace', path: '/marketplace', heading: 'Marketplace' },
+  { title: 'Track', path: '/track', heading: 'Track' },
+  { title: 'Docs', path: '/docs', heading: 'Docs' },
+  { title: 'Developers', path: '/setup', heading: 'Setup' },
+] as const
+
+export function homeCards(): Scenario {
+  return {
+    id: 'home-cards',
+    title: 'Home welcomes the person and each of its eight product cards opens its own screen',
+    run: async (ctx) => {
+      const wrong: string[] = []
+      const landed: string[] = []
+      for (const card of HOME_CARDS) {
+        const page = await ctx.app.tab('/')
+        try {
+          await page.getByRole('heading', { level: 2, name: 'Welcome to Talyvor' }).waitFor({ timeout: HEADING_TIMEOUT_MS })
+          const link = page.getByRole('list', { name: 'Products' }).getByRole('link', { name: new RegExp(`^${card.title}`) })
+          if ((await link.count()) !== 1) {
+            wrong.push(`Home has ${await link.count()} "${card.title}" card(s)`)
+            continue
+          }
+          if ((await link.locator('svg[data-icon]').count()) < 1) wrong.push(`the ${card.title} card has no icon`)
+          await link.click()
+          await page.waitForURL((u) => u.pathname === card.path, { timeout: HEADING_TIMEOUT_MS }).catch(() => undefined)
+          const at = new URL(page.url()).pathname
+          if (at !== card.path) {
+            wrong.push(`the ${card.title} card opened ${at}, not ${card.path}`)
+            continue
+          }
+          const title = page.locator('header h1')
+          await title.filter({ hasText: card.heading }).waitFor({ timeout: HEADING_TIMEOUT_MS }).catch(() => undefined)
+          const said = ((await title.textContent()) ?? '').trim()
+          if (said !== card.heading) wrong.push(`the ${card.title} card opened ${at}, titled "${said}", not "${card.heading}"`)
+          else landed.push(`${card.title} → ${at}`)
+        } finally {
+          await page.close()
+        }
+      }
+      ctx.evidence.push({ note: `Home's cards: ${landed.join(', ') || 'none landed'}` })
+      return wrong.length === 0
+        ? { pass: true, detail: `all ${HOME_CARDS.length} Home cards open their screen: ${landed.join(', ')}` }
+        : { pass: false, detail: wrong.join('; '), where: ['/'] }
+    },
+  }
+}
+
 /** The Lens reads a customer's own key can make: GET, and no parameter but its workspace. */
 export function customerReads(lens: readonly Entry[]): Entry[] {
   return lens.filter((e) => e.method === 'GET' && cannotTest(e) === undefined &&

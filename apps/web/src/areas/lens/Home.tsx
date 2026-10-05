@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { type UseQueryResult, useQueries, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, MuNumeral, Pill, Row, inlineLink } from '@talyvor/ui'
+import { Button, Card, CardHeader, MuNumeral, NavIcon, type NavIconName, Pill, Row, cn, focusRing, inlineLink } from '@talyvor/ui'
 import { Region, RegionScreen } from '../../components/Region'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { APPROVALS_KEY, BOOK_KEY, FORECAST_KEY, PauseEveryAgent, rulesKey } from './AgentBank'
@@ -19,11 +19,52 @@ import { SharingLine } from './Sharing'
 // Every figure is Lens's, read through the same BFF routes and the same query keys as Agent Wallets,
 // so a change made on either screen is the figure the other shows.
 //
+// B29.8 — it opens like the board's PRODUCT UI tile: "Welcome to Talyvor", then a raised card for each
+// product, each opening the route its sidebar row opens. The figures above are unchanged, one region down.
+//
 // A workspace with no agents yet opens in onboarding mode: what it holds, the three steps that give its
 // first agent a wallet (B28.8, Onboarding.tsx), and the one line that says whether it shares answers. Like Overview's first run, that is a MEASUREMENT — the book answered and
 // listed no agents — never a default: a read that failed is not an empty workspace.
 
 const lxc = (micros: number) => <Lxc ulxc={micros} />
+
+/** The products a person reaches from Home, in the sidebar's order; `to` is the route its sidebar row opens. */
+export const PRODUCT_CARDS: readonly { title: string; to: string; icon: NavIconName; line: string }[] = [
+  { title: 'Agent Wallets', to: '/agents', icon: 'wallet', line: 'A budget and rules for each agent' },
+  { title: 'Approvals', to: '/approvals', icon: 'approvals', line: 'Requests waiting for a person' },
+  { title: 'Statements', to: '/statements', icon: 'statement', line: 'What each agent spent, line by line' },
+  { title: 'Chat', to: '/chat', icon: 'chat', line: 'Ask any model, with its wallet beside it' },
+  { title: 'Marketplace', to: '/marketplace', icon: 'grid', line: 'Agents, prompts and skills to use or sell' },
+  { title: 'Track', to: '/track', icon: 'issues', line: 'Issues, boards and cycles' },
+  { title: 'Docs', to: '/docs', icon: 'docs', line: 'Your workspace’s pages' },
+  { title: 'Developers', to: '/setup', icon: 'code', line: 'Connect an agent, keys and routing' },
+]
+
+/** The board's product cards: raised, a brand line icon, the product's name and one line, and an arrow. */
+function ProductCards() {
+  return (
+    <ul className="grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="Products">
+      {PRODUCT_CARDS.map((p) => (
+        <li key={p.to} className="flex">
+          <Link
+            to={p.to}
+            data-testid={`home-card-${p.to.slice(1)}`}
+            className={cn('flex w-full flex-col gap-3 rounded-card border border-rule bg-raised p-4', focusRing)}
+          >
+            <span className="flex items-start justify-between gap-2">
+              <NavIcon name={p.icon} className="h-7 w-7 text-accent-strong" />
+              <NavIcon name="arrow" className="h-4 w-4 text-muted" />
+            </span>
+            <span className="flex flex-col gap-1">
+              <span className="text-head text-ink">{p.title}</span>
+              <span className="text-body text-muted">{p.line}</span>
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 function Muted({ children }: { children: React.ReactNode }) {
   return <p className="px-gutter py-3 text-body text-muted">{children}</p>
@@ -249,10 +290,19 @@ export function Home() {
       <Region
         index="00"
         label="Home"
-        heading={state === 'onboarding' ? 'Give every agent a wallet.' : 'Your agents’ wallets, at a glance.'}
+        heading="Welcome to Talyvor"
         sectionClassName="pb-10 pt-4 wide:pb-12"
-        className="flex flex-col gap-3"
+        className="flex flex-col gap-6"
+        fullWidth
       >
+        {state === 'onboarding' || state === 'wallets' ? (
+          <p className="text-body text-muted" data-testid="home-lead">
+            {state === 'onboarding' ? 'Give every agent a wallet.' : 'Your agents’ wallets, at a glance.'}
+          </p>
+        ) : null}
+        <ProductCards />
+      </Region>
+      <Region index="01" label="Your wallets" className="flex flex-col gap-3">
         {state === 'failed' ? (
           <PanelFailure error={book.error} what="the workspace’s wallets" />
         ) : !book.data ? (
@@ -265,16 +315,16 @@ export function Home() {
       </Region>
       {state === 'wallets' && book.data ? (
         <>
-          <Region index="01" label="Waiting for you">
+          <Region index="02" label="Waiting for you">
             <ApprovalsWaiting />
           </Region>
-          <Region index="02" label="Each agent’s budget">
+          <Region index="03" label="Each agent’s budget">
             <Budgets agents={agents} forecast={forecast} />
           </Region>
-          <Region index="03" label="Where the month is heading">
+          <Region index="04" label="Where the month is heading">
             <Forecast forecast={forecast} />
           </Region>
-          <Region index="04" label="Stop every agent" className="flex flex-col gap-3">
+          <Region index="05" label="Stop every agent" className="flex flex-col gap-3">
             <p className="text-body text-muted">
               One switch: Lens refuses each agent’s next request, payment or hold before a provider is called.
             </p>

@@ -131,6 +131,9 @@ const ICONS = {
   ),
   fold: <path d="m8 4.5 4 4 4-4M8 19.5l4-4 4 4" />,
   unfold: <path d="m8 9 4-4 4 4M8 15l4 4 4-4" />,
+  // B29.8 — the Home cards' Developers icon and the arrow each card ends on.
+  code: <path d="m8 7.5-4.5 4.5L8 16.5M16 7.5l4.5 4.5-4.5 4.5M13.5 5l-3 14" />,
+  arrow: <path d="M4.5 12h15M13.5 6l6 6-6 6" />,
   server: (
     <>
       <rect x="4" y="4" width="16" height="7" rx="1.5" />

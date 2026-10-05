@@ -1419,7 +1419,7 @@ export function walletHome(seed: number): Scenario {
       if (!pending.some((x) => x.agent_id === a.id)) return fail(`Lens filed no pending approval for ${a.name}: ${held.status} ${held.error}`)
       const page = await ctx.app.tab('/')
       try {
-        await page.getByRole('heading', { level: 2, name: 'Your agents’ wallets, at a glance.' }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+        await page.getByText('Your agents’ wallets, at a glance.', { exact: true }).waitFor({ timeout: ACTION_TIMEOUT_MS })
         const used = (await page.getByTestId(`home-budget-used-${a.id}`).innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
         const waiting = (await page.getByTestId('home-approvals-waiting').innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
         ctx.evidence.push({ note: `Home: ${a.name} ${used} through its budget, ${waiting} approval(s) waiting; Lens: spent ${spent} of ${spent * 4} µLXC, ${pending.length} pending` })
@@ -1453,7 +1453,7 @@ export function walletOnboarding(seed: number): Scenario {
       if (before.agents.length > 0) throw new CannotTest(`the workspace already has ${before.agents.length} agent(s), so Home opens no onboarding`)
       const page = await ctx.app.tab('/')
       try {
-        await page.getByRole('heading', { level: 2, name: 'Give every agent a wallet.' }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+        await page.getByText('Give every agent a wallet.', { exact: true }).waitFor({ timeout: ACTION_TIMEOUT_MS })
         if ((await page.getByText(/Share your answers, and earn from them/).count()) > 0) return fail('the full-screen sharing-consent page is still shown')
         if ((await page.getByRole('checkbox', { name: /Share answers with other companies/ }).count()) !== 1) return fail('Home has no one-line sharing notice')
         const steps = page.getByTestId('wallet-onboarding')

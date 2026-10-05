@@ -20,7 +20,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { appShell, brandPlanes, everyScreen, lensReads } from './tour.ts'
+import { appShell, brandPlanes, everyScreen, homeCards, lensReads } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandVisual } from './brand.ts'
@@ -1818,7 +1818,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.7 — then the wallet-first sidebar, whose Approvals badge counts the approval Home just filed.
     // B29.2 — then the board's dark planes: the canvas Obsidian, the sidebar Surface.
     // B29.7 — then the shell: an icon on every sidebar link, Home Teal on the tint, the 20px title.
-    case 8: list.push(walletHome(i), walletFirstNav(), brandPlanes(), appShell()); break
+    // B29.8 — then Home's welcome and its eight product cards, each clicked to its own screen.
+    case 8: list.push(walletHome(i), walletFirstNav(), brandPlanes(), appShell(), homeCards()); break
   }
   // Catalog v4 (B25.4): test users trade with each other through every wallet, bank and marketplace
   // function, one in ten again. The other company is 9, 19, …: nobody pauses its agents, and a trade
