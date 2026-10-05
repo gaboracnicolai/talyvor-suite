@@ -20,7 +20,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, marketplaceSale, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { appShell, brandPlanes, chatBrand, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
+import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine, readingPages } from './brand.ts'
@@ -1876,7 +1876,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.20 — then one agent funded 100 times at once: Lens's stored balance agrees with its postings.
     // B28.349 — then asked in Chat what an agent spent: 1.23 LXC, through Lens's wallet tool, linked to its pay line.
     // B29.10 — then that conversation in the brand: raised composer, teal Send, eyebrow picker, replies at 15/24.
-    case 6: list.push(statementReconciles(i), agentBalanceStored(i), agentSpendQuestion(i), chatBrand()); break
+    // B28.267 — then /chat/help in full at 1440 and 390, its whole title in the top bar.
+    case 6: list.push(statementReconciles(i), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull()); break
     // B28.8 — first, while the workspace has no agent: Home's three onboarding steps.
     // B29.12 — then Features, Track, Docs, Developers, Billing and Settings in the brand, each photographed.
     case 7: list.push(walletOnboarding(i), everyScreen(), screensBrand()); break

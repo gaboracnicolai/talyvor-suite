@@ -73,7 +73,9 @@ afterEach(() => {
 const header = () => document.querySelector('header')!
 
 describe('the sticky header may narrow to the viewport', () => {
-  it('lets the page title shrink and ellipsise rather than push', async () => {
+  // B28.267 — it wraps instead of ellipsising: at 390, measured in Chrome, "How to use Talyvor Chat" was
+  // painted as "H…"; wrapped it is two lines, and no route scrolls sideways at 320, 390 or 1440.
+  it('lets the page title shrink and wrap rather than push', async () => {
     render(<App />)
     await waitFor(() => expect(document.body.textContent ?? '').toContain('Home'))
     const title = [...header().children].find((el) => el.textContent?.trim() === 'Home')
@@ -81,9 +83,8 @@ describe('the sticky header may narrow to the viewport', () => {
     expect(cls, 'the page title is a flex item with min-width:auto — it cannot go below its own text').toContain(
       'min-w-0',
     )
-    expect(cls, 'and without truncate it keeps its full intrinsic width even when allowed to shrink').toContain(
-      'truncate',
-    )
+    expect(cls, 'without break-words a word wider than the title keeps its full width').toContain('break-words')
+    expect(cls, 'truncate cut a phone title to its first letter').not.toContain('truncate')
   })
 
   it('lets the actions block shrink', async () => {

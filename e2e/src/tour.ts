@@ -469,6 +469,60 @@ export function chatBrand(): Scenario {
 }
 
 /**
+ * B28.267 — /chat/help in full at 1440 and 390: all six sections, the last one ending on its last
+ * sentence, and the top bar showing the whole title "How to use Talyvor Chat" (at 390 it was "H…"),
+ * with nothing scrolling sideways. Photographed at both widths.
+ */
+export const CHAT_HELP_SECTIONS = ['Asking', 'Models', 'Attaching documents', 'What an answer costs', 'What each question sends', 'Where conversations are kept'] as const
+
+export function chatHelpInFull(): Scenario {
+  return {
+    id: 'chat-help-in-full',
+    title: '/chat/help shows all six sections, its last sentence, and its whole title, at 1440 and 390',
+    run: async (ctx) => {
+      const { dir, link } = ctx.env.shots
+      await mkdir(dir, { recursive: true })
+      const page = await ctx.app.tab('/chat/help')
+      const wrong: string[] = []
+      try {
+        await page.getByRole('heading', { name: 'Where conversations are kept' }).waitFor({ timeout: HEADING_TIMEOUT_MS })
+        for (const [width, height] of CHAT_VIEWPORTS) {
+          await page.setViewportSize({ width, height })
+          await page.waitForTimeout(200)
+          const seen = await page.evaluate(() => {
+            const title = document.querySelector('header h1')
+            const sections = Array.from(document.querySelectorAll('main section'))
+            const last = sections[sections.length - 1]?.textContent?.trim() ?? ''
+            return {
+              title: title?.textContent ?? null,
+              titleCut: title !== null && title.scrollWidth > title.clientWidth,
+              headings: sections.map((s) => s.querySelector('h2')?.textContent ?? ''),
+              lastEnds: last.slice(-40),
+              scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            }
+          })
+          const file = `chat-help-${width}.jpg`
+          await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80, fullPage: true })
+          const at = `${width}`
+          if (seen.title !== 'How to use Talyvor Chat') wrong.push(`${at}: the top bar says ${JSON.stringify(seen.title)}`)
+          if (seen.titleCut) wrong.push(`${at}: the title "How to use Talyvor Chat" is cut off`)
+          const missing = CHAT_HELP_SECTIONS.filter((h) => !seen.headings.includes(h))
+          if (missing.length > 0) wrong.push(`${at}: missing section(s): ${missing.join(', ')}`)
+          if (!seen.lastEnds.endsWith('New chat starts a fresh one.')) wrong.push(`${at}: the last section ends "…${seen.lastEnds}"`)
+          if (seen.scroll > 0) wrong.push(`${at}: /chat/help scrolls ${seen.scroll}px sideways`)
+          ctx.evidence.push({ note: `/chat/help ${width}×${height}: ${seen.headings.length} sections, title ${seen.titleCut ? 'cut' : 'whole'}`, shot: `${link}/${file}` })
+        }
+      } finally {
+        await page.close()
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: '/chat/help in full at 1440 and 390: six sections, the last sentence, and the whole title' }
+        : { pass: false, detail: wrong.join('; '), where: ['/chat/help'] }
+    },
+  }
+}
+
+/**
  * B29.11 — the marketplace in the brand, as the browser paints it in the dark theme at 1440 and 390: every
  * listing a card on the raised plane with its kind's icon, its seller and its price in IBM Plex Mono with
  * tabular figures, and no teal fill on the catalog; the publish form on raised, a kind picked by its icon,
