@@ -133,7 +133,7 @@ describe('BYOK in the app (B27.27)', () => {
 
     // Stripe takes test card 4242, its webhook reaches Lens, and the browser comes back.
     talyvor.byok = true
-    act(() => go('/billing/success'))
+    act(() => go('/billing/success?session_id=cs_test_byok'))
     expect(await screen.findByRole('heading', { name: 'You’re on BYOK.' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Add your provider keys' }))
 

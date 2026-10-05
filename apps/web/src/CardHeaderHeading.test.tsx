@@ -135,8 +135,9 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   // B13.3 — the usage meter and the earnings card; the populated fixture is a subscriber.
   '/plans': 2,
   // 0 → 1 at W1.1.17b: the return screen draws a card, and the old census was reading its
-  // pre-query state.
-  '/billing/success': 1,
+  // pre-query state. 1 → 0 at B28.270: opened bare, with no session_id, no checkout is returning,
+  // and the page says there is no payment to confirm — it draws no card.
+  '/billing/success': 0,
   '/billing/cancel': 0,
   '/keys': 2,
   // B19.4 — Waiting for a person, Agents, and the open agent's Money, Rules, Pay, Key and Statement.

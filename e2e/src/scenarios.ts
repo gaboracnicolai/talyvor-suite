@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
@@ -1882,7 +1882,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 6: list.push(statementReconciles(i), ledgerReadsCorrectly(), spendPlainWords(), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull()); break
     // B28.8 — first, while the workspace has no agent: Home's three onboarding steps.
     // B29.12 — then Features, Track, Docs, Developers, Billing and Settings in the brand, each photographed.
-    case 7: list.push(walletOnboarding(i), everyScreen(), screensBrand()); break
+    // B28.270 — then the two Stripe return pages opened with no checkout coming back: neither claims a payment.
+    case 7: list.push(walletOnboarding(i), everyScreen(), screensBrand(), billingReturnPages()); break
     // B28.6 — Home, the first screen after sign-in: an agent's budget used and the approvals waiting.
     // B28.7 — then the wallet-first sidebar, whose Approvals badge counts the approval Home just filed.
     // B29.2 — then the board's dark planes: the canvas Obsidian, the sidebar Surface.
