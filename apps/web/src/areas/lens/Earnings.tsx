@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, Navigate } from 'react-router-dom'
-import { Button, MuNumeral, inlineLink } from '@talyvor/ui'
+import { Button, MuNumeral, Pill, inlineLink } from '@talyvor/ui'
 
 import { api, UnreadableError, type EarningsSummary, type EarningsTypeLine } from '../../lib/api'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 import { Region, RegionScreen } from '../../components/Region'
 import { UNPAID_CONTRIBUTION_NOTICE, UNPAID_NOTICE_HEADLINE } from './unpaidNotice'
 import { ConvertRegion } from './ConvertLens'
+import { Card } from './walletBrand'
 
 // B28.10 — THIS SCREEN IS "ROYALTIES", UNDER STATEMENTS, AT /statements/royalties (/earnings
 // redirects here). Sharing answers is a cost saving — repeated questions are served without paying
@@ -79,6 +80,9 @@ function TypeRow({ line }: { line: EarningsTypeLine }) {
         <div className="flex justify-end">
           <MuNumeral micros={line.amount_ulens} unit="lens" />
         </div>
+      </td>
+      <td className="px-gutter py-2">
+        {line.class === 'held' ? <Pill status="held">Held</Pill> : <Pill status="settled">Settled</Pill>}
       </td>
       <td className="px-gutter py-2 text-right font-figure text-body text-muted">{line.rows}</td>
       {/* The REASON travels from Lens rather than being restated here: a figure that cannot explain
@@ -175,15 +179,18 @@ export function Earnings() {
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <Card className="space-y-3 p-gutter">
             <p className="text-body text-muted">
               Settled earnings from work of yours that somebody else reused.
             </p>
-            <div data-testid="contribution-total" className="text-title text-ink">
-              <Money
-                micros={s.contribution_settled_ulens}
-                usd={s.contribution_settled_usd_at_peg}
-              />
+            <div className="flex flex-wrap items-center gap-3">
+              <div data-testid="contribution-total" className="text-title text-ink">
+                <Money
+                  micros={s.contribution_settled_ulens}
+                  usd={s.contribution_settled_usd_at_peg}
+                />
+              </div>
+              <Pill status="settled">Settled</Pill>
             </div>
             {/* ⚠ SEPARATE LINE, NEVER ADDED IN. Yield on locked LENS is income and is not an answer
                 anybody wrote, so it cannot sit inside a figure the sentence above introduces. */}
@@ -198,26 +205,34 @@ export function Earnings() {
               Dollar figures convert at the peg Lens publishes ({s.lens_per_usd} LENS to the
               dollar). LENS is not traded, so that is a unit conversion and not a price.
             </p>
-          </div>
+          </Card>
         )}
       </Region>
 
       {armed && s ? (
         <Region index="02" label="Not yours yet">
-          <p className="text-body text-muted">
-            A reuse royalty is <em>held</em> before it settles: while it is held an adjudicator can
-            still revoke it, so it is not money you have.
-          </p>
-          <p data-testid="held-total" className="mt-3 text-body text-ink">
-            <Money micros={s.held_ulens} usd={s.held_usd_at_peg} /> held.
-          </p>
-          {s.revoked_ulens > 0 ? (
-            <p data-testid="revoked-line" className="mt-3 text-body text-muted">
-              <MuNumeral micros={s.revoked_ulens} unit="lens" /> has been revoked after
-              adjudication. It is shown so a fall in what you earned has a name rather than being an
-              unexplained drop.
+          <Card className="p-gutter">
+            <p className="text-body text-muted">
+              A reuse royalty is <em>held</em> before it settles: while it is held an adjudicator can
+              still revoke it, so it is not money you have.
             </p>
-          ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p data-testid="held-total" className="text-body text-ink">
+                <Money micros={s.held_ulens} usd={s.held_usd_at_peg} /> held.
+              </p>
+              <Pill status="held">Held</Pill>
+            </div>
+            {s.revoked_ulens > 0 ? (
+              <div className="mt-3 flex flex-wrap items-start gap-3">
+                <Pill status="slashed">Revoked</Pill>
+                <p data-testid="revoked-line" className="text-body text-muted">
+                  <MuNumeral micros={s.revoked_ulens} unit="lens" /> has been revoked after
+                  adjudication. It is shown so a fall in what you earned has a name rather than being an
+                  unexplained drop.
+                </p>
+              </div>
+            ) : null}
+          </Card>
         </Region>
       ) : null}
 
@@ -245,13 +260,14 @@ export function Earnings() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <Card className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-rule text-left font-figure text-eyebrow uppercase text-muted">
                     <th className="px-gutter py-2 font-semibold">Ledger type</th>
                     <th className="px-gutter py-2 font-semibold">Kind</th>
                     <th className="px-gutter py-2 text-right font-semibold">Amount</th>
+                    <th className="px-gutter py-2 font-semibold">Status</th>
                     <th className="px-gutter py-2 text-right font-semibold">Rows</th>
                     <th className="px-gutter py-2 font-semibold">Why it counts</th>
                   </tr>
@@ -262,7 +278,7 @@ export function Earnings() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </Card>
           )}
 
           {/* ⚠ NEVER DROPPED SILENTLY. Lens reports ledger types its own vocabulary does not

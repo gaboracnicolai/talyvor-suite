@@ -114,8 +114,9 @@ export function Lxc({ ulxc, sign = '' }: { ulxc: number; sign?: '' | '+' | '−'
   const money = useMoney()
   const fiat = money(Math.abs(ulxc))
   const minus = ulxc < 0 ? '-' : sign
+  // B29.9 — the whole amount, unit and fiat included, is on the figure face: IBM Plex Mono, tabular figures.
   return (
-    <>
+    <span className="whitespace-nowrap font-figure">
       <span className="font-figure">
         {sign}
         {formatULXC(ulxc).replace(/ LXC$/, '')}
@@ -130,7 +131,7 @@ export function Lxc({ ulxc, sign = '' }: { ulxc: number; sign?: '' | '+' | '−'
           </span>
         </>
       ) : null}
-    </>
+    </span>
   )
 }
 

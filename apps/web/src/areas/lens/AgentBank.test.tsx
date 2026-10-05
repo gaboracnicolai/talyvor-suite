@@ -181,7 +181,7 @@ describe('Agent Bank', () => {
     // B27.21: the row reads single-spaced — the figure alone in the figure face, " LXC" in the sentence's.
     const asks = await screen.findByText(/wants to pay Writer/)
     expect(asks.textContent).toBe('Researcher wants to pay Writer 3 LXC — draft')
-    expect(asks.querySelector('.font-figure')?.textContent).toBe('3')
+    expect(asks.querySelector('.font-figure')?.textContent).toBe('3 LXC')
 
     fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
     await waitFor(() =>

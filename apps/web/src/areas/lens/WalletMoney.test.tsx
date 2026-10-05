@@ -167,7 +167,7 @@ describe('money between owners on Agent Wallets', () => {
     expect(sent).toEqual([]) // the first press only asks
     fireEvent.click(screen.getByRole('button', { name: 'Yes, give it back' }))
 
-    expect((await screen.findByText(/^Gave .* back to agt_bea\.$/)).textContent).toMatch(/^Gave 1\.5 LXC.* back to agt_bea\.$/)
+    expect((await screen.findByText(/^Gave .*back to agt_bea\.$/)).textContent).toMatch(/^Gave 1\.5 LXC.* back to agt_bea\.$/)
     expect(sent).toContainEqual({ method: 'POST', url: '/api/wallets/transfers/xfr_in/refund', body: {} })
     expect(await screen.findByText('Gave back to agt_bea — refund: overpaid')).toBeTruthy()
     expect(screen.getByText('Given back')).toBeTruthy()

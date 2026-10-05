@@ -271,6 +271,85 @@ export function homeCards(): Scenario {
   }
 }
 
+/**
+ * B29.9 — the wallet screens in the brand, as the browser paints them in the dark theme: each screen's one
+ * teal action (Fund on Agent Wallets, Approve on Approvals, Download on Statements, none elsewhere), its
+ * cards on the raised plane, every LXC amount in IBM Plex Mono with tabular figures, and a pill on each
+ * waiting approval and each statement line. Runs after wallet-home, whose agent is funded and waiting.
+ */
+export const WALLET_SCREENS = [
+  { path: '/agents', title: 'Agent Wallets', teal: 'Fund' },
+  { path: '/approvals', title: 'Approvals', teal: 'Approve' },
+  { path: '/statements', title: 'Statements', teal: 'Download' },
+  { path: '/statements/royalties', title: 'Royalties', teal: null },
+  { path: '/ledger', title: 'Ledger', teal: null },
+  { path: '/spend', title: 'Spend & routing', teal: null },
+] as const
+export const DARK_WALLET = { teal: 'rgb(58, 214, 192)', raised: 'rgb(14, 26, 42)' } as const
+
+export function walletBrand(): Scenario {
+  return {
+    id: 'wallet-brand',
+    title: 'the wallet screens carry one teal action each, raised cards, mono amounts and status pills',
+    run: async (ctx) => {
+      const wrong: string[] = []
+      const seenAll: string[] = []
+      for (const screen of WALLET_SCREENS) {
+        const page = await ctx.app.tab(screen.path)
+        try {
+          await page.locator('header h1').filter({ hasText: screen.title }).waitFor({ timeout: HEADING_TIMEOUT_MS })
+          await page.waitForLoadState('networkidle', { timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined)
+          // The theme first, then a pause: a Button's colour eases over 200ms, and read mid-ease it is neither theme's teal.
+          await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'))
+          await page.waitForTimeout(400)
+          const seen = await page.evaluate((want) => {
+            const main = document.querySelector('main')
+            if (!main) return null
+            const teal = Array.from(main.querySelectorAll('button, a'))
+              .filter((b) => getComputedStyle(b).backgroundColor === want.teal)
+              .map((b) => (b.textContent ?? '').trim())
+            const cards = Array.from(main.querySelectorAll('.rounded-card')).map((c) => getComputedStyle(c).backgroundColor)
+            const amounts: string[] = []
+            const notMono: string[] = []
+            const walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT)
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+              const el = n.parentElement
+              if (!el || !/^\s*LXC\b/.test(n.textContent ?? '') || !/\d\s+LXC\b/.test(el.textContent ?? '')) continue
+              const st = getComputedStyle(el)
+              amounts.push((el.textContent ?? '').trim())
+              if (!st.fontFamily.includes('IBM Plex Mono') || !st.fontFeatureSettings.includes('tnum')) notMono.push(`"${(el.textContent ?? '').trim()}" in ${st.fontFamily}`)
+            }
+            const lines = Array.from(main.querySelectorAll('[data-testid="agent-statement"] tbody tr'))
+            const pilled = lines.filter((tr) => tr.querySelector('span.rounded-pill') !== null).length
+            const waiting = Array.from(main.querySelectorAll('span.rounded-pill')).filter((p) => (p.textContent ?? '').trim() === 'Waiting').length
+            return { teal, cards, amounts: amounts.length, notMono, lines: lines.length, pilled, waiting }
+          }, DARK_WALLET)
+          if (seen === null) {
+            wrong.push(`${screen.path} has no main`)
+            continue
+          }
+          seenAll.push(`${screen.path}: teal [${seen.teal.join(', ')}], ${seen.cards.length} cards, ${seen.amounts} LXC amounts, ${seen.pilled}/${seen.lines} statement lines pilled, ${seen.waiting} waiting`)
+          // Approve reads "Approve with Face ID" once the workspace signs its approvals.
+          const one = screen.teal === null ? seen.teal.length === 0 : seen.teal.length === 1 && seen.teal[0].startsWith(screen.teal)
+          if (!one) wrong.push(`${screen.path} fills [${seen.teal.join(', ')}] teal; want ${screen.teal ?? 'nothing'}`)
+          if (seen.cards.length === 0) wrong.push(`${screen.path} shows no card`)
+          const flat = seen.cards.filter((c) => c !== DARK_WALLET.raised)
+          if (flat.length > 0) wrong.push(`${screen.path}: ${flat.length} card(s) not on raised ${DARK_WALLET.raised}: ${flat.join(', ')}`)
+          if (seen.notMono.length > 0) wrong.push(`${screen.path}: amounts off the figure face: ${seen.notMono.slice(0, 3).join('; ')}`)
+          if (seen.pilled !== seen.lines) wrong.push(`${screen.path}: ${seen.lines - seen.pilled} statement line(s) without a pill`)
+          if (screen.path === '/approvals' && seen.waiting === 0) wrong.push('the approval wallet-home left waiting shows no Waiting pill')
+        } finally {
+          await page.close()
+        }
+      }
+      ctx.evidence.push({ note: seenAll.join(' | ') })
+      return wrong.length === 0
+        ? { pass: true, detail: `all ${WALLET_SCREENS.length} wallet screens in the brand: ${seenAll.join(' | ')}` }
+        : { pass: false, detail: wrong.join('; '), where: WALLET_SCREENS.map((w) => w.path) }
+    },
+  }
+}
+
 /** The Lens reads a customer's own key can make: GET, and no parameter but its workspace. */
 export function customerReads(lens: readonly Entry[]): Entry[] {
   return lens.filter((e) => e.method === 'GET' && cannotTest(e) === undefined &&

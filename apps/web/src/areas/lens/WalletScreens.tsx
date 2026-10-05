@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Button, Card, CardHeader, Row, inlineLink } from '@talyvor/ui'
+import { Button, CardHeader, Row, inlineLink } from '@talyvor/ui'
+import { Card, pressed } from './walletBrand'
 import { Region, RegionScreen } from '../../components/Region'
 import { isSessionExpired } from '../../lib/productState'
 import { APPROVALS_KEY, Approvals, BOOK_KEY, Statement, StatementDownload } from './AgentBank'
@@ -57,7 +58,7 @@ export function ApprovalsScreen() {
           identical request goes through, once; deny it and the request is refused.
         </p>
         <CurrencyPicker />
-        <Approvals nameOf={nameOf} held={{}} onSent={() => {}} />
+        <Approvals nameOf={nameOf} held={{}} onSent={() => {}} primary />
       </Region>
     </RegionScreen>
   )
@@ -93,7 +94,7 @@ export function StatementsScreen() {
           <>
             <Card>
               <CardHeader>Statement for every agent</CardHeader>
-              <StatementDownload agent={null} />
+              <StatementDownload agent={null} primary />
             </Card>
             <Card>
               <CardHeader>Agents</CardHeader>
@@ -103,7 +104,7 @@ export function StatementsScreen() {
                     <span className="text-body text-ink">
                       <Lxc ulxc={a.balance_ulxc} />
                     </span>
-                    <Button aria-pressed={agent?.id === a.id} onClick={() => setChosen(a.id)}>
+                    <Button aria-pressed={agent?.id === a.id} className={pressed} onClick={() => setChosen(a.id)}>
                       {agent?.id === a.id ? 'Showing' : 'Show statement'}
                     </Button>
                   </div>

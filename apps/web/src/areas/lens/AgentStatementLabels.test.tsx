@@ -59,7 +59,7 @@ describe('the agent statement', () => {
     const what = within(table)
       .getAllByRole('row')
       .slice(1)
-      .map((r) => within(r).getAllByRole('cell')[1].textContent)
+      .map((r) => within(r).getByTestId('statement-what').textContent)
     expect(what).toEqual(rows.map(([, label]) => label))
     // Every kind Lens posts is on this statement, and none of them falls through to another's words.
     const kinds: PostingKind[] = ['fund', 'withdraw', 'topup', 'credit_line', 'spend', 'hold', 'settle', 'release', 'pay', 'transfer', 'escrow', 'reversal', 'card', 'cash_out', 'pot_in', 'pot_out']

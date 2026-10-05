@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Input, Pill, RevealOnce, Row, focusRing, type PillStatus } from '@talyvor/ui'
+import { Button, CardHeader, Input, Pill, RevealOnce, Row, focusRing, type PillStatus } from '@talyvor/ui'
+import { Card, pressed } from './walletBrand'
 import { Region, RegionScreen } from '../../components/Region'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
@@ -111,7 +112,7 @@ export function PauseEveryAgent({ book }: { book: AgentBook }) {
             next request or payment until you start them again.
           </p>
           <div>
-            <Button variant="primary" disabled={change.isPending} onClick={() => change.mutate(false)}>
+            <Button disabled={change.isPending} onClick={() => change.mutate(false)}>
               Start every agent again
             </Button>
           </div>
@@ -150,7 +151,7 @@ function PauseAgent({ agent }: { agent: Agent }) {
             <p className="text-body text-ink" data-testid="agent-paused">
               {agent.name} is paused{agent.paused_reason ? ` — ${agent.paused_reason}` : ''}.
             </p>
-            <Button variant="primary" disabled={change.isPending} onClick={() => change.mutate(false)}>
+            <Button disabled={change.isPending} onClick={() => change.mutate(false)}>
               Resume {agent.name}
             </Button>
           </>
@@ -384,7 +385,7 @@ function Schedules({ agent, agents, nameOf }: { agent: Agent; agents: Agent[]; n
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
           />
-          <Button type="submit" variant="primary" disabled={payee === '' || micros === null || create.isPending}>
+          <Button type="submit" disabled={payee === '' || micros === null || create.isPending}>
             Schedule
           </Button>
         </div>
@@ -455,7 +456,7 @@ function TopUpForm({ agent, current }: { agent: Agent; current: AgentTopUpValue 
           value={to}
           onChange={(e) => setTo(e.target.value)}
         />
-        <Button type="submit" variant="primary" disabled={belowMicros === null || toMicros === null || save.isPending}>
+        <Button type="submit" disabled={belowMicros === null || toMicros === null || save.isPending}>
           {current ? 'Change top-up' : 'Set top-up'}
         </Button>
         {current ? (
@@ -511,7 +512,7 @@ function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <Button type="submit" variant="primary" disabled={name.trim() === '' || create.isPending}>
+        <Button type="submit" disabled={name.trim() === '' || create.isPending}>
           {create.isPending ? 'Creating…' : 'Create agent'}
         </Button>
       </div>
@@ -521,7 +522,7 @@ function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
           <Button
             key={t?.id ?? 'none'}
             aria-pressed={template?.id === t?.id}
-            variant={template?.id === t?.id ? 'primary' : 'default'}
+            className={pressed}
             onClick={() => setTemplate(t)}
           >
             {t?.name ?? 'No rules'}
@@ -601,7 +602,7 @@ function Money({ agent, book }: { agent: Agent; book: AgentBook }) {
             only once a person of this workspace owns it. Claim it to become its owner.
           </p>
           <div>
-            <Button variant="primary" disabled={claim.isPending} onClick={() => claim.mutate()}>
+            <Button disabled={claim.isPending} onClick={() => claim.mutate()}>
               Claim {agent.name}
             </Button>
           </div>
@@ -710,7 +711,7 @@ function AgentDetails({ agent }: { agent: Agent }) {
           onChange={(e) => setDescription(e.target.value)}
         />
         <div>
-          <Button type="submit" variant="primary" disabled={!changed || name.trim() === '' || save.isPending}>
+          <Button type="submit" disabled={!changed || name.trim() === '' || save.isPending}>
             Save
           </Button>
         </div>
@@ -958,7 +959,7 @@ function RulesForm({ agent, agents, rules }: { agent: Agent; agents: Agent[]; ru
           type="button"
           aria-label={`Pause ${agent.name} on unusual spend`}
           aria-pressed={pauseOnUnusual}
-          variant={pauseOnUnusual ? 'primary' : undefined}
+          className={pressed}
           onClick={() => setPauseOnUnusual((on) => !on)}
         >
           {pauseOnUnusual ? 'On' : 'Off'}
@@ -969,7 +970,7 @@ function RulesForm({ agent, agents, rules }: { agent: Agent; agents: Agent[]; ru
       <TimeZonePicker agentName={agent.name} value={timezone} onChange={setTimezone} />
       <div className="flex flex-col gap-2 px-gutter py-3">
         <div>
-          <Button type="submit" variant="primary" disabled={bad || save.isPending}>
+          <Button type="submit" disabled={bad || save.isPending}>
             {save.isPending ? 'Saving…' : 'Save rules'}
           </Button>
         </div>
@@ -1013,7 +1014,7 @@ function ListingsPicker({ agent, chosen, onChange }: { agent: Agent; chosen: str
             type="button"
             aria-label={`${agent.name} may use ${l.title}`}
             aria-pressed={chosen.includes(l.id)}
-            variant={chosen.includes(l.id) ? 'primary' : undefined}
+            className={pressed}
             onClick={() => toggle(l.id, !chosen.includes(l.id))}
           >
             Allowed
@@ -1096,7 +1097,7 @@ function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agent
                 type="button"
                 aria-label={`${agent.name} may pay ${p.title}`}
                 aria-pressed={allowed}
-                variant={allowed ? 'primary' : undefined}
+                className={pressed}
                 onClick={() => mark(p.id, allowed ? null : 'allowed')}
               >
                 Allowed
@@ -1105,7 +1106,7 @@ function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agent
                 type="button"
                 aria-label={`${agent.name} may not pay ${p.title}`}
                 aria-pressed={blocked}
-                variant={blocked ? 'primary' : undefined}
+                className={pressed}
                 onClick={() => mark(p.id, blocked ? null : 'blocked')}
               >
                 Blocked
@@ -1410,11 +1411,11 @@ function TryRules({ agent, agents }: { agent: Agent; agents: Agent[] }) {
           spent, paid or sent for approval.
         </p>
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="What to try">
-          <Button aria-pressed={kind === 'question'} variant={kind === 'question' ? 'primary' : 'default'} onClick={() => what('question')}>
+          <Button aria-pressed={kind === 'question'} className={pressed} onClick={() => what('question')}>
             A question to a model
           </Button>
           {others.length > 0 ? (
-            <Button aria-pressed={kind === 'payment'} variant={kind === 'payment' ? 'primary' : 'default'} onClick={() => what('payment')}>
+            <Button aria-pressed={kind === 'payment'} className={pressed} onClick={() => what('payment')}>
               A payment
             </Button>
           ) : null}
@@ -1453,7 +1454,7 @@ function TryRules({ agent, agents }: { agent: Agent; agents: Agent[] }) {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
-          <Button type="submit" variant="primary" disabled={!ready}>
+          <Button type="submit" disabled={!ready}>
             {sim.isPending ? 'Asking…' : 'Would it pass?'}
           </Button>
         </div>
@@ -1530,7 +1531,7 @@ function Pay({
         </p>
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Pay to">
           {others.map((a) => (
-            <Button key={a.id} aria-pressed={to === a.id} variant={to === a.id ? 'primary' : 'default'} onClick={() => setTo(a.id)}>
+            <Button key={a.id} aria-pressed={to === a.id} className={pressed} onClick={() => setTo(a.id)}>
               {a.name}
             </Button>
           ))}
@@ -1551,7 +1552,7 @@ function Pay({
             value={memo}
             onChange={(e) => setMemo(e.target.value)}
           />
-          <Button type="submit" variant="primary" disabled={!payee || micros === null || pay.isPending}>
+          <Button type="submit" disabled={!payee || micros === null || pay.isPending}>
             {pay.isPending ? 'Paying…' : 'Pay'}
           </Button>
         </div>
@@ -1656,6 +1657,12 @@ function lineText(l: StatementLine, nameOf: (id: string) => string): string {
   }
 }
 
+/** B29.9 — a statement line's state: money held for a request or in escrow is held; every other line has settled. */
+function lineStatus(l: StatementLine): { status: PillStatus; label: string } {
+  const held = l.kind === 'hold' || (l.kind === 'escrow' && l.amount_ulxc < 0)
+  return held ? { status: 'held', label: 'Held' } : { status: 'settled', label: 'Settled' }
+}
+
 export function Statement({ agent, nameOf, entry }: { agent: Agent; nameOf: (id: string) => string; entry?: string }) {
   const st = useQuery({ queryKey: statementKey(agent.id), queryFn: () => agentBankApi.statement(agent.id) })
   const lines = st.data?.lines ?? []
@@ -1694,7 +1701,12 @@ export function Statement({ agent, nameOf, entry }: { agent: Agent; nameOf: (id:
                 className={`border-t border-rule text-ink${l.entry_id === entry ? ' bg-accent-tint' : ''}`}
               >
                 <td className="px-gutter py-2 font-figure text-caption text-muted">{formatWhen(l.at)}</td>
-                <td className="py-2">{lineText(l, nameOf)}</td>
+                <td className="py-2">
+                  <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span data-testid="statement-what">{lineText(l, nameOf)}</span>
+                    <Pill status={lineStatus(l).status}>{lineStatus(l).label}</Pill>
+                  </span>
+                </td>
                 <td className="py-2 text-right font-figure">
                   <Lxc ulxc={Math.abs(l.amount_ulxc)} sign={l.amount_ulxc > 0 ? '+' : '−'} />
                 </td>
@@ -1752,7 +1764,8 @@ function saveFile(name: string, blob: Blob) {
  * naming its posting and entry, and each account's closing balance. Days are whole UTC days, the last
  * one included.
  */
-export function StatementDownload({ agent }: { agent: Agent | null }) {
+/** `primary` (B29.9): Download is the teal action only on the screen it is for — Statements' every-agent card. */
+export function StatementDownload({ agent, primary = false }: { agent: Agent | null; primary?: boolean }) {
   const [period, setPeriod] = useState(() => monthPeriod('last'))
   const [format, setFormat] = useState<'csv' | 'json'>('csv')
   const who = agent ? `${agent.name}’s` : 'every agent’s'
@@ -1811,7 +1824,7 @@ export function StatementDownload({ agent }: { agent: Agent | null }) {
           <option value="csv">CSV</option>
           <option value="json">JSON</option>
         </select>
-        <Button type="submit" variant="primary" disabled={!valid || get.isPending}>
+        <Button type="submit" variant={primary ? 'primary' : 'default'} disabled={!valid || get.isPending}>
           {get.isPending ? 'Preparing…' : 'Download'}
         </Button>
       </div>
@@ -1907,10 +1920,13 @@ export function Approvals({
   nameOf,
   held,
   onSent,
+  primary = false,
 }: {
   nameOf: (id: string) => string
   held: Record<string, HeldPayment>
   onSent: (approvalID: string) => void
+  /** B29.9 — Approve is the teal action on Approvals; on Agent Wallets that is Fund. */
+  primary?: boolean
 }) {
   const qc = useQueryClient()
   const list = useQuery({ queryKey: APPROVALS_KEY, queryFn: agentBankApi.approvals })
@@ -1991,15 +2007,18 @@ export function Approvals({
                 stack
                 label={asks(a)}
                 hint={
-                  <>
-                    {what(a)}, asked <span className="font-figure">{formatWhen(a.created_at)}</span>
-                  </>
+                  <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <Pill status={DECIDED.pending.status}>{DECIDED.pending.label}</Pill>
+                    <span>
+                      {what(a)}, asked <span className="font-figure">{formatWhen(a.created_at)}</span>
+                    </span>
+                  </span>
                 }
               >
                 {/* One-handed on a phone: two full-width buttons under the sentence and the thumb; side by side on a wide screen. */}
                 <div className="flex w-full flex-col gap-2 wide:w-auto wide:flex-row wide:items-center">
                   <Button
-                    variant="primary"
+                    variant={primary ? 'primary' : 'default'}
                     className="h-12 w-full wide:h-8 wide:w-auto"
                     disabled={decide.isPending}
                     onClick={() => decide.mutate({ a, decision: 'approve' })}

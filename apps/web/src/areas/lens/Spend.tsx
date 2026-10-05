@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Row, inlineLink } from '@talyvor/ui'
+import { Button, CardHeader, Row, inlineLink } from '@talyvor/ui'
+import { Card, pressed } from './walletBrand'
 import { api } from '../../lib/api'
 import { CacheCard } from './CacheCard'
 import { FeatureSpendCard } from './FeatureSpendCard'
@@ -10,6 +11,7 @@ import { ModelTier } from './ModelTier'
 import { SplitShortfall } from './SplitShortfall'
 import { LEDGER_PAGE, byModel, debitTotal, inWindow, lxcDebitsByModel, splitShortfall, windowExceedsPage } from './spendMath'
 import { WindowFigure, WindowIncomplete } from './WindowFloor'
+import { Region, RegionScreen } from '../../components/Region'
 
 // Spend & routing — LIVE. The screen the design system's central distinction
 // was built for:
@@ -63,76 +65,179 @@ export function Spend({ now = new Date() }: { now?: Date }) {
   const mintTruncated = ledger.data ? windowExceedsPage(ledger.data, LEDGER_PAGE, days, now) : false
   const lxcTruncated = lxc.data ? windowExceedsPage(lxc.data, LEDGER_PAGE, days, now) : false
 
+  // B29.9 — an eyebrow over each section, the cards on the board's raised plane.
   return (
-    <div className="flex flex-col gap-4 px-gutter py-4">
-      {/* B27.32 — the saving is MEASURED: Lens sums the spend rows of this month, each carrying what that
-          request would have cost at the model it asked for with no Talyvor cache and what it was
-          charged. No rate is multiplied and nothing is projected, so it is shown as the sum it is. */}
-      <Card>
-        <CardHeader>Saved — measured</CardHeader>
-        {saved.isLoading ? (
-          <div className="px-gutter py-3 text-body text-muted">Loading…</div>
-        ) : saved.isError || !saved.data ? (
-          <PanelFailure error={saved.error} what="the month’s saving" />
-        ) : (
-          <>
-            <div data-testid="saved-this-month" className="px-gutter py-3 text-body text-ink">
-              Saved this month: <span className="font-figure">{usd(saved.data.saved_usd)}</span>, measured from your
-              requests
-            </div>
-            <div data-testid="saved-basis" className="px-gutter pb-3 text-caption text-muted">
-              {saved.data.requests === 0 ? (
-                'No measured requests yet this month — it starts adding up with your first request through Lens.'
-              ) : (
-                <>
-                  What your {saved.data.requests} request{saved.data.requests === 1 ? '' : 's'} this month would have
-                  cost at the model each asked for with no Talyvor cache (
-                  <span className="font-figure">{usd(saved.data.list_usd)}</span>), minus what{' '}
-                  {saved.data.requests === 1 ? 'it was' : 'they were'} charged (
-                  <span className="font-figure">{usd(saved.data.charged_usd)}</span>).
-                </>
-              )}
-              {saved.data.unmeasured_requests > 0
-                ? ` ${saved.data.unmeasured_requests} request${saved.data.unmeasured_requests === 1 ? '' : 's'} Lens has no measurement for (recorded before it began measuring, or the OCR step of a document) ${saved.data.unmeasured_requests === 1 ? 'is' : 'are'} not counted.`
-                : ''}
-            </div>
-          </>
-        )}
-      </Card>
+    <RegionScreen>
+      <Region index="00" label="Saved" sectionClassName="pb-10 pt-4 wide:pb-12">
+        {/* B27.32 — the saving is MEASURED: Lens sums the spend rows of this month, each carrying what that
+            request would have cost at the model it asked for with no Talyvor cache and what it was
+            charged. No rate is multiplied and nothing is projected, so it is shown as the sum it is. */}
+        <Card>
+          <CardHeader>Saved — measured</CardHeader>
+          {saved.isLoading ? (
+            <div className="px-gutter py-3 text-body text-muted">Loading…</div>
+          ) : saved.isError || !saved.data ? (
+            <PanelFailure error={saved.error} what="the month’s saving" />
+          ) : (
+            <>
+              <div data-testid="saved-this-month" className="px-gutter py-3 text-body text-ink">
+                Saved this month: <span className="font-figure">{usd(saved.data.saved_usd)}</span>, measured from your
+                requests
+              </div>
+              <div data-testid="saved-basis" className="px-gutter pb-3 text-caption text-muted">
+                {saved.data.requests === 0 ? (
+                  'No measured requests yet this month — it starts adding up with your first request through Lens.'
+                ) : (
+                  <>
+                    What your {saved.data.requests} request{saved.data.requests === 1 ? '' : 's'} this month would have
+                    cost at the model each asked for with no Talyvor cache (
+                    <span className="font-figure">{usd(saved.data.list_usd)}</span>), minus what{' '}
+                    {saved.data.requests === 1 ? 'it was' : 'they were'} charged (
+                    <span className="font-figure">{usd(saved.data.charged_usd)}</span>).
+                  </>
+                )}
+                {saved.data.unmeasured_requests > 0
+                  ? ` ${saved.data.unmeasured_requests} request${saved.data.unmeasured_requests === 1 ? '' : 's'} Lens has no measurement for (recorded before it began measuring, or the OCR step of a document) ${saved.data.unmeasured_requests === 1 ? 'is' : 'are'} not counted.`
+                  : ''}
+              </div>
+            </>
+          )}
+        </Card>
+      </Region>
 
-      <Card>
-        <CardHeader>Earned by model — LENS mint attribution</CardHeader>
-        <Row label="Window" hint="Mint credits by model (copper — the mined token, not provider spend)">
-          <div className="flex items-center gap-2">
-            {([7, 30] as const).map((d) => (
-              <Button
-                key={d}
-                variant={days === d ? 'primary' : 'default'}
-                aria-pressed={days === d}
-                onClick={() => setDays(d)}
-              >
-                {d}d
-              </Button>
-            ))}
-          </div>
-        </Row>
-        {ledger.isLoading ? (
-          <div className="px-gutter py-3 text-body text-muted">Loading…</div>
-        ) : ledger.isError ? (
-          // `ledger.error`, NOT `lxc.error`. This card is guarded on `ledger.isError` and was
-          // handing PanelFailure the OTHER query's error, so it reported a request it was not
-          // rendering. PanelFailure decides between "Unavailable." and "Couldn’t load …" purely
-          // on that object, and the two ledgers fail independently — measured, clicking Spend
-          // from Overview re-fetches the mint ledger while `["lxc-history",200,0]` is a fresh
-          // shared cache hit, so `lxc.error` is null at exactly the moment this one 401s. Both
-          // directions were wrong: a dead credential got a second, different diagnosis under a
-          // bar that had already explained it, and a genuine 500 got laundered into the
-          // expired-credential placeholder. Overview.tsx has the same seam written correctly.
-          <PanelFailure error={ledger.error} what="the ledger" />
-        ) : (
-          <>
-            <div data-testid="lens-by-model">
-              {agg.map((a) => (
+      <Region index="01" label="Earned">
+        <Card>
+          <CardHeader>Earned by model — LENS mint attribution</CardHeader>
+          <Row label="Window" hint="Mint credits by model (copper — the mined token, not provider spend)">
+            <div className="flex items-center gap-2">
+              {([7, 30] as const).map((d) => (
+                <Button
+                  key={d}
+                  className={pressed}
+                  aria-pressed={days === d}
+                  onClick={() => setDays(d)}
+                >
+                  {d}d
+                </Button>
+              ))}
+            </div>
+          </Row>
+          {ledger.isLoading ? (
+            <div className="px-gutter py-3 text-body text-muted">Loading…</div>
+          ) : ledger.isError ? (
+            // `ledger.error`, NOT `lxc.error`. This card is guarded on `ledger.isError` and was
+            // handing PanelFailure the OTHER query's error, so it reported a request it was not
+            // rendering. PanelFailure decides between "Unavailable." and "Couldn’t load …" purely
+            // on that object, and the two ledgers fail independently — measured, clicking Spend
+            // from Overview re-fetches the mint ledger while `["lxc-history",200,0]` is a fresh
+            // shared cache hit, so `lxc.error` is null at exactly the moment this one 401s. Both
+            // directions were wrong: a dead credential got a second, different diagnosis under a
+            // bar that had already explained it, and a genuine 500 got laundered into the
+            // expired-credential placeholder. Overview.tsx has the same seam written correctly.
+            <PanelFailure error={ledger.error} what="the ledger" />
+          ) : (
+            <>
+              <div data-testid="lens-by-model">
+                {agg.map((a) => (
+                  <Row
+                    key={a.model}
+                    label={
+                      <span className="inline-flex items-center gap-2">
+                        <ModelTier model={a.model} />
+                        {a.model}
+                      </span>
+                    }
+                    hint={`${mintTruncated ? 'at least ' : ''}${a.requests} request${a.requests === 1 ? '' : 's'}`}
+                  >
+                    <WindowFigure micros={a.ulens} unit="lens" floor={mintTruncated} />
+                  </Row>
+                ))}
+              </div>
+              {mintTruncated ? (
+                <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lens-window-incomplete" />
+              ) : null}
+              {agg.length === 0 && windowRows.length > 0 ? (
+                // THE WINDOW HAS ROWS AND NONE OF THEM SAYS WHICH MODEL. Saying "no ledger rows"
+                // here is a claim about the ledger made from a fact about one metadata key.
+                // "at least" for the same reason every other figure on this card carries it: a
+                // full page is a floor, so the count is one too.
+                <div data-testid="lens-unattributed" className="px-gutter py-3 text-body text-muted">
+                  {mintTruncated ? 'At least ' : ''}
+                  {windowRows.length} ledger row{windowRows.length === 1 ? '' : 's'} landed in this
+                  window, and none of them records which model it came from — so there is nothing to
+                  split by model. The rows themselves are on the{' '}
+                  <Link className={inlineLink} to="/ledger">
+                    ledger
+                  </Link>
+                  .
+                </div>
+              ) : agg.length === 0 ? (
+                // ⚠ THE 7-DAY BRANCH IS NOT DECORATION. "Widen the window" is only true when there is
+                // a wider one; the control offers 7 and 30, so at 30 that half of the sentence would
+                // be an instruction the screen cannot honour. Naming an action the UI does not have
+                // is the same defect as naming one the product does not have.
+                <div className="px-gutter py-3 text-body text-muted">
+                  No ledger rows in this window. A row appears when your traffic answers a question
+                  another company later asks
+                  {days === 7 ? ', so try the 30-day window above first' : ''} —{' '}
+                  <Link className={inlineLink} to="/setup">
+                    point a tool at Lens
+                  </Link>{' '}
+                  if nothing has run yet.
+                </div>
+              ) : null}
+            </>
+          )}
+        </Card>
+      </Region>
+
+      <Region index="02" label="Cache">
+        <CacheCard days={days} raised />
+      </Region>
+
+      {/* ⚠ THE SAME `days` THE WINDOW TOGGLE ABOVE OWNS, and that is the whole reason it sits
+          here rather than on a screen of its own: the tag breakdown answers "what did the last
+          7 (or 30) days go on", and a card with its own private window beside a visible toggle
+          would be two windows on one screen with one control. See FeatureSpendCard.tsx for why
+          its figures are NOT expected to sum to the month-to-date figure below it. */}
+      <Region index="03" label="Spent" className="flex flex-col gap-4">
+        <FeatureSpendCard days={days} />
+
+        <Card>
+          <CardHeader>Spent — LXC</CardHeader>
+          <Row label="Provider spend, month to date" hint="Lens spend/current-month — a float upstream, so it dresses as derived">
+            {month.isLoading ? (
+              <span className="text-body text-muted">Loading…</span>
+            ) : month.isError || !month.data ? (
+              <InlineFailure error={month.error} />
+            ) : (
+              <span className="font-figure text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
+            )}
+          </Row>
+          <Row
+            label={`Inference debits — ${days}d`}
+            hint="every model — the window total that left the balance"
+          >
+            {lxc.isLoading ? (
+              <span className="text-body text-muted">Loading…</span>
+            ) : lxc.isError || !lxc.data ? (
+              <InlineFailure error={lxc.error} />
+            ) : (
+              <WindowFigure
+                micros={debitTotal(lxc.data, days, now)}
+                unit="lxc"
+                floor={lxcTruncated}
+                testId="lxc-debit-total"
+              />
+            )}
+          </Row>
+          {/* The per-model split of that total — attributed to the model that SERVED,
+              falling back to the requested one. The caption this replaces said the split
+              was impossible; it had been possible since #343, and api.lxcLedger was
+              dropping the field so nothing could contradict it. */}
+          {lxcSplit.length > 0 ? (
+            <div data-testid="lxc-by-model">
+              {lxcSplit.map((a) => (
                 <Row
                   key={a.model}
                   label={
@@ -141,119 +246,25 @@ export function Spend({ now = new Date() }: { now?: Date }) {
                       {a.model}
                     </span>
                   }
-                  hint={`${mintTruncated ? 'at least ' : ''}${a.requests} request${a.requests === 1 ? '' : 's'}`}
+                  hint={`${lxcTruncated ? 'at least ' : ''}${a.requests} charge${a.requests === 1 ? '' : 's'}`}
                 >
-                  <WindowFigure micros={a.ulens} unit="lens" floor={mintTruncated} />
+                  <WindowFigure micros={a.ulxc} unit="lxc" floor={lxcTruncated} />
                 </Row>
               ))}
             </div>
-            {mintTruncated ? (
-              <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lens-window-incomplete" />
-            ) : null}
-            {agg.length === 0 && windowRows.length > 0 ? (
-              // THE WINDOW HAS ROWS AND NONE OF THEM SAYS WHICH MODEL. Saying "no ledger rows"
-              // here is a claim about the ledger made from a fact about one metadata key.
-              // "at least" for the same reason every other figure on this card carries it: a
-              // full page is a floor, so the count is one too.
-              <div data-testid="lens-unattributed" className="px-gutter py-3 text-body text-muted">
-                {mintTruncated ? 'At least ' : ''}
-                {windowRows.length} ledger row{windowRows.length === 1 ? '' : 's'} landed in this
-                window, and none of them records which model it came from — so there is nothing to
-                split by model. The rows themselves are on the{' '}
-                <Link className={inlineLink} to="/ledger">
-                  ledger
-                </Link>
-                .
-              </div>
-            ) : agg.length === 0 ? (
-              // ⚠ THE 7-DAY BRANCH IS NOT DECORATION. "Widen the window" is only true when there is
-              // a wider one; the control offers 7 and 30, so at 30 that half of the sentence would
-              // be an instruction the screen cannot honour. Naming an action the UI does not have
-              // is the same defect as naming one the product does not have.
-              <div className="px-gutter py-3 text-body text-muted">
-                No ledger rows in this window. A row appears when your traffic answers a question
-                another company later asks
-                {days === 7 ? ', so try the 30-day window above first' : ''} —{' '}
-                <Link className={inlineLink} to="/setup">
-                  point a tool at Lens
-                </Link>{' '}
-                if nothing has run yet.
-              </div>
-            ) : null}
-          </>
-        )}
-      </Card>
-
-      <CacheCard days={days} />
-
-      {/* ⚠ THE SAME `days` THE WINDOW TOGGLE ABOVE OWNS, and that is the whole reason it sits
-          here rather than on a screen of its own: the tag breakdown answers "what did the last
-          7 (or 30) days go on", and a card with its own private window beside a visible toggle
-          would be two windows on one screen with one control. See FeatureSpendCard.tsx for why
-          its figures are NOT expected to sum to the month-to-date figure below it. */}
-      <FeatureSpendCard days={days} />
-
-      <Card>
-        <CardHeader>Spent — LXC</CardHeader>
-        <Row label="Provider spend, month to date" hint="Lens spend/current-month — a float upstream, so it dresses as derived">
-          {month.isLoading ? (
-            <span className="text-body text-muted">Loading…</span>
-          ) : month.isError || !month.data ? (
-            <InlineFailure error={month.error} />
-          ) : (
-            <span className="font-figure text-body text-muted">≈ ${month.data.current_month_usd.toFixed(2)}</span>
-          )}
-        </Row>
-        <Row
-          label={`Inference debits — ${days}d`}
-          hint="every model — the window total that left the balance"
-        >
-          {lxc.isLoading ? (
-            <span className="text-body text-muted">Loading…</span>
-          ) : lxc.isError || !lxc.data ? (
-            <InlineFailure error={lxc.error} />
-          ) : (
-            <WindowFigure
-              micros={debitTotal(lxc.data, days, now)}
-              unit="lxc"
-              floor={lxcTruncated}
-              testId="lxc-debit-total"
-            />
-          )}
-        </Row>
-        {/* The per-model split of that total — attributed to the model that SERVED,
-            falling back to the requested one. The caption this replaces said the split
-            was impossible; it had been possible since #343, and api.lxcLedger was
-            dropping the field so nothing could contradict it. */}
-        {lxcSplit.length > 0 ? (
-          <div data-testid="lxc-by-model">
-            {lxcSplit.map((a) => (
-              <Row
-                key={a.model}
-                label={
-                  <span className="inline-flex items-center gap-2">
-                    <ModelTier model={a.model} />
-                    {a.model}
-                  </span>
-                }
-                hint={`${lxcTruncated ? 'at least ' : ''}${a.requests} charge${a.requests === 1 ? '' : 's'}`}
-              >
-                <WindowFigure micros={a.ulxc} unit="lxc" floor={lxcTruncated} />
-              </Row>
-            ))}
-          </div>
-        ) : null}
-        <SplitShortfall
-          {...lxcUnsplit}
-          shownCount={lxcSplit.length}
-          floor={lxcTruncated}
-          testId="lxc-unsplit"
-        />
-        {lxcTruncated ? (
-          <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lxc-window-incomplete" />
-        ) : null}
-      </Card>
-    </div>
+          ) : null}
+          <SplitShortfall
+            {...lxcUnsplit}
+            shownCount={lxcSplit.length}
+            floor={lxcTruncated}
+            testId="lxc-unsplit"
+          />
+          {lxcTruncated ? (
+            <WindowIncomplete days={days} pageSize={LEDGER_PAGE} testId="lxc-window-incomplete" />
+          ) : null}
+        </Card>
+      </Region>
+    </RegionScreen>
   )
 }
 

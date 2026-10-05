@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Input, Pill, Row, type PillStatus } from '@talyvor/ui'
+import { Button, CardHeader, Input, Pill, Row, type PillStatus } from '@talyvor/ui'
+import { Card, pressed } from './walletBrand'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
 import { Lxc } from './money'
@@ -167,10 +168,10 @@ export function SendAndRequest({ agent }: { agent: Agent }) {
         </p>
         <TestMoneyOnly capability="pay_another_owner" />
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Send or request">
-          <Button aria-pressed={mode === 'send'} variant={mode === 'send' ? 'primary' : 'default'} onClick={() => setMode('send')}>
+          <Button aria-pressed={mode === 'send'} className={pressed} onClick={() => setMode('send')}>
             Send
           </Button>
-          <Button aria-pressed={mode === 'request'} variant={mode === 'request' ? 'primary' : 'default'} onClick={() => setMode('request')}>
+          <Button aria-pressed={mode === 'request'} className={pressed} onClick={() => setMode('request')}>
             Request
           </Button>
         </div>
@@ -191,7 +192,7 @@ export function SendAndRequest({ agent }: { agent: Agent }) {
             onChange={(e) => setAmount(e.target.value)}
           />
           <Input aria-label="What it is for" placeholder="What it is for" className="wide:w-56" value={memo} onChange={(e) => setMemo(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!who.trim() || micros === null || move.isPending}>
+          <Button type="submit" disabled={!who.trim() || micros === null || move.isPending}>
             {mode === 'send' ? 'Send credits' : 'Ask for credits'}
           </Button>
         </div>
@@ -257,13 +258,13 @@ export function RecurringTransfer({ agent }: { agent: Agent }) {
           />
           <div className="flex items-center gap-1" role="group" aria-label="How often">
             {(['day', 'week', 'month'] as const).map((p) => (
-              <Button key={p} aria-pressed={every === p} variant={every === p ? 'primary' : 'default'} onClick={() => setEvery(p)}>
+              <Button key={p} aria-pressed={every === p} className={pressed} onClick={() => setEvery(p)}>
                 Every {p}
               </Button>
             ))}
           </div>
           <Input aria-label="What the recurring transfer is for" placeholder="What it is for" className="wide:w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!who.trim() || micros === null || start.isPending}>
+          <Button type="submit" disabled={!who.trim() || micros === null || start.isPending}>
             Start
           </Button>
         </div>
@@ -322,7 +323,7 @@ export function AgentTransfers({ agent }: { agent: Agent }) {
               {lxc(t.from_agent_id === agent.id ? -t.amount_ulxc : t.amount_ulxc)}
               {!t.refundable ? null : asking === t.id ? (
                 <>
-                  <Button variant="primary" disabled={giveBack.isPending} onClick={() => giveBack.mutate(t)}>
+                  <Button disabled={giveBack.isPending} onClick={() => giveBack.mutate(t)}>
                     Yes, give it back
                   </Button>
                   <Button disabled={giveBack.isPending} onClick={() => setAsking(null)}>
@@ -389,7 +390,7 @@ export function MoneyRequests({ agents }: { agents: Agent[] }) {
                   <Pill status={r.status === 'accepted' ? 'settled' : 'slashed'}>{r.status === 'accepted' ? 'Accepted' : 'Declined'}</Pill>
                 ) : incoming ? (
                   <>
-                    <Button variant="primary" disabled={answer.isPending} onClick={() => answer.mutate({ id: r.id, accept: true })}>
+                    <Button disabled={answer.isPending} onClick={() => answer.mutate({ id: r.id, accept: true })}>
                       Accept
                     </Button>
                     <Button disabled={answer.isPending} onClick={() => answer.mutate({ id: r.id, accept: false })}>
@@ -532,7 +533,7 @@ function LoanRow({ loan, agents }: { loan: Loan; agents: Agent[] }) {
             </Button>
           ) : (
             <>
-              <Button variant="primary" disabled={act.isPending} onClick={() => act.mutate('accept')}>
+              <Button disabled={act.isPending} onClick={() => act.mutate('accept')}>
                 Accept the loan
               </Button>
               <Button disabled={act.isPending} onClick={() => act.mutate('decline')}>
@@ -621,14 +622,14 @@ export function OfferLoan({ agent }: { agent: Agent }) {
           <Input aria-label="Number of instalments" inputMode="numeric" className="w-16 font-figure" value={instalments} onChange={(e) => setInstalments(e.target.value)} />
           <div className="flex items-center gap-1" role="group" aria-label="Instalments every">
             {(['day', 'week', 'month'] as const).map((p) => (
-              <Button key={p} aria-pressed={every === p} variant={every === p ? 'primary' : 'default'} onClick={() => setEvery(p)}>
+              <Button key={p} aria-pressed={every === p} className={pressed} onClick={() => setEvery(p)}>
                 Every {p}
               </Button>
             ))}
           </div>
           <Input aria-label="Late fee in LXC" inputMode="decimal" placeholder="late fee" className="w-24 font-figure" value={fee} onChange={(e) => setFee(e.target.value)} />
           <Input aria-label="What the loan is for" placeholder="What it is for" className="wide:w-48" value={memo} onChange={(e) => setMemo(e.target.value)} />
-          <Button type="submit" variant="primary" disabled={!ready || offer.isPending}>
+          <Button type="submit" disabled={!ready || offer.isPending}>
             Offer
           </Button>
         </div>

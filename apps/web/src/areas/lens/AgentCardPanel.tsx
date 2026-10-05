@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, CardHeader, Input, Pill } from '@talyvor/ui'
+import { Button, CardHeader, Input, Pill } from '@talyvor/ui'
+import { Card } from './walletBrand'
 import { isSessionExpired } from '../../lib/productState'
 import { formatWhen } from './format'
 import { type Agent, type AgentCard, type CardAuthorization, type Cardholder, agentBankApi, formatULXC, refusalText } from './agentBankApi'
@@ -153,7 +154,7 @@ function IssueCard({ agent }: { agent: Agent }) {
         </p>
       ) : null}
       <div>
-        <Button type="submit" variant="primary" disabled={!ready || issue.isPending}>
+        <Button type="submit" disabled={!ready || issue.isPending}>
           {issue.isPending ? 'Issuing…' : 'Issue a test card'}
         </Button>
       </div>
