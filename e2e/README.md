@@ -162,6 +162,7 @@ open in a second tab, so the Chat tab keeps its conversation. A switch a scenari
 | `docs-ai` | 1 in 10 | a space and a page written in Docs: Summarise and Translate (French) keep the page's access code, and Ask answers it and cites the page |
 | `track-ai` | 1 in 10 | an issue with a ten-comment thread about one cause: the summary names it (tax calls), Look for duplicates names its near-twin, and triage suggests a priority |
 | `track-export` | 1 in 10 | Export JSON and CSV: both hold every issue, the counts agree with the screen, and a title that starts with `=` is defused (`'`) and quoted |
+| `track-enter` | 1 in 10 | a title typed in Track and Enter pressed, the button never touched: the issue is listed once and the title field is empty |
 
 Docs and Track call Lens on their own account, so their AI actions never reach the user's ledger. Each
 one holds its worst case against the cap — the product's model, the whole input, its most output —

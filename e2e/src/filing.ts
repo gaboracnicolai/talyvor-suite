@@ -17,6 +17,7 @@ const OWNER: Record<string, string> = {
   streaming: 'talyvor-suite',
   'features-switches': 'talyvor-suite',
   'track-export': 'talyvor-suite',
+  'track-enter': 'talyvor-suite',
   'docs-ai': 'talyvor-docs',
   'track-ai': 'talyvor-track',
 }

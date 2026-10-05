@@ -1601,6 +1601,34 @@ export function trackExport(seed: number): Scenario {
 }
 
 /**
+ * B28.444 — Enter in Track's title field files the issue (B28.272): the title is typed and Enter pressed,
+ * the Create issue button never touched, and the issue must then be listed once and the field left empty
+ * for the next one.
+ */
+export function trackEnter(seed: number): Scenario {
+  const title = `Filed with Enter by tester ${seed}`
+  return {
+    id: 'track-enter',
+    title: 'Track: a title typed and Enter pressed files the issue, lists it once and empties the field',
+    run: async (ctx) => {
+      const track = await TrackScreen.open(ctx.app)
+      try {
+        const got = await track.createWithEnter(title)
+        ctx.evidence.push({ note: `Enter on "${title}": listed ${got.listed} time(s); the field then held "${got.field}"` })
+        const failures: string[] = []
+        if (got.listed !== 1) failures.push(`"${title}" is listed ${got.listed} times after Enter, not once`)
+        if (got.field !== '') failures.push(`the title field still holds "${got.field}"`)
+        return failures.length === 0
+          ? { pass: true, detail: 'Enter filed the issue; it is listed once and the field is empty' }
+          : { pass: false, detail: failures.join('; ') }
+      } finally {
+        await track.close()
+      }
+    },
+  }
+}
+
+/**
  * B28.5 — each card on /plans shows the usage its plan includes this month, and that figure is the one Lens's
  * public plans read states (talyvor-lens B28.439) — what a new subscriber is granted. No figure is typed in
  * here: the card's text is read back to µLXC and held to Lens's.
@@ -1842,7 +1870,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 4: list.push(tryConversionPage(i)); break
     case 5: list.push(docsAI(i)); break
     case 6: list.push(trackAI(i)); break
-    case 7: list.push(trackExport(i)); break
+    // B28.444 — then a title filed with Enter, not the button.
+    case 7: list.push(trackExport(i), trackEnter(i)); break
     case 8: if (i + 1 < users) list.push(personalDataNotPooled(i, i + 1)); break
     case 9: list.push(tryTarePage(i)); break
   }
