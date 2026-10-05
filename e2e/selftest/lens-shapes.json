@@ -419,6 +419,8 @@
     "allowed_models": [],
     "allowed_providers": [],
     "allowed_listings": [],
+    "allowed_payees": [],
+    "blocked_payees": [],
     "active_from": "string",
     "active_until": "string",
     "timezone": "string",

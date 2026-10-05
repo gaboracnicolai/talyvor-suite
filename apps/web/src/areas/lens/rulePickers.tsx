@@ -202,9 +202,10 @@ export function TimePicker({ label, agentName, value, onChange }: { label: strin
 }
 
 const or = (items: string[]) => new Intl.ListFormat('en', { type: 'disjunction' }).format(items)
+const and = (items: string[]) => new Intl.ListFormat('en', { type: 'conjunction' }).format(items)
 
-/** The agent's saved rules, one plain sentence each. */
-export function RulesInWords({ agentName, rules }: { agentName: string; rules: AgentRules }) {
+/** The agent's saved rules, one plain sentence each. `payeeName` names a payee by its id (B28.27); by default, the id. */
+export function RulesInWords({ agentName, rules, payeeName = (id) => id }: { agentName: string; rules: AgentRules; payeeName?: (id: string) => string }) {
   const choices = useRuleChoices()
   const modelName = (id: string) => modelLabel(choices.models, id)
   const providerName = (id: string) => choices.providers.find((p) => p.value === id)?.label ?? id
@@ -220,6 +221,8 @@ export function RulesInWords({ agentName, rules }: { agentName: string; rules: A
   const models = rules.allowed_models ?? []
   const providers = rules.allowed_providers ?? []
   const listings = rules.allowed_listings ?? []
+  const allowedPayees = rules.allowed_payees ?? []
+  const blockedPayees = rules.blocked_payees ?? []
   const modelCaps = Object.entries(rules.model_daily_limits_ulxc ?? {}).filter(([, v]) => v > 0)
   return (
     <ul className="flex list-disc flex-col gap-1 py-3 pl-8 pr-gutter text-body text-ink" data-testid="rules-in-words">
@@ -272,6 +275,8 @@ export function RulesInWords({ agentName, rules }: { agentName: string; rules: A
           Allowed.
         </li>
       ) : null}
+      {allowedPayees.length > 0 ? <li>It may pay only {or(allowedPayees.map(payeeName))}.</li> : null}
+      {blockedPayees.length > 0 ? <li>It may never pay {and(blockedPayees.map(payeeName))}.</li> : null}
       <li>
         {rules.active_from || rules.active_until
           ? `It works only ${rules.active_from ? `from ${rules.active_from}` : ''}${rules.active_from && rules.active_until ? ' ' : ''}${rules.active_until ? `until ${rules.active_until}` : ''}, ${(rules.timezone || 'UTC').replace(/_/g, ' ')} time.`

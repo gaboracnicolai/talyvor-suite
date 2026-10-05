@@ -23,6 +23,8 @@ const OPEN: Omit<AgentRules, 'max_per_request_ulxc' | 'daily_limit_ulxc' | 'mont
   allowed_models: [],
   allowed_providers: [],
   allowed_listings: [],
+  allowed_payees: [],
+  blocked_payees: [],
   active_from: '',
   active_until: '',
   timezone: 'UTC',

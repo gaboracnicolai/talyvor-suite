@@ -805,7 +805,7 @@ function parseRate(text: string): number | null {
 
 const rateText = (n: number) => (n > 0 ? String(n) : '')
 
-function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
+function RulesForm({ agent, agents, rules }: { agent: Agent; agents: Agent[]; rules: AgentRules }) {
   const qc = useQueryClient()
   const [limits, setLimits] = useState<Record<LimitField, string>>(() => ({
     max_per_request_ulxc: limitText(rules.max_per_request_ulxc),
@@ -824,6 +824,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
   const [providers, setProviders] = useState<string[]>(rules.allowed_providers ?? [])
   const choices = useRuleChoices()
   const [listings, setListings] = useState<string[]>(rules.allowed_listings ?? [])
+  const [payees, setPayees] = useState<Payees>(() => ({ allowed: rules.allowed_payees ?? [], blocked: rules.blocked_payees ?? [] }))
   const [pauseOnUnusual, setPauseOnUnusual] = useState(rules.pause_on_unusual_spend ?? false)
   const [from, setFrom] = useState(rules.active_from)
   const [until, setUntil] = useState(rules.active_until)
@@ -845,6 +846,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
     setModelLimits(Object.entries(r.model_daily_limits_ulxc ?? {}).map(([m, v]) => [m, limitText(v)]))
     setProviders(r.allowed_providers ?? [])
     setListings(r.allowed_listings ?? [])
+    setPayees({ allowed: r.allowed_payees ?? [], blocked: r.blocked_payees ?? [] })
     setPauseOnUnusual(r.pause_on_unusual_spend ?? false)
     setFrom(r.active_from)
     setUntil(r.active_until)
@@ -870,6 +872,8 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         allowed_models: models,
         allowed_providers: providers,
         allowed_listings: listings,
+        allowed_payees: payees.allowed,
+        blocked_payees: payees.blocked,
         active_from: from.trim(),
         active_until: until.trim(),
         timezone: timezone.trim(),
@@ -937,6 +941,7 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         anyText="Any provider"
       />
       <ListingsPicker agent={agent} chosen={listings} onChange={setListings} />
+      <PayeesPicker agent={agent} agents={agents} payees={payees} onChange={setPayees} />
       <Row label="Pause on unusual spend" hint="An unusual-spend alert also pauses this agent until you resume it">
         <Button
           type="button"
@@ -1008,15 +1013,112 @@ function ListingsPicker({ agent, chosen, onChange }: { agent: Agent; chosen: str
   )
 }
 
-function Rules({ agent }: { agent: Agent }) {
+/** B28.27 — who an agent may pay and who it may not, as the Rules form holds them until Save rules. */
+interface Payees {
+  allowed: string[]
+  blocked: string[]
+}
+
+/** What a payee the workspace's agents do not name is, read from its id. */
+function payeeHint(id: string): string {
+  if (id.startsWith('agt_')) return 'Another company’s agent'
+  if (id.startsWith('lst_')) return 'A marketplace listing'
+  return 'A company or a card merchant'
+}
+
+/**
+ * B28.27 — who the agent may pay and who it may not (Lens B28.303). Each of the workspace's other agents
+ * can be marked Allowed or Blocked; any other payee — another company (its workspace id), its agent, a
+ * marketplace listing or a card merchant — is added by its id. Lens refuses a payment to a Blocked payee
+ * and, once any is Allowed, to every payee not Allowed; a refused payment moves nothing. A payee is one or
+ * the other, never both (Lens refuses that), so marking it one clears the other.
+ */
+function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agents: Agent[]; payees: Payees; onChange: (p: Payees) => void }) {
+  const [typed, setTyped] = useState('')
+  const ours = agents.filter((a) => a.id !== agent.id).map((a) => ({ id: a.id, title: a.name, hint: 'Your agent' }))
+  const named = [...payees.allowed, ...payees.blocked]
+    .filter((id) => !ours.some((a) => a.id === id))
+    .map((id) => ({ id, title: id, hint: payeeHint(id) }))
+  const mark = (id: string, as: keyof Payees | null) =>
+    onChange({
+      allowed: as === 'allowed' ? [...payees.allowed.filter((x) => x !== id), id] : payees.allowed.filter((x) => x !== id),
+      blocked: as === 'blocked' ? [...payees.blocked.filter((x) => x !== id), id] : payees.blocked.filter((x) => x !== id),
+    })
+  const id = typed.trim()
+  const add = (as: keyof Payees) => {
+    mark(id, as)
+    setTyped('')
+  }
+  return (
+    <>
+      <Row
+        label="Who it may pay"
+        hint={
+          payees.allowed.length > 0
+            ? 'Only the payees marked Allowed — Lens refuses a payment to any other.'
+            : payees.blocked.length > 0
+              ? 'Anyone but the payees marked Blocked.'
+              : 'Anyone. Mark a payee Blocked to refuse it, or Allowed to allow only those.'
+        }
+      />
+      {[...ours, ...named].map((p) => {
+        const allowed = payees.allowed.includes(p.id)
+        const blocked = payees.blocked.includes(p.id)
+        return (
+          <Row key={p.id} label={p.title} hint={p.hint} className="pl-8">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                aria-label={`${agent.name} may pay ${p.title}`}
+                aria-pressed={allowed}
+                variant={allowed ? 'primary' : undefined}
+                onClick={() => mark(p.id, allowed ? null : 'allowed')}
+              >
+                Allowed
+              </Button>
+              <Button
+                type="button"
+                aria-label={`${agent.name} may not pay ${p.title}`}
+                aria-pressed={blocked}
+                variant={blocked ? 'primary' : undefined}
+                onClick={() => mark(p.id, blocked ? null : 'blocked')}
+              >
+                Blocked
+              </Button>
+            </div>
+          </Row>
+        )
+      })}
+      <Row label="Another payee" hint="A company’s workspace id, its agent’s or listing’s id, or a card merchant’s id" className="pl-8">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            aria-label={`A payee’s id for ${agent.name}`}
+            placeholder="Payee id"
+            className="wide:w-56"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+          />
+          <Button type="button" disabled={id === '' || /\s/.test(id)} onClick={() => add('allowed')}>
+            Allow
+          </Button>
+          <Button type="button" disabled={id === '' || /\s/.test(id)} onClick={() => add('blocked')}>
+            Block
+          </Button>
+        </div>
+      </Row>
+    </>
+  )
+}
+
+function Rules({ agent, agents }: { agent: Agent; agents: Agent[] }) {
   const rules = useQuery({ queryKey: rulesKey(agent.id), queryFn: () => agentBankApi.rules(agent.id) })
   return (
     <Card>
       <CardHeader>Rules</CardHeader>
       {rules.isSuccess ? (
         <>
-          <RulesInWords agentName={agent.name} rules={rules.data} />
-          <RulesForm key={agent.id} agent={agent} rules={rules.data} />
+          <RulesInWords agentName={agent.name} rules={rules.data} payeeName={(id) => agents.find((a) => a.id === id)?.name ?? id} />
+          <RulesForm key={agent.id} agent={agent} agents={agents} rules={rules.data} />
         </>
       ) : (
         <p className="px-gutter py-3 text-body text-muted">
@@ -1654,7 +1756,7 @@ export function AgentBank() {
               <PauseAgent agent={agent} />
               <AgentDetails key={`details-${agent.id}`} agent={agent} />
               <Money agent={agent} book={book.data} />
-              <Rules key={`rules-${agent.id}`} agent={agent} />
+              <Rules key={`rules-${agent.id}`} agent={agent} agents={live} />
               {live.length > 1 ? (
                 <Pay
                   key={`pay-${agent.id}`}

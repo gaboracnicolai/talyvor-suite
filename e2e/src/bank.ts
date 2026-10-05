@@ -119,6 +119,21 @@ export class AgentBankScreen {
     return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
   }
 
+  /**
+   * B28.27 — marks, on the Rules card, the payees `agent` may pay and those it may not (each one of the
+   * workspace's other agents), and saves its rules.
+   */
+  async setPayees(agent: Agent, payees: { allow: Agent[]; block: Agent[] }): Promise<string | undefined> {
+    await this.fresh(agent)
+    const save = this.page.getByRole('button', { name: 'Save rules' })
+    await save.waitFor()
+    for (const p of payees.allow) await this.page.getByRole('button', { name: `${agent.name} may pay ${p.name}`, exact: true }).click()
+    for (const p of payees.block) await this.page.getByRole('button', { name: `${agent.name} may not pay ${p.name}`, exact: true }).click()
+    const form = this.page.locator('form').filter({ has: save })
+    await save.click()
+    return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
+  }
+
   /** Issues the agent a key and reads it off the card that shows it once. */
   async issueKey(agent: Agent): Promise<string> {
     await this.fresh(agent)
@@ -850,12 +865,61 @@ export function agentRequestRate(seed: number): Scenario {
 }
 
 /**
+ * B28.27 — the DONE line: no pay posting to a blocked payee; one to an allowed payee. On Agent Wallets'
+ * Rules card the payer blocks one of the workspace's agents and allows another, and Lens holds exactly
+ * those lists. A payment to the blocked one, from Pay another agent, is refused by the payee rule and
+ * writes no pay posting on either account; one to the allowed one writes exactly its pair.
+ */
+export function agentPayeeLists(seed: number): Scenario {
+  return {
+    id: 'agent-payee-lists',
+    title: 'a payment to a payee the agent\'s rules block posts nothing; one to a payee they allow posts its pair',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const opened: Agent[] = []
+      for (const name of [`Payer ${seed}`, `Blocked ${seed}`, `Allowed ${seed}`]) {
+        const a = await openAgent(ctx, bank, name)
+        if (typeof a === 'string') return fail(a)
+        opened.push(a)
+      }
+      const [payer, blocked, allowed] = opened
+      let err = await bank.move(payer, 2e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setPayees(payer, { allow: [allowed], block: [blocked] })
+      if (err !== undefined) return fail(`the payee lists were not saved: ${err}`)
+      const stored = await ctx.env.lens.agentRules(ctx.app.user, payer.id)
+      if (JSON.stringify(stored.allowed_payees) !== JSON.stringify([allowed.id]) || JSON.stringify(stored.blocked_payees) !== JSON.stringify([blocked.id])) {
+        return fail(`allowed ${allowed.name} and blocked ${blocked.name} on the screen; Lens holds allowed ${JSON.stringify(stored.allowed_payees)}, blocked ${JSON.stringify(stored.blocked_payees)}`)
+      }
+      const pays = async (a: Agent) => (await ctx.env.lens.agentLines(ctx.app.user, a.id)).filter((l) => l.kind === 'pay')
+
+      const refused = await bank.pay(payer, blocked, 500_000, `to a blocked payee ${seed}`)
+      ctx.evidence.push({ note: `Pay ${blocked.name} 0.5 LXC: ${refused}` })
+      if (!/^Refused\./.test(refused) || !/may not pay/.test(refused)) return fail(`a payment to the blocked ${blocked.name} was not refused by the payee rule: "${refused}"`)
+      const [fromBlocked, toBlocked] = [await pays(payer), await pays(blocked)]
+      if (fromBlocked.length > 0 || toBlocked.length > 0) {
+        return fail(`the payment to the blocked ${blocked.name} was refused, yet it posted ${fromBlocked.length} pay line(s) on ${payer.name} and ${toBlocked.length} on ${blocked.name}`)
+      }
+
+      const paid = await bank.pay(payer, allowed, 500_000, `to an allowed payee ${seed}`)
+      ctx.evidence.push({ note: `Pay ${allowed.name} 0.5 LXC: ${paid}` })
+      if (!/^Paid /.test(paid)) return fail(`a payment to the allowed ${allowed.name} was not paid: "${paid}"`)
+      const [from, to] = [await pays(payer), await pays(allowed)]
+      if (from.length !== 1 || from[0].amount_ulxc !== -500_000 || to.length !== 1 || to[0].amount_ulxc !== 500_000) {
+        return fail(`after one 0.5 LXC payment to the allowed ${allowed.name}, ${payer.name} has pay line(s) ${JSON.stringify(from)} and ${allowed.name} ${JSON.stringify(to)}`)
+      }
+      if ((await pays(blocked)).length > 0) return fail(`${blocked.name} has a pay line, though nothing was paid to it`)
+      return { pass: true, detail: `${blocked.name} blocked and ${allowed.name} allowed on the screen; the payment to ${blocked.name} refused ("${refused}") with no pay posting; the one to ${allowed.name} posted -0.5 / +0.5 LXC` }
+    }),
+  }
+}
+
+/**
  * B28.305 — the rule templates on Agent Wallets, written here from what each template sets (apps/web
  * ruleTemplates.ts), not imported, like every oracle here: every rule Lens holds, in µLXC.
  */
 const TEMPLATE_RULES: Record<'Support bot' | 'Researcher', AgentRulesRead> = (() => {
   const open = { hourly_limit_ulxc: 0, weekly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, allowed_models: [], allowed_providers: [],
-    allowed_listings: [], active_from: '', active_until: '', timezone: 'UTC', pause_on_unusual_spend: false }
+    allowed_listings: [], allowed_payees: [], blocked_payees: [], active_from: '', active_until: '', timezone: 'UTC', pause_on_unusual_spend: false }
   return {
     'Support bot': { ...open, max_per_request_ulxc: 500_000, hourly_limit_ulxc: 20e6, daily_limit_ulxc: 200e6, monthly_limit_ulxc: 4000e6,
       approval_above_ulxc: 5e6, pause_on_unusual_spend: true },
@@ -868,7 +932,8 @@ const TEMPLATE_RULES: Record<'Support bot' | 'Researcher', AgentRulesRead> = (()
 function rulesDiffer(got: AgentRulesRead, want: AgentRulesRead): string[] {
   const norm = (r: AgentRulesRead) => ({ ...r, hourly_limit_ulxc: r.hourly_limit_ulxc ?? 0, weekly_limit_ulxc: r.weekly_limit_ulxc ?? 0,
     model_daily_limits_ulxc: r.model_daily_limits_ulxc ?? {}, requests_per_minute: r.requests_per_minute ?? 0, allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [],
-    allowed_listings: r.allowed_listings ?? [], pause_on_unusual_spend: r.pause_on_unusual_spend ?? false })
+    allowed_listings: r.allowed_listings ?? [], allowed_payees: r.allowed_payees ?? [], blocked_payees: r.blocked_payees ?? [],
+    pause_on_unusual_spend: r.pause_on_unusual_spend ?? false })
   const g = norm(got) as Record<string, unknown>
   const w = norm(want) as Record<string, unknown>
   return Object.keys(w).filter((k) => JSON.stringify(g[k]) !== JSON.stringify(w[k]))
