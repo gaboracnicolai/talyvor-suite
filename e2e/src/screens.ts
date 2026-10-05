@@ -282,6 +282,15 @@ export class DocsPage {
     return { text: await writtenIn(this.page, 'Ask the documentation'), sources, shown }
   }
 
+  /** B29.31 — presses Export as HTML beside Pin: the file Docs names after the page, and its text. */
+  async exportHTML(): Promise<{ name: string; text: string }> {
+    const [download] = await Promise.all([
+      this.page.waitForEvent('download', { timeout: SAVE_TIMEOUT_MS }),
+      this.page.getByRole('button', { name: 'Export as HTML', exact: true }).click(),
+    ])
+    return { name: download.suggestedFilename(), text: await readFile(await download.path(), 'utf8') }
+  }
+
   async close(): Promise<void> {
     await this.page.close()
   }

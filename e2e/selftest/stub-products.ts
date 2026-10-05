@@ -7,6 +7,7 @@
 //   docs-ai      — Docs' Ask answers without citing any page
 //   track-ai     — Track names no duplicate, however alike two issues are
 //   export       — a list read of 250 issues (the export's page size) leaves the oldest one out
+//   docs-export  — a Docs page's HTML export is set in Inter, its links in #f0a030
 
 import { randomBytes } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
@@ -167,8 +168,39 @@ function plainText(content: string): string {
   return lines.join('\n')
 }
 
-serve(DOCS_PORT, 'docs', async (req, res, path) => {
+// B29.31 — Docs' own export stylesheet (talyvor-docs internal/export/exporter.go htmlStyles), so the export the
+// nightly brand check photographs here is the one Docs writes.
+const EXPORT_STYLES = `:root{--tv-canvas:#F4F7FB;--tv-surface:#FFFFFF;--tv-line:rgba(6,10,18,.10);--tv-ink:#060A12;--tv-ink-muted:#46586E;--tv-label:#646B79;--tv-accent:#0F7A6C}
+@media screen and (prefers-color-scheme:dark){:root{--tv-canvas:#060A12;--tv-surface:#081220;--tv-line:rgba(126,147,171,.18);--tv-ink:#E6EEF7;--tv-ink-muted:#7E93AB;--tv-label:#90ACC0;--tv-accent:#3AD6C0}}
+body{font-family:"Space Grotesk",system-ui,sans-serif;max-width:760px;margin:32px auto;padding:0 16px;background:var(--tv-canvas);color:var(--tv-ink);line-height:1.6}
+h1{color:var(--tv-ink);font-weight:500;letter-spacing:-0.01em;line-height:1.25;font-size:2em;padding-bottom:0.3em}
+a{color:var(--tv-accent)}
+.meta{font-family:"IBM Plex Mono",ui-monospace,monospace;color:var(--tv-ink-muted);font-size:0.85em;margin-bottom:2em}
+footer{margin-top:3em;padding-top:1em;border-top:1px solid var(--tv-line);color:var(--tv-label);font-size:0.85em;text-align:center}`
+const BROKEN_STYLES = 'body{font-family:Inter,sans-serif}a{color:#f0a030}'
+
+const escapeHTML = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+function exportHTML(p: Page): string {
+  const body = p.content_text.split('\n').filter((l) => l.trim() !== '').map((l) => `<p>${escapeHTML(l)}</p>`).join('\n')
+  return `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>${escapeHTML(p.title)}</title>\n` +
+    `<style>${EXPORT_STYLES}${BREAK === 'docs-export' ? BROKEN_STYLES : ''}</style>\n</head>\n<body>\n<h1>${escapeHTML(p.title)}</h1>\n` +
+    `<div class="meta">Updated ${new Date().toDateString()}</div>\n${body}\n<p><a href="https://talyvor.com">talyvor.com</a></p>\n` +
+    '<footer>Exported from Talyvor Docs</footer>\n</body>\n</html>\n'
+}
+
+serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
   let m: RegExpExecArray | null
+  if ((m = /^\/v1\/spaces\/([^/]+)\/pages\/([^/]+)\/export$/.exec(path))) {
+    const [, space, pageID] = m
+    const p = pages.find((x) => x.space_id === space && x.id === pageID)
+    if (p === undefined) return json(res, 404, { error: 'no such page' })
+    if (url.searchParams.get('format') !== 'html') return json(res, 400, { error: 'stub docs: html only' })
+    const slug = p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'untitled'
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': `attachment; filename="${slug}.html"` })
+    res.end(exportHTML(p))
+    return
+  }
   if (path === '/v1/spaces' && req.method === 'POST') {
     const b = await body<{ name?: string; workspace_id?: string }>(req)
     if (!b.name || !b.workspace_id) return json(res, 400, { error: 'name and workspace_id required' })
