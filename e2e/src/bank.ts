@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Locator, Page } from 'playwright'
 import { type AppUser, chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
-import type { Agent, AgentBook, AgentLine, Answered, JudgeReply, SyntheticUser } from './lens.ts'
+import type { Agent, AgentBook, AgentLine, AgentRulesRead, Answered, JudgeReply, SyntheticUser } from './lens.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
@@ -247,6 +247,31 @@ export class AgentBankScreen {
       await box.fill(lxcText(c.ulxc))
     }
     const form = this.page.locator('form').filter({ has: picker })
+    await form.getByRole('button', { name: 'Save rules' }).click()
+    return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
+  }
+
+  /**
+   * B28.305 — creates an agent from a rule template ("Support bot", "Researcher", "Coder") picked under
+   * "Start from"; the screen opens it. The refusal, if Lens refused the agent or its template's rules.
+   */
+  async createFrom(name: string, template: string): Promise<string | undefined> {
+    const form = this.page.locator('form').filter({ has: this.page.getByLabel('New agent name') })
+    await form.getByRole('group', { name: 'Rules to start from' }).getByRole('button', { name: template, exact: true }).click()
+    await this.page.getByLabel('New agent name').fill(name)
+    await form.getByRole('button', { name: 'Create agent' }).click()
+    const err = await outcome(this.page.getByTestId('agent-open').filter({ hasText: new RegExp(`^${esc(name)}$`) }), form)
+    if (err !== undefined) return err
+    const unsaved = form.getByRole('alert')
+    return (await unsaved.isVisible()) ? (await unsaved.innerText()).trim() : undefined
+  }
+
+  /** B28.305 — fills the agent's Rules card from a template and saves its rules. */
+  async applyTemplate(agent: Agent, template: string): Promise<string | undefined> {
+    await this.fresh(agent)
+    const group = this.page.getByRole('group', { name: `Rule templates for ${agent.name}` })
+    await group.getByRole('button', { name: template, exact: true }).click()
+    const form = this.page.locator('form').filter({ has: group })
     await form.getByRole('button', { name: 'Save rules' }).click()
     return outcome(form.getByRole('status').filter({ hasText: /^Saved\./ }), form)
   }
@@ -518,9 +543,9 @@ export async function bookOf(ctx: ScenarioCtx, user: SyntheticUser = ctx.app.use
 
 export const agentIn = (b: AgentBook, id: string): Agent | undefined => b.agents.find((a) => a.id === id)
 
-/** Creates an agent on the screen and finds it in Lens's book, owned by the person who made it. */
-export async function openAgent(ctx: ScenarioCtx, bank: AgentBankScreen, name: string): Promise<Agent | string> {
-  const err = await bank.create(name)
+/** Creates an agent on the screen — from a rule template, when named — and finds it in Lens's book, owned by the person who made it. */
+export async function openAgent(ctx: ScenarioCtx, bank: AgentBankScreen, name: string, template?: string): Promise<Agent | string> {
+  const err = template === undefined ? await bank.create(name) : await bank.createFrom(name, template)
   if (err !== undefined) return `creating ${name} was refused: ${err}`
   const a = (await ctx.env.lens.agentBook(ctx.app.user)).agents.find((x) => x.name === name)
   if (a === undefined) return `${name} shows on the screen but Lens has no such agent`
@@ -745,6 +770,60 @@ export function agentModelLimit(seed: number): Scenario {
         return fail(`${cheap.id} under its daily limit: ${a.name}'s account has ${late.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} new and the ledger ${charged.length} spend row(s); want one ${posted[0]?.kind ?? 'hold'} posting and one spend row`)
       }
       return { pass: true, detail: `${dear.id} over its daily limit: refused (403) with no posting and no charge; ${cheap.id} under its own: one ${posted[0].kind} posting (${posted[0].amount_ulxc} µLXC) and one spend row` }
+    }),
+  }
+}
+
+/**
+ * B28.305 — the rule templates on Agent Wallets, written here from what each template sets (apps/web
+ * ruleTemplates.ts), not imported, like every oracle here: every rule Lens holds, in µLXC.
+ */
+const TEMPLATE_RULES: Record<'Support bot' | 'Researcher', AgentRulesRead> = (() => {
+  const open = { hourly_limit_ulxc: 0, weekly_limit_ulxc: 0, model_daily_limits_ulxc: {}, allowed_models: [], allowed_providers: [],
+    allowed_listings: [], active_from: '', active_until: '', timezone: 'UTC', pause_on_unusual_spend: false }
+  return {
+    'Support bot': { ...open, max_per_request_ulxc: 500_000, hourly_limit_ulxc: 20e6, daily_limit_ulxc: 200e6, monthly_limit_ulxc: 4000e6,
+      approval_above_ulxc: 5e6, pause_on_unusual_spend: true },
+    Researcher: { ...open, max_per_request_ulxc: 10e6, daily_limit_ulxc: 300e6, weekly_limit_ulxc: 1000e6, monthly_limit_ulxc: 3000e6,
+      approval_above_ulxc: 20e6 },
+  }
+})()
+
+/** Each rule where Lens's read-back differs from the template, as "rule: Lens has x, the template y". */
+function rulesDiffer(got: AgentRulesRead, want: AgentRulesRead): string[] {
+  const norm = (r: AgentRulesRead) => ({ ...r, hourly_limit_ulxc: r.hourly_limit_ulxc ?? 0, weekly_limit_ulxc: r.weekly_limit_ulxc ?? 0,
+    model_daily_limits_ulxc: r.model_daily_limits_ulxc ?? {}, allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [],
+    allowed_listings: r.allowed_listings ?? [], pause_on_unusual_spend: r.pause_on_unusual_spend ?? false })
+  const g = norm(got) as Record<string, unknown>
+  const w = norm(want) as Record<string, unknown>
+  return Object.keys(w).filter((k) => JSON.stringify(g[k]) !== JSON.stringify(w[k]))
+    .map((k) => `${k}: Lens has ${JSON.stringify(g[k])}, the template ${JSON.stringify(w[k])}`)
+}
+
+/**
+ * B28.29's DONE line, from talyvor-suite: applying a template writes agent_rules equal to the template. A
+ * new agent is created from Support bot on Agent Wallets, in one click, and Lens's rules for it are read
+ * back; then its Rules card is filled from Researcher and saved, and Lens holds Researcher's rules — the
+ * Support bot's hourly cap and pause gone with it, not merged in.
+ */
+export function agentRuleTemplate(seed: number): Scenario {
+  return {
+    id: 'agent-rule-template',
+    title: 'an agent created from a rule template on Agent Wallets has exactly the template as its rules in Lens; another template applied replaces them whole',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const a = await openAgent(ctx, bank, `Template ${seed}`, 'Support bot')
+      if (typeof a === 'string') return fail(a)
+      const first = await ctx.env.lens.agentRules(ctx.app.user, a.id)
+      ctx.evidence.push({ note: `Lens holds ${a.name}'s rules, created from Support bot, as ${JSON.stringify(first)}` })
+      let off = rulesDiffer(first, TEMPLATE_RULES['Support bot'])
+      if (off.length > 0) return fail(`${a.name}, created from Support bot, does not hold its rules: ${off.join('; ')}`)
+      const err = await bank.applyTemplate(a, 'Researcher')
+      if (err !== undefined) return fail(`Researcher's rules were not saved for ${a.name}: ${err}`)
+      const second = await ctx.env.lens.agentRules(ctx.app.user, a.id)
+      ctx.evidence.push({ note: `Lens holds ${a.name}'s rules, filled from Researcher, as ${JSON.stringify(second)}` })
+      off = rulesDiffer(second, TEMPLATE_RULES.Researcher)
+      if (off.length > 0) return fail(`${a.name}, filled from Researcher and saved, does not hold its rules: ${off.join('; ')}`)
+      return { pass: true, detail: `created from Support bot, Lens holds its ${Object.keys(TEMPLATE_RULES['Support bot']).length} rules exactly; filled from Researcher and saved, Lens holds Researcher's exactly` }
     }),
   }
 }

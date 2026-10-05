@@ -10,6 +10,7 @@ import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice,
 import { AgentCardPanel } from './AgentCardPanel'
 import { CurrencyPicker, Lxc } from './money'
 import { ChoicePicker, ModelLimitsPicker, RulesInWords, TimePicker, TimeZonePicker, useRuleChoices } from './rulePickers'
+import { RULE_TEMPLATES, type RuleTemplate } from './ruleTemplates'
 import { AgentAddress, AgentTransfers, CreditLinePanel, Loans, MoneyRequests, OfferLoan, RecurringTransfer, SendAndRequest } from './WalletMoney'
 import { CashOutCard, CashOuts, Escrows, PayIntoEscrow, Portfolios, Pots } from './WalletHoldings'
 import {
@@ -466,12 +467,26 @@ function TopUpForm({ agent, current }: { agent: Agent; current: AgentTopUpValue 
   )
 }
 
+/**
+ * B28.305 — a new agent can start from a rule template: created, then its rules saved as the template, in
+ * the one click. When Lens refuses the rules the agent still exists, so it opens and the note says so.
+ */
 function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
+  const [template, setTemplate] = useState<RuleTemplate | null>(null)
   const create = useMutation({
-    mutationFn: () => agentBankApi.create(name.trim()),
-    onSuccess: (a) => {
+    mutationFn: async () => {
+      const a = await agentBankApi.create(name.trim())
+      if (template === null) return { a, unsaved: null }
+      try {
+        qc.setQueryData(rulesKey(a.id), await agentBankApi.setRules(a.id, template.rules))
+        return { a, unsaved: null }
+      } catch (err) {
+        return { a, unsaved: `${a.name} was created, but its ${template.name} rules were not saved: ${refusalText(err)} Set them on its Rules card.` }
+      }
+    },
+    onSuccess: ({ a }) => {
       setName('')
       onCreated(a)
     },
@@ -497,7 +512,22 @@ function CreateAgent({ onCreated }: { onCreated: (a: Agent) => void }) {
           {create.isPending ? 'Creating…' : 'Create agent'}
         </Button>
       </div>
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Rules to start from">
+        <span className="text-caption text-muted">Start from</span>
+        {[null, ...RULE_TEMPLATES].map((t) => (
+          <Button
+            key={t?.id ?? 'none'}
+            aria-pressed={template?.id === t?.id}
+            variant={template?.id === t?.id ? 'primary' : 'default'}
+            onClick={() => setTemplate(t)}
+          >
+            {t?.name ?? 'No rules'}
+          </Button>
+        ))}
+      </div>
+      {template ? <p className="text-caption text-muted">{template.summary}</p> : null}
       {create.isError ? <Note ok={false}>{refusalText(create.error)}</Note> : null}
+      {create.data?.unsaved ? <Note ok={false}>{create.data.unsaved}</Note> : null}
     </form>
   )
 }
@@ -786,6 +816,28 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
   const [from, setFrom] = useState(rules.active_from)
   const [until, setUntil] = useState(rules.active_until)
   const [timezone, setTimezone] = useState(rules.timezone)
+  // B28.305 — a template fills every rule on the form; nothing reaches Lens until Save rules.
+  const [filled, setFilled] = useState<RuleTemplate | null>(null)
+  const fill = (t: RuleTemplate) => {
+    const r = t.rules
+    setLimits({
+      max_per_request_ulxc: limitText(r.max_per_request_ulxc),
+      hourly_limit_ulxc: limitText(r.hourly_limit_ulxc ?? 0),
+      daily_limit_ulxc: limitText(r.daily_limit_ulxc),
+      weekly_limit_ulxc: limitText(r.weekly_limit_ulxc ?? 0),
+      monthly_limit_ulxc: limitText(r.monthly_limit_ulxc),
+      approval_above_ulxc: limitText(r.approval_above_ulxc),
+    })
+    setModels(r.allowed_models ?? [])
+    setModelLimits(Object.entries(r.model_daily_limits_ulxc ?? {}).map(([m, v]) => [m, limitText(v)]))
+    setProviders(r.allowed_providers ?? [])
+    setListings(r.allowed_listings ?? [])
+    setPauseOnUnusual(r.pause_on_unusual_spend ?? false)
+    setFrom(r.active_from)
+    setUntil(r.active_until)
+    setTimezone(r.timezone)
+    setFilled(t)
+  }
   const bad = [...LIMITS.map(([f]) => limits[f]), ...modelLimits.map(([, t]) => t)].some((t) => t.trim() !== '' && parseLXC(t) === null)
   const save = useMutation({
     mutationFn: () =>
@@ -816,6 +868,18 @@ function RulesForm({ agent, rules }: { agent: Agent; rules: AgentRules }) {
         if (!bad && !save.isPending) save.mutate()
       }}
     >
+      <Row
+        label="Start from a template"
+        hint={filled ? `${filled.summary} Save rules to apply it.` : 'Fills every rule below; nothing changes until you save.'}
+      >
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`Rule templates for ${agent.name}`}>
+          {RULE_TEMPLATES.map((t) => (
+            <Button key={t.id} aria-pressed={filled?.id === t.id} onClick={() => fill(t)}>
+              {t.name}
+            </Button>
+          ))}
+        </div>
+      </Row>
       {LIMITS.map(([field, label]) => (
         <Row key={field} label={label} hint="LXC; empty for no limit">
           <Input
