@@ -1253,6 +1253,104 @@ export function walletFirstNav(): Scenario {
   }
 }
 
+/** The number on the sidebar's Approvals link once it reads `want`, or the last it read within `ms`. */
+async function badgeReaches(page: Page, want: number, ms: number): Promise<number> {
+  const link = page.getByRole('navigation', { name: 'Sections' }).locator('a[href="/approvals"]')
+  let seen = -1
+  for (const end = Date.now() + ms; Date.now() < end; await page.waitForTimeout(250)) {
+    seen = Number(/(\d+) waiting$/.exec(((await link.textContent()) ?? '').trim())?.[1] ?? 0)
+    if (seen === want) break
+  }
+  return seen
+}
+
+/** Approve on the row waiting for a person whose words carry `memo`; the line the screen then shows. */
+async function approveRow(page: Page, memo: string): Promise<string> {
+  const waiting = card(page, 'Waiting for a person')
+  const approve = page.getByRole('button', { name: 'Approve', exact: true })
+  const row = waiting.locator('div').filter({ hasText: memo }).filter({ has: approve }).last()
+  await row.waitFor({ timeout: ACTION_TIMEOUT_MS })
+  await row.getByRole('button', { name: 'Approve', exact: true }).click()
+  const said = page.getByRole('status').filter({ hasText: /^(Approved|Denied)/ }).or(page.getByRole('alert')).first()
+  await said.waitFor({ timeout: ACTION_TIMEOUT_MS })
+  return (await said.innerText()).trim()
+}
+
+/**
+ * B28.45 — the sidebar's Approvals badge is live. Three payments are held for a person; the badge must
+ * read Lens's pending count. Approving one on Approvals — opened from the badge, with no reload — takes
+ * the badge down by one. Approving another in a second tab (a person on another device) takes this tab's
+ * badge down again on its own. Approving moves no money: the payer's balance and pay lines are read back.
+ */
+export function approvalsBadge(seed: number): Scenario {
+  return {
+    id: 'approvals-badge',
+    title: 'the Approvals badge is live: approving one takes it down by one without a reload, and so does a decision made in another tab',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const payer = await openAgent(ctx, bank, `Badge payer ${seed}`)
+      if (typeof payer === 'string') return fail(payer)
+      const payee = await openAgent(ctx, bank, `Badge payee ${seed}`)
+      if (typeof payee === 'string') return fail(payee)
+      let err = await bank.move(payer, 3e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setLimit(payer, 'Ask a person above', 500_000)
+      if (err !== undefined) return fail(`the approval amount was not saved: ${err}`)
+      const memos = ['first', 'second', 'third'].map((w) => `badge ${seed} ${w}`)
+      for (const memo of memos) {
+        const said = await bank.pay(payer, payee, 1e6, memo)
+        if (!/waiting in Approvals/.test(said)) return fail(`a payment above the approval amount was not held for a person: "${said}"`)
+      }
+      const filed = (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.agent_id === payer.id && x.status === 'pending')
+      const idOf = (memo: string) => filed.find((x) => x.memo === memo)?.id
+      if (filed.length !== 3 || memos.some((m) => idOf(m) === undefined)) return fail(`Lens has ${filed.length} pending approval(s) for ${payer.name}: ${JSON.stringify(filed)}`)
+      const pendingNow = async () => (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.status === 'pending').length
+
+      const { page } = bank
+      await page.reload()
+      const n = await pendingNow()
+      const before = await badgeReaches(page, n, ACTION_TIMEOUT_MS)
+      ctx.evidence.push({ note: `held three: Lens has ${n} pending; the badge reads ${before}` })
+      if (before !== n) return fail(`Lens has ${n} approval(s) pending; the sidebar's Approvals badge says ${before}`)
+      // A reload would drop this mark; it is read again after each decision.
+      await page.evaluate(() => { (window as unknown as { b2845?: number }).b2845 = 1 })
+      const reloaded = async () => !(await page.evaluate(() => (window as unknown as { b2845?: number }).b2845 === 1))
+
+      await page.getByRole('navigation', { name: 'Sections' }).locator('a[href="/approvals"]').click()
+      await page.getByRole('heading', { level: 1, name: 'Approvals' }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+      const said = await approveRow(page, memos[0])
+      ctx.evidence.push({ note: `Approve on Approvals: ${said}` })
+      if (!/^Approved/.test(said)) return fail(`approving "${memos[0]}" was not confirmed: "${said}"`)
+      const one = await badgeReaches(page, n - 1, ACTION_TIMEOUT_MS)
+      ctx.evidence.push({ note: `after approving one, the badge reads ${one}` })
+      if (await reloaded()) return fail('the page reloaded to show the decision')
+      if (one !== n - 1) return fail(`approving one took the badge from ${n} to ${one}, not ${n - 1}`)
+      const first = (await ctx.env.lens.agentApprovals(ctx.app.user)).find((x) => x.id === idOf(memos[0]))?.status
+      if (first !== 'approved') return fail(`the approval for "${memos[0]}" is ${first ?? 'gone'} in Lens, not approved`)
+
+      // Another device: a second tab approves the second, and this tab's badge follows with no click here.
+      const other = await ctx.app.tab('/approvals')
+      try {
+        const there = await approveRow(other, memos[1])
+        ctx.evidence.push({ note: `Approve in a second tab: ${there}` })
+        if (!/^Approved/.test(there)) return fail(`approving "${memos[1]}" in a second tab was not confirmed: "${there}"`)
+      } finally {
+        await other.close()
+      }
+      const two = await badgeReaches(page, n - 2, ACTION_TIMEOUT_MS)
+      ctx.evidence.push({ note: `after the second tab approved one, this tab's badge reads ${two}` })
+      if (await reloaded()) return fail('the page reloaded to show the other tab’s decision')
+      if (two !== n - 2) return fail(`a decision in another tab left this tab's badge at ${two}, not ${n - 2}, after ${ACTION_TIMEOUT_MS / 1000}s`)
+
+      // Approving moves no money: the payment waits to be sent again.
+      const pays = (await ctx.env.lens.agentLines(ctx.app.user, payer.id)).filter((l) => l.kind === 'pay')
+      if (pays.length !== 0) return fail(`approving moved money: ${payer.name} has ${pays.length} pay line(s): ${JSON.stringify(pays)}`)
+      const held = agentIn(await bookOf(ctx), payer.id)?.balance_ulxc
+      if (held !== 3e6) return fail(`${payer.name} holds ${held} µLXC after two approvals, not the 3000000 it was funded`)
+      return { pass: true, detail: `the badge read Lens's ${n}; approving one took it to ${n - 1} with no reload, and a second tab's approval took it to ${n - 2} on its own; no money moved` }
+    }),
+  }
+}
+
 export function companyPayment(seed: number, partner: number): Scenario {
   const amount = 700_000
   return {

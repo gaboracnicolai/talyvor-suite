@@ -189,6 +189,6 @@
   "src/trackWriteBodyRegister.test.ts": 18,
   "src/typeScaleUnits.test.ts": 11,
   "src/upstreamCitations.test.ts": 8,
-  "src/WalletFirstNav.test.tsx": 3,
+  "src/WalletFirstNav.test.tsx": 5,
   "src/writeUnderDeadCredential.test.tsx": 15
 }
