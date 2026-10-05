@@ -171,6 +171,63 @@ export function brandVisual(): Scenario {
 }
 
 /** B29.28 — the oracle for a Docs page: what is off-brand about it, in words; nothing when it is the brand. */
+// B32.2 — the company line on every page of the website, and who runs Talyvor at the top of the legal
+// pages. Typed here, not imported from the app: the oracle is the register's words, not the code's.
+export const COMPANY_LINE = 'TALYVOR LTD · Registered in England and Wales · Company number 17299143 · ' +
+  'Registered office: 71-75 Shelton Street, Covent Garden, London, United Kingdom, WC2H 9JQ'
+const OPENINGS: Record<string, string> = {
+  '/terms': 'These terms are between you and TALYVOR LTD, a company registered in England and Wales (number 17299143) ' +
+    'whose registered office is 71-75 Shelton Street, Covent Garden, London, United Kingdom, WC2H 9JQ. Contact: nicolai@talyvor.com.',
+  '/privacy': 'TALYVOR LTD (company number 17299143, registered office 71-75 Shelton Street, Covent Garden, London, United Kingdom, ' +
+    'WC2H 9JQ) runs Talyvor and decides how the personal data this notice describes is used. Contact: nicolai@talyvor.com.',
+}
+const COMPANY_PAGES = ['/marketing', '/pricing', '/documentation', '/terms', '/privacy', '/signin', '/signup', '/settings'] as const
+
+/** The oracle: what a page leaves out of who runs Talyvor, given its text and its first paragraph. */
+export function companyFaults(path: string, text: string, opening: string): string[] {
+  const faults: string[] = []
+  if (!text.includes(COMPANY_LINE)) faults.push('no company line')
+  const want = OPENINGS[path]
+  if (want !== undefined && opening.replace(/\s+/g, ' ').trim() !== want) faults.push(`opens with "${opening.slice(0, 60)}", not who runs Talyvor`)
+  return faults
+}
+
+export function companyLine(): Scenario {
+  return {
+    id: 'company-line',
+    title: 'the public pages, sign-in, sign-up and Settings name the company, its number and its registered office; Terms and Privacy open with who runs Talyvor',
+    run: async (ctx) => {
+      const browser = ctx.app.context.browser()
+      if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
+      const origin = new URL(ctx.app.page.url()).origin
+      const stranger = await browser.newContext()
+      const wrong: string[] = []
+      try {
+        for (const path of COMPANY_PAGES) {
+          // Settings is this user's own; every other page is what a stranger sees.
+          const page = await (path === '/settings' ? ctx.app.context : stranger).newPage()
+          try {
+            await page.goto(origin + path)
+            await page.getByText(COMPANY_LINE).first().waitFor({ timeout: HEADING_TIMEOUT_MS }).catch(() => undefined)
+            const text = await page.evaluate(() => document.body.innerText)
+            const opening = await page.evaluate(() => document.querySelector('main header + p')?.textContent ?? '')
+            const faults = companyFaults(path, text, opening)
+            ctx.evidence.push({ note: `${path}: ${faults.length === 0 ? 'names the company' : faults.join('; ')}` })
+            if (faults.length > 0) wrong.push(`${path}: ${faults.join('; ')}`)
+          } finally {
+            await page.close()
+          }
+        }
+      } finally {
+        await stranger.close()
+      }
+      return wrong.length === 0
+        ? { pass: true, detail: `${COMPANY_PAGES.length} pages name the company; Terms and Privacy open with who runs Talyvor` }
+        : { pass: false, detail: wrong.join(' | '), where: wrong.map((w) => w.split(':')[0]) }
+    },
+  }
+}
+
 export function docsBrandFaults(l: Look, sidebar: string[]): string[] {
   const faults: string[] = []
   if (sidebar.length === 0) faults.push('no logo in the sidebar')

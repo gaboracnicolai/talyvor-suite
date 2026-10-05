@@ -10,6 +10,7 @@ import {
   type Pricing as PricingData,
   type PricingState,
 } from './pricingApi'
+import { CompanyLine } from '../../components/CompanyLine'
 
 // /pricing (B5.2) — what anything costs, for a buyer who has not signed up. Public, OUTSIDE the
 // AuthGate like /marketing, and built the same way: no router context, plain anchors, Landing's
@@ -388,6 +389,9 @@ export function Pricing() {
               Documentation
             </a>
           </div>
+        </div>
+        <div className="mx-auto w-full max-w-5xl px-gutter pb-6">
+          <CompanyLine />
         </div>
       </footer>
     </div>

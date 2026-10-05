@@ -1,4 +1,5 @@
 import { Button, Card, Mark, ThemeToggle, Wordmark, inlineLink } from '@talyvor/ui'
+import { CompanyLine } from '../../components/CompanyLine'
 import { useSignupProbe, type SignupState } from '../../lib/signupOpen'
 import { useDocumentTitle } from '../../documentTitle'
 import { SharedAnswersFact } from '../../components/StoredAnswersFacts'
@@ -127,6 +128,7 @@ function EntryFrame({ children }: { children: React.ReactNode }) {
           />
         </div>
         <Card className="w-full max-w-md">{children}</Card>
+        <CompanyLine className="mt-6 w-full max-w-md" />
       </main>
     </div>
   )

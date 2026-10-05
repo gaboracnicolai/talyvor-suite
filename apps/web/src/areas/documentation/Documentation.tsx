@@ -13,6 +13,7 @@ import {
   type Claim,
 } from './content'
 import lensRoutes from './lens-routes.json'
+import { CompanyLine } from '../../components/CompanyLine'
 
 // /documentation (B27.31) — what Talyvor does today, one claim per thing a person can do, each
 // linked to the screen or route that does it. Public, OUTSIDE the AuthGate like /marketing and
@@ -275,6 +276,9 @@ export function Documentation() {
               Pricing
             </a>
           </div>
+        </div>
+        <div className="mx-auto w-full max-w-5xl px-gutter pb-6">
+          <CompanyLine />
         </div>
       </footer>
     </div>

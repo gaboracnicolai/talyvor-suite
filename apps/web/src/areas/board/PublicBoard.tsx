@@ -5,6 +5,7 @@ import { useDocumentTitle } from '../../documentTitle'
 import { ApiError } from '../../lib/api'
 import { BoardColumns } from '../track/BoardColumns'
 import type { PublicBoardView } from '../track/types'
+import { CompanyLine } from '../../components/CompanyLine'
 
 // B27.30 — a Track board a workspace owner published as a link, opened by anyone who has it,
 // signed out. OUTSIDE the AuthGate (App.tsx) for the same reason as /pricing: the reader has no
@@ -98,6 +99,9 @@ export function PublicBoard() {
               Terms
             </a>
           </div>
+        </div>
+        <div className="mx-auto w-full max-w-6xl px-gutter pb-6">
+          <CompanyLine />
         </div>
       </footer>
     </div>

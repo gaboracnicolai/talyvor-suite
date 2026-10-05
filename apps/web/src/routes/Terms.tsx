@@ -1,4 +1,5 @@
-import { LegalHeader, LawyerReview, Section } from './legalParts'
+import { LegalFooter, LegalHeader, LawyerReview, Section } from './legalParts'
+import { COMPANY_CONTACT, COMPANY_NAME, COMPANY_NUMBER, REGISTERED_OFFICE } from '../company'
 import { inlineLink } from '@talyvor/ui'
 import { SharedAnswersFact, StoredAnswersFacts } from '../components/StoredAnswersFacts'
 
@@ -15,6 +16,15 @@ export function Terms() {
     // is now inside main and is no longer a `banner`. LandmarkCoverage.test.tsx holds it.
     <main className="mx-auto w-full max-w-3xl px-gutter py-10">
       <LegalHeader title="Terms" />
+
+      <p className="mb-8 text-body">
+        These terms are between you and {COMPANY_NAME}, a company registered in England and Wales
+        (number {COMPANY_NUMBER}) whose registered office is {REGISTERED_OFFICE}. Contact:{' '}
+        <a className={inlineLink} href={`mailto:${COMPANY_CONTACT}`}>
+          {COMPANY_CONTACT}
+        </a>
+        .
+      </p>
 
       <LawyerReview>
         This is an honest description of the service written by its engineers so a lawyer can turn
@@ -236,6 +246,8 @@ export function Terms() {
           access to protect the service or its other users.
         </p>
       </Section>
+
+      <LegalFooter />
     </main>
   )
 }

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useAuthMeReader } from '../lib/authMe'
 import { useDocumentTitle } from '../documentTitle'
 import { inlineLink } from '@talyvor/ui'
+import { CompanyLine } from '../components/CompanyLine'
 
 // legalParts — the shared furniture for /privacy and /terms.
 //
@@ -100,6 +101,15 @@ export function LawyerReview({
       </div>
       <p className="mt-1 text-body text-muted">{children}</p>
     </div>
+  )
+}
+
+/** LegalFooter — the company line at the bottom of both documents (B32.2). */
+export function LegalFooter() {
+  return (
+    <footer className="mt-12 border-t border-rule pt-6">
+      <CompanyLine />
+    </footer>
   )
 }
 

@@ -160,7 +160,7 @@ describe('a push navigation puts the reader at the top of the page they asked fo
   it('/terms → /privacy, outside the auth gate entirely: the top is requested', async () => {
     window.history.pushState({}, '', '/terms')
     render(<App />)
-    await screen.findByText(/terms/i)
+    await screen.findByRole('heading', { name: /^terms$/i })
     scrollTo.mockClear()
 
     const privacy = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]')).find(
