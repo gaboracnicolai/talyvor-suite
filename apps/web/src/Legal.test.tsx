@@ -268,6 +268,15 @@ describe('both documents state their absences rather than reading as complete', 
     expect(screen.getByRole('heading', { name: 'The Marketplace' })).toBeInTheDocument()
   })
 
+  // B32.9 — the seller's terms: 85% of every use, rental and purchase whose bill was paid; Talyvor keeps 15%.
+  it('terms says a seller earns 85% and Talyvor keeps 15%', async () => {
+    mockBff()
+    at('/terms')
+    const text = (await screen.findByText(/A seller earns 85%/)).textContent?.replace(/\s+/g, ' ') ?? ''
+    expect(text).toContain('A seller earns 85% of every use, rental and purchase whose bill was paid; Talyvor keeps 15%.')
+    expect(document.body.textContent ?? '').not.toMatch(/earns a share of every use|Talyvor’s share of a sale/)
+  })
+
   it('both carry a visible needs-legal-review marker', async () => {
     mockBff()
     at('/privacy')

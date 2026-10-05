@@ -21,6 +21,8 @@ const USE_MAX_TOKENS = 4096
 const NUMBER_ONLY = 'Reply with the number only.'
 /** µLXC per µUSD: LXC is pegged at $0.10 (talyvor-lens market.ulxcPerUSDMicro). */
 const ULXC_PER_USD_MICRO = 10
+/** A listing's seller keeps 85% of its price (Lens's LENS_MARKET_TAKE_BPS=1500, Nicolai's decision of 5 Oct 2026). */
+const SELLER_SHARE_BPS = 8_500
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 export const lxcText = (ulxc: number): string => String(ulxc / 1e6)
@@ -1756,7 +1758,7 @@ export function marketplaceSale(seed: number, partner: number): Scenario {
   const template = `What is {{a}} + {{b}}? ${NUMBER_ONLY}`
   return {
     id: 'marketplace-sale',
-    title: 'a seller publishes, a buyer uses the listing and is billed once, and the seller\'s pending earnings rise by exactly their share',
+    title: 'a seller publishes, a buyer uses the listing and is billed once, and the seller\'s pending earnings rise by exactly 85% of its price',
     run: async (ctx) => {
       const { env, app } = ctx
       const seller = await env.signInUser(partner)
@@ -1798,11 +1800,13 @@ export function marketplaceSale(seed: number, partner: number): Scenario {
       }
       const earned = await env.lens.marketEarnings(seller.user)
       ctx.evidence.push({ note: `seller earnings before ${JSON.stringify(earned0)}, after ${JSON.stringify(earned)}` })
-      const share = price / ULXC_PER_USD_MICRO
+      // B32.9: the seller earns 85% of the price, rounded down to the µUSD; Talyvor keeps 15% (B32.8).
+      const gross = price / ULXC_PER_USD_MICRO
+      const share = Math.floor((gross * SELLER_SHARE_BPS) / 10_000)
       if (earned.pending_uses !== earned0.pending_uses + 1 || earned.pending_usd_micros !== earned0.pending_usd_micros + share) {
-        return fail(`the seller's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; their share of one use is ${share} µUSD`)
+        return fail(`the seller's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; their 85% of one ${gross} µUSD use is ${share} µUSD`)
       }
-      return { pass: true, detail: `answered ${a + b}; billed once (${lxcText(price)} LXC on the buyer's bill, the model's cost on their credits); the seller's pending rose by exactly $${(share / 1e6).toFixed(2)}` }
+      return { pass: true, detail: `answered ${a + b}; billed once (${lxcText(price)} LXC on the buyer's bill, the model's cost on their credits); the seller's pending rose by exactly 85% of the price, $${(share / 1e6).toFixed(4)}` }
     },
   }
 }
