@@ -7,9 +7,10 @@ import { CHAT_MAX_TOKENS, type ChatAttachment, type ChatMessage, type ChatModel,
  * Before sending, neither count is known, so each is bounded instead of guessed:
  *
  * · INPUT is every byte the request carries — the conversation so far, the question, the wallet tools
- *   on offer — at most one token per two bytes plus the provider's framing, at least one per eight. A
- *   document counts toward the high end only, by its size: Lens converts it, and a scanned page may
- *   convert to nothing.
+ *   on offer — at most one token per two bytes plus the provider's framing. The low end is the
+ *   conversation and the question alone, at one token per eight bytes: a provider that does not count
+ *   the tools as input (the e2e stub Lens does not) still lands inside. A document counts toward the
+ *   high end only, by its size: Lens converts it, and a scanned page may convert to nothing.
  * · OUTPUT is at least one token and at most CHAT_MAX_TOKENS, the cap Chat sends Anthropic and Bedrock.
  *   Other providers take no cap, so for them the high end is an answer of that length, as the screen
  *   says.
@@ -52,7 +53,7 @@ export function previewCost(
   const offered = TOOL_PROVIDERS.includes(model.provider) ? tools : []
   const toolBytes = offered.length === 0 ? 0 : bytes(JSON.stringify(offered.map(({ name, description, input_schema }) => ({ name, description, input_schema }))))
 
-  const inputLow = Math.floor((textBytes + toolBytes) / MOST_BYTES_PER_TOKEN)
+  const inputLow = Math.floor(textBytes / MOST_BYTES_PER_TOKEN)
   const inputHigh =
     Math.ceil((textBytes + toolBytes + docBytes) / LEAST_BYTES_PER_TOKEN) +
     FRAMING_TOKENS +

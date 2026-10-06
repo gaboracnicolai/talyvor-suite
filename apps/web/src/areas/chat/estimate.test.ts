@@ -20,10 +20,10 @@ describe('the price range before sending (B28.99)', () => {
     expect(range).toEqual({ low_usd: (8 * 5 + 1 * 25) / 1e6, high_usd: (121 * 5 + 4096 * 25) / 1e6, answer_tokens: 4096 })
   })
 
-  it('counts the wallet tools for a provider that is offered them, and a document toward the high end only', () => {
+  it('counts the wallet tools for a provider that is offered them, and a document, toward the high end only', () => {
     const plain = previewCost([], 'How much did Researcher spend?', [], OPUS, [])!
     const tooled = previewCost([], 'How much did Researcher spend?', [], OPUS, [TOOL])!
-    expect(tooled.low_usd).toBeGreaterThan(plain.low_usd)
+    expect(tooled.low_usd).toBe(plain.low_usd)
     expect(tooled.high_usd - plain.high_usd).toBeGreaterThan((600 * 5) / 1e6)
     // Google is offered no tools (TOOL_PROVIDERS), so they cost it nothing.
     expect(previewCost([], 'How much did Researcher spend?', [], { ...OPUS, provider: 'google' }, [TOOL])).toEqual(plain)

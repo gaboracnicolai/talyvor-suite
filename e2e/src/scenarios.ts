@@ -1384,7 +1384,7 @@ export function shownRange(text: string): { low: number; high: number; unit: 'US
 /**
  * B28.99 — before each of 20 questions in one chat, the price range under the box; after it, the answer's footer. The
  * footer's price — its tokens at the catalog's list rate — must be inside the range every time. Each question carries
- * a word made up for the run, so the model answers it rather than the cache.
+ * a word made up for this attempt, so the model answers it rather than the cache — a second attempt included.
  */
 export function costPreview(seed: number): Scenario {
   return {
@@ -1394,8 +1394,9 @@ export function costPreview(seed: number): Scenario {
     run: async (ctx) => {
       const { page } = ctx.app
       const misses: string[] = []
+      const attempt = 1 + Math.floor(Math.random() * 999_999)
       for (const [k, base] of PREVIEW_QUESTIONS.entries()) {
-        const question = `${base} (${freshWord(seed * 100 + k)})`
+        const question = `${base} (${freshWord(seed * 100 + k, attempt)})`
         await page.locator('#chat-message').fill(question)
         const shown = (await page.getByTestId('cost-preview').innerText({ timeout: ACTION_TIMEOUT_MS })).replace(/\s+/g, ' ').trim()
         const t = await ask(ctx, question, `shown before sending: ${shown}`)
