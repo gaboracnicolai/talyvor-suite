@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import { focusRing } from '@talyvor/ui'
-import { ApiError, readable } from '../../lib/api'
+import { ApiError, UnreadableError, readable } from '../../lib/api'
 import { formatULXC } from './agentBankApi'
 import { topupApi } from './topupApi'
 
@@ -95,10 +95,27 @@ export function convertULXC(
   return fiat === 'EUR' ? { amount: eur, fiat } : { amount: eur * fx.gbp_per_eur, fiat }
 }
 
+/**
+ * B35.6 — Lens's credit peg. It is fixed, so one answer is kept for the session; a read that fails is
+ * asked again with react-query's default retries and backoff, so one failed or slow read no longer
+ * leaves every amount on the screen without its currency. A 401, a 403 or an unreadable answer is a
+ * verdict, not a flake, and is not asked again (as the app's own default, App.tsx). Every reader of the
+ * peg shares these options: the observer that starts a read decides whether it is retried.
+ */
+export const pegQuery = queryOptions({
+  queryKey: ['topup-options'],
+  queryFn: topupApi.options,
+  retry: (failures, error) =>
+    failures < 3 &&
+    !(error instanceof UnreadableError) &&
+    !(error instanceof ApiError && (error.status === 401 || error.status === 403)),
+  staleTime: Infinity,
+})
+
 /** A formatter for the person's currency: µLXC → "$1.25", or null while no rate backs one. */
 export function useMoney(): (ulxc: number) => string | null {
   const fiat = useFiat()
-  const peg = useQuery({ queryKey: ['topup-options'], queryFn: topupApi.options, retry: false })
+  const peg = useQuery(pegQuery)
   const fx = useQuery({ queryKey: FX_KEY, queryFn: fetchFX, retry: false, staleTime: 60 * 60_000, enabled: fiat !== 'USD' })
   return (ulxc) => {
     const v = convertULXC(ulxc, peg.data?.usd_per_lxc, fiat === 'USD' ? undefined : fx.data, fiat)
