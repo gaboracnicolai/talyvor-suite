@@ -237,3 +237,152 @@ export function RuleCard({ command, onClose }: { command: string; onClose: () =>
     </div>
   )
 }
+
+// B28.353 — the approval amount in plain words. "Ask me above 2 LXC", or "… for Researcher", typed in Chat's composer is
+// not sent to the model either: it opens a card with the agent and the amount, each changeable, and the amount as it is
+// now. Save puts the agent's rules back with only approval_above_ulxc changed, as the card above does for a limit; Lens
+// then holds any request or payment of the agent's above it until a person approves it.
+
+/** What an approval sentence said: "" for an agent when it named none. */
+export interface AskAboveDraft {
+  agent: string
+  amount: string
+}
+
+const ASK_ABOVE =
+  /^\s*(?:please\s+)?ask\s+(?:me|a\s+person)\s+(?:(?:before|about|for)\s+anything\s+)?(?:above|over|more\s+than)\s+(\d+(?:\.\d{1,6})?)\s*LXC(?:\s+(?:for|from|on)\s+(?:agent\s+)?(.+?))?\s*[.!]?\s*$/i
+
+/**
+ * Reads a sentence that sets an agent's approval amount, or null when it is not one: "Ask me|a person [before anything]
+ * above|over|more than <amount> LXC [for <agent>]". The amount must be in LXC, so a question about anything else still
+ * goes to the model.
+ */
+export function parseAskAbove(text: string): AskAboveDraft | null {
+  const m = ASK_ABOVE.exec(text)
+  if (m === null) return null
+  return { agent: (m[2] ?? '').replace(/^[\s"'“‘]+|[\s"'”’]+$/g, ''), amount: m[1] }
+}
+
+/** A message that sets an agent's approval amount rather than asking the model. */
+export const isAskAboveCommand = (text: string) => parseAskAbove(text) !== null
+
+export function AskAboveCard({ command, onClose }: { command: string; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [typed] = useState(() => parseAskAbove(command) ?? { agent: '', amount: '' })
+  const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
+  const agents = (book.data?.agents ?? []).filter((a) => a.archived_at === undefined)
+
+  // The agent the sentence named; with none named, the workspace's one agent if it has only one. Then as chosen.
+  const [agentId, setAgentId] = useState<string | null>(null)
+  const [amount, setAmount] = useState(typed.amount)
+  const named = typed.agent === '' ? (agents.length === 1 ? agents[0] : undefined) : agents.find((a) => a.name.trim().toLowerCase() === typed.agent.toLowerCase())
+  const chosenAgent = agentId ?? named?.id ?? ''
+  const agent = agents.find((a) => a.id === chosenAgent)
+
+  const rules = useQuery({ queryKey: rulesKey(chosenAgent), queryFn: () => agentBankApi.rules(chosenAgent), enabled: chosenAgent !== '' })
+  const ulxc = parseLXC(amount)
+  const ready = agent !== undefined && ulxc !== null && ulxc > 0
+
+  const save = useMutation({
+    mutationFn: async () => {
+      // Read afresh, so a rule changed elsewhere since the card opened is kept, not put back as it was.
+      const current = await agentBankApi.rules(chosenAgent)
+      return agentBankApi.setRules(chosenAgent, { ...current, approval_above_ulxc: ulxc ?? 0 })
+    },
+    onSuccess: (saved) => qc.setQueryData(rulesKey(chosenAgent), saved),
+  })
+  const saved = save.data
+  const now = rules.data?.approval_above_ulxc ?? null
+
+  const top = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    void top.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [])
+
+  const what = (name: string) => (
+    <>
+      any request or payment {name} makes above <Lxc ulxc={ulxc ?? 0} />
+    </>
+  )
+
+  return (
+    <div ref={top}>
+      <Card data-testid="chat-ask-above">
+        <div className="flex flex-col gap-3 px-4 py-3">
+          <p className="text-caption text-muted">
+            Set a rule <span className="break-all font-mono">{command}</span>
+          </p>
+          {saved !== undefined && agent !== undefined ? (
+            <p role="status" className="text-body text-ink" data-testid="chat-ask-above-saved">
+              Saved: a person must approve {what(agent.name)}. Until then it waits in Approvals.{' '}
+              <Link className={inlineLink} to={`/agents?${new URLSearchParams({ agent: agent.id }).toString()}`}>
+                See its rules on Agent Wallets
+              </Link>
+            </p>
+          ) : (
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (ready && !save.isPending) save.mutate()
+              }}
+            >
+              <div className="flex flex-col gap-3 wide:flex-row wide:flex-wrap wide:items-center">
+                <select aria-label="Agent" className={`${selectClass} wide:max-w-48`} value={chosenAgent} onChange={(e) => setAgentId(e.target.value)}>
+                  <option value="" disabled>
+                    Pick an agent
+                  </option>
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  aria-label="Ask above, in LXC"
+                  inputMode="decimal"
+                  placeholder="Ask above, LXC"
+                  className="font-figure wide:w-28"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                />
+              </div>
+              {typed.agent !== '' && named === undefined && book.data !== undefined ? (
+                <p className="text-caption text-muted">No agent is called “{typed.agent}” — pick one.</p>
+              ) : null}
+              {agent !== undefined && ulxc !== null && ulxc > 0 ? (
+                <p className="text-body text-ink" data-testid="chat-ask-above-change">
+                  A person must approve {what(agent.name)}.{' '}
+                  <span className="text-muted">
+                    {now === null ? '' : now > 0 ? (
+                      <>
+                        It is <Lxc ulxc={now} /> now.
+                      </>
+                    ) : (
+                      'Nothing waits for a person now.'
+                    )}
+                  </span>
+                </p>
+              ) : null}
+              <div className="flex w-full flex-col gap-2 wide:flex-row wide:items-center">
+                <Button type="submit" className="h-12 w-full wide:h-8 wide:w-auto" disabled={!ready || save.isPending}>
+                  {save.isPending ? 'Saving…' : 'Save the rule'}
+                </Button>
+                {!save.isPending ? (
+                  <Button type="button" className="h-12 w-full wide:h-8 wide:w-auto" onClick={onClose}>
+                    Cancel
+                  </Button>
+                ) : null}
+              </div>
+              {save.isError ? (
+                <p role="alert" className="text-caption text-ink">
+                  The rule was not saved: {refusalText(save.error)}
+                </p>
+              ) : null}
+            </form>
+          )}
+        </div>
+      </Card>
+    </div>
+  )
+}

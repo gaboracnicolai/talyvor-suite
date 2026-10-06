@@ -34,7 +34,7 @@ import {
 import { Markdown } from './Markdown'
 import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
-import { RuleCard, isRuleCommand } from './RuleCommand'
+import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
 import { LiveStatement } from './LiveStatement'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
@@ -180,6 +180,7 @@ export function Chat() {
   const [launches, setLaunches] = useState<{ id: number; command: string }[]>([])
   const launchSeq = useRef(0)
   // B28.352 — each rule typed here in plain words ("Cap Researcher at 5 LXC a day on Opus"): a card that saves it.
+  // B28.353 — and each approval amount ("Ask me above 2 LXC"), on its own card in the same list.
   const [ruleCards, setRuleCards] = useState<{ id: number; command: string }[]>([])
 
   // History is scoped to who is signed in; until that is known there is nowhere to keep it.
@@ -423,7 +424,7 @@ export function Chat() {
         setLaunches((l) => [...l, { id: ++launchSeq.current, command: question }])
         return
       }
-      if (isRuleCommand(question)) {
+      if (isRuleCommand(question) || isAskAboveCommand(question)) {
         setDraft('')
         setRuleCards((l) => [...l, { id: ++launchSeq.current, command: question }])
         return
@@ -715,9 +716,13 @@ export function Chat() {
             {/* B28.352 — a rule typed in plain words, on a card here to check and save instead of a question. */}
             {ruleCards.length > 0 ? (
               <section aria-label="Setting rules" className="flex flex-col gap-3 pb-6">
-                {ruleCards.map((l) => (
-                  <RuleCard key={l.id} command={l.command} onClose={() => setRuleCards((ls) => ls.filter((x) => x.id !== l.id))} />
-                ))}
+                {ruleCards.map((l) =>
+                  isAskAboveCommand(l.command) ? (
+                    <AskAboveCard key={l.id} command={l.command} onClose={() => setRuleCards((ls) => ls.filter((x) => x.id !== l.id))} />
+                  ) : (
+                    <RuleCard key={l.id} command={l.command} onClose={() => setRuleCards((ls) => ls.filter((x) => x.id !== l.id))} />
+                  ),
+                )}
               </section>
             ) : null}
 

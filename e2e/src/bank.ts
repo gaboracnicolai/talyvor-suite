@@ -2063,6 +2063,99 @@ export function chatPlainRule(seed: number): Scenario {
 }
 
 /**
+ * B28.353 (for B28.89) — "Ask me above 2 LXC for <agent>" typed in Chat opens a card read as typed; after Save, Lens's
+ * rules hold an approval amount of 2 LXC and every other limit as it was. Then a 1.9 LXC payment is paid at once — one
+ * pay line on the payer's statement, the payee's balance up by it — and a 2.1 LXC one is held for a person: a pending
+ * approval for 2.1 LXC on Lens, no pay line written and no balance moved.
+ */
+export function chatAskAbove(seed: number): Scenario {
+  const ask = 2e6
+  const [under, over] = [1_900_000, 2_100_000]
+  return {
+    id: 'chat-ask-above',
+    title: '"Ask me above 2 LXC" typed in Chat sets the agent’s approval amount on Lens: 2.1 LXC then waits for a person and 1.9 LXC is paid',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env } = ctx
+        const payer = await openAgent(ctx, bank, `Ask payer ${seed}`)
+        if (typeof payer === 'string') return fail(payer)
+        const payee = await openAgent(ctx, bank, `Ask payee ${seed}`)
+        if (typeof payee === 'string') return fail(payee)
+        const err = await bank.move(payer, 5e6, 'Fund')
+        if (err !== undefined) return fail(`funding was refused: ${err}`)
+        const before = await env.lens.agentRules(ctx.app.user, payer.id)
+        const page = await ctx.app.tab('/chat')
+        try {
+          await page.setViewportSize({ width: 1440, height: 900 })
+          const sentence = `Ask me above ${lxcText(ask)} LXC for ${payer.name}`
+          await page.locator('#chat-message').fill(sentence)
+          await page.locator('#chat-message').press('Enter')
+          const card = page.getByTestId('chat-ask-above').filter({ hasText: sentence })
+          try {
+            await card.waitFor({ timeout: ACTION_TIMEOUT_MS })
+          } catch {
+            return fail(`"${sentence}" opened no approval card in Chat`)
+          }
+          if ((await page.getByTestId('turn-user').filter({ hasText: sentence }).count()) > 0) return fail('the approval amount was sent to the model as a question')
+          await card.getByTestId('chat-ask-above-change').waitFor({ timeout: ACTION_TIMEOUT_MS })
+          const read = [await card.getByLabel('Agent').inputValue(), await card.getByLabel('Ask above, in LXC').inputValue()]
+          if (read.join('|') !== [payer.id, lxcText(ask)].join('|')) return fail(`the card read "${sentence}" as ${JSON.stringify(read)}, not ${payer.id}, ${lxcText(ask)} LXC`)
+          const asked = (await card.getByTestId('chat-ask-above-change').innerText()).trim()
+          await card.getByRole('button', { name: 'Save the rule', exact: true }).click()
+          const refusedSave = await outcome(card.getByTestId('chat-ask-above-saved'), card)
+          if (refusedSave !== undefined) return fail(`saving "${sentence}" was refused: ${refusedSave}`)
+          const said = (await card.getByTestId('chat-ask-above-saved').innerText()).trim()
+
+          // The rule as Lens holds it: the approval amount, and nothing else moved.
+          const after = await env.lens.agentRules(ctx.app.user, payer.id)
+          ctx.evidence.push({ note: `Chat: "${asked}" → "${said}"; Lens holds ${payer.name}'s approval amount as ${after.approval_above_ulxc} µLXC` })
+          if (after.approval_above_ulxc !== ask) return fail(`saved ${ask} µLXC as the approval amount from Chat; Lens holds ${after.approval_above_ulxc}`)
+          const kept = (['max_per_request_ulxc', 'daily_limit_ulxc', 'monthly_limit_ulxc'] as const).filter((f) => after[f] !== before[f])
+          if (kept.length > 0) return fail(`setting the approval amount from Chat changed ${kept.map((f) => `${f} ${before[f]} → ${after[f]}`).join(', ')}`)
+
+          await mkdir(env.outDir, { recursive: true })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            await card.scrollIntoViewIfNeeded()
+            const shot = join(env.outDir, `chat-ask-above-${width}px-user${ctx.app.user.index}.png`)
+            await page.screenshot({ path: shot })
+            ctx.evidence.push({ note: `the saved approval amount at ${width}px: ${shot}` })
+          }
+        } finally {
+          await page.close()
+        }
+
+        const pays = async () => (await env.lens.agentLines(ctx.app.user, payer.id)).filter((l) => l.kind === 'pay')
+        // Under it: paid at once, one pay line on the payer's statement and the payee's balance up by it.
+        const paid = await bank.pay(payer, payee, under, `under the approval amount ${seed}`)
+        ctx.evidence.push({ note: `Pay ${lxcText(under)} LXC: ${paid}` })
+        if (!/^Paid /.test(paid)) return fail(`a ${lxcText(under)} LXC payment, under the ${lxcText(ask)} LXC approval amount, was not paid: "${paid}"`)
+        const lines1 = await pays()
+        if (lines1.length !== 1 || lines1[0].amount_ulxc !== -under) return fail(`after one ${lxcText(under)} LXC payment ${payer.name}'s account has pay line(s) ${JSON.stringify(lines1)}`)
+        const book1 = await bookOf(ctx)
+        if (agentIn(book1, payee.id)?.balance_ulxc !== under) return fail(`${payee.name} holds ${agentIn(book1, payee.id)?.balance_ulxc} µLXC after being paid ${under}`)
+
+        // Over it: held for a person — a pending approval for the amount, no pay line and no balance moved.
+        const held = await bank.pay(payer, payee, over, `over the approval amount ${seed}`)
+        ctx.evidence.push({ note: `Pay ${lxcText(over)} LXC: ${held}` })
+        if (!/^Refused\./.test(held) || !/waiting in Approvals/.test(held)) return fail(`a ${lxcText(over)} LXC payment, over the ${lxcText(ask)} LXC approval amount set from Chat, was not held for a person: "${held}"`)
+        const filed = (await env.lens.agentApprovals(ctx.app.user)).filter((x) => x.agent_id === payer.id)
+        if (filed.length !== 1 || filed[0].status !== 'pending' || filed[0].amount_ulxc !== over) return fail(`Lens has ${filed.length} approval(s) for ${payer.name}: ${JSON.stringify(filed)}`)
+        const lines2 = await pays()
+        const book2 = await bookOf(ctx)
+        const [from, to] = [agentIn(book2, payer.id)?.balance_ulxc, agentIn(book2, payee.id)?.balance_ulxc]
+        if (lines2.length !== 1 || from !== 5e6 - under || to !== under) {
+          return fail(`a payment held for a person moved money: ${lines2.length} pay line(s), ${payer.name} holds ${from} and ${payee.name} ${to} µLXC`)
+        }
+        return {
+          pass: true,
+          detail: `"Ask me above ${lxcText(ask)} LXC for ${payer.name}" in Chat saved ${ask} µLXC as its approval amount on Lens; ${lxcText(under)} LXC was paid (one pay line), ${lxcText(over)} LXC waits for a person (approval pending, nothing paid)`,
+        }
+      }),
+  }
+}
+
+/**
  * B28.8 — a brand-new workspace's first agent, from Home's three steps, with no full-screen consent page:
  * created with a monthly budget and an approval amount, funded, given a key — and its first request, sent
  * with that key, shown on Home as it lands on its statement. Sharing is one line on Home to untick. Every
