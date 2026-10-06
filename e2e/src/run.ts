@@ -25,6 +25,7 @@ import { networkDrop } from './oracles.ts'
 import { groupLeads, reportPath, writeReport, writeTesters } from './report.ts'
 import { archiveAll, roomForAgents } from './room.ts'
 import { CannotTest, type Evidence, LEDGER_READBACK, type RunEnv, type Scenario, checkLedger, journeyFor } from './scenarios.ts'
+import { type Versions, productionVersions, readVersions, versionsLine } from './versions.ts'
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -86,6 +87,10 @@ export interface RunResult {
   memory: MemorySample[]
   /** B35.8 — each scenario that FAILed for one or two users, run again for them before the ledger read-back. */
   second_attempts: Outcome[]
+  /** B34.2 — what was tested: the harness, Lens's main at lens-src, and production's versions at the start. */
+  versions?: Versions
+  /** B34.2 — production's versions read again at the end, to show a deploy that landed during the run. */
+  production_after?: Pick<Versions, 'app' | 'lens'>
 }
 
 /**
@@ -222,6 +227,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
   const cap = new SpendCap(cfg.capUSD)
   const book = new ChargeBook()
   let inv: Inventory | undefined
+  let versions: Versions | undefined
   let screens: Matcher | undefined
   let users: SyntheticUser[] = []
   let stoppedAtCap: boolean | undefined
@@ -264,6 +270,10 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     // B25.5 — what there is to test, read from the code before anything runs, and what is tested, as it is.
     const stale = cfg.lensRepo === undefined ? undefined : await refreshLensCheckout(cfg.lensSrc, cfg.lensRepo)
     if (stale !== undefined) console.log(`lens source: ${stale}`)
+    // B34.2 — what this run tests, named in its report and its TESTERS.md entry.
+    versions = await readVersions(REPO, cfg.lensSrc, cfg.appURL, cfg.lensURL)
+    if (stale !== undefined) versions.lens_src += ` (${stale})`
+    console.log(`testing: ${versionsLine(versions)}`)
     inv = await inventory(REPO, cfg.lensSrc)
     screens = new Matcher(inv.screens, false)
     console.log(`inventory: ${inv.screens.length} screens, ${inv.bff.length} BFF routes, ` +
@@ -496,6 +506,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     clearInterval(sampler)
   }
   if (stoppedBy !== undefined) console.log(`STOPPED: ${stoppedBy}`)
+  const after = versions === undefined ? undefined : await productionVersions(cfg.appURL, cfg.lensURL)
 
   outcomes.sort((a, b) => a.user - b.user)
   const counts: Record<Status, number> = { PASS: 0, FAIL: 0, SKIP: 0, ERROR: 0 }
@@ -521,6 +532,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     network_drops: drops,
     memory,
     second_attempts: secondAttempts.sort((a, b) => a.user - b.user),
+    ...(versions === undefined ? {} : { versions, production_after: after }),
   }
 }
 

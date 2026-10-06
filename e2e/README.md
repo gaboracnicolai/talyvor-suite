@@ -60,18 +60,33 @@ is never sent. From then on the run sends nothing new and every remaining scenar
 
 ## Every night, and the explorers (B17.5)
 
-`scripts/e2e-nightly.sh` is started once, like `~/talyvor-queue/deploy.sh`, and left running:
+`scripts/e2e-nightly.sh` is installed once under launchd and left running (B34.2):
 
 ```sh
-nohup scripts/e2e-nightly.sh >/dev/null 2>&1 &      # each night at E2E_NIGHTLY_AT (default 03:00)
-scripts/e2e-nightly.sh --now                         # one run now
+scripts/e2e-nightly.sh --install    # launchd starts it at login and again if it stops; each night at E2E_NIGHTLY_AT (default 03:00)
+scripts/e2e-nightly.sh --status     # whether it runs, its pid, the last run and the next
+scripts/e2e-nightly.sh --now        # one run now, exiting with the run's status
 ```
 
+`--install` writes `~/Library/LaunchAgents/com.talyvor.e2e-nightly.plist` with this shell's `PATH`,
+`E2E_NIGHTLY_AT` and `E2E_ENV_FILE`, and takes over from a nightly already running: it stops one started
+by hand (`nohup scripts/e2e-nightly.sh &`), then launchd starts it. It refuses while a run is in progress.
+A second start exits and leaves the first running. A night that pulls in a new copy of the script goes on
+under the new one, in the same pid.
+
 Before each run it reads `~/.config/talyvor/e2e.env` (`E2E_ENV_FILE`), which holds `LENS_SYNTHETIC_KEY`,
-`E2E_APP_URL`, `E2E_LENS_URL` and any other `E2E_*` setting. It then brings the checkout up to main, if the
-checkout is on main, and runs the harness with 10 explorers for 30 minutes each by default. Everything
-runs under the one cap. It logs to `e2e/out/nightly.log`. A second start exits and leaves the first
-running. It never deploys, pushes or commits.
+`E2E_APP_URL`, `E2E_LENS_URL` and any other `E2E_*` setting. It then brings the checkout to main's head and
+runs the harness with 10 explorers for 30 minutes each by default. Everything runs under the one cap. It
+logs to `e2e/out/nightly.log`. It never deploys, pushes or commits.
+
+**A night held behind main runs nothing.** When the checkout cannot be brought to main's head — it is on
+another branch, has changes of its own to tracked files or commits main does not have, or main cannot be
+read — no scenario runs: the night puts a **HELD** entry at the top of TESTERS.md with why and the commit
+it would have tested (`src/held.ts`), and exits 2.
+
+**Every report and TESTERS.md entry names what was tested**: the harness's commit, Lens's main at
+`--lens-src`, and production's versions from the app's `/api/version` and Lens's `/healthz`, read at the
+start and again at the end, so a deploy that landed during the run shows as `old → new`.
 
 **Explorers.** After the scenarios, each explorer signs in as a synthetic user of its own. A cheap model,
 asked through Lens on that user's account, chooses its next move: click, type, press a key, open a path

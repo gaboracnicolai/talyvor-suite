@@ -13,6 +13,7 @@ import { type CoverageMap, type Row, tallyLine } from './coverage.ts'
 import type { ExplorerSummary, Finding } from './explore.ts'
 import type { MemorySample } from './memory.ts'
 import type { Evidence } from './scenarios.ts'
+import { type Versions, versionsLine } from './versions.ts'
 
 /** The parts of a run's result the report reads (run.ts RunResult). */
 export interface ReportedRun {
@@ -56,9 +57,16 @@ export interface ReportedRun {
   memory?: MemorySample[]
   /** B35.8 — the scenarios that FAILed for one or two users, run again for them. */
   second_attempts?: ReportedRun['outcomes']
+  /** B34.2 — what was tested, and production's versions again at the end (run.ts). */
+  versions?: Versions
+  production_after?: Pick<Versions, 'app' | 'lens'>
 }
 
 type Outcome = ReportedRun['outcomes'][number]
+
+/** B34.2 — the harness, Lens's main and production's versions, or that the run recorded none. */
+const testedText = (run: ReportedRun): string =>
+  run.versions === undefined ? 'not recorded (the run stopped before it read them, or it is from before B34.2)' : versionsLine(run.versions, run.production_after)
 
 /** A screen's p95 above this is slow; a BFF route's above ROUTE_SLOW_MS, or MODEL_SLOW_MS when it waits for a model. */
 const SCREEN_SLOW_MS = 3_000
@@ -306,6 +314,8 @@ export function renderRun(run: ReportedRun): string {
     `${c.PASS} passed, ${c.FAIL} failed, ${c.ERROR} errored, ${c.SKIP} skipped — ${run.users} synthetic users on ${run.app} ` +
       `(Lens ${run.lens}), model ${run.model}.`,
     '',
+    `Tested: ${testedText(run)}.`,
+    '',
     `Cost: about $${run.spent_usd.toFixed(4)} of a $${run.cap_usd.toFixed(2)} cap` +
       (run.stopped_at_cap ? ' — STOPPED AT THE CAP; everything after it was skipped.' : '.') +
       ` Finished ${run.finished_at}.`,
@@ -403,6 +413,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
     '',
     `- **Coverage**: ${map === undefined ? 'no map' : `screens ${tallyLine(map.screens)}; BFF routes ${tallyLine(map.bff)}; Lens routes ` +
       `${map.lensMissing !== undefined ? `not listed (${map.lensMissing})` : tallyLine(map.lens)}`}.`,
+    `- **Tested**: ${testedText(run)}.`,
     `- **Works**: ${c.PASS} checks passed across ${passing.length} scenario(s).`,
     `- **Broken**: ${failing.length === 0 ? 'nothing failed' : failing.map(([id, os]) =>
       `\`${id}\` (${os.filter((o) => o.status === 'FAIL').length} of ${os.length}${run.filed?.[id] !== undefined ? `, ${run.filed[id]}` : ''})`).join(', ')}` +
@@ -435,9 +446,39 @@ function environmentLine(run: ReportedRun): string[] {
   return out
 }
 
-/** Puts the run's summary at the top of TESTERS.md, under its heading; earlier runs stay below. */
-export async function writeTesters(path: string, run: ReportedRun, report: string, newItems: string[]): Promise<void> {
+/** Puts an entry at the top of TESTERS.md, under its heading; earlier ones stay below. */
+async function prependTesters(path: string, entry: string): Promise<void> {
   const existing = await readFile(path, 'utf8').catch(() => '')
   const earlier = existing.startsWith(TESTERS_HEAD) ? existing.slice(TESTERS_HEAD.length) : existing
-  await writeFile(path, `${TESTERS_HEAD}\n${renderSummary(run, report, newItems)}${earlier.replace(/^\n+/, '\n')}`)
+  await writeFile(path, `${TESTERS_HEAD}\n${entry}${earlier.replace(/^\n+/, '\n')}`)
+}
+
+/** Puts the run's summary at the top of TESTERS.md, under its heading; earlier runs stay below. */
+export async function writeTesters(path: string, run: ReportedRun, report: string, newItems: string[]): Promise<void> {
+  await prependTesters(path, renderSummary(run, report, newItems))
+}
+
+/** B34.2 — a night the checkout could not be brought to main's head: why, what it would have tested, and nothing run. */
+export interface HeldNight {
+  at: string
+  why: string
+  /** main's head, the commit the night would have tested, or why it is not known. */
+  wouldTest: string
+  versions: Versions
+}
+
+export function renderHeld(h: HeldNight): string {
+  return [
+    `## ${h.at} — HELD: nothing was run`,
+    '',
+    `- **Why**: ${h.why}.`,
+    `- **Would have tested**: ${h.wouldTest}.`,
+    `- **Checkout**: ${versionsLine(h.versions)}.`,
+    '- **Next**: the next night tries again; it runs once the checkout can be brought to main.',
+    '',
+  ].join('\n')
+}
+
+export async function writeHeld(path: string, h: HeldNight): Promise<void> {
+  await prependTesters(path, renderHeld(h))
 }
