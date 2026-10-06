@@ -18,7 +18,7 @@ import {
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
 import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatLiveStatement, chatPaidBy, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
-import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
+import { chatMoneyRequests, marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
@@ -2071,7 +2071,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   switch (i % 10) {
     // B28.23 — then the other way round: the other company sends, and the person gives it back on the screen.
     case 0: if (other < users) list.push(walletSendRefund(i, other), walletGiveBack(i, other)); break
-    case 1: if (other < users) list.push(walletRequest(i, other)); break
+    // B28.355 — then, with Chat open, a request accepted and an escrow confirmed delivered there, on the ledger.
+    case 1: if (other < users) list.push(walletRequest(i, other), chatMoneyRequests(i, other)); break
     case 2: if (other < users) list.push(marketReview(i, other)); break
     case 3: if (other < users) list.push(walletLoan(i, other)); break
     case 4: if (other < users) list.push(walletEscrow(i, other)); break

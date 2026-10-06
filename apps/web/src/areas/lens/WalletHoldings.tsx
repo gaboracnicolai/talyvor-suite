@@ -26,7 +26,7 @@ import { Note, TestMoneyOnly, readFailure } from './WalletMoney'
 // Lens decides; the screen shows Lens's figures and, on a refusal, Lens's own sentence.
 
 const BOOK_KEY = ['agent-book']
-const ESCROWS_KEY = ['wallet-escrows']
+export const ESCROWS_KEY = ['wallet-escrows']
 const CASH_OUTS_KEY = ['wallet-cash-outs']
 const QUOTES_KEY = ['wallet-quotes']
 const potsKey = (id: string) => ['agent-pots', id]

@@ -38,6 +38,7 @@ import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
 import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
 import { LiveStatement } from './LiveStatement'
+import { MoneyCards } from './MoneyCards'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
@@ -773,6 +774,9 @@ export function Chat() {
 
             {/* B28.84 — an agent's payment waiting for a person, approved with Face ID here in the conversation. */}
             <ApprovalCards />
+
+            {/* B28.355 — another agent asking one of yours for credits, and escrow waiting on delivery: answered here. */}
+            <MoneyCards />
 
             {failure !== null ? (
               <p className="mb-4 text-body text-ink" role="alert">

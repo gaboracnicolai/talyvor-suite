@@ -11,7 +11,9 @@
 // (Stripe's authorization). B25.8: Lens (B25.7) brings each due now for a test workspace, with the
 // synthetic key, and the last five scenarios below trade through them.
 
-import type { Agent, BillLine, Loan, MarketEarnings, PaidTestBill, SyntheticUser } from './lens.ts'
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { Agent, BillLine, Loan, MarketEarnings, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
 import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, card, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
@@ -280,6 +282,106 @@ export function walletEscrow(seed: number, partner: number): Scenario {
       ;[x, y] = await balances(ctx, a, other)
       if (x !== funded - kept - argued || y !== kept) return fail(`disputed, ${a.name} holds ${x} µLXC (want ${funded - kept - argued}) and the payee ${y} (want ${kept}): a disputed escrow stays held`)
       return { pass: true, detail: `${lxcText(kept)} LXC held out of both balances, then paid to the payee on Confirm delivered; ${lxcText(argued)} LXC disputed stays held, both companies see each escrow as it is` }
+    }),
+  }
+}
+
+/**
+ * B28.355 / B28.92 — money waiting on a person, answered in Chat. With Chat open, another company's agent asks a
+ * person's agent for credits: the card shows in Chat, Accept is pressed there, and /api/wallets/requests then reads the
+ * request accepted, paid by the one transfer both companies see. Then the person pays into escrow for that agent on
+ * Agent Wallets and confirms it delivered in Chat: released, the payee holds it. Every oracle is Lens's own rows.
+ */
+export function chatMoneyRequests(seed: number, partner: number): Scenario {
+  const funded = 3e6
+  const [asked, kept] = [700_000, 500_000]
+  return {
+    id: 'chat-money-requests',
+    title: "another company's agent asks a person's agent for credits and is paid on Accept in Chat; an escrow confirmed delivered in Chat is released to the payee",
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const { env, app } = ctx
+      const other = await otherCompany(ctx, partner, `Chat asker ${seed}`, 0)
+      const a = await fundedAgent(ctx, bank, `Chat payer ${seed}`, funded)
+      if (typeof a === 'string') return fail(a)
+      const page = await app.tab('/chat')
+      try {
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.locator('#chat-message').waitFor({ timeout: ACTION_TIMEOUT_MS })
+
+        const memo = `chat invoice ${seed}`
+        const req = await env.lens.requestMoney(other.co, other.agent.id, a.id, asked, memo)
+        ctx.evidence.push({ note: `the other company asks ${a.name} for ${lxcText(asked)} LXC`, answer: JSON.stringify(req) })
+        if (!req.ok) return fail(`the other company could not ask: ${req.status} ${req.error}`)
+        const card = page.locator(`[data-testid="chat-money-request"][data-request="${req.value.id}"]`)
+        // Chat reads the requests every 10 s: the card is on screen within two reads, without a reload.
+        try {
+          await card.waitFor({ timeout: 25_000 })
+        } catch {
+          return fail(`25s after the other company asked ${a.name} for ${lxcText(asked)} LXC, Chat showed no card for it`)
+        }
+        // Each amount carries the person's currency after it, "(…)"; the LXC figure is what is compared.
+        const plain = (t: string) => t.replace(/ \([^()]*\)/g, '').trim()
+        const asks = plain(await card.getByTestId('chat-money-asks').innerText())
+        if (asks !== `${other.agent.name} asks ${a.name} for ${lxcText(asked)} LXC — ${memo}`) return fail(`Chat's card reads "${asks}"`)
+        await mkdir(env.outDir, { recursive: true })
+        for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+          await page.setViewportSize({ width, height })
+          await card.scrollIntoViewIfNeeded()
+          const shot = join(env.outDir, `chat-money-request-${width}px-user${app.user.index}.png`)
+          await page.screenshot({ path: shot })
+          ctx.evidence.push({ note: `the request in Chat at ${width}px: ${shot}` })
+        }
+        await card.getByRole('button', { name: 'Accept', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+        const said = plain(await card.getByRole('status').or(card.getByRole('alert')).innerText({ timeout: ACTION_TIMEOUT_MS }))
+        ctx.evidence.push({ note: `Accept in Chat: ${said}` })
+        if (!said.startsWith(`Accepted. ${a.name} paid ${other.agent.name} ${lxcText(asked)} LXC.`)) return fail(`Accept in Chat said "${said}"`)
+
+        // B28.92's DONE line, as the person's own session reads it.
+        const res = await page.request.get(new URL('/api/wallets/requests', page.url()).toString())
+        const listed = res.ok() ? (((await res.json()) as { requests?: MoneyRequest[] | null }).requests ?? []) : []
+        const mine = listed.find((r) => r.id === req.value.id)
+        const theirs = (await env.lens.moneyRequests(other.co)).find((r) => r.id === req.value.id)
+        ctx.evidence.push({ note: `/api/wallets/requests (${res.status()}) and the asker's own read: ${JSON.stringify([mine, theirs])}` })
+        if (mine?.status !== 'accepted' || theirs?.status !== 'accepted' || mine.transfer_id === undefined || mine.transfer_id !== theirs.transfer_id) {
+          return fail(`accepted in Chat, /api/wallets/requests reads it ${mine?.status ?? 'missing'} (${res.status()}) and the asker ${theirs?.status ?? 'missing'}, paid by ${mine?.transfer_id ?? 'no transfer'}`)
+        }
+        const paid = (await env.lens.transfers(app.user, a.id)).filter((t) => t.request_id === req.value.id)
+        const got = (await env.lens.transfers(other.co, other.agent.id)).filter((t) => t.request_id === req.value.id)
+        if (paid.length !== 1 || got.length !== 1 || paid[0].id !== mine.transfer_id || paid[0].amount_ulxc !== asked || paid[0].to_agent_id !== other.agent.id) {
+          return fail(`the request was paid by ${paid.length} transfer(s) on the payer's side and ${got.length} on the asker's: ${JSON.stringify([paid, got])}`)
+        }
+        let [x, y] = await balances(ctx, a, other)
+        if (x !== funded - asked || y !== asked) return fail(`paid, ${a.name} holds ${x} µLXC (want ${funded - asked}) and the asker ${y} (want ${asked})`)
+
+        const what = `chat delivery ${seed}`
+        const held = await bank.payIntoEscrow(a, other.agent.id, kept, day(Date.now() + 7 * DAY_MS), what)
+        ctx.evidence.push({ note: `Pay ${lxcText(kept)} LXC into escrow ("${what}") on Agent Wallets: ${held}` })
+        if (!/^Held/.test(held)) return fail(`paying into escrow was refused: "${held}"`)
+        const escrow = (await env.lens.escrows(app.user)).filter((e) => e.memo === what)
+        if (escrow.length !== 1 || escrow[0].status !== 'held') return fail(`after paying in, the payer sees ${JSON.stringify(escrow)}`)
+        const ecard = page.locator(`[data-testid="chat-escrow"][data-escrow="${escrow[0].id}"]`)
+        try {
+          await ecard.waitFor({ timeout: 25_000 })
+        } catch {
+          return fail(`25s after ${a.name} paid ${lxcText(kept)} LXC into escrow, Chat showed no card for it`)
+        }
+        await ecard.getByRole('button', { name: 'Confirm delivered', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+        const confirmed = plain(await ecard.getByRole('status').or(ecard.getByRole('alert')).innerText({ timeout: ACTION_TIMEOUT_MS }))
+        ctx.evidence.push({ note: `Confirm delivered in Chat: ${confirmed}` })
+        if (!confirmed.startsWith(`Confirmed delivered. ${other.agent.name} is paid ${lxcText(kept)} LXC from escrow.`)) return fail(`Confirm delivered in Chat said "${confirmed}"`)
+        const released = [...(await env.lens.escrows(app.user)), ...(await env.lens.escrows(other.co))].filter((e) => e.id === escrow[0].id)
+        if (released.length !== 2 || released.some((e) => e.status !== 'released')) return fail(`confirmed in Chat, the escrow reads ${released.map((e) => e.status).join(' and ') || 'missing'}`)
+        ;[x, y] = await balances(ctx, a, other)
+        if (x !== funded - asked - kept || y !== asked + kept) {
+          return fail(`released, ${a.name} holds ${x} µLXC (want ${funded - asked - kept}) and the payee ${y} (want ${asked + kept})`)
+        }
+        return {
+          pass: true,
+          detail: `accepted in Chat, /api/wallets/requests reads the request accepted, paid by one ${lxcText(asked)} LXC transfer both companies see; an escrow confirmed delivered in Chat released ${lxcText(kept)} LXC to the payee`,
+        }
+      } finally {
+        await page.close()
+      }
     }),
   }
 }
