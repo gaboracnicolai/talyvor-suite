@@ -73,6 +73,24 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    // B28.359 — AgentTask.tsx reads the command; apps/bff/agent_task.go runs the task on the agent's wallet.
+    heading: 'Handing an agent a task',
+    body: (
+      <>
+        <p>
+          Type <span className="font-mono">/task</span>, the agent&rsquo;s name, a colon and what it should do — for example{' '}
+          <span className="font-mono">/task Researcher: name three models that read PDFs, cheapest first</span>. That is not
+          asked on the conversation&rsquo;s account: a card opens with the agent and the task, to check before it runs.
+        </p>
+        <p>
+          Hand it over and the task goes to the conversation&rsquo;s model on the agent&rsquo;s own wallet: Lens judges the call
+          by the agent&rsquo;s rules first and charges it to the agent, never to the conversation. The card shows the answer and
+          each line the task put on the agent&rsquo;s statement.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'Models',
     body: (
       <>

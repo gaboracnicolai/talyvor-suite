@@ -292,6 +292,19 @@ export interface AgentKey {
   prefix: string
 }
 
+/** B28.359 — a task handed to an agent from Chat, as the BFF answers it (apps/bff/agent_task.go): the model's answer to it,
+ *  on the agent's own wallet, and whether the key it ran on was revoked after. */
+export interface AgentTaskReply {
+  agent_id: string
+  answer: string
+  model?: string
+  request_id?: string
+  /** Lens answered from the cache: nothing was charged. */
+  replayed: boolean
+  usage: { input_tokens: number; output_tokens: number }
+  key_revoked: boolean
+}
+
 /** Lens economy.AgentCard (B19.12): an agent's virtual card, Stripe Issuing in test mode. The number stays at Stripe. */
 export interface AgentCard {
   id: string
@@ -425,6 +438,8 @@ export const agentBankApi = {
   withdraw: (id: string, amount_ulxc: number, key: string) =>
     send<{ balance_ulxc: number }>('POST', `/api/agents/${e(id)}/withdraw`, { amount_ulxc }, { 'Idempotency-Key': key }),
   issueKey: (id: string, name: string) => send<AgentKey>('POST', `/api/agents/${e(id)}/keys`, { name }),
+  /** B28.359 — runs a task on the agent's own wallet: the BFF issues it a key for the task, and revokes it after. */
+  task: (id: string, body: { task: string; provider: string; model: string }) => send<AgentTaskReply>('POST', `/api/agents/${e(id)}/tasks`, body),
   rules: (id: string) => getJSON<AgentRules>(`/api/agents/${e(id)}/rules`, {
       max_per_request_ulxc: 'number',
       daily_limit_ulxc: 'number',

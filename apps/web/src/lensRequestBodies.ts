@@ -677,6 +677,11 @@ export const NON_LENS_ANON_SITES = [
       'handleFeatureGuardrails (B18.22) re-marshals talyvor-lens’s OWN guardrail policy, read from GET /v1/workspaces/{ws}/guardrails, with one flag changed — because Lens’s POST replaces the whole policy. The key set is whatever Lens answered, echoed back, so there is no key set of this repo’s to ask about and this site is exempt; the two flag names it sets, enable_injection and enable_pii, are the ones readFeatures already reads off the same policy.',
   },
   {
+    file: 'agent_task.go',
+    what:
+      'runTask (B28.359) marshals a task handed to an agent from Chat as a model request — OpenAI’s chat-completions shape, or Anthropic’s messages shape with max_tokens — and sends it on the agent’s key to Lens’s /v1/proxy/{provider}/…, which passes it to the provider exactly as it passes Chat’s own streamed requests (chatApi.ts requestBody builds the same shapes in the browser). The keys are the provider’s published request schema, not a key set any talyvor-lens route binds, so there is nothing for the register to ask talyvor-lens about and this site is exempt.',
+  },
+  {
     file: 'session_seal.go',
     what:
       'sessionSealer.seal (B17.40) marshals sealedSession, the session sealed into its own cookie id so a restart does not sign anyone out. It is encrypted and only this BFF ever reads it back — no request body, sent to no repository, so there is no key set to ask about and this site is exempt.',

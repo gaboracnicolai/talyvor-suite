@@ -78,6 +78,8 @@ var builtByThisService = map[string]string{
 	"versionResponse":      "the /api/version payload",
 	"operatorWorkspace":    "one row of the operator screen (B18.25), joined by workspace id from four Lens reads in handleOperatorWorkspaces",
 	"fxRates":              "the ECB's euro rates for /api/fx (B28.22), lifted out of the daily XML file in parseECBDaily",
+	"taskReply":            "a task's answer to Chat (B28.359), built field by field in handleAgentTask from the model's reply and the key's revoke",
+	"taskUsage":            "the task's tokens, summed from the provider's two usage shapes in runTask (B28.359)",
 }
 
 // decodedFromUpstream: written wholesale by encoding/json from an upstream
@@ -99,6 +101,7 @@ var decodedFromUpstream = map[string]string{
 	"planGate":               "one plan's gates in Lens's public GET /v1/public/plan-gates reply, served on /api/pricing (B32.14)",
 	"publicFees":             "Lens's public GET /v1/public/fees reply, decoded in readFees() and served on /api/pricing (B32.14)",
 	"simulatedPayee":         "a simulated payment's payee, decoded from the browser's rules/simulate body and relayed to Lens as it came (B28.30)",
+	"taskKey":                "Lens's POST …/agents/{id}/keys reply, decoded in issueTaskKey() and held only for the task (B28.359)",
 }
 
 // filledByAssignment names fields that are NOT set in a composite literal but

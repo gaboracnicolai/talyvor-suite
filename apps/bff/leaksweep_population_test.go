@@ -421,9 +421,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE EIGHTY-FOURTH IS B28.32'S END OF A LIMIT BOOST, DELETE only: /api/agents/{id}/rules/boosts/{rule}. It ends
 	// one boost and answers nothing; the boosts in force are read back through GET /api/agents/{id}/rules/boosts,
 	// which the sweep reaches.
-	if len(methodOnly) > 84 {
+	//
+	// THE EIGHTY-FIFTH IS B28.359'S TASK FROM CHAT, POST only: /api/agents/{id}/tasks. It runs one task on the agent's
+	// wallet and answers the model's answer; what the task cost is read back through GET /api/agents/{id}/statement,
+	// which the sweep reaches. The key it runs on is revoked before it answers and never leaves the BFF.
+	if len(methodOnly) > 85 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 84 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 85 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

@@ -15,6 +15,7 @@ describe('How to use Talyvor Chat (B10.3)', () => {
       'Asking',
       'Launching an agent',
       'Setting a rule',
+      'Handing an agent a task',
       'Models',
       'Attaching documents',
       'What an answer costs',
