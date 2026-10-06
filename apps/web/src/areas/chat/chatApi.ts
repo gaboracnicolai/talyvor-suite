@@ -69,6 +69,12 @@ export interface DistillSaved {
   bytes: number
 }
 
+/** B28.358 — Lens trimmed the question with Tare before the model read it (X-Talyvor-Tare: applied). `tokens` is
+ *  what that saved, X-Talyvor-Tare-Tokens-Saved (talyvor-lens B28.95), when Lens said. */
+export interface TareSaved {
+  tokens?: number
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -82,6 +88,8 @@ export interface ChatMessage {
   source?: AnswerSource
   /** B18.24 — on an answer: what converting the question's documents saved. */
   saved?: DistillSaved
+  /** B28.358 — on an answer: Tare trimmed its question, and what that saved when Lens said. */
+  tare?: TareSaved
   /** B23.12 — on an answer: Lens's id for the request that produced it (X-Talyvor-Request-ID), which a
    *  thumbs-down names it by. */
   request_id?: string
@@ -268,6 +276,25 @@ function distillSaved(headers: Headers): DistillSaved | undefined {
   if (tokens === null && bytes === null) return undefined
   const n = (v: string | null) => (v !== null && /^\d+$/.test(v) ? Number(v) : 0)
   return { tokens: n(tokens), bytes: n(bytes) }
+}
+
+/** B28.358 — a header's whole number, or undefined when it is absent or not one. */
+function wholeHeader(headers: Headers, name: string): number | undefined {
+  const v = headers.get(name)
+  return v !== null && /^\d+$/.test(v) ? Number(v) : undefined
+}
+
+/** B28.358 — `{ saved_ulxc }` from a saving header, or nothing when Lens did not state one. */
+function savedULXC(headers: Headers, name: string): { saved_ulxc?: number } {
+  const n = wholeHeader(headers, name)
+  return n === undefined ? {} : { saved_ulxc: n }
+}
+
+/** B28.358 — what Tare saved, or undefined when Lens did not trim the question. */
+function tareSaved(headers: Headers): TareSaved | undefined {
+  if (headers.get('X-Talyvor-Tare') !== 'applied') return undefined
+  const tokens = wholeHeader(headers, 'X-Talyvor-Tare-Tokens-Saved')
+  return tokens === undefined ? {} : { tokens }
 }
 
 /** Reads the deployment's catalog. Errors are the shared ApiError so the app-wide bar sees them. */
@@ -481,6 +508,8 @@ export interface StreamHandlers {
     source?: AnswerSource
     /** B18.24 — what the conversion saved, when Lens said. */
     saved?: DistillSaved
+    /** B28.358 — Tare trimmed the question; for askChat, every request the answer took, added. */
+    tare?: TareSaved
     /** B23.12 — Lens's id for this request, when it said. */
     requestId?: string
     /** B28.81 — why the model stopped, as the provider named it (chatStream.ts), when it said. */
@@ -579,6 +608,7 @@ export async function streamChat(
   const converted = res.headers.get('X-Talyvor-Distill') === 'applied'
   const saved = converted ? distillSaved(res.headers) : undefined
   const source = answerSource(res.headers)
+  const tare = tareSaved(res.headers)
   const requestId = res.headers.get('X-Talyvor-Request-ID') ?? undefined
   const paidByLens = res.headers.get(PAID_BY_HEADER) ?? undefined
   const reader = body.getReader()
@@ -619,7 +649,7 @@ export async function streamChat(
         for (const d of got.deltas) handlers.onDelta(d.text)
         for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
           return
         }
       }
@@ -634,11 +664,17 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
 }
 
 /** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */
 const MAX_TOOL_ROUNDS = 3
+
+/** B28.358 — what Tare saved on two requests that answered one question, added; a count Lens did not state stays unstated. */
+function addTare(a: TareSaved | undefined, b: TareSaved | undefined): TareSaved | undefined {
+  if (a === undefined || b === undefined) return a ?? b
+  return a.tokens === undefined || b.tokens === undefined ? {} : { tokens: a.tokens + b.tokens }
+}
 
 /** Token counts of two requests that answered one question, added. */
 function addUsage(a: Usage | undefined, b: Usage | undefined): Usage | undefined {
@@ -670,6 +706,7 @@ export async function askChat(
   // B28.354 — the agent Lens billed: named only when every request the question took named the same one.
   let billed: string | undefined | null = null
   let usage: Usage | undefined
+  let tare: TareSaved | undefined
   let unrecognised = 0
   let written = false
   const spend: SpendLine[] = []
@@ -703,11 +740,12 @@ export async function askChat(
     const done: Parameters<StreamHandlers['onDone']>[0] = ended
     written ||= said !== ''
     usage = addUsage(usage, done.usage)
+    tare = addTare(tare, done.tare)
     unrecognised += done.unrecognised
     billed = billed === null || billed === done.paidBy ? done.paidBy : undefined
     const calls = done.toolCalls ?? []
     if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
-      handlers.onDone({ ...done, usage, unrecognised, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
+      handlers.onDone({ ...done, usage, tare, unrecognised, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
       return
     }
     const results = await Promise.all(calls.map((c) => callChatTool(c, signal)))
@@ -744,8 +782,10 @@ export async function markAnswerWrong(requestId: string): Promise<void> {
 function answerSource(h: Headers): AnswerSource | undefined {
   const rate = Number(h.get('X-Talyvor-Pool-Discount-Rate') ?? NaN)
   const charged = Number(h.get('X-Talyvor-Pool-Charged-ULXC') ?? NaN)
-  if (Number.isFinite(rate) && Number.isFinite(charged)) return { kind: 'pool', discount_rate: rate, charged_ulxc: charged }
-  if (h.get('X-Talyvor-Cache-Replay') === 'true') return { kind: 'cache' }
+  if (Number.isFinite(rate) && Number.isFinite(charged)) {
+    return { kind: 'pool', discount_rate: rate, charged_ulxc: charged, ...savedULXC(h, 'X-Talyvor-Pool-Saved-ULXC') }
+  }
+  if (h.get('X-Talyvor-Cache-Replay') === 'true') return { kind: 'cache', ...savedULXC(h, 'X-Talyvor-Cache-Saved-ULXC') }
   if (h.get('X-Talyvor-BYOK') === 'own-key') return { kind: 'own_key' }
   return undefined
 }

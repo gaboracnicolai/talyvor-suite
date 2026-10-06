@@ -2,6 +2,9 @@
 // with a fresh one, the catalog's price, or the ledger read back. A scenario returns a verdict; a thrown
 // CapReached makes it SKIP, anything else thrown makes it ERROR (run.ts).
 
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { Response } from 'playwright'
 import { type AppUser, type Attachment, type ChargeBook, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
 import { CapReached, worstInputTokens } from './budget.ts'
@@ -213,6 +216,95 @@ export function repeatInNewChat(seed: number): Scenario {
         : { pass: false, detail: `the judge ${agree === false ? 'says the served and fresh answers differ' : 'gave no verdict'}` }
     },
   }
+}
+
+/** B28.358 — each row of Chat's "Saved in this chat", and the response header its total adds up. */
+const SAVINGS_HEADERS = {
+  cache: 'x-talyvor-cache-saved-ulxc',
+  pool: 'x-talyvor-pool-saved-ulxc',
+  conversion: 'x-talyvor-distill-tokens-saved',
+  tare: 'x-talyvor-tare-tokens-saved',
+} as const
+
+/**
+ * B28.358 (for B28.95) — "Saved in this chat", beside the conversation, adds up what Lens said each answer saved. A
+ * question is asked, then asked again in a new chat, where Lens serves the earlier answer. Every answer's headers in
+ * that chat are read off the wire as the browser got them, and each row of the panel — the cache and the shared pool in
+ * µLXC, conversion and Tare in tokens — totals exactly its header over those answers. The repeat must say what it
+ * saved: a replay's X-Talyvor-Cache-Saved-ULXC is B28.95's, so until it lands this fails against Lens.
+ */
+export function chatSavingsPanel(seed: number): Scenario {
+  // The run's own question (B34.1): one an earlier run asked would come from the shared pool both times.
+  const r = seeded(seed * 17 + 7_000 + RUN_SALT)
+  const a = 1000 + Math.floor(r() * 9000)
+  const b = 1000 + Math.floor(r() * 9000)
+  const q = `What is ${a} plus ${b}? ${NUMBER_ONLY}`
+  return {
+    id: 'chat-savings',
+    title: 'Saved in this chat: each total equals what Lens said on the conversation’s answers, a repeat’s saving included',
+    run: async (ctx) => {
+      const { page } = ctx.app
+      const size = page.viewportSize()
+      try {
+        return await savingsPanel(ctx, q)
+      } finally {
+        if (size !== null) await page.setViewportSize(size)
+      }
+    },
+  }
+}
+
+async function savingsPanel(ctx: ScenarioCtx, q: string): Promise<Verdict> {
+  const { page } = ctx.app
+  await ctx.app.newChat()
+  const first = await ask(ctx, q, 'first time')
+  if (first.error !== undefined) return { pass: false, detail: `the question was refused: ${describe(first)}` }
+  await ctx.app.newChat()
+  const seen: Record<string, string>[] = []
+  const heard = (res: Response) => {
+    if (res.url().includes('/api/ai/stream/') && res.ok()) seen.push(res.headers())
+  }
+  page.on('response', heard)
+  let again: Turn
+  try {
+    again = await ask(ctx, q, 'repeated in a new chat')
+  } finally {
+    page.off('response', heard)
+  }
+  if (!servedNotAsked(again)) return { pass: false, detail: `the repeat was not served from the earlier answer: ${describe(again)}` }
+  if (seen.length !== 1) return { pass: false, detail: `the new chat's one answer came with ${seen.length} answered requests` }
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const panel = page.getByRole('region', { name: 'Saved in this chat' })
+  await panel.waitFor({ timeout: 10_000 })
+  const wrong: string[] = []
+  for (const [row, header] of Object.entries(SAVINGS_HEADERS)) {
+    const want = seen.reduce((n, h) => n + (/^\d+$/.test(h[header] ?? '') ? Number(h[header]) : 0), 0)
+    const shown = await panel.getByTestId(`chat-savings-${row}`).getAttribute('data-total')
+    ctx.evidence.push({ note: `${row}: the panel totals ${shown ?? 'nothing'}; ${header} on the answers adds up to ${want}` })
+    if (shown !== String(want)) wrong.push(`${row} shows ${shown ?? 'nothing'}, its header adds up to ${want}`)
+  }
+  if (wrong.length > 0) return { pass: false, detail: `Saved in this chat disagrees with the response headers: ${wrong.join('; ')}` }
+  const said = seen[0][again.footer.kind === 'cache' ? SAVINGS_HEADERS.cache : SAVINGS_HEADERS.pool]
+  if (said === undefined) {
+    return { pass: false, detail: `Lens served the repeat from the ${again.footer.kind} without saying what it saved (${again.footer.kind === 'cache' ? 'X-Talyvor-Cache-Saved-ULXC, B28.95' : 'X-Talyvor-Pool-Saved-ULXC'}), so the panel counts it and adds nothing` }
+  }
+  const figure = (Number(said) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 })
+  const text = await panel.getByTestId(`chat-savings-${again.footer.kind}`).innerText()
+  if (!text.includes(`${figure} LXC`)) return { pass: false, detail: `the ${again.footer.kind} row reads "${text}", not ${figure} LXC` }
+
+  const { outDir } = ctx.env
+  await mkdir(outDir, { recursive: true })
+  const wide = join(outDir, `chat-savings-1440px-user${ctx.app.user.index}.png`)
+  await page.screenshot({ path: wide })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Statement', exact: true }).click()
+  await panel.waitFor({ timeout: 10_000 })
+  const narrow = join(outDir, `chat-savings-390px-user${ctx.app.user.index}.png`)
+  await page.screenshot({ path: narrow })
+  await page.keyboard.press('Escape')
+  ctx.evidence.push({ note: `Saved in this chat at 1440px: ${wide}; from the Statement button at 390px: ${narrow}` })
+  return { pass: true, detail: `the repeat came from the ${again.footer.kind} and said it saved ${said} µLXC; Saved in this chat shows ${figure} LXC, and every row equals its header` }
 }
 
 export function oneDigitTrap(seed: number): Scenario {
@@ -2033,7 +2125,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 0:
       if (i === 0) list.push(everyModelAnswers(streamable))
       break
-    case 1: list.push(repeatInNewChat(i)); break
+    // B28.358 — then a repeat in a new chat, and Saved in this chat totals what its answer's headers said it saved.
+    case 1: list.push(repeatInNewChat(i), chatSavingsPanel(i)); break
     // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
     case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.

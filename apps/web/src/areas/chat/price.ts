@@ -88,10 +88,12 @@ export interface AnswerCost {
  * still says it. Absent = the model answered, priced by its tokens.
  */
 export type AnswerSource =
-  /** This workspace asked it before; Lens replayed that answer (X-Talyvor-Cache-Replay). Free. */
-  | { kind: 'cache' }
-  /** Another workspace's answer from the shared pool, at a discount (X-Talyvor-Pool-*). */
-  | { kind: 'pool'; discount_rate: number; charged_ulxc: number }
+  /** This workspace asked it before; Lens replayed that answer (X-Talyvor-Cache-Replay). Free. B28.358 —
+   *  `saved_ulxc` is what the replay saved, X-Talyvor-Cache-Saved-ULXC (talyvor-lens B28.95), when Lens said. */
+  | { kind: 'cache'; saved_ulxc?: number }
+  /** Another workspace's answer from the shared pool, at a discount (X-Talyvor-Pool-*). B28.358 — `saved_ulxc`
+   *  is X-Talyvor-Pool-Saved-ULXC, when Lens said. */
+  | { kind: 'pool'; discount_rate: number; charged_ulxc: number; saved_ulxc?: number }
   /** B27.27 — the model answered on this workspace's own provider key (X-Talyvor-BYOK). No tokens charged. */
   | { kind: 'own_key' }
 
