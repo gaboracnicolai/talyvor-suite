@@ -2237,6 +2237,86 @@ export function chatPaidBy(seed: number): Scenario {
 }
 
 /**
+ * B28.91 — a wallet alert raised while Chat is open shows in Chat within ten seconds. An agent with a 1 LXC monthly
+ * limit is funded 1 LXC and pays all of it to another agent, with Chat open in its own tab: the payment is read back
+ * from the ledger (one pay line, nothing left), and within ten seconds of it Chat says the agent has run out and has
+ * reached its monthly limit — without a reload.
+ */
+export function chatWalletAlerts(seed: number): Scenario {
+  const funded = 1e6
+  const withinMs = 10_000
+  return {
+    id: 'chat-wallet-alerts',
+    title: 'an agent that runs out and reaches its monthly limit while Chat is open is shown in Chat within ten seconds',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env } = ctx
+        const payer = await openAgent(ctx, bank, `Alert payer ${seed}`)
+        if (typeof payer === 'string') return fail(payer)
+        const payee = await openAgent(ctx, bank, `Alert payee ${seed}`)
+        if (typeof payee === 'string') return fail(payee)
+        let err = await bank.move(payer, funded, 'Fund')
+        if (err !== undefined) return fail(`funding ${payer.name} was refused: ${err}`)
+        err = await bank.setLimit(payer, 'Monthly limit', funded)
+        if (err !== undefined) return fail(`setting ${payer.name}'s monthly limit was refused: ${err}`)
+
+        const page = await ctx.app.tab('/chat')
+        try {
+          await page.setViewportSize({ width: 1440, height: 900 })
+          await page.locator('#chat-message').waitFor({ timeout: ACTION_TIMEOUT_MS })
+          const notice = (kind: string) => page.locator(`[data-testid="chat-alert"][data-agent="${payer.id}"][data-kind="${kind}"]`)
+          if ((await notice('low').count()) + (await notice('limit').count()) > 0) return fail(`Chat warned about ${payer.name} before it had spent anything`)
+
+          const paid = await bank.pay(payer, payee, funded, `all of it ${seed}`)
+          const t0 = Date.now()
+          ctx.evidence.push({ note: `Pay ${lxcText(funded)} LXC: ${paid}` })
+          if (!/^Paid /.test(paid)) return fail(`${payer.name}'s ${lxcText(funded)} LXC payment, within its ${lxcText(funded)} LXC monthly limit, was not paid: "${paid}"`)
+          // The clock starts at the payment; the ledger is read while Chat's next read is on its way.
+          const seen = Promise.all([notice('low').waitFor({ timeout: withinMs }), notice('limit').waitFor({ timeout: withinMs })]).then(
+            () => Date.now() - t0,
+            () => undefined,
+          )
+
+          // The ledger, not the screen: one pay line for all it held, and nothing left.
+          const lines = (await env.lens.agentLines(ctx.app.user, payer.id)).filter((l) => l.kind === 'pay')
+          const held = agentIn(await bookOf(ctx), payer.id)?.balance_ulxc
+          if (lines.length !== 1 || lines[0].amount_ulxc !== -funded || held !== 0) {
+            return fail(`after paying all ${funded} µLXC, ${payer.name} has pay line(s) ${JSON.stringify(lines)} and holds ${held} µLXC`)
+          }
+
+          const took = await seen
+          const shown = await page.getByTestId('chat-alert').filter({ hasText: payer.name }).allInnerTexts()
+          ctx.evidence.push({ note: `Chat's notices for ${payer.name}, ${took ?? 'over ' + withinMs} ms after the payment: ${JSON.stringify(shown)}` })
+          if (took === undefined) return fail(`${withinMs / 1000}s after ${payer.name} spent all it held and reached its monthly limit, Chat showed ${JSON.stringify(shown)}`)
+          const low = (await notice('low').getByTestId('chat-alert-text').innerText()).trim()
+          const limit = (await notice('limit').getByTestId('chat-alert-text').innerText()).trim()
+          if (low !== `${payer.name} has run out: it holds nothing, so Lens refuses its next request or payment until it is funded.`) {
+            return fail(`Chat's low-balance notice reads "${low}"`)
+          }
+          if (!limit.startsWith(`${payer.name} has reached its 1 LXC`)) return fail(`Chat's limit notice reads "${limit}"`)
+
+          await mkdir(env.outDir, { recursive: true })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            await notice('low').scrollIntoViewIfNeeded()
+            const shot = join(env.outDir, `chat-wallet-alerts-${width}px-user${ctx.app.user.index}.png`)
+            await page.screenshot({ path: shot })
+            ctx.evidence.push({ note: `the notices at ${width}px: ${shot}` })
+          }
+          // Put away, so this person's next conversation is not about a test agent.
+          for (const kind of ['low', 'limit']) await notice(kind).getByRole('button', { name: /^Dismiss/ }).click()
+          return {
+            pass: true,
+            detail: `${payer.name} paid all ${lxcText(funded)} LXC (one pay line, 0 left); ${took} ms later Chat said "${low}" and "${limit}"`,
+          }
+        } finally {
+          await page.close()
+        }
+      }),
+  }
+}
+
+/**
  * B28.8 — a brand-new workspace's first agent, from Home's three steps, with no full-screen consent page:
  * created with a monthly budget and an approval amount, funded, given a key — and its first request, sent
  * with that key, shown on Home as it lands on its statement. Sharing is one line on Home to untick. Every
