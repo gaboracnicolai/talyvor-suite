@@ -435,7 +435,7 @@ export interface EarningsRow {
 }
 
 /** Lens's sentence in a refusal body — {"error": "…"} or {"error": {"message": "…"}} — or the body itself. */
-function refusalOf(raw: string): string {
+export function refusalOf(raw: string): string {
   try {
     const e = (JSON.parse(raw) as { error?: string | { message?: string } }).error
     if (typeof e === 'string') return e
@@ -999,6 +999,14 @@ export class LensClient {
       price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '' }, restartMs)
   }
 
+  /**
+   * B34.4 — any route as `user`'s own token makes it, `{ws}` its workspace: Lens's answer, or its status and sentence. For
+   * the routes no other method here names, so a scenario reaches each one with the same client the coverage map watches.
+   */
+  async act<T>(user: SyntheticUser, method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Answered<T>> {
+    return this.answer(method, path.replace('{ws}', user.workspaceID), user.token, body, headers)
+  }
+
   /** B25.8 — takes LXC back from an agent into its workspace, as the workspace's owner. */
   async withdrawAgent(user: SyntheticUser, agentID: string, amountULXC: number): Promise<void> {
     await this.call('POST', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/withdraw`, this.bearer(user.token), { amount_ulxc: amountULXC })
@@ -1082,9 +1090,9 @@ export class LensClient {
   }
 
   /** A write a scenario reads the refusal of: Lens's answer, or its status and sentence. */
-  private async answer<T>(method: string, path: string, token: string, body?: unknown): Promise<Answered<T>> {
+  private async answer<T>(method: string, path: string, token: string, body?: unknown, headers: Record<string, string> = {}): Promise<Answered<T>> {
     const res = await this.send(method, path, {
-      headers: { ...this.bearer(token), Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      headers: { ...this.bearer(token), Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
     const raw = await res.text()

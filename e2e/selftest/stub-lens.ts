@@ -49,7 +49,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
-import { Bank } from './stub-bank.ts'
+import { Bank, SIM_QUOTES } from './stub-bank.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -340,7 +340,7 @@ const ABSENT = new Set(['/v1/bonds'])
 
 /** Lens's simulated market (B22.8): the ECB's reference rates, a few of them, fixed. */
 const QUOTES = { simulated: true, market_data: 'European Central Bank euro foreign exchange reference rates (source: ECB, free at www.ecb.europa.eu)',
-  rate_date: '2026-10-02', quotes: [['EUR', '1.17'], ['GBP', '1.35'], ['JPY', '0.0068']].map(([instrument, price_usd]) => ({ instrument, price_usd, rate_date: '2026-10-02' })) }
+  rate_date: '2026-10-02', quotes: SIM_QUOTES }
 
 const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read, miss,
   moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', base: BASE,
@@ -676,7 +676,7 @@ createServer(async (req, res) => {
     if (bank.publicRoute(res, p, url, ws.id)) return
     if (await bank.publicWrite(req, res, p, ws.id)) return
     if (p === '/v1/catalog/discovered') return json(res, 200, [])
-    if (ABSENT.has(p)) return json(res, 404, { error: 'not found' })
+    if (ABSENT.has(p) || p.startsWith('/v1/bonds/')) return json(res, 404, { error: 'not found' })
     if (p === '/v1/markets/simulated/quotes') return json(res, 200, QUOTES)
     // Spend by feature: Lens's Go slice, null while nothing is attributed to a feature. The stub attributes nothing.
     if (p === '/v1/api/spend/by-feature') return json(res, 200, null)
@@ -793,6 +793,21 @@ createServer(async (req, res) => {
       if (rest === '/billing/checkout' && req.method === 'POST') {
         const { usd_cents } = JSON.parse((await read(req)) || '{}') as { usd_cents?: number }
         if (usd_cents === undefined) return json(res, 400, { error: 'invalid JSON body' })
+        // B34.4 — a top-up's checkout: Stripe's page to pay on (test mode); nothing is credited until Stripe says it was paid.
+        if (![1000, 5000, 10000].includes(usd_cents)) return json(res, 400, { error: 'billing: that top-up amount is not offered' })
+        return json(res, 200, { url: `https://checkout.stripe.com/c/pay/cs_test_${randomBytes(12).toString('hex')}` })
+      }
+      // B34.4 — LENS converted to LXC: refused under the minimum, and beyond the LENS the workspace holds.
+      if (rest === '/lxc/convert' && req.method === 'POST') {
+        const { lxc_amount_ulxc = 0 } = JSON.parse((await read(req)) || '{}') as { lxc_amount_ulxc?: number }
+        if (lxc_amount_ulxc < 100_000) return json(res, 400, { error: 'economy: conversion below minimum of 100000 µLXC' })
+        const lens = ws.earnings.filter((e) => !e.type.endsWith('_held')).reduce((n, e) => n + e.amount_ulens, 0)
+        if (lens < lxc_amount_ulxc && !BREAK.split(',').includes('convert-free')) return json(res, 402, { error: 'economy: insufficient LENS balance for conversion' })
+        if (BREAK.split(',').includes('convert-free')) {
+          book(ws, lxc_amount_ulxc, 'convert_from_lens', 'converted from LENS')
+          return json(res, 200, { lxc_minted: lxc_amount_ulxc })
+        }
+        return json(res, 501, { error: 'stub: converting LENS the workspace holds is not modelled' })
       }
       if (rest === '/tare/preview' && req.method === 'POST') {
         const { content = '', kind = '' } = JSON.parse((await read(req)) || '{}') as { content?: string; kind?: string }
