@@ -18,6 +18,7 @@ import {
   judgeVerdict,
   listPriceUSD,
   namesWord,
+  parseFooter,
   RUN_SALT,
   seeded,
   statesNumber,
@@ -1481,6 +1482,73 @@ export function chatBudget(seed: number): Scenario {
   }
 }
 
+/** B28.101 — Chat's running total as it reads: "This chat so far ≈ 0.004288 LXC · 3 answers". */
+export function shownTotal(text: string): { lxc: number; answers: number } | undefined {
+  const m = /^This chat so far ≈ ([\d,.]+) LXC · ([\d,]+) answers?/.exec(text.replace(/\s+/g, ' ').trim())
+  return m === null ? undefined : { lxc: Number(m[1].replaceAll(',', '')), answers: Number(m[2].replaceAll(',', '')) }
+}
+
+/**
+ * B28.101 — the running total under the box, after a reload, equals the prices under the conversation's answers
+ * added up. Each footer is priced from what it says: a model's answer its tokens at the catalog's list rate, rounded up
+ * to a µLXC as Lens charges; a shared answer the credits it states, to its two figures; a replay nothing.
+ */
+export function chatTotalAfterReload(seed: number): Scenario {
+  return {
+    id: 'chat-total',
+    owner: 'talyvor-suite',
+    title: 'a chat’s running total, after a reload, equals the prices under its answers added up',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      await app.newChat()
+      const attempt = 1 + Math.floor(Math.random() * 999_999)
+      const questions = ['Name the capital of Japan in one word.', 'What is 17 + 25? Reply with the number only.', 'Give three synonyms for "quick".']
+      for (const [k, base] of questions.entries()) {
+        const t = await ask(ctx, `${base} (${freshWord(seed * 10 + k, attempt)})`)
+        const noPrice = priced(t)
+        if (noPrice !== undefined) return { pass: false, detail: `question ${k + 1}: ${noPrice}` }
+      }
+      const total = page.getByTestId('chat-total')
+      const before = (await total.innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
+
+      await page.reload()
+      await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const footers = page.locator('[data-testid="turn-cost"]')
+      await footers.nth(questions.length - 1).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+      const after = (await total.innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+      const read = (await footers.allInnerTexts()).map((f) => f.replace(/\s+/g, ' ').trim())
+      ctx.evidence.push({ note: `before the reload "${before}"; after it "${after}"; footers: ${read.map((f) => `[${f}]`).join(' ')}` })
+
+      if (read.length !== questions.length) return { pass: false, detail: `after the reload ${read.length} footers, not ${questions.length}` }
+      let ulxc = 0
+      let slack = 0
+      for (const text of read) {
+        const f = parseFooter(text)
+        if (f.kind === 'priced') {
+          const m = env.catalog.find((c) => c.display_name === f.model)
+          if (m === undefined) return { pass: false, detail: `the footer [${text}] names a model the catalog does not` }
+          ulxc += chargeULXC(listPriceUSD(m, f.inputTokens, f.outputTokens), env.usdPerLXC)
+        } else if (f.kind === 'pool') {
+          // Two significant figures: the true charge is within half a unit of the second.
+          ulxc += f.figure * 1e6
+          slack += 10 ** (Math.floor(Math.log10(f.figure * 1e6)) - 1) / 2
+        } else if (f.kind !== 'cache') {
+          return { pass: false, detail: `the footer [${text}] carries no price to add up` }
+        }
+      }
+      const shown = shownTotal(after)
+      if (shown === undefined) return { pass: false, detail: `after the reload the running total reads "${after}"` }
+      if (after !== before) return { pass: false, detail: `the running total was "${before}" and after the reload "${after}"` }
+      if (shown.answers !== read.length) return { pass: false, detail: `"${after}" counts ${shown.answers} answers; ${read.length} footers are on screen` }
+      const diff = Math.abs(shown.lxc * 1e6 - ulxc)
+      return diff <= slack + 0.001
+        ? { pass: true, detail: `after the reload "${after}" — the ${read.length} footers add up to ${ulxc / 1e6} LXC` }
+        : { pass: false, detail: `after the reload "${after}", but the ${read.length} footers add up to ${ulxc / 1e6} LXC` }
+    },
+  }
+}
+
 export function everyModelAnswers(streamable: readonly string[]): Scenario {
   return {
     id: 'every-model',
@@ -2407,7 +2475,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
     // B28.361 — and a question over its chat's budget, refused before the model: no request, no spend row.
-    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i)); break
+    // B28.101 — and a chat's running total, after a reload, equal to the prices under its answers.
+    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
     // B29.6 — sign-in and sign-up in the brand, signed out.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
