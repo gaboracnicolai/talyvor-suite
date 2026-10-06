@@ -25,6 +25,7 @@ const id = (): string => randomBytes(8).toString('hex')
 const now = (): string => new Date().toISOString()
 
 function json(res: ServerResponse, status: number, body: unknown): void {
+  if (status === 204) return void res.writeHead(204).end()
   res.writeHead(status, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(body))
 }
@@ -50,7 +51,8 @@ function serve(port: number, name: string, route: (req: IncomingMessage, res: Se
   createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`)
     try {
-      if (req.headers['x-gateway-auth'] !== SECRET) return json(res, 401, { error: 'gateway proof required' })
+      // B34.5 — a published board is read by anyone with its link: the BFF sends no gateway proof for it (publicBoard).
+      if (req.headers['x-gateway-auth'] !== SECRET && !url.pathname.startsWith('/v1/public/')) return json(res, 401, { error: 'gateway proof required' })
       if (url.pathname === '/v1/bootstrap' && req.method === 'POST') {
         const email = String(req.headers['x-user-email'] ?? '')
         if (email === '') return json(res, 400, { error: 'no identity' })
@@ -70,7 +72,17 @@ function serve(port: number, name: string, route: (req: IncomingMessage, res: Se
 interface Issue {
   id: string; workspace: string; identifier: string; title: string; description: string; status: string; priority: number
   team_id: string; project_id: null; assignee_id: null; ai_cost_usd: number; ai_tokens: number; created_at: string; updated_at: string
+  cycle_id?: string | null
 }
+/** B34.5 — a team's cycles, the read-only board links a workspace published, and the workspaces deleted, as Track keeps them. */
+interface Cycle { id: string; workspace: string; team_id: string; number: number; name: string; status: string; start_date: string; end_date: string }
+interface BoardLink { id: string; workspace: string; token: string; created_at: string; project_id?: string }
+const cycles: Cycle[] = []
+const boards: BoardLink[] = []
+const deletedAt = new Map<string, string>()
+const RESTORE_DAYS = 14
+const trackView = (ws: string) => ({ id: ws, name: 'Synthetic tracker', slug: 'synthetic',
+  ...(deletedAt.has(ws) ? { deleted_at: deletedAt.get(ws), restorable_until: new Date(Date.parse(deletedAt.get(ws)!) + RESTORE_DAYS * 86400e3).toISOString() } : {}) })
 interface Comment { id: string; issue_id: string; author_id: string; body: string; created_at: string }
 
 const issues: Issue[] = []
@@ -119,7 +131,29 @@ async function addMember(req: IncomingMessage, res: ServerResponse, ws: string):
 serve(TRACK_PORT, 'track', async (req, res, path, url) => {
   if (path === '/v1/workspaces') {
     const ws = byEmail.get(String(req.headers['x-user-email'] ?? ''))
-    return json(res, 200, ws === undefined ? [] : [{ id: ws, name: 'Synthetic tracker', slug: 'synthetic' }])
+    const deleted = url.searchParams.get('deleted') === 'true'
+    return json(res, 200, ws === undefined || deletedAt.has(ws) !== deleted ? [] : [trackView(ws)])
+  }
+  // B34.5 — a workspace deleted by its owner, confirmed by its slug, and restored within RESTORE_DAYS.
+  const whole = /^\/v1\/workspaces\/([^/]+)(\/restore)?$/.exec(path)
+  if (whole !== null && ((req.method === 'DELETE' && whole[2] === undefined) || (req.method === 'POST' && whole[2] === '/restore'))) {
+    const ws = whole[1]
+    if (byEmail.get(String(req.headers['x-user-email'] ?? '')) !== ws) return json(res, 403, { error: 'only the owner may do this', code: 'FORBIDDEN' })
+    if (req.method === 'DELETE') {
+      if ((await body<{ confirm?: string }>(req)).confirm !== 'synthetic') return json(res, 400, { error: 'type the workspace slug to confirm', code: 'CONFIRMATION_REQUIRED' })
+      deletedAt.set(ws, now())
+    } else {
+      if (!deletedAt.has(ws)) return json(res, 404, { error: 'no deleted workspace with that id' })
+      deletedAt.delete(ws)
+    }
+    return json(res, 200, trackView(ws))
+  }
+  const shared = /^\/v1\/public\/issue-boards\/([^/]+)$/.exec(path)
+  if (shared !== null) {
+    const b = boards.find((x) => x.token === shared[1])
+    if (b === undefined) return json(res, 404, { error: 'no such board' })
+    return json(res, 200, { workspace: 'Synthetic tracker', truncated: false, issues: issues.filter((i) => i.workspace === b.workspace).reverse()
+      .map((i) => ({ identifier: i.identifier, title: i.title, status: i.status, priority: i.priority, updated_at: i.updated_at })) })
   }
   const m = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(path)
   if (m === null) return json(res, 404, { error: 'stub track: no such route' })
@@ -129,6 +163,44 @@ serve(TRACK_PORT, 'track', async (req, res, path, url) => {
   if (rest === '/members' && req.method === 'POST') return await addMember(req, res, ws)
   if (rest === '/members') return json(res, 200, rosterOf(ws))
   if (rest === '/projects') return json(res, 200, [])
+  if (rest === `/teams/${TEAM.id}/cycles` && req.method === 'POST') {
+    const b = await body<{ name?: string; start_date?: string; end_date?: string }>(req)
+    if (!b.name || !b.start_date || !b.end_date) return json(res, 400, { error: 'name, start_date and end_date required' })
+    const c: Cycle = { id: id(), workspace: ws, team_id: TEAM.id, number: cycles.filter((x) => x.workspace === ws).length + 1, name: b.name, status: 'active',
+      start_date: b.start_date, end_date: b.end_date }
+    cycles.push(c)
+    return json(res, 201, c)
+  }
+  if (rest === `/teams/${TEAM.id}/cycles`) return json(res, 200, cycles.filter((c) => c.workspace === ws))
+  const progress = /^\/teams\/[^/]+\/cycles\/([^/]+)\/progress$/.exec(rest)
+  if (progress !== null) {
+    const inIt = mine.filter((i) => i.cycle_id === progress[1])
+    const done = inIt.filter((i) => i.status === 'done').length
+    const going = inIt.filter((i) => i.status === 'in_progress').length
+    return json(res, 200, { cycle_id: progress[1], total_issues: inIt.length, completed: done, in_progress: going, not_started: inIt.length - done - going,
+      completion_pct: inIt.length === 0 ? 0 : (100 * done) / inIt.length, total_ai_cost_usd: 0, avg_ai_cost_per_issue: 0 })
+  }
+  if (rest === '/issue-boards' && req.method === 'POST') {
+    const { project_id } = await body<{ project_id?: string }>(req)
+    const b: BoardLink = { id: id(), workspace: ws, token: randomBytes(18).toString('base64url'), created_at: now(), ...(project_id ? { project_id } : {}) }
+    boards.push(b)
+    const { workspace: _w, ...out } = b
+    return json(res, 201, out)
+  }
+  if (rest === '/issue-boards') return json(res, 200, boards.filter((b) => b.workspace === ws).map(({ workspace: _w, ...b }) => b))
+  const board = /^\/issue-boards\/([^/]+)$/.exec(rest)
+  if (board !== null && req.method === 'DELETE') {
+    const at = boards.findIndex((b) => b.workspace === ws && b.id === board[1])
+    if (at < 0) return json(res, 404, { error: 'no such board' })
+    boards.splice(at, 1)
+    return json(res, 204, null)
+  }
+  // Search: every word of the query in the issue's title or description (Track's full-text arm).
+  if (rest === '/issues/semantic-search') {
+    const q = (url.searchParams.get('q') ?? '').toLowerCase().split(/\s+/).filter((w) => w !== '')
+    if (q.length === 0) return json(res, 400, { error: 'q required' })
+    return json(res, 200, mine.filter((i) => q.every((w) => `${i.title} ${i.description}`.toLowerCase().includes(w))).slice(0, Number(url.searchParams.get('limit') ?? 25)))
+  }
   if (rest === '/issues' && req.method === 'POST') {
     const { title = '' } = await body<{ title?: string }>(req)
     if (title.trim() === '') return json(res, 400, { error: 'title required' })
@@ -141,7 +213,8 @@ serve(TRACK_PORT, 'track', async (req, res, path, url) => {
   if (rest === '/issues') {
     const limit = Number(url.searchParams.get('limit') ?? 50)
     const offset = Number(url.searchParams.get('offset') ?? 0)
-    const page = [...mine].reverse().slice(offset, offset + limit)
+    const cycle = url.searchParams.get('cycle_id')
+    const page = [...mine].filter((i) => cycle === null || i.cycle_id === cycle).reverse().slice(offset, offset + limit)
     if (BREAK === 'export' && limit === 250 && page.length > 0) page.pop()
     return json(res, 200, page)
   }
@@ -187,6 +260,8 @@ serve(TRACK_PORT, 'track', async (req, res, path, url) => {
 
 interface Space { id: string; workspace: string; name: string; slug: string; description: string; icon: string; private: boolean }
 interface Page { id: string; space_id: string; title: string; content: string; content_text: string; ai_cost_usd: number; own_ai_cost_usd: number; total_ai_cost_usd: number }
+/** B34.5 — the pages each workspace pinned, newest first. */
+const pinned: { ws: string; page_id: string; space_id: string; at: string }[] = []
 
 const spaces: Space[] = []
 const pages: Page[] = []
@@ -253,6 +328,23 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
     spaces.push(s)
     return json(res, 201, s)
   }
+  if ((m = /^\/v1\/spaces\/([^/]+)\/pages\/([^/]+)\/(pin|changelog\/generate)$/.exec(path))) {
+    const [, space, pageID, what] = m
+    const sp = spaces.find((x) => x.id === space)
+    const p = pages.find((x) => x.space_id === space && x.id === pageID)
+    if (sp === undefined || p === undefined) return json(res, 404, { error: 'no such page' })
+    if (what === 'pin') {
+      const at = pinned.findIndex((x) => x.ws === sp.workspace && x.page_id === pageID)
+      if (req.method === 'PUT' && at < 0) pinned.unshift({ ws: sp.workspace, page_id: pageID, space_id: space, at: now() })
+      if (req.method === 'DELETE' && at >= 0) pinned.splice(at, 1)
+      return json(res, 204, null)
+    }
+    if (req.method !== 'POST') return json(res, 405, { error: 'POST only' })
+    const { version = '', issue_ids = [] } = await body<{ version?: string; issue_ids?: string[] }>(req)
+    if (issue_ids.filter((x) => x.trim() !== '').length === 0) return json(res, 400, { error: 'issue_ids required' })
+    return json(res, 201, { id: id(), page_id: pageID, version, title: `Release ${version}`, summary: `${issue_ids.length} change(s): ${issue_ids.join(', ')}`,
+      type: 'improvement', issue_ids })
+  }
   if ((m = /^\/v1\/spaces\/([^/]+)$/.exec(path))) {
     const space = m[1]
     const s = spaces.find((x) => x.id === space)
@@ -286,7 +378,21 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
   const [, ws, rest] = m
   const mine = spaces.filter((s) => s.workspace === ws)
   if (rest === '/spaces') return json(res, 200, mine)
-  if (rest === '/pins') return json(res, 200, [])
+  if (rest === '/pins') {
+    return json(res, 200, pinned.filter((x) => x.ws === ws).map((x) => ({ page_id: x.page_id, space_id: x.space_id, title: pages.find((p) => p.id === x.page_id)?.title ?? '', at: x.at })))
+  }
+  // Search: the pages of this workspace whose title or text holds every word asked (Docs' full-text arm).
+  if (rest === '/search') {
+    const q = (url.searchParams.get('q') ?? '').toLowerCase().split(/\s+/).filter((w) => w !== '')
+    const hits = pages.filter((p) => mine.some((s) => s.id === p.space_id) && q.length > 0 && q.every((w) => `${p.title} ${p.content_text}`.toLowerCase().includes(w)))
+    return json(res, 200, { results: hits.map((p) => ({ page_id: p.id, page_title: p.title, url: `/spaces/${p.space_id}/pages/${p.id}`,
+      space_name: mine.find((s) => s.id === p.space_id)?.name ?? '', headline: p.content_text.slice(0, 120), source: 'fulltext' })), total: hits.length, query: q.join(' '), took_ms: 1 })
+  }
+  if (rest === '/ai/write' && req.method === 'POST') {
+    const { prompt = '' } = await body<{ prompt?: string }>(req)
+    const said = prompt.replace(/^one sentence saying\s+/i, '').replace(/\.$/, '')
+    return json(res, 200, { text: `${said.charAt(0).toUpperCase()}${said.slice(1)}.` })
+  }
   if (rest === '/ai/ask' && req.method === 'POST') {
     const { question = '' } = await body<{ question?: string }>(req)
     // A model takes a while to answer, so the card shows "Asking…" first (B17.39: the harness once read
@@ -305,7 +411,11 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
     return json(res, 200, { answer: best.sentence, sources })
   }
   if (rest === '/ai/transform' && req.method === 'POST') {
-    const { text = '' } = await body<{ text?: string }>(req)
+    const { text = '', action = '' } = await body<{ text?: string; action?: string }>(req)
+    // B34.5 — grammar: each sentence begins with a capital, and "they checks" agrees.
+    if (action === 'grammar') return json(res, 200, { text: sentences(text).map((x) => x.charAt(0).toUpperCase() + x.slice(1)).join(' ').replace(/\b(T|t)hey (\w+)s\b/g, '$1hey $2') })
+    if (action === 'shorter') return json(res, 200, { text: sentences(text)[0] ?? '' })
+    if (action === 'longer') return json(res, 200, { text: `${text} That is the whole of it.` })
     // A summary: the sentences that carry a figure or a code, else the first one.
     const s = sentences(text)
     const kept = s.filter((x) => /\d/.test(x))

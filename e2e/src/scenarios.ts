@@ -27,6 +27,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatForecastAnswer, chatLiveStatement, chatPaidBy, chatAgentTask, chatCardFreeze, chatStatement, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { chatMoneyRequests, marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
+import { apiKeyRevoke, byokAddon, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
 import { agentApprovalDenied, lxcConvertBonds, marketRemixLicence, walletCardFreeze, walletEscrowLens, walletHandlePause, walletLoansAnswered, walletRequestsAnswered, walletScheduleTopUpPot, walletTradingSim } from './routes.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
@@ -1958,7 +1959,7 @@ const PRODUCT_AI = { docs: { model: 'claude-sonnet-4-6', maxOutput: 2048 }, trac
  * priciest chat model if the catalog lacks it), the whole input, its most output — and counts it,
  * since what it really cost cannot be read.
  */
-async function metered<T>(ctx: ScenarioCtx, product: keyof typeof PRODUCT_AI, inputChars: number, action: () => Promise<T>): Promise<T> {
+export async function metered<T>(ctx: ScenarioCtx, product: keyof typeof PRODUCT_AI, inputChars: number, action: () => Promise<T>): Promise<T> {
   const { model, maxOutput } = PRODUCT_AI[product]
   const named = ctx.env.catalog.filter((m) => m.id === model)
   const worst = Math.max(...(named.length > 0 ? named : chatModels(ctx.env.catalog)).map((m) =>
@@ -1972,7 +1973,7 @@ async function metered<T>(ctx: ScenarioCtx, product: keyof typeof PRODUCT_AI, in
 }
 
 /** Retries a lookup a product may answer only once it has indexed what was just written. */
-async function eventually<T>(ctx: ScenarioCtx, tries: number, action: () => Promise<T>, found: (t: T) => boolean): Promise<T> {
+export async function eventually<T>(ctx: ScenarioCtx, tries: number, action: () => Promise<T>, found: (t: T) => boolean): Promise<T> {
   let t = await action()
   for (let i = 1; i < tries && !found(t); i++) {
     await ctx.app.page.waitForTimeout(10_000)
@@ -2646,6 +2647,17 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // Business does not, and both offer Slack and Teams approvals. The gates above that need Free (seats-free,
   // pricing-free-agents, pricing-fee-free) run on workspaces of their own on Free, whatever plan their user is on.
   if (i % 100 === 5) list.push(planAgents('team', i), planAgents('business', i))
+  // B34.5 — every screen and BFF route a person reaches, once a run, each checked on what Lens, Track or Docs stored.
+  // Never on 9, 19, …, the other company others trade with; Delete everything stored on 2, whose stored answers nobody
+  // reads after; the ledger-still checks (lens-convert, chat-tool-guard) on 0 and 4, whose ledgers only they move.
+  if (i === 0) list.push(sessionSignOut(i), lensConvert())
+  if (i === 1) list.push(walletFX(i), trackWorkspaceRestore(i))
+  if (i === 2) list.push(wrongAnswerStored(i))
+  if (i === 3) list.push(trackSearchCycleBoard(i), patternMiningSwitch())
+  if (i === 4) list.push(docsTools(i), chatToolGuard())
+  if (i === 5) list.push(apiKeyRevoke(i), byokAddon(i))
+  if (i === 7) list.push(planChange(i))
+  if (i === 8) list.push(providerKeys(i))
   return list
 }
 
