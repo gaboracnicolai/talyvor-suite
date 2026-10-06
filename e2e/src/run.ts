@@ -22,6 +22,7 @@ import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
 import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
 import { networkDrop } from './oracles.ts'
+import { cast, seat, seatKey } from './plans.ts'
 import { groupLeads, reportPath, writeReport, writeTesters } from './report.ts'
 import { archiveAll, roomForAgents } from './room.ts'
 import { CannotTest, type Evidence, LEDGER_READBACK, type RunEnv, type Scenario, checkLedger, journeyFor } from './scenarios.ts'
@@ -49,6 +50,8 @@ export interface Outcome {
   features: string[]
   /** B35.8 — when its verdict came, for the report's environment section. */
   at?: string
+  /** B35.7 — the plan the workspace it ran on was created on. */
+  plan?: string
 }
 
 /** B35.8 — a verdict a network drop of the testers' own explains: an ERROR, listed under the environment with its time. */
@@ -279,18 +282,27 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     console.log(`inventory: ${inv.screens.length} screens, ${inv.bff.length} BFF routes, ` +
       `${inv.lensMissing === undefined ? `${inv.lens.length} Lens routes` : `no Lens routes (${inv.lensMissing})`}`)
 
+    // B35.7 — each user on the largest plan its scenarios need, and each plan gate's own workspace on exactly its plan.
     stage = 'creating the synthetic users'
-    users = await lens.createUsers(cfg.users)
-    console.log(`created ${users.length} synthetic users`)
+    const journeys = Array.from({ length: cfg.users }, (_, i) => journeyFor(i, cfg.users, STREAMABLE))
+    const seated = await seat(lens, cast(journeys))
+    users = seated.users
+    const onPlan = (plan: string) => users.filter((u) => u.plan === plan).length
+    console.log(`created ${users.length} synthetic users (free ${onPlan('free')}, team ${onPlan('team')}, business ${onPlan('business')}) ` +
+      `and ${seated.own.size} workspace(s) of their own for the plan gates`)
     // B27.16 — this run's users only: another run going on at the same time keeps its answers and credits.
     stage = "resetting the run's synthetic workspaces"
-    const reset = await lens.reset(users.map((u) => u.workspaceID))
+    const reset = await lens.reset([...users, ...seated.own.values()].map((u) => u.workspaceID))
     console.log(reset === undefined ? 'reset: Lens did not answer within its request timeout; waited for the reset to run on to the end'
       : `reset ${reset} synthetic workspace(s), this run's: stored answers cleared, credits restored`)
     stage = 'reading the catalog'
     const catalog = await lens.catalog(users[0])
     const usdPerLXC = await lens.usdPerLXC()
     if (!catalog.some((m) => m.display_name === cfg.model)) throw new Error(`the catalog has no model named "${cfg.model}"`)
+    // B35.7 — every money oracle judges by the fees Lens states.
+    stage = 'reading the fees'
+    const fees = await lens.fees()
+    console.log(`fees: ${JSON.stringify(fees)}`)
 
     stage = 'the users ran their journeys'
     let browsers = new Browsers(cfg.headed, incidents)
@@ -298,7 +310,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       AppUser.signIn(await browsers.get(), user, { appURL: cfg.appURL, syntheticKey: cfg.syntheticKey, cap, catalog, modelName: cfg.model, book, usdPerLXC, recorder: rec })
     const env: RunEnv = {
       inventory: inv,
-      lens, cap, catalog, usdPerLXC, book,
+      lens, fees, cap, catalog, usdPerLXC, book,
       judgeProvider: cfg.judgeProvider,
       judgeModel: cfg.judgeModel,
       signInUser: (index) => signIn(users[index]),
@@ -312,7 +324,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
 
     /** One scenario, for one signed-in user: its verdict, never a throw. */
     const attempt = async (app: AppUser, user: SyntheticUser, s: Scenario): Promise<Outcome> => {
-      const base = { user: user.index, workspace: user.workspaceID }
+      const base = { user: user.index, workspace: user.workspaceID, plan: user.plan }
       const t0 = Date.now()
       const evidence: Evidence[] = []
       let status: Status
@@ -354,10 +366,26 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
         features: featuresOf(where ?? rec.screensOf(tag), s.feature), at: stamp() }
     }
 
+    /** B35.7 — a plan gate's scenario, signed in as the workspace of its own it runs on, in a browser context of its own. */
+    const onItsOwn = async (own: SyntheticUser, s: Scenario): Promise<Outcome> => {
+      let app: AppUser
+      try {
+        app = await timed(SIGN_IN_MS, 'signing in', unlessStopped('signing in', signIn(own)))
+      } catch (e) {
+        return { user: own.index, workspace: own.workspaceID, plan: own.plan, scenario: s.id, title: s.title, status: 'ERROR',
+          detail: `sign-in to its own workspace: ${String(e)}`, evidence: [], seconds: 0, features: featuresOf([], s.feature), at: stamp() }
+      }
+      try {
+        return await attempt(app, own, s)
+      } finally {
+        await timed(CLOSE_MS, 'closing its browser', app.close()).catch(() => undefined)
+      }
+    }
+
     try {
       await pool(users, cfg.concurrency, async (user) => {
-        const journey = journeyFor(user.index, users.length, STREAMABLE)
-        const base = { user: user.index, workspace: user.workspaceID }
+        const journey = journeys[user.index]
+        const base = { user: user.index, workspace: user.workspaceID, plan: user.plan }
         const before = notRun()
         if (before !== undefined) {
           for (const s of journey) outcomes.push({ ...base, scenario: s.id, title: s.title, status: 'SKIP', detail: before, evidence: [], seconds: 0, features: featuresOf([], s.feature) })
@@ -377,9 +405,10 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
               outcomes.push({ ...base, scenario: s.id, title: s.title, status: 'SKIP', detail: `not run: ${stoppedBy}`, evidence: [], seconds: 0, features: featuresOf([], s.feature) })
               continue
             }
-            const o = await attempt(app, user, s)
+            const own = s.own === true ? seated.own.get(seatKey(user.index, s.id)) : undefined
+            const o = own === undefined ? await attempt(app, user, s) : await onItsOwn(own, s)
             outcomes.push(o)
-            console.log(`${o.status.padEnd(5)} user ${String(user.index).padStart(3)} ${s.id}: ${o.detail}`)
+            console.log(`${o.status.padEnd(5)} user ${String(user.index).padStart(3)} ${s.id}${own === undefined ? '' : ` (its own ${own.plan} workspace)`}: ${o.detail}`)
             if (o.status === 'ERROR') await checkLens()
           }
         } finally {
@@ -392,7 +421,9 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
 
     // B35.8 — THE SECOND ATTEMPTS, before the ledger read-back, so it books what they charge: a scenario that FAILed for
     // one or two users runs again for them. The first attempt's FAIL is the one filed; the report shows both.
-    const again = secondAttemptsOf(outcomes)
+    // B35.7 — never a plan gate's: the workspace of its own it ran on has had its gate filled.
+    const gates = new Set(journeys.flat().filter((s) => s.own === true).map((s) => s.id))
+    const again = secondAttemptsOf(outcomes.filter((o) => !gates.has(o.scenario)))
     if (again.size > 0 && notRun() === undefined) {
       stage = 'running again what failed for one or two users'
       console.log(`second attempts: ${[...again].map(([u, ids]) => `user ${u} ${ids.join(', ')}`).join('; ')}`)
@@ -401,12 +432,12 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       try {
         await pool([...again], cfg.concurrency, async ([index, ids]) => {
           const user = users[index]
-          const scenarios = journeyFor(index, users.length, STREAMABLE).filter((s) => ids.includes(s.id))
+          const scenarios = journeys[index].filter((s) => ids.includes(s.id))
           let app: AppUser
           try {
             app = await timed(SIGN_IN_MS, 'signing in', unlessStopped('signing in', signIn(user)))
           } catch (e) {
-            for (const s of scenarios) secondAttempts.push({ user: index, workspace: user.workspaceID, scenario: s.id, title: s.title, status: 'ERROR', detail: `sign-in: ${String(e)}`, evidence: [], seconds: 0, features: featuresOf([], s.feature), at: stamp() })
+            for (const s of scenarios) secondAttempts.push({ user: index, workspace: user.workspaceID, plan: user.plan, scenario: s.id, title: s.title, status: 'ERROR', detail: `sign-in: ${String(e)}`, evidence: [], seconds: 0, features: featuresOf([], s.feature), at: stamp() })
             return
           }
           try {
@@ -434,17 +465,17 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       let o: Outcome
       const ledgerEnv: RunEnv = { ...env, lens: lens.tagged({ scenario: LEDGER_READBACK.id, user: user.index }) }
       if (stoppedBy !== undefined) {
-        outcomes.push({ user: user.index, workspace: user.workspaceID, scenario: LEDGER_READBACK.id, title: 'ledger read-back',
+        outcomes.push({ user: user.index, workspace: user.workspaceID, plan: user.plan, scenario: LEDGER_READBACK.id, title: 'ledger read-back',
           status: 'SKIP', detail: `not run: ${stoppedBy}`, evidence: [], seconds: 0, features: ['Ledger'] })
         return
       }
       try {
         const v = await timed(LEDGER_MS, 'the ledger read-back', unlessStopped('the ledger read-back', checkLedger(ledgerEnv, user)))
-        o = { user: user.index, workspace: user.workspaceID, scenario: LEDGER_READBACK.id,
+        o = { user: user.index, workspace: user.workspaceID, plan: user.plan, scenario: LEDGER_READBACK.id,
           title: 'every charged answer is one spend row on the ledger; a free replay is none',
           status: v.pass ? 'PASS' : 'FAIL', detail: v.detail, evidence: v.evidence, seconds: (Date.now() - t0) / 1000, features: ['Ledger'] }
       } catch (e) {
-        o = { user: user.index, workspace: user.workspaceID, scenario: LEDGER_READBACK.id, title: 'ledger read-back',
+        o = { user: user.index, workspace: user.workspaceID, plan: user.plan, scenario: LEDGER_READBACK.id, title: 'ledger read-back',
           status: 'ERROR', detail: e instanceof Error ? e.message : String(e), evidence: [], seconds: (Date.now() - t0) / 1000, features: ['Ledger'] }
       }
       // B35.8 — answers lost to the testers' network leave a ledger nobody can judge.

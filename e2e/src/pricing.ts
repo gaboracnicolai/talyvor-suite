@@ -13,6 +13,7 @@ import { ACTION_TIMEOUT_MS, fail } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
 import type { LedgerRow, MarketEarnings, PlanRefusal, Proxied } from './lens.ts'
 import { listPriceUSD } from './oracles.ts'
+import { TEAM_AGENTS } from './plans.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 import { payCheckout } from './screens.ts'
 import { buyFrom, clearedBothSides, payBill } from './trade.ts'
@@ -82,18 +83,25 @@ export function ownKeyVerdict(asked: Proxied, fresh: readonly LedgerRow[]): Verd
   }
 }
 
+type Made = { status: number; agent?: { id: string }; refusal?: PlanRefusal }
+
 /** Lens's answer to a Free workspace's fourth agent: the plan's refusal, naming the free and the team plans. */
-export function fourthAgentVerdict(r: { status: number; agent?: { id: string }; refusal?: PlanRefusal }): Verdict {
-  if (r.agent !== undefined) return fail(`a Free workspace with ${FREE_AGENTS} agents made a fourth, ${r.agent.id}`)
+export function fourthAgentVerdict(r: Made): Verdict {
+  return pastAgentsVerdict(r, 'free', FREE_AGENTS, 'team', 'fourth')
+}
+
+/** Lens's answer to one agent past the `limit` of `plan`: the plan's refusal (402), naming LENS_PLAN_GATES, the plan and `allows`. */
+export function pastAgentsVerdict(r: Made, plan: Plan, limit: number, allows: Plan, ordinal: string): Verdict {
+  if (r.agent !== undefined) return fail(`a ${NAME[plan]} workspace with ${limit} agents made a ${ordinal}, ${r.agent.id}`)
   const said = r.refusal?.error ?? ''
-  if (r.status !== 402) return fail(`the fourth agent was refused ${r.status} "${said}", not by the plan (402)`)
-  const missing = ['LENS_PLAN_GATES', `the free plan allows ${FREE_AGENTS} agents`, 'the team plan'].filter((w) => !said.includes(w))
+  if (r.status !== 402) return fail(`the ${ordinal} agent was refused ${r.status} "${said}", not by the plan (402)`)
+  const missing = ['LENS_PLAN_GATES', `the ${plan} plan allows ${limit} agents`, `the ${allows} plan`].filter((w) => !said.includes(w))
   if (missing.length > 0) return fail(`the refusal "${said}" does not name ${missing.join(', ')}`)
-  const { plan, gate, limit, allows } = r.refusal ?? {}
-  if (plan !== 'free' || gate !== 'agents' || limit !== FREE_AGENTS || allows !== 'team') {
-    return fail(`the refusal reads plan ${plan}, gate ${gate}, limit ${limit}, allowing ${allows}; not free, agents, ${FREE_AGENTS}, team`)
+  const got: Partial<PlanRefusal> = r.refusal ?? {}
+  if (got.plan !== plan || got.gate !== 'agents' || got.limit !== limit || got.allows !== allows) {
+    return fail(`the refusal reads plan ${got.plan}, gate ${got.gate}, limit ${got.limit}, allowing ${got.allows}; not ${plan}, agents, ${limit}, ${allows}`)
   }
-  return { pass: true, detail: `the fourth agent was refused in Lens's words: "${said}"` }
+  return { pass: true, detail: `the ${ordinal} agent was refused in Lens's words: "${said}"` }
 }
 
 /** A seller's first sale of a dollar, cleared: the seller's share and Talyvor's take of the price before tax. */
@@ -193,6 +201,8 @@ export function pricingFee(plan: Plan, seed: number): Scenario {
   return {
     id: `pricing-fee-${plan}`,
     owner: 'talyvor-lens',
+    // B35.7 — on a workspace of its own, created on Free: Team and Business are bought on it with the test card.
+    own: true,
     title: `on ${NAME[plan]}${plan === 'free' ? '' : ' (a test-mode subscription)'}, a model call charged to credits writes its spend row and one platform_fee row of ${bps / 100}% of it, rounded up to the µLXC`,
     feature: 'Pricing',
     run: async (ctx) => {
@@ -221,6 +231,7 @@ export function pricingOwnKey(seed: number): Scenario {
   return {
     id: 'pricing-own-key',
     owner: 'talyvor-lens',
+    own: true,
     title: "on Business, a model call on the workspace's own provider key goes on that key, and the ledger gains no spend row and no platform_fee row",
     feature: 'Pricing',
     run: async (ctx) => {
@@ -247,6 +258,9 @@ export function pricingFreeAgents(seed: number): Scenario {
   return {
     id: 'pricing-free-agents',
     owner: 'talyvor-lens',
+    // B35.7 — Free's own gate, on a workspace of its own: nothing else run by its user fills it first.
+    plan: 'free',
+    own: true,
     title: `a Free workspace makes up to ${FREE_AGENTS} agents; the fourth is refused in Lens's words, naming LENS_PLAN_GATES, the free plan and the team plan, and the workspace still has ${FREE_AGENTS}`,
     feature: 'Agent Wallets',
     run: async (ctx) => {
@@ -266,6 +280,48 @@ export function pricingFreeAgents(seed: number): Scenario {
       const after = await env.lens.workspacePlan(app.user)
       if (after.agents_used !== FREE_AGENTS) return fail(`refused, yet Lens counts ${after.agents_used} agents on the workspace, not ${FREE_AGENTS}`)
       return v
+    },
+  }
+}
+
+/**
+ * B35.7 — each paid plan's own gate, on a workspace of its own created on it (talyvor-lens B35.1): Team makes agents up
+ * to its 25th and is refused the 26th, naming LENS_PLAN_GATES, the team plan and the business plan; Business makes the
+ * 26th. Each offers Slack and Teams approvals, which Free does not, as Lens's read of the workspace's plan says.
+ */
+export function planAgents(plan: 'team' | 'business', seed: number): Scenario {
+  const past = TEAM_AGENTS + 1
+  return {
+    id: `plan-agents-${plan}`,
+    owner: 'talyvor-lens',
+    plan,
+    own: true,
+    title: plan === 'team'
+      ? `a Team workspace makes up to ${TEAM_AGENTS} agents and is refused the ${past}th in Lens's words, naming LENS_PLAN_GATES, the team plan and the business plan; Team offers Slack and Teams approvals`
+      : `a Business workspace makes its ${past}th agent, past Team's ${TEAM_AGENTS}; Business offers Slack and Teams approvals`,
+    feature: 'Agent Wallets',
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const on = await env.lens.workspacePlan(app.user)
+      ctx.evidence.push({ note: `Lens holds the workspace to ${on.plan}, with ${on.agents_used} agent(s); its gates ${JSON.stringify(on.gates)}` })
+      if (on.plan !== plan) return fail(`a test workspace created on ${plan} is on ${on.plan}`)
+      if (on.gates.slack_teams_approvals !== true) return fail(`Lens's read of a ${NAME[plan]} workspace's plan does not offer Slack and Teams approvals: slack_teams_approvals is ${String(on.gates.slack_teams_approvals)}`)
+      for (let n = on.agents_used + 1; n <= TEAM_AGENTS; n++) {
+        const made = await env.lens.tryCreateAgent(app.user, `Gate ${seed}-${n}`)
+        if (made.agent === undefined) return fail(`on ${NAME[plan]}, agent ${n} of ${TEAM_AGENTS} was refused: ${made.status} "${made.refusal?.error}"`)
+      }
+      const last = await env.lens.tryCreateAgent(app.user, `Gate ${seed}-${past}`)
+      ctx.evidence.push({ note: `create agent ${past}: ${last.status}`, answer: JSON.stringify(last.refusal ?? last.agent) })
+      const after = await env.lens.workspacePlan(app.user)
+      if (plan === 'business') {
+        if (last.agent === undefined) return fail(`on Business, agent ${past} was refused: ${last.status} "${last.refusal?.error}"`)
+        if (after.agents_used !== past) return fail(`agent ${past} was made, yet Lens counts ${after.agents_used} agents on the workspace`)
+        return { pass: true, detail: `on Business the workspace made its ${past}th agent, past Team's ${TEAM_AGENTS}, and Lens offers it Slack and Teams approvals` }
+      }
+      const v = pastAgentsVerdict(last, 'team', TEAM_AGENTS, 'business', `${past}th`)
+      if (!v.pass) return v
+      if (after.agents_used !== TEAM_AGENTS) return fail(`refused, yet Lens counts ${after.agents_used} agents on the workspace, not ${TEAM_AGENTS}`)
+      return { pass: true, detail: `${v.detail}; the workspace still has ${TEAM_AGENTS}, and Lens offers it Slack and Teams approvals` }
     },
   }
 }

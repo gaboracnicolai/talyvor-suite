@@ -4,12 +4,15 @@
 import { randomUUID } from 'node:crypto'
 import type { Recorder, Tag } from './coverage.ts'
 import type { CatalogModel } from './oracles.ts'
+import type { Plan } from './pricing.ts'
 
 export interface SyntheticUser {
   index: number
   workspaceID: string
   token: string
   expiresAt: string
+  /** B35.7 — the plan Lens created it on (talyvor-lens B35.1); Free when none was asked for. */
+  plan?: Plan
 }
 
 /** One row of the workspace's LXC ledger (GET /v1/workspaces/{id}/lxc/history). */
@@ -366,8 +369,18 @@ export interface WorkspacePlan {
   byok_add_on: boolean
   own_provider_keys_allowed: boolean
   agents_used: number
-  /** B34.1 — what the plan unlocks: the agents it holds, -1 for unlimited (LENS_PLAN_GATES). */
-  gates: { agents: number }
+  /** B34.1 — what the plan unlocks: the agents it holds, -1 for unlimited (LENS_PLAN_GATES). B35.7 — and whether it offers Slack and Teams approvals. */
+  gates: { agents: number; slack_teams_approvals?: boolean }
+}
+
+/** B35.7 — every fee Talyvor charges, as Lens's public read states it (GET /v1/public/fees): basis points, 100 = 1%. */
+export interface Fees {
+  /** Talyvor's take of a listing sale; the seller keeps the rest. */
+  market_take_bps: number
+  /** Talyvor's take of a payment to another company's agent, a service; the payee keeps the rest. */
+  services_take_bps: number
+  /** The platform fee on AI spend charged to credits, by plan. */
+  platform_fee_bps: Record<string, number>
 }
 
 /** B32.15 — Lens's refusal of what a plan does not unlock (402): its sentence names LENS_PLAN_GATES and both plans. */
@@ -558,14 +571,17 @@ export class LensClient {
     return Number((JSON.parse(raw) as { reset?: number }).reset ?? 0)
   }
 
-  /** Creates `count` synthetic workspaces, each with test credits and a token. */
-  async createUsers(count: number): Promise<SyntheticUser[]> {
-    const body = (await this.call('POST', '/v1/synthetic/workspaces', { [SYNTHETIC_KEY_HEADER]: this.key }, { count })) as {
+  /** Creates `count` synthetic workspaces, each with test credits and a token; B35.7 — on `plan` when one is named. */
+  async createUsers(count: number, plan?: Plan): Promise<SyntheticUser[]> {
+    const body = (await this.call('POST', '/v1/synthetic/workspaces', { [SYNTHETIC_KEY_HEADER]: this.key },
+      plan === undefined ? { count } : { count, plan })) as {
+      plan?: string
       workspaces?: { workspace_id: string; token: string; expires_at: string }[]
     }
     const list = body.workspaces ?? []
     if (list.length !== count) throw new Error(`asked Lens for ${count} synthetic users, got ${list.length}`)
-    return list.map((w, index) => ({ index, workspaceID: w.workspace_id, token: w.token, expiresAt: w.expires_at }))
+    if (plan !== undefined && body.plan !== plan) throw new Error(`asked Lens for ${count} synthetic users on ${plan}, and it made them on ${body.plan ?? 'no plan it names'}`)
+    return list.map((w, index) => ({ index, workspaceID: w.workspace_id, token: w.token, expiresAt: w.expires_at, plan: plan ?? 'free' }))
   }
 
   async catalog(user: SyntheticUser): Promise<CatalogModel[]> {
@@ -793,6 +809,11 @@ export class LensClient {
   async companyPlans(): Promise<{ id: string; usd_cents: number }[]> {
     const body = (await this.call('GET', '/v1/billing/plans', {})) as { company_plans?: { id: string; usd_cents: number }[] | null }
     return body.company_plans ?? []
+  }
+
+  /** B35.7 — every fee Talyvor charges, as Lens's public read states it, read with no credential. */
+  async fees(): Promise<Fees> {
+    return (await this.call('GET', '/v1/public/fees', {})) as Fees
   }
 
   /** The plan Lens holds the workspace to, its gates, and the agents it has now. */

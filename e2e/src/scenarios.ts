@@ -8,7 +8,8 @@ import type { Response } from 'playwright'
 import { type AppUser, type Attachment, type ChargeBook, NetworkDropped, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
 import { CapReached, worstInputTokens } from './budget.ts'
-import type { LensClient, SyntheticUser } from './lens.ts'
+import type { Fees, LedgerRow, LensClient, SyntheticUser } from './lens.ts'
+import { percent, platformFeeBPS } from './fees.ts'
 import {
   type CatalogModel,
   chatModels,
@@ -31,7 +32,7 @@ import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
-import { pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
+import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
 
 export interface Evidence {
   note?: string
@@ -53,6 +54,8 @@ export interface Verdict {
 
 export interface RunEnv {
   lens: LensClient
+  /** B35.7 — every fee Talyvor charges, as Lens states it (GET /v1/public/fees), read once a run: what each money oracle judges by. */
+  fees: Fees
   cap: SpendCap
   catalog: CatalogModel[]
   usdPerLXC: number
@@ -99,6 +102,12 @@ export interface Scenario {
   feature?: string
   /** B34.1 — the most agents of its own workspace it opens: the runner first makes room for them on the plan (room.ts). */
   agents?: number
+  /** B35.7 — the plan its workspace must be on; unnamed, Team for one that opens agents, else Free (plans.ts). */
+  plan?: Plan
+  /** B35.7 — it tests a plan's own gate, so it runs on a workspace of its own, created on `plan` (Free unless named). */
+  own?: boolean
+  /** B35.7 — the users whose workspaces it opens agents in, as another company: each is created on Business. */
+  partners?: number[]
   run: (ctx: ScenarioCtx) => Promise<Verdict>
 }
 
@@ -2209,7 +2218,33 @@ export async function checkLedger(env: RunEnv, user: SyntheticUser): Promise<Ver
   if (Math.abs(spentULXC - want.ulxc) > want.slack + want.count) {
     return { pass: false, detail: `the ledger debited ${spentULXC} µLXC; the answers shown cost ${want.ulxc.toFixed(0)} µLXC at list price`, evidence }
   }
-  return { pass: true, detail: `${spends.length} spend rows debiting ${spentULXC} µLXC, as the answers shown cost`, evidence }
+  // B35.7 — and beside each spend row, its platform_fee row at the rate Lens states for the workspace's plan.
+  const plan = (await env.lens.workspacePlan(user)).plan
+  const bps = platformFeeBPS(env.fees, plan)
+  const unfeed = spendsWithoutFee(rows, bps)
+  evidence.push({ note: `on ${plan}, Lens states a platform fee of ${percent(bps)}: ${spends.length - unfeed.length} of ${spends.length} spend row(s) have their platform_fee row beside them` })
+  if (unfeed.length > 0) {
+    return { pass: false, detail: `${unfeed.length} of ${spends.length} spend rows have no platform_fee row of ${percent(bps)} beside them, as Lens states the fee on ${plan}: ` +
+      unfeed.slice(0, 5).map((r) => `${-r.amount_ulxc} µLXC at ${r.created_at} wants a ${feeOn(-r.amount_ulxc, bps)} µLXC fee`).join('; '), evidence }
+  }
+  return { pass: true, detail: `${spends.length} spend rows debiting ${spentULXC} µLXC, as the answers shown cost, each with its ${percent(bps)} platform_fee row beside it`, evidence }
+}
+
+/**
+ * B35.7 — the spend rows with no platform_fee row beside them at `bps`: a row on that spend (its metadata names it) of
+ * the fee rounded up to the µLXC, leaving the balance the spend left less the fee. Each fee row answers one spend.
+ */
+export function spendsWithoutFee(rows: readonly LedgerRow[], bps: number): LedgerRow[] {
+  const fees = rows.filter((r) => r.type === 'platform_fee')
+  const used = new Set<string>()
+  return rows.filter((r) => r.type === 'spend' && r.amount_ulxc < 0).filter((spend) => {
+    const want = feeOn(-spend.amount_ulxc, bps)
+    const fee = fees.find((f) => !used.has(f.id) && -f.amount_ulxc === want && f.metadata?.spend_ulxc === -spend.amount_ulxc &&
+      f.metadata?.platform_fee_bps === bps && f.balance_after_ulxc === spend.balance_after_ulxc - want)
+    if (fee === undefined) return true
+    used.add(fee.id)
+    return false
+  })
 }
 
 /**
@@ -2378,6 +2413,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 24) list.push(pricingApproved(), pricingFee('free', i), pricingFreeAgents(i))
   if (i === 34) list.push(pricingFee('team', i))
   if (i === 40 && i + 2 < users) list.push(pricingSellerSplit(i, i + 2))
+  // B35.7 — each paid plan's own gate, once a run, each on a workspace of its own: Team refuses its 26th agent,
+  // Business does not, and both offer Slack and Teams approvals. The gates above that need Free (seats-free,
+  // pricing-free-agents, pricing-fee-free) run on workspaces of their own on Free, whatever plan their user is on.
+  if (i % 100 === 5) list.push(planAgents('team', i), planAgents('business', i))
   return list
 }
 

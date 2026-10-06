@@ -94,3 +94,15 @@ describe('what was tested', () => {
     expect(renderSummary(run, 'docs/e2e/report-2026-10-02.md', [])).toContain(`- **Tested**: ${tested}`)
   })
 })
+
+// B35.7 — the report says, per plan, what ran on it and what it found.
+describe('a run on several plans', () => {
+  it('counts each plan’s verdicts and names what failed on it', () => {
+    const o = (scenario: string, workspace: string, plan: string, status: 'PASS' | 'FAIL') =>
+      ({ scenario, title: scenario, user: 0, workspace, plan, status, detail: '', evidence: [] })
+    const report = renderRun({ ...cutShort, stopped_by: undefined, outcomes: [o('agent-limit', 'ws0', 'team', 'PASS'), o('company-payment', 'ws0', 'team', 'FAIL'),
+      o('seats-free', 'ws1', 'free', 'PASS'), o('plan-agents-business', 'ws2', 'business', 'PASS')] })
+    expect(report).toContain('### By plan')
+    expect(report).toContain('| free | 1 | 1 | 0 | 0 | 0 | none |\n| team | 1 | 1 | 1 | 0 | 0 | `company-payment` |\n| business | 1 | 1 | 0 | 0 | 0 | none |')
+  })
+})

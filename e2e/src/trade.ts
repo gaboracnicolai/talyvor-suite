@@ -78,6 +78,7 @@ export function walletSendRefund(seed: number, partner: number): Scenario {
     id: 'wallet-send-refund',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "a person sends credits to another company's agent on Agent Wallets, and that company gives them back: each time one transfer on both sides and both balances move by it",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -123,6 +124,7 @@ export function walletGiveBack(seed: number, partner: number): Scenario {
     id: 'wallet-give-back',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "another company's agent sends a person's agent credits, and the person gives them back on Agent Wallets: one refund both sides see, one posting on each account, both balances moved by it",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -170,6 +172,7 @@ export function walletRequest(seed: number, partner: number): Scenario {
     id: 'wallet-request',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "another company's agent asks a person's agent for credits; accepted on Agent Wallets, it is paid once and both companies see the same request and transfer",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -207,6 +210,7 @@ export function walletLoan(seed: number, partner: number): Scenario {
     id: 'wallet-loan',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "a person offers another company's agent a loan on Agent Wallets; accepted, the borrower is paid the principal once, both see the loan active with its first instalment due a day on",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -257,6 +261,7 @@ export function walletEscrow(seed: number, partner: number): Scenario {
     id: 'wallet-escrow',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "a person pays into escrow for another company's agent: held out of both balances; confirmed delivered, the payee is paid; disputed, it stays held",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -314,6 +319,7 @@ export function chatMoneyRequests(seed: number, partner: number): Scenario {
     id: 'chat-money-requests',
     owner: 'talyvor-suite',
     agents: 1,
+    partners: [partner],
     title: "another company's agent asks a person's agent for credits and is paid on Accept in Chat; an escrow confirmed delivered in Chat is released to the payee",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -448,6 +454,7 @@ export function walletRecurring(seed: number, partner: number): Scenario {
     id: 'wallet-recurring',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "a person starts a daily transfer to another company's agent on Agent Wallets: Lens pays the first at once, one transfer both companies see, and nothing more that day",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -725,6 +732,7 @@ export function walletLoanRepay(seed: number, partner: number): Scenario {
     id: 'wallet-loan-repay',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "a person lends another company's agent on Agent Wallets; its one instalment falls due and Lens's minute tick takes it: principal and interest back in one transfer both companies see, the loan repaid",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
@@ -764,6 +772,7 @@ export function walletLoanDefault(seed: number, partner: number): Scenario {
     id: 'wallet-loan-default',
     owner: 'talyvor-lens',
     agents: 1,
+    partners: [partner],
     title: "a loan whose borrower cannot pay: its instalment falls due and is missed, the loan is late; due again and missed again, it is in default on both sides, and nothing more moved",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx

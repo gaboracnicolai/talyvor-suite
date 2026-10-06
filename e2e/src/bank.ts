@@ -11,7 +11,8 @@ import { type AppUser, chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
 import type { Agent, AgentBook, AgentLine, AgentRulesRead, Answered, JudgeReply, LedgerRow, SyntheticUser } from './lens.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
-import { PLATFORM_FEE_BPS, type Plan, feeVerdict } from './pricing.ts'
+import { keptOf, percent, platformFeeBPS } from './fees.ts'
+import { feeVerdict } from './pricing.ts'
 import { otherCompanyOnTeam } from './room.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
@@ -25,12 +26,14 @@ const USE_MAX_TOKENS = 4096
 const NUMBER_ONLY = 'Reply with the number only.'
 /** µLXC per µUSD: LXC is pegged at $0.10 (talyvor-lens market.ulxcPerUSDMicro). */
 const ULXC_PER_USD_MICRO = 10
-/** A listing's seller keeps 85% of its price (Lens's LENS_MARKET_TAKE_BPS=1500, Nicolai's decision of 5 Oct 2026). */
-const SELLER_SHARE_BPS = 8_500
-/** B34.1 — another company's agent keeps 95% of a payment to it, a service (LENS_SERVICES_TAKE_BPS=500, B32.8). */
-const SERVICE_SHARE_BPS = 9_500
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * B35.7 — a figure as a person reads it: the whole figure's own text, its whitespace collapsed. MuNumeral draws the
+ * number, the µ and the unit as flex items, so their text arrives on lines of their own.
+ */
+export const figureText = (text: string): string => text.replace(/\s+/g, ' ').trim()
 export const lxcText = (ulxc: number): string => String(ulxc / 1e6)
 
 /** B28.22 — what the wallet screens show beside an LXC amount, in dollars at the peg: "($1.25)" (apps/web money.tsx). */
@@ -76,7 +79,7 @@ export class AgentBankScreen {
   }
 
   async totals(): Promise<string> {
-    return (await this.page.getByTestId('agent-bank-totals').innerText()).trim()
+    return figureText(await this.page.getByTestId('agent-bank-totals').innerText())
   }
 
   /** Creates an agent by name; the screen opens it. */
@@ -314,7 +317,7 @@ export class AgentBankScreen {
     // B34.1 — the money figure follows the LXC once the peg is read (money.tsx); read too early, the line is LXC alone.
     // B35.8 — waited for up to CURRENCY_WAIT_MS: none by then is what the verdict reads.
     await balance.filter({ hasText: /\(.+\)\s*$/ }).waitFor({ timeout: CURRENCY_WAIT_MS }).catch(() => undefined)
-    return (await balance.innerText()).trim()
+    return figureText(await balance.innerText())
   }
 
   /**
@@ -670,11 +673,23 @@ async function chargeRows(ctx: ScenarioCtx): Promise<LedgerRow[]> {
   return (await ctx.env.lens.ledger(ctx.app.user)).filter((r) => r.type === 'spend' || r.type === 'platform_fee')
 }
 
-/** B34.1 — one served request's charge: one spend row and its platform fee at the workspace's plan's rate (B32.11), or why not. */
+/** B35.7 — the platform fee on `user`'s AI spend: the rate Lens states (GET /v1/public/fees) for the plan Lens holds it to. */
+export async function platformFeeOf(ctx: ScenarioCtx, user: SyntheticUser = ctx.app.user): Promise<{ plan: string; bps: number }> {
+  const plan = (await ctx.env.lens.workspacePlan(user)).plan
+  return { plan, bps: platformFeeBPS(ctx.env.fees, plan) }
+}
+
+/**
+ * B34.1 — one served request's charge: one spend row and its platform fee at the workspace's plan's rate (B32.11), or
+ * why not. B35.7 — the rate Lens states, and each row its own line.
+ */
 async function oneCharge(ctx: ScenarioCtx, fresh: readonly LedgerRow[]): Promise<number | string> {
-  const plan = (await ctx.env.lens.workspacePlan(ctx.app.user)).gated_as as Plan
-  const v = feeVerdict(fresh, PLATFORM_FEE_BPS[plan])
-  ctx.evidence.push({ note: `the request's rows: ${v.detail}`, ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+  const { plan, bps } = await platformFeeOf(ctx)
+  const row = (type: string) => fresh.filter((r) => r.type === type).map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at }))
+  ctx.evidence.push({ note: "the request's spend row", ledger: row('spend') })
+  ctx.evidence.push({ note: `the request's platform_fee row, which on ${plan} Lens states at ${percent(bps)}`, ledger: row('platform_fee') })
+  const v = feeVerdict(fresh, bps)
+  ctx.evidence.push({ note: `the request's rows: ${v.detail}` })
   return v.pass ? fresh.reduce((s, x) => s - x.amount_ulxc, 0) : v.detail
 }
 
@@ -2946,7 +2961,8 @@ export function companyPayment(seed: number, partner: number): Scenario {
     id: 'company-payment',
     owner: 'talyvor-lens',
     agents: 1,
-    title: "an agent pays another company's agent: one line on the payer's marketplace bill; the payee's share waits for that bill, then the holdback",
+    partners: [partner],
+    title: "an agent pays another company's agent: one line on the payer's marketplace bill; the payee's share, the payment less the services fee Lens states, waits for that bill, then the holdback",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
       const payeeCo = env.userAt(partner)
@@ -2973,10 +2989,15 @@ export function companyPayment(seed: number, partner: number): Scenario {
       if (fresh[0].cleared_at !== undefined) return fail('the payment reads as paid before any bill was')
       const earned = await env.lens.marketEarnings(payeeCo)
       ctx.evidence.push({ note: `payee earnings before ${JSON.stringify(earned0)}, after ${JSON.stringify(earned)}` })
+      // B35.7 — the payee keeps the payment less the services fee, at the rate Lens states (B32.8).
+      const take = env.fees.services_take_bps
       const gross = amount / ULXC_PER_USD_MICRO
-      const share = Math.floor((gross * SERVICE_SHARE_BPS) / 10_000)
+      const share = keptOf(gross, take)
+      ctx.evidence.push({ note: `the payer's bill: one line of ${amount} µLXC, ${gross} µUSD` })
+      ctx.evidence.push({ note: `the services fee, which Lens states at ${percent(take)}: ${gross - share} µUSD, Talyvor's` })
+      ctx.evidence.push({ note: `the payee's share: ${share} µUSD pending, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros}` })
       if (earned.pending_uses !== earned0.pending_uses + 1 || earned.pending_usd_micros !== earned0.pending_usd_micros + share) {
-        return fail(`the payee's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; one payment of ${gross} µUSD, of which the payee keeps ${share}`)
+        return fail(`the payee's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; one payment of ${gross} µUSD, of which the payee keeps ${share} once Lens's ${percent(take)} services fee is taken`)
       }
       if (earned.available_usd_micros !== earned0.available_usd_micros || earned.payable_usd_micros !== earned0.payable_usd_micros) {
         return fail('the payee could take the money before the payer\'s bill was paid and the holdback passed')
@@ -2984,7 +3005,7 @@ export function companyPayment(seed: number, partner: number): Scenario {
       if (agentIn(await bookOf(ctx), buyer.id)?.balance_ulxc !== 0) return fail(`${buyer.name}'s balance moved: the company's bill carries this payment`)
       const shown = await billShown(app)
       if (!shown.includes(`Payment to ${supplier.name}`)) return fail(`Your bill does not show "Payment to ${supplier.name}"`)
-      return { pass: true, detail: `one ${lxcText(amount)} LXC line on the payer's bill (not yet paid, shown on Your bill); the payee's pending rose by exactly its 95%, $${(share / 1e6).toFixed(4)}, payable only once that bill is paid and after the 14-day holdback` }
+      return { pass: true, detail: `one ${lxcText(amount)} LXC line on the payer's bill (not yet paid, shown on Your bill); the payee's pending rose by exactly the payment less Lens's ${percent(take)} services fee, $${(share / 1e6).toFixed(4)}, payable only once that bill is paid and after the 14-day holdback` }
     }),
   }
 }
@@ -2998,7 +3019,7 @@ export function marketplaceSale(seed: number, partner: number): Scenario {
   return {
     id: 'marketplace-sale',
     owner: 'talyvor-lens',
-    title: 'a seller publishes, a buyer uses the listing and is billed once, and the seller\'s pending earnings rise by exactly 85% of its price',
+    title: 'a seller publishes, a buyer uses the listing and is billed once, and the seller\'s pending earnings rise by exactly its price less the take Lens states',
     run: async (ctx) => {
       const { env, app } = ctx
       const seller = await env.signInUser(partner)
@@ -3040,13 +3061,15 @@ export function marketplaceSale(seed: number, partner: number): Scenario {
       }
       const earned = await env.lens.marketEarnings(seller.user)
       ctx.evidence.push({ note: `seller earnings before ${JSON.stringify(earned0)}, after ${JSON.stringify(earned)}` })
-      // B32.9: the seller earns 85% of the price, rounded down to the µUSD; Talyvor keeps 15% (B32.8).
+      // B32.9: the seller earns the price less Talyvor's take, rounded down to the µUSD (B32.8); B35.7 — the take Lens states.
+      const take = env.fees.market_take_bps
       const gross = price / ULXC_PER_USD_MICRO
-      const share = Math.floor((gross * SELLER_SHARE_BPS) / 10_000)
+      const share = keptOf(gross, take)
+      const kept = percent(10_000 - take)
       if (earned.pending_uses !== earned0.pending_uses + 1 || earned.pending_usd_micros !== earned0.pending_usd_micros + share) {
-        return fail(`the seller's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; their 85% of one ${gross} µUSD use is ${share} µUSD`)
+        return fail(`the seller's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; their ${kept} of one ${gross} µUSD use is ${share} µUSD`)
       }
-      return { pass: true, detail: `answered ${a + b}; billed once (${lxcText(price)} LXC on the buyer's bill, the model's cost on their credits); the seller's pending rose by exactly 85% of the price, $${(share / 1e6).toFixed(4)}` }
+      return { pass: true, detail: `answered ${a + b}; billed once (${lxcText(price)} LXC on the buyer's bill, the model's cost on their credits); the seller's pending rose by exactly ${kept} of the price, $${(share / 1e6).toFixed(4)}, as Lens states its take` }
     },
   }
 }
@@ -3210,7 +3233,7 @@ export function spendPlainWords(): Scenario {
 }
 
 /** A figure as WindowFigure shows it: "300,000 µLXC" under one LXC, "10.300000 LXC" from one up — since B29, its
- *  unit set apart from the figure, so innerText reads "126 µ LXC". */
+ *  unit set apart from the figure, so read as a person reads it (figureText) it is "126 µ LXC". */
 function shownULXC(shown: string): number | undefined {
   const m = /(-?[\d,]+)(?:\.(\d{6}))?\s*(µ?)\s*LXC/i.exec(shown.replace(/\s+/g, ' '))
   if (m === null) return undefined
@@ -3248,10 +3271,10 @@ export function spendPlatformFee(): Scenario {
           await page.getByTestId('lxc-platform-fees').waitFor({ timeout: ACTION_TIMEOUT_MS })
           const lines = await page.evaluate(() => {
             const labels = Array.from(document.querySelectorAll('[data-testid="platform-fee-label"]')).map((e) => e.textContent ?? '')
-            const amounts = Array.from(document.querySelectorAll('[data-testid="platform-fee-amount"]')).map((e) => (e as HTMLElement).innerText)
+            const amounts = Array.from(document.querySelectorAll('[data-testid="platform-fee-amount"]')).map((e) => (e as HTMLElement).innerText.replace(/\s+/g, ' ').trim())
             return labels.map((label, i) => ({ label, amount: amounts[i] ?? '' }))
           })
-          const total = await page.getByTestId('lxc-debit-total').innerText()
+          const total = figureText(await page.getByTestId('lxc-debit-total').innerText())
           seen.push(`${path}: ${lines.map((l) => `"${l.label}" ${l.amount}`).join(', ')}; total ${total}`)
           if (lines.length !== want.size) return fail(`${path} shows ${lines.length} fee line(s); Lens wrote ${want.size}: ${seen.at(-1)}`)
           for (const l of lines) {

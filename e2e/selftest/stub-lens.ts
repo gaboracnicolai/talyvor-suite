@@ -122,6 +122,8 @@ interface Workspace {
   budgets: Budget[]
   usage: { total: number; hits: number; pooled: number; converted: number }
   plan?: { id: string; cancel: boolean }
+  /** B35.7 — the plan the testers created it on (talyvor-lens B35.1), read after a subscription. */
+  syntheticPlan?: string
   allowance?: { granted_ulxc: number; consumed_ulxc: number; remaining_ulxc: number; fee_usd_cents: number }
   earnings: Earned[]
 }
@@ -173,7 +175,7 @@ function book(ws: Workspace, amount: number, type: string, description: string, 
 
 /** B32.12 — the plan a workspace's gates are read under: a chat plan takes Free's. */
 function gatedAs(ws: Workspace): string {
-  const id = ws.plan?.id ?? 'free'
+  const id = ws.plan?.id ?? ws.syntheticPlan ?? 'free'
   return PLAN_FEES[id] !== undefined ? 'free' : id
 }
 
@@ -618,18 +620,19 @@ createServer(async (req, res) => {
         return json(res, 200, { reset: chosen.length })
       }
       if (await bank.syntheticRoute(req, res, p)) return
-      const { count = 100 } = JSON.parse((await read(req)) || '{}') as { count?: number }
+      const { count = 100, plan = 'free' } = JSON.parse((await read(req)) || '{}') as { count?: number; plan?: string }
       const expires = new Date(Date.now() + 24 * 3600e3).toISOString().replace(/\.\d+Z$/, 'Z')
       const out = []
       for (let i = 0; i < count; i++) {
         const id = 's' + randomBytes(20).toString('hex').slice(0, 26)
         const ws = newWorkspace(id, 'tok-' + randomBytes(16).toString('hex'))
+        ws.syntheticPlan = plan
         book(ws, GRANT_ULXC, 'admin_grant', 'synthetic test credits')
         workspaces.set(id, ws)
         byToken.set(ws.token, ws)
         out.push({ workspace_id: id, token: ws.token, expires_at: expires })
       }
-      return json(res, 201, { created: out.length, workspaces: out })
+      return json(res, 201, { created: out.length, plan, workspaces: out })
     }
     if (p === '/v1/economy/conversion-rate') return json(res, 200, { lens_per_lxc: 1, rate: 1, usd_per_lxc: USD_PER_LXC })
     // B32.14 — the price card's three public reads, as Lens states them with no credential: the plans, what each company
@@ -828,8 +831,8 @@ createServer(async (req, res) => {
       // B32.12 — the plan Lens holds the workspace to, its gates, and the agents it has now (archived ones not counted).
       if (rest === '/plan' && req.method === 'GET') {
         const gated = gatedAs(ws)
-        return json(res, 200, { plan: ws.plan?.id ?? 'free', gated_as: gated, byok_add_on: false, own_provider_keys_allowed: false,
-          gates: { agents: PLAN_AGENTS[gated] ?? 3 }, agents_used: bank.activeAgents(ws.id) })
+        return json(res, 200, { plan: ws.plan?.id ?? ws.syntheticPlan ?? 'free', gated_as: gated, byok_add_on: false, own_provider_keys_allowed: false,
+          gates: { agents: PLAN_AGENTS[gated] ?? 3, slack_teams_approvals: gated !== 'free' }, agents_used: bank.activeAgents(ws.id) })
       }
       if (rest === '/billing/allowance') {
         return json(res, 200, { allowance: ws.allowance === undefined ? null : { workspace_id: ws.id, ...ws.allowance },

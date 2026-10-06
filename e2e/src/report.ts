@@ -44,6 +44,8 @@ export interface ReportedRun {
     features?: string[]
     /** B35.8 — when its verdict came. */
     at?: string
+    /** B35.7 — the plan of the workspace it ran on. */
+    plan?: string
   }[]
   explorers?: ExplorerSummary[]
   findings?: Finding[]
@@ -304,6 +306,25 @@ export function renderSecondAttempts(run: ReportedRun): string[] {
   return lines
 }
 
+/** B35.7 — per plan: the workspaces on it, what ran on them and what it found. */
+export function renderPlans(run: ReportedRun): string[] {
+  const on = new Map<string, Outcome[]>()
+  for (const o of run.outcomes) if (o.plan !== undefined) on.set(o.plan, [...(on.get(o.plan) ?? []), o])
+  if (on.size === 0) return []
+  const lines = ['', '### By plan', '',
+    'Each user ran on the largest plan its scenarios need; a scenario that tests a plan\'s own gate ran on a workspace of its own, on that plan.', '',
+    '| Plan | Workspaces | Pass | Fail | Error | Skip | Failed or errored |', '|---|---:|---:|---:|---:|---:|---|']
+  const order = ['free', 'team', 'business', 'enterprise']
+  for (const plan of [...on.keys()].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99))) {
+    const os = on.get(plan) ?? []
+    const n = { PASS: 0, FAIL: 0, ERROR: 0, SKIP: 0 }
+    for (const o of os) n[o.status]++
+    const bad = [...new Set(os.filter((o) => o.status === 'FAIL' || o.status === 'ERROR').map((o) => `\`${o.scenario}\``))]
+    lines.push(`| ${plan} | ${new Set(os.map((o) => o.workspace)).size} | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${bad.join(', ') || 'none'} |`)
+  }
+  return lines
+}
+
 /** One run as a report section. */
 export function renderRun(run: ReportedRun): string {
   const c = run.counts
@@ -333,7 +354,7 @@ export function renderRun(run: ReportedRun): string {
     for (const o of os) n[o.status]++
     lines.push(`| \`${id}\` | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${cell(os[0].title)} |`)
   }
-  lines.push(...renderSecondAttempts(run), ...renderEnvironment(run))
+  lines.push(...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run))
 
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
