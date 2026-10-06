@@ -47,11 +47,17 @@ const lineKey = (l: StatementLine) => `${l.entry_id}-${l.kind}`
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
-export function LiveStatement() {
+export function LiveStatement({ follow = '' }: { follow?: string }) {
   const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
   const agents = (book.data?.agents ?? []).filter((a) => a.archived_at === undefined)
   const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? 'another agent'
   const [followed, setFollowed] = useState(readFollowed)
+  // B28.354 — the agent paying for the conversation is the one followed, so what it is charged shows here.
+  useEffect(() => {
+    if (follow === '') return
+    setFollowed(follow)
+    writeFollowed(follow)
+  }, [follow])
   const agent = agents.find((a) => a.id === followed) ?? agents[0]
 
   const st = useQuery({

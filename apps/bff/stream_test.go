@@ -58,6 +58,7 @@ type streamUpstream struct {
 	gotAccept     string
 	gotDistill    string
 	gotCache      string
+	gotPaidBy     string
 	answerHeaders map[string]string // set on the proxied answer, as Lens does on a cache serve
 	// replayUnlessBypassed sets answerHeaders only on a request without X-Talyvor-Cache: bypass, as
 	// Lens does: a bypass skips every cache read.
@@ -108,6 +109,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotAccept = r.Header.Get("Accept")
 			u.gotDistill = r.Header.Get("X-Talyvor-Distill")
 			u.gotCache = r.Header.Get("X-Talyvor-Cache")
+			u.gotPaidBy = r.Header.Get("X-Talyvor-Paid-By")
 			u.cacheSent = append(u.cacheSent, u.gotCache)
 			if !u.replayUnlessBypassed || u.gotCache != "bypass" {
 				for k, v := range u.answerHeaders {
@@ -869,6 +871,63 @@ func TestStream_RegenerateBypassReachesLensAndTheAnswerSourceReachesTheChat(t *t
 				t.Errorf("the chat received %s %q, want %q", k, got, v)
 			}
 		}
+	}
+}
+
+// B28.354 — the agent Chat's "Paid by" chose reaches Lens's streaming proxy, and the agent Lens says it
+// billed reaches the chat. A malformed id is refused before Lens is asked anything.
+func TestStream_PaidByReachesLensAndWhoLensBilledReachesTheChat(t *testing.T) {
+	for _, tc := range []struct{ sent, billed, wantUp, wantBack string }{
+		{"agt_researcher-1", "agt_researcher-1", "agt_researcher-1", "agt_researcher-1"},
+		{"agt_researcher-1", "", "agt_researcher-1", ""},
+		{"", "", "", ""},
+	} {
+		up := newStreamUpstream(t)
+		up.noBlock = true
+		if tc.billed != "" {
+			up.answerHeaders = map[string]string{"X-Talyvor-Paid-By": tc.billed}
+		}
+		a, sess := streamApp(t, up)
+		ts := httptest.NewServer(a)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+		req.AddCookie(sess)
+		req.Header.Set("Origin", "https://app.talyvor.com")
+		req.Header.Set("Content-Type", "application/json")
+		if tc.sent != "" {
+			req.Header.Set("X-Talyvor-Paid-By", tc.sent)
+		}
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		ts.Close()
+		if up.gotPaidBy != tc.wantUp {
+			t.Errorf("sent %q: Lens received X-Talyvor-Paid-By %q, want %q", tc.sent, up.gotPaidBy, tc.wantUp)
+		}
+		if got := resp.Header.Get("X-Talyvor-Paid-By"); got != tc.wantBack {
+			t.Errorf("Lens billed %q: the chat received X-Talyvor-Paid-By %q, want %q", tc.billed, got, tc.wantBack)
+		}
+	}
+
+	up := newStreamUpstream(t)
+	up.noBlock = true
+	a, sess := streamApp(t, up)
+	ts := httptest.NewServer(a)
+	defer ts.Close()
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+	req.AddCookie(sess)
+	req.Header.Set("Origin", "https://app.talyvor.com")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Talyvor-Paid-By", "../v1/admin")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || up.proxyCalls != 0 {
+		t.Fatalf("a malformed agent id: status %d with %d proxied request(s), want 400 and none", resp.StatusCode, up.proxyCalls)
 	}
 }
 

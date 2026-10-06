@@ -94,7 +94,22 @@ export interface ChatMessage {
   spend?: SpendLine[]
   /** B28.349 — on an answer that took more than one request to the model (it called a tool first): how many. Each is charged. */
   requests?: number
+  /** B28.354 — on an answer in a conversation an agent pays for: that agent, and whether Lens said it billed it. */
+  payer?: AnswerPayer
 }
+
+/** B28.354 — the agent chosen to pay for an answer. `billed` only when Lens's answer named that agent. */
+export interface AnswerPayer {
+  agent_id: string
+  name: string
+  billed: boolean
+}
+
+/**
+ * B28.354 — names the agent whose wallet pays for a Chat request. Sent with the agent the conversation's
+ * "Paid by" chose; Lens answers with it when it billed that agent, and without it when the workspace paid.
+ */
+export const PAID_BY_HEADER = 'X-Talyvor-Paid-By'
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
 export interface ChatTool {
@@ -476,6 +491,8 @@ export interface StreamHandlers {
     spend?: SpendLine[]
     /** B28.349 — askChat: how many requests to the model the answer took, when more than one. */
     requests?: number
+    /** B28.354 — the agent Lens says it billed for the answer (X-Talyvor-Paid-By); absent when the workspace paid. */
+    paidBy?: string
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
@@ -504,6 +521,8 @@ export async function streamChat(
   /** B28.349 — the tools the model may call, and the calls made so far and their answers. */
   tools: ChatTool[] = [],
   exchange: unknown[] = [],
+  /** B28.354 — the agent whose wallet pays for this request; none, the workspace's. */
+  paidBy?: string,
 ): Promise<void> {
   const path = chatPath(provider)
   if (path === undefined) {
@@ -521,6 +540,7 @@ export async function streamChat(
       // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
       ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
       ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
+      ...(paidBy !== undefined && paidBy !== '' ? { [PAID_BY_HEADER]: paidBy } : {}),
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange)),
     signal,
@@ -560,6 +580,7 @@ export async function streamChat(
   const saved = converted ? distillSaved(res.headers) : undefined
   const source = answerSource(res.headers)
   const requestId = res.headers.get('X-Talyvor-Request-ID') ?? undefined
+  const paidByLens = res.headers.get(PAID_BY_HEADER) ?? undefined
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -598,7 +619,7 @@ export async function streamChat(
         for (const d of got.deltas) handlers.onDelta(d.text)
         for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls() })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
           return
         }
       }
@@ -613,7 +634,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls() })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
 }
 
 /** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */
@@ -641,9 +662,13 @@ export async function askChat(
   signal?: AbortSignal,
   fresh = false,
   tools: ChatTool[] = [],
+  /** B28.354 — the agent whose wallet pays for every request this question takes. */
+  paidBy?: string,
 ): Promise<void> {
   const offered = TOOL_PROVIDERS.includes(provider) ? tools : []
   let exchange: unknown[] = []
+  // B28.354 — the agent Lens billed: named only when every request the question took named the same one.
+  let billed: string | undefined | null = null
   let usage: Usage | undefined
   let unrecognised = 0
   let written = false
@@ -671,6 +696,7 @@ export async function askChat(
       fresh,
       offered,
       exchange,
+      paidBy,
     )
     // Failed (already said) or stopped.
     if (ended === undefined) return
@@ -678,9 +704,10 @@ export async function askChat(
     written ||= said !== ''
     usage = addUsage(usage, done.usage)
     unrecognised += done.unrecognised
+    billed = billed === null || billed === done.paidBy ? done.paidBy : undefined
     const calls = done.toolCalls ?? []
     if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
-      handlers.onDone({ ...done, usage, unrecognised, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
+      handlers.onDone({ ...done, usage, unrecognised, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
       return
     }
     const results = await Promise.all(calls.map((c) => callChatTool(c, signal)))

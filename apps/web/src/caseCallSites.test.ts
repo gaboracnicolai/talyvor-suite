@@ -405,16 +405,17 @@ const PINS: Record<string, Pin> = {
   // 73 → 74 at B28.274: the "On this page" eyebrow over the Privacy and Terms contents.
   // 74 → 76 at B32.72: the Email and Role labels of the Members screen's add form.
   // 76 → 77 at B28.351: the "Live statement" eyebrow over the statement beside Chat.
+  // 77 → 78 at B28.354: the "Paid by" label under Chat's composer.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 77,
+    states: 78,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 77,
+    states: 78,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

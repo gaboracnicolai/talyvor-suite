@@ -7,6 +7,7 @@ import { Button, Input, cn, focusRing, inlineLink } from '@talyvor/ui'
 import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
+  type AnswerPayer,
   type ChatAttachment,
   type ChatMessage,
   type ChatModel,
@@ -36,6 +37,7 @@ import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
 import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
 import { LiveStatement } from './LiveStatement'
+import { PaidBy, PayerLine, usePayers } from './PaidBy'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
@@ -72,6 +74,9 @@ import { Card } from '../lens/walletBrand'
 // session key carries no APIKeyID by design. This screen therefore shows a model's LIST PRICE, which
 // is a fact about the catalog, and says nothing about what the workspace was charged, which would
 // be a claim about a ledger that did not move.
+//
+// B28.354 — a conversation can name an agent to pay for it ("Paid by", ./PaidBy.tsx). Its requests then carry
+// that agent to Lens, and an answer says the agent paid only when Lens's answer names the agent it billed.
 //
 // ⚠ HISTORY LIVES IN THIS BROWSER (B1.3), NOT ON A SERVER. Lens's migration 0009 states
 // "prompt/response text is intentionally NOT stored in DB (privacy)", and a server-side history
@@ -182,6 +187,9 @@ export function Chat() {
   // B28.352 — each rule typed here in plain words ("Cap Researcher at 5 LXC a day on Opus"): a card that saves it.
   // B28.353 — and each approval amount ("Ask me above 2 LXC"), on its own card in the same list.
   const [ruleCards, setRuleCards] = useState<{ id: number; command: string }[]>([])
+  // B28.354 — the agent whose wallet pays for this conversation; '' is the workspace.
+  const [paidBy, setPaidBy] = useState('')
+  const { book: payersBook, payers } = usePayers()
 
   // History is scoped to who is signed in; until that is known there is nowhere to keep it.
   const me = useAuthMeReader()
@@ -220,6 +228,7 @@ export function Chat() {
     setActiveId(c?.id ?? null)
     setMessages(c?.messages ?? [])
     if (c !== undefined) setModelId(c.model_id)
+    setPaidBy(c?.paid_by ?? '')
     setFailure(null)
     setUnreadable(0)
     setRenaming(null)
@@ -288,10 +297,13 @@ export function Chat() {
       if (selected === undefined || pending) return
       const id = activeId ?? newConversationId()
       const model = selected.id
+      // B28.354 — who pays is read once per question, as the person chose it when they asked.
+      const payer = paidBy
+      const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer.
-      store((list) => upsertConversation(list, id, model, turn, Date.now()))
+      store((list) => upsertConversation(list, id, model, turn, Date.now(), payer))
       setMessages([...turn, { role: 'assistant', content: '' }])
       setPending(true)
       setFailure(null)
@@ -307,6 +319,7 @@ export function Chat() {
       let incomplete: ChatMessage['incomplete']
       let spend: SpendLine[] | undefined
       let requests: number | undefined
+      let answerPayer: AnswerPayer | undefined
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
       const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
@@ -334,7 +347,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid, finish, spend: lines, requests: took }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -385,6 +398,17 @@ export function Chat() {
                 return next
               })
             }
+            // B28.354 — in a conversation an agent pays for, whether Lens billed that agent for this answer.
+            if (payer !== '') {
+              const p: AnswerPayer = { agent_id: payer, name: payerName, billed: billedTo === payer }
+              answerPayer = p
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, payer: p }
+                return next
+              })
+            }
             // B28.81 — an answer that finished having said nothing, or stopped at the length limit, says so
             // rather than looking like a whole answer.
             incomplete = answer.trim() === '' ? 'blank' : cutOff(finish) ? 'cut_off' : undefined
@@ -407,12 +431,29 @@ export function Chat() {
         controller.signal,
         fresh,
         tools,
+        payer,
       )
       store((list) =>
-        upsertConversation(list, id, model, [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId, incomplete, spend, requests }], Date.now()),
+        upsertConversation(
+          list,
+          id,
+          model,
+          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId, incomplete, spend, requests, payer: answerPayer }],
+          Date.now(),
+          payer,
+        ),
       )
     },
-    [activeId, catalog.data, pending, qc, selected, store],
+    [activeId, catalog.data, paidBy, payers, pending, qc, selected, store],
+  )
+
+  // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
+  const choosePayer = useCallback(
+    (agentID: string) => {
+      setPaidBy(agentID)
+      if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, paid_by: agentID === '' ? undefined : agentID } : c)))
+    },
+    [activeId, store],
   )
 
   const send = useCallback(
@@ -772,27 +813,31 @@ export function Chat() {
               selected={selected}
               onSelectModel={setModelId}
             />
-            {selected !== undefined ? (
-              // ⚠ THE PRICE IS THE CATALOG'S LIST RATE AND IS LABELLED AS SUCH. A session-key
-              // request moves no LXC in the default configuration (see this file's header), so a
-              // "you spent" figure here would be a claim about a ledger that did not move. Figures
-              // on the figure face.
-              <p className="mt-2 font-figure text-caption text-faint">
-                List price · {formatUsdPer1M(selected.input_per_1m)} in /{' '}
-                {formatUsdPer1M(selected.output_per_1m)} out per 1M tokens
-              </p>
-            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+              {/* B28.354 — which wallet pays for this conversation. */}
+              <PaidBy book={payersBook} payers={payers} value={paidBy} onChange={choosePayer} disabled={pending} />
+              {selected !== undefined ? (
+                // ⚠ THE PRICE IS THE CATALOG'S LIST RATE AND IS LABELLED AS SUCH. A session-key
+                // request moves no LXC in the default configuration (see this file's header), so a
+                // "you spent" figure here would be a claim about a ledger that did not move. Figures
+                // on the figure face.
+                <p className="font-figure text-caption text-faint">
+                  List price · {formatUsdPer1M(selected.input_per_1m)} in /{' '}
+                  {formatUsdPer1M(selected.output_per_1m)} out per 1M tokens
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
       {statementBeside ? (
         <aside aria-label="Statement" className="sticky top-12 flex h-below-header w-80 shrink-0 flex-col border-l border-rule bg-sidebar">
-          <LiveStatement />
+          <LiveStatement follow={paidBy} />
         </aside>
       ) : statementOpen ? (
         <Drawer side="right" label="Statement" onClose={closeStatement}>
-          <LiveStatement />
+          <LiveStatement follow={paidBy} />
         </Drawer>
       ) : null}
     </div>
@@ -1149,6 +1194,7 @@ function Reply({
               Couldn’t mark it wrong just now. Try again.
             </p>
           ) : null}
+          {message.payer !== undefined ? <PayerLine payer={message.payer} /> : null}
           {savedLine(message.saved) !== undefined ? (
             <p className="ml-1 w-full font-figure text-caption text-faint" data-testid="turn-saved">
               {savedLine(message.saved)}
