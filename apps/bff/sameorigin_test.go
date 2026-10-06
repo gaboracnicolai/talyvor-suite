@@ -199,6 +199,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/x1/withdraw", body: `{"amount_ulxc":1}`},
 		{method: http.MethodPost, path: "/api/agents/x1/keys", body: `{"name":"k"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/tasks", body: `{"task":"t","provider":"openai","model":"m"}`}, // B28.359
+		{method: http.MethodPost, path: "/api/agents/x1/card/freeze", body: `{}`},                                     // B28.360
+		{method: http.MethodPost, path: "/api/agents/x1/card/unfreeze", body: `{}`},                                   // B28.360
 		{method: http.MethodPut, path: "/api/agents/x1/rules", body: `{"daily_limit_ulxc":1}`},
 		{method: http.MethodPost, path: "/api/agents/x1/pay", body: `{"to_agent_id":"agt_2","amount_ulxc":1}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/approve", body: `{}`},

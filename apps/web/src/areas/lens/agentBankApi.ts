@@ -316,6 +316,9 @@ export interface AgentCard {
   currency: string
   livemode: boolean
   created_at: string
+  /** B28.360 — frozen: Lens declines every purchase on it until it is unfrozen */
+  frozen?: boolean
+  frozen_at?: string
 }
 
 /** Lens economy.CardAuthorizationRecord: one purchase on the card, approved or declined by the agent's rules. */
@@ -476,6 +479,9 @@ export const agentBankApi = {
     }
   },
   issueCard: (id: string, holder: Cardholder) => send<AgentCard>('POST', `/api/agents/${e(id)}/card`, holder),
+  /** B28.360 — every purchase on the agent's card refused until it is unfrozen; Lens answers the card. */
+  freezeCard: (id: string) => send<AgentCard>('POST', `/api/agents/${e(id)}/card/freeze`),
+  unfreezeCard: (id: string) => send<AgentCard>('POST', `/api/agents/${e(id)}/card/unfreeze`),
   /** B28.21 — renames the agent and/or sets what it is for; Lens answers the agent. */
   update: (id: string, change: { name?: string; description?: string }) => send<Agent>('PATCH', `/api/agents/${e(id)}`, change),
   /** B28.21 — retires the agent: its balance back to the workspace, its keys revoked, its top-up and schedules stopped. */

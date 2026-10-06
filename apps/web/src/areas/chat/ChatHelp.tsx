@@ -91,6 +91,23 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    // B28.360 — CardFreeze.tsx reads the command; Lens refuses every purchase on a frozen card.
+    heading: 'Freezing an agent’s card',
+    body: (
+      <>
+        <p>
+          Type <span className="font-mono">/freeze</span> and the agent&rsquo;s name — for example{' '}
+          <span className="font-mono">/freeze Researcher</span> — and a card opens with the agent&rsquo;s card. Freeze it and
+          every purchase on it is refused: nothing leaves the agent&rsquo;s wallet.
+        </p>
+        <p>
+          <span className="font-mono">/unfreeze Researcher</span> lets purchases through again, each judged by the
+          agent&rsquo;s rules as before. Agent Wallets shows the card as frozen while it is.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'Models',
     body: (
       <>

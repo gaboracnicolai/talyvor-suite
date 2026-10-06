@@ -12,7 +12,7 @@ import { type Agent, type AgentCard, type CardAuthorization, type Cardholder, ag
 // from pounds at the day's European Central Bank reference rate. This shows the card and each purchase
 // with Lens's own reason and the rate; issuing one asks for the cardholder Stripe needs.
 
-const cardKey = (id: string) => ['agent-card', id]
+export const cardKey = (id: string) => ['agent-card', id]
 
 /** An amount in a currency's minor units, as money: 150 gbp → £1.50. */
 export function moneyText(minor: number, currency: string): string {
@@ -39,6 +39,7 @@ function CardFace({ card }: { card: AgentCard }) {
         expires {String(card.exp_month).padStart(2, '0')}/{String(card.exp_year).slice(-2)} · {card.currency.toUpperCase()}
       </span>
       {card.livemode ? null : <Pill status="held">Test mode</Pill>}
+      {card.frozen ? <Pill status="slashed">Frozen</Pill> : null}
     </div>
   )
 }
