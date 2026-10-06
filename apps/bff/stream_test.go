@@ -834,10 +834,13 @@ func TestStream_DocumentConversionOptInReachesLensAndItsAnswerReachesTheChat(t *
 }
 
 // B15.6 — Regenerate's bypass reaches Lens (and nothing else does), and the headers that say where an
-// answer came from reach the chat.
+// answer came from reach the chat. B28.358 — so do what a replay saved and what Tare saved.
 func TestStream_RegenerateBypassReachesLensAndTheAnswerSourceReachesTheChat(t *testing.T) {
 	source := map[string]string{
 		"X-Talyvor-Cache-Replay":       "true",
+		"X-Talyvor-Cache-Saved-ULXC":   "2170",
+		"X-Talyvor-Tare":               "applied",
+		"X-Talyvor-Tare-Tokens-Saved":  "412",
 		"X-Talyvor-Pool-List-ULXC":     "2170",
 		"X-Talyvor-Pool-Charged-ULXC":  "1519",
 		"X-Talyvor-Pool-Saved-ULXC":    "651",

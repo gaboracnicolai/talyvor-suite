@@ -314,6 +314,11 @@ func (a *app) handleAIStream() http.HandlerFunc {
 				w.Header().Set(h, v)
 			}
 		}
+		for _, h := range tareHeaders {
+			if v := resp.Header.Get(h); v != "" {
+				w.Header().Set(h, v)
+			}
+		}
 		// B15.6 — where the answer came from: Lens replays a cached answer (own, free) and states a
 		// pooled one's list price, charge, saving and discount. The chat's footer reads them.
 		for _, h := range answerSourceHeaders {
@@ -351,6 +356,10 @@ const distillHeader = "X-Talyvor-Distill"
 // file — and bytes.
 var distillSavingHeaders = []string{"X-Talyvor-Distill-Tokens-Saved", "X-Talyvor-Distill-Bytes-Saved"}
 
+// tareHeaders say Lens trimmed the question with Tare before the model read it (`applied`), and the
+// tokens that saved (talyvor-lens B28.95). B28.358 — Chat's "Saved in this chat" adds them up.
+var tareHeaders = []string{"X-Talyvor-Tare", "X-Talyvor-Tare-Tokens-Saved"}
+
 // paidByHeader names the agent whose wallet pays for a Chat request (B28.354). On the request it is the
 // agent the conversation chose; on Lens's answer it is the agent Lens billed, absent when the workspace paid.
 const paidByHeader = "X-Talyvor-Paid-By"
@@ -384,9 +393,11 @@ func (a *app) keepsNothing(ctx context.Context, t tenant) bool {
 // answerSourceHeaders are the response headers that say where an answer came from: a replay of a
 // cached answer, a pooled serve's price in µLXC (talyvor-lens internal/proxy setSavingHeaders), and
 // B27.27 — an answer sent on the workspace's own provider key and charged no tokens (X-Talyvor-BYOK).
+// B28.358 — and what a replay saved, in µLXC (talyvor-lens B28.95).
 var answerSourceHeaders = []string{
 	"X-Talyvor-BYOK",
 	"X-Talyvor-Cache-Replay",
+	"X-Talyvor-Cache-Saved-ULXC",
 	"X-Talyvor-Pool-List-ULXC",
 	"X-Talyvor-Pool-Charged-ULXC",
 	"X-Talyvor-Pool-Saved-ULXC",

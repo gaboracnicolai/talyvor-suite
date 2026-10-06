@@ -15,6 +15,7 @@ import {
   type PickerCatalog,
   type Refusal,
   type SpendLine,
+  type TareSaved,
   askChat,
   fetchChatTools,
   fetchModels,
@@ -40,6 +41,7 @@ import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './Rule
 import { ForecastCard, isRunOutQuestion } from './ForecastQuestion'
 import { LiveStatement } from './LiveStatement'
 import { MoneyCards } from './MoneyCards'
+import { ChatSavings } from './Savings'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
@@ -320,6 +322,7 @@ export function Chat() {
       let cost: AnswerCost | undefined
       let source: AnswerSource | undefined
       let saved: DistillSaved | undefined
+      let tare: TareSaved | undefined
       let requestId: string | undefined
       let incomplete: ChatMessage['incomplete']
       let spend: SpendLine[] | undefined
@@ -352,7 +355,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -364,6 +367,16 @@ export function Chat() {
                 const next = [...prev]
                 const last = next[next.length - 1]
                 if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, saved: conversion }
+                return next
+              })
+            }
+            // B28.358 — Tare trimmed the question: kept on the answer, so the conversation's savings count it.
+            if (trimmed !== undefined) {
+              tare = trimmed
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, tare: trimmed }
                 return next
               })
             }
@@ -379,7 +392,7 @@ export function Chat() {
               setMessages((prev) => {
                 const next = [...prev]
                 const last = next[next.length - 1]
-                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved, requests: took }
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved, tare, requests: took }
                 return next
               })
             }
@@ -443,7 +456,7 @@ export function Chat() {
           list,
           id,
           model,
-          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, request_id: requestId, incomplete, spend, requests, payer: answerPayer }],
+          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer }],
           Date.now(),
           payer,
         ),
@@ -858,10 +871,13 @@ export function Chat() {
 
       {statementBeside ? (
         <aside aria-label="Statement" className="sticky top-12 flex h-below-header w-80 shrink-0 flex-col border-l border-rule bg-sidebar">
+          {/* B28.358 — what the cache, the shared pool, conversion and Tare saved in this conversation. */}
+          <ChatSavings messages={messages} />
           <LiveStatement follow={paidBy} />
         </aside>
       ) : statementOpen ? (
         <Drawer side="right" label="Statement" onClose={closeStatement}>
+          <ChatSavings messages={messages} />
           <LiveStatement follow={paidBy} />
         </Drawer>
       ) : null}

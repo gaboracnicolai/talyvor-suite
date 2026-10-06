@@ -28,6 +28,7 @@
 //   roi-brand   — the ROI report wears the old navy and Inter, loads a font from another host, loses its
 //                 mark and prints on a dark canvas (B29.29)
 //   seats-allows — a plan's seat refusal names no plan that would allow the member (B32.71)
+//   savings     — a replay does not say what it saved, as Lens before B28.95 (B28.358)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -450,9 +451,13 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const own = personal || tooled ? undefined : ws.answers.get(key)
   const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) : undefined
   const inTok = tokens(messages.map(text).join(' ')) + 8
+  // B28.358 — what an answer costs at list price, which a replay saves whole and a pooled serve in part.
+  const listULXC = (out: string) => Math.ceil(((inTok * model.input_per_1m + tokens(out) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
   if (!bypass && own !== undefined) {
     answer = own
     headers['X-Talyvor-Cache-Replay'] = 'true'
+    // talyvor-lens B28.95 — and says what the replay saved.
+    if (BREAK !== 'savings') headers['X-Talyvor-Cache-Saved-ULXC'] = String(listULXC(answer))
     ws.usage.hits++
   } else if (!bypass && shared !== undefined && shared.owner !== ws.id) {
     answer = shared.answer
@@ -463,6 +468,9 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       charge = Math.round(((inTok * model.input_per_1m + tokens(answer) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6 * 0.7)
       headers['X-Talyvor-Pool-Discount-Rate'] = '0.3'
       headers['X-Talyvor-Pool-Charged-ULXC'] = String(charge)
+      const list = Math.max(listULXC(answer), charge)
+      headers['X-Talyvor-Pool-List-ULXC'] = String(list)
+      headers['X-Talyvor-Pool-Saved-ULXC'] = String(list - charge)
       fee = book(ws, -charge, 'spend', 'pooled answer')
       // The contributor's royalty, held (Lens poolroyalty: minted between two synthetic workspaces since B25.2).
       const owner = workspaces.get(shared.owner)

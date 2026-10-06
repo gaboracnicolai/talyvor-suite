@@ -139,6 +139,7 @@ spent before it stopped. A run that stopped early exits 1.
 | `capital` | everyone | a capital from a fixed table |
 | `every-model` | user 0 | every model the picker offers answers a question of this run's own (one an earlier run asked is served from the pool); its footer shows the price the catalog gives for its token counts |
 | `repeat-new-chat` | 1 in 10 | an exact repeat in a new chat shows "from your earlier answer · 0 LXC" and the same text; Regenerate is priced; the judge agrees the two answers match |
+| `chat-savings` | 1 in 10 | a question of the run's own, repeated in a new chat, is served from the earlier answer; each row of "Saved in this chat" (cache, shared pool, conversion, Tare) equals the sum of its response header on that chat's answers, and the repeat says what it saved (B28.95) |
 | `one-digit-trap` | 1 in 10 | identical history, then a one-digit change: the change is asked, never served, and answered right |
 | `rephrase-same-account` | 1 in 10 | a rephrasing is answered right; if it was served, the judge agrees with a fresh answer |
 | `across-accounts` | 1 in 10 | another account asks the same question: never "your earlier answer"; if shared, at 30% off |
