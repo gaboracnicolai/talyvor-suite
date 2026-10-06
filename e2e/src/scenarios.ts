@@ -25,6 +25,7 @@ import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
+import { seatsFree, seatsTeam } from './seats.ts'
 
 export interface Evidence {
   note?: string
@@ -2069,5 +2070,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // allowance, which the ledger read-back does not expect.
   if (i % 10 === 7 && i + 2 < users) list.push(pooledServePaysRoyalty(i, i + 2))
   if (i % 10 === 6) list.push(planOnTestCard(i), planCancelResume())
+  // B32.71 — a Free workspace's second member, refused in Lens's words; then, once a run, the same workspace on
+  // Team takes its fifth and is refused its sixth. Team comes last, on a user nobody else asks as (4, 14, …).
+  if (i % 10 === 4) list.push(seatsFree(i))
+  if (i % 100 === 4) list.push(seatsTeam(i))
   return list
 }

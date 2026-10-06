@@ -429,6 +429,25 @@ export async function subscribeWithTestCard(app: AppUser, plan: string, email: s
   }
 }
 
+/**
+ * B32.71 — pays a checkout Lens opened itself (POST …/billing/subscribe) with test card 4242 and follows Stripe
+ * back to the app, for a plan Plans offers no button for yet.
+ */
+export async function payCheckout(app: AppUser, url: string, email: string): Promise<Subscribed> {
+  const page = await app.tab('/billing')
+  try {
+    const appOrigin = new URL(page.url()).origin
+    await page.goto(url)
+    const checkout = new URL(page.url()).host
+    await payWithTestCard(page, email)
+    const back = await page.waitForURL((u) => u.origin === appOrigin, { timeout: CHECKOUT_TIMEOUT_MS }).then(() => true, () => false)
+    if (!back) return { checkout, refused: `paid on ${checkout} and Stripe never sent the browser back: ${(await page.locator('body').innerText()).slice(0, 200)}` }
+    return { checkout }
+  } finally {
+    await page.close()
+  }
+}
+
 // ─── B26.17 — cancelling and resuming the plan on Billing ──────────────────────────────────────────
 
 const CANCEL = 'Cancel at the end of this period'

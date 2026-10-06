@@ -8,6 +8,7 @@
 //   track-ai     — Track names no duplicate, however alike two issues are
 //   export       — a list read of 250 issues (the export's page size) leaves the oldest one out
 //   docs-export  — a Docs page's HTML export is set in Inter, its links in #f0a030
+//   seats        — Track adds a member without asking Lens whether the plan has a seat for them (B32.71)
 
 import { randomBytes } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
@@ -16,6 +17,9 @@ const TRACK_PORT = Number(process.env.TRACK_PORT ?? 9912)
 const DOCS_PORT = Number(process.env.DOCS_PORT ?? 9913)
 const SECRET = process.env.GATEWAY_SECRET ?? 'selftest-gateway'
 const BREAK = process.env.STUB_BREAK ?? ''
+/** B32.71 — the stub Lens, which Track asks about a plan's seats (B32.73), and the stand-in for the credential it mints. */
+const LENS_URL = process.env.LENS_URL ?? 'http://127.0.0.1:9911'
+const LENS_KEY = process.env.LENS_SYNTHETIC_KEY ?? 'selftest-key'
 
 const id = (): string => randomBytes(8).toString('hex')
 const now = (): string => new Date().toISOString()
@@ -73,6 +77,45 @@ const issues: Issue[] = []
 const comments: Comment[] = []
 const TEAM = { id: 'team-eng', identifier: 'ENG', name: 'Engineering' }
 
+/** Track's memberView. A workspace's roster starts as the identity that bootstrapped it, its owner. */
+interface Member { id: string; name: string; email: string; role: 'owner' | 'member'; avatar_url: string }
+const rosters = new Map<string, Member[]>()
+function rosterOf(ws: string): Member[] {
+  let roster = rosters.get(ws)
+  if (roster === undefined) {
+    const owner = [...byEmail].find(([, w]) => w === ws)?.[0] ?? ''
+    roster = [{ id: id(), name: owner, email: owner, role: 'owner', avatar_url: '' }]
+    rosters.set(ws, roster)
+  }
+  return roster
+}
+
+/**
+ * B32.71 — POST /v1/workspaces/{ws}/members as Track answers it (internal/member/mgmt_handler.go Add): before
+ * the add, Lens is asked whether the plan of the Lens workspace the BFF names (X-Lens-Workspace) has a seat for
+ * one more; its 402 is relayed in its own words, and a check that cannot be made refuses as unchecked.
+ */
+async function addMember(req: IncomingMessage, res: ServerResponse, ws: string): Promise<void> {
+  const { email = '', role = 'member' } = await body<{ email?: string; role?: string }>(req)
+  if (email === '') return json(res, 400, { error: 'email is required', code: 'BAD_PARAMS' })
+  const roster = rosterOf(ws)
+  if (roster.some((m) => m.email === email)) return json(res, 409, { error: 'member already exists', code: 'MEMBER_EXISTS' })
+  if (BREAK !== 'seats') {
+    const lensWS = String(req.headers['x-lens-workspace'] ?? '')
+    if (lensWS === '') return json(res, 503, { error: 'lens: seats check: no Lens workspace on the request (X-Lens-Workspace)', code: 'SEATS_UNCHECKED' })
+    const asked = await fetch(`${LENS_URL}/v1/workspaces/${encodeURIComponent(lensWS)}/plan/seats?members=${roster.length + 1}`,
+      { headers: { 'X-Talyvor-Synthetic-Key': LENS_KEY } })
+    if (asked.status === 402) {
+      const r = (await asked.json()) as { error: string; plan: string; limit: number; allows?: string }
+      return json(res, 402, { error: r.error, code: 'PLAN_SEATS', plan: r.plan, limit: r.limit, allows: r.allows })
+    }
+    if (asked.status !== 200) return json(res, 503, { error: `lens: seats check: Lens answered ${asked.status}`, code: 'SEATS_UNCHECKED' })
+  }
+  const m: Member = { id: id(), name: email, email, role: role === 'owner' ? 'owner' : 'member', avatar_url: '' }
+  roster.push(m)
+  return json(res, 201, m)
+}
+
 serve(TRACK_PORT, 'track', async (req, res, path, url) => {
   if (path === '/v1/workspaces') {
     const ws = byEmail.get(String(req.headers['x-user-email'] ?? ''))
@@ -83,7 +126,9 @@ serve(TRACK_PORT, 'track', async (req, res, path, url) => {
   const [, ws, rest] = m
   const mine = issues.filter((i) => i.workspace === ws)
   if (rest === '/teams') return json(res, 200, [TEAM])
-  if (rest === '/members' || rest === '/projects') return json(res, 200, [])
+  if (rest === '/members' && req.method === 'POST') return await addMember(req, res, ws)
+  if (rest === '/members') return json(res, 200, rosterOf(ws))
+  if (rest === '/projects') return json(res, 200, [])
   if (rest === '/issues' && req.method === 'POST') {
     const { title = '' } = await body<{ title?: string }>(req)
     if (title.trim() === '') return json(res, 400, { error: 'title required' })

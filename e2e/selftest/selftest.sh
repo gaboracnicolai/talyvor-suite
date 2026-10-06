@@ -35,7 +35,7 @@ tmp=$(mktemp -d)
 
 STUB_PORT=$stub_port STUB_APP_URL="http://localhost:$bff_port" LENS_SYNTHETIC_KEY=$key STUB_MODERATOR_KEY=$moderator node --experimental-strip-types --no-warnings "$here/stub-lens.ts" >"$tmp/stub.log" 2>&1 &
 stub=$!
-TRACK_PORT=$track_port DOCS_PORT=$docs_port GATEWAY_SECRET=$gateway node --experimental-strip-types --no-warnings "$here/stub-products.ts" &
+TRACK_PORT=$track_port DOCS_PORT=$docs_port GATEWAY_SECRET=$gateway LENS_URL="http://127.0.0.1:$stub_port" LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/stub-products.ts" &
 products=$!
 sleep 1
 env -i PATH="$PATH" HOME="$HOME" \
