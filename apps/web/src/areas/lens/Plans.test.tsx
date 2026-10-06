@@ -139,3 +139,70 @@ describe('the plan checkout’s return (B13.3)', () => {
     expect(window.sessionStorage.getItem(PENDING_PLAN_KEY)).toBeNull()
   })
 })
+
+describe('/plans reads the approved price card (B32.14)', () => {
+  it('shows changed amounts, gates and fees exactly as /api/pricing serves them, and Team’s checkout', async () => {
+    const GATE = { live_money: true, slack_teams_approvals: true, sso: true, audit_export: true, edge: false }
+    const changed = {
+      ...PRICING,
+      plans: [{ id: 'plus', usd_cents: 2300, included_ulxc: 150_000_000 }],
+      company_plans: [
+        { id: 'team', usd_cents: 6100 },
+        { id: 'business', usd_cents: 31900 },
+      ],
+      byok_add_on_usd_cents: 21100,
+      enterprise_from_usd_cents: 270000,
+      plan_gates: {
+        order: ['free', 'team', 'business', 'enterprise'],
+        plans: {
+          free: { ...GATE, agents: 3, seats: 1, own_provider_keys: 'none', live_money: false },
+          team: { ...GATE, agents: 30, seats: 7, own_provider_keys: 'add_on', sso: false, audit_export: false },
+          business: { ...GATE, agents: -1, seats: 40, own_provider_keys: 'included' },
+          enterprise: { ...GATE, agents: -1, seats: -1, own_provider_keys: 'included', edge: true },
+        },
+      },
+      fees: {
+        market_take_bps: 1500,
+        services_take_bps: 500,
+        compute_take_bps: 500,
+        lending_fee_bps: 100,
+        platform_fee_bps: { free: 550, team: 275, business: 90, enterprise: 100 },
+        fx_margin_bps: { free: 0, team: 45, business: 20, enterprise: 15 },
+        intl_payment_fee_minor: { GBP: 500, EUR: 600, USD: 700 },
+        merchant_fee_bps: 75,
+        merchant_a2a_fee_bps: 100,
+      },
+    }
+    const posts: string[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (init?.method === 'POST') posts.push(`${url} ${String(init.body)}`)
+      if (url === '/api/billing/allowance') return json({ capability: 'subscriptions', enabled: true, data: UNSUBSCRIBED })
+      if (url === '/api/billing/subscribe') return json({ url: 'https://checkout.stripe.com/c/pay/cs_test_team' })
+      if (url === '/api/pricing') return json(changed)
+      return new Response('null', { status: 404 })
+    })
+    const redirect = vi.fn()
+    renderIn(<Plans redirect={redirect} />)
+
+    const team = await screen.findByTestId('company-plan-team')
+    expect(team).toHaveTextContent('$61a month')
+    expect(team).toHaveTextContent('Agents30')
+    expect(team).toHaveTextContent('Seats7')
+    expect(team).toHaveTextContent('Platform fee on AI spend2.75%')
+    expect(team).toHaveTextContent('Own provider keys$211 add-on')
+    expect(team).toHaveTextContent('FX margin over the reference rate0.45%')
+    const business = screen.getByTestId('company-plan-business')
+    expect(business).toHaveTextContent('$319a month')
+    expect(business).toHaveTextContent('Seats40')
+    expect(business).toHaveTextContent('SSO and audit exportIncluded')
+    expect(screen.getByTestId('company-plan-enterprise')).toHaveTextContent('From$2,700a month')
+    expect(screen.getByTestId('plan-price-byok')).toHaveTextContent('$211')
+    expect(screen.getByTestId('plan-price-plus')).toHaveTextContent('$23')
+    expect(screen.getByTestId('plans-tax-line')).toHaveTextContent('Prices are in US dollars.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Business' }))
+    await waitFor(() => expect(redirect).toHaveBeenCalledWith('https://checkout.stripe.com/c/pay/cs_test_team'))
+    expect(posts).toEqual(['/api/billing/subscribe {"plan":"business"}'])
+  })
+})

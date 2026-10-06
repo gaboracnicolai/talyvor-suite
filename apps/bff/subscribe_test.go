@@ -63,3 +63,26 @@ func TestSubscribeRefusals(t *testing.T) {
 		t.Fatalf("already subscribed: got %d, want 409", rec.Code)
 	}
 }
+
+// B32.14: Team and Business start a checkout like any plan, and Team's BYOK add-on is added (POST) or
+// removed (DELETE) on the SESSION's workspace's subscription.
+func TestSubscribeTeamAndTheBYOKAddon(t *testing.T) {
+	up := newCheckoutUpstream(t)
+	a, sess := checkoutApp(t, up)
+
+	for _, plan := range []string{"team", "business"} {
+		if rec := postSubscribe(a, sess, `{"plan":"`+plan+`"}`); rec.Code != http.StatusOK || !strings.Contains(up.gotBody, plan) {
+			t.Fatalf("%s: got %d, upstream body %s — want 200 and the plan sent to Lens", plan, rec.Code, up.gotBody)
+		}
+	}
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(method, "/api/billing/subscription/byok", nil)
+		req.Header.Set("Origin", "https://app.talyvor.com")
+		req.AddCookie(sess)
+		a.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || up.gotMethod != method || up.gotPath != "/v1/workspaces/u-test-workspace/billing/subscription/byok" {
+			t.Fatalf("%s add-on: got %d, upstream %s %s — want 200 and the session's workspace", method, rec.Code, up.gotMethod, up.gotPath)
+		}
+	}
+}

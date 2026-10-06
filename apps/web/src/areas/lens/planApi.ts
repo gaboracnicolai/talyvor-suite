@@ -38,8 +38,11 @@ export interface SubscriptionStatus {
   /** Cancelled at the end of the period already paid for: it will not renew. */
   cancel_at_period_end: boolean
   livemode: boolean
-  /** B27.27 — the BYOK plan (Lens B27.26): own provider keys, no tokens charged, no included usage. */
+  /** B27.27 — the BYOK plan (Lens B27.26): own provider keys, no tokens charged, no included usage. B32.14 —
+   *  also true on Team with its BYOK add-on, and on Business, which includes it. */
   byok?: boolean
+  /** B32.14 — the plan Lens bills (B32.10): free, plus, pro, max, byok, team, business or enterprise. */
+  plan?: string
 }
 
 /** A cancel or resume Lens refused, with the sentence it gave. */
@@ -73,6 +76,8 @@ async function subscriptionAnswer(res: Response, path: string): Promise<Subscrip
   return body
 }
 
+const BYOK_ADDON_PATH = '/api/billing/subscription/byok'
+
 export const planApi = {
   allowance: (): Promise<Capability<PlanSummary>> =>
     getCapability<PlanSummary>('/api/billing/allowance', { earned_ulens: 'number', earned_usd_cents: 'number' }),
@@ -82,44 +87,45 @@ export const planApi = {
   cancel: () => changeSubscription('/api/billing/subscription/cancel'),
   resume: () => changeSubscription('/api/billing/subscription/resume'),
   changePlan,
+  /** B32.14 — add or remove BYOK, Team's add-on (Lens B32.10), billed by Stripe from the next invoice. */
+  setBYOKAddon: async (on: boolean): Promise<SubscriptionStatus> =>
+    subscriptionAnswer(
+      await fetch(BYOK_ADDON_PATH, { method: on ? 'POST' : 'DELETE', headers: { Accept: 'application/json' } }),
+      BYOK_ADDON_PATH,
+    ),
 }
 
-/* ── B13.3 — the three plans, and starting one ─────────────────────────────── */
+/* ── B13.3 — the plans, and starting one ─────────────────────────────── */
 
-export type PlanId = 'plus' | 'pro' | 'max' | 'byok'
+export type PlanId = 'plus' | 'pro' | 'max' | 'byok' | 'team' | 'business'
 
+/**
+ * A plan as /plans sells it: its id and its name. B32.14 — never its price: every figure about a plan is read
+ * from Lens through GET /api/pricing (marketing/pricingApi.ts), so no price is typed in this repo.
+ */
 export interface PlanOffer {
   id: PlanId
   name: string
-  /** The Stripe TEST price Lens sells it at (talyvor-lens #548). */
-  usd_cents: number
-  /** How much usage it includes, relative to Plus — Lens computes each from the price. */
-  usage: string
 }
 
-/**
- * The plans differ in included usage, never in features: every model from every provider on each.
- * Lens computes each plan's included usage from its price (B13.1), so Pro's is just over 5× Plus's
- * and Max's just over 10×.
- */
+/** The chat plans for individuals. They differ in included usage, never in features. */
 export const PLANS: readonly PlanOffer[] = [
-  { id: 'plus', name: 'Plus', usd_cents: 2000, usage: 'Included usage for everyday chat' },
-  { id: 'pro', name: 'Pro', usd_cents: 10000, usage: '5× the included usage of Plus' },
-  { id: 'max', name: 'Max', usd_cents: 20000, usage: '10× the included usage of Plus' },
+  { id: 'plus', name: 'Plus' },
+  { id: 'pro', name: 'Pro' },
+  { id: 'max', name: 'Max' },
+]
+
+/** B32.14 — the company plans a checkout sells (Lens B32.10). Enterprise is contracted, never a checkout. */
+export const COMPANY_PLANS: readonly PlanOffer[] = [
+  { id: 'team', name: 'Team' },
+  { id: 'business', name: 'Business' },
 ]
 
 /**
- * B27.27 — BYOK, the one subscription tier that is not usage (Lens B27.26): the workspace brings its own
- * provider keys and pays $199 a month (Nicolai's decision of 4 Oct 2026, Stripe TEST price
- * talyvor_byok_monthly) instead of tokens. It grants no included usage, so it has no allowance and is
- * read from the subscription (`byok`), never from a fee.
+ * B27.27 — BYOK (Lens B27.26): own provider keys instead of tokens. B32.14 — sold as Team's add-on and included in
+ * Business (Lens B32.10); a workspace that bought it alone before then keeps it.
  */
-export const BYOK: PlanOffer = {
-  id: 'byok',
-  name: 'BYOK',
-  usd_cents: 19900,
-  usage: 'No included usage — your provider bills your tokens',
-}
+export const BYOK: PlanOffer = { id: 'byok', name: 'BYOK' }
 
 /** The providers a BYOK key can be added for (talyvor-lens internal/byok.Providers), as they are named. */
 export const BYOK_PROVIDERS: Record<string, string> = {
@@ -130,9 +136,13 @@ export const BYOK_PROVIDERS: Record<string, string> = {
   openai: 'OpenAI',
 }
 
-/** The plan a period's fee is the price of, or null when the fee matches none of them. */
-export function planForFee(feeUSDCents: number): PlanOffer | null {
-  return PLANS.find((p) => p.usd_cents === feeUSDCents) ?? null
+/** The chat plan a period's fee is the price of, as Lens states the prices, or null when it matches none. */
+export function planForFee(
+  feeUSDCents: number,
+  priced: readonly { id: string; usd_cents: number }[] | undefined,
+): PlanOffer | null {
+  const id = priced?.find((p) => p.usd_cents === feeUSDCents)?.id
+  return PLANS.find((p) => p.id === id) ?? null
 }
 
 /** Whole percent of the period's included usage used, 0–100. */
@@ -182,7 +192,7 @@ export function readPendingPlan(now: number = Date.now()): { plan: PlanOffer; at
     if (!raw) return null
     const p = JSON.parse(raw) as { plan?: string; at?: number }
     if (typeof p.at !== 'number' || now - p.at > PENDING_PLAN_MAX_AGE_MS) return null
-    const plan = [...PLANS, BYOK].find((o) => o.id === p.plan)
+    const plan = [...PLANS, ...COMPANY_PLANS, BYOK].find((o) => o.id === p.plan)
     return plan ? { plan, at: p.at } : null
   } catch {
     return null

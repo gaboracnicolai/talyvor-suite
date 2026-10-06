@@ -413,9 +413,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE EIGHTY-SECOND IS B28.31'S RULES ROLLBACK, POST only: /api/agents/{id}/rules/rollback. It writes an earlier
 	// version of the agent's rules back and answers the rules now in force, which GET /api/agents/{id}/rules and
 	// GET /api/agents/{id}/rules/history already show the sweep.
-	if len(methodOnly) > 82 {
+	//
+	// THE EIGHTY-THIRD IS B32.14'S BYOK ADD-ON, POST and DELETE only: /api/billing/subscription/byok. It adds or
+	// removes Team's BYOK add-on and relays Lens's subscription state, which GET /api/billing/subscription already
+	// shows the sweep.
+	if len(methodOnly) > 83 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 82 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 83 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

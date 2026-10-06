@@ -199,6 +199,9 @@ const FORMATTERS: Record<string, true | string> = {
   // B5.2. The peg on /pricing — `1 LXC = $0.10`, the one price a buyer reads before signing up. A
   // figure by the same rule as the buy buttons; it renders through Landing's <Figure>.
   'apps/web/src/areas/marketing/pricingApi.ts#formatPeg': true,
+  'apps/web/src/areas/marketing/pricingApi.ts#formatBPS': true,
+  'apps/web/src/areas/marketing/pricingApi.ts#formatMinor': true,
+  'apps/web/src/areas/marketing/pricingApi.ts#formatLimit': true,
   // Was `formatUSD` here — "A FIGURE BY ITS OUTPUT, AND NOTHING RENDERS IT … classified honestly
   // and enforced by nothing". That is now resolved rather than described: the dead export is
   // deleted and this is the rule IssueDetail.tsx actually renders (it was the local `costLabel`).

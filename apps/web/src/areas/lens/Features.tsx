@@ -11,9 +11,8 @@ import { BOOK_KEY } from './AgentBank'
 import { type AgentBook, agentBankApi, formatULXC } from './agentBankApi'
 import { StoredAnswers } from './StoredAnswers'
 import { usePendingApprovals } from './WalletScreens'
-import { BYOK, BYOK_PROVIDERS } from './planApi'
+import { BYOK_PROVIDERS } from './planApi'
 import { PROVIDER_KEYS_KEY, providerKeysApi } from './providerKeysApi'
-import { formatCents } from './topupApi'
 
 // Features.tsx — B8.2, rebuilt at B11.2 from docs/features-inventory.md: every capability, grouped
 // by product, each saying what it does, where it works (with a link to that screen), and the
@@ -987,7 +986,7 @@ export function Features() {
           <Feature
             id="byok"
             name="Bring your own keys (BYOK)"
-            does={`On the BYOK plan, ${formatCents(BYOK.usd_cents)} a month, this workspace stores its own API keys for OpenAI, Anthropic, Google, Mistral and Groq. A request to one of those providers goes upstream on your key and Talyvor charges it no tokens — your provider bills you. Keys are encrypted at rest, sent only to their own provider, and only their last four characters are ever shown.`}
+            does={`With BYOK — Team's add-on, included in Business — this workspace stores its own API keys for OpenAI, Anthropic, Google, Mistral and Groq. A request to one of those providers goes upstream on your key and Talyvor charges it no tokens — your provider bills you. Keys are encrypted at rest, sent only to their own provider, and only their last four characters are ever shown.`}
             where={
               <>
                 Chat and every API request to a provider you hold a key for; a provider you hold none for runs on

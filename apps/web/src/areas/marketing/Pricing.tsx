@@ -1,6 +1,5 @@
 import { Button, Mark, ThemeToggle, Wordmark, focusRing, inlineLink } from '@talyvor/ui'
 import { useDocumentTitle } from '../../documentTitle'
-import { BYOK, BYOK_PROVIDERS, PLANS, type PlanOffer } from '../lens/planApi'
 import { formatCents, formatLXC, lxcForCents } from '../lens/topupApi'
 import { Eyebrow, Figure, TealRule } from './Landing'
 import {
@@ -11,6 +10,7 @@ import {
   type PricingState,
 } from './pricingApi'
 import { CompanyLine } from '../../components/CompanyLine'
+import { CompanyPlans, FeesOnAnyPlan, IndividualPlans, TAX_LINE } from './PriceCard'
 
 // /pricing (B5.2) — what anything costs, for a buyer who has not signed up. Public, OUTSIDE the
 // AuthGate like /marketing, and built the same way: no router context, plain anchors, Landing's
@@ -28,16 +28,17 @@ import { CompanyLine } from '../../components/CompanyLine'
 // "No subscription REQUIRED", not "no subscription": a deployment may also sell a plan (B1.5), but
 // nothing needs one — prepaid credits alone run every request.
 //
-// B28.4 — credit for agents, plans for people, BYOK, and the Marketplace bill, each listed once. The
-// plan and BYOK prices are planApi.ts's PLANS and BYOK, the same objects the signed-in /plans screen
-// sells from, so this page cannot quote a price that screen does not charge. Pooling is one line
+// B28.4 — credit for agents, the plans, and the Marketplace bill, each listed once. Pooling is one line
 // under what a request costs: a saving, not the price.
 //
-// B29.5 — the brand board's look, copy and figures unchanged: an eyebrow over every section and a
-// teal rule under its headline (Landing's pieces), every card a raised panel with a 1px line border,
-// every price in IBM Plex Mono with tabular figures, one teal button on each plan card, and Pro
-// outlined in accent. Nothing here says "most popular": no figure measures it, so only the outline
-// marks it.
+// B29.5 — the brand board's look: an eyebrow over every section and a teal rule under its headline
+// (Landing's pieces), every card a raised panel with a 1px line border, every price in IBM Plex Mono
+// with tabular figures, one teal button on each plan card, and Pro outlined in accent. Nothing here
+// says "most popular": no figure measures it, so only the outline marks it.
+//
+// B32.14 — the plans section is the approved price card (PriceCard.tsx): for companies, for individuals,
+// and the fees on any plan, every figure from GET /api/pricing — the same read /plans sells from, so this
+// page cannot quote a price that screen does not charge.
 
 /** An illustrative "any amount" top-up, shown beside the presets only when the served range
  *  admits it. It is an AMOUNT, not a price — what it buys is computed from the served peg. */
@@ -118,63 +119,18 @@ function TopUps({ pricing }: { pricing: PricingData }) {
   )
 }
 
-/** The plan outlined in accent. The board marks one; nothing measures which plan sells most, so
- *  the outline is the only mark — no "most popular" claim is printed. */
-const OUTLINED_PLAN = 'pro'
-
-/** One priced offer — a plan or BYOK — with what it includes, on a raised panel with its one teal
- *  button. Name and price come from planApi.ts. The button opens /plans, where a plan is chosen;
- *  a visitor with no session meets sign-in there first and returns to it. */
-function Offer({ plan, title, points }: { plan: PlanOffer; title?: string; points: string[] }) {
-  const outlined = plan.id === OUTLINED_PLAN
-  return (
-    <div
-      data-testid="pricing-plan"
-      data-outlined={outlined ? 'true' : undefined}
-      className={`flex flex-col gap-3 rounded-card border bg-raised p-6 ${outlined ? 'border-accent' : 'border-rule'}`}
-    >
-      <p className="text-head text-ink">
-        <span data-testid="pricing-plan-name">{plan.name}</span>
-        {title ? ` — ${title}` : ''}
-      </p>
-      <p className="flex items-baseline gap-2">
-        <span data-testid="pricing-plan-price" className="font-figure text-figure text-ink">
-          {formatCents(plan.usd_cents)}
-        </span>
-        <span className="text-body text-muted">a month</span>
-      </p>
-      <ul className="flex list-disc flex-col gap-1 pl-5 text-body text-muted">
-        {points.map((p) => (
-          <li key={p}>{p}</li>
-        ))}
-      </ul>
-      <div className="mt-auto pt-3">
-        <Button asChild variant="primary" className="h-10 px-5">
-          <a href="/plans">Choose {plan.name}</a>
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/** "Anthropic, Google, Groq, Mistral and OpenAI" — the providers a BYOK key can be added for. */
-function providerList(): string {
-  const names = Object.values(BYOK_PROVIDERS)
-  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names.join('')
-}
-
 const NOT_CHARGED: Array<{ title: string; body: string }> = [
   {
     title: 'No subscription required.',
     body: 'Agents run on prepaid credit alone. A plan is for people who want usage included each month; nothing requires one.',
   },
   {
-    title: 'No seats.',
-    body: 'Everyone in a workspace draws on the same balance. Adding a member costs nothing.',
+    title: 'No per-seat price.',
+    body: 'A plan is priced per workspace, not per person. Everyone in it draws on the same balance, up to the seats the plan includes.',
   },
   {
     title: 'No minimum on prepaid credit.',
-    body: 'A balance you are not using costs nothing, and nothing is due on it until you top up again. A plan or BYOK, if you choose one, is billed every month.',
+    body: 'A balance you are not using costs nothing, and nothing is due on it until you top up again. A paid plan, if you choose one, is billed every month.',
   },
   {
     title: 'No top-up fee.',
@@ -217,8 +173,8 @@ export function Pricing() {
             </h1>
             <p className="mt-6 max-w-2xl text-lede text-muted">
               Each agent spends prepaid credit from its own wallet, at the list price of the model it
-              calls. The people who chat can add a monthly plan with usage included, or bring their own
-              provider keys. Paid Marketplace listings come on one bill a month.
+              calls. A company’s plan sets how many agents and seats it has; a person who chats can add a
+              monthly plan with usage included. Paid Marketplace listings come on one bill a month.
             </p>
             <TealRule className="mt-8" />
             <div className="mt-10">
@@ -281,35 +237,48 @@ export function Pricing() {
 
         <section aria-labelledby="plans-heading" className="border-b border-rule">
           <div className="mx-auto w-full max-w-5xl px-gutter py-16">
-            <Eyebrow index="03">Plans for people</Eyebrow>
+            <Eyebrow index="03">Plans</Eyebrow>
             <h2 id="plans-heading" className="mt-6 max-w-2xl text-display-3 text-ink">
-              Every model, on every plan.
+              A plan for every company, and for every person who chats.
             </h2>
             <TealRule className="mt-5" />
-            <p className="mt-6 max-w-2xl text-body text-muted">
-              One plan per workspace, billed monthly by card. The plans differ only in how much usage
-              is included each month; every plan reaches every model from every provider. Past it,
-              chat continues on prepaid credit — a plan never bills an overage.
+            {state.status === 'ok' ? (
+              <>
+                <h3 className="mt-10 text-head text-ink">For companies</h3>
+                <p className="mt-2 max-w-2xl text-body text-muted">
+                  One plan per workspace, billed monthly. Every plan reaches every model from every provider.
+                </p>
+                <div className="mt-6">
+                  <CompanyPlans pricing={state.pricing} />
+                </div>
+                <h3 className="mt-12 text-head text-ink">For individuals</h3>
+                <p className="mt-2 max-w-2xl text-body text-muted">
+                  The plans differ only in how much usage is included each month. Past it, chat continues on
+                  prepaid credit — a plan never bills an overage.
+                </p>
+                <div className="mt-6">
+                  <IndividualPlans pricing={state.pricing} />
+                </div>
+                <h3 className="mt-12 text-head text-ink">Fees on any plan</h3>
+                <div className="mt-4">
+                  <FeesOnAnyPlan fees={state.pricing.fees} />
+                </div>
+              </>
+            ) : state.status === 'loading' ? (
+              <p className="mt-8 text-body text-muted">Reading the price card…</p>
+            ) : (
+              <p className="mt-8 max-w-xl text-body text-muted">
+                The price card could not be read from this deployment just now, so no price is printed here.
+              </p>
+            )}
+            <p data-testid="tax-line" className="mt-10 max-w-2xl text-body text-ink">
+              {TAX_LINE}
             </p>
-            <div className="mt-8 grid gap-3 wide:grid-cols-3">
-              {PLANS.map((p) => (
-                <Offer key={p.id} plan={p} points={['Every model from every provider', p.usage]} />
-              ))}
-            </div>
-            <div className="mt-3">
-              <Offer
-                plan={BYOK}
-                title="bring your own keys"
-                points={[
-                  `Your own API keys for ${providerList()}`,
-                  'No Talyvor token charge on a request sent on your key — your provider bills you directly',
-                  `${BYOK.usage}; a provider you hold no key for runs on prepaid credit`,
-                ]}
-              />
-            </div>
-            <p className="mt-6 max-w-2xl text-body text-muted">
-              Choose one on the Plans screen once your workspace exists. A deployment that does not
-              sell plans says so there, and prepaid credit runs every request.
+            <p className="mt-3 text-caption text-label">
+              Every figure is served live, not typed into this page:{' '}
+              <a href={PRICING_PATH} className={`font-mono ${inlineLink}`}>
+                GET {PRICING_PATH}
+              </a>
             </p>
           </div>
         </section>

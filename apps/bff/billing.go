@@ -402,16 +402,16 @@ func (a *app) handleLXCCheckout(w http.ResponseWriter, r *http.Request, t tenant
 	}
 }
 
-// subscriptionPlans — the plans a subscribe may name (B13.1: Plus, Pro and Max; B27.27: BYOK).
-// Lens decides which of them this deployment actually sells; this list only stops a client from
-// sending Lens anything else.
-var subscriptionPlans = map[string]bool{"plus": true, "pro": true, "max": true, "byok": true}
+// subscriptionPlans — the plans a subscribe may name (B13.1: Plus, Pro and Max; B27.27: BYOK; B32.14:
+// Team and Business, Lens B32.10). Lens decides which of them this deployment actually sells; this list
+// only stops a client from sending Lens anything else. Enterprise is contracted, never a checkout.
+var subscriptionPlans = map[string]bool{"plus": true, "pro": true, "max": true, "byok": true, "team": true, "business": true}
 
 // switchablePlans — the plans a live subscription may move between (B18.20). Lens refuses a move to or
 // from BYOK (cancel, then subscribe), so it is not offered here either.
 var switchablePlans = map[string]bool{"plus": true, "pro": true, "max": true}
 
-// handleSubscribe (B13.3) — POST /api/billing/subscribe {"plan":"plus"|"pro"|"max"|"byok"} starts a
+// handleSubscribe (B13.3) — POST /api/billing/subscribe {"plan":"plus"|"pro"|"max"|"byok"|"team"|"business"} starts a
 // Stripe Checkout in subscription mode for the SESSION's workspace and hands back its URL.
 // Stripe sends the customer to /billing/success, the same return as a top-up.
 func (a *app) handleSubscribe(w http.ResponseWriter, r *http.Request, t tenant) {
@@ -425,7 +425,7 @@ func (a *app) handleSubscribe(w http.ResponseWriter, r *http.Request, t tenant) 
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || !subscriptionPlans[in.Plan] {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "plan must be one of plus, pro, max, byok — nothing was charged"})
+			"error": "plan must be one of plus, pro, max, byok, team, business — nothing was charged"})
 		return
 	}
 
@@ -493,6 +493,18 @@ func (a *app) handleSubscriptionChange(action string) func(http.ResponseWriter, 
 		}
 		a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/billing/subscription/"+action), nil, "")
 	}
+}
+
+// handleBYOKAddon — POST (add) and DELETE (remove) /api/billing/subscription/byok (B32.14): BYOK, Team's
+// add-on, relayed to Lens B32.10 on the session's workspace as a second item of its live Team subscription,
+// billed by Stripe from the next invoice. Lens's 409 (no live Team subscription, or already as asked) is
+// relayed with its sentence.
+func (a *app) handleBYOKAddon(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		methodNotAllowed(w, http.MethodPost+", "+http.MethodDelete)
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, r.Method, lensWorkspacePath(t, "/billing/subscription/byok"), nil, "")
 }
 
 // handlePlanChange — POST /api/billing/subscription/plan {"plan":"plus"|"pro"|"max"} (B18.20), relayed
