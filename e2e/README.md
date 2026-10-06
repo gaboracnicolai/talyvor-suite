@@ -27,6 +27,7 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--explorer-model` | `E2E_EXPLORER_MODEL` | claude-haiku-4-5 | the model choosing each explorer's next move |
 | `--lens-src` | `E2E_LENS_SRC` | `<out>/lens-src` | a checkout of talyvor-lens whose routes the coverage map lists; `none` lists none. Not given, the run keeps its own there, cloned from `E2E_LENS_REPO` and brought up to Lens's main each run; one you name is left as it is |
 | `--testers-md` | `E2E_TESTERS_MD` | `~/talyvor-queue/TESTERS.md` | where the run's short summary goes; `none` writes none |
+| `--edge-repo` | `E2E_EDGE_REPO` | `gaboracnicolai/edge-infra` | the repo whose nightly workflows the report's Talyvor Edge section reads with `gh`; `none` reads none |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -57,6 +58,18 @@ it on either side, Lens's synthetic routes or `/auth/synthetic` answer 404.
 4,096 output tokens at list price. When the answer arrives, the reservation is settled with the real
 cost. A question whose worst case would take committed spend plus in-flight reservations past the cap
 is never sent. From then on the run sends nothing new and every remaining scenario SKIPs.
+
+## Talyvor Edge in the report (B34.3)
+
+edge-infra is never deployed; its features are proven on kind, and every one of its workflows runs each night on main
+on GitHub. After the scenarios, the run reads with `gh` the latest completed scheduled run on main of every edge-infra
+workflow (`src/edge.ts`), and the report gets a **Talyvor Edge** section: each workflow with its result, commit and a
+link to its run; every phase `deploy/local/up.sh` on main declares, with its state in Kind E2E's log (colour codes
+stripped): **passed** if the run went past it, **failed** where an `X` line stopped it, **not reached** after that, **not
+in the run** when main has it and the run's commit did not; and each row of `docs/self-host-claims.md` with the state
+of the phases it names. A run older than 36 hours is **STALE**, never green. A failed phase or workflow files one item
+for edge-infra carrying `e2e-scenario: edge-<workflow>-<phase>` (or `-<failed job>` when there is no phase), under the
+same once-only rule as a scenario. TESTERS.md gets the section in one line.
 
 ## Every night, and the explorers (B17.5)
 

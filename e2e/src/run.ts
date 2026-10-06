@@ -17,8 +17,9 @@ import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
 import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap, cannotTest, inventory, leastCovered, refreshLensCheckout } from './coverage.ts'
+import { type EdgeReport, readEdge } from './edge.ts'
 import { type ExplorerSummary, type Finding, Notebook, explore } from './explore.ts'
-import { fileItems } from './filing.ts'
+import { fileEdgeItems, fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
 import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
 import { networkDrop } from './oracles.ts'
@@ -90,6 +91,8 @@ export interface RunResult {
   memory: MemorySample[]
   /** B35.8 — each scenario that FAILed for one or two users, run again for them before the ledger read-back. */
   second_attempts: Outcome[]
+  /** B34.3 — edge-infra's nightly workflows on main, Kind E2E's phases and the self-host claims (edge.ts). */
+  edge?: EdgeReport
   /** B34.2 — what was tested: the harness, Lens's main at lens-src, and production's versions at the start. */
   versions?: Versions
   /** B34.2 — production's versions read again at the end, to show a deploy that landed during the run. */
@@ -579,6 +582,15 @@ async function main(): Promise<number> {
   // cannot be written does not cost the others.
   const result = await run(cfg)
   const c = result.counts
+  // B34.3 — Talyvor Edge: edge-infra's nightly workflows on main, read whatever the scenarios did.
+  if (cfg.edgeRepo !== 'none') {
+    try {
+      result.edge = await readEdge(cfg.edgeRepo)
+      console.log(`talyvor edge: ${result.edge.error ?? `${result.edge.workflows.length} workflows, ${result.edge.phases.length} Kind E2E phases, ${result.edge.claims.length} claims read`}`)
+    } catch (e) {
+      console.error(`e2e: could not read Talyvor Edge's nightly runs: ${describe(e)}`)
+    }
+  }
   const attempt = async (what: string, write: () => Promise<void>): Promise<void> => {
     try {
       await write()
@@ -620,6 +632,16 @@ async function main(): Promise<number> {
       for (const x of f.covered) filed[x.scenario] = x.by
       console.log(`build items in ${cfg.buildMd}: ` +
         (f.filed.map((x) => `${x.id} (${x.scenario}, ${x.repo})`).join(', ') || 'none new') +
+        (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
+    })
+  }
+  const edge = result.edge
+  if (cfg.buildMd !== 'none' && edge !== undefined) {
+    await attempt(`Talyvor Edge's build items to ${cfg.buildMd}`, async () => {
+      const f = await fileEdgeItems(cfg.buildMd, edge, shown)
+      if (f === undefined) return
+      for (const x of f.filed) newItems.push(x.id)
+      console.log(`talyvor edge build items: ${f.filed.map((x) => `${x.id} (${x.scenario})`).join(', ') || 'none new'}` +
         (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
     })
   }

@@ -2,6 +2,8 @@
 // may spend. Flags win over the environment; nothing here has a production default that spends money
 // without the operator key being set.
 
+import { EDGE_REPO } from './edge.ts'
+
 export interface RunConfig {
   /** The web app a person uses, e.g. https://app.talyvor.com. */
   appURL: string
@@ -38,6 +40,8 @@ export interface RunConfig {
   lensRepo: string | undefined
   /** B25.5 — where each run's short summary is written for the morning brief; 'none' writes none. */
   testersMd: string
+  /** B34.3 — the repo whose nightly workflows on main the report's Talyvor Edge section reads with gh; 'none' reads none. */
+  edgeRepo: string
   headed: boolean
 }
 
@@ -108,6 +112,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     lensSrc: pick('lens-src', 'E2E_LENS_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/lens-src`,
     lensRepo: pick('lens-src', 'E2E_LENS_SRC') !== undefined ? undefined : env.E2E_LENS_REPO ?? DEFAULTS.lensRepo,
     testersMd: pick('testers-md', 'E2E_TESTERS_MD') ?? `${env.HOME ?? ''}/talyvor-queue/TESTERS.md`,
+    edgeRepo: pick('edge-repo', 'E2E_EDGE_REPO') ?? EDGE_REPO,
     headed: flags.get('headed') === 'true',
   }
 }
