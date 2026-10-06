@@ -52,14 +52,19 @@ type streamUpstream struct {
 	// disconnect test observes that the cancellation actually propagated.
 	upstreamCtxDone chan struct{}
 
-	gotProxyAuth  string
-	gotMintAuth   string
-	gotProxyPath  string
-	gotAccept     string
-	gotDistill    string
-	gotCache      string
-	gotPaidBy     string
-	answerHeaders map[string]string // set on the proxied answer, as Lens does on a cache serve
+	gotProxyAuth string
+	gotMintAuth  string
+	gotProxyPath string
+	gotAccept    string
+	gotDistill   string
+	gotCache     string
+	gotPaidBy    string
+	// B28.361 — the conversation and its budget as Lens received them; refuse, when set, is the JSON body of the
+	// 402 Lens answers instead of streaming.
+	gotConversation string
+	gotBudget       string
+	refuse          string
+	answerHeaders   map[string]string // set on the proxied answer, as Lens does on a cache serve
 	// replayUnlessBypassed sets answerHeaders only on a request without X-Talyvor-Cache: bypass, as
 	// Lens does: a bypass skips every cache read.
 	replayUnlessBypassed bool
@@ -110,6 +115,14 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotDistill = r.Header.Get("X-Talyvor-Distill")
 			u.gotCache = r.Header.Get("X-Talyvor-Cache")
 			u.gotPaidBy = r.Header.Get("X-Talyvor-Paid-By")
+			u.gotConversation = r.Header.Get("X-Talyvor-Conversation-ID")
+			u.gotBudget = r.Header.Get("X-Talyvor-Conversation-Budget-ULXC")
+			if u.refuse != "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusPaymentRequired)
+				_, _ = io.WriteString(w, u.refuse)
+				return
+			}
 			u.cacheSent = append(u.cacheSent, u.gotCache)
 			if !u.replayUnlessBypassed || u.gotCache != "bypass" {
 				for k, v := range u.answerHeaders {
@@ -1035,5 +1048,78 @@ func TestStream_ANinetySecondAnswerArrivesWhole(t *testing.T) {
 	if elapsed < answerFor {
 		t.Fatalf("the answer arrived in %v, before Lens finished streaming it — the test is not "+
 			"exercising a long stream", elapsed)
+	}
+}
+
+// B28.361 — the conversation Chat's request is part of, and the budget set on it, reach Lens's streaming proxy; a
+// malformed id or budget, or a budget with no conversation, is refused before Lens is asked anything; and Lens's
+// refusal of a request past the budget reaches the chat as Lens wrote it.
+func TestStream_ConversationAndItsBudgetReachLens(t *testing.T) {
+	const id = "0b6f3c2e-6a51-4c1e-9d0e-6f1f2a3b4c5d"
+	post := func(t *testing.T, up *streamUpstream, headers map[string]string) (*http.Response, string) {
+		t.Helper()
+		a, sess := streamApp(t, up)
+		ts := httptest.NewServer(a)
+		defer ts.Close()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+		req.AddCookie(sess)
+		req.Header.Set("Origin", "https://app.talyvor.com")
+		req.Header.Set("Content-Type", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp, string(body)
+	}
+
+	for _, tc := range []struct{ id, budget, wantID, wantBudget string }{
+		{id, "50000", id, "50000"},
+		{id, "", id, ""},
+		{"", "", "", ""},
+	} {
+		up := newStreamUpstream(t)
+		up.noBlock = true
+		h := map[string]string{}
+		if tc.id != "" {
+			h["X-Talyvor-Conversation-ID"] = tc.id
+		}
+		if tc.budget != "" {
+			h["X-Talyvor-Conversation-Budget-ULXC"] = tc.budget
+		}
+		if resp, _ := post(t, up, h); resp.StatusCode != http.StatusOK {
+			t.Fatalf("sent %v: status %d", h, resp.StatusCode)
+		}
+		if up.gotConversation != tc.wantID || up.gotBudget != tc.wantBudget {
+			t.Errorf("sent %v: Lens received conversation %q budget %q, want %q and %q", h, up.gotConversation, up.gotBudget, tc.wantID, tc.wantBudget)
+		}
+	}
+
+	for _, h := range []map[string]string{
+		{"X-Talyvor-Conversation-ID": "../v1/admin"},
+		{"X-Talyvor-Conversation-ID": id, "X-Talyvor-Conversation-Budget-ULXC": "0"},
+		{"X-Talyvor-Conversation-ID": id, "X-Talyvor-Conversation-Budget-ULXC": "-5"},
+		{"X-Talyvor-Conversation-ID": id, "X-Talyvor-Conversation-Budget-ULXC": "0.5"},
+		{"X-Talyvor-Conversation-Budget-ULXC": "50000"},
+	} {
+		up := newStreamUpstream(t)
+		up.noBlock = true
+		if resp, _ := post(t, up, h); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("sent %v: status %d, want 400", h, resp.StatusCode)
+		}
+		if up.proxyCalls != 0 {
+			t.Errorf("sent %v: Lens was asked %d time(s); a refusal comes before any upstream call", h, up.proxyCalls)
+		}
+	}
+
+	up := newStreamUpstream(t)
+	up.refuse = `{"error":"this conversation has reached its budget of 0.05 LXC — raise it or start a new chat","code":"conversation_budget"}`
+	resp, body := post(t, up, map[string]string{"X-Talyvor-Conversation-ID": id, "X-Talyvor-Conversation-Budget-ULXC": "50000"})
+	if resp.StatusCode != http.StatusPaymentRequired || body != up.refuse {
+		t.Errorf("Lens refused past the budget: the chat received %d %q, want 402 %q", resp.StatusCode, body, up.refuse)
 	}
 }

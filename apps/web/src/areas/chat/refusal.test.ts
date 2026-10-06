@@ -23,6 +23,12 @@ const LENS: Record<RefusalCode, { status: number; today: string; text: RegExp; r
     text: /This chat has spent the most one chat may/,
     remedy: 'new_chat',
   },
+  conversation_budget: {
+    status: 402,
+    today: 'this conversation has reached its budget of 0.05 LXC — raise it or start a new chat',
+    text: /past the budget set on it/,
+    remedy: 'new_chat',
+  },
   guardrail_blocked: { status: 400, today: 'guardrail violation', text: /guardrails blocked that message/, remedy: '/features' },
   provider_overloaded: { status: 503, today: 'upstream overloaded', text: /provider is overloaded/ },
   workspace_rate_limited: {

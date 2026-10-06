@@ -46,6 +46,7 @@ import { LiveStatement } from './LiveStatement'
 import { MoneyCards } from './MoneyCards'
 import { ChatSavings } from './Savings'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
+import { ConversationBudget, budgetRefusal, overBudget, spentULXC } from './ConversationBudget'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
@@ -221,6 +222,8 @@ export function Chat() {
   // B28.354 — the agent whose wallet pays for this conversation; '' is the workspace.
   const [paidBy, setPaidBy] = useState('')
   const { book: payersBook, payers } = usePayers()
+  // B28.361 — the most this conversation may spend, in µLXC; undefined, no budget.
+  const [budget, setBudget] = useState<number | undefined>(undefined)
 
   // History is scoped to who is signed in; until that is known there is nowhere to keep it.
   const me = useAuthMeReader()
@@ -260,6 +263,7 @@ export function Chat() {
     setMessages(c?.messages ?? [])
     if (c !== undefined) setModelId(c.model_id)
     setPaidBy(c?.paid_by ?? '')
+    setBudget(c?.budget_ulxc)
     setFailure(null)
     setUnreadable(0)
     setRenaming(null)
@@ -327,6 +331,8 @@ export function Chat() {
     selected !== undefined && !pending && asking !== '' && !answeredHere(asking)
       ? previewCost(messages, asking, attachments, selected, chatTools.data ?? [])
       : undefined
+  // B28.361 — the draft could take this conversation past its budget: said under the box before it is sent.
+  const draftOver = overBudget(budget, messages, estimate, usdPerLXC)
 
   /** Streams an answer to `turn`, whose last message is the question. */
   const run = useCallback(
@@ -336,11 +342,13 @@ export function Chat() {
       const model = selected.id
       // B28.354 — who pays is read once per question, as the person chose it when they asked.
       const payer = paidBy
+      // B28.361 — and so is the budget: every request the question takes carries it, with the conversation's id.
+      const cap = budget
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer.
-      store((list) => upsertConversation(list, id, model, turn, Date.now(), payer))
+      store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap))
       setMessages([...turn, { role: 'assistant', content: '' }])
       setPending(true)
       setFailure(null)
@@ -480,6 +488,7 @@ export function Chat() {
         fresh,
         tools,
         payer,
+        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}) },
       )
       store((list) =>
         upsertConversation(
@@ -489,10 +498,11 @@ export function Chat() {
           [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer }],
           Date.now(),
           payer,
+          cap,
         ),
       )
     },
-    [activeId, catalog.data, paidBy, payers, pending, qc, selected, store],
+    [activeId, budget, catalog.data, paidBy, payers, pending, qc, selected, store],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -502,6 +512,29 @@ export function Chat() {
       if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, paid_by: agentID === '' ? undefined : agentID } : c)))
     },
     [activeId, store],
+  )
+
+  // B28.361 — a budget is kept with the conversation at once, like the payer.
+  const chooseBudget = useCallback(
+    (ulxc: number | undefined) => {
+      setBudget(ulxc)
+      setFailure(null)
+      if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, budget_ulxc: ulxc } : c)))
+    },
+    [activeId, store],
+  )
+
+  // B28.361 — a question that could take the conversation past its budget is refused here, before anything is sent:
+  // what the conversation has spent and the most the question could cost, against the budget.
+  const refuseOverBudget = useCallback(
+    (turns: ChatMessage[], question: string, docs: ChatAttachment[]): boolean => {
+      if (selected === undefined) return false
+      const over = overBudget(budget, messages, previewCost(turns, question, docs, selected, chatTools.data ?? []), usdPerLXC)
+      if (over === undefined) return false
+      setFailure({ text: budgetRefusal(over), remedy: { label: 'Start a new chat', action: 'new_chat' } })
+      return true
+    },
+    [budget, chatTools.data, messages, selected, usdPerLXC],
   )
 
   const send = useCallback(
@@ -543,13 +576,15 @@ export function Chat() {
         setWaiting(true)
         return
       }
+      // Refused, the question stays in the box: raise the budget and it can be sent.
+      if (refuseOverBudget(messages, question, attachments)) return
       setDraft('')
       const docs = attachments
       setAttachments([])
       setAttachError(null)
       void run([...messages, docs.length > 0 ? { role: 'user', content: question, attachments: docs } : { role: 'user', content: question }])
     },
-    [attachments, draft, messages, pending, run, selected, uploading],
+    [attachments, draft, messages, pending, refuseOverBudget, run, selected, uploading],
   )
 
   const attach = useCallback(
@@ -602,8 +637,10 @@ export function Chat() {
   const regenerate = useCallback(() => {
     const lastUser = messages.map((m) => m.role).lastIndexOf('user')
     if (lastUser < 0) return
+    const asked = messages[lastUser]
+    if (refuseOverBudget(messages.slice(0, lastUser), asked.content, asked.attachments ?? [])) return
     void run(messages.slice(0, lastUser + 1), true)
-  }, [messages, run])
+  }, [messages, refuseOverBudget, run])
 
   // B23.12 — a thumbs-down: Lens removes the stored answer so nobody is served it again, and the answer
   // says so — in the saved conversation too, so it still says so when reopened.
@@ -926,11 +963,14 @@ export function Chat() {
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
               {/* B28.354 — which wallet pays for this conversation. */}
               <PaidBy book={payersBook} payers={payers} value={paidBy} onChange={choosePayer} disabled={pending} />
+              {/* B28.361 — the most this conversation may spend. */}
+              <ConversationBudget value={budget} spent={spentULXC(messages, usdPerLXC)} onChange={chooseBudget} disabled={pending} />
               {estimate !== undefined ? (
                 // B28.99 — at the list rate, like the footer the answer will carry.
                 <p className="text-caption text-muted" data-testid="cost-preview">
                   Sending this <span className="font-figure text-ink">{formatCostRange(estimate.low_usd, estimate.high_usd, usdPerLXC)}</span>
                   <span className="text-faint"> · answer up to <span className="font-figure">{estimate.answer_tokens.toLocaleString('en-US')}</span> tokens</span>
+                  {draftOver !== undefined ? <span className="text-ink" data-testid="cost-over-budget"> · over this chat’s budget</span> : null}
                 </p>
               ) : null}
               {selected !== undefined ? (
