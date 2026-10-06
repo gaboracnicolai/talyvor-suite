@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
@@ -2015,7 +2015,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.24 — then an hourly cap: over it, no posting; raised, one.
     // B28.30 — then Would it pass?: over the daily limit refused, under it allowed, and no posting either way.
     // B28.31 — then Rules history: rolled back to version 1, Lens holds version 1's rules exactly, by whom it records.
-    case 1: list.push(agentLimit(i), walletCurrency(i), agentHourlyLimit(i), agentRuleSimulator(i), agentRulesRollback(i)); break
+    // B28.32 — then Limit boost: a request under the raised daily limit posts; after its time the same request posts nothing.
+    case 1: list.push(agentLimit(i), walletCurrency(i), agentHourlyLimit(i), agentRuleSimulator(i), agentRulesRollback(i), agentLimitBoost(i)); break
     // B28.25 — then a daily cap on one model: over it, no posting; another model under its own, one.
     // B28.27 — then a payee blocked and another allowed: no pay posting to the one, its pair to the other.
     // B28.28 — then one payee capped a day: the payment at the cap posts its pair, the next is refused and posts nothing.

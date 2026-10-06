@@ -257,6 +257,16 @@ export interface AgentRulesVersion {
   created_at: string
 }
 
+/** B28.32 — Lens economy.AgentRuleBoost: one of an agent's limits raised from the rules' value until a time. */
+export interface AgentRuleBoost {
+  rule: string
+  raised_from: number
+  value: number
+  until: string
+  created_by: string
+  created_at: string
+}
+
 /** Lens economy.AgentRules as its rules read answers them, in µLXC; a zero, an empty list or an empty window is no rule. */
 export interface AgentRulesRead {
   max_per_request_ulxc: number
@@ -646,6 +656,12 @@ export class LensClient {
   async agentRulesHistory(user: SyntheticUser, agentID: string): Promise<AgentRulesVersion[]> {
     const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules/history`, this.bearer(user.token))) as { versions?: AgentRulesVersion[] | null }
     return body.versions ?? []
+  }
+
+  /** B28.32 — one agent's limits raised for now, the soonest to end first (Lens B28.308); a boost past its time is not listed. */
+  async agentBoosts(user: SyntheticUser, agentID: string): Promise<AgentRuleBoost[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules/boosts`, this.bearer(user.token))) as { boosts?: AgentRuleBoost[] | null }
+    return body.boosts ?? []
   }
 
   /** B17.6 — one agent's account, newest first (Lens B19.3). */
