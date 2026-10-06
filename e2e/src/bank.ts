@@ -1753,6 +1753,123 @@ export function chatLiveStatement(seed: number): Scenario {
   }
 }
 
+/** The statement kinds a call to a model writes, each under the request's ref. */
+const CALL_KINDS = ['spend', 'hold', 'settle', 'release', 'platform_fee']
+
+/**
+ * B28.356 — B28.93's DONE line, from talyvor-suite: an agent makes 21 calls with its own key; Recent calls beside Chat
+ * shows 20 rows, and they are its statement on Lens — its 20 newest requests, newest first, each row's cost what that
+ * request's lines took from its wallet, linked to the line that opened it. The wallet moved by exactly what the 21
+ * calls took. Where Lens names a call's model or source on its lines (B28.93), the row shows the same words.
+ */
+export function chatRecentCalls(seed: number): Scenario {
+  const r = seeded(seed * 61 + 11)
+  const funded = 2e6
+  const made = 21
+  const shown = 20
+  return {
+    id: 'chat-recent-calls',
+    title: "an agent's newest 20 calls under Recent calls beside Chat are its statement on Lens: each request's cost, newest first, linked to its row",
+    run: async (ctx) =>
+      withBank(ctx, async (bank) => {
+        const a = await openAgent(ctx, bank, `Caller ${seed}`)
+        if (typeof a === 'string') return fail(a)
+        const err = await bank.move(a, funded, 'Fund')
+        if (err !== undefined) return fail(`funding ${a.name} was refused: ${err}`)
+        const key = await bank.issueKey(a)
+        for (let i = 1; i <= made; i++) {
+          const served = await agentAsks(ctx, key, sum(r).q, `${a.name}'s call ${i} of ${made}`)
+          if (!served.ok) return fail(`${a.name}'s call ${i} of ${made} was refused: ${served.status} ${served.error}`)
+        }
+
+        const chat = await ctx.app.tab('/chat')
+        try {
+          await chat.setViewportSize({ width: 1440, height: 900 })
+          const panel = chat.getByTestId('chat-live-statement')
+          await panel.getByLabel('Agent').selectOption(a.id, { timeout: ACTION_TIMEOUT_MS })
+          await panel.getByRole('button', { name: 'Recent calls', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+          const rows = panel.getByTestId('recent-call')
+          // Each amount carries the person's currency after it, "(…)"; the LXC figure is what is compared.
+          const plain = (t: string) => t.replace(/ \([^()]*\)/g, '').trim()
+          type Row = { ref: string; entry: string; href: string; cost: string; model: string; source: string }
+          const readRows = async (): Promise<Row[]> =>
+            Promise.all(
+              (await rows.all()).map(async (row) => ({
+                ref: (await row.getAttribute('data-ref')) ?? '',
+                entry: (await row.getAttribute('data-entry')) ?? '',
+                href: (await row.getAttribute('href')) ?? '',
+                cost: plain(await row.getByTestId('recent-call-cost').innerText()),
+                model: (await row.getByTestId('recent-call-model').innerText()).trim(),
+                source: (await row.getByTestId('recent-call-source').count()) > 0 ? (await row.getByTestId('recent-call-source').innerText()).trim() : '',
+              })),
+            )
+          // The ledger, not the panel: Lens's statement, newest first, its call lines grouped by the request they share.
+          const fromStatement = (lines: AgentLine[]): Row[] => {
+            const calls = new Map<string, { entry: string; took: number; at: string; model: string; source: string }>()
+            for (const l of lines) {
+              if (!CALL_KINDS.includes(l.kind)) continue
+              const ref = l.ref || l.entry_id
+              const c = calls.get(ref) ?? { entry: l.entry_id, took: 0, at: l.at, model: '', source: '' }
+              calls.set(ref, { entry: l.entry_id, took: c.took - l.amount_ulxc, at: l.at, model: c.model || l.model || '', source: c.source || l.source || '' })
+            }
+            return [...calls.entries()]
+              .sort(([, x], [, y]) => Date.parse(y.at) - Date.parse(x.at))
+              .slice(0, shown)
+              .map(([ref, c]) => ({
+                ref,
+                entry: c.entry,
+                href: `/agents?agent=${encodeURIComponent(a.id)}&entry=${encodeURIComponent(c.entry)}`,
+                cost: `${c.took > 0 ? '−' : c.took < 0 ? '+' : ''}${lxcText(Math.abs(c.took))} LXC`,
+                model: c.model || 'Model call',
+                source: c.source,
+              }))
+          }
+          // The panel reads the statement every 2 s: the two agree within a few reads, or the last of each is the failure.
+          let [got, want, lines]: [Row[], Row[], AgentLine[]] = [[], [], []]
+          const end = Date.now() + 20_000
+          for (;;) {
+            lines = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+            want = fromStatement(lines)
+            got = await readRows()
+            if (JSON.stringify(got) === JSON.stringify(want) || Date.now() > end) break
+            await chat.waitForTimeout(1_000)
+          }
+          ctx.evidence.push({ note: `Recent calls beside Chat: ${JSON.stringify(got)}; ${a.name}'s statement on Lens: ${lines.map((l) => `${l.kind} ${l.amount_ulxc} ${l.ref ?? ''}`).join(', ')}` })
+
+          await mkdir(ctx.env.outDir, { recursive: true })
+          const wide = join(ctx.env.outDir, `chat-recent-calls-1440px-user${ctx.app.user.index}.png`)
+          await chat.screenshot({ path: wide })
+          ctx.evidence.push({ note: `Recent calls beside Chat at 1440px: ${wide}` })
+          await chat.setViewportSize({ width: 390, height: 844 })
+          await chat.getByRole('button', { name: 'Statement', exact: true }).click()
+          await panel.getByRole('button', { name: 'Recent calls', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+          await rows.first().waitFor({ timeout: ACTION_TIMEOUT_MS })
+          const narrow = join(ctx.env.outDir, `chat-recent-calls-390px-user${ctx.app.user.index}.png`)
+          await chat.screenshot({ path: narrow })
+          ctx.evidence.push({ note: `Recent calls from Chat's Statement button at 390px: ${narrow}` })
+
+          const requests = new Set(lines.filter((l) => CALL_KINDS.includes(l.kind)).map((l) => l.ref || l.entry_id))
+          if (requests.size !== made) return fail(`${a.name} made ${made} calls; its statement on Lens has lines for ${requests.size} requests`)
+          if (got.length !== shown) return fail(`${a.name} made ${made} calls; Recent calls shows ${got.length} rows, want ${shown}: ${JSON.stringify(got)}`)
+          const off = got.findIndex((g, i) => JSON.stringify(g) !== JSON.stringify(want[i]))
+          if (off >= 0) return fail(`row ${off + 1} of Recent calls is ${JSON.stringify(got[off])}; ${a.name}'s statement on Lens says ${JSON.stringify(want[off])}`)
+          const took = lines.filter((l) => CALL_KINDS.includes(l.kind)).reduce((t, l) => t - l.amount_ulxc, 0)
+          const held = agentIn(await bookOf(ctx), a.id)?.balance_ulxc
+          if (took <= 0 || held !== funded - took || held !== lines[0].balance_after_ulxc) {
+            return fail(`${a.name} was funded ${funded} µLXC and its ${made} calls took ${took}; Lens's book says it holds ${held}, its statement ends at ${lines[0].balance_after_ulxc}`)
+          }
+          const named = want.filter((w) => w.model !== 'Model call').length
+          return {
+            pass: true,
+            detail: `${a.name} made ${made} calls for ${took} µLXC out of its wallet; Recent calls beside Chat shows its ${shown} newest exactly as its statement on Lens has them — newest first, each request's cost, each linked to its opening line; ${named} of ${shown} name their model on Lens's lines`,
+          }
+        } finally {
+          await chat.close()
+        }
+      }),
+  }
+}
+
 /**
  * B28.87 — the wallet buttons beside Chat: fund, withdraw, pause and pause all, each asked once more before anything is
  * sent. An agent is made on Agent Wallets and given a key; everything after is done from Chat's statement panel. Each

@@ -405,7 +405,8 @@ const BY_PATH: Record<string, unknown> = {
   '/api/agents/agt_research/statement': {
     agent_id: 'agt_research',
     lines: [
-      { entry_id: 'e2', kind: 'spend', amount_ulxc: -1_250_000, counterparty: 'spend', balance_after_ulxc: 10_000_000, at: '2026-09-27T11:00:00Z' },
+      // B28.356 — a call's lines name its model and source (B28.93), which Chat's Recent calls shows.
+      { entry_id: 'e2', kind: 'spend', amount_ulxc: -1_250_000, counterparty: 'spend', ref: 'req_1', model: 'claude-sonnet-4', source: 'Chat', balance_after_ulxc: 10_000_000, at: '2026-09-27T11:00:00Z' },
       { entry_id: 'e1', kind: 'fund', amount_ulxc: 11_250_000, counterparty: 'workspace', balance_after_ulxc: 11_250_000, at: '2026-09-27T10:00:00Z' },
     ],
   },

@@ -253,6 +253,10 @@ export interface StatementLine {
   at: string
   /** B32.11 — a platform fee line's words with its rate, "Platform fee 3%". Absent on every other kind. */
   label?: string
+  /** B28.93 — on a call's lines (spend, hold, settle, release, platform_fee): the model it asked. */
+  model?: string
+  /** B28.93 — on a call's lines: where the call came from, in Lens's words. Chat's Recent calls shows it as it is. */
+  source?: string
 }
 
 /** Lens economy.AgentPayment. */
