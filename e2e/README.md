@@ -292,6 +292,32 @@ they SKIP. What happens days later — a loan's instalment and its default (a da
 paid bill, then the 14-day holdback), the refund of a paid bill, and a purchase on the card (Stripe's
 authorization) — is B25.8's, below.
 
+## B34.4 — every wallet, agent and marketplace route has a tester
+
+Every agent, wallet, escrow, loan, money-request, transfer, cash-out, marketplace and LXC route is reached by a
+scenario (`src/routes.ts`), between the same two companies: the person through the app's BFF routes, called from
+their signed-in page as the app calls them, and the other company (9, 19, …) on Lens with its own token. A Lens
+route no BFF route reaches by its own path (the BFF's `/api/wallets/…` answer through `/money-requests`, `/loans`,
+`/escrows`) is reached once each way, so both rows of the coverage map are. Money is read on both agents'
+accounts: one posting on each side, both balances moved by exactly the amount, nothing else moved.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `wallet-requests-answered` | 0, 10, … with 9, 19, … | asked in the app, accepted on Lens: one transfer of 0.6 LXC both read, one posting each side; given back in the app; then one declined in the app and one on Lens: both read declined, nothing moved |
+| `wallet-loans-answered` | 1, 11, … with 9, 19, … | four loans declined or withdrawn, two in the app and two on Lens, each read so on Lens by both sides, nothing moved; a fifth accepted in the app: the principal, one posting each side |
+| `wallet-escrow-lens` | 2, 12, … with 9, 19, … | the other company pays into escrow on Lens, both read it held; confirmed on Lens: the payee +0.5 LXC; a second disputed on Lens stays held, nothing more moves |
+| `wallet-handle-pause` | 4, 14, … with 9, 19, … | a handle set in the app names the agent on Lens (`GET /v1/wallets/@handle`) and money sent to it lands; paused in the app, its send is refused and nothing moves; resumed, one posting each side; claimed, Lens holds its owner |
+| `wallet-schedule-topup-pot` | 5, 15, … with 9, 19, … | recurring transfers made and stopped in the app and on Lens before they run pay nothing; a top-up set in the app fills an empty agent to 2 LXC on Lens's tick from the workspace's free credits, one posting, then is removed; a pot locked in the app refuses to give back or be unlocked early, and does once its lock has passed |
+| `wallet-card-freeze` | 2, 12, … | an agent's test card frozen in the app: Lens holds it frozen and a £0.40 purchase is declined, nothing leaves the agent; unfrozen in the app, the next is approved, one posting of what Lens says it cost. Unfreezing is asked even when freezing is refused, so both routes are reached |
+| `agent-approval-denied` | 7, 17, … with 9, 19, … | a send above the approval amount waits; its challenge asked and denied in the app, nothing moves on either side; a rule template applied on Lens, a boost ended in the app, a push device added and removed (or, with pushes not configured, refused) |
+| `wallet-trading-sim` | 5, 15, … | a simulated portfolio opened in the app and read on Lens: a market buy of 10 EUR fills at the quote and its cash leaves the portfolio, a limit order is cancelled in the app; the agent's account has no new posting |
+| `lxc-convert-bonds` | 5, 15, … | LENS converted to LXC under the minimum (400) and beyond what was earned (402) is refused; provenance bonds, switched off (`LENS_H5_BONDS_ENABLED`), are refused; a $10 top-up's checkout goes to Stripe; neither the LXC nor the LENS ledger moves |
+| `market-remix-licence` | 8, 18, … with 9, 19, … buying | a second version, a subscription offer and 10% royalty remix terms set on Lens; the other company remixes version 2 under a 1000 bps grant and publishes its remix with it as a parent: the lineage names that edge at 1000 bps; it subscribes, one line on its bill and one pending sale for the seller; cancelled, it stops renewing |
+
+In the self-test each fails on a planted defect (stub-bank.ts and stub-lens.ts), one per scenario in the table's
+order: `request-unpaid`, `loan-no-payout`, `escrow-dispute-pays`, `send-one-side`, `pot-lock-ignored`,
+`freeze-ignored`, `approval-deny-pays`, `sim-fill-free`, `convert-free` and `licence-renews`.
+
 ## B25.8 — the slow money, brought due inside the run
 
 Lens (B25.7) brings a test workspace's slow money due now, with the synthetic key: a loan's next instalment,

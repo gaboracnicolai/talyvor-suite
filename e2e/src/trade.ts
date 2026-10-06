@@ -29,7 +29,7 @@ const METER_WAIT_MS = 90_000
 const DAY_MS = 24 * 3600e3
 
 /** The other company: another test user, and an agent of its own, made and funded through Lens. */
-async function otherCompany(ctx: ScenarioCtx, partner: number, name: string, fund: number): Promise<{ co: SyntheticUser; agent: { id: string; name: string } }> {
+export async function otherCompany(ctx: ScenarioCtx, partner: number, name: string, fund: number): Promise<{ co: SyntheticUser; agent: { id: string; name: string } }> {
   const co = ctx.env.userAt(partner)
   const team = await otherCompanyOnTeam(ctx, partner)
   if (team !== undefined) throw new Error(team)
@@ -58,7 +58,7 @@ async function fundedAgent(ctx: ScenarioCtx, bank: AgentBankScreen, name: string
 }
 
 /** Polls `read` until `done` holds of what it read or `ms` pass; the last read. */
-async function until<T>(read: () => Promise<T>, done: (v: T) => boolean, ms = TICK_WAIT_MS): Promise<T> {
+export async function until<T>(read: () => Promise<T>, done: (v: T) => boolean, ms = TICK_WAIT_MS): Promise<T> {
   const end = Date.now() + ms
   for (;;) {
     const v = await read()

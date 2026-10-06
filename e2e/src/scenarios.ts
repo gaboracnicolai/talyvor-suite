@@ -26,6 +26,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatForecastAnswer, chatLiveStatement, chatPaidBy, chatAgentTask, chatCardFreeze, chatStatement, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { chatMoneyRequests, marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
+import { agentApprovalDenied, lxcConvertBonds, marketRemixLicence, walletCardFreeze, walletEscrowLens, walletHandlePause, walletLoansAnswered, walletRequestsAnswered, walletScheduleTopUpPot, walletTradingSim } from './routes.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
@@ -2450,6 +2451,25 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 7: if (other < users) list.push(walletRecurring(i, other)); break
     case 8: list.push(marketTakedown(i, i - 1)); break
     case 9: list.push(walletCard(i), marketPayoutConnect()); break
+  }
+  // B34.4 — every wallet, agent and marketplace route reached, between the same two companies, one in ten again: the
+  // person through the app's BFF, the other company (9, 19, …) on Lens. Not on 3 or 6, whose workspaces keep a passkey
+  // (a denial there needs an assertion), nor the ledger-still checks on 6, whose workspace takes a seller's credits
+  // mid-run. The seller of the remixed listing is 8, 18, …, whose marketplace earnings nobody else reads.
+  switch (i % 10) {
+    case 0: if (other < users) list.push(walletRequestsAnswered(i, other)); break
+    case 1: if (other < users) list.push(walletLoansAnswered(i, other)); break
+    case 2:
+      if (other < users) list.push(walletEscrowLens(i, other))
+      list.push(walletCardFreeze(i))
+      break
+    case 4: if (other < users) list.push(walletHandlePause(i, other)); break
+    case 5:
+      if (other < users) list.push(walletScheduleTopUpPot(i, other))
+      list.push(walletTradingSim(i), lxcConvertBonds())
+      break
+    case 7: if (other < users) list.push(agentApprovalDenied(i, other)); break
+    case 8: if (other < users) list.push(marketRemixLicence(i, other)); break
   }
   // B25.8: the slow money, brought due by Lens (B25.7), one in ten again. A seller or buyer here buys and
   // sells in no other scenario, so paying a buyer's whole bill and taking a seller's whole balance touch

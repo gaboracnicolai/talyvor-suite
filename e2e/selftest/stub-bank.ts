@@ -91,7 +91,11 @@ interface Rules {
   timezone: string
   pause_on_unusual_spend: boolean
 }
-interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string; versions?: RulesVersion[]; boosts?: Boost[] }
+interface Agent {
+  id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string; versions?: RulesVersion[]; boosts?: Boost[]
+  /** B34.4 — its address besides its wallet ID, and its automatic top-up */
+  handle?: string; topup?: { below_ulxc: number; to_ulxc: number }
+}
 /** B28.32 — Lens B28.308's agent_rule_boosts: one of the agent's limits raised from the rules' value until a time. */
 interface Boost { rule: BoostRule; raised_from: number; value: number; until: string; created_by: string; created_at: string }
 const BOOSTABLE = ['max_per_request_ulxc', 'hourly_limit_ulxc', 'daily_limit_ulxc', 'weekly_limit_ulxc', 'monthly_limit_ulxc', 'approval_above_ulxc', 'requests_per_minute'] as const
@@ -108,7 +112,19 @@ interface Listing {
   id: string; workspace_id: string; kind: string; title: string; description: string; price_per_use_ulxc: number
   visibility: string; latest_version: number; created_at: string; updated_at: string; review_status: string
   artifact: Record<string, unknown>; changelog: string
+  /** B34.4 — every version's artifact, how it is sold, and whether others may build on it */
+  artifacts?: Record<number, Record<string, unknown>>; offers?: StubOffer[]; remix_policy?: string; remix_share_bps?: number
 }
+/** B34.4 — Lens market.Offer, a listing's licence remix grant and lineage edge, a licence, and a simulated portfolio. */
+interface StubOffer { id: string; kind: string; licence: string; price_usd_micros: number; period_days?: number; included_uses?: number; created_at: string }
+interface Grant { ws: string; listing_id: string; version: number; share_bps: number; accepted_at: string }
+interface Edge { child_listing_id: string; child_version: number; parent_listing_id: string; parent_version: number; share_bps: number; source: string; created_at: string }
+interface StubLicence {
+  id: string; ws: string; listing_id: string; title: string; offer_id: string; licence: string; kind: string; pinned_version: number | null; starts_at: string
+  ends_at: string | null; auto_renew: boolean; status: string; use_id: string; charge: string; price_ulxc: number; created_at: string; key: string
+}
+interface SimOrder { id: string; portfolio_id: string; instrument: string; side: string; type: string; quantity_micros: number; limit_price_usd?: string; status: string; fill_price_usd?: string; cash_uusd: number; simulated: true; created_at: string }
+interface Portfolio { id: string; agent_id: string; name: string; starting_cash_uusd: number; created_at: string; orders: SimOrder[] }
 interface Use {
   id: string; listing_id: string; seller: string; buyer: string; agent_id: string; price_ulxc: number; charge: string; used_at: string; payee_agent_id: string; memo: string
   refunded_at?: string
@@ -178,6 +194,15 @@ const B30_CAPABILITIES = [
   ['price_lock', 'AMBER'], ['cover', 'RED'], ['payouts_to_people', 'RED'],
 ].map(([capability, cls]) => ({ capability, name: capability, class: cls, real_money: false }))
 
+/** B34.4 — Lens's simulated market's quotes (B22.8): the ECB's reference rates, a few of them, fixed. */
+export const SIM_QUOTES = [['EUR', '1.17'], ['GBP', '1.35'], ['JPY', '0.0068']].map(([instrument, price_usd]) => ({ instrument, price_usd, rate_date: '2026-10-02' }))
+const SIM_NOTICE = "Simulated: executed by Talyvor's simulator at the ECB reference rate. No order is ever sent to a market."
+/** B34.4 — two of Lens's rule templates (economy.RuleTemplates), each naming the rules it sets. */
+const RULE_TEMPLATES: { id: string; name: string; summary: string; rules: Partial<Rules> }[] = [
+  { id: 'support-bot', name: 'Support bot', summary: 'Answers customers: small requests, a daily limit, a person above 5 LXC.', rules: { max_per_request_ulxc: 500_000, daily_limit_ulxc: 20_000_000, approval_above_ulxc: 5_000_000 } },
+  { id: 'research-agent', name: 'Research agent', summary: 'Reads and summarises: a monthly limit.', rules: { monthly_limit_ulxc: 200_000_000 } },
+]
+
 const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, approval_above_ulxc: 0,
   allowed_models: [], allowed_providers: [], allowed_listings: [], allowed_payees: [], blocked_payees: [], payee_daily_limits_ulxc: {}, active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
 
@@ -222,6 +247,11 @@ export class Bank {
   private readonly accounts = new Map<string, ConnectAccount>()
   private readonly payouts: Payout[] = []
   private readonly cardAuths: CardAuth[] = []
+  // B34.4
+  private readonly grants: Grant[] = []
+  private readonly lineage: Edge[] = []
+  private readonly licences: StubLicence[] = []
+  private readonly portfolios: Portfolio[] = []
 
   constructor(d: BankDeps) {
     this.d = d
@@ -502,6 +532,16 @@ export class Bank {
     return true
   }
 
+  /** B34.4 — a simulated portfolio as Lens answers it: its cash after its filled orders, and what they bought. */
+  private portfolioOut(pf: Portfolio): object {
+    const filled = pf.orders.filter((o) => o.status === 'filled')
+    const held = new Map<string, number>()
+    for (const o of filled) held.set(o.instrument, (held.get(o.instrument) ?? 0) + o.quantity_micros)
+    const { orders, ...rest } = pf
+    return { ...rest, simulated: true, notice: SIM_NOTICE, cash_uusd: pf.starting_cash_uusd + filled.reduce((s, o) => s + o.cash_uusd, 0),
+      positions: [...held].map(([instrument, quantity_micros]) => ({ instrument, quantity_micros })), orders }
+  }
+
   private listingOut(l: Listing, viewer: string): object {
     const vars = typeof l.artifact.template === 'string' ? [...new Set([...l.artifact.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((x) => x[1]))] : []
     const { artifact, changelog, ...rest } = l
@@ -517,6 +557,23 @@ export class Bank {
       const kind = url.searchParams.get('kind') ?? ''
       json(res, 200, { listings: [...this.listings.values()].filter((l) => l.visibility === 'public' && this.visible(l, viewer) && (kind === '' || l.kind === kind))
         .map((l) => { const { artifact: _a, changelog: _c, ...rest } = l; return rest }) })
+      return true
+    }
+    // B34.4 — a listing's ancestors, nearest first, with each edge's share, and how many listings build on it.
+    const ln = /^\/v1\/marketplace\/listings\/([^/]+)\/lineage$/.exec(path)
+    if (ln !== null) {
+      const l = this.listings.get(ln[1])
+      if (l === undefined || !this.visible(l, viewer)) return json(res, 404, { error: 'market: no such listing' }), true
+      const ancestors: Edge[] = []
+      for (let at = [l.id], depth = 0; at.length > 0 && depth < 5; depth++) {
+        const up = this.lineage.filter((e) => at.includes(e.child_listing_id))
+        ancestors.push(...up)
+        at = up.map((e) => e.parent_listing_id)
+      }
+      const below = (id: string): number => this.lineage.filter((e) => e.parent_listing_id === id).reduce((n, e) => n + 1 + below(e.child_listing_id), 0)
+      json(res, 200, { listing_id: l.id, version: l.latest_version, remix_policy: l.remix_policy ?? 'none', remix_share_bps: l.remix_share_bps ?? 0,
+        ancestors: ancestors.map((e) => ({ listing_id: e.parent_listing_id, version: e.parent_version, child_listing_id: e.child_listing_id, child_version: e.child_version,
+          share_bps: e.share_bps, source: e.source })), descendants: below(l.id), max_depth: 5 })
       return true
     }
     const m = /^\/v1\/marketplace\/listings\/([^/]+)$/.exec(path)
@@ -574,9 +631,11 @@ export class Bank {
     return t
   }
 
-  /** An agent by its wallet ID (or @handle, which the stub does not give out). */
+  /** An agent by its wallet ID, or by its @handle (B34.4). */
   private wallet(address: string): Agent | undefined {
-    return this.agents.get(address.trim())
+    const a = address.trim()
+    if (a.startsWith('@')) return [...this.agents.values()].find((x) => x.handle === a.slice(1).toLowerCase())
+    return this.agents.get(a)
   }
 
   /** Lens's minute tick (cmd/lens): every recurring transfer due, every loan instalment due, then every cash-out's next step. */
@@ -622,6 +681,14 @@ export class Bank {
         }
         sc.next_run_at = new Date(Date.parse(at) + (PERIOD_MS[sc.every] ?? PERIOD_MS.month)).toISOString()
       }
+    }
+    // B34.4 — an agent below its top-up level is filled to it from the workspace's free credits.
+    for (const a of this.agents.values()) {
+      const ws = a.topup === undefined || a.archived_at !== undefined ? undefined : this.d.workspace(a.ws)
+      const have = this.balance(`agent:${a.id}`)
+      if (ws === undefined || a.topup === undefined || have >= a.topup.below_ulxc) continue
+      const n = a.topup.to_ulxc - have
+      if (n <= ws.balance - (this.book(ws) as { allocated_ulxc: number }).allocated_ulxc) this.post(ws.id, 'fund', [['workspace', -n, `agent:${a.id}`], [`agent:${a.id}`, n, 'workspace']], 'topup')
     }
     for (const c of this.cashOuts) {
       if (c.status === 'held') {
@@ -730,7 +797,7 @@ export class Bank {
     let m = /^\/v1\/wallets\/([^/]+)$/.exec(path)
     if (m !== null) {
       const a = this.wallet(decodeURIComponent(m[1]))
-      return (a === undefined ? json(res, 404, { error: 'economy: no wallet has that ID or handle' }) : json(res, 200, { wallet_id: a.id, name: a.name })), true
+      return (a === undefined ? json(res, 404, { error: 'economy: no wallet has that ID or handle' }) : json(res, 200, { wallet_id: a.id, ...(a.handle ? { handle: a.handle } : {}), name: a.name })), true
     }
     m = /^\/v1\/marketplace\/listings\/([^/]+)\/reports$/.exec(path)
     if (m === null || req.method !== 'POST') return false
@@ -802,6 +869,15 @@ export class Bank {
     if (rest === '/loans' && method === 'GET') {
       return json(res, 200, { loans: this.loans.filter((l) => l.lender_workspace_id === ws.id || l.borrower_workspace_id === ws.id) }), true
     }
+    // B34.4 — one loan or escrow, as either side reads it.
+    if ((m = /^\/loans\/([^/]+)$/.exec(rest)) !== null && method === 'GET') {
+      const l = this.loans.find((x) => x.id === m?.[1] && (x.lender_workspace_id === ws.id || x.borrower_workspace_id === ws.id))
+      return (l === undefined ? json(res, 404, { error: 'economy: no such loan' }) : json(res, 200, l)), true
+    }
+    if ((m = /^\/escrows\/([^/]+)$/.exec(rest)) !== null && method === 'GET') {
+      const e = this.escrows.find((x) => x.id === m?.[1] && (x.payer_workspace_id === ws.id || x.payee_workspace_id === ws.id))
+      return (e === undefined ? json(res, 404, { error: 'economy: no such escrow' }) : json(res, 200, e)), true
+    }
     if ((m = /^\/loans\/([^/]+)\/(accept|decline|withdraw)$/.exec(rest)) !== null && method === 'POST') {
       const l = this.loans.find((x) => x.id === m?.[1] && x.status === 'offered' && (m?.[2] === 'withdraw' ? x.lender_workspace_id : x.borrower_workspace_id) === ws.id)
       if (l === undefined) return json(res, 404, { error: 'economy: no such loan offered' }), true
@@ -854,17 +930,33 @@ export class Bank {
       return false
     }
     if (rest === '/agents/schedules' && method === 'GET') {
-      return json(res, 200, { schedules: this.schedules.filter((x) => x.ws === ws.id && x.active).map(({ ws: _w, runs: _r, ...x }) => x) }), true
+      return json(res, 200, { schedules: this.schedules.filter((x) => x.ws === ws.id).map(({ ws: _w, runs: _r, ...x }) => x) }), true
     }
     if ((m = /^\/agents\/([^/]+)\/pots\/([^/]+)\/(in|out)$/.exec(rest)) !== null && method === 'POST') {
       const a = this.agents.get(m[1])
       const pot = this.pots.find((x) => x.id === m?.[2] && x.agent_id === a?.id)
       if (a === undefined || a.ws !== ws.id || pot === undefined) return json(res, 404, { error: 'economy: no such pot' }), true
       const { amount_ulxc: n = 0 } = await this.body<{ amount_ulxc?: number }>(req)
+      // B34.4 — a locked pot keeps what it holds until its lock has passed.
+      if (m[3] === 'out' && pot.locked_until !== undefined && Date.parse(pot.locked_until) > Date.now() && !this.broken('pot-lock-ignored')) {
+        return json(res, 409, { error: `economy: this pot is locked until ${pot.locked_until}` }), true
+      }
       const have = this.balance(m[3] === 'in' ? `agent:${a.id}` : `pot:${pot.id}`)
       if (!(n > 0) || n > have) return json(res, 409, { error: `economy: there are only ${lxc(have)} LXC to move` }), true
       if (m[3] === 'in') this.post(ws.id, 'pot', [[`agent:${a.id}`, -n, `pot:${pot.id}`], [`pot:${pot.id}`, n, `agent:${a.id}`]], pot.id)
       else this.post(ws.id, 'pot', this.broken('pot-out-lost') ? [[`pot:${pot.id}`, -n, `agent:${a.id}`]] : [[`pot:${pot.id}`, -n, `agent:${a.id}`], [`agent:${a.id}`, n, `pot:${pot.id}`]], pot.id)
+      return json(res, 200, { ...pot, balance_ulxc: this.balance(`pot:${pot.id}`) }), true
+    }
+    if ((m = /^\/agents\/([^/]+)\/pots\/([^/]+)\/lock$/.exec(rest)) !== null && method === 'PUT') {
+      const a = this.agents.get(m[1])
+      const pot = this.pots.find((x) => x.id === m?.[2] && x.agent_id === a?.id)
+      if (a === undefined || a.ws !== ws.id || pot === undefined) return json(res, 404, { error: 'economy: no such pot' }), true
+      const { locked_until = null } = await this.body<{ locked_until?: string | null }>(req)
+      const inForce = pot.locked_until !== undefined && Date.parse(pot.locked_until) > Date.now()
+      if (inForce && (locked_until === null || Date.parse(locked_until) < Date.parse(pot.locked_until ?? ''))) {
+        return json(res, 409, { error: `economy: this pot is locked until ${pot.locked_until}: a lock in force can only be made longer` }), true
+      }
+      pot.locked_until = locked_until === null ? undefined : new Date(locked_until).toISOString()
       return json(res, 200, { ...pot, balance_ulxc: this.balance(`pot:${pot.id}`) }), true
     }
     return false
@@ -1017,6 +1109,15 @@ export class Bank {
       }
       a.status = m[2] === 'approve' ? 'approved' : 'denied'
       a.decided_at = now
+      // B34.4 — approval-deny-pays: a denied send is made anyway (its payee is in the fingerprint the send filed it under).
+      const [what, from, to] = a.fingerprint.split('\0')
+      if (m[2] === 'deny' && what === 'send' && this.broken('approval-deny-pays')) {
+        const payee = this.agents.get(to)
+        if (payee !== undefined) {
+          this.post(ws.id, 'transfer', [[`agent:${from}`, -a.amount_ulxc, `agent:${to}`]], a.id)
+          this.post(payee.ws, 'transfer', [[`agent:${to}`, a.amount_ulxc, `agent:${from}`]], a.id)
+        }
+      }
       const { fingerprint: _f, ws: _w, ...out } = a
       return json(res, 200, out), true
     }
@@ -1062,6 +1163,45 @@ export class Bank {
     }
     if (rest === '/agents/passkeys') return json(res, 200, { passkeys: this.passkeys.get(ws.id) ?? [] }), true
     if (rest === '/agents/push/public-key') return json(res, 404, { error: 'economy: web push is not configured' }), true
+    if (rest === '/agents/push/subscriptions' && (method === 'POST' || method === 'DELETE')) return json(res, 404, { error: 'economy: web push is not configured' }), true
+    // B34.4 — Lens's rule templates, and one applied over an agent's rules whole.
+    if (rest === '/agents/rule-templates' && method === 'GET') return json(res, 200, { templates: RULE_TEMPLATES }), true
+    if ((m = /^\/agents\/([^/]+)\/rules\/template$/.exec(rest)) !== null && method === 'POST') {
+      const a = this.agents.get(m[1])
+      if (a === undefined || a.ws !== ws.id) return json(res, 404, { error: 'economy: no such agent in this workspace' }), true
+      const { template = '' } = await this.body<{ template?: string }>(req)
+      const t = RULE_TEMPLATES.find((x) => x.id === template)
+      if (t === undefined) return json(res, 400, { error: `economy: no rule template "${template}"` }), true
+      a.rules = { ...noRules(), ...t.rules }
+      this.recordRules(a, ws.id, `template ${t.id}`)
+      return json(res, 200, a.rules), true
+    }
+    // B34.4 — Lens's simulated portfolios (B22.8): a market order fills at the quote, a limit order under it waits.
+    if ((m = /^\/agents\/([^/]+)\/portfolios\/([^/]+)(\/orders(?:\/([^/]+)\/cancel)?)?$/.exec(rest)) !== null) {
+      const a = this.agents.get(m[1])
+      const pf = this.portfolios.find((x) => x.id === m?.[2] && x.agent_id === a?.id)
+      if (a === undefined || a.ws !== ws.id || pf === undefined) return json(res, 404, { error: 'economy: no such portfolio' }), true
+      if (m[3] === undefined && method === 'GET') return json(res, 200, this.portfolioOut(pf)), true
+      if (m[4] !== undefined && method === 'POST') {
+        const o = pf.orders.find((x) => x.id === m?.[4] && x.status === 'open')
+        if (o === undefined) return json(res, 404, { error: 'economy: no such open order' }), true
+        o.status = 'cancelled'
+        return json(res, 200, o), true
+      }
+      if (m[3] === '/orders' && method === 'POST') {
+        const b = await this.body<{ instrument?: string; side?: string; type?: string; quantity_micros?: number; limit_price_usd?: string }>(req)
+        const price = Number(SIM_QUOTES.find((q) => q.instrument === b.instrument)?.price_usd)
+        if (!(price > 0)) return json(res, 400, { error: `economy: no quote for "${b.instrument}"` }), true
+        if (b.side !== 'buy' || !(b.quantity_micros && b.quantity_micros > 0)) return json(res, 400, { error: 'economy: the stub buys a positive quantity only' }), true
+        const fill = b.type === 'market' || Number(b.limit_price_usd) >= price
+        const cost = Math.round(b.quantity_micros * price)
+        const o: SimOrder = { id: id('ord_'), portfolio_id: pf.id, instrument: b.instrument ?? '', side: 'buy', type: b.type ?? 'market', quantity_micros: b.quantity_micros,
+          ...(b.limit_price_usd ? { limit_price_usd: b.limit_price_usd } : {}), status: fill ? 'filled' : 'open', ...(fill ? { fill_price_usd: String(price) } : {}),
+          cash_uusd: fill ? -(this.broken('sim-fill-free') ? 0 : cost) : 0, simulated: true, created_at: now }
+        pf.orders.unshift(o)
+        return json(res, 201, o), true
+      }
+    }
     if (rest === '/agents/pause-all' || rest === '/agents/resume-all') {
       if (rest === '/agents/pause-all') this.allPaused.set(ws.id, { at: now, reason: (await this.body<{ reason?: string }>(req)).reason ?? '' })
       else this.allPaused.delete(ws.id)
@@ -1200,27 +1340,132 @@ export class Bank {
         return json(res, 200, { agent_id: a.id, paused: action === '/pause' }), true
       }
       if (await this.agentWalletRoute(req, res, ws, a, action)) return true
-      if (action === '/topup' && method === 'GET') return json(res, 404, { error: 'the agent has no automatic top-up' }), true
+      // B34.4 — an automatic top-up (tick() fills it), a handle, a simulated portfolio.
+      if (action === '/topup' && method === 'GET') return (a.topup === undefined ? json(res, 404, { error: 'the agent has no automatic top-up' }) : json(res, 200, { agent_id: a.id, ...a.topup })), true
+      if (action === '/topup' && method === 'PUT') {
+        const { below_ulxc = 0, to_ulxc = 0 } = await this.body<{ below_ulxc?: number; to_ulxc?: number }>(req)
+        if (!(below_ulxc > 0) || !(to_ulxc > below_ulxc)) return json(res, 400, { error: 'economy: invalid agent rule: a top-up needs 0 < below_ulxc < to_ulxc' }), true
+        a.topup = { below_ulxc, to_ulxc }
+        return json(res, 200, { agent_id: a.id, ...a.topup }), true
+      }
+      if (action === '/topup' && method === 'DELETE') {
+        if (!this.broken('topup-kept')) a.topup = undefined
+        return json(res, 200, { agent_id: a.id, topup: null }), true
+      }
+      if (action === '/handle' && method === 'PUT') {
+        const handle = ((await this.body<{ handle?: string }>(req)).handle ?? '').trim().replace(/^@/, '').toLowerCase()
+        if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(handle)) return json(res, 400, { error: 'economy: a handle is 3–32 of a–z, 0–9, . _ -' }), true
+        if ([...this.agents.values()].some((x) => x.handle === handle && x.id !== a.id)) return json(res, 409, { error: 'economy: that handle is taken' }), true
+        a.handle = handle
+        return json(res, 200, { wallet_id: a.id, handle, name: a.name }), true
+      }
+      if (action === '/portfolios' && method === 'POST') {
+        const { name = '', cash_uusd = 0 } = await this.body<{ name?: string; cash_uusd?: number }>(req)
+        if (name.trim() === '' || !(cash_uusd > 0)) return json(res, 400, { error: 'economy: a portfolio needs a name and simulated cash' }), true
+        const pf: Portfolio = { id: id('pf_'), agent_id: a.id, name: name.trim(), starting_cash_uusd: cash_uusd, created_at: now, orders: [] }
+        this.portfolios.push(pf)
+        return json(res, 201, this.portfolioOut(pf)), true
+      }
       if (action === '/claim' && method === 'POST') return json(res, 200, { agent_id: a.id, owner_user_id: a.owner_user_id }), true
       if (action === '/portfolios' && method === 'GET') {
-        return json(res, 200, { notice: "Simulated: executed by Talyvor's simulator at the ECB reference rate. No order is ever sent to a market.", portfolios: [] }), true
+        return json(res, 200, { notice: SIM_NOTICE, portfolios: this.portfolios.filter((x) => x.agent_id === a.id).map((x) => this.portfolioOut(x)) }), true
       }
       return this.d.miss(req, res, `/v1/workspaces/${ws.id}${rest}`), true
     }
 
     // ── the marketplace ──
     if (rest === '/marketplace/listings' && method === 'POST') {
-      const b = await this.body<Partial<Listing> & { artifact?: Record<string, unknown> }>(req)
+      const b = await this.body<Partial<Listing> & { artifact?: Record<string, unknown>; parents?: { listing_id: string; version: number }[] }>(req)
       if (!b.title || b.artifact === undefined) return json(res, 400, { error: 'market: a listing needs a title and its artifact' }), true
+      // B34.4 — a parent someone else owns needs a remix grant on that version.
+      const parents = (b.parents ?? []).map((p) => ({ p, l: this.listings.get(p.listing_id), g: this.grants.find((g) => g.ws === ws.id && g.listing_id === p.listing_id && g.version === p.version) }))
+      const unfit = parents.find((x) => x.l === undefined || (x.l.workspace_id !== ws.id && x.g === undefined))
+      if (unfit !== undefined) return json(res, 400, { error: `market: invalid listing: ${unfit.p.listing_id} version ${unfit.p.version} is not yours to build on; remix it first` }), true
       const l: Listing = { id: id('lst_'), workspace_id: ws.id, kind: b.kind ?? 'prompt', title: b.title, description: b.description ?? '',
         price_per_use_ulxc: b.price_per_use_ulxc ?? 0, visibility: b.visibility ?? 'public', latest_version: 1, created_at: now, updated_at: now,
         review_status: READS_AS_INJECTION.test(`${b.title} ${b.description ?? ''} ${JSON.stringify(b.artifact)}`) ? 'held' : 'approved',
         artifact: b.artifact, changelog: b.changelog ?? '' }
       this.listings.set(l.id, l)
+      for (const { p, l: parent, g } of parents) {
+        this.lineage.push({ child_listing_id: l.id, child_version: 1, parent_listing_id: p.listing_id, parent_version: p.version,
+          share_bps: g?.share_bps ?? parent?.remix_share_bps ?? 0, source: 'declared', created_at: now })
+      }
       return json(res, 201, this.listingOut(l, ws.id)), true
     }
     if (rest === '/marketplace/listings' && method === 'GET') {
       return json(res, 200, { listings: [...this.listings.values()].filter((l) => l.workspace_id === ws.id).map((l) => this.listingOut(l, ws.id)) }), true
+    }
+    // B34.4 — a listing's owner gives it a version, its offers and its remix terms; anyone may remix one that allows it.
+    if ((m = /^\/marketplace\/listings\/([^/]+)\/(versions|offers|remix-terms|remix|licences)$/.exec(rest)) !== null) {
+      const l = this.listings.get(m[1])
+      const own = l !== undefined && l.workspace_id === ws.id
+      if (l === undefined || !this.visible(l, ws.id)) return json(res, 404, { error: 'market: no such listing' }), true
+      if (['versions', 'offers', 'remix-terms'].includes(m[2]) && !own) return json(res, 404, { error: 'market: no such listing' }), true
+      if (m[2] === 'versions' && method === 'POST') {
+        const b = await this.body<{ artifact?: Record<string, unknown>; changelog?: string }>(req)
+        if (b.artifact === undefined) return json(res, 400, { error: 'body must be {artifact, changelog, parents}' }), true
+        l.artifacts = { ...(l.artifacts ?? { 1: l.artifact }), [l.latest_version + 1]: b.artifact }
+        l.latest_version++
+        l.artifact = b.artifact
+        l.changelog = b.changelog ?? ''
+        return json(res, 201, { version: l.latest_version, changelog: l.changelog, created_at: now }), true
+      }
+      if (m[2] === 'offers' && method === 'PUT') {
+        const { offers = [] } = await this.body<{ offers?: Omit<StubOffer, 'id' | 'created_at'>[] }>(req)
+        if (offers.some((o) => !['per_use', 'buy', 'rent', 'subscribe'].includes(o.kind) || !(o.price_usd_micros >= 0))) return json(res, 400, { error: 'market: invalid offer' }), true
+        l.offers = offers.map((o) => ({ ...o, id: id('off_'), created_at: now }))
+        return json(res, 200, { offers: l.offers }), true
+      }
+      if (m[2] === 'remix-terms' && method === 'PUT') {
+        const { remix_policy = 'none', remix_share_bps = 0 } = await this.body<{ remix_policy?: string; remix_share_bps?: number }>(req)
+        if (!['none', 'free', 'royalty'].includes(remix_policy) || (remix_policy === 'royalty' && !(remix_share_bps >= 1 && remix_share_bps <= 3000))) {
+          return json(res, 400, { error: 'market: invalid remix terms' }), true
+        }
+        l.remix_policy = remix_policy
+        l.remix_share_bps = remix_policy === 'royalty' ? remix_share_bps : 0
+        return json(res, 200, { remix_policy: l.remix_policy, remix_share_bps: l.remix_share_bps }), true
+      }
+      if (m[2] === 'remix' && method === 'POST') {
+        const { version = 0 } = await this.body<{ version?: number }>(req)
+        const v = version || l.latest_version
+        if ((l.remix_policy ?? 'none') === 'none' && !own) return json(res, 403, { error: 'market: this listing may not be remixed' }), true
+        const artifact = (l.artifacts ?? { 1: l.artifact })[v]
+        if (artifact === undefined) return json(res, 404, { error: 'market: no such version' }), true
+        let g = this.grants.find((x) => x.ws === ws.id && x.listing_id === l.id && x.version === v)
+        if (g === undefined && !own) {
+          g = { ws: ws.id, listing_id: l.id, version: v, share_bps: this.broken('remix-share-lost') ? 0 : l.remix_share_bps ?? 0, accepted_at: now }
+          this.grants.push(g)
+        }
+        return json(res, 200, { listing_id: l.id, version: v, kind: l.kind, title: l.title, licence: 'docs/terms/remix.md',
+          ...(g === undefined ? {} : { grant: { listing_id: g.listing_id, version: g.version, share_bps: g.share_bps, accepted_at: g.accepted_at } }), artifact }), true
+      }
+      if (m[2] === 'licences' && method === 'POST') {
+        const key = String(req.headers['idempotency-key'] ?? '')
+        if (key.length < 1 || key.length > 128) return json(res, 400, { error: 'market: invalid listing: licensing takes an Idempotency-Key of 1 to 128 characters, so a retry never buys twice' }), true
+        const again = this.licences.find((x) => x.ws === ws.id && x.key === key)
+        if (again !== undefined) return json(res, 200, again), true
+        const { offer_id = '', version = 0 } = await this.body<{ offer_id?: string; version?: number }>(req)
+        const o = (l.offers ?? []).find((x) => x.id === offer_id)
+        if (o === undefined || o.kind === 'per_use') return json(res, 400, { error: 'market: invalid listing: that offer is not one a licence is bought on' }), true
+        const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: '', price_ulxc: o.price_usd_micros * ULXC_PER_USD_MICRO,
+          charge: o.price_usd_micros === 0 ? 'free' : 'billed', used_at: now, payee_agent_id: '', memo: '' }
+        if (!this.broken('licence-unbilled')) this.uses.push(use)
+        const days = o.kind === 'buy' ? undefined : o.period_days ?? 30
+        const lic: StubLicence = { id: id('lic_'), ws: ws.id, listing_id: l.id, title: l.title, offer_id: o.id, licence: o.licence, kind: o.kind, pinned_version: version || null,
+          starts_at: now, ends_at: days === undefined ? null : new Date(Date.now() + days * 86_400e3).toISOString(), auto_renew: o.kind === 'subscribe', status: 'active',
+          use_id: use.id, charge: use.charge, price_ulxc: use.price_ulxc, created_at: now, key }
+        this.licences.unshift(lic)
+        return json(res, 201, lic), true
+      }
+    }
+    if ((m = /^\/marketplace\/licences(?:\/([^/]+)\/cancel)?$/.exec(rest)) !== null) {
+      if (m[1] === undefined && method === 'GET') return json(res, 200, { licences: this.licences.filter((x) => x.ws === ws.id) }), true
+      const lic = this.licences.find((x) => x.id === m?.[1] && x.ws === ws.id)
+      if (m[1] !== undefined && method === 'POST') {
+        if (lic === undefined) return json(res, 404, { error: 'market: no such licence' }), true
+        if (!this.broken('licence-renews')) lic.auto_renew = false
+        return json(res, 200, lic), true
+      }
     }
     if ((m = /^\/marketplace\/listings\/([^/]+)\/use$/.exec(rest)) !== null && method === 'POST') {
       const l = this.listings.get(m[1])
