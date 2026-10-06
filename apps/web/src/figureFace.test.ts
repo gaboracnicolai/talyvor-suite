@@ -196,6 +196,9 @@ const FORMATTERS: Record<string, true | string> = {
   // B1.4. The price under every chat answer — `≈ 0.15 LXC`, or `≈ $0.015` when the deployment
   // confirms no peg. A figure by the same rule: it renders inside the font-figure price line.
   'apps/web/src/areas/chat/price.ts#formatAnswerCost': true,
+  // B28.99. The range under Chat's box before a question is sent — `≈ 0.0004–1.03 LXC`, by the same rule,
+  // inside a font-figure span.
+  'apps/web/src/areas/chat/price.ts#formatCostRange': true,
   // B5.2. The peg on /pricing — `1 LXC = $0.10`, the one price a buyer reads before signing up. A
   // figure by the same rule as the buy buttons; it renders through Landing's <Figure>.
   'apps/web/src/areas/marketing/pricingApi.ts#formatPeg': true,

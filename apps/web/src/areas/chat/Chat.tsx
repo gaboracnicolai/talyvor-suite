@@ -51,7 +51,8 @@ import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
 import { useRevealedText } from './reveal'
 import { cutOff } from './chatStream'
-import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
+import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatCostRange, formatUsdPer1M, pricedAnswer } from './price'
+import { previewCost } from './estimate'
 import { formatWhen } from '../lens/format'
 import { Lxc, pegQuery } from '../lens/money'
 import { Card } from '../lens/walletBrand'
@@ -161,8 +162,23 @@ export const EXAMPLE_PROMPTS: readonly string[] = [
   'Plan a relaxed weekend in Lisbon',
 ]
 
+/** B28.99 — a typed command Chat answers itself, without the model (see send()): it costs nothing to send. */
+function answeredHere(question: string): boolean {
+  return (
+    LAUNCH_COMMAND.test(question) ||
+    TASK_COMMAND.test(question) ||
+    FREEZE_COMMAND.test(question) ||
+    STATEMENT_COMMAND.test(question) ||
+    isRuleCommand(question) ||
+    isAskAboveCommand(question) ||
+    isRunOutQuestion(question)
+  )
+}
+
 export function Chat() {
   const catalog = useQuery({ queryKey: ['chat-models'], queryFn: fetchModels, retry: false })
+  // B28.99 — the wallet tools a question offers the model, read before it is sent: they are part of its price.
+  const chatTools = useQuery({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false, staleTime: 5 * 60_000 })
   // B18.58 — the providers Lens holds no key for. Their models are not offered.
   const providers = useQuery({
     queryKey: ['chat-unconfigured-providers'],
@@ -305,6 +321,12 @@ export function Chat() {
   const models = picker.offered
   const selected: ChatModel | undefined =
     models.find((m) => m.id === modelId) ?? picker.defaultModel
+  // B28.99 — what sending the draft will cost, as a range, while it is typed.
+  const asking = draft.trim()
+  const estimate =
+    selected !== undefined && !pending && asking !== '' && !answeredHere(asking)
+      ? previewCost(messages, asking, attachments, selected, chatTools.data ?? [])
+      : undefined
 
   /** Streams an answer to `turn`, whose last message is the question. */
   const run = useCallback(
@@ -904,6 +926,13 @@ export function Chat() {
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
               {/* B28.354 — which wallet pays for this conversation. */}
               <PaidBy book={payersBook} payers={payers} value={paidBy} onChange={choosePayer} disabled={pending} />
+              {estimate !== undefined ? (
+                // B28.99 — at the list rate, like the footer the answer will carry.
+                <p className="text-caption text-muted" data-testid="cost-preview">
+                  Sending this <span className="font-figure text-ink">{formatCostRange(estimate.low_usd, estimate.high_usd, usdPerLXC)}</span>
+                  <span className="text-faint"> · answer up to <span className="font-figure">{estimate.answer_tokens.toLocaleString('en-US')}</span> tokens</span>
+                </p>
+              ) : null}
               {selected !== undefined ? (
                 // ⚠ THE PRICE IS THE CATALOG'S LIST RATE AND IS LABELLED AS SUCH. A session-key
                 // request moves no LXC in the default configuration (see this file's header), so a

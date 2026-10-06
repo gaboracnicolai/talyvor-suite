@@ -181,3 +181,32 @@ export function formatAnswerCost(usd: number, usdPerLXC: number | undefined): st
         : amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   return pegged ? `≈ ${figure} LXC` : `≈ $${figure}`
 }
+
+/**
+ * B28.99 — a cost range before sending, in the footer's units (credits at the deployment's peg, dollars
+ * without one). Each end is rounded AWAY from the middle — the low end down, the high end up — so the
+ * range shown is never narrower than the range estimated.
+ */
+export function formatCostRange(lowUsd: number, highUsd: number, usdPerLXC: number | undefined): string {
+  const pegged = typeof usdPerLXC === 'number' && Number.isFinite(usdPerLXC) && usdPerLXC > 0
+  const low = outward(pegged ? lowUsd / usdPerLXC : lowUsd, 'down')
+  const high = outward(pegged ? highUsd / usdPerLXC : highUsd, 'up')
+  const range = low === high ? figure(low) : `${figure(low)}–${figure(high)}`
+  return pegged ? `≈ ${range} LXC` : `≈ $${range}`
+}
+
+/** Two significant digits below one unit, cents above, rounded down or up. */
+function outward(amount: number, way: 'down' | 'up'): number {
+  if (!(amount > 0)) return 0
+  const step = amount < 1 ? 10 ** (Math.floor(Math.log10(amount)) - 1) : 0.01
+  // The nudge keeps 0.0012 / 0.0001 = 11.999999999999998 from rounding down to 11.
+  const n = way === 'down' ? Math.floor(amount / step + 1e-9) : Math.ceil(amount / step - 1e-9)
+  return Number((n * step).toPrecision(12))
+}
+
+function figure(amount: number): string {
+  if (amount === 0) return '0'
+  return amount < 1
+    ? amount.toLocaleString('en-US', { maximumSignificantDigits: 2 })
+    : amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}

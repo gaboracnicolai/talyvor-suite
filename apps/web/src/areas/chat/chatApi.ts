@@ -406,6 +406,9 @@ export function pickerCatalog(all: ChatModel[], unconfiguredProviders: readonly 
   }
 }
 
+/** The longest answer Chat asks Anthropic and Bedrock for, in tokens — B28.99 prices a long answer at it. */
+export const CHAT_MAX_TOKENS = 4096
+
 /**
  * The request body each provider's chat endpoint expects.
  *
@@ -452,7 +455,7 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
         ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })) }
         : { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })) }
   if (provider === 'anthropic' || provider === 'bedrock') {
-    return { model, max_tokens: 4096, stream: true, messages, ...offered }
+    return { model, max_tokens: CHAT_MAX_TOKENS, stream: true, messages, ...offered }
   }
   return { model, stream: true, messages, ...offered }
 }

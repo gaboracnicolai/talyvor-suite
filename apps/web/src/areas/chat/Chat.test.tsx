@@ -747,6 +747,30 @@ describe('what each answer cost', () => {
     )
   })
 
+  it('B28.99 — shows a price range while a question is typed, none for a command, and the answer’s price lands inside it', async () => {
+    mockChat({
+      usdPerLXC: 0.1,
+      body:
+        'data: {"type":"message_start","message":{"model":"claude-opus-5","usage":{"input_tokens":22,"output_tokens":1}}}\n\n' +
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Paris."}}\n\n' +
+        'data: {"type":"message_delta","usage":{"output_tokens":4}}\n\n' +
+        'data: {"type":"message_stop"}\n\n',
+    })
+    renderChat()
+    await chooseModel('Claude Opus 5')
+    const box = await screen.findByPlaceholderText('Ask anything')
+    expect(screen.queryByTestId('cost-preview')).toBeNull()
+    fireEvent.change(box, { target: { value: '/agent Researcher' } })
+    expect(screen.queryByTestId('cost-preview')).toBeNull()
+    fireEvent.change(box, { target: { value: 'What is the capital of France?' } })
+    // 30 bytes. Low: 3 tokens in + 1 out = $0.00004 = 0.0004 LXC. High: 15 + 64 + 8 in + 4,096 out = $0.102835, up to 1.03 LXC.
+    expect(screen.getByTestId('cost-preview').textContent).toBe('Sending this ≈ 0.0004–1.03 LXC · answer up to 4,096 tokens')
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    // (22 × $5 + 4 × $25) / 1M = $0.00021 = 0.0021 LXC: inside 0.0004–1.03.
+    expect((await screen.findByTestId('turn-cost')).textContent).toBe('≈ 0.0021 LXC · Claude Opus 5 · 22 in / 4 out tokens')
+    expect(screen.queryByTestId('cost-preview')).toBeNull()
+  })
+
   it('prices in dollars when the deployment confirms no peg — never a credit figure at a guess', async () => {
     mockChat({ body: OPENAI_PRICED })
     renderChat()

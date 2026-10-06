@@ -1349,6 +1349,74 @@ export function streamsProgressively(): Scenario {
   }
 }
 
+/** B28.99 — twenty questions of every length, none a wallet question, so each is one request to the model. */
+const PREVIEW_QUESTIONS = [
+  'What is 17 + 25? Reply with the number only.',
+  'Name the capital of Japan in one word.',
+  'Spell the word "lantern" backwards.',
+  'List five fruits, one per line.',
+  'In one sentence, why is the sky blue?',
+  'Write a haiku about rain.',
+  'Translate "good morning" into French, Spanish and German.',
+  'Explain in three sentences how a bicycle stays upright.',
+  'What is the boiling point of water in Fahrenheit? Reply with the number only.',
+  'Write a 120-word paragraph about lighthouses.',
+  'Give three synonyms for "quick".',
+  'In what year did a person first walk on the Moon? Reply with the year only.',
+  'Describe a cat to someone who has never seen one, in two sentences.',
+  'Count from 1 to 30, separated by commas.',
+  'Summarise the plot of Romeo and Juliet in four sentences.',
+  'What is the square root of 144? Reply with the number only.',
+  'Write a short limerick about a teapot.',
+  'Name the planets of the solar system in order from the Sun.',
+  'Explain what a prime number is, with three examples.',
+  'Write a 200-word story about a lost umbrella.',
+]
+
+/** The range Chat shows under the box before sending, read as it reads: "Sending this ≈ 0.0004–1.03 LXC · …". */
+export function shownRange(text: string): { low: number; high: number; unit: 'USD' | 'LXC' } | undefined {
+  const m = /≈ (\$?)([\d,.]+)(?:–([\d,.]+))?( LXC)?/.exec(text.replace(/\s+/g, ' '))
+  if (m === null || (m[1] === '$') === (m[4] === ' LXC')) return undefined
+  const low = Number(m[2].replaceAll(',', ''))
+  return { low, high: m[3] === undefined ? low : Number(m[3].replaceAll(',', '')), unit: m[1] === '$' ? 'USD' : 'LXC' }
+}
+
+/**
+ * B28.99 — before each of 20 questions in one chat, the price range under the box; after it, the answer's footer. The
+ * footer's price — its tokens at the catalog's list rate — must be inside the range every time. Each question carries
+ * a word made up for this attempt, so the model answers it rather than the cache — a second attempt included.
+ */
+export function costPreview(seed: number): Scenario {
+  return {
+    id: 'cost-preview',
+    owner: 'talyvor-suite',
+    title: 'the price range shown before sending holds the price under each of 20 answers',
+    run: async (ctx) => {
+      const { page } = ctx.app
+      const misses: string[] = []
+      const attempt = 1 + Math.floor(Math.random() * 999_999)
+      for (const [k, base] of PREVIEW_QUESTIONS.entries()) {
+        const question = `${base} (${freshWord(seed * 100 + k, attempt)})`
+        await page.locator('#chat-message').fill(question)
+        const shown = (await page.getByTestId('cost-preview').innerText({ timeout: ACTION_TIMEOUT_MS })).replace(/\s+/g, ' ').trim()
+        const t = await ask(ctx, question, `shown before sending: ${shown}`)
+        const noPrice = priced(t)
+        if (noPrice !== undefined) return { pass: false, detail: `question ${k + 1}: ${noPrice}` }
+        if (t.footer.kind !== 'priced' || t.costUSD === undefined) {
+          return { pass: false, detail: `question ${k + 1} was not priced by its tokens: [${t.footerText}]` }
+        }
+        const range = shownRange(shown)
+        if (range === undefined) return { pass: false, detail: `question ${k + 1}: unreadable range "${shown}"` }
+        const cost = range.unit === 'LXC' ? t.costUSD / ctx.env.usdPerLXC : t.costUSD
+        if (cost < range.low || cost > range.high) misses.push(`question ${k + 1}: shown "${shown}", answer cost ${cost} [${t.footerText}]`)
+      }
+      return misses.length === 0
+        ? { pass: true, detail: `all ${PREVIEW_QUESTIONS.length} answers cost what the range shown before sending said` }
+        : { pass: false, detail: `${misses.length} of ${PREVIEW_QUESTIONS.length} answers outside the range shown before sending: ${misses.join('; ')}` }
+    },
+  }
+}
+
 export function everyModelAnswers(streamable: readonly string[]): Scenario {
   return {
     id: 'every-model',
@@ -2268,7 +2336,11 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
     case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
-    case 6: list.push(sidebarStaysHidden(), blankThenRetry(i)); break
+    // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
+    case 6:
+      list.push(sidebarStaysHidden(), blankThenRetry(i))
+      if (i < 10) list.push(costPreview(i))
+      break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
     case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
