@@ -1488,6 +1488,87 @@ export function agentApprovalPush(seed: number): Scenario {
 }
 
 /**
+ * B28.84 — the DONE line: approving the card settles the payment as one posting on the statement. An agent pays another
+ * with its own key, above its approval amount, so Lens holds the payment and files an approval. This device makes a
+ * passkey on Agent Wallets (a virtual authenticator that verifies the user stands in for Face ID). In Chat the approval
+ * is a card naming the payee, the amount and the memo; Approve with Face ID signs Lens's challenge for it. Then Lens's
+ * approval is used, each agent's account holds exactly one pay line of 1 LXC, and the card links the payer's.
+ */
+export function chatApprovalFaceID(seed: number): Scenario {
+  return {
+    id: 'chat-approval-face-id',
+    title: 'an agent’s payment waiting for a person is a card in Chat; approved with Face ID, it is one pay line on the statement',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const payer = await openAgent(ctx, bank, `Chat payer ${seed}`)
+      if (typeof payer === 'string') return fail(payer)
+      const payee = await openAgent(ctx, bank, `Chat payee ${seed}`)
+      if (typeof payee === 'string') return fail(payee)
+      let err = await bank.move(payer, 2e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setLimit(payer, 'Ask a person above', 500_000)
+      if (err !== undefined) return fail(`the approval amount was not saved: ${err}`)
+      const key = await bank.issueKey(payer)
+      const memo = `chat approval ${seed}`
+      const held = await ctx.env.lens.payAsAgent(key, ctx.app.user.workspaceID, payer.id, payee.id, 1e6, memo)
+      if (held.ok) return fail(`a payment above the approval amount was paid with no person asked: ${JSON.stringify(held.value)}`)
+      const filed = (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.agent_id === payer.id && x.status === 'pending')
+      if (filed.length !== 1 || filed[0].payee?.id !== payee.id || filed[0].amount_ulxc !== 1e6 || filed[0].memo !== memo) {
+        return fail(`Lens filed no single pending approval for the 1 LXC payment (${held.status} ${held.error}): ${JSON.stringify(filed)}`)
+      }
+
+      // Face ID on this device: a platform authenticator that verifies the user, kept for this page's whole life.
+      const { page } = bank
+      const cdp = await ctx.app.context.newCDPSession(page)
+      await cdp.send('WebAuthn.enable', { enableUI: false })
+      await cdp.send('WebAuthn.addVirtualAuthenticator', {
+        options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
+      })
+      const device = card(page, 'Face ID and notifications')
+      await device.getByRole('button', { name: /^(Approve with Face ID from now on|Add this device)$/ }).click()
+      const made = await outcome(device.getByRole('status').filter({ hasText: /^This device now signs approvals/ }), device)
+      if (made !== undefined) return fail(`this device's passkey was not registered: ${made}`)
+
+      await page.goto(new URL('/chat', page.url()).toString())
+      const asks = `${payer.name} wants to pay ${payee.name} `
+      const approval = page.getByTestId('chat-approval').filter({ hasText: asks })
+      try {
+        await approval.waitFor({ timeout: ACTION_TIMEOUT_MS })
+      } catch {
+        return fail(`no card in Chat reads "${asks}…"; it shows: ${(await page.getByTestId('chat-approval').allInnerTexts()).join(' | ') || 'no approval card'}`)
+      }
+      const row = (await approval.getByTestId('chat-approval-asks').innerText()).trim()
+      const wanted = `${asks}1 LXC ${usdShown(1e6, ctx.env.usdPerLXC)} — ${memo}`
+      if (row !== wanted) return fail(`the card reads "${row}", not "${wanted}"`)
+      await mkdir(ctx.env.outDir, { recursive: true })
+      for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+        await page.setViewportSize({ width, height })
+        await approval.scrollIntoViewIfNeeded()
+        const shot = join(ctx.env.outDir, `chat-approval-${width}px-user${ctx.app.user.index}.png`)
+        await page.screenshot({ path: shot })
+        ctx.evidence.push({ note: `the card at ${width}px: ${shot}` })
+      }
+
+      await approval.getByRole('button', { name: 'Approve with Face ID', exact: true }).click()
+      const refused = await outcome(approval.getByRole('status').filter({ hasText: /^Approved and paid/ }), approval)
+      if (refused !== undefined) return fail(`approving the card did not pay: ${refused}`)
+      const said = approval.getByRole('status')
+      const href = await said.getByRole('link').getAttribute('href')
+      ctx.evidence.push({ note: `Chat: "${row}"; after Approve with Face ID: "${(await said.innerText()).trim()}" → ${href}` })
+
+      const state = (await ctx.env.lens.agentApprovals(ctx.app.user)).find((x) => x.id === filed[0].id)?.status
+      if (state !== 'used') return fail(`the approval is ${state ?? 'gone'}, not used`)
+      const paid = (await ctx.env.lens.agentLines(ctx.app.user, payer.id)).filter((l) => l.kind === 'pay')
+      const got = (await ctx.env.lens.agentLines(ctx.app.user, payee.id)).filter((l) => l.kind === 'pay')
+      if (paid.length !== 1 || paid[0].amount_ulxc !== -1e6) return fail(`${payer.name}'s account has ${paid.length} pay line(s): ${JSON.stringify(paid)}`)
+      if (got.length !== 1 || got[0].amount_ulxc !== 1e6) return fail(`${payee.name}'s account has ${got.length} pay line(s): ${JSON.stringify(got)}`)
+      const line = `/agents?agent=${encodeURIComponent(payer.id)}&entry=${encodeURIComponent(paid[0].entry_id)}`
+      if (href !== line) return fail(`the card links ${href}, not the pay line ${line}`)
+      return { pass: true, detail: `"${row}" in Chat, approved with a passkey: the approval used, one -1000000 µLXC pay line on ${payer.name} (${paid[0].entry_id}, linked from the card) and one +1000000 on ${payee.name}` }
+    }),
+  }
+}
+
+/**
  * B28.6 — the first screen after sign-in is the wallet home. An agent spends once, asks again above its
  * approval amount (Lens files the approval), and is given a monthly budget of four times what it spent;
  * Home must then show it 25% through its budget and the approvals Lens has waiting. Every figure the

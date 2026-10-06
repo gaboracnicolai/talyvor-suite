@@ -2038,10 +2038,11 @@ const DECIDED: Record<AgentApproval['status'], { status: PillStatus; label: stri
   denied: { status: 'slashed', label: 'Denied' },
 }
 
-const PASSKEYS_KEY = ['agent-passkeys']
+// Exported because Chat's approval cards (B28.84) sign with the same passkeys.
+export const PASSKEYS_KEY = ['agent-passkeys']
 
 /** What went wrong on this device, in words: Lens's sentence, a cancelled prompt, or our own message. */
-function deviceText(err: unknown, fallback: string): string {
+export function deviceText(err: unknown, fallback: string): string {
   if (err instanceof AgentBankError) return refusalText(err)
   if (err instanceof DOMException && err.name === 'NotAllowedError') return 'Cancelled — nothing changed.'
   if (err instanceof DOMException && err.name === 'NotSupportedError') return fallback

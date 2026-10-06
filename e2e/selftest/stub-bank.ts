@@ -198,6 +198,8 @@ export class Bank {
   private readonly schedules: Schedule[] = []
   private readonly cashOuts: CashOut[] = []
   private readonly cards = new Map<string, object>()
+  /** B28.84 — each workspace's passkeys (Lens B19.16): once it has one, a decision must carry an assertion. */
+  private readonly passkeys = new Map<string, { credential_id: string; name: string; created_at: string }[]>()
   private readonly reports: Report[] = []
   private readonly accounts = new Map<string, ConnectAccount>()
   private readonly payouts: Payout[] = []
@@ -935,6 +937,12 @@ export class Bank {
     if ((m = /^\/agents\/approvals\/([^/]+)\/(approve|deny)$/.exec(rest)) !== null && method === 'POST') {
       const a = this.approvals.find((x) => x.id === m?.[1] && x.ws === ws.id && x.status === 'pending')
       if (a === undefined) return json(res, 404, { error: 'economy: no such pending approval in this workspace' }), true
+      // The stub checks the assertion names one of the workspace's passkeys; Lens verifies its signature too.
+      const keys = this.passkeys.get(ws.id) ?? []
+      const signedWith = (await this.body<{ assertion?: { credential_id?: string } }>(req)).assertion?.credential_id
+      if (keys.length > 0 && !keys.some((k) => k.credential_id === signedWith)) {
+        return json(res, 403, { error: 'economy: approvals in this workspace are signed: approve with a registered passkey' }), true
+      }
       a.status = m[2] === 'approve' ? 'approved' : 'denied'
       a.decided_at = now
       const { fingerprint: _f, ws: _w, ...out } = a
@@ -962,7 +970,22 @@ export class Bank {
       return json(res, 200, { at: now, month_start: start.toISOString(), month_end: end.toISOString(), spent_ulxc: spent, forecast_ulxc: runOn(spent), agents }), true
     }
     if (await this.walletRoute(req, res, ws, rest)) return true
-    if (rest === '/agents/passkeys') return json(res, 200, { passkeys: [] }), true
+    // B28.84 — registering a passkey and the challenge each approval is signed over (Lens B19.16).
+    const challenge = () => randomBytes(32).toString('base64url')
+    if (rest === '/agents/passkeys/challenge' && method === 'POST') {
+      return json(res, 200, { challenge: challenge(), rp_id: new URL(process.env.STUB_APP_URL ?? 'http://localhost').hostname }), true
+    }
+    if (rest === '/agents/passkeys' && method === 'POST') {
+      const { credential_id = '', name = '' } = await this.body<{ credential_id?: string; name?: string }>(req)
+      if (credential_id === '') return json(res, 400, { error: 'economy: a passkey needs its credential id' }), true
+      const k = { credential_id, name, created_at: now }
+      this.passkeys.set(ws.id, [...(this.passkeys.get(ws.id) ?? []), k])
+      return json(res, 201, k), true
+    }
+    if ((m = /^\/agents\/approvals\/([^/]+)\/challenge$/.exec(rest)) !== null && method === 'POST') {
+      return json(res, 200, { challenge: challenge(), allow_credentials: (this.passkeys.get(ws.id) ?? []).map((k) => k.credential_id) }), true
+    }
+    if (rest === '/agents/passkeys') return json(res, 200, { passkeys: this.passkeys.get(ws.id) ?? [] }), true
     if (rest === '/agents/push/public-key') return json(res, 404, { error: 'economy: web push is not configured' }), true
     if (rest === '/agents/pause-all' || rest === '/agents/resume-all') {
       if (rest === '/agents/pause-all') this.allPaused.set(ws.id, { at: now, reason: (await this.body<{ reason?: string }>(req)).reason ?? '' })
