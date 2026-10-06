@@ -25,7 +25,7 @@ import (
 //	GET  /api/marketplace/bill?month=YYYY-MM       the buyer's billed uses in a month (B20.10), this month by default
 //	POST /api/marketplace/listings/{id}/reports    {reason, details}: report a listing to Talyvor's review (B20.11)
 //	GET  /api/marketplace/payouts                  B20.6: the seller's Stripe account, balance, next payout and payouts
-//	POST /api/marketplace/payouts/connect          B20.6: {country} a link to Stripe's onboarding
+//	POST /api/marketplace/payouts/connect          B20.6: {country} a link to Stripe's onboarding (B35.10: Lens is sent the session's email too)
 //	POST /api/marketplace/payouts/credits          B20.6: take the available balance as Talyvor credits
 //
 // Reads and publishing go on the session's workspace token, as the Agent Bank's do. A USE does not:
@@ -278,6 +278,11 @@ var payoutCountry = regexp.MustCompile(`^([A-Z]{2})?$`)
 // handleMarketPayoutsConnect — POST /api/marketplace/payouts/connect {country}: Lens creates the seller's
 // Stripe account the first time and answers a link to Stripe's onboarding, which returns to
 // /marketplace/selling. The workspace's owner or an admin only; Lens says so otherwise.
+//
+// B35.10 — Stripe needs a contact email on the account, and Lens cannot read one (a provisioned token's
+// subject is the workspace id), so the BFF sends the signed-in person's own. Never one the browser
+// sends, and none for a synthetic session: Stripe would refuse its .invalid address, and Lens gives a
+// test workspace its own.
 func (a *app) handleMarketPayoutsConnect(w http.ResponseWriter, r *http.Request, t tenant) {
 	if r.Method != http.MethodPost {
 		methodNotAllowed(w, http.MethodPost)
@@ -285,6 +290,7 @@ func (a *app) handleMarketPayoutsConnect(w http.ResponseWriter, r *http.Request,
 	}
 	var in struct {
 		Country string `json:"country"`
+		Email   string `json:"email,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&in); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -293,6 +299,12 @@ func (a *app) handleMarketPayoutsConnect(w http.ResponseWriter, r *http.Request,
 	if !payoutCountry.MatchString(in.Country) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "country must be two capital letters, such as GB"})
 		return
+	}
+	in.Email = ""
+	if a.auth != nil {
+		if s, ok := a.auth.sessionFrom(r); ok && !s.synthetic {
+			in.Email = s.email
+		}
 	}
 	// UPSTREAM-BINDS-ONLY lensMarketPayoutConnectBody: none
 	body, _ := json.Marshal(in)
