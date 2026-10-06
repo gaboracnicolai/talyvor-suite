@@ -247,7 +247,13 @@ export interface AgentLine {
   kind: string
   amount_ulxc: number
   counterparty: string
+  /** A payment's memo, or the request a call's lines paid for. */
+  ref?: string
   balance_after_ulxc: number
+  at: string
+  /** B28.93 — on a call's lines: the model it asked, and where it came from. */
+  model?: string
+  source?: string
 }
 
 /** B28.31 — Lens economy.AgentRulesVersion: the rules as one change left them, who changed them (the credential) and how. */
