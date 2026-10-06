@@ -32,6 +32,7 @@ import {
   upsertConversation,
 } from './history'
 import { Markdown } from './Markdown'
+import { ApprovalCards } from './ApprovalCards'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
@@ -673,6 +674,9 @@ export function Chat() {
                 ))}
               </ol>
             )}
+
+            {/* B28.84 — an agent's payment waiting for a person, approved with Face ID here in the conversation. */}
+            <ApprovalCards />
 
             {failure !== null ? (
               <p className="mb-4 text-body text-ink" role="alert">
