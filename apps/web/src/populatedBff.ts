@@ -327,6 +327,8 @@ const BY_PATH: Record<string, unknown> = {
       { id: 'xfer_1', from_workspace_id: 'ws-1', from_agent_id: 'agt_research', to_workspace_id: 'ws-other', to_agent_id: 'agt_bea', amount_ulxc: 5_000_000, memo: 'design work', class: 'AMBER', test_funded_ulxc: 5_000_000, created_at: '2026-09-28T11:00:00Z' },
     ],
   },
+  // B28.355 — Chat names another company's agent by its wallet, as Send does.
+  '/api/wallets/address/agt_bea': { wallet_id: 'agt_bea', name: 'Bea' },
   '/api/wallets/requests': {
     requests: [
       { id: 'mreq_1', from_workspace_id: 'ws-other', from_agent_id: 'agt_bea', to_workspace_id: 'ws-1', to_agent_id: 'agt_research', amount_ulxc: 1_000_000, memo: 'invoice 12', status: 'pending', created_at: '2026-09-28T13:00:00Z' },

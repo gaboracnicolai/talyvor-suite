@@ -28,7 +28,7 @@ import {
 // screen shows Lens's figures and, on a refusal, Lens's own sentence.
 
 export const CAPABILITIES_KEY = ['wallet-capabilities']
-const REQUESTS_KEY = ['wallet-requests']
+export const REQUESTS_KEY = ['wallet-requests']
 const LOANS_KEY = ['wallet-loans']
 const CREDIT_KEY = ['wallet-credit-line']
 const BOOK_KEY = ['agent-book']

@@ -11,6 +11,7 @@
   "src/areas/chat/chatStream.test.ts": 16,
   "src/areas/chat/LaunchAgent.test.tsx": 2,
   "src/areas/chat/LiveStatement.test.tsx": 2,
+  "src/areas/chat/MoneyCards.test.tsx": 3,
   "src/areas/chat/PaidBy.test.tsx": 2,
   "src/areas/chat/price.test.ts": 5,
   "src/areas/chat/refusal.test.ts": 1,
