@@ -40,6 +40,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -210,6 +211,23 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid agent"})
 			return
 		}
+		// B28.361 — the conversation the request is part of and the budget set on it, in µLXC. Only a well-formed
+		// id and a positive whole number go on; Lens refuses a request that would take the conversation past its
+		// budget before the model is asked (talyvor-lens B28.100).
+		conversation := strings.TrimSpace(r.Header.Get(conversationHeader))
+		if conversation != "" && !conversationIDPattern.MatchString(conversation) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid conversation"})
+			return
+		}
+		budget := strings.TrimSpace(r.Header.Get(conversationBudgetHeader))
+		if budget != "" {
+			n, err := strconv.ParseInt(budget, 10, 64)
+			if err != nil || n <= 0 || conversation == "" {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid conversation budget"})
+				return
+			}
+			budget = strconv.FormatInt(n, 10)
+		}
 
 		key, err := a.sessionKeyFor(r.Context(), t)
 		if err != nil {
@@ -275,6 +293,12 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			}
 			if paidBy != "" {
 				up.Header.Set(paidByHeader, paidBy)
+			}
+			if conversation != "" {
+				up.Header.Set(conversationHeader, conversation)
+			}
+			if budget != "" {
+				up.Header.Set(conversationBudgetHeader, budget)
 			}
 			return a.streamClient.Do(up)
 		}
@@ -363,6 +387,16 @@ var tareHeaders = []string{"X-Talyvor-Tare", "X-Talyvor-Tare-Tokens-Saved"}
 // paidByHeader names the agent whose wallet pays for a Chat request (B28.354). On the request it is the
 // agent the conversation chose; on Lens's answer it is the agent Lens billed, absent when the workspace paid.
 const paidByHeader = "X-Talyvor-Paid-By"
+
+// conversationHeader names the Chat conversation a request is part of, and conversationBudgetHeader the most that
+// conversation may spend, in µLXC (B28.361). Lens counts the conversation's spend and refuses past the budget.
+const (
+	conversationHeader       = "X-Talyvor-Conversation-ID"
+	conversationBudgetHeader = "X-Talyvor-Conversation-Budget-ULXC"
+)
+
+// conversationIDPattern is the shape of a conversation id Chat makes (a UUID, or base36 where the browser has none).
+var conversationIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
 
 // agentIDPattern is the shape of an agent id the BFF passes on: letters, digits, '-' and '_', at most 64.
 var agentIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)

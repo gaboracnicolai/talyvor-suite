@@ -119,6 +119,21 @@ export interface AnswerPayer {
  */
 export const PAID_BY_HEADER = 'X-Talyvor-Paid-By'
 
+/**
+ * B28.361 — the conversation a Chat request belongs to, and the budget its owner set on it, in µLXC. The id goes
+ * with every request, so Lens can count a conversation's spend from its first answer; the budget goes when one is
+ * set. Lens refuses a request that would take the conversation past it before the model is asked (talyvor-lens
+ * B28.100), with the code `conversation_budget`.
+ */
+export const CONVERSATION_HEADER = 'X-Talyvor-Conversation-ID'
+export const CONVERSATION_BUDGET_HEADER = 'X-Talyvor-Conversation-Budget-ULXC'
+
+/** B28.361 — which conversation a request is part of, and its budget in µLXC when it has one. */
+export interface ConversationTag {
+  id: string
+  budget_ulxc?: number
+}
+
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
 export interface ChatTool {
   name: string
@@ -555,6 +570,8 @@ export async function streamChat(
   exchange: unknown[] = [],
   /** B28.354 — the agent whose wallet pays for this request; none, the workspace's. */
   paidBy?: string,
+  /** B28.361 — the conversation this request is part of, and its budget. */
+  conversation?: ConversationTag,
 ): Promise<void> {
   const path = chatPath(provider)
   if (path === undefined) {
@@ -573,6 +590,8 @@ export async function streamChat(
       ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
       ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
       ...(paidBy !== undefined && paidBy !== '' ? { [PAID_BY_HEADER]: paidBy } : {}),
+      ...(conversation !== undefined ? { [CONVERSATION_HEADER]: conversation.id } : {}),
+      ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange)),
     signal,
@@ -703,6 +722,8 @@ export async function askChat(
   tools: ChatTool[] = [],
   /** B28.354 — the agent whose wallet pays for every request this question takes. */
   paidBy?: string,
+  /** B28.361 — the conversation every request this question takes is part of, and its budget. */
+  conversation?: ConversationTag,
 ): Promise<void> {
   const offered = TOOL_PROVIDERS.includes(provider) ? tools : []
   let exchange: unknown[] = []
@@ -737,6 +758,7 @@ export async function askChat(
       offered,
       exchange,
       paidBy,
+      conversation,
     )
     // Failed (already said) or stopped.
     if (ended === undefined) return
@@ -846,6 +868,7 @@ export const REFUSAL_CODES = [
   'budget_exceeded',
   'allowance_exhausted',
   'session_limit',
+  'conversation_budget',
   'guardrail_blocked',
   'provider_overloaded',
   'workspace_rate_limited',
@@ -858,6 +881,7 @@ const REFUSAL_TEXT: [RegExp, RefusalCode][] = [
   [/^budget exceeded/i, 'budget_exceeded'],
   [/plan allowance is used up/i, 'allowance_exhausted'],
   [/chat session has reached its spending limit/i, 'session_limit'],
+  [/^this conversation has reached its budget/i, 'conversation_budget'],
   [/^guardrail violation/i, 'guardrail_blocked'],
   [/^rate limit reached: this workspace allows/i, 'workspace_rate_limited'],
   [/overloaded/i, 'provider_overloaded'],
@@ -907,6 +931,8 @@ export function refusal(status: number, detail: string): Refusal {
       return { text: 'This period’s plan allowance is used up and prepaid credit does not cover the request. Top up on Billing to continue.', remedy: BILLING }
     case 'session_limit':
       return { text: 'This chat has spent the most one chat may. Start a new chat to continue.', remedy: { label: 'Start a new chat', action: 'new_chat' } }
+    case 'conversation_budget':
+      return { text: 'Sending that would take this chat past the budget set on it, so nothing was sent. Raise the budget under the box, or start a new chat.', remedy: { label: 'Start a new chat', action: 'new_chat' } }
     case 'guardrail_blocked': {
       const kinds = [...new Set((refusalBody(detail).violations ?? []).map((v) => v.type).filter((t): t is string => typeof t === 'string' && t !== ''))]
       const named = kinds.length > 0 ? ` (${kinds.join(', ')})` : ''

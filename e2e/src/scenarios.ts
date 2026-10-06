@@ -4,7 +4,7 @@
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Response } from 'playwright'
+import type { Request, Response } from 'playwright'
 import { type AppUser, type Attachment, type ChargeBook, NetworkDropped, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
 import { CapReached, worstInputTokens } from './budget.ts'
@@ -1418,6 +1418,69 @@ export function costPreview(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.361 — a budget on a conversation. With the budget at half the most a question could cost (the high end of the
+ * range shown before sending), sending it is refused in the browser: no request leaves for the model and Lens's
+ * ledger gains no spend row. Raised to twice that, the same question is sent and answered — so the refusal was the
+ * budget, not a send that could not happen.
+ */
+export function chatBudget(seed: number): Scenario {
+  return {
+    id: 'chat-budget',
+    owner: 'talyvor-suite',
+    title: 'a question that could take a chat past its budget is refused before the model: no request, no spend row',
+    run: async (ctx) => {
+      const { app } = ctx
+      const { page } = app
+      await app.newChat()
+      const question = `In one word, what colour is a clear daytime sky? (${freshWord(seed, 1 + Math.floor(Math.random() * 999_999))})`
+      await page.locator('#chat-message').fill(question)
+      const shown = (await page.getByTestId('cost-preview').innerText({ timeout: ACTION_TIMEOUT_MS })).replace(/\s+/g, ' ').trim()
+      const range = shownRange(shown)
+      if (range === undefined || range.unit !== 'LXC') return { pass: false, detail: `the price shown before sending is not a range of LXC: "${shown}"` }
+      const setBudget = async (lxc: string) => {
+        await page.locator('#chat-budget').fill(lxc)
+        await page.locator('#chat-budget').press('Enter')
+      }
+      const low = Math.max(1, Math.floor((range.high * 1_000_000) / 2)) / 1_000_000
+      await setBudget(String(low))
+
+      const streams: string[] = []
+      const watch = (r: Request) => {
+        if (r.url().includes('/api/ai/stream/')) streams.push(r.url())
+      }
+      const before = await spendRows(ctx)
+      page.on('request', watch)
+      let said = ''
+      try {
+        await page.locator('#chat-message').press('Enter')
+        const refused = page.getByText(/so it was not sent/)
+        await refused.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        said = (await refused.innerText()).trim()
+        // Room for a request that should not exist to show itself.
+        await page.waitForTimeout(2_000)
+      } catch {
+        return { pass: false, detail: `with a budget of ${low} LXC and "${shown}" shown, sending was not refused` }
+      } finally {
+        page.off('request', watch)
+      }
+      const after = await spendRows(ctx)
+      ctx.evidence.push({ note: `budget ${low} LXC, shown "${shown}": ${streams.length} request(s) to the model, spend rows ${before} → ${after}`, answer: said })
+      if (streams.length > 0) return { pass: false, detail: `the question refused for the budget was sent anyway: ${streams.join(', ')}` }
+      if (after !== before) return { pass: false, detail: `the ledger gained ${after - before} spend row(s) for a question refused before the model` }
+
+      const high = Math.ceil(range.high * 2 * 1_000_000) / 1_000_000
+      await setBudget(String(high))
+      const t = await ask(ctx, question, `budget raised to ${high} LXC`)
+      if (t.error !== undefined) return { pass: false, detail: `with the budget raised to ${high} LXC the question was refused: ${t.error}` }
+      return {
+        pass: true,
+        detail: `at ${low} LXC the question was refused in the browser ("${said}") — no request, no spend row; at ${high} LXC it was answered`,
+      }
+    },
+  }
+}
+
 export function everyModelAnswers(streamable: readonly string[]): Scenario {
   return {
     id: 'every-model',
@@ -2343,7 +2406,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       if (i < 10) list.push(costPreview(i))
       break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
-    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i)); break
+    // B28.361 — and a question over its chat's budget, refused before the model: no request, no spend row.
+    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
     // B29.6 — sign-in and sign-up in the brand, signed out.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break

@@ -21,6 +21,8 @@ export interface Conversation {
   model_id: string
   /** B28.354 — the agent whose wallet pays for this conversation; absent, the workspace pays. */
   paid_by?: string
+  /** B28.361 — the most this conversation may spend, in µLXC; absent, no budget. */
+  budget_ulxc?: number
   created_at: number
   updated_at: number
   messages: ChatMessage[]
@@ -96,6 +98,7 @@ export function upsertConversation(
   messages: ChatMessage[],
   now: number,
   paidBy?: string,
+  budgetULXC?: number,
 ): Conversation[] {
   const kept = messages
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
@@ -108,6 +111,7 @@ export function upsertConversation(
     renamed: prior?.renamed ?? false,
     model_id: modelId,
     ...(paidBy !== undefined && paidBy !== '' ? { paid_by: paidBy } : {}),
+    ...(budgetULXC !== undefined ? { budget_ulxc: budgetULXC } : {}),
     created_at: prior?.created_at ?? now,
     updated_at: now,
     messages: kept,
