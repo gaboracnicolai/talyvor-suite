@@ -2329,6 +2329,7 @@ export function chatForecastAnswer(seed: number): Scenario {
   const [funded, paid] = [5e6, 4_999_000]
   return {
     id: 'chat-forecast-answer',
+    agents: 2,
     title: '"Will <agent> run out this month?" in Chat is answered from the forecast: the day it states is the runs_out_at Lens’s /forecast gives',
     run: (ctx) =>
       withBank(ctx, async (bank) => {
