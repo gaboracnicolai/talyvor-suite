@@ -19,6 +19,8 @@ export interface Conversation {
   /** True once renamed — a derived title never overwrites a chosen one. */
   renamed: boolean
   model_id: string
+  /** B28.354 — the agent whose wallet pays for this conversation; absent, the workspace pays. */
+  paid_by?: string
   created_at: number
   updated_at: number
   messages: ChatMessage[]
@@ -93,6 +95,7 @@ export function upsertConversation(
   modelId: string,
   messages: ChatMessage[],
   now: number,
+  paidBy?: string,
 ): Conversation[] {
   const kept = messages
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
@@ -104,6 +107,7 @@ export function upsertConversation(
     title: prior?.renamed ? prior.title : titleFrom(kept),
     renamed: prior?.renamed ?? false,
     model_id: modelId,
+    ...(paidBy !== undefined && paidBy !== '' ? { paid_by: paidBy } : {}),
     created_at: prior?.created_at ?? now,
     updated_at: now,
     messages: kept,

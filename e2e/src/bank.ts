@@ -2156,6 +2156,87 @@ export function chatAskAbove(seed: number): Scenario {
 }
 
 /**
+ * B28.354 (for B28.90) — an agent chosen in Chat's "Paid by" pays for the conversation. One question is asked in Chat
+ * with the agent chosen: the answer says the agent paid, the request's charge is on the agent's statement and comes out
+ * of its balance, and the workspace's own money — what no agent holds, and its plan's allowance — does not move.
+ */
+export function chatPaidBy(seed: number): Scenario {
+  const funded = 2e6
+  return {
+    id: 'chat-paid-by',
+    title: 'an agent chosen in Chat’s Paid by pays for the conversation: the charge lands on its statement and the workspace balance does not move',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env, app } = ctx
+        const payer = await openAgent(ctx, bank, `Chat payer ${seed}`)
+        if (typeof payer === 'string') return fail(payer)
+        const err = await bank.move(payer, funded, 'Fund')
+        if (err !== undefined) return fail(`funding ${payer.name} was refused: ${err}`)
+        const lines0 = await env.lens.agentLines(app.user, payer.id)
+        const book0 = await bookOf(ctx)
+        const plan0 = await env.lens.allowance(app.user)
+
+        const page = app.page
+        const viewport = page.viewportSize()
+        await app.newChat()
+        let said: string
+        try {
+          try {
+            await page.locator('#chat-paid-by').selectOption(payer.id, { timeout: ACTION_TIMEOUT_MS })
+          } catch {
+            return fail(`Chat's Paid by offers no ${payer.name}`)
+          }
+          // A question nobody has asked, so the model answers it and nothing is replayed.
+          const r = seeded(seed * 7919 + Date.now())
+          const t = await app.ask(sum(r).q)
+          ctx.evidence.push({ note: `asked in Chat with ${payer.name} chosen to pay`, question: t.question, answer: t.answer, footer: t.footerText, error: t.error })
+          if (t.error !== undefined) return fail(`asked with ${payer.name} chosen to pay, Chat answered: ${t.error}`)
+          if (t.footer.kind !== 'priced') return fail(`the answer was not written by the model just now (${t.footer.kind}), so nobody was charged for it`)
+          const line = page.getByTestId('turn-assistant').last().getByTestId('turn-paid-by')
+          said = (await line.innerText().catch(() => '')).trim()
+          await mkdir(env.outDir, { recursive: true })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            const shot = join(env.outDir, `chat-paid-by-${width}px-user${app.user.index}.png`)
+            await page.screenshot({ path: shot })
+            ctx.evidence.push({ note: `the answer ${payer.name} paid for, at ${width}px: ${shot}` })
+          }
+        } finally {
+          if (viewport !== null) await page.setViewportSize(viewport)
+          // The next question on this page is the workspace's again.
+          await app.newChat()
+        }
+
+        // The ledger, not the screen: a debit for the request on the agent's statement, out of its balance.
+        const lines1 = await env.lens.agentLines(app.user, payer.id)
+        const book1 = await bookOf(ctx)
+        const plan1 = await env.lens.allowance(app.user)
+        const added = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id && o.kind === l.kind))
+        const net = added.reduce((t, l) => t + l.amount_ulxc, 0)
+        const held = agentIn(book1, payer.id)?.balance_ulxc
+        ctx.evidence.push({ note: `Chat said "${said}"; ${payer.name}'s new lines: ${added.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'none'}; it holds ${held} µLXC` })
+        if (!added.some((l) => ['spend', 'hold', 'settle'].includes(l.kind)) || net >= 0) {
+          return fail(`Chat answered with ${payer.name} chosen to pay, but Lens put no charge on ${payer.name}'s statement (new lines: ${JSON.stringify(added)}) — Lens bills the agent a Chat request names in X-Talyvor-Paid-By (B28.90)`)
+        }
+        if (held !== funded + net || held !== lines1[0].balance_after_ulxc) {
+          return fail(`${payer.name} was funded ${funded} and charged ${-net} µLXC; Lens's book says it holds ${held}, its statement ends at ${lines1[0].balance_after_ulxc}`)
+        }
+        if (book1.unallocated_ulxc !== book0.unallocated_ulxc) {
+          return fail(`${payer.name} paid for the answer, yet the workspace's own balance moved: ${book0.unallocated_ulxc} → ${book1.unallocated_ulxc} µLXC`)
+        }
+        if (plan0.ok && plan1.ok && plan0.value !== null && plan1.value !== null && plan1.value.consumed_ulxc !== plan0.value.consumed_ulxc) {
+          return fail(`${payer.name} paid for the answer, yet the workspace's plan allowance was drawn: ${plan0.value.consumed_ulxc} → ${plan1.value.consumed_ulxc} µLXC used`)
+        }
+        if (said !== `Paid by ${payer.name}’s wallet`) return fail(`Lens charged ${payer.name}, but the answer in Chat says "${said}"`)
+        return {
+          pass: true,
+          detail: `with ${payer.name} chosen in Paid by, Chat's answer cost ${payer.name} ${-net} µLXC on its statement (it holds ${held}); the workspace's own ${book1.unallocated_ulxc} µLXC did not move`,
+        }
+      }),
+  }
+}
+
+/**
  * B28.8 — a brand-new workspace's first agent, from Home's three steps, with no full-screen consent page:
  * created with a monthly budget and an approval amount, funded, given a key — and its first request, sent
  * with that key, shown on Home as it lands on its statement. Sharing is one line on Home to untick. Every

@@ -39,6 +39,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -202,6 +203,13 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			return
 		}
 		rest := strings.TrimPrefix(r.PathValue("rest"), "/")
+		// B28.354 — the agent the conversation's cost is billed to, as Chat's "Paid by" chose it. Only a
+		// well-formed id goes on; Lens decides whether this workspace's agent may pay (B28.90).
+		paidBy := strings.TrimSpace(r.Header.Get(paidByHeader))
+		if paidBy != "" && !agentIDPattern.MatchString(paidBy) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid agent"})
+			return
+		}
 
 		key, err := a.sessionKeyFor(r.Context(), t)
 		if err != nil {
@@ -265,6 +273,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			if bypass {
 				up.Header.Set(cacheHeader, "bypass")
 			}
+			if paidBy != "" {
+				up.Header.Set(paidByHeader, paidBy)
+			}
 			return a.streamClient.Do(up)
 		}
 
@@ -310,6 +321,11 @@ func (a *app) handleAIStream() http.HandlerFunc {
 				w.Header().Set(h, v)
 			}
 		}
+		// B28.354 — the agent Lens billed this answer to, when it billed one. The chat says who paid only
+		// from this, never from what it asked for.
+		if v := resp.Header.Get(paidByHeader); v != "" {
+			w.Header().Set(paidByHeader, v)
+		}
 		// B23.12 — which request this answer was, so a thumbs-down on it can name it (feedback.go).
 		if v := resp.Header.Get(requestIDHeader); v != "" {
 			w.Header().Set(requestIDHeader, v)
@@ -334,6 +350,13 @@ const distillHeader = "X-Talyvor-Distill"
 // internal/proxy distillSaved): tokens by the gateway's own measure — 0, never a guess, for a binary
 // file — and bytes.
 var distillSavingHeaders = []string{"X-Talyvor-Distill-Tokens-Saved", "X-Talyvor-Distill-Bytes-Saved"}
+
+// paidByHeader names the agent whose wallet pays for a Chat request (B28.354). On the request it is the
+// agent the conversation chose; on Lens's answer it is the agent Lens billed, absent when the workspace paid.
+const paidByHeader = "X-Talyvor-Paid-By"
+
+// agentIDPattern is the shape of an agent id the BFF passes on: letters, digits, '-' and '_', at most 64.
+var agentIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // cacheHeader is Lens's cache-bypass header (talyvor-lens B15.2): `bypass` on a request skips every
 // cache read.

@@ -125,6 +125,12 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
           The line under the message box is the selected model&rsquo;s list price per million tokens. It is
           the catalog rate, not this conversation&rsquo;s bill.
         </p>
+        <p>
+          Paid by, beside it, chooses which wallet pays for the conversation: the workspace, or one of its
+          agents. The choice stays with the conversation. When an agent pays, each answer says so and links to
+          the agent&rsquo;s statement, where the charge is; if the agent was not billed, the answer says that
+          instead.
+        </p>
       </>
     ),
   },
