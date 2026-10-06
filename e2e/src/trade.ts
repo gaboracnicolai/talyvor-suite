@@ -701,7 +701,7 @@ export function walletCardPurchase(seed: number): Scenario {
  * the use's line on the buyer's bill, and the seller — or why not. The use is held against the cap and booked
  * for the ledger read-back, as every charged answer is.
  */
-async function buyFrom(ctx: ScenarioCtx, seller: number, seed: number, price: number): Promise<{ id: string; line: BillLine; seller: SyntheticUser } | string> {
+export async function buyFrom(ctx: ScenarioCtx, seller: number, seed: number, price: number): Promise<{ id: string; line: BillLine; seller: SyntheticUser } | string> {
   const { env, app } = ctx
   const r = seeded(seed * 47 + 23)
   const [a, b] = [100 + Math.floor(r() * 900), 100 + Math.floor(r() * 900)]
@@ -734,7 +734,7 @@ async function buyFrom(ctx: ScenarioCtx, seller: number, seed: number, price: nu
 }
 
 /** The buyer's bill paid now (B25.7), tried until Lens has metered the use (within a minute): the bill, or why not. */
-async function payBill(ctx: ScenarioCtx): Promise<PaidTestBill | string> {
+export async function payBill(ctx: ScenarioCtx): Promise<PaidTestBill | string> {
   const paid = await until(() => ctx.env.lens.payTestBill(ctx.app.user), (x) => x.ok || x.status !== 409)
   ctx.evidence.push({ note: "the buyer's bill paid now (B25.7)", answer: JSON.stringify(paid) })
   if (!paid.ok) return `paying the buyer's bill was refused: ${paid.status} ${paid.error}`
@@ -743,7 +743,7 @@ async function payBill(ctx: ScenarioCtx): Promise<PaidTestBill | string> {
 }
 
 /** Both sides of a paid bill: the buyer's line cleared, and the seller's share of it payable now. */
-async function clearedBothSides(ctx: ScenarioCtx, bought: { line: BillLine; seller: SyntheticUser }): Promise<{ share: number; earned: MarketEarnings } | string> {
+export async function clearedBothSides(ctx: ScenarioCtx, bought: { line: BillLine; seller: SyntheticUser }): Promise<{ share: number; earned: MarketEarnings } | string> {
   const line = ((await ctx.env.lens.marketBill(ctx.app.user)).lines ?? []).find((l) => l.use_id === bought.line.use_id)
   const earned = await ctx.env.lens.marketEarnings(bought.seller)
   const e = (earned.earnings ?? []).find((x) => x.use_id === bought.line.use_id)

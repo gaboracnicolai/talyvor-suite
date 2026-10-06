@@ -26,6 +26,7 @@ import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
+import { pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
 
 export interface Evidence {
   note?: string
@@ -2099,5 +2100,13 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // Team takes its fifth and is refused its sixth. Team comes last, on a user nobody else asks as (4, 14, …).
   if (i % 10 === 4) list.push(seatsFree(i))
   if (i % 100 === 4) list.push(seatsTeam(i))
+  // B32.15 — the approved prices, once a run, last on users nobody else signs in or trades as (4, 14, … and
+  // 40, 42 never are): the same call on Free (24), Team (34) and Business (14), whose fee rows the ledger
+  // must hold at 5.5%, 3% and 1%; then Business on its own key; Free's fourth agent; /pricing's prices; and a
+  // first $1.00 sale by 42, bought by 40, who buys nothing else.
+  if (i === 14) list.push(pricingFee('business', i), pricingOwnKey(i))
+  if (i === 24) list.push(pricingApproved(), pricingFee('free', i), pricingFreeAgents(i))
+  if (i === 34) list.push(pricingFee('team', i))
+  if (i === 40 && i + 2 < users) list.push(pricingSellerSplit(i, i + 2))
   return list
 }

@@ -324,7 +324,35 @@ export interface MarketEarnings {
   /** B25.8 — paid out, in money or credits; reversed by refunds; and each cleared use's share */
   paid_out_usd_micros?: number
   refunded_usd_micros?: number
-  earnings?: { use_id: string; share_usd_micros: number; payable_at: string; refunded_at?: string }[] | null
+  /** B32.15 — and the sale it is a share of, and Talyvor's take of it: gross − share */
+  earnings?: { use_id: string; share_usd_micros: number; payable_at: string; refunded_at?: string; gross_usd_micros?: number; fee_usd_micros?: number }[] | null
+}
+
+/** B32.15 — the plan Lens holds a workspace to, as GET …/plan answers it (B32.12). */
+export interface WorkspacePlan {
+  plan: string
+  gated_as: string
+  byok_add_on: boolean
+  own_provider_keys_allowed: boolean
+  agents_used: number
+}
+
+/** B32.15 — Lens's refusal of what a plan does not unlock (402): its sentence names LENS_PLAN_GATES and both plans. */
+export interface PlanRefusal {
+  error: string
+  plan?: string
+  gate?: string
+  limit?: number
+  allows?: string
+}
+
+/** B32.15 — one question through Lens's proxy, answered or refused, and whether Lens sent it on the workspace's own provider key. */
+export interface Proxied {
+  status: number
+  /** X-Talyvor-BYOK: own-key */
+  ownKey: boolean
+  reply?: JudgeReply
+  error?: string
 }
 
 /** B17.10 — one period of a plan, as Lens granted it (billing.Allowance). */
@@ -696,6 +724,76 @@ export class LensClient {
       { headers: { ...this.bearer(user.token), Accept: 'application/json' } })
     const raw = await res.text()
     return res.ok ? { ok: true, status: res.status, value: null } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  // ─── B32.15: the approved prices, as Lens charges and gates them ───
+
+  /** The company plans' prices as Lens's public plans read states them (talyvor-lens B32.77), in cents a month. */
+  async companyPlans(): Promise<{ id: string; usd_cents: number }[]> {
+    const body = (await this.call('GET', '/v1/billing/plans', {})) as { company_plans?: { id: string; usd_cents: number }[] | null }
+    return body.company_plans ?? []
+  }
+
+  /** The plan Lens holds the workspace to, its gates, and the agents it has now. */
+  async workspacePlan(user: SyntheticUser): Promise<WorkspacePlan> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/plan`, this.bearer(user.token))) as WorkspacePlan
+  }
+
+  /** Creates an agent as the workspace's owner: the agent, or Lens's refusal as it wrote it. */
+  async tryCreateAgent(user: SyntheticUser, name: string): Promise<{ status: number; agent?: { id: string; name: string }; refusal?: PlanRefusal }> {
+    const res = await this.send('POST', `/v1/workspaces/${user.workspaceID}/agents`, {
+      headers: { ...this.bearer(user.token), 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+    const raw = await res.text()
+    if (res.ok) return { status: res.status, agent: JSON.parse(raw) as { id: string; name: string } }
+    let refusal: PlanRefusal
+    try {
+      refusal = JSON.parse(raw) as PlanRefusal
+    } catch {
+      refusal = { error: refusalOf(raw) }
+    }
+    return { status: res.status, refusal: { ...refusal, error: refusalOf(raw) } }
+  }
+
+  /** Saves the workspace's own key for a provider (B27.26); 404 where Lens holds no provider keys at all. */
+  async putProviderKey(user: SyntheticUser, provider: string, key: string): Promise<Answered<{ provider: string; last4: string }>> {
+    const res = await this.send('PUT', `/v1/workspaces/${user.workspaceID}/provider-keys/${provider}`, {
+      headers: { ...this.bearer(user.token), 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ key }),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) as { provider: string; last4: string } } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  async deleteProviderKey(user: SyntheticUser, provider: string): Promise<Answered<null>> {
+    const res = await this.send('DELETE', `/v1/workspaces/${user.workspaceID}/provider-keys/${provider}`, { headers: this.bearer(user.token) })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: null } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** One question through Lens's proxy on this user's account, as complete() asks it — refused or answered, never thrown. */
+  async ask(user: SyntheticUser, provider: string, model: string, prompt: string, maxTokens: number): Promise<Proxied> {
+    const key = await this.sessionKey(user)
+    const res = await this.send('POST', `/v1/proxy/${provider}/v1/messages`, {
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
+    })
+    const raw = await res.text()
+    const ownKey = res.headers.get('X-Talyvor-BYOK') === 'own-key'
+    if (!res.ok) return { status: res.status, ownKey, error: refusalOf(raw) }
+    const body = JSON.parse(raw) as { content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } }
+    return {
+      status: res.status,
+      ownKey,
+      reply: {
+        text: (body.content ?? []).map((c) => c.text ?? '').join(''),
+        inputTokens: body.usage?.input_tokens ?? 0,
+        outputTokens: body.usage?.output_tokens ?? 0,
+        replayed: res.headers.get('X-Talyvor-Cache-Replay') === 'true',
+        pooledULXC: res.headers.has('X-Talyvor-Pool-Charged-ULXC') ? Number(res.headers.get('X-Talyvor-Pool-Charged-ULXC')) : undefined,
+      },
+    }
   }
 
   /** B17.10 — the workspace's earnings ledger, newest first — every row, however many pages. */
