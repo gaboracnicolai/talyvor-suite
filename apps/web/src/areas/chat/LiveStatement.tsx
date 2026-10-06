@@ -11,12 +11,14 @@ import { Lxc } from '../lens/money'
 import { readFailure } from '../lens/WalletMoney'
 import { PENDING_POLL_MS } from '../lens/WalletScreens'
 import { statementLineHref } from './chatApi'
+import { WalletButtons } from './WalletButtons'
 
 // B28.351 — an agent's statement beside the conversation, live. The panel reads the agent's statement through the
 // same BFF route and query key as Agent Wallets (GET /api/agents/{id}/statement, newest first) every
 // LIVE_STATEMENT_POLL_MS while the tab is open, so a debit the agent makes shows here within a few seconds without a
 // reload. Lines that arrive after the panel first read the statement are marked new. Each line links to its row on
-// Agent Wallets. Which agent it follows is kept per browser.
+// Agent Wallets. Which agent it follows is kept per browser. B28.87: under the picker, the followed agent's wallet
+// buttons (WalletButtons.tsx).
 
 /** How often the panel reads the statement: a new line shows within this plus one round trip, inside 5 seconds. */
 export const LIVE_STATEMENT_POLL_MS = 2_000
@@ -94,6 +96,7 @@ export function LiveStatement() {
             </select>
           </label>
         ) : null}
+        {agent !== undefined && book.data !== undefined ? <WalletButtons key={agent.id} agent={agent} book={book.data} /> : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
