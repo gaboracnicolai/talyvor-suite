@@ -299,8 +299,6 @@ function EarningsCard({
             .
           </p>
         ) : fee > 0 ? (
-          // "Next month you pay $X" waits on B13.2, which credits the earnings against the next
-          // invoice; until that lands the bill is unchanged, so the sentence stops at what is true.
           <p className="text-body text-ink">
             Your answers earned you <span className="font-figure">{formatCents(back)}</span> this month —{' '}
             <span className="font-figure">{formatCents(back)}</span> of your{' '}
@@ -483,7 +481,7 @@ export function Plans({
       >
         <p className="max-w-2xl text-body text-muted">
           A company’s plan sets its agents, seats and fees; a plan for individuals includes usage each month. Every plan
-          reaches every model from every provider, and your answers earn on every plan.
+          reaches every model from every provider. Your answers earn once your workspace has bought credits.
         </p>
         {plan.isError ? (
           <p className="mt-2 max-w-2xl">

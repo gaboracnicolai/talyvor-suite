@@ -64,7 +64,7 @@
   "src/areas/lens/Plan.test.tsx": 3,
   "src/areas/lens/PlanChange.test.tsx": 2,
   "src/areas/lens/PlanRenewal.test.tsx": 2,
-  "src/areas/lens/Plans.test.tsx": 7,
+  "src/areas/lens/Plans.test.tsx": 8,
   "src/areas/lens/platformFeeLines.test.tsx": 3,
   "src/areas/lens/pushActions.test.ts": 4,
   "src/areas/lens/RulesHistory.test.tsx": 1,
