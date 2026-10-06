@@ -34,6 +34,7 @@ import {
 import { Markdown } from './Markdown'
 import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
+import { RuleCard, isRuleCommand } from './RuleCommand'
 import { LiveStatement } from './LiveStatement'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
@@ -178,6 +179,8 @@ export function Chat() {
   // B28.350 — each /agent command typed here: a card that launches the agent, kept while the page is open.
   const [launches, setLaunches] = useState<{ id: number; command: string }[]>([])
   const launchSeq = useRef(0)
+  // B28.352 — each rule typed here in plain words ("Cap Researcher at 5 LXC a day on Opus"): a card that saves it.
+  const [ruleCards, setRuleCards] = useState<{ id: number; command: string }[]>([])
 
   // History is scoped to who is signed in; until that is known there is nowhere to keep it.
   const me = useAuthMeReader()
@@ -418,6 +421,11 @@ export function Chat() {
       if (LAUNCH_COMMAND.test(question)) {
         setDraft('')
         setLaunches((l) => [...l, { id: ++launchSeq.current, command: question }])
+        return
+      }
+      if (isRuleCommand(question)) {
+        setDraft('')
+        setRuleCards((l) => [...l, { id: ++launchSeq.current, command: question }])
         return
       }
       if (selected === undefined || pending) return
@@ -700,6 +708,15 @@ export function Chat() {
               <section aria-label="Launching agents" className="flex flex-col gap-3 pb-6">
                 {launches.map((l) => (
                   <LaunchAgentCard key={l.id} command={l.command} onClose={() => setLaunches((ls) => ls.filter((x) => x.id !== l.id))} />
+                ))}
+              </section>
+            ) : null}
+
+            {/* B28.352 — a rule typed in plain words, on a card here to check and save instead of a question. */}
+            {ruleCards.length > 0 ? (
+              <section aria-label="Setting rules" className="flex flex-col gap-3 pb-6">
+                {ruleCards.map((l) => (
+                  <RuleCard key={l.id} command={l.command} onClose={() => setRuleCards((ls) => ls.filter((x) => x.id !== l.id))} />
                 ))}
               </section>
             ) : null}
