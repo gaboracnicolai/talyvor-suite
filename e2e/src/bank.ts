@@ -1883,6 +1883,8 @@ export function chatRecentCalls(seed: number): Scenario {
           ctx.evidence.push({ note: `Recent calls beside Chat at 1440px: ${wide}` })
           await chat.setViewportSize({ width: 390, height: 844 })
           await chat.getByRole('button', { name: 'Statement', exact: true }).click()
+          // B34.1 — the drawer follows the agent this browser last followed, which Chat's other tab may have changed.
+          await panel.getByLabel('Agent').selectOption(a.id, { timeout: ACTION_TIMEOUT_MS })
           await panel.getByRole('button', { name: 'Recent calls', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
           await rows.first().waitFor({ timeout: ACTION_TIMEOUT_MS })
           const narrow = join(ctx.env.outDir, `chat-recent-calls-390px-user${ctx.app.user.index}.png`)
