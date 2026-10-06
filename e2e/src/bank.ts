@@ -9,8 +9,10 @@ import { join } from 'node:path'
 import type { Locator, Page } from 'playwright'
 import { type AppUser, chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
-import type { Agent, AgentBook, AgentLine, AgentRulesRead, Answered, JudgeReply, SyntheticUser } from './lens.ts'
+import type { Agent, AgentBook, AgentLine, AgentRulesRead, Answered, JudgeReply, LedgerRow, SyntheticUser } from './lens.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
+import { PLATFORM_FEE_BPS, type Plan, feeVerdict } from './pricing.ts'
+import { otherCompanyOnTeam } from './room.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
 export const ACTION_TIMEOUT_MS = 30_000
@@ -23,6 +25,8 @@ const NUMBER_ONLY = 'Reply with the number only.'
 const ULXC_PER_USD_MICRO = 10
 /** A listing's seller keeps 85% of its price (Lens's LENS_MARKET_TAKE_BPS=1500, Nicolai's decision of 5 Oct 2026). */
 const SELLER_SHARE_BPS = 8_500
+/** B34.1 — another company's agent keeps 95% of a payment to it, a service (LENS_SERVICES_TAKE_BPS=500, B32.8). */
+const SERVICE_SHARE_BPS = 9_500
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 export const lxcText = (ulxc: number): string => String(ulxc / 1e6)
@@ -304,7 +308,10 @@ export class AgentBankScreen {
   /** B28.20 — the balance the agent's row shows, as Lens has it now. */
   async balanceShown(agent: Agent): Promise<string> {
     await this.fresh()
-    return (await this.page.getByTestId(`agent-balance-${agent.id}`).innerText()).trim()
+    const balance = this.page.getByTestId(`agent-balance-${agent.id}`)
+    // B34.1 — the money figure follows the LXC once the peg is read (money.tsx); read too early, the line is LXC alone.
+    await balance.filter({ hasText: /\(.+\)\s*$/ }).waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+    return (await balance.innerText()).trim()
   }
 
   /**
@@ -371,10 +378,12 @@ export class AgentBankScreen {
   }
 
   /** B28.22 — the Rules card's plain-English sentences for `agent`, as the screen shows them after a reload. */
-  async rulesInWords(agent: Agent): Promise<string> {
+  async rulesInWords(agent: Agent, settled?: string): Promise<string> {
     await this.fresh(agent)
     const words = this.page.getByTestId('rules-in-words')
     await words.waitFor()
+    // B34.1 — a model is named once the catalog has been read; before that the card names its id.
+    if (settled !== undefined) await words.filter({ hasText: settled }).waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
     return (await words.innerText()).trim()
   }
 
@@ -652,6 +661,19 @@ export async function spendRows(ctx: ScenarioCtx): Promise<{ id: string; amount_
   return (await ctx.env.lens.ledger(ctx.app.user)).filter((r) => r.type === 'spend')
 }
 
+/** B34.1 — every row a model call charges the workspace's credits: its spend, and since B32.11 its platform fee. */
+async function chargeRows(ctx: ScenarioCtx): Promise<LedgerRow[]> {
+  return (await ctx.env.lens.ledger(ctx.app.user)).filter((r) => r.type === 'spend' || r.type === 'platform_fee')
+}
+
+/** B34.1 — one served request's charge: one spend row and its platform fee at the workspace's plan's rate (B32.11), or why not. */
+async function oneCharge(ctx: ScenarioCtx, fresh: readonly LedgerRow[]): Promise<number | string> {
+  const plan = (await ctx.env.lens.workspacePlan(ctx.app.user)).gated_as as Plan
+  const v = feeVerdict(fresh, PLATFORM_FEE_BPS[plan])
+  ctx.evidence.push({ note: `the request's rows: ${v.detail}`, ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+  return v.pass ? fresh.reduce((s, x) => s - x.amount_ulxc, 0) : v.detail
+}
+
 /**
  * An agent asks one question with its own key. Its worst case is held against the cap first; a served
  * answer is booked, as every charged answer is, for the ledger read-back.
@@ -696,6 +718,7 @@ export function agentOpenFund(seed: number): Scenario {
   const amount = (2 + (seed % 5)) * 1e6
   return {
     id: 'agent-open-fund',
+    agents: 1,
     title: 'a person opens an agent account on Agent Wallets and funds it: the agent holds exactly that, out of the workspace',
     run: (ctx) => withBank(ctx, async (bank) => {
       const before = await bookOf(ctx)
@@ -725,6 +748,7 @@ export function agentLimit(seed: number): Scenario {
   const r = seeded(seed * 29 + 5)
   return {
     id: 'agent-limit',
+    agents: 1,
     title: 'an agent limit refuses an over-limit request before the provider is called; raised, the same request is served',
     run: (ctx) => withBank(ctx, async (bank) => {
       const a = await openAgent(ctx, bank, `Limited ${seed}`)
@@ -735,16 +759,16 @@ export function agentLimit(seed: number): Scenario {
       if (err !== undefined) return fail(`the limit was not saved: ${err}`)
       const key = await bank.issueKey(a)
       const { q, want } = sum(r)
-      const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const spends0 = new Set((await chargeRows(ctx)).map((x) => x.id))
       const refused = await agentAsks(ctx, key, q, 'past a limit per request of 0.000001 LXC')
       if (refused.ok) return fail(`the limit per request of 0.000001 LXC let a request through: "${refused.value.text}"`)
       if (refused.status !== 403 || !/limit per request/.test(refused.error)) {
         return fail(`refused, but not by the limit per request: ${refused.status} ${refused.error}`)
       }
       const held = agentIn(await bookOf(ctx), a.id)?.balance_ulxc
-      const early = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
+      const early = (await chargeRows(ctx)).filter((x) => !spends0.has(x.id))
       if (held !== 1e6 || early.length > 0) {
-        return fail(`refused, yet something was charged: ${a.name} holds ${held} µLXC of 1000000 and the ledger has ${early.length} new spend row(s)`)
+        return fail(`refused, yet something was charged: ${a.name} holds ${held} µLXC of 1000000 and the ledger has ${early.length} new spend or platform fee row(s)`)
       }
       err = await bank.setLimit(a, 'Limit per request', 1e6)
       if (err !== undefined) return fail(`the limit could not be raised: ${err}`)
@@ -752,10 +776,10 @@ export function agentLimit(seed: number): Scenario {
       if (!served.ok) return fail(`with the limit raised it was still refused: ${served.status} ${served.error}`)
       if (!statesNumber(served.value.text, want)) return fail(`answered wrong: expected ${want}, got "${served.value.text}"`)
       const after = agentIn(await bookOf(ctx), a.id)?.balance_ulxc ?? NaN
-      const fresh = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
-      const charged = fresh.reduce((s, x) => s - x.amount_ulxc, 0)
-      if (fresh.length !== 1 || 1e6 - after !== charged) {
-        return fail(`served: ${a.name}'s balance fell by ${1e6 - after} µLXC; the ledger has ${fresh.length} new spend row(s) for ${charged} µLXC`)
+      const charged = await oneCharge(ctx, (await chargeRows(ctx)).filter((x) => !spends0.has(x.id)))
+      if (typeof charged === 'string') return fail(`served, and its charge on the ledger is wrong: ${charged}`)
+      if (1e6 - after !== charged) {
+        return fail(`served: ${a.name}'s balance fell by ${1e6 - after} µLXC; its spend and platform fee rows on the ledger debit ${charged} µLXC`)
       }
       return { pass: true, detail: `refused (403, the limit per request) with nothing charged; raised, served once from ${a.name}'s own balance (${charged} µLXC)` }
     }),
@@ -773,6 +797,7 @@ export function agentHourlyLimit(seed: number): Scenario {
   const r = seeded(seed * 37 + 11)
   return {
     id: 'agent-hourly-limit',
+    agents: 1,
     title: 'an hourly cap set on Agent Wallets refuses a request over it with no posting; raised, the same request writes one',
     run: (ctx) => withBank(ctx, async (bank) => {
       const a = await openAgent(ctx, bank, `Hourly ${seed}`)
@@ -822,6 +847,7 @@ export function agentModelLimit(seed: number): Scenario {
   const r = seeded(seed * 41 + 13)
   return {
     id: 'agent-model-limit',
+    agents: 1,
     title: 'a daily cap on one model, set on Agent Wallets, refuses a request to it with no posting while another model under its own cap writes one',
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env } = ctx
@@ -883,6 +909,7 @@ export function agentRequestRate(seed: number): Scenario {
   const r = seeded(seed * 43 + 17)
   return {
     id: 'agent-request-rate',
+    agents: 1,
     title: `the ${PER_MINUTE + 1}st request in a minute under a ${PER_MINUTE}-a-minute rule set on Agent Wallets is refused with no hold; the ${PER_MINUTE} before it each write one`,
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env } = ctx
@@ -942,6 +969,7 @@ export function agentRequestRate(seed: number): Scenario {
 export function agentPayeeLists(seed: number): Scenario {
   return {
     id: 'agent-payee-lists',
+    agents: 3,
     title: 'a payment to a payee the agent\'s rules block posts nothing; one to a payee they allow posts its pair',
     run: (ctx) => withBank(ctx, async (bank) => {
       const opened: Agent[] = []
@@ -991,6 +1019,7 @@ export function agentPayeeLists(seed: number): Scenario {
 export function agentPayeeDailyCap(seed: number): Scenario {
   return {
     id: 'agent-payee-daily-cap',
+    agents: 2,
     title: 'a second payment to one payee past its daily cap is refused and leaves exactly the first pay posting',
     run: (ctx) => withBank(ctx, async (bank) => {
       const opened: Agent[] = []
@@ -1035,6 +1064,7 @@ export function agentPayeeDailyCap(seed: number): Scenario {
 export function agentRuleSimulator(seed: number): Scenario {
   return {
     id: 'agent-rule-simulator',
+    agents: 2,
     title: 'Would it pass? refuses a payment over the daily limit and allows one under it, and neither posts anything',
     run: (ctx) => withBank(ctx, async (bank) => {
       const opened: Agent[] = []
@@ -1082,6 +1112,7 @@ export function agentRuleSimulator(seed: number): Scenario {
 export function agentSpendQuestion(seed: number): Scenario {
   return {
     id: 'agent-spend-question',
+    agents: 2,
     title: 'Asked what an agent spent, Chat answers 1.23 LXC through Lens’s wallet tool and links the statement line',
     run: async (ctx) => {
       const page = ctx.app.page
@@ -1143,6 +1174,7 @@ export function agentSpendQuestion(seed: number): Scenario {
 export function agentRulesRollback(seed: number): Scenario {
   return {
     id: 'agent-rules-rollback',
+    agents: 1,
     title: 'Rolling an agent’s rules back on Rules history restores the earlier rules exactly and records who did it',
     run: (ctx) => withBank(ctx, async (bank) => {
       const a = await openAgent(ctx, bank, `Rolled back ${seed}`)
@@ -1188,6 +1220,7 @@ export function agentLimitBoost(seed: number): Scenario {
   const r = seeded(seed * 43 + 17)
   return {
     id: 'agent-limit-boost',
+    agents: 1,
     title: 'a daily limit raised on Limit boost lets a request through until its time; after it the same request is refused and writes nothing',
     run: (ctx) => withBank(ctx, async (bank) => {
       const a = await openAgent(ctx, bank, `Boosted ${seed}`)
@@ -1284,6 +1317,7 @@ function rulesDiffer(got: AgentRulesRead, want: AgentRulesRead): string[] {
 export function agentRuleTemplate(seed: number): Scenario {
   return {
     id: 'agent-rule-template',
+    agents: 1,
     title: 'an agent created from a rule template on Agent Wallets has exactly the template as its rules in Lens; another template applied replaces them whole',
     run: (ctx) => withBank(ctx, async (bank) => {
       const a = await openAgent(ctx, bank, `Template ${seed}`, 'Support bot')
@@ -1307,6 +1341,7 @@ export function agentPauseAll(seed: number): Scenario {
   const r = seeded(seed * 31 + 9)
   return {
     id: 'agent-pause-all',
+    agents: 2,
     title: 'Pause every agent stops every agent before the provider; started again, they are served',
     run: (ctx) => withBank(ctx, async (bank) => {
       const agents: { a: Agent; key: string }[] = []
@@ -1346,6 +1381,7 @@ export function agentPauseAll(seed: number): Scenario {
 export function agentApproval(seed: number): Scenario {
   return {
     id: 'agent-approval',
+    agents: 2,
     title: 'a payment above the approval amount waits for a person; approved on Agent Wallets, it is paid once',
     run: (ctx) => withBank(ctx, async (bank) => {
       const payer = await openAgent(ctx, bank, `Payer ${seed}`)
@@ -1409,6 +1445,7 @@ interface ApprovalWorker {
 export function agentApprovalPush(seed: number): Scenario {
   return {
     id: 'agent-approval-push',
+    agents: 2,
     title: 'Approve on the approval push decides it from the service worker: Lens’s row is approved without opening the app',
     run: (ctx) => withBank(ctx, async (bank) => {
       const payer = await openAgent(ctx, bank, `Push payer ${seed}`)
@@ -1497,6 +1534,7 @@ export function agentApprovalPush(seed: number): Scenario {
 export function chatApprovalFaceID(seed: number): Scenario {
   return {
     id: 'chat-approval-face-id',
+    agents: 2,
     title: 'an agent’s payment waiting for a person is a card in Chat; approved with Face ID, it is one pay line on the statement',
     run: (ctx) => withBank(ctx, async (bank) => {
       const payer = await openAgent(ctx, bank, `Chat payer ${seed}`)
@@ -1579,6 +1617,7 @@ export function walletHome(seed: number): Scenario {
   const r = seeded(seed * 37 + 11)
   return {
     id: 'wallet-home',
+    agents: 1,
     title: 'the first screen after sign-in is Home: each agent’s budget used and the approvals waiting, as Lens has them',
     run: (ctx) => withBank(ctx, async (bank) => {
       const a = await openAgent(ctx, bank, `Home ${seed}`)
@@ -1668,6 +1707,7 @@ export function chatLiveStatement(seed: number): Scenario {
   const amount = 1_000_000 + (seed % 9) * 10_000
   return {
     id: 'chat-live-statement',
+    agents: 2,
     title: 'a debit an agent makes appears on the live statement beside Chat within 5 seconds, without a reload',
     run: async (ctx) =>
       withBank(ctx, async (bank) => {
@@ -1769,6 +1809,7 @@ export function chatRecentCalls(seed: number): Scenario {
   const shown = 20
   return {
     id: 'chat-recent-calls',
+    agents: 1,
     title: "an agent's newest 20 calls under Recent calls beside Chat are its statement on Lens: each request's cost, newest first, linked to its row",
     run: async (ctx) =>
       withBank(ctx, async (bank) => {
@@ -1842,6 +1883,8 @@ export function chatRecentCalls(seed: number): Scenario {
           ctx.evidence.push({ note: `Recent calls beside Chat at 1440px: ${wide}` })
           await chat.setViewportSize({ width: 390, height: 844 })
           await chat.getByRole('button', { name: 'Statement', exact: true }).click()
+          // B34.1 — the drawer follows the agent this browser last followed, which Chat's other tab may have changed.
+          await panel.getByLabel('Agent').selectOption(a.id, { timeout: ACTION_TIMEOUT_MS })
           await panel.getByRole('button', { name: 'Recent calls', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
           await rows.first().waitFor({ timeout: ACTION_TIMEOUT_MS })
           const narrow = join(ctx.env.outDir, `chat-recent-calls-390px-user${ctx.app.user.index}.png`)
@@ -1884,6 +1927,7 @@ export function chatWalletButtons(seed: number): Scenario {
   const back = 250_000 + (seed % 9) * 10_000
   return {
     id: 'chat-wallet-buttons',
+    agents: 1,
     title: 'fund, withdraw, pause and pause all from Chat, each confirmed first; after Pause all the agent’s next call is refused',
     run: async (ctx) =>
       withBank(ctx, async (bank) => {
@@ -1999,6 +2043,7 @@ export function chatLaunchAgent(seed: number): Scenario {
   const approval = 500_000
   return {
     id: 'chat-launch-agent',
+    agents: 1,
     title: 'an agent launched from Chat with /agent is in Lens’s book with its budget and rules, and its first call is debited from its wallet',
     run: async (ctx) => {
       const name = `Launched ${seed}`
@@ -2098,6 +2143,7 @@ export function chatPlainRule(seed: number): Scenario {
   const cap = 1 // µLXC: the agent's first call to the model passes it
   return {
     id: 'chat-plain-rule',
+    agents: 1,
     title: 'a rule typed in plain words in Chat is saved on Lens, and the agent’s next call over it is refused with nothing posted or charged',
     run: (ctx) =>
       withBank(ctx, async (bank) => {
@@ -2190,6 +2236,7 @@ export function chatAskAbove(seed: number): Scenario {
   const [under, over] = [1_900_000, 2_100_000]
   return {
     id: 'chat-ask-above',
+    agents: 2,
     title: '"Ask me above 2 LXC" typed in Chat sets the agent’s approval amount on Lens: 2.1 LXC then waits for a person and 1.9 LXC is paid',
     run: (ctx) =>
       withBank(ctx, async (bank) => {
@@ -2282,6 +2329,7 @@ export function chatForecastAnswer(seed: number): Scenario {
   const [funded, paid] = [5e6, 4_999_000]
   return {
     id: 'chat-forecast-answer',
+    agents: 2,
     title: '"Will <agent> run out this month?" in Chat is answered from the forecast: the day it states is the runs_out_at Lens’s /forecast gives',
     run: (ctx) =>
       withBank(ctx, async (bank) => {
@@ -2356,11 +2404,13 @@ export function chatPaidBy(seed: number): Scenario {
   const funded = 2e6
   return {
     id: 'chat-paid-by',
+    agents: 1,
     title: 'an agent chosen in Chat’s Paid by pays for the conversation: the charge lands on its statement and the workspace balance does not move',
     run: (ctx) =>
       withBank(ctx, async (bank) => {
         const { env, app } = ctx
-        const payer = await openAgent(ctx, bank, `Chat payer ${seed}`)
+        // B34.1 — its own name: chat-approval-face-id, later on the same user, opens a "Chat payer" of its own.
+        const payer = await openAgent(ctx, bank, `Paid-by payer ${seed}`)
         if (typeof payer === 'string') return fail(payer)
         const err = await bank.move(payer, funded, 'Fund')
         if (err !== undefined) return fail(`funding ${payer.name} was refused: ${err}`)
@@ -2439,6 +2489,7 @@ export function chatWalletAlerts(seed: number): Scenario {
   const withinMs = 10_000
   return {
     id: 'chat-wallet-alerts',
+    agents: 2,
     title: 'an agent that runs out and reaches its monthly limit while Chat is open is shown in Chat within ten seconds',
     run: (ctx) =>
       withBank(ctx, async (bank) => {
@@ -2522,6 +2573,7 @@ export function walletOnboarding(seed: number): Scenario {
   const amount = 2e6
   return {
     id: 'wallet-onboarding',
+    agents: 1,
     title: 'a new workspace creates, funds and keys its first agent in Home’s three steps and sees its first request land, with no consent page',
     run: async (ctx) => {
       const before = await bookOf(ctx)
@@ -2608,12 +2660,12 @@ export function walletFirstNav(): Scenario {
         const rows = await nav
           .locator('a[href], button[aria-expanded]')
           .evaluateAll((els) => els.map((e) => ({ text: (e.textContent ?? '').trim(), href: e.getAttribute('href') })))
-        const waiting = /(\d+) waiting$/.exec(rows.find((r) => r.href === '/approvals')?.text ?? '')
-        const badge = waiting ? Number(waiting[1]) : 0
         const named = rows.map((r) => r.text.replace(/\d+ waiting$/, '').trim())
         // A group and its one same-named link (Settings, then Settings) read as one entry.
         const order = named.filter((l, i) => (WALLET_FIRST_NAV as readonly string[]).includes(l) && l !== named[i - 1])
         const pending = (await ctx.env.lens.agentApprovals(ctx.app.user)).filter((x) => x.status === 'pending').length
+        // B34.1 — the badge is drawn once the page has read the approvals; read before that, it is none.
+        const badge = await badgeReaches(page, pending, ACTION_TIMEOUT_MS)
         ctx.evidence.push({ note: `sidebar: ${order.join(' · ')}; Approvals badge ${badge}, Lens pending ${pending}` })
         if (order.join('|') !== WALLET_FIRST_NAV.join('|')) return fail(`the sidebar reads ${order.join(', ')}, not ${WALLET_FIRST_NAV.join(', ')}`)
         if (badge !== pending) return fail(`Lens has ${pending} approval(s) pending; the sidebar's Approvals badge says ${badge}`)
@@ -2663,6 +2715,7 @@ async function approveRow(page: Page, memo: string): Promise<string> {
 export function approvalsBadge(seed: number): Scenario {
   return {
     id: 'approvals-badge',
+    agents: 2,
     title: 'the Approvals badge is live: approving one takes it down by one without a reload, and so does a decision made in another tab',
     run: (ctx) => withBank(ctx, async (bank) => {
       const payer = await openAgent(ctx, bank, `Badge payer ${seed}`)
@@ -2733,10 +2786,13 @@ export function companyPayment(seed: number, partner: number): Scenario {
   const amount = 700_000
   return {
     id: 'company-payment',
+    agents: 1,
     title: "an agent pays another company's agent: one line on the payer's marketplace bill; the payee's share waits for that bill, then the holdback",
     run: (ctx) => withBank(ctx, async (bank) => {
       const { env, app } = ctx
       const payeeCo = env.userAt(partner)
+      const team = await otherCompanyOnTeam(ctx, partner)
+      if (team !== undefined) return fail(team)
       const supplier = await env.lens.createAgent(payeeCo, `Supplier ${seed}`)
       const buyer = await openAgent(ctx, bank, `Buyer ${seed}`)
       if (typeof buyer === 'string') return fail(buyer)
@@ -2758,9 +2814,10 @@ export function companyPayment(seed: number, partner: number): Scenario {
       if (fresh[0].cleared_at !== undefined) return fail('the payment reads as paid before any bill was')
       const earned = await env.lens.marketEarnings(payeeCo)
       ctx.evidence.push({ note: `payee earnings before ${JSON.stringify(earned0)}, after ${JSON.stringify(earned)}` })
-      const share = amount / ULXC_PER_USD_MICRO
+      const gross = amount / ULXC_PER_USD_MICRO
+      const share = Math.floor((gross * SERVICE_SHARE_BPS) / 10_000)
       if (earned.pending_uses !== earned0.pending_uses + 1 || earned.pending_usd_micros !== earned0.pending_usd_micros + share) {
-        return fail(`the payee's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; one payment of ${share} µUSD`)
+        return fail(`the payee's pending went ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD; one payment of ${gross} µUSD, of which the payee keeps ${share}`)
       }
       if (earned.available_usd_micros !== earned0.available_usd_micros || earned.payable_usd_micros !== earned0.payable_usd_micros) {
         return fail('the payee could take the money before the payer\'s bill was paid and the holdback passed')
@@ -2768,7 +2825,7 @@ export function companyPayment(seed: number, partner: number): Scenario {
       if (agentIn(await bookOf(ctx), buyer.id)?.balance_ulxc !== 0) return fail(`${buyer.name}'s balance moved: the company's bill carries this payment`)
       const shown = await billShown(app)
       if (!shown.includes(`Payment to ${supplier.name}`)) return fail(`Your bill does not show "Payment to ${supplier.name}"`)
-      return { pass: true, detail: `one ${lxcText(amount)} LXC line on the payer's bill (not yet paid, shown on Your bill); the payee's pending rose by exactly $${(share / 1e6).toFixed(2)}, payable only once that bill is paid and after the 14-day holdback` }
+      return { pass: true, detail: `one ${lxcText(amount)} LXC line on the payer's bill (not yet paid, shown on Your bill); the payee's pending rose by exactly its 95%, $${(share / 1e6).toFixed(4)}, payable only once that bill is paid and after the 14-day holdback` }
     }),
   }
 }
@@ -2843,6 +2900,7 @@ export function statementReconciles(seed: number): Scenario {
   const r = seeded(seed * 41 + 17)
   return {
     id: 'statement-reconciles',
+    agents: 2,
     title: 'the statement downloaded from Agent Wallets adds up, balances every entry, and agrees with the agents and the ledger',
     run: (ctx) => withBank(ctx, async (bank) => {
       const north = await openAgent(ctx, bank, `North ${seed}`)
@@ -2858,12 +2916,14 @@ export function statementReconciles(seed: number): Scenario {
       const back = await bank.move(south, 250_000, 'Take back')
       if (back !== undefined) return fail(`taking 0.25 LXC back was refused: ${back}`)
       const key = await bank.issueKey(north)
-      const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const spends0 = new Set((await chargeRows(ctx)).map((x) => x.id))
       const { q, want } = sum(r)
       const t = await agentAsks(ctx, key, q, `${north.name} asks with its own key`)
       if (!t.ok) return fail(`${north.name}'s request was refused: ${t.status} ${t.error}`)
       if (!statesNumber(t.value.text, want)) return fail(`answered wrong: expected ${want}, got "${t.value.text}"`)
-      const ledgerSpent = (await spendRows(ctx)).filter((x) => !spends0.has(x.id)).reduce((s, x) => s - x.amount_ulxc, 0)
+      // The agent pays the call and its platform fee (B32.11): the statement's spend and the book's spent count both.
+      const ledgerSpent = await oneCharge(ctx, (await chargeRows(ctx)).filter((x) => !spends0.has(x.id)))
+      if (typeof ledgerSpent === 'string') return fail(`${north.name}'s request was served, and its charge on the ledger is wrong: ${ledgerSpent}`)
       const file = await bank.statementThisMonth()
       const st = JSON.parse(file.text) as StatementJSON
       const accounts = st.accounts ?? []
@@ -2883,9 +2943,9 @@ export function statementReconciles(seed: number): Scenario {
         if (closing(`agent:${x.id}`) !== held) return fail(`the statement closes ${x.name} at ${closing(`agent:${x.id}`)} µLXC; Lens's book says ${held}`)
       }
       if (closing('spend') !== ledgerSpent || b.spent_ulxc !== ledgerSpent) {
-        return fail(`the statement's spend is ${closing('spend')} µLXC, the book's ${b.spent_ulxc}, the ledger's spend row for the request ${ledgerSpent}`)
+        return fail(`the statement's spend is ${closing('spend')} µLXC, the book's ${b.spent_ulxc}, the ledger's spend and platform fee rows for the request ${ledgerSpent}`)
       }
-      return { pass: true, detail: `${lines.length} lines over ${entries.size} balanced entries; each account adds up, closes at the agent's balance, and spend = the ledger's ${ledgerSpent} µLXC` }
+      return { pass: true, detail: `${lines.length} lines over ${entries.size} balanced entries; each account adds up, closes at the agent's balance, and spend = the ledger's spend and platform fee, ${ledgerSpent} µLXC` }
     }),
   }
 }
@@ -2986,9 +3046,10 @@ export function spendPlainWords(): Scenario {
   }
 }
 
-/** A figure as WindowFigure shows it: "300,000 µLXC" under one LXC, "10.300000 LXC" from one up. */
+/** A figure as WindowFigure shows it: "300,000 µLXC" under one LXC, "10.300000 LXC" from one up — since B29, its
+ *  unit set apart from the figure, so innerText reads "126 µ LXC". */
 function shownULXC(shown: string): number | undefined {
-  const m = /(-?[\d,]+)(?:\.(\d{6}))?\s*(µ?)LXC/i.exec(shown.replace(/\s+/g, ' '))
+  const m = /(-?[\d,]+)(?:\.(\d{6}))?\s*(µ?)\s*LXC/i.exec(shown.replace(/\s+/g, ' '))
   if (m === null) return undefined
   const whole = Number(m[1].replace(/,/g, ''))
   if (m[3] !== '') return whole
@@ -3126,6 +3187,7 @@ export function agentBalanceStored(seed: number): Scenario {
   const total = amounts.reduce((s, n) => s + n, 0)
   return {
     id: 'agent-balance-stored',
+    agents: 1,
     title: `an agent funded ${MANY_FUNDINGS} times at once holds exactly their sum: the balance Lens stores, the postings on the statement and the screen all agree`,
     run: (ctx) => withBank(ctx, async (bank) => {
       const before = await bookOf(ctx)
@@ -3172,6 +3234,7 @@ export function walletCurrency(seed: number): Scenario {
   const amount = 12_500_000
   return {
     id: 'wallet-currency',
+    agents: 1,
     title: 'an agent funded 12.5 LXC shows its dollar value beside it, and its allowed model is picked, not typed: Lens stores exactly the model picked',
     run: (ctx) => withBank(ctx, async (bank) => {
       const a = await openAgent(ctx, bank, `Priced ${seed}`)
@@ -3191,8 +3254,8 @@ export function walletCurrency(seed: number): Scenario {
       const stored = (await ctx.env.lens.agentRules(ctx.app.user, a.id)).allowed_models ?? []
       ctx.evidence.push({ note: `Lens stores ${a.name}'s allowed models as ${JSON.stringify(stored)}` })
       if (stored.length !== 1 || stored[0] !== model) return fail(`picked ${model}; Lens stores ${JSON.stringify(stored)}`)
-      const words = await bank.rulesInWords(a)
       const name = ctx.env.catalog.find((m) => m.id === model)?.display_name ?? model
+      const words = await bank.rulesInWords(a, `It may use only ${name}.`)
       ctx.evidence.push({ note: `the Rules card says: ${words}` })
       if (!words.includes(`It may use only ${name}.`)) return fail(`the Rules card does not say "It may use only ${name}.": ${words}`)
       return { pass: true, detail: `${a.name} reads "${shown}"; ${name} picked from the model picker, stored by Lens as the one allowed model, and stated as a sentence` }
@@ -3210,6 +3273,7 @@ export function agentArchive(seed: number): Scenario {
   const amount = 750_000
   return {
     id: 'agent-archive',
+    agents: 1,
     title: 'an agent renamed, described and archived on Agent Wallets: one withdraw posting sweeps its whole balance back to the workspace, and its key then writes no hold',
     run: (ctx) => withBank(ctx, async (bank) => {
       const first = await openAgent(ctx, bank, `Retiring ${seed}`)

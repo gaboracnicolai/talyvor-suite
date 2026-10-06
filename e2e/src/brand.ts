@@ -167,10 +167,21 @@ export function brandVisual(): Scenario {
               await page.emulateMedia({ colorScheme: theme })
               for (const [width, height] of VIEWPORTS) {
                 await page.setViewportSize({ width, height })
-                const { look, note } = await view(page, origin + path, theme)
+                const seen = await view(page, origin + path, theme)
+                let { look, note } = seen
                 const file = `${path === '/' ? 'home' : path.slice(1)}-${width}-${theme}.jpg`
                 // The first screen, as a person sees it at this size; the checks above read the whole page.
                 await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
+                // B34.1 — on a phone the app's top bar carries the page's title, and the logo is in the sidebar behind
+                // Menu (B29.7): there it is read, with Menu open.
+                const menu = page.getByRole('button', { name: 'Menu', exact: true })
+                if (path === '/' && look.logos.length === 0 && await menu.isVisible()) {
+                  await menu.click()
+                  await page.getByRole('complementary', { name: 'Primary' }).waitFor({ state: 'visible', timeout: SETTLE_TIMEOUT_MS }).catch(() => undefined)
+                  look = { ...look, logos: (await page.evaluate(lookInPage)).logos.map((l) => `${l} under Menu`) }
+                  note += ' (the logo read with Menu open)'
+                  await page.keyboard.press('Escape')
+                }
                 const faults = brandFaults(look, theme)
                 ctx.evidence.push({
                   note: `${path} ${width}×${height} ${theme}${note}: ${faults.length === 0 ? 'the brand' : faults.join('; ')} — ` +

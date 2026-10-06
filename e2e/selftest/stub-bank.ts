@@ -111,6 +111,16 @@ interface Use {
   /** B25.8 — the bill it was paid on, when, and a refund that left the seller's share in place (bill-refund-kept) */
   invoice?: string; cleared_at?: string; kept?: boolean
 }
+/**
+ * B32.8 — what the seller keeps of a use, in µUSD (Lens market.SellerShare): a listing's 85% (LENS_MARKET_TAKE_BPS=1500),
+ * a payment to another company's agent 95% (LENS_SERVICES_TAKE_BPS=500), rounded down.
+ */
+function shareOf(u: Use): number {
+  const gross = u.price_ulxc / ULXC_PER_USD_MICRO
+  const keep = 10_000 - (u.listing_id === '' ? 500 : 1500)
+  return Math.floor(gross / 10_000) * keep + Math.floor(((gross % 10_000) * keep) / 10_000)
+}
+
 interface Payout { id: string; ws: string; method: 'credits'; month: string; gross_usd_micros: number; net_usd_micros: number; credits_ulxc: number; paid_at: string; created_at: string }
 interface CardAuth {
   id: string; agent_id: string; authorization_id: string; approved: boolean; reason: string; amount_minor: number; currency: string
@@ -233,7 +243,7 @@ export class Bank {
     const agents = [...this.agents.values()].filter((a) => a.ws === ws.id).map((a) => ({
       id: a.id, name: a.name, balance_ulxc: this.balance(`agent:${a.id}`),
       pots_ulxc: this.pots.filter((p) => p.agent_id === a.id).reduce((s, p) => s + this.balance(`pot:${p.id}`), 0),
-      spent_ulxc: this.postings.filter((p) => p.account === `agent:${a.id}` && p.kind === 'spend').reduce((s, p) => s - p.amount_ulxc, 0),
+      spent_ulxc: this.postings.filter((p) => p.account === `agent:${a.id}` && (p.kind === 'spend' || p.kind === 'platform_fee')).reduce((s, p) => s - p.amount_ulxc, 0),
       keys: a.keys, created_at: a.created_at, paused_at: a.paused_at, paused_reason: a.paused_reason, owner_user_id: a.owner_user_id, verified: false,
       description: a.description ?? '', archived_at: a.archived_at,
     }))
@@ -278,7 +288,7 @@ export class Bank {
     if (r.max_per_request_ulxc > 0 && amount > r.max_per_request_ulxc && this.d.brk !== 'agent-limit') {
       return rule(`this ${what} would cost up to ${lxc(amount)} LXC; the agent's limit per request is ${lxc(r.max_per_request_ulxc)} LXC`)
     }
-    const spent = this.postings.filter((p) => p.account === `agent:${agent.id}` && (p.kind === 'spend' || (p.kind === 'pay' && p.amount_ulxc < 0)))
+    const spent = this.postings.filter((p) => p.account === `agent:${agent.id}` && (p.kind === 'spend' || p.kind === 'platform_fee' || (p.kind === 'pay' && p.amount_ulxc < 0)))
       .reduce((s, p) => s - p.amount_ulxc, 0)
     for (const [limit, name] of [[r.hourly_limit_ulxc, 'hourly'], [r.daily_limit_ulxc, 'daily'], [r.weekly_limit_ulxc, 'weekly'], [r.monthly_limit_ulxc, 'monthly']] as const) {
       if (limit > 0 && spent + amount > limit) {
@@ -331,9 +341,16 @@ export class Bank {
     return undefined
   }
 
-  /** What a served request cost, posted from the agent to spend, naming its model — beside the workspace's ledger row. */
-  spent(agent: Agent, charge: number, model: string): void {
+  /** What a served request cost, posted from the agent to spend, naming its model — beside the workspace's ledger row —
+   *  and B32.11's platform fee on it, its own posting. */
+  spent(agent: Agent, charge: number, model: string, fee: number): void {
     if (charge > 0) this.post(agent.ws, 'spend', [[`agent:${agent.id}`, -charge, 'spend'], ['spend', charge, `agent:${agent.id}`]], undefined, modelCapKey(model))
+    if (fee > 0) this.post(agent.ws, 'platform_fee', [[`agent:${agent.id}`, -fee, 'spend'], ['spend', fee, `agent:${agent.id}`]], undefined, modelCapKey(model))
+  }
+
+  /** B32.12 — the workspace's agents a plan counts: every one not archived. */
+  activeAgents(ws: string): number {
+    return [...this.agents.values()].filter((a) => a.ws === ws && a.archived_at === undefined).length
   }
 
   private statement(ws: string, agentID: string | undefined, url: URL): object | string {
@@ -418,7 +435,7 @@ export class Bank {
     const day = new Date().toISOString().slice(0, 10)
     const from = new Date(rpc.params.arguments?.from || day).toISOString()
     const to = rpc.params.arguments?.to ? new Date(rpc.params.arguments.to).toISOString() : new Date(Date.now() + 1000).toISOString()
-    const spentKinds = new Set(['spend', 'settle', 'pay', 'transfer', 'card', 'escrow'])
+    const spentKinds = new Set(['spend', 'platform_fee', 'settle', 'pay', 'transfer', 'card', 'escrow'])
     const only = rpc.params.arguments?.agent
     const agents = [...this.agents.values()].filter((a) => a.ws === ws && (!only || a.id === only || a.name === only)).map((a) => {
       const lines = this.postings.filter((p) => p.account === `agent:${a.id}` && spentKinds.has(p.kind) && p.amount_ulxc < 0 && p.at >= from && p.at < to)
@@ -688,10 +705,11 @@ export class Bank {
    */
   private earnings(ws: string): { lifetime: number; refunded: number; available: number; paid: number } {
     const cleared = this.uses.filter((u) => u.seller === ws && u.cleared_at !== undefined)
-    const share = (us: Use[]) => us.reduce((s, u) => s + u.price_ulxc / ULXC_PER_USD_MICRO, 0)
+    const share = (us: Use[]) => us.reduce((s, u) => s + shareOf(u), 0)
     const reversed = cleared.filter((u) => u.refunded_at !== undefined && !u.kept)
     const paid = this.payouts.filter((p) => p.ws === ws).reduce((s, p) => s + p.gross_usd_micros, 0)
-    return { lifetime: share(cleared), refunded: share(reversed), available: Math.max(share(cleared) - share(reversed) - paid, 0), paid }
+    return { lifetime: cleared.reduce((s, u) => s + u.price_ulxc / ULXC_PER_USD_MICRO, 0), refunded: share(reversed),
+      available: Math.max(share(cleared) - share(reversed) - paid, 0), paid }
   }
 
   /** Whether `viewer` may see listing `l`: held and taken-down listings are their owner's alone. */
@@ -962,7 +980,7 @@ export class Bank {
       const runOn = (spent: number) => (spent <= 0 ? Math.max(spent, 0) : Math.floor((spent * (end.getTime() - start.getTime())) / Math.max(1, d.getTime() - start.getTime())))
       const agents = [...this.agents.values()].filter((a) => a.ws === ws.id).map((a) => {
         const spent = this.postings.filter((p) => p.account === `agent:${a.id}` && p.at >= start.toISOString() &&
-          (['spend', 'hold', 'settle', 'release', 'card'].includes(p.kind) || (p.kind === 'pay' && p.amount_ulxc < 0)))
+          (['spend', 'platform_fee', 'hold', 'settle', 'release', 'card'].includes(p.kind) || (p.kind === 'pay' && p.amount_ulxc < 0)))
           .reduce((s, p) => s - p.amount_ulxc, 0)
         // B28.357 — B28.94's contract: what the agent holds, and when that runs out at the month's pace so far
         // (balance × elapsed ÷ spent from now); null when it has spent nothing, so does not run out at that pace.
@@ -1171,12 +1189,11 @@ export class Bank {
     }
     if (rest === '/marketplace/earnings') {
       const pending = this.uses.filter((u) => u.seller === ws.id && u.charge === 'billed' && u.cleared_at === undefined && u.refunded_at === undefined)
-      const gross = pending.reduce((s, u) => s + u.price_ulxc, 0)
       const e = this.earnings(ws.id)
       const earnings = this.uses.filter((u) => u.seller === ws.id && u.cleared_at !== undefined).map((u) => ({ use_id: u.id, listing_id: u.listing_id,
-        gross_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, share_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, invoice_id: u.invoice, cleared_at: u.cleared_at,
+        gross_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, share_usd_micros: shareOf(u), invoice_id: u.invoice, cleared_at: u.cleared_at,
         payable_at: u.cleared_at, refunded_at: u.kept ? undefined : u.refunded_at, payee_agent_id: u.payee_agent_id || undefined }))
-      return json(res, 200, { pending_uses: pending.length, pending_usd_micros: Math.floor(gross / 10), payable_usd_micros: e.available, in_holdback_usd_micros: 0,
+      return json(res, 200, { pending_uses: pending.length, pending_usd_micros: pending.reduce((s, u) => s + shareOf(u), 0), payable_usd_micros: e.available, in_holdback_usd_micros: 0,
         available_usd_micros: e.available, paid_out_usd_micros: e.paid, owed_usd_micros: 0, lifetime_gross_usd_micros: e.lifetime, refunded_usd_micros: e.refunded, earnings }), true
     }
     if (rest === '/marketplace/bill') {

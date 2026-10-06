@@ -24,6 +24,37 @@ export interface Turn {
 
 export class SignInRefused extends Error {}
 
+/** B34.1 — the most API requests a tester's browser sends a second, and in one burst: well under Lens's 1,000 a minute. */
+const API_PER_SECOND = 13
+const API_BURST = 100
+
+/** A token bucket: `take` waits until the browser may send its next request. */
+export class Pace {
+  private readonly perSecond: number
+  private readonly burst: number
+  private tokens: number
+  private last = Date.now()
+
+  constructor(perSecond: number, burst: number) {
+    this.perSecond = perSecond
+    this.burst = burst
+    this.tokens = burst
+  }
+
+  async take(): Promise<void> {
+    for (;;) {
+      const now = Date.now()
+      this.tokens = Math.min(this.burst, this.tokens + ((now - this.last) / 1000) * this.perSecond)
+      this.last = now
+      if (this.tokens >= 1) {
+        this.tokens--
+        return
+      }
+      await new Promise((r) => setTimeout(r, ((1 - this.tokens) / this.perSecond) * 1000))
+    }
+  }
+}
+
 /** B27.16 — the longest a new context or page may take to open on a browser that is still up. */
 const OPEN_MS = 60_000
 
@@ -163,6 +194,13 @@ export class AppUser {
       // Watching starts before the first page opens, so sign-in's own requests are recorded too.
       const holder: { app?: AppUser } = {}
       if (opts.recorder !== undefined) watch(context, opts.appURL, opts.recorder, () => holder.app?.tag ?? tag)
+      // B34.1 — a person's pace: Lens holds a workspace to 1,000 requests a minute, and every tab reads Lens through the
+      // BFF. A tester that reloads Agent Wallets before each click outruns that, so its browser waits its turn.
+      const pace = new Pace(API_PER_SECOND, API_BURST)
+      await context.route((u) => u.pathname.startsWith('/api/'), async (route) => {
+        await pace.take()
+        await route.continue()
+      })
       const page = await whileUp(browser, 'opening a page', context.newPage())
       await page.goto(opts.appURL + '/')
       // From inside the page, so the request carries the app's own Origin and the cookie lands in

@@ -21,6 +21,7 @@ import { type ExplorerSummary, type Finding, Notebook, explore } from './explore
 import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
 import { groupLeads, reportPath, writeReport, writeTesters } from './report.ts'
+import { roomForAgents } from './room.ts'
 import { CannotTest, type Evidence, type RunEnv, checkLedger, journeyFor } from './scenarios.ts'
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
@@ -281,6 +282,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
             try {
               const v = await timed(SCENARIO_MS, s.id, unlessStopped(s.id, (async () => {
                 await app.newChat() // every scenario starts from an empty conversation
+                if (s.agents !== undefined) await roomForAgents(scenarioEnv.lens, user, s.agents, evidence)
                 return s.run({ app, env: scenarioEnv, evidence })
               })()))
               status = v.pass ? 'PASS' : 'FAIL'

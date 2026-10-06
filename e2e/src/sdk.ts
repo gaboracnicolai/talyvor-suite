@@ -13,6 +13,7 @@ import ts from 'typescript'
 import { chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
 import { listPriceUSD, statesNumber } from './oracles.ts'
+import { PLATFORM_FEE_BPS, type Plan } from './pricing.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
 /** What the quickstart funds the agent with: 10 LXC. */
@@ -62,26 +63,39 @@ export function loadSdk(lensSrc: string): Promise<Sdk> {
   return p
 }
 
-/** The statement oldest first, each line's balance the one before plus its amount, from the funding on. */
-export function quickstartStatement(newestFirst: readonly StatementLine[]): { pass: true; spentULXC: number } | { pass: false; detail: string } {
+/**
+ * The statement oldest first, each line's balance the one before plus its amount, from the funding on. The model
+ * call is Lens's hold (the stub's spend), then the settle that gives back what the answer did not use, then — B32.11,
+ * when the workspace's plan has one — its platform fee of `feeBPS` of what was spent, rounded up.
+ */
+export function quickstartStatement(newestFirst: readonly StatementLine[], feeBPS: number): { pass: true; spentULXC: number } | { pass: false; detail: string } {
   const lines = [...newestFirst].reverse()
   const funds = lines.filter((l) => l.kind === 'fund')
   if (funds.length !== 1 || lines[0]?.kind !== 'fund') return { pass: false, detail: `the statement does not open on one fund line: ${show(lines)}` }
   if (funds[0].amount_ulxc !== QUICKSTART_FUND_ULXC || funds[0].balance_after_ulxc !== QUICKSTART_FUND_ULXC) {
     return { pass: false, detail: `the fund line is ${funds[0].amount_ulxc} µLXC to ${funds[0].balance_after_ulxc}, not +${QUICKSTART_FUND_ULXC} to ${QUICKSTART_FUND_ULXC}` }
   }
-  const spend = lines.find((l) => l.kind === 'spend')
-  if (spend === undefined || !(spend.amount_ulxc < 0)) return { pass: false, detail: `no spend line for the model call: ${show(lines)}` }
+  const call = lines[1]
+  if (call === undefined || (call.kind !== 'hold' && call.kind !== 'spend') || !(call.amount_ulxc < 0)) {
+    return { pass: false, detail: `no hold or spend line for the model call after the funding: ${show(lines)}` }
+  }
   for (let i = 1; i < lines.length; i++) {
     if (lines[i].balance_after_ulxc !== lines[i - 1].balance_after_ulxc + lines[i].amount_ulxc) {
       return { pass: false, detail: `the ${lines[i].kind} line of ${lines[i].amount_ulxc} µLXC leaves ${lines[i].balance_after_ulxc}, not ${lines[i - 1].balance_after_ulxc} + ${lines[i].amount_ulxc}: ${show(lines)}` }
     }
   }
-  if (lines[1] !== spend || spend.balance_after_ulxc !== QUICKSTART_FUND_ULXC + spend.amount_ulxc) {
-    return { pass: false, detail: `the model call's spend line does not follow the funding: ${show(lines)}` }
-  }
-  const spentULXC = QUICKSTART_FUND_ULXC - lines[lines.length - 1].balance_after_ulxc
+  const rest = lines.slice(2)
+  const settles = rest.filter((l) => l.kind === 'settle')
+  const fees = rest.filter((l) => l.kind === 'platform_fee')
+  const other = rest.filter((l) => l.kind !== 'settle' && l.kind !== 'platform_fee')
+  if (other.length > 0 || settles.length > 1 || fees.length > 1) return { pass: false, detail: `the model call wrote more than a hold, a settle and a platform fee: ${show(lines)}` }
+  const back = settles[0]?.amount_ulxc ?? 0
+  if (back < 0 || back > -call.amount_ulxc) return { pass: false, detail: `the settle of ${back} µLXC gives back more than the ${-call.amount_ulxc} held, or takes more: ${show(lines)}` }
+  const spentULXC = -call.amount_ulxc - back
   if (!(spentULXC > 0)) return { pass: false, detail: `the model call left the agent at ${QUICKSTART_FUND_ULXC - spentULXC} µLXC, nothing charged: ${show(lines)}` }
+  const want = Math.ceil((spentULXC * feeBPS) / 10_000)
+  const fee = fees[0] === undefined ? 0 : -fees[0].amount_ulxc
+  if (fee !== want) return { pass: false, detail: `the platform fee on ${spentULXC} µLXC spent is ${fee} µLXC; at ${feeBPS} basis points it is ${want}: ${show(lines)}` }
   return { pass: true, spentULXC }
 }
 
@@ -90,6 +104,7 @@ const show = (lines: readonly StatementLine[]): string => lines.map((l) => `${l.
 export function sdkWalletQuickstart(seed: number): Scenario {
   return {
     id: 'sdk-wallet-quickstart',
+    agents: 1,
     title: "the TypeScript SDK's README quickstart: an agent created, funded 10 LXC, keyed, calling a model through Lens, and its statement",
     feature: 'Agent Wallets',
     run: async (ctx: ScenarioCtx): Promise<Verdict> => {
@@ -134,9 +149,10 @@ export function sdkWalletQuickstart(seed: number): Scenario {
       // 5. Read its statement, newest first.
       const { lines } = await owner.agents.statement(agent.id)
       ctx.evidence.push({ note: `the statement of ${agent.id}`, ledger: lines.map((l) => ({ type: l.kind, amount_ulxc: l.amount_ulxc, created_at: l.at })) })
-      const st = quickstartStatement(lines)
+      const plan = (await env.lens.workspacePlan(app.user)).gated_as as Plan
+      const st = quickstartStatement(lines, PLATFORM_FEE_BPS[plan])
       if (!st.pass) return { pass: false, detail: st.detail }
-      return { pass: true, detail: `the statement holds the fund line (+${QUICKSTART_FUND_ULXC} µLXC) and the model call's spend, ${st.spentULXC} µLXC, each line's balance following from the one before` }
+      return { pass: true, detail: `the statement holds the fund line (+${QUICKSTART_FUND_ULXC} µLXC) and the model call: ${st.spentULXC} µLXC spent and its platform fee on ${plan}, each line's balance following from the one before` }
     },
   }
 }
