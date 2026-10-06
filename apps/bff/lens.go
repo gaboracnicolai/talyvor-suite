@@ -555,8 +555,8 @@ func newApp(cfg config, auth *authenticator) *app {
 
 	// The Track roster and Lens month-spend, both pinned at registration from
 	// config — client input never shapes an upstream path.
-	// The roster of the SESSION's Track workspace — no longer a workspace pinned at startup.
-	a.mux.HandleFunc("/api/members", a.trackWorkspaceProxy("/members", nil, nil))
+	// The roster of the SESSION's Track workspace (GET); POST adds a member there (B32.72).
+	a.mux.HandleFunc("/api/members", a.trackMembers())
 	a.mux.HandleFunc("/api/spend/month", a.wsProxyFixed("/spend/current-month"))
 	// B27.32 — this month's MEASURED saving: Lens sums the workspace's own spend rows (what each
 	// request would have cost at the model it asked for with no cache, minus what it was charged).
@@ -915,7 +915,7 @@ func (a *app) proxyProduct(product, baseURL, secret, upstreamPath string) http.H
 // method is the verb sent upstream. body is nil for reads; for writes it is the caller's request
 // body, forwarded VERBATIM — the upstream owns its own validation, and re-encoding here would
 // invent a second schema to drift from.
-func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, baseURL, secret, upstreamPath, rawQuery, method string, body io.Reader, transform func([]byte) ([]byte, error)) {
+func (a *app) forwardProductWith(w http.ResponseWriter, r *http.Request, product, baseURL, secret, upstreamPath, rawQuery, method string, body io.Reader, transform func([]byte) ([]byte, error), extra http.Header) {
 	if baseURL == "" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": product + " upstream not configured on this BFF"})
@@ -948,6 +948,11 @@ func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, ba
 	req.Header.Set("X-User-Email", sess.email) // the workspace-membership join key
 	req.Header.Set("X-User-Id", sess.sub)
 	req.Header.Set("X-Auth-Iss", a.cfg.oidcIssuer)
+	for k, v := range extra { // server-side headers only, and never one of the four above
+		if req.Header.Get(k) == "" {
+			req.Header[k] = v
+		}
+	}
 	resp, err := a.client.Do(req)
 	if err != nil {
 		log.Printf("bff: %s upstream %s: %v", product, upstreamPath, err)
@@ -985,6 +990,11 @@ func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, ba
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// forwardProduct is forwardProductWith with no extra headers — every product route but the member add.
+func (a *app) forwardProduct(w http.ResponseWriter, r *http.Request, product, baseURL, secret, upstreamPath, rawQuery, method string, body io.Reader, transform func([]byte) ([]byte, error)) {
+	a.forwardProductWith(w, r, product, baseURL, secret, upstreamPath, rawQuery, method, body, transform, nil)
 }
 
 // pathID reads a product (Track/Docs) id path parameter and refuses shapes that could rewrite the

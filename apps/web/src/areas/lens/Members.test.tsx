@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Members } from './Members'
 
@@ -74,7 +75,9 @@ function renderMembers() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <Members />
+      <MemoryRouter>
+        <Members />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -339,27 +342,70 @@ describe('an empty roster is a CONTRADICTION on this route, and says so', () => 
   })
 })
 
-describe('the screen offers no control this product does not have', () => {
-  // MEASURED, not assumed: apps/bff/track_tenant.go:187 answers anything but GET with
-  // methodNotAllowed, and /api/members is the only member route apps/bff/lens.go registers. Track
-  // DOES have Add/ChangeRole/Remove and owner-gates all three — they are simply not proxied here.
-  // An "Invite someone" button would be a sentence true of an intention over a product that
-  // cannot do it, which is the exact defect ClaimsAudit exists to catch.
-  it('renders no button at all — the roster is read-only through this BFF', async () => {
-    mockBff({ body: ROSTER })
+describe('an owner adds a member (B32.72)', () => {
+  // POST /api/members reaches Track's owner-gated add on the session's workspace; the BFF relays
+  // Track's answer unchanged, so a 402 body is Lens's own refusal (apps/bff/track_members.go).
+  function mockAdd(post: { status: number; body: unknown }, me = 'ada@corp.example') {
+    const calls: { method: string; body: string }[] = []
+    const roster: unknown[] = [...ROSTER]
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input)
+      const json = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/auth/me') return json(200, meBody(me))
+      if (url === '/api/members' && init?.method === 'POST') {
+        calls.push({ method: 'POST', body: String(init.body) })
+        if (post.status === 201) roster.push(post.body) // Track lists whoever it added
+        return json(post.status, post.body)
+      }
+      return json(200, roster)
+    })
+    return calls
+  }
+
+  function submit(email: string) {
+    fireEvent.change(screen.getByPlaceholderText('name@company.com'), { target: { value: email } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add member' }))
+  }
+
+  it('a 402 shows Lens’s sentence verbatim and a link to /plans', async () => {
+    const sentence =
+      'LENS_PLAN_GATES: the free plan allows 1 member and this workspace has 2; the team plan allows 5'
+    const calls = mockAdd({
+      status: 402,
+      body: { error: sentence, code: 'PLAN_SEATS', plan: 'free', limit: 1, allows: 'team' },
+    })
     renderMembers()
     await screen.findByText('Ada Owner')
-    expect(screen.queryAllByRole('button')).toHaveLength(0)
-    expect(screen.queryByText(/invite/i)).toBeNull()
+    submit('cy@corp.example')
+
+    const refusal = await screen.findByTestId('member-add-refusal')
+    expect(refusal.textContent).toContain(sentence)
+    expect(within(refusal).getByRole('link', { name: 'See plans' })).toHaveAttribute('href', '/plans')
+    expect(calls).toEqual([{ method: 'POST', body: '{"email":"cy@corp.example","role":"member"}' }])
+    expect(screen.queryByText('cy@corp.example')).toBeNull()
   })
 
-  it('says who CAN change it, since this screen cannot', async () => {
-    mockBff({ body: ROSTER })
+  it('a 201 adds the new row to the roster', async () => {
+    mockAdd({
+      status: 201,
+      body: { id: 'mem-2', workspace_id: 'track-ws-7', name: 'cy@corp.example', email: 'cy@corp.example', role: 'member', avatar_url: '' },
+    })
     renderMembers()
     await screen.findByText('Ada Owner')
-    const said = screen.getByTestId('who-can-change')
-    expect(said.textContent).toMatch(/owner/i)
-    expect(said.textContent).toMatch(/Track/)
+    submit('cy@corp.example')
+
+    await waitFor(() => expect(screen.getByTestId('member-count')).toHaveTextContent('3'))
+    expect(screen.getAllByText('cy@corp.example').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('member-add-refusal')).toBeNull()
+  })
+
+  it('a member who is not an owner is told who can add, and gets no form', async () => {
+    mockAdd({ status: 201, body: {} }, 'bo@corp.example')
+    renderMembers()
+    await screen.findByText('Ada Owner')
+    expect(screen.getByTestId('who-can-add').textContent).toMatch(/owner/i)
+    expect(screen.queryByRole('button', { name: 'Add member' })).toBeNull()
   })
 })
 

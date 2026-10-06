@@ -501,57 +501,52 @@ const PINS: Record<string, Pin> = {
   // in THIS repository can move without touching the screen. That is exactly the rot this file
   // was written for: `billing.go:180` moved and the sentence explaining "nothing was charged"
   // ended up pointing at the one function that cannot charge.
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/lens.go:948': {
+  'apps/web/src/areas/lens/Members.tsx:92|apps/bff/lens.go:948': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the screen marks YOUR row by comparing /auth/me\'s email to the roster; the claim that this header is the membership join key is the whole basis for that being a join rather than a guess',
   },
-  'apps/web/src/areas/lens/Members.tsx:76|apps/bff/auth.go:768': {
+  'apps/web/src/areas/lens/Members.tsx:92|apps/bff/auth.go:768': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'the other half of the same argument — the browser may only mark a row if /auth/me serves the SAME value the BFF forwards upstream',
   },
-  'apps/web/src/areas/lens/Members.tsx:46|apps/bff/main.go:136': {
+  'apps/web/src/areas/lens/Members.tsx:62|apps/bff/main.go:136': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID',
     why: 'the provenance line used to say the workspace is "pinned server-side"; this is the line that refuses to boot into that design, and it is why the sentence changed',
   },
-  'apps/web/src/areas/lens/Members.tsx:49|apps/bff/keys_test.go:318': {
+  'apps/web/src/areas/lens/Members.tsx:65|apps/bff/keys_test.go:318': {
     kind: 'LIVE',
     fragment: 'workspace_id=SOMEBODY-ELSE',
     why: 'the positive half — the screen says a browser-named workspace is ignored, and this is the test that drives one',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:43|apps/bff/main.go:256': {
+  'apps/web/src/areas/lens/Members.test.tsx:44|apps/bff/main.go:256': {
     kind: 'LIVE',
     fragment: 'TRACK_BASE_URL',
     why: 'the 503 state names the two variables as the next action; they are read from here, not remembered',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:259|apps/bff/main.go:256': {
+  'apps/web/src/areas/lens/Members.test.tsx:262|apps/bff/main.go:256': {
     kind: 'LIVE',
     fragment: 'TRACK_BASE_URL',
     why: 'the same claim at the case that asserts it, so the case and the header cannot drift apart',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:50|apps/bff/auth.go:768': {
+  'apps/web/src/areas/lens/Members.test.tsx:51|apps/bff/auth.go:768': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'the fixture claims to serve /auth/me "in the exact shape" — a fixture more generous than the real handler is how the docs translate probe went green in English',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/lens.go:948': {
+  'apps/web/src/areas/lens/Members.test.tsx:188|apps/bff/lens.go:948': {
     kind: 'LIVE',
     fragment: 'X-User-Email',
     why: 'the case that argues the comparison must be EXACT rests on this being the key the upstream joined on',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:185|apps/bff/auth.go:768': {
+  'apps/web/src/areas/lens/Members.test.tsx:188|apps/bff/auth.go:768': {
     kind: 'LIVE',
     fragment: 's.email',
     why: 'same sentence, the /auth/me half',
   },
-  'apps/web/src/areas/lens/Members.test.tsx:343|apps/bff/track_tenant.go:187': {
-    kind: 'LIVE',
-    fragment: 'http.MethodGet',
-    why: 'the screen renders no control at all because this BFF proxies a GET and nothing else; this is the method test that makes that true',
-  },
-  'apps/web/src/areas/lens/Members.test.tsx:369|apps/bff/main.go:136': {
+  'apps/web/src/areas/lens/Members.test.tsx:415|apps/bff/main.go:136': {
     kind: 'LIVE',
     fragment: 'TRACK_WORKSPACE_ID',
     why: 'the case that forbids the word "pinned" in the provenance line cites the refusal that makes pinning impossible',
