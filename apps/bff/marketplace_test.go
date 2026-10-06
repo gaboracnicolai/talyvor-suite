@@ -165,6 +165,57 @@ func TestMarketplaceReportForwardsReasonAndDetails(t *testing.T) {
 	}
 }
 
+// B35.10 — Connect with Stripe reaches Lens with the signed-in person's email, which Stripe needs as the
+// account's contact; never an email the browser sends, and none for a synthetic session (Lens gives a
+// test workspace its own address).
+func TestMarketplacePayoutsConnectForwardsTheSessionsEmail(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	lens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, r.URL.Path+" "+string(raw))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"url":"https://connect.stripe.com/setup/e/acct_1/x","account":{"stripe_account_id":"acct_1","country":"GB"}}`)
+	}))
+	t.Cleanup(lens.Close)
+	cfg := config{
+		lensBaseURL: lens.URL, provisionSecret: testProvisionSecret, webDist: t.TempDir(),
+		authMode: authModeOIDC, oidcIssuer: "https://idp.example.com",
+		publicBaseURL: "https://app.talyvor.com", sessionTTL: time.Hour,
+	}
+	a := newApp(cfg, newSessionOnlyAuthenticator(cfg))
+	seedProvisionedSession(a.auth, "sid-owner", "sub-owner", "owner@example.com", "ws_owner")
+	a.auth.sessions.put("sid-synth", session{
+		sub: "synthetic:ws_synth", email: "ws_synth" + syntheticEmailDomain, expires: time.Now().Add(time.Hour),
+		workspaceID: "ws_synth", lensToken: "jwt-for-ws_synth", synthetic: true,
+	})
+	connect := func(sid string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/marketplace/payouts/connect", strings.NewReader(`{"country":"GB","email":"someone-else@example.com"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", cfg.publicBaseURL)
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sid})
+		rec := httptest.NewRecorder()
+		a.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "https://connect.stripe.com/") {
+			t.Fatalf("connect as %s = %d %s", sid, rec.Code, rec.Body.String())
+		}
+	}
+	connect("sid-owner")
+	connect("sid-synth")
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		`/v1/workspaces/ws_owner/marketplace/payouts/connect {"country":"GB","email":"owner@example.com"}`,
+		`/v1/workspaces/ws_synth/marketplace/payouts/connect {"country":"GB"}`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("Lens received %q, want %q", got, want)
+	}
+}
+
 // B20.6 — connecting for payouts reaches Lens with only the country, on the session's workspace, and
 // answers Stripe's onboarding link; taking credits with nothing available relays Lens's sentence; a
 // deployment with no Stripe says payouts are off rather than "Lens could not answer".
