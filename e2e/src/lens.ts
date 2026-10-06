@@ -51,6 +51,8 @@ export interface Agent {
   archived_at?: string
   /** B19.6 — set while it is paused on its own */
   paused_at?: string
+  /** B28.359 — the ids of every key it was issued, revoked ones too */
+  keys?: string[]
 }
 
 /** B25.4 — Lens economy.AgentTransfer (B22.3): credits moved between two agents, of one owner or two. */
@@ -706,6 +708,11 @@ export class LensClient {
   async agentLines(user: SyntheticUser, agentID: string): Promise<AgentLine[]> {
     const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/statement`, this.bearer(user.token))) as { lines?: AgentLine[] | null }
     return body.lines ?? []
+  }
+
+  /** B28.359 — the workspace's API keys, agents' keys among them (a revoked key is gone from the list). */
+  async apiKeys(user: SyntheticUser): Promise<{ id: string; name: string }[]> {
+    return ((await this.call('GET', `/v1/workspaces/${user.workspaceID}/api-keys`, this.bearer(user.token))) as { id: string; name: string }[] | null) ?? []
   }
 
   /** B17.6 — an agent pays another agent with its own key; Lens's answer or its refusal. */

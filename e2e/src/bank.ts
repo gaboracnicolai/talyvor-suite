@@ -2509,6 +2509,130 @@ export function chatPaidBy(seed: number): Scenario {
 }
 
 /**
+ * B28.359 (for B28.96) — a task handed to an agent from Chat runs on the agent's own wallet. `/task <agent>: <a sum>`
+ * typed in Chat opens a card, not a question; handed over, the card shows the model's answer, and every call the task
+ * made is a charge on the agent's statement that comes out of its balance, while the workspace's own money — what no
+ * agent holds, and its plan's allowance — does not move. The key the task ran on is not left on the workspace.
+ */
+export function chatAgentTask(seed: number): Scenario {
+  const funded = 2e6
+  return {
+    id: 'chat-agent-task',
+    owner: 'talyvor-suite',
+    agents: 1,
+    title: 'a task handed to an agent from Chat with /task runs on its wallet: every call it makes is charged to the agent’s statement, the workspace balance does not move',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env, app } = ctx
+        const agent = await openAgent(ctx, bank, `Task taker ${seed}`)
+        if (typeof agent === 'string') return fail(agent)
+        const err = await bank.move(agent, funded, 'Fund')
+        if (err !== undefined) return fail(`funding ${agent.name} was refused: ${err}`)
+        const lines0 = await env.lens.agentLines(app.user, agent.id)
+        const book0 = await bookOf(ctx)
+        const plan0 = await env.lens.allowance(app.user)
+
+        // A sum nobody has asked, so the model works it out and nothing is replayed.
+        const { q, want } = sum(seeded(seed * 7907 + Date.now()))
+        const command = `/task ${agent.name}: ${q}`
+        const page = app.page
+        const viewport = page.viewportSize()
+        await app.newChat()
+        const card = page.getByTestId('chat-task').filter({ hasText: command })
+        let said: string | undefined
+        let answer = ''
+        try {
+          await page.locator('#chat-message').fill(command)
+          await page.locator('#chat-message').press('Enter')
+          try {
+            await card.waitFor({ timeout: ACTION_TIMEOUT_MS })
+          } catch {
+            return fail(`"${command}" opened no task card in Chat`)
+          }
+          if ((await page.getByTestId('turn-user').count()) > 0) return fail('the /task command was asked of the model on the conversation’s account')
+          if ((await card.getByLabel('Agent').inputValue()) !== agent.id) return fail(`the card did not read ${agent.name} from "${command}"`)
+          if ((await card.getByLabel('The task').inputValue()) !== q) return fail(`the card read the task from "${command}" as "${await card.getByLabel('The task').inputValue()}"`)
+          const terms = (await card.getByTestId('chat-task-terms').innerText()).trim()
+          const model = env.catalog.find((m) => terms.startsWith(`It goes to ${m.display_name} on `))
+          if (model === undefined) return fail(`the card names no model of the catalog: "${terms}"`)
+          // The task's worst case is held against the run's cap until Lens's ledger says what it cost.
+          const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(q.length), 4096))
+          let charged: number | undefined
+          try {
+            await card.getByRole('button', { name: `Hand it to ${agent.name}`, exact: true }).click()
+            const refused = await outcome(card.getByTestId('chat-task-done'), card)
+            if (refused !== undefined) return fail(`the task handed to ${agent.name} was refused: ${refused}`)
+            answer = (await card.getByTestId('chat-task-answer').innerText()).trim()
+            const billed = card.getByTestId('chat-task-billed')
+            try {
+              await billed.waitFor({ timeout: ACTION_TIMEOUT_MS })
+            } catch {
+              return fail(`${agent.name} did the task, but the card shows nothing on its statement: "${(await card.innerText()).trim()}"`)
+            }
+            // Lens may settle the call a moment after it answers: the card and the statement are read until they agree.
+            for (let i = 0; ; i++) {
+              const added = (await env.lens.agentLines(app.user, agent.id)).filter((l) => !lines0.some((o) => o.entry_id === l.entry_id && o.kind === l.kind))
+              charged = -added.filter((l) => l.kind !== 'platform_fee').reduce((t, l) => t + l.amount_ulxc, 0)
+              const net = -added.reduce((t, l) => t + l.amount_ulxc, 0)
+              said = (await billed.innerText()).trim()
+              if (said.includes(lxcText(net)) || i === 10) break
+              await page.waitForTimeout(2_000)
+            }
+          } finally {
+            // A task that failed may still have reached the provider: it is counted at its worst.
+            env.cap.settle(hold, charged === undefined ? undefined : (charged / 1e6) * env.usdPerLXC)
+            // One served call, as every charged answer is, for the ledger read-back.
+            if (charged !== undefined && charged > 0) env.book.add(app.user.workspaceID, charged)
+          }
+          await mkdir(env.outDir, { recursive: true })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            await card.scrollIntoViewIfNeeded()
+            const shot = join(env.outDir, `chat-agent-task-${width}px-user${app.user.index}.png`)
+            await page.screenshot({ path: shot })
+            ctx.evidence.push({ note: `the task card at ${width}px: ${shot}` })
+          }
+        } finally {
+          if (viewport !== null) await page.setViewportSize(viewport)
+          await card.getByRole('button', { name: 'Close' }).click().catch(() => {})
+        }
+
+        // The ledger, not the card: the task's calls are charges on the agent's statement, out of its balance.
+        const lines1 = await env.lens.agentLines(app.user, agent.id)
+        const book1 = await bookOf(ctx)
+        const plan1 = await env.lens.allowance(app.user)
+        const added = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id && o.kind === l.kind))
+        const net = added.reduce((t, l) => t + l.amount_ulxc, 0)
+        const held = agentIn(book1, agent.id)?.balance_ulxc
+        ctx.evidence.push({ note: `the task: "${q}"; Chat said "${said}"; the answer: "${answer}"; ${agent.name}'s new lines: ${added.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'none'}; it holds ${held} µLXC`, question: q, answer })
+        if (said === undefined) return fail(`${agent.name}'s task left nothing on the card`)
+        if (answer === '') return fail(`${agent.name} did the task, but the card shows no answer`)
+        if (!statesNumber(answer, want)) ctx.evidence.push({ note: `the model's answer does not state ${want}; the task still ran on ${agent.name}'s wallet` })
+        if (!added.some((l) => ['spend', 'hold', 'settle'].includes(l.kind)) || net >= 0) {
+          return fail(`the task handed to ${agent.name} was answered, but Lens put no charge on ${agent.name}'s statement (new lines: ${JSON.stringify(added)}) — every call a task makes is billed to the agent's wallet (B28.96)`)
+        }
+        if (held !== funded + net || held !== lines1[0].balance_after_ulxc) {
+          return fail(`${agent.name} was funded ${funded} and charged ${-net} µLXC for the task; Lens's book says it holds ${held}, its statement ends at ${lines1[0].balance_after_ulxc}`)
+        }
+        if (book1.unallocated_ulxc !== book0.unallocated_ulxc) {
+          return fail(`${agent.name} did the task on its wallet, yet the workspace's own balance moved: ${book0.unallocated_ulxc} → ${book1.unallocated_ulxc} µLXC`)
+        }
+        if (plan0.ok && plan1.ok && plan0.value !== null && plan1.value !== null && plan1.value.consumed_ulxc !== plan0.value.consumed_ulxc) {
+          return fail(`${agent.name} did the task on its wallet, yet the workspace's plan allowance was drawn: ${plan0.value.consumed_ulxc} → ${plan1.value.consumed_ulxc} µLXC used`)
+        }
+        if (!said.includes(lxcText(-net))) return fail(`Lens charged ${agent.name} ${-net} µLXC for the task; the card says "${said}"`)
+        const live = new Set((await env.lens.apiKeys(app.user)).map((k) => k.id))
+        const left = (agentIn(book1, agent.id)?.keys ?? []).filter((id) => live.has(id))
+        if (left.length > 0) return fail(`the task is done, but the key it ran on is still on the workspace: ${left.join(', ')}`)
+        return {
+          pass: true,
+          detail: `"/task ${agent.name}: …" in Chat ran on ${agent.name}'s wallet: ${-net} µLXC on its statement (${added.map((l) => l.kind).join(', ')}), it holds ${held}; the workspace's own ${book1.unallocated_ulxc} µLXC did not move, and the task's key is gone`,
+        }
+      }),
+  }
+}
+
+/**
  * B28.91 — a wallet alert raised while Chat is open shows in Chat within ten seconds. An agent with a 1 LXC monthly
  * limit is funded 1 LXC and pays all of it to another agent, with Chat open in its own tab: the payment is read back
  * from the ledger (one pay line, nothing left), and within ten seconds of it Chat says the agent has run out and has

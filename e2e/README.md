@@ -152,6 +152,7 @@ attempts under **Second attempts**, and the first attempt's FAIL is the one file
 | `every-model` | user 0 | every model the picker offers is asked to say back a word made up for this run, one word a model (a question an earlier run asked is served from the pool), and says it; its footer shows the price the catalog gives for its token counts |
 | `repeat-new-chat` | 1 in 10 | an exact repeat in a new chat shows "from your earlier answer · 0 LXC" and the same text; Regenerate is priced; the judge agrees the two answers match |
 | `chat-savings` | 1 in 10 | a question of the run's own, repeated in a new chat, is served from the earlier answer; each row of "Saved in this chat" (cache, shared pool, conversion, Tare) equals the sum of its response header on that chat's answers, and the repeat says what it saved (B28.95) |
+| `chat-agent-task` | 1 in 10 | `/task <agent>: <a sum>` typed in Chat opens a card; handed over, the card shows the answer, every call the task made is a charge on the agent's statement out of its balance, the workspace's own balance and plan allowance do not move, and the key the task ran on is gone from the workspace (B28.96) |
 | `one-digit-trap` | 1 in 10 | identical history, then a one-digit change: the change is asked, never served, and answered right |
 | `rephrase-same-account` | 1 in 10 | a rephrasing is answered right; if it was served, the judge agrees with a fresh answer |
 | `across-accounts` | 1 in 10 | another account asks the same question: never "your earlier answer"; if shared, at 30% off |

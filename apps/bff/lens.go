@@ -356,6 +356,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/{id}/fund", a.requireTenant(a.handleAgentMove("fund")))
 	a.mux.HandleFunc("/api/agents/{id}/withdraw", a.requireTenant(a.handleAgentMove("withdraw")))
 	a.mux.HandleFunc("/api/agents/{id}/keys", a.requireTenant(a.handleAgentKeys))
+	a.mux.HandleFunc("/api/agents/{id}/tasks", a.requireTenant(a.handleAgentTask)) // B28.359: a task from Chat, on the agent's wallet
 	a.mux.HandleFunc("/api/agents/{id}/rules", a.requireTenant(a.handleAgentRules))
 	a.mux.HandleFunc("/api/agents/{id}/rules/simulate", a.requireTenant(a.handleAgentRulesSimulate))     // B28.30
 	a.mux.HandleFunc("/api/agents/{id}/rules/history", a.requireTenant(a.handleAgentRulesHistory))       // B28.31

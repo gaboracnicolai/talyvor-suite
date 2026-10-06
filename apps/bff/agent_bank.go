@@ -177,10 +177,14 @@ func (a *app) handleAgentKeys(w http.ResponseWriter, r *http.Request, t tenant) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 		return
 	}
-	keyName := in.Name
+	a.agentBankRelay(w, r, t, http.MethodPost, suffix, agentKeyBody(in.Name))
+}
+
+// agentKeyBody is the body Lens's agent key route reads: the key's name. B28.359's task from Chat issues its key with it too.
+func agentKeyBody(keyName string) []byte {
 	// UPSTREAM-BINDS-ONLY lensAgentKeyBody: none
 	body, _ := json.Marshal(map[string]string{"name": keyName})
-	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
+	return body
 }
 
 // handleAgentRules — GET and PUT /api/agents/{id}/rules.

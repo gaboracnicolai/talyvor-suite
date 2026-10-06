@@ -37,6 +37,7 @@ import { Markdown } from './Markdown'
 import { AlertNotices } from './AlertNotices'
 import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
+import { TASK_COMMAND, TaskCard } from './AgentTask'
 import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
 import { ForecastCard, isRunOutQuestion } from './ForecastQuestion'
 import { LiveStatement } from './LiveStatement'
@@ -191,6 +192,8 @@ export function Chat() {
   // B28.352 — each rule typed here in plain words ("Cap Researcher at 5 LXC a day on Opus"): a card that saves it.
   // B28.353 — and each approval amount ("Ask me above 2 LXC"), on its own card in the same list.
   const [ruleCards, setRuleCards] = useState<{ id: number; command: string }[]>([])
+  // B28.359 — each /task typed here: a card that hands the task to an agent, run on its wallet with the model chosen then.
+  const [tasks, setTasks] = useState<{ id: number; command: string; model: ChatModel | undefined }[]>([])
   // B28.357 — each "Will Researcher run out this month?": a card that answers it from Lens's forecast.
   const [forecasts, setForecasts] = useState<{ id: number; question: string }[]>([])
   // B28.354 — the agent whose wallet pays for this conversation; '' is the workspace.
@@ -480,6 +483,11 @@ export function Chat() {
       if (LAUNCH_COMMAND.test(question)) {
         setDraft('')
         setLaunches((l) => [...l, { id: ++launchSeq.current, command: question }])
+        return
+      }
+      if (TASK_COMMAND.test(question)) {
+        setDraft('')
+        setTasks((l) => [...l, { id: ++launchSeq.current, command: question, model: selected }])
         return
       }
       if (isRuleCommand(question) || isAskAboveCommand(question)) {
@@ -772,6 +780,15 @@ export function Chat() {
               <section aria-label="Launching agents" className="flex flex-col gap-3 pb-6">
                 {launches.map((l) => (
                   <LaunchAgentCard key={l.id} command={l.command} onClose={() => setLaunches((ls) => ls.filter((x) => x.id !== l.id))} />
+                ))}
+              </section>
+            ) : null}
+
+            {/* B28.359 — /task hands a task to an agent, run on its own wallet, on a card here instead of a question. */}
+            {tasks.length > 0 ? (
+              <section aria-label="Tasks handed to agents" className="flex flex-col gap-3 pb-6">
+                {tasks.map((l) => (
+                  <TaskCard key={l.id} command={l.command} model={l.model} onClose={() => setTasks((ls) => ls.filter((x) => x.id !== l.id))} />
                 ))}
               </section>
             ) : null}

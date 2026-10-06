@@ -192,6 +192,8 @@ export class Bank {
   private readonly d: BankDeps
   private readonly agents = new Map<string, Agent>()
   private readonly keys = new Map<string, Agent>()
+  /** B28.359 — each agent key's id, to its key: Lens revokes an agent's key on the workspace's key route. */
+  private readonly keyByID = new Map<string, string>()
   private readonly postings: Posting[] = []
   private readonly approvals: Approval[] = []
   private readonly allPaused = new Map<string, { at: string; reason: string }>()
@@ -224,6 +226,15 @@ export class Bank {
     const a = this.keys.get(key)
     const ws = a === undefined ? undefined : this.d.workspace(a.ws)
     return a === undefined || ws === undefined ? undefined : { ws, agent: a }
+  }
+
+  /** B28.359 — revokes one of the workspace's agent keys by its id, as Lens's DELETE …/api-keys/{id} does; false: no such key. */
+  revokeAgentKey(wsID: string, keyID: string): boolean {
+    const key = this.keyByID.get(keyID)
+    if (key === undefined || this.keys.get(key)?.ws !== wsID) return false
+    this.keys.delete(key)
+    this.keyByID.delete(keyID)
+    return true
   }
 
   private balance(account: string): number {
@@ -1093,6 +1104,7 @@ export class Bank {
         const key = 'tlv_' + randomBytes(24).toString('hex')
         const keyID = id('key_')
         this.keys.set(key, a)
+        this.keyByID.set(keyID, key)
         a.keys.push(keyID)
         return json(res, 201, { agent_id: a.id, key, id: keyID, prefix: key.slice(0, 12), warning: 'Store this key securely. It will not be shown again.' }), true
       }

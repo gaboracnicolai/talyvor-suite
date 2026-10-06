@@ -728,6 +728,8 @@ createServer(async (req, res) => {
       const apiKey = /^\/api-keys\/([^/]+)$/.exec(rest)
       if (apiKey !== null && req.method === 'DELETE') {
         const k = ws.keys.find((x) => x.id === apiKey[1])
+        // B28.359 — an agent's key is one of the workspace's keys, and is revoked the same way.
+        if (k === undefined && bank.revokeAgentKey(ws.id, apiKey[1])) return json(res, 200, { ok: true })
         if (k === undefined) return json(res, 404, { error: 'key not found' })
         ws.keys = ws.keys.filter((x) => x !== k)
         byKey.delete(k.key)
