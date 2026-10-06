@@ -76,6 +76,7 @@ export function walletSendRefund(seed: number, partner: number): Scenario {
   const amount = 1_500_000
   return {
     id: 'wallet-send-refund',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "a person sends credits to another company's agent on Agent Wallets, and that company gives them back: each time one transfer on both sides and both balances move by it",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -120,6 +121,7 @@ export function walletGiveBack(seed: number, partner: number): Scenario {
   const memo = `overpaid ${seed}`
   return {
     id: 'wallet-give-back',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "another company's agent sends a person's agent credits, and the person gives them back on Agent Wallets: one refund both sides see, one posting on each account, both balances moved by it",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -166,6 +168,7 @@ export function walletRequest(seed: number, partner: number): Scenario {
   const amount = 800_000
   return {
     id: 'wallet-request',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "another company's agent asks a person's agent for credits; accepted on Agent Wallets, it is paid once and both companies see the same request and transfer",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -202,6 +205,7 @@ export function walletLoan(seed: number, partner: number): Scenario {
   const principal = 2e6
   return {
     id: 'wallet-loan',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "a person offers another company's agent a loan on Agent Wallets; accepted, the borrower is paid the principal once, both see the loan active with its first instalment due a day on",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -251,6 +255,7 @@ export function walletEscrow(seed: number, partner: number): Scenario {
   const [kept, argued] = [1e6, 500_000]
   return {
     id: 'wallet-escrow',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "a person pays into escrow for another company's agent: held out of both balances; confirmed delivered, the payee is paid; disputed, it stays held",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -307,6 +312,7 @@ export function chatMoneyRequests(seed: number, partner: number): Scenario {
   const [asked, kept] = [700_000, 500_000]
   return {
     id: 'chat-money-requests',
+    owner: 'talyvor-suite',
     agents: 1,
     title: "another company's agent asks a person's agent for credits and is paid on Accept in Chat; an escrow confirmed delivered in Chat is released to the payee",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -404,6 +410,7 @@ export function walletPots(seed: number): Scenario {
   const [into, outOf] = [1_200_000, 400_000]
   return {
     id: 'wallet-pots',
+    owner: 'talyvor-lens',
     agents: 1,
     title: 'a person sets credits aside in a pot on Agent Wallets and takes some back: the pot, the agent and the book each hold exactly what moved',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -439,6 +446,7 @@ export function walletRecurring(seed: number, partner: number): Scenario {
   const amount = 250_000
   return {
     id: 'wallet-recurring',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "a person starts a daily transfer to another company's agent on Agent Wallets: Lens pays the first at once, one transfer both companies see, and nothing more that day",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -481,6 +489,7 @@ export function walletCashOut(seed: number): Scenario {
   const amount = 500_000
   return {
     id: 'wallet-cash-out',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "a person cashes an agent's credits out on Agent Wallets: held from the agent at once, then paid by the test partner",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -507,6 +516,7 @@ export function walletCashOut(seed: number): Scenario {
 export function walletCard(seed: number): Scenario {
   return {
     id: 'wallet-card',
+    owner: 'talyvor-lens',
     agents: 1,
     title: 'a person issues an agent a test card on Agent Wallets: Lens holds one test-mode card for that agent',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -535,6 +545,7 @@ function needModerator(ctx: ScenarioCtx): void {
 export function marketReview(seed: number, partner: number): Scenario {
   return {
     id: 'market-review',
+    owner: 'talyvor-lens',
     title: 'a listing that reads as a prompt injection is held for review, unseen by another company; a moderator approves it and the other company finds it',
     run: async (ctx) => {
       needModerator(ctx)
@@ -588,6 +599,7 @@ export function marketTakedown(seed: number, seller: number): Scenario {
   const template = `What is {{a}} + {{b}}? Reply with the number only.`
   return {
     id: 'market-takedown',
+    owner: 'talyvor-lens',
     title: "a buyer uses another company's listing and reports it; a moderator takes it down, and the buyer's use is refunded on their bill and out of the seller's earnings",
     run: async (ctx) => {
       needModerator(ctx)
@@ -652,6 +664,7 @@ export function marketTakedown(seed: number, seller: number): Scenario {
 export function marketPayoutConnect(): Scenario {
   return {
     id: 'market-payout-connect',
+    owner: 'talyvor-lens',
     title: 'a seller connects Stripe on Your listings & earnings to be paid out: the browser goes to Stripe and Lens holds their test-mode Connect account',
     run: async (ctx) => {
       const { env, app } = ctx
@@ -710,6 +723,7 @@ export function walletLoanRepay(seed: number, partner: number): Scenario {
   const interest = 200_000
   return {
     id: 'wallet-loan-repay',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "a person lends another company's agent on Agent Wallets; its one instalment falls due and Lens's minute tick takes it: principal and interest back in one transfer both companies see, the loan repaid",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -748,6 +762,7 @@ export function walletLoanDefault(seed: number, partner: number): Scenario {
   const principal = 2e6
   return {
     id: 'wallet-loan-default',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "a loan whose borrower cannot pay: its instalment falls due and is missed, the loan is late; due again and missed again, it is in default on both sides, and nothing more moved",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -788,6 +803,7 @@ export function walletCardPurchase(seed: number): Scenario {
   const pence = 50
   return {
     id: 'wallet-card-purchase',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "an agent pays a merchant with its test card: its rules approve the purchase, Agent Wallets shows it on the card, and exactly what it cost in LXC leaves the agent",
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -899,6 +915,7 @@ export function marketPayout(seed: number, seller: number): Scenario {
   const price = 1_000_000
   return {
     id: 'market-payout',
+    owner: 'talyvor-lens',
     title: "a buyer uses another company's listing and pays the bill; past the holdback, the seller takes the earnings as credits on Your listings & earnings: one credits payout, its credits in the seller's workspace, nothing left available",
     run: async (ctx) => {
       const { env } = ctx
@@ -938,6 +955,7 @@ export function marketBillRefund(seed: number, seller: number): Scenario {
   const price = 1_000_000
   return {
     id: 'market-bill-refund',
+    owner: 'talyvor-lens',
     title: "a buyer's paid marketplace bill is refunded (Stripe's charge.refunded): the use reads refunded on the buyer's bill, and the seller's earning from it is reversed",
     run: async (ctx) => {
       const { env, app } = ctx

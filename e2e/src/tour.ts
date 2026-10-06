@@ -69,6 +69,7 @@ async function visit(ctx: ScenarioCtx, page: Page, origin: string, path: string,
 export function everyScreen(): Scenario {
   return {
     id: 'every-screen',
+    owner: 'talyvor-suite',
     title: 'every screen a customer can open shows its name, with no page error and no 5xx while it loads',
     run: async (ctx) => {
       const screens = ctx.env.inventory.screens
@@ -130,6 +131,7 @@ export const DARK_PLANES = { canvas: 'rgb(6, 10, 18)', sidebar: 'rgb(8, 18, 32)'
 export function brandPlanes(): Scenario {
   return {
     id: 'brand-planes',
+    owner: 'talyvor-suite',
     title: 'in the dark theme the page canvas is the board’s Obsidian and the sidebar its Surface',
     run: async (ctx) => {
       const page = await ctx.app.tab('/')
@@ -165,6 +167,7 @@ export const DARK_SHELL = { activeBg: 'rgb(14, 43, 46)', activeInk: 'rgb(58, 214
 export function appShell(): Scenario {
   return {
     id: 'app-shell',
+    owner: 'talyvor-suite',
     title: 'every sidebar link carries its icon, the selected row is Teal on the tint, and the top bar is 20px',
     run: async (ctx) => {
       const page = await ctx.app.tab('/')
@@ -237,6 +240,7 @@ export const HOME_CARDS = [
 export function homeCards(): Scenario {
   return {
     id: 'home-cards',
+    owner: 'talyvor-suite',
     title: 'Home welcomes the person and each of its eight product cards opens its own screen',
     run: async (ctx) => {
       const wrong: string[] = []
@@ -296,6 +300,7 @@ export const DARK_WALLET = { teal: 'rgb(58, 214, 192)', raised: 'rgb(14, 26, 42)
 export function walletBrand(): Scenario {
   return {
     id: 'wallet-brand',
+    owner: 'talyvor-suite',
     title: 'the wallet screens carry one teal action each, raised cards, mono amounts and status pills',
     run: async (ctx) => {
       const wrong: string[] = []
@@ -368,6 +373,7 @@ export const CHAT_VIEWPORTS = [[1440, 900], [390, 844]] as const
 export function chatBrand(): Scenario {
   return {
     id: 'chat-brand',
+    owner: 'talyvor-suite',
     title: 'Chat in the brand: the composer on raised with the teal Send, the picker in eyebrow caps, replies at 15/24 with mono figures',
     run: async (ctx) => {
       if ((await ctx.app.page.locator('[data-testid="turn-assistant"]').count()) === 0) {
@@ -482,6 +488,7 @@ export const CHAT_HELP_SECTIONS = ['Asking', 'Launching an agent', 'Setting a ru
 export function chatHelpInFull(): Scenario {
   return {
     id: 'chat-help-in-full',
+    owner: 'talyvor-suite',
     title: '/chat/help shows all eight sections, its last sentence, and its whole title, at 1440 and 390',
     run: async (ctx) => {
       const { dir, link } = ctx.env.shots
@@ -544,6 +551,7 @@ export const MARKET_VIEWS = [
 export function marketBrand(): Scenario {
   return {
     id: 'market-brand',
+    owner: 'talyvor-suite',
     title: 'the marketplace in the brand: raised listing cards with a kind icon, the seller and a mono price; publish and earnings in the same style',
     run: async (ctx) => {
       const { dir, link } = ctx.env.shots
@@ -674,6 +682,7 @@ export const BRAND_SCREENS = [
 export function screensBrand(): Scenario {
   return {
     id: 'screens-brand',
+    owner: 'talyvor-suite',
     title: 'Features, Track, Docs, Developers, Billing and Settings in the brand: eyebrows, raised cards, one teal action',
     run: async (ctx) => {
       const { dir, link } = ctx.env.shots
@@ -756,6 +765,7 @@ export function customerReads(lens: readonly Entry[]): Entry[] {
 export function lensReads(): Scenario {
   return {
     id: 'lens-reads',
+    owner: 'talyvor-lens',
     title: 'every Lens read a customer\'s key can make answers within 15 s, never with a server error',
     feature: 'Lens API',
     run: async (ctx) => {

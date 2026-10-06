@@ -45,10 +45,13 @@ it on either side, Lens's synthetic routes or `/auth/synthetic` answer 404.
    with its evidence folded underneath. A second run that day goes below the first; a report is never
    overwritten.
 6. Each scenario that FAILED becomes one build item in `~/talyvor-queue/BUILD.md` — numbered next in
-   the B17 series, `repo:` the repo it is looked for in first, `status: OPEN` — unless an item that is
-   not DONE already carries its `e2e-scenario: <id>` line. So a second run files nothing new for the
-   same failure, and a failure that returns after its item is DONE is filed again. An ERROR (the
-   harness could not reach a verdict) is in the report but files nothing.
+   the B17 series, `repo:` the owner the scenario names (B35.9: the repo whose code makes what it
+   checks), `status: OPEN` — unless an OPEN, CLAIMED or BLOCKED item already carries its
+   `e2e-scenario: <id>` line. So a second run files nothing new for the same failure, and a failure
+   that returns after its item is DONE or SUPERSEDED is filed again. Three or more scenarios that FAIL
+   with the same refusal from Lens (the same `LENS_` setting, or the same sentence once its numbers are
+   taken out) are one item for that cause, for talyvor-lens, carrying each scenario's line. An ERROR
+   (the harness could not reach a verdict) is in the report but files nothing.
 
 **The cap is hard.** Every question reserves its worst case before it is sent: its whole input plus
 4,096 output tokens at list price. When the answer arrives, the reservation is settled with the real

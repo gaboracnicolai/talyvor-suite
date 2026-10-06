@@ -78,6 +78,7 @@ async function oneTooMany(page: Page, ctx: ScenarioCtx, email: string, before: M
 export function seatsFree(seed: number): Scenario {
   return {
     id: 'seats-free',
+    owner: 'talyvor-track',
     title: "a Free workspace's owner adds a second member on Members: Track refuses it in Lens's words, naming LENS_PLAN_GATES, the free plan and the team plan, and the roster still lists one",
     feature: 'Members',
     run: async (ctx) => {
@@ -103,6 +104,7 @@ export function seatsFree(seed: number): Scenario {
 export function seatsTeam(seed: number): Scenario {
   return {
     id: 'seats-team',
+    owner: 'talyvor-track',
     title: "on Team (a test-mode subscription) the owner adds members on Members up to the fifth, each read back on the roster; the sixth is refused in Lens's words, naming the team plan and the business plan",
     feature: 'Members',
     run: async (ctx) => {

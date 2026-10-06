@@ -43,6 +43,7 @@ export function featuresLeadWithWallets(seed: number): Scenario {
   const amount = (1 + (seed % 3)) * 1e6
   return {
     id: 'features-wallets-first',
+    owner: 'talyvor-suite',
     agents: 1,
     title: 'Features opens on Agent Wallets, naming the agents and the LXC they hold, and lists the Marketplace with its listing count',
     run: (ctx) => withBank(ctx, async (bank) => {
