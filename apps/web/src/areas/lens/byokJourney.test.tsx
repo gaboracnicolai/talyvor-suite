@@ -8,17 +8,42 @@ import { Settings } from './Sharing'
 import { Features } from './Features'
 import { Chat } from '../chat/Chat'
 
-// B27.27 — BYOK in the app, from the screens alone: a test user chooses BYOK on Plans, Stripe returns them,
-// they add their OpenAI key in Settings, and Chat answers on it. Behind the BFF is one stateful fake — Stripe
+// B27.27 — BYOK in the app, from the screens alone. B32.14 — BYOK is Team's add-on (Lens B32.10): a test user
+// chooses Team on Plans, Stripe returns them, they add BYOK to Team, add their OpenAI key in Settings, and Chat
+// answers on it. Behind the BFF is one stateful fake — Stripe
 // (the checkout, then the webhook Lens records), Lens's provider-key store and the provider the answer is
 // sent to — and what is asserted is what it ended up holding: the subscription, the stored key, and the key
 // the question was actually sent upstream on. Never a status code.
 
 const KEY = 'sk-proj-test-0123456789wxyz'
-const CHECKOUT = 'https://checkout.stripe.com/c/pay/cs_test_byok'
+const CHECKOUT = 'https://checkout.stripe.com/c/pay/cs_test_team'
+
+/** The price card GET /api/pricing serves: figures for this test, never Nicolai's. */
+const GATE = { live_money: true, slack_teams_approvals: true, sso: false, audit_export: false, edge: false }
+const PRICING = {
+  min_usd_cents: 1000,
+  max_usd_cents: 1_000_000,
+  preset_usd_cents: [1000],
+  company_plans: [
+    { id: 'team', usd_cents: 4400 },
+    { id: 'business', usd_cents: 28800 },
+  ],
+  byok_add_on_usd_cents: 18800,
+  plan_gates: {
+    order: ['free', 'team', 'business', 'enterprise'],
+    plans: {
+      free: { ...GATE, agents: 3, seats: 1, own_provider_keys: 'none', live_money: false },
+      team: { ...GATE, agents: 25, seats: 5, own_provider_keys: 'add_on' },
+      business: { ...GATE, agents: -1, seats: 25, own_provider_keys: 'included' },
+      enterprise: { ...GATE, agents: -1, seats: -1, own_provider_keys: 'included' },
+    },
+  },
+}
 
 function fakeTalyvor() {
   const state = {
+    /** The plan Stripe's webhook recorded, and whether the subscription carries the BYOK add-on. */
+    team: false,
     byok: false,
     subscribedTo: '' as string,
     keys: new Map<string, { key: string; last4: string; updated_at: string }>(),
@@ -33,14 +58,20 @@ function fakeTalyvor() {
     if (url === '/auth/me') return json({ mode: 'oidc', authenticated: true, user: { sub: 'byok-user', email: 'byok@example.com' }, cache_poolable: true })
     if (url === '/api/billing/allowance')
       return json({ capability: 'subscriptions', enabled: true, data: { allowance: null, earned_ulens: 0, earned_held_ulens: 0, earned_usd_cents: 0, earned_back_usd_cents: 0 } })
+    const live = () => ({ subscribed: true, status: 'active', current_period_end: '2026-11-04T00:00:00Z', cancel_at_period_end: false, livemode: false, plan: 'team', byok: state.byok })
+    if (url === '/api/pricing') return json(PRICING)
     if (url === '/api/billing/subscription')
       return json({
         capability: 'subscriptions',
         enabled: true,
-        data: state.byok
-          ? { subscribed: true, status: 'active', current_period_end: '2026-11-04T00:00:00Z', cancel_at_period_end: false, livemode: false, byok: true }
-          : { subscribed: false, cancel_at_period_end: false, livemode: false },
+        data: state.team ? live() : { subscribed: false, cancel_at_period_end: false, livemode: false },
       })
+    if (url === '/api/billing/subscription/byok' && method === 'POST') {
+      // Lens B32.10: the add-on goes on a live Team subscription only.
+      if (!state.team) return json({ error: "billing: the BYOK add-on is Team's" }, 409)
+      state.byok = true
+      return json(live())
+    }
     if (url === '/api/billing/subscribe' && method === 'POST') {
       state.subscribedTo = JSON.parse(String(init?.body)).plan
       return json({ url: CHECKOUT })
@@ -123,21 +154,29 @@ describe('BYOK in the app (B27.27)', () => {
       '/chat': <Chat />,
     })
 
-    // Plans: BYOK at $199 a month, with what it includes.
-    const card = (await screen.findByText('BYOK — bring your own keys')).closest('section')!
-    expect(card.textContent).toContain('$199')
-    expect(card.textContent).toContain('No Talyvor token charge on a request sent on your key')
-    fireEvent.click(await within(card).findByRole('button', { name: 'Choose BYOK' }))
+    // Plans: Team at the served price, chosen.
+    const team = await screen.findByTestId('company-plan-team')
+    expect(within(team).getByTestId('price-team').textContent).toBe('$44')
+    fireEvent.click(within(team).getByRole('button', { name: 'Choose Team' }))
     await waitFor(() => expect(toStripe).toHaveBeenCalledWith(CHECKOUT))
-    expect(talyvor.subscribedTo).toBe('byok')
+    expect(talyvor.subscribedTo).toBe('team')
 
     // Stripe takes test card 4242, its webhook reaches Lens, and the browser comes back.
-    talyvor.byok = true
-    act(() => go('/billing/success?session_id=cs_test_byok'))
-    expect(await screen.findByRole('heading', { name: 'You’re on BYOK.' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('link', { name: 'Add your provider keys' }))
+    talyvor.team = true
+    act(() => go('/billing/success?session_id=cs_test_team'))
+    expect(await screen.findByRole('heading', { name: 'You’re on Team.' })).toBeInTheDocument()
+
+    // Plans again: BYOK, Team's add-on, at the served price — added to the live Team subscription.
+    act(() => go('/plans'))
+    const card = (await screen.findByText('BYOK — Team’s add-on')).closest('section')!
+    expect(card.textContent).toContain('$188')
+    expect(card.textContent).toContain('No Talyvor token charge on a request sent on your key')
+    fireEvent.click(await within(card).findByRole('button', { name: 'Add BYOK to Team' }))
+    expect(await within(card).findByText('On your Team plan.')).toBeInTheDocument()
+    expect(talyvor.byok).toBe(true)
 
     // Settings: the OpenAI key goes in once; afterwards only its last four are on the page.
+    act(() => go('/settings'))
     fireEvent.click(await screen.findByRole('button', { name: 'Add OpenAI key' }))
     fireEvent.change(screen.getByLabelText('OpenAI API key'), { target: { value: KEY } })
     fireEvent.click(screen.getByRole('button', { name: 'Save key' }))
@@ -164,7 +203,7 @@ describe('BYOK in the app (B27.27)', () => {
   it('a workspace not on BYOK is offered the plan in Settings, never a key field', async () => {
     fakeTalyvor()
     renderAt('/settings', { '/settings': <Settings /> })
-    expect((await screen.findByTestId('provider-keys-plan')).textContent).toBe('Your own keys come with BYOK, $199 a month. See Plans.')
+    expect((await screen.findByTestId('provider-keys-plan')).textContent).toBe('Your own keys come with BYOK — Team’s add-on, included in Business. See Plans.')
     expect(screen.queryByRole('button', { name: /^Add .* key$/ })).toBeNull()
   })
 })

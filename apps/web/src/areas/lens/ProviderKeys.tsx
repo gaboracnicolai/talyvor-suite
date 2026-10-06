@@ -3,8 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, CardHeader, Input, Row, formatDay, inlineLink } from '@talyvor/ui'
 import { isSessionExpired } from '../../lib/productState'
-import { BYOK, BYOK_PROVIDERS } from './planApi'
-import { formatCents } from './topupApi'
+import { BYOK_PROVIDERS } from './planApi'
 import { PROVIDER_KEYS_KEY, ProviderKeyError, providerKeysApi, type ProviderKey } from './providerKeysApi'
 
 // ProviderKeys.tsx — B27.27, "Your provider keys" on Settings (Lens B27.26).
@@ -173,7 +172,7 @@ export function ProviderKeysCard() {
           </p>
         ) : !data.byok ? (
           <p className="text-body text-ink" data-testid="provider-keys-plan">
-            Your own keys come with BYOK, <span className="font-figure">{formatCents(BYOK.usd_cents)}</span> a month.{' '}
+            Your own keys come with BYOK — Team’s add-on, included in Business.{' '}
             <Link to="/plans" className={inlineLink}>
               See Plans
             </Link>

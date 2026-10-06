@@ -207,6 +207,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/billing/subscription/cancel", body: `{}`},
 		{method: http.MethodPost, path: "/api/billing/subscription/resume", body: `{}`},
 		{method: http.MethodPost, path: "/api/billing/subscription/plan", body: `{"plan":"pro"}`},
+		{method: http.MethodPost, path: "/api/billing/subscription/byok", body: `{}`},
+		{method: http.MethodDelete, path: "/api/billing/subscription/byok", body: `{}`},
 		{method: http.MethodPost, path: "/api/documents", body: `x`},
 		{method: http.MethodPost, path: "/api/members", body: `{"email":"a@example.com","role":"member"}`},
 		{method: http.MethodPost, path: "/api/agents/pause-all", body: `{"reason":"r"}`},

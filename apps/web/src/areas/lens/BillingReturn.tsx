@@ -6,7 +6,7 @@ import { api } from '../../lib/api'
 import { Region, RegionScreen } from '../../components/Region'
 import { formatUSD } from './format'
 import { clearPendingTopUp, formatCents, readPendingTopUp } from './topupApi'
-import { clearPendingPlan, planApi, readPendingPlan, type PlanOffer } from './planApi'
+import { clearPendingPlan, planApi, readPendingPlan, type PlanOffer, type SubscriptionStatus } from './planApi'
 import { isSessionExpired } from '../../lib/productState'
 import { SUBSCRIPTION_KEY } from './Plans'
 
@@ -133,15 +133,19 @@ interface ReturnTiming {
  * a top-up, so the plan picked on /plans is remembered across the round trip and this waits for
  * Lens to grant the period (the webhook's work), exactly as the top-up waits for its credit.
  * B27.27 — BYOK grants no period, so its return waits for the subscription to read `byok` instead.
+ * B32.14 — nor do Team and Business: their return waits for the subscription to name the plan.
  */
 function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & Required<ReturnTiming>) {
   const [timedOut, setTimedOut] = useState(false)
+  const company = plan.id === 'team' || plan.id === 'business'
   const byok = plan.id === 'byok'
+  const viaSub = byok || company
+  const onPlan = (st: SubscriptionStatus) => (company ? st.plan === plan.id : !!st.byok)
   const read = useQuery({
     queryKey: ['plan-allowance'],
     queryFn: planApi.allowance,
     retry: false,
-    enabled: !byok,
+    enabled: !viaSub,
     refetchInterval: (q) => {
       const d = q.state.data
       if (timedOut || q.state.error || (d?.enabled && d.data.allowance)) return false
@@ -152,10 +156,10 @@ function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & 
     queryKey: SUBSCRIPTION_KEY,
     queryFn: planApi.subscription,
     retry: false,
-    enabled: byok,
+    enabled: viaSub,
     refetchInterval: (q) => {
       const d = q.state.data
-      if (timedOut || q.state.error || (d?.enabled && d.data.byok)) return false
+      if (timedOut || q.state.error || (d?.enabled && onPlan(d.data))) return false
       return pollIntervalMs
     },
   })
@@ -163,8 +167,8 @@ function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & 
     const t = setTimeout(() => setTimedOut(true), timeoutMs)
     return () => clearTimeout(t)
   }, [timeoutMs])
-  const active = byok ? !!(sub.data?.enabled && sub.data.data.byok) : !!(read.data?.enabled && read.data.data.allowance)
-  const failed = byok ? sub.isError : read.isError
+  const active = viaSub ? !!(sub.data?.enabled && onPlan(sub.data.data)) : !!(read.data?.enabled && read.data.data.allowance)
+  const failed = viaSub ? sub.isError : read.isError
   useEffect(() => {
     if (active) clearPendingPlan()
   }, [active])
@@ -182,7 +186,9 @@ function PlanSuccess({ plan, pollIntervalMs, timeoutMs }: { plan: PlanOffer } & 
           {active
             ? byok
               ? 'Add your provider keys in Settings, and requests to those providers run on them with no token charge.'
-              : 'This month’s included usage is ready, and chat draws it first.'
+              : company
+                ? 'Your workspace’s agents, seats and fees follow the plan from now on.'
+                : 'This month’s included usage is ready, and chat draws it first.'
             : timedOut || failed
               ? 'The plan starts when a webhook from Stripe reaches Lens. It usually takes seconds; check Plans again in a few minutes.'
               : 'The payment succeeded at Stripe. Waiting for Lens to start your plan — this usually takes a few seconds.'}

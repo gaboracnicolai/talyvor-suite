@@ -35,6 +35,17 @@ function serve() {
       fee = 10000
       return json(live)
     }
+    // B32.14 — which plan a fee is the price of is read from the served prices, never typed in the screen.
+    if (url === '/api/pricing')
+      return json({
+        min_usd_cents: 1000,
+        max_usd_cents: 1_000_000,
+        preset_usd_cents: [1000],
+        plans: [
+          { id: 'plus', usd_cents: 2000, included_ulxc: 170_820_000 },
+          { id: 'pro', usd_cents: 10000, included_ulxc: 864_900_000 },
+        ],
+      })
     if (url === '/api/earnings') return json({ reuses: 4, helped_workspaces: 3 })
     if (url === '/auth/me') return json({ mode: 'oidc', authenticated: true, cache_poolable: true })
     return new Response('null', { status: 404 })

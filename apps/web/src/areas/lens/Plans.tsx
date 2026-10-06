@@ -9,6 +9,8 @@ import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
   BYOK,
+  BYOK_PROVIDERS,
+  COMPANY_PLANS,
   PLANS,
   planApi,
   planForFee,
@@ -23,7 +25,9 @@ import {
 } from './planApi'
 import { formatCents } from './topupApi'
 import { formatULXC } from './agentBankApi'
-import { usePricing } from '../marketing/pricingApi'
+import { usePricing, type Pricing } from '../marketing/pricingApi'
+import { CompanyCard, TAX_LINE } from '../marketing/PriceCard'
+import { COMPANY_CONTACT } from '../../company'
 
 // /plans (B13.3) — the three plans side by side, and for a subscriber: how much of this period's
 // included usage is used, and what their answers earned back.
@@ -36,12 +40,15 @@ import { usePricing } from '../marketing/pricingApi'
 // B18.20 — a subscriber switches plan from the other plans' cards (Lens B18.14, prorated by Stripe), and
 // the earnings card counts the people their answers helped (/api/earnings' helped_workspaces).
 //
-// B27.27 — BYOK, $199 a month (Lens B27.26), on its own card: it sells no usage, so it grants no allowance
-// and a BYOK subscriber is read from the subscription's `byok`. Lens refuses a move to or from BYOK
-// (cancel, then subscribe), so its card says that instead of offering a switch.
+// B27.27 — BYOK (Lens B27.26), on its own card: it sells no usage, so it grants no allowance and a BYOK
+// subscriber is read from the subscription's `byok`.
 //
 // B28.5 — each card's included usage is the figure Lens states for that plan this month (GET /api/pricing's
 // plans, from Lens's public plans read): what a new subscriber to it is granted. Never typed in here.
+//
+// B32.14 — the company plans too, from the same read as /pricing: Team and Business each with a checkout,
+// Enterprise with "Talk to us", and BYOK as Team's add-on (Lens B32.10), added to or removed from a live Team
+// subscription. Every price on this screen is GET /api/pricing's; a price Lens did not state is not printed.
 
 const SUBSCRIBE_FAILURE: Record<SubscribeError['kind'], string> = {
   not_for_sale: 'Plans aren’t on sale on this deployment yet. Nothing was charged.',
@@ -86,6 +93,7 @@ function SwitchPlan({ plan, sw }: { plan: PlanOffer; sw: PlanSwitch }) {
 
 function PlanCard({
   plan,
+  usdCents,
   includedULXC,
   current,
   canChoose,
@@ -94,6 +102,8 @@ function PlanCard({
   switching,
 }: {
   plan: PlanOffer
+  /** The price Lens states for the plan; undefined until — or unless — Lens states it. */
+  usdCents: number | undefined
   /** The µLXC Lens says the plan includes this month; undefined until — or unless — Lens states it. */
   includedULXC: number | undefined
   current: boolean
@@ -110,10 +120,7 @@ function PlanCard({
     >
       <div className="flex flex-1 flex-col gap-3 px-gutter py-5">
         <p className="font-figure text-eyebrow uppercase text-label">{plan.name}</p>
-        <p className="flex items-baseline gap-2">
-          <span className="font-figure text-page text-ink">{formatCents(plan.usd_cents)}</span>
-          <span className="text-body text-muted">a month</span>
-        </p>
+        <MonthlyPrice usdCents={usdCents} testId={`plan-price-${plan.id}`} />
         <ul className="flex list-disc flex-col gap-1 pl-5 text-body text-muted">
           <li>Every model from every provider</li>
           {includedULXC !== undefined ? (
@@ -123,9 +130,7 @@ function PlanCard({
               </span>{' '}
               of usage included this month
             </li>
-          ) : (
-            <li>{plan.usage}</li>
-          )}
+          ) : null}
           <li>Past it, chat continues on prepaid credits — never an overage</li>
         </ul>
       </div>
@@ -146,20 +151,46 @@ function PlanCard({
   )
 }
 
-function ByokCard({
-  current,
-  canChoose,
-  onAnotherPlan,
+/** A price Lens stated, a month; or, when it stated none, a sentence saying so instead of a figure. */
+function MonthlyPrice({ usdCents, testId }: { usdCents: number | undefined; testId: string }) {
+  if (usdCents === undefined) {
+    return <p className="text-body text-muted">Price not stated by this deployment just now</p>
+  }
+  return (
+    <p className="flex items-baseline gap-2">
+      <span className="font-figure text-page text-ink" data-testid={testId}>
+        {formatCents(usdCents)}
+      </span>
+      <span className="text-body text-muted">a month</span>
+    </p>
+  )
+}
+
+/** "Anthropic, Google, Groq, Mistral and OpenAI" — the providers a BYOK key can be added for. */
+function providerList(): string {
+  const names = Object.values(BYOK_PROVIDERS)
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names.join('')
+}
+
+/**
+ * B32.14 — BYOK, Team's add-on (Lens B32.10): added to or removed from a live Team subscription, prorated by Stripe.
+ * Business includes it. A workspace that bought BYOK alone before then keeps it, and this card says so.
+ */
+function ByokAddonCard({
+  usdCents,
+  plan,
+  byok,
   busy,
-  onChoose,
+  onSet,
 }: {
-  current: boolean
-  canChoose: boolean
-  /** Subscribed to Plus, Pro or Max: Lens moves nobody to BYOK in place. */
-  onAnotherPlan: boolean
+  usdCents: number | undefined
+  /** The plan the workspace is on, as the subscription names it; undefined when it has none. */
+  plan: string | undefined
+  byok: boolean
   busy: boolean
-  onChoose: () => void
+  onSet: (on: boolean) => void
 }) {
+  const current = plan === 'byok' || (plan === 'team' && byok)
   return (
     <section
       aria-labelledby="plan-byok"
@@ -169,39 +200,42 @@ function ByokCard({
       <div className="flex flex-col gap-3 px-gutter py-5 wide:flex-row wide:gap-gutter">
         <div className="flex flex-col gap-3 wide:w-64 wide:shrink-0">
           <p id="plan-byok" className="font-figure text-eyebrow uppercase text-label">
-            {BYOK.name} — bring your own keys
+            {BYOK.name} — Team’s add-on
           </p>
-          <p className="flex items-baseline gap-2">
-            <span className="font-figure text-page text-ink">{formatCents(BYOK.usd_cents)}</span>
-            <span className="text-body text-muted">a month</span>
-          </p>
+          <MonthlyPrice usdCents={usdCents} testId="plan-price-byok" />
         </div>
         <ul className="flex list-disc flex-col gap-1 pl-5 text-body text-muted">
-          <li>Your own API keys for OpenAI, Anthropic, Google, Mistral and Groq, added in Settings</li>
+          <li>Your own API keys for {providerList()}, added in Settings</li>
           <li>No Talyvor token charge on a request sent on your key — your provider bills you directly</li>
-          <li>Answers from the shared pool are free, and yours still earn when a paying workspace reuses one</li>
-          <li>{BYOK.usage}; a provider you hold no key for runs on prepaid credits</li>
+          <li>Included in Business</li>
         </ul>
       </div>
-      {current || canChoose || onAnotherPlan ? (
-        <div className="border-t border-rule px-gutter py-3">
-          {current ? (
-            <p className="text-body text-ink">
-              Your plan.{' '}
-              <Link to="/settings" className={inlineLink}>
-                Add your provider keys in Settings
-              </Link>
-              . To move to Plus, Pro or Max, cancel BYOK, then choose a plan when it ends.
-            </p>
-          ) : canChoose ? (
-            <Button disabled={busy} onClick={onChoose}>
-              {busy ? 'Opening checkout…' : `Choose ${BYOK.name}`}
+      <div className="border-t border-rule px-gutter py-3">
+        {plan === 'byok' ? (
+          <p className="text-body text-ink">
+            Your plan.{' '}
+            <Link to="/settings" className={inlineLink}>
+              Add your provider keys in Settings
+            </Link>
+            .
+          </p>
+        ) : plan === 'business' ? (
+          <p className="text-body text-ink">Included in your Business plan.</p>
+        ) : plan === 'team' && byok ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-body text-ink">On your Team plan.</p>
+            <Button disabled={busy} onClick={() => onSet(false)}>
+              {busy ? 'Removing…' : `Remove ${BYOK.name}`}
             </Button>
-          ) : (
-            <p className="text-body text-muted">To move to BYOK, cancel your plan, then choose BYOK when it ends.</p>
-          )}
-        </div>
-      ) : null}
+          </div>
+        ) : plan === 'team' ? (
+          <Button disabled={busy} onClick={() => onSet(true)}>
+            {busy ? 'Adding…' : `Add ${BYOK.name} to Team`}
+          </Button>
+        ) : (
+          <p className="text-body text-muted">Add it once your workspace is on Team. Business includes it.</p>
+        )}
+      </div>
     </section>
   )
 }
@@ -384,23 +418,33 @@ export function Plans({
   // follows when Stripe's webhook reaches Lens, so until it does the allowance is re-read.
   const [movedTo, setMovedTo] = useState<PlanOffer | null>(null)
   const [confirming, setConfirming] = useState<PlanId | null>(null)
+  const pricing = usePricing()
+  const served: Pricing | undefined = pricing.status === 'ok' ? pricing.pricing : undefined
+  const priced = served?.plans
+  const priceOf = (id: string) => priced?.find((o) => o.id === id)?.usd_cents
   const plan = useQuery({
     queryKey: ['plan-allowance'],
     queryFn: planApi.allowance,
     retry: false,
     refetchInterval: (q) => {
       const fee = q.state.data?.enabled ? q.state.data.data.allowance?.fee_usd_cents : undefined
-      return movedTo && fee !== movedTo.usd_cents && q.state.dataUpdateCount < 20 ? 3000 : false
+      return movedTo && fee !== priceOf(movedTo.id) && q.state.dataUpdateCount < 20 ? 3000 : false
     },
   })
   const usage = useQuery({ queryKey: ['usage', 30], queryFn: () => api.usage(30) })
-  const pricing = usePricing()
-  const priced = pricing.status === 'ok' ? pricing.pricing.plans : undefined
   const earnings = useQuery({ queryKey: ['earnings'], queryFn: () => api.earnings() })
   const me = useAuthMeReader()
-  // B27.27 — BYOK grants no allowance, so the subscription says whether this workspace is on it.
+  // B27.27 — BYOK grants no allowance, so the subscription says whether this workspace is on it. B32.14 — nor do
+  // Team and Business: the subscription names the plan (Lens B32.10).
   const sub = useQuery({ queryKey: SUBSCRIPTION_KEY, queryFn: planApi.subscription, retry: false })
-  const onBYOK = !!(sub.data?.enabled && sub.data.data.subscribed && sub.data.data.byok)
+  const st = sub.data?.enabled && sub.data.data.subscribed ? sub.data.data : null
+  const onCompany = COMPANY_PLANS.find((p) => p.id === st?.plan) ?? null
+  // A workspace that bought BYOK alone, before it became Team's add-on.
+  const onBYOK = !!st?.byok && !onCompany
+  const addon = useMutation({
+    mutationFn: planApi.setBYOKAddon,
+    onSuccess: (next) => qc.setQueryData(SUBSCRIPTION_KEY, { enabled: true, data: next }),
+  })
 
   const move = useMutation({
     mutationFn: (p: PlanOffer) => planApi.changePlan(p.id),
@@ -423,10 +467,11 @@ export function Plans({
   const forSale = plan.data?.enabled === true
   const summary = plan.data?.enabled ? plan.data.data : null
   const allowance = summary?.allowance ?? null
-  const subscribed = !!allowance || onBYOK
-  const onFile = allowance ? planForFee(allowance.fee_usd_cents) : null
-  const current = onBYOK ? BYOK : subscribed ? (movedTo ?? onFile) : null
+  const subscribed = !!allowance || !!st
+  const onFile = allowance ? planForFee(allowance.fee_usd_cents, priced) : null
+  const current = onCompany ?? (onBYOK ? BYOK : subscribed ? (movedTo ?? onFile) : null)
   const failure = start.error instanceof SubscribeError ? start.error : null
+  const gates = served?.plan_gates
 
   return (
     <RegionScreen>
@@ -437,8 +482,8 @@ export function Plans({
         sectionClassName="pb-10 pt-4 wide:pb-12"
       >
         <p className="max-w-2xl text-body text-muted">
-          The plans differ only in how much usage is included each month. Every plan reaches every model from every
-          provider, and your answers earn on every plan.
+          A company’s plan sets its agents, seats and fees; a plan for individuals includes usage each month. Every plan
+          reaches every model from every provider, and your answers earn on every plan.
         </p>
         {plan.isError ? (
           <p className="mt-2 max-w-2xl">
@@ -478,18 +523,74 @@ export function Plans({
             {SUBSCRIBE_FAILURE[failure.kind]}
           </p>
         ) : null}
-        <ul className="mt-6 grid gap-gutter wide:grid-cols-3">
+        {addon.isError ? (
+          <p role="alert" className="mt-2 max-w-2xl text-body text-ink">
+            {changeFailure(addon.error)}
+          </p>
+        ) : null}
+        <h2 className="mt-8 text-head text-ink">For companies</h2>
+        {gates ? (
+          <div className="mt-4 grid gap-gutter wide:grid-cols-3">
+            {[...COMPANY_PLANS.map((p) => p.id), 'enterprise']
+              .filter((id) => gates.plans[id])
+              .map((id) => {
+                const offer = COMPANY_PLANS.find((p) => p.id === id)
+                const busy = start.isPending && start.variables === id
+                return (
+                  <CompanyCard
+                    key={id}
+                    id={id}
+                    gate={gates.plans[id]}
+                    pricing={served!}
+                    current={current?.id === id}
+                    action={
+                      current?.id === id ? (
+                        <p className="text-body text-ink">Your plan</p>
+                      ) : !offer ? (
+                        <Button asChild>
+                          <a href={`mailto:${COMPANY_CONTACT}`}>Talk to us</a>
+                        </Button>
+                      ) : forSale && !subscribed ? (
+                        <Button disabled={busy} onClick={() => start.mutate(offer.id)}>
+                          {busy ? 'Opening checkout…' : `Choose ${offer.name}`}
+                        </Button>
+                      ) : null
+                    }
+                  />
+                )
+              })}
+          </div>
+        ) : (
+          <p className="mt-2 max-w-2xl text-body text-muted">
+            {pricing.status === 'loading'
+              ? 'Reading the plans…'
+              : 'What each plan includes could not be read from this deployment just now.'}
+          </p>
+        )}
+        <ByokAddonCard
+          usdCents={served?.byok_add_on_usd_cents}
+          plan={onBYOK ? 'byok' : onCompany?.id}
+          byok={!!st?.byok}
+          busy={addon.isPending}
+          onSet={(on) => addon.mutate(on)}
+        />
+        <h2 className="mt-10 text-head text-ink">For individuals</h2>
+        <p className="mt-2 max-w-2xl text-body text-muted">
+          The plans differ only in how much usage is included each month.
+        </p>
+        <ul className="mt-4 grid gap-gutter wide:grid-cols-3">
           {PLANS.map((p) => (
             <PlanCard
               key={p.id}
               plan={p}
+              usdCents={priceOf(p.id)}
               includedULXC={priced?.find((o) => o.id === p.id)?.included_ulxc}
               current={current?.id === p.id}
               canChoose={forSale && !subscribed}
               busy={start.isPending && start.variables === p.id}
               onChoose={(id) => start.mutate(id)}
               switching={
-                subscribed && !onBYOK && current?.id !== p.id
+                subscribed && !onBYOK && !onCompany && current?.id !== p.id
                   ? {
                       from: current,
                       confirming: confirming === p.id,
@@ -506,13 +607,9 @@ export function Plans({
             />
           ))}
         </ul>
-        <ByokCard
-          current={onBYOK}
-          canChoose={forSale && !subscribed}
-          onAnotherPlan={subscribed && !onBYOK}
-          busy={start.isPending && start.variables === 'byok'}
-          onChoose={() => start.mutate('byok')}
-        />
+        <p className="mt-6 max-w-2xl text-body text-muted" data-testid="plans-tax-line">
+          {TAX_LINE}
+        </p>
       </Region>
 
       {allowance ? (
