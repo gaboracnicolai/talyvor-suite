@@ -1,8 +1,24 @@
-import { useQuery } from '@tanstack/react-query'
-import { Card, CardHeader, Row, cn } from '@talyvor/ui'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Button,
+  Card,
+  CardHeader,
+  Input,
+  Row,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  cn,
+  inlineLink,
+} from '@talyvor/ui'
 import { getJSONArray } from '../../lib/api'
 import { useAuthMeReader } from '../../lib/authMe'
-import { isUnconfigured, notConfiguredCopy } from '../../lib/productState'
+import { isSessionExpired, isUnconfigured, notConfiguredCopy } from '../../lib/productState'
+import { MemberAddError, addMember } from './membersApi'
 import { PanelFailure } from '../../components/SessionExpiredBar'
 import { Region, RegionScreen } from '../../components/Region'
 
@@ -84,6 +100,98 @@ const HEADLINE_FAILED = 'The roster could not be read.'
  */
 function isSessionRow(m: RosterMember, sessionEmail: string | null): boolean {
   return sessionEmail !== null && m.email === sessionEmail
+}
+
+/** What the screen says when an add is refused. A 402 is Lens's own sentence and is drawn verbatim. */
+function addRefusal(err: unknown, email: string): string {
+  if (isSessionExpired(err)) return 'Sign in again to add a member.'
+  if (err instanceof MemberAddError) {
+    if (err.status === 402 && err.sentence) return err.sentence
+    if (err.code === 'MEMBER_EXISTS') return `${email} is already a member of this workspace.`
+    if (err.code === 'OWNER_REQUIRED') return 'Only an owner of this workspace can add members.'
+    if (err.code === 'SEATS_UNCHECKED')
+      return 'Your plan’s seats couldn’t be checked just now, so nobody was added. Try again shortly.'
+  }
+  return 'Nobody was added. You can try again.'
+}
+
+/** B32.72 — an owner adds a person by email, as a member or an owner. */
+function AddMemberForm() {
+  const qc = useQueryClient()
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState<'member' | 'owner'>('member')
+  const [sent, setSent] = useState('')
+  const add = useMutation({
+    mutationFn: () => addMember(email.trim(), role),
+    onMutate: () => setSent(email.trim()),
+    onSuccess: (m) => {
+      // The new row is drawn from Track's answer at once; the refetch then confirms it.
+      qc.setQueryData<RosterMember[]>(['members'], (old) => [...(old ?? []).filter((r) => r.id !== m.id), m])
+      void qc.invalidateQueries({ queryKey: ['members'] })
+      setEmail('')
+    },
+  })
+  const planRefusal = add.error instanceof MemberAddError && add.error.status === 402
+
+  return (
+    <form
+      className="flex max-w-2xl flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (email.trim() && !add.isPending) add.mutate()
+      }}
+    >
+      <p className="text-body text-muted">
+        Add someone by the email they sign in with. Each person takes one of your plan’s seats.
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex min-w-0 flex-1 basis-56 flex-col gap-1">
+          <span className="text-eyebrow uppercase text-label">Email</span>
+          <Input
+            type="email"
+            autoComplete="off"
+            spellCheck={false}
+            value={email}
+            placeholder="name@company.com"
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={add.isPending}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-eyebrow uppercase text-label">Role</span>
+          <Select value={role} onValueChange={(v) => setRole(v === 'owner' ? 'owner' : 'member')}>
+            <SelectTrigger aria-label="Role" className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="member">Member</SelectItem>
+              <SelectItem value="owner">Owner</SelectItem>
+            </SelectContent>
+          </Select>
+        </label>
+        <Button type="submit" variant="primary" disabled={!email.trim() || add.isPending}>
+          {add.isPending ? 'Adding…' : 'Add member'}
+        </Button>
+      </div>
+      {add.isError ? (
+        <p role="alert" data-testid="member-add-refusal" className="text-body text-ink">
+          {addRefusal(add.error, sent)}
+          {planRefusal ? (
+            <>
+              {' '}
+              <Link to="/plans" className={inlineLink}>
+                See plans
+              </Link>
+            </>
+          ) : null}
+        </p>
+      ) : add.isSuccess ? (
+        <p role="status" className="text-body text-muted">
+          <span className="text-ink">{add.data.email}</span> was added as {add.data.role === 'owner' ? 'an owner' : 'a member'}.
+        </p>
+      ) : null}
+    </form>
+  )
 }
 
 export function Members() {
@@ -234,13 +342,14 @@ export function Members() {
           </p>
         </Region>
       ) : served && roster.length > 0 ? (
-        <Region index="02" label="Changing the roster">
-          <p data-testid="who-can-change" className="text-body text-muted">
-            Nothing on this screen can add or remove anyone. This BFF proxies one member route and
-            it is a GET; the add, role-change and remove routes exist in Track and are owner-only
-            there. So an owner of this workspace changes the roster in Track, and it appears here
-            on the next read.
-          </p>
+        <Region index="02" label="Add a member">
+          {roster.some((m) => isSessionRow(m, sessionEmail) && m.role !== 'owner') ? (
+            <p data-testid="who-can-add" className="text-body text-muted">
+              Only an owner of this workspace can add members. Ask one of the owners above.
+            </p>
+          ) : (
+            <AddMemberForm />
+          )}
         </Region>
       ) : null}
     </RegionScreen>
