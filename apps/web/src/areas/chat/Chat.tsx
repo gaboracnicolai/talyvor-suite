@@ -37,6 +37,7 @@ import { AlertNotices } from './AlertNotices'
 import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
 import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
+import { ForecastCard, isRunOutQuestion } from './ForecastQuestion'
 import { LiveStatement } from './LiveStatement'
 import { MoneyCards } from './MoneyCards'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
@@ -189,6 +190,8 @@ export function Chat() {
   // B28.352 — each rule typed here in plain words ("Cap Researcher at 5 LXC a day on Opus"): a card that saves it.
   // B28.353 — and each approval amount ("Ask me above 2 LXC"), on its own card in the same list.
   const [ruleCards, setRuleCards] = useState<{ id: number; command: string }[]>([])
+  // B28.357 — each "Will Researcher run out this month?": a card that answers it from Lens's forecast.
+  const [forecasts, setForecasts] = useState<{ id: number; question: string }[]>([])
   // B28.354 — the agent whose wallet pays for this conversation; '' is the workspace.
   const [paidBy, setPaidBy] = useState('')
   const { book: payersBook, payers } = usePayers()
@@ -470,6 +473,11 @@ export function Chat() {
       if (isRuleCommand(question) || isAskAboveCommand(question)) {
         setDraft('')
         setRuleCards((l) => [...l, { id: ++launchSeq.current, command: question }])
+        return
+      }
+      if (isRunOutQuestion(question)) {
+        setDraft('')
+        setForecasts((l) => [...l, { id: ++launchSeq.current, question }])
         return
       }
       if (selected === undefined || pending) return
@@ -766,6 +774,15 @@ export function Chat() {
                     <RuleCard key={l.id} command={l.command} onClose={() => setRuleCards((ls) => ls.filter((x) => x.id !== l.id))} />
                   ),
                 )}
+              </section>
+            ) : null}
+
+            {/* B28.357 — "Will Researcher run out this month?", answered here from Lens's forecast instead of by the model. */}
+            {forecasts.length > 0 ? (
+              <section aria-label="Forecasts" className="flex flex-col gap-3 pb-6">
+                {forecasts.map((l) => (
+                  <ForecastCard key={l.id} question={l.question} onClose={() => setForecasts((ls) => ls.filter((x) => x.id !== l.id))} />
+                ))}
               </section>
             ) : null}
 

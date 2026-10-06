@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatLiveStatement, chatPaidBy, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatForecastAnswer, chatLiveStatement, chatPaidBy, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { chatMoneyRequests, marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
@@ -2044,13 +2044,15 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.351 — then the statement beside Chat: an agent's debit shows there within 5s, without a reload.
     // B28.356 — then its Recent calls: an agent's 21 calls, the newest 20 shown exactly as its statement on Lens has them.
     // B28.353 — after chat-plain-rule, "Ask me above 2 LXC for <agent>" in Chat: 1.9 LXC is paid, 2.1 LXC waits for a person.
+    // B28.357 — then "Will <agent> run out this month?" in Chat, for an agent that has paid out all but 0.001 LXC: the day
+    // it states is the one in Lens's /forecast.
     // B28.354 — then a question in Chat with an agent chosen in Paid by: the charge is on the agent's statement, the
     // workspace's own balance unmoved. It starts a new chat after, so the questions after it are the workspace's again.
     // B28.84 — last, as nobody else on 6, 16, … decides an approval: a payment approved with Face ID on its card in Chat,
     // one pay line on the statement. Its passkey stays on the workspace, so it runs after every other Chat check here.
     // B28.87 — after it, as it pauses every agent of the workspace: fund, withdraw, pause and Pause all from Chat's
     // wallet buttons, each confirmed first; after Pause all the agent's next call is refused, started again it is served.
-    case 6: list.push(statementReconciles(i), ledgerReadsCorrectly(), spendPlainWords(), spendPlatformFee(), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull(), chatLaunchAgent(i), chatPlainRule(i), chatAskAbove(i), chatPaidBy(i), chatWalletAlerts(i), chatLiveStatement(i), chatRecentCalls(i), chatApprovalFaceID(i), chatWalletButtons(i)); break
+    case 6: list.push(statementReconciles(i), ledgerReadsCorrectly(), spendPlainWords(), spendPlatformFee(), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull(), chatLaunchAgent(i), chatPlainRule(i), chatAskAbove(i), chatForecastAnswer(i), chatPaidBy(i), chatWalletAlerts(i), chatLiveStatement(i), chatRecentCalls(i), chatApprovalFaceID(i), chatWalletButtons(i)); break
     // B28.271 — first, while the workspace has no agent: Agent Wallets is only the card that creates one.
     // B28.8 — then, still with no agent: Home's three onboarding steps.
     // B29.12 — then Features, Track, Docs, Developers, Billing and Settings in the brand, each photographed.

@@ -152,7 +152,21 @@ export interface SpendForecast {
   month_end: string
   spent_ulxc: number
   forecast_ulxc: number
-  agents: { agent_id: string; name: string; spent_ulxc: number; forecast_ulxc: number }[] | null
+  agents:
+    | {
+        agent_id: string
+        name: string
+        spent_ulxc: number
+        forecast_ulxc: number
+        /** B28.94 — what the agent holds now. */
+        balance_ulxc?: number
+        /**
+         * B28.94 — when its balance runs out at its pace so far this month, an RFC 3339 time written in the agent's own
+         * time zone, so its date is the agent's date; null when it does not run out at that pace.
+         */
+        runs_out_at?: string | null
+      }[]
+    | null
 }
 
 /** Lens economy.AgentRules. A zero limit and an empty list are "no rule". */

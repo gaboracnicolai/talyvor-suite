@@ -2273,6 +2273,81 @@ export function chatAskAbove(seed: number): Scenario {
 }
 
 /**
+ * B28.357 (for B28.94) — "Will <agent> run out this month?" asked in Chat is answered from Lens's forecast. The agent is
+ * funded 5 LXC and pays 4.999 LXC of it to another agent, so at its pace so far it runs out within minutes: the pay line
+ * and the 0.001 LXC left are read from its statement on Lens, Chat answers yes without asking the model, and the day it
+ * states is the day in Lens's own /forecast output for that agent, read just before and just after Chat answered.
+ */
+export function chatForecastAnswer(seed: number): Scenario {
+  const [funded, paid] = [5e6, 4_999_000]
+  return {
+    id: 'chat-forecast-answer',
+    title: '"Will <agent> run out this month?" in Chat is answered from the forecast: the day it states is the runs_out_at Lens’s /forecast gives',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env } = ctx
+        const spender = await openAgent(ctx, bank, `Forecast spender ${seed}`)
+        if (typeof spender === 'string') return fail(spender)
+        const payee = await openAgent(ctx, bank, `Forecast payee ${seed}`)
+        if (typeof payee === 'string') return fail(payee)
+        const err = await bank.move(spender, funded, 'Fund')
+        if (err !== undefined) return fail(`funding ${spender.name} was refused: ${err}`)
+        const out = await bank.pay(spender, payee, paid, `run it down ${seed}`)
+        if (!/^Paid /.test(out)) return fail(`${spender.name} paying ${lxcText(paid)} LXC was not paid: "${out}"`)
+        // The ledger, not the screen: one pay line for what it paid, and what is left.
+        const lines = await env.lens.agentLines(ctx.app.user, spender.id)
+        const pays = lines.filter((l) => l.kind === 'pay')
+        if (pays.length !== 1 || pays[0].amount_ulxc !== -paid || lines[0]?.balance_after_ulxc !== funded - paid) {
+          return fail(`after paying ${paid} µLXC of ${funded}, ${spender.name}'s statement has pay line(s) ${JSON.stringify(pays)} and ends at ${lines[0]?.balance_after_ulxc}`)
+        }
+
+        const page = await ctx.app.tab('/chat')
+        try {
+          await page.setViewportSize({ width: 1440, height: 900 })
+          const question = `Will ${spender.name} run out this month?`
+          const before = await env.lens.agentForecast(ctx.app.user)
+          await page.locator('#chat-message').fill(question)
+          await page.locator('#chat-message').press('Enter')
+          const card = page.getByTestId('chat-forecast').filter({ hasText: question })
+          try {
+            await card.getByTestId('chat-forecast-answer').waitFor({ timeout: ACTION_TIMEOUT_MS })
+          } catch {
+            return fail(`"${question}" opened no forecast answer in Chat`)
+          }
+          if ((await page.getByTestId('turn-user').filter({ hasText: question }).count()) > 0) return fail('the run-out question was sent to the model')
+          const said = (await card.getByTestId('chat-forecast-answer').innerText()).trim()
+          const shown = await card.getByTestId('chat-forecast-date').getAttribute('datetime', { timeout: 2_000 }).catch(() => null)
+          const after = await env.lens.agentForecast(ctx.app.user)
+          const [was, now] = [before, after].map((f) => (f.agents ?? []).find((a) => a.agent_id === spender.id))
+          ctx.evidence.push({ note: `Chat: "${question}" → "${said}" (${shown ?? 'no date'}); Lens's /forecast for ${spender.name}: ${JSON.stringify(was)} then ${JSON.stringify(now)}` })
+          if (now === undefined) return fail(`Lens's /forecast does not list ${spender.name}`)
+          if (now.runs_out_at === undefined) {
+            return fail(`Lens's /forecast gives no runs_out_at for ${spender.name}, so Chat cannot state the day it runs out (B28.94); Chat said "${said}"`)
+          }
+          if (now.runs_out_at === null || Date.parse(now.runs_out_at) >= Date.parse(after.month_end)) {
+            return fail(`${spender.name} holds ${lxcText(funded - paid)} LXC after paying ${lxcText(paid)} LXC this month, yet Lens's /forecast says it runs out ${now.runs_out_at ?? 'never'}, not this month`)
+          }
+          const days = [was?.runs_out_at, now.runs_out_at].flatMap((t) => (typeof t === 'string' ? [t.slice(0, 10)] : []))
+          if (shown === null || !days.includes(shown)) return fail(`Chat states the day ${spender.name} runs out as ${shown ?? 'nothing'}; Lens's /forecast says ${days.join(' then ')}`)
+          if (!/^Yes\./.test(said)) return fail(`Lens's /forecast has ${spender.name} running out this month, yet Chat answered "${said}"`)
+
+          await mkdir(env.outDir, { recursive: true })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            await card.scrollIntoViewIfNeeded()
+            const shot = join(env.outDir, `chat-forecast-answer-${width}px-user${ctx.app.user.index}.png`)
+            await page.screenshot({ path: shot })
+            ctx.evidence.push({ note: `the forecast answer at ${width}px: ${shot}` })
+          }
+          return { pass: true, detail: `"${question}" in Chat: "${said}" — the day ${shown} is Lens's /forecast runs_out_at ${now.runs_out_at} for ${spender.name}, which holds ${funded - paid} µLXC after one ${paid} µLXC pay line` }
+        } finally {
+          await page.close()
+        }
+      }),
+  }
+}
+
+/**
  * B28.354 (for B28.90) — an agent chosen in Chat's "Paid by" pays for the conversation. One question is asked in Chat
  * with the agent chosen: the answer says the agent paid, the request's charge is on the agent's statement and comes out
  * of its balance, and the workspace's own money — what no agent holds, and its plan's allowance — does not move.
