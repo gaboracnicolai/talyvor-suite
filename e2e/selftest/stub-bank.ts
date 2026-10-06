@@ -38,6 +38,10 @@
 //   card-free           — an approved card purchase takes nothing from the agent
 //   payout-uncredited   — taking earnings as credits records the payout and credits nothing
 //   bill-refund-kept    — refunding a paid bill marks the buyer's use refunded and leaves the seller's earning
+//
+// B28.360 adds freezing an agent's card (POST …/card/freeze and …/card/unfreeze, for Lens's B28.97): a purchase on a
+// frozen card is declined and nothing leaves the agent. Its defect:
+//   freeze-ignored      — a frozen card answers frozen, and a purchase on it is still approved
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -164,6 +168,8 @@ const CAPABILITIES = [
   ['pay_another_owner', 'Pay another owner'], ['loans_between_companies', 'Loans between companies'], ['escrow', 'Escrow'],
   ['rules_approvals_statements_pots', 'Rules, approvals, statements and pots'], ['cash_out', 'Cash out'], ['company_credit_line', 'Company credit line'],
 ].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
+/** B28.360 — an agent's card, RED in Lens (economy.CapabilityAgentCard): the card freeze in Chat says it is test money only. */
+const CARD_CAPABILITY = { capability: 'agent_card', name: 'Cards', class: 'RED', real_money: false }
 /** B30.115 — and the money-and-markets ones B30.1 added, in Lens's classes; `b30-capability-gone` drops fx. */
 const B30_CAPABILITIES = [
   ['currency_accounts', 'RED'], ['account_details', 'RED'], ['payments_in', 'RED'], ['payments_out', 'RED'], ['pay_by_bank', 'AMBER'],
@@ -209,7 +215,7 @@ export class Bank {
   private readonly pots: Pot[] = []
   private readonly schedules: Schedule[] = []
   private readonly cashOuts: CashOut[] = []
-  private readonly cards = new Map<string, object>()
+  private readonly cards = new Map<string, { frozen: boolean; frozen_at?: string } & Record<string, unknown>>()
   /** B28.84 — each workspace's passkeys (Lens B19.16): once it has one, a decision must carry an assertion. */
   private readonly passkeys = new Map<string, { credential_id: string; name: string; created_at: string }[]>()
   private readonly reports: Report[] = []
@@ -638,7 +644,9 @@ export class Bank {
       const minor = b.amount_minor ?? 2000
       const usd = minor * USD_MICROS_PER_PENNY
       const cost = usd * ULXC_PER_USD_MICRO
-      const refused = this.judge(a, cost, { payment: true, fingerprint: `card\0${a.id}\0${Date.now()}` })?.error
+      const frozen = this.cards.get(a.id)?.frozen === true && !this.broken('freeze-ignored')
+      const refused = (frozen ? 'the card is frozen: every purchase on it is refused until it is unfrozen' : undefined)
+        ?? this.judge(a, cost, { payment: true, fingerprint: `card\0${a.id}\0${Date.now()}` })?.error
         ?? (cost > this.balance(`agent:${a.id}`) ? `the agent holds ${lxc(this.balance(`agent:${a.id}`))} LXC and this purchase costs ${lxc(cost)} LXC` : undefined)
       const auth: CardAuth = { id: id('cau_'), agent_id: a.id, authorization_id: id('iauth_synthetic_'), approved: refused === undefined,
         reason: refused ?? "within the agent's rules", amount_minor: minor, currency: (b.currency ?? 'gbp').toLowerCase(), merchant_name: b.merchant ?? 'Synthetic merchant',
@@ -691,7 +699,7 @@ export class Bank {
     const { json } = this.d
     if (path === '/v1/wallets/capabilities') {
       const b30 = this.broken('b30-capability-gone') ? B30_CAPABILITIES.filter((c) => c.capability !== 'fx') : B30_CAPABILITIES
-      return json(res, 200, { capabilities: [...CAPABILITIES, ...b30] }), true
+      return json(res, 200, { capabilities: [...CAPABILITIES, CARD_CAPABILITY, ...b30] }), true
     }
     let m = /^\/v1\/wallets\/([^/]+)$/.exec(path)
     if (m !== null) {
@@ -939,9 +947,18 @@ export class Bank {
       if (missing.length > 0) return json(res, 400, { error: `agentcard: the cardholder needs ${missing.join(', ')}` }), true
       if (this.cards.has(a.id)) return json(res, 409, { error: 'economy: the agent already has a card' }), true
       const card = { id: id('ic_'), agent_id: a.id, last4: String(1000 + Math.floor(Math.random() * 9000)), exp_month: 12,
-        exp_year: new Date().getUTCFullYear() + 3, currency: 'gbp', livemode: this.broken('card-live'), created_at: now }
+        exp_year: new Date().getUTCFullYear() + 3, currency: 'gbp', livemode: this.broken('card-live'), created_at: now, frozen: false }
       this.cards.set(a.id, card)
       return json(res, 201, card), true
+    }
+    // B28.360 — the card frozen or unfrozen: Lens answers the card.
+    if ((action === '/card/freeze' || action === '/card/unfreeze') && method === 'POST') {
+      const card = this.cards.get(a.id)
+      if (card === undefined) return json(res, 404, { error: 'economy: the agent has no card' }), true
+      card.frozen = action === '/card/freeze'
+      if (card.frozen) card.frozen_at = now
+      else delete card.frozen_at
+      return json(res, 200, card), true
     }
     return false
   }
@@ -1078,7 +1095,7 @@ export class Bank {
       const reason = refused === undefined ? '' : refused.error.replace(/^(economy: )?the agent's spending rules refuse this request: /, '')
       return json(res, 200, { verdict, reason, amount_ulxc: n, at: now, balance_ulxc: this.balance(`agent:${a.id}`) }), true
     }
-    if ((m = /^\/agents\/([^/]+)(\/[a-z-]+)?$/.exec(rest)) !== null) {
+    if ((m = /^\/agents\/([^/]+)(\/card\/(?:un)?freeze|\/[a-z-]+)?$/.exec(rest)) !== null) {
       const a = this.agents.get(m[1])
       if (a === undefined || a.ws !== ws.id) return json(res, 404, { error: 'economy: no such agent in this workspace' }), true
       const action = m[2] ?? ''

@@ -158,6 +158,8 @@ export interface AgentCard {
   last4: string
   currency: string
   livemode: boolean
+  /** B28.360 — Lens declines every purchase on a frozen card */
+  frozen?: boolean
 }
 
 /** B25.4 — a marketplace listing as Lens lists it (market.Listing). */

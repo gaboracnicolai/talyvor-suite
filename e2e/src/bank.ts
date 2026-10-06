@@ -2648,6 +2648,116 @@ export function chatAgentTask(seed: number): Scenario {
 }
 
 /**
+ * B28.360 (for B28.97) — an agent's card frozen from Chat refuses a purchase. `/freeze <agent>` typed in Chat opens a
+ * card, not a question; frozen there, Lens reads the card back frozen and a purchase on it is declined, with nothing
+ * leaving the agent — its balance and its statement unmoved. `/unfreeze <agent>` lets purchases through again: the
+ * next one is approved and exactly what it cost leaves the agent. Lens's side is POST
+ * /v1/workspaces/{ws}/agents/{id}/card/freeze and …/card/unfreeze, each answering the card with `frozen`.
+ */
+export function chatCardFreeze(seed: number): Scenario {
+  const funded = 20e6
+  const pence = 50
+  return {
+    id: 'chat-card-freeze',
+    owner: 'talyvor-lens',
+    agents: 1,
+    title: 'an agent’s card frozen from Chat with /freeze refuses a purchase, nothing leaves the agent; /unfreeze lets the next one through',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env, app } = ctx
+        const agent = await openAgent(ctx, bank, `Card holder ${seed}`)
+        if (typeof agent === 'string') return fail(agent)
+        const funding = await bank.move(agent, funded, 'Fund')
+        if (funding !== undefined) return fail(`funding ${agent.name} was refused: ${funding}`)
+        const issued = await bank.issueCard(agent, { first: 'Test', last: 'Holder', line1: '1 High Street', city: 'London', postcode: 'EC1A 1BB' })
+        if (issued !== undefined) return fail(`issuing ${agent.name} a card was refused: ${issued}`)
+
+        const page = app.page
+        const viewport = page.viewportSize()
+        await app.newChat()
+        /** Types `/freeze` or `/unfreeze` for the agent in Chat and presses the card's button: what Chat said, or why not. */
+        const inChat = async (freeze: boolean, shoot: boolean): Promise<{ said: string } | string> => {
+          const command = `/${freeze ? 'freeze' : 'unfreeze'} ${agent.name}`
+          const card = page.getByTestId('chat-card-freeze').filter({ hasText: command })
+          try {
+            await page.locator('#chat-message').fill(command)
+            await page.locator('#chat-message').press('Enter')
+            try {
+              await card.waitFor({ timeout: ACTION_TIMEOUT_MS })
+            } catch {
+              return `"${command}" opened no card in Chat`
+            }
+            if ((await page.getByTestId('turn-user').count()) > 0) return `"${command}" was asked of the model`
+            if ((await card.getByLabel('Agent').inputValue()) !== agent.id) return `the card did not read ${agent.name} from "${command}"`
+            await card.getByTestId('chat-card-freeze-state').or(card.getByTestId('chat-card-freeze-none')).first().waitFor({ timeout: ACTION_TIMEOUT_MS })
+            await card.getByRole('button', { name: `${freeze ? 'Freeze' : 'Unfreeze'} ${agent.name}’s card`, exact: true }).click()
+            const refused = await outcome(card.getByTestId('chat-card-freeze-done'), card)
+            if (refused !== undefined) return `"${command}" was refused: ${refused}`
+            const said = (await card.getByTestId('chat-card-freeze-done').innerText()).trim()
+            if (shoot) {
+              await mkdir(env.outDir, { recursive: true })
+              for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+                await page.setViewportSize({ width, height })
+                await card.scrollIntoViewIfNeeded()
+                const shot = join(env.outDir, `chat-card-freeze-${width}px-user${app.user.index}.png`)
+                await page.screenshot({ path: shot })
+                ctx.evidence.push({ note: `the freeze card at ${width}px: ${shot}` })
+              }
+            }
+            return { said }
+          } finally {
+            if (viewport !== null) await page.setViewportSize(viewport)
+            await card.getByRole('button', { name: 'Close' }).click().catch(() => {})
+          }
+        }
+        const buy = async (merchant: string) => {
+          const bought = await env.lens.cardPurchase(app.user, agent.id, { amount_minor: pence, currency: 'gbp', merchant })
+          ctx.evidence.push({ note: `${agent.name} pays £0.${pence} at ${merchant} with its card (B25.7)`, answer: JSON.stringify(bought) })
+          return bought
+        }
+
+        const frozen = await inChat(true, true)
+        if (typeof frozen === 'string') return fail(frozen)
+        const read = await env.lens.cardAndPurchases(app.user, agent.id)
+        ctx.evidence.push({ note: `frozen from Chat ("${frozen.said}"); Lens's card: ${JSON.stringify(read?.card)}` })
+        if (read?.card.frozen !== true) return fail(`Chat said "${frozen.said}", but Lens reads ${agent.name}'s card back with frozen ${read?.card.frozen} — Lens freezes the card on POST …/agents/{id}/card/freeze (B28.97)`)
+
+        // The ledger, not the card: a purchase on the frozen card is declined and nothing leaves the agent.
+        const lines0 = await env.lens.agentLines(app.user, agent.id)
+        const held0 = agentIn(await bookOf(ctx), agent.id)?.balance_ulxc
+        const refusedAt = `Frozen Co ${seed}`
+        const tried = await buy(refusedAt)
+        if (!tried.ok) return fail(`a purchase on the frozen card could not be put to Lens: ${tried.status} ${tried.error}`)
+        if (tried.value.approved) return fail(`${agent.name}'s card is frozen, yet Lens approved a £0.${pence} purchase on it at ${refusedAt} (${tried.value.amount_ulxc} µLXC): a purchase on a frozen card is refused (B28.97)`)
+        const lines1 = await env.lens.agentLines(app.user, agent.id)
+        const held1 = agentIn(await bookOf(ctx), agent.id)?.balance_ulxc
+        const moved = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id && o.kind === l.kind))
+        if (held1 !== held0 || moved.length > 0) {
+          return fail(`Lens declined the purchase on the frozen card ("${tried.value.reason}"), yet ${agent.name} holds ${held1} µLXC (was ${held0}) with new statement lines ${JSON.stringify(moved)}`)
+        }
+        const declined = ((await env.lens.cardAndPurchases(app.user, agent.id))?.authorizations ?? []).filter((x) => x.authorization_id === tried.value.authorization_id)
+        if (declined.length !== 1 || declined[0].approved) return fail(`the refused purchase is on the card ${declined.length} time(s): ${JSON.stringify(declined)}`)
+
+        const unfrozen = await inChat(false, false)
+        if (typeof unfrozen === 'string') return fail(unfrozen)
+        const back = await env.lens.cardAndPurchases(app.user, agent.id)
+        if (back?.card.frozen === true) return fail(`Chat said "${unfrozen.said}", but Lens still reads ${agent.name}'s card frozen`)
+        const paidAt = `Thawed Co ${seed}`
+        const bought = await buy(paidAt)
+        if (!bought.ok) return fail(`a purchase on the unfrozen card could not be put to Lens: ${bought.status} ${bought.error}`)
+        if (!bought.value.approved) return fail(`${agent.name}'s card was unfrozen, yet Lens declined a £0.${pence} purchase at ${paidAt}: ${bought.value.reason}`)
+        const cost = bought.value.amount_ulxc
+        const held2 = agentIn(await bookOf(ctx), agent.id)?.balance_ulxc
+        if (!(cost > 0) || held2 !== (held1 ?? 0) - cost) return fail(`unfrozen, the purchase was approved at ${cost} µLXC; ${agent.name} holds ${held2} µLXC, want ${(held1 ?? 0) - cost}`)
+        return {
+          pass: true,
+          detail: `"/freeze ${agent.name}" in Chat froze its card: Lens declined £0.${pence} at ${refusedAt} ("${tried.value.reason}") and ${agent.name} kept ${held1} µLXC; "/unfreeze" let £0.${pence} at ${paidAt} through for ${lxcText(cost)} LXC`,
+        }
+      }),
+  }
+}
+
+/**
  * B28.91 — a wallet alert raised while Chat is open shows in Chat within ten seconds. An agent with a 1 LXC monthly
  * limit is funded 1 LXC and pays all of it to another agent, with Chat open in its own tab: the payment is read back
  * from the ledger (one pay line, nothing left), and within ten seconds of it Chat says the agent has run out and has

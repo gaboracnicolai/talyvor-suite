@@ -41,6 +41,8 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"agent_id": "agt_1", "balance_ulxc": 10_000_000})
 		case strings.HasSuffix(r.URL.Path, "/agents/pause-all"), strings.HasSuffix(r.URL.Path, "/agents/resume-all"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"all_paused": strings.HasSuffix(r.URL.Path, "pause-all")})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/card/freeze"), strings.HasSuffix(r.URL.Path, "/agents/agt_1/card/unfreeze"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "ic_1", "agent_id": "agt_1", "last4": "4242", "frozen": strings.HasSuffix(r.URL.Path, "/freeze")})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/card") && r.Method == http.MethodGet:
 			w.WriteHeader(http.StatusNotFound)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "economy: this agent has no card"})
@@ -487,6 +489,31 @@ func TestTransferRefundReachesLens(t *testing.T) {
 	defer f.mu.Unlock()
 	if len(f.got) != 2 || !strings.HasPrefix(f.got[0], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[0], "/transfers/xfr_1/refund ") {
 		t.Fatalf("Lens got %q; want POST …/transfers/xfr_1/refund with no body, then the second", f.got)
+	}
+}
+
+// B28.360 — freezing and unfreezing an agent's card reach Lens on the session's workspace as the card's own freeze
+// and unfreeze, carrying nothing a browser sends; Lens's card, frozen or not, comes back as Lens answered it.
+func TestAgentCardFreezeReachesLensAsTheCardsOwnAction(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	if rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/card/freeze", `{"workspace_id":"ws_other"}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"frozen":true`) {
+		t.Fatalf("freeze = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/card/unfreeze", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"frozen":false`) {
+		t.Fatalf("unfreeze = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodGet, "/api/agents/agt_1/card/freeze", ""); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET freeze = %d, want 405", rec.Code)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ws := strings.Split(strings.TrimPrefix(strings.Fields(f.got[0])[1], "/v1/workspaces/"), "/")[0]
+	want := []string{
+		"POST /v1/workspaces/" + ws + "/agents/agt_1/card/freeze ",
+		"POST /v1/workspaces/" + ws + "/agents/agt_1/card/unfreeze ",
+	}
+	if ws == "" || ws == "ws_other" || strings.Join(f.got, "|") != strings.Join(want, "|") {
+		t.Fatalf("Lens received %q, want %q", f.got, want)
 	}
 }
 

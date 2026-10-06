@@ -551,6 +551,25 @@ func (a *app) handleAgentCard(w http.ResponseWriter, r *http.Request, t tenant) 
 	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
 }
 
+// handleAgentCardFreeze — POST /api/agents/{id}/card/freeze and /card/unfreeze (B28.360, for B28.97): Lens stops
+// every purchase on the agent's card, or lets them through again. A purchase on a frozen card is declined with
+// Lens's reason and nothing leaves the wallet; the card Lens answers carries `frozen`, as GET …/card reads it back.
+func (a *app) handleAgentCardFreeze(freeze bool) func(http.ResponseWriter, *http.Request, tenant) {
+	return func(w http.ResponseWriter, r *http.Request, t tenant) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w, http.MethodPost)
+			return
+		}
+		action := "card/unfreeze"
+		if freeze {
+			action = "card/freeze"
+		}
+		if suffix, ok := agentSuffix(w, r, action); ok {
+			a.agentBankRelay(w, r, t, http.MethodPost, suffix, nil)
+		}
+	}
+}
+
 // handleAgentPay — POST /api/agents/{id}/pay: the agent pays another of this workspace's agents,
 // judged by the payer's rules. A payment above its approval amount is refused naming the approval
 // it filed; once a person approves that, the same payment sent again goes through, once.
