@@ -111,6 +111,31 @@ export function judgeVerdict(reply: string): boolean | undefined {
  */
 export const RUN_SALT = 1 + Math.floor(Math.random() * 999_999)
 
+const CONSONANTS = 'bdfgklmnprstvz'
+const VOWELS = 'aeiou'
+
+/**
+ * B35.8 — a word made up for this run: five syllables nobody has asked a model to say, so a question asking for it back
+ * is answered by the model, never from the pool. `seed` keeps the words of one run apart (one a model, one a user).
+ */
+export function freshWord(seed: number, salt = RUN_SALT): string {
+  const r = seeded(salt * 7919 + seed)
+  let w = ''
+  for (let i = 0; i < 5; i++) w += CONSONANTS[Math.floor(r() * CONSONANTS.length)] + VOWELS[Math.floor(r() * VOWELS.length)]
+  return w
+}
+
+/**
+ * B35.8 — the testers' own network failing, not the feature: the browser's "Failed to fetch", Chromium's net::ERR_ codes
+ * (ERR_INTERNET_DISCONNECTED, ERR_NETWORK_CHANGED, …) and the BFF's 502 when it cannot reach Lens.
+ */
+const NETWORK_DROP = /Failed to fetch|net::ERR_[A-Z_]+|lens upstream unreachable/
+
+/** The network drop `text` names, or undefined when it names none. */
+export function networkDrop(text: string): string | undefined {
+  return NETWORK_DROP.exec(text)?.[0]
+}
+
 /** A small deterministic generator, so a run's questions are reproducible from its seed. The seed is
  *  scrambled first (murmur3's finaliser, one-to-one on 32 bits), so 0 and 1 are different streams and
  *  neighbouring seeds don't open with near-identical draws. */

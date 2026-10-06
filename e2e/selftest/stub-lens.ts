@@ -286,7 +286,7 @@ function think(messages: Msg[]): string {
     return String(2 * Number(prev === undefined ? NaN : text(prev)))
   }
   if ((m = /capital of ([A-Za-z ]+)\?/.exec(q))) return CAPITALS[m[1].trim().toLowerCase()] ?? 'I do not know.'
-  if (/single word: ok/.test(q)) return 'ok'
+  if ((m = /single word: (\w+)/.exec(q))) return m[1]
   if (/code word in the attached document/.test(q)) return /code word is (\w+)/.exec(all)?.[1] ?? 'I cannot see any document.'
   if ((m = /from 1 to (\d+)/.exec(q))) return Array.from({ length: Number(m[1]) }, (_, i) => i + 1).join(' ')
   return 'I can only do arithmetic and capitals.'

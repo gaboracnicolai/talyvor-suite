@@ -36,6 +36,20 @@ export async function roomForAgents(lens: LensClient, user: SyntheticUser, opens
   evidence.push({ note: `room for ${opens} agent(s) on ${plan.plan} (${limit} agents): archived ${archived.join(', ') || 'nothing'}; ${used} left` })
 }
 
+/**
+ * B35.8 — before a second attempt, as an owner starting again would: every active agent of `user` archived, so the agents
+ * the attempt opens again under the first attempt's names are the only ones of those names on the screen.
+ */
+export async function archiveAll(lens: LensClient, user: SyntheticUser): Promise<string[]> {
+  const archived: string[] = []
+  for (const a of (await lens.agentBook(user)).agents) {
+    if (a.archived_at !== undefined) continue
+    const r = await lens.archiveAgent(user, a.id)
+    archived.push(r.ok ? a.name : `${a.name} (refused: ${r.status} ${r.error})`)
+  }
+  return archived
+}
+
 const onTeam = new Map<string, Promise<string | undefined>>()
 
 /**

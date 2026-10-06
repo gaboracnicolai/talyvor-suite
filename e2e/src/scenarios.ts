@@ -5,7 +5,7 @@
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Response } from 'playwright'
-import { type AppUser, type Attachment, type ChargeBook, type Turn, chargeULXC } from './app.ts'
+import { type AppUser, type Attachment, type ChargeBook, NetworkDropped, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
 import { CapReached, worstInputTokens } from './budget.ts'
 import type { LensClient, SyntheticUser } from './lens.ts'
@@ -13,6 +13,7 @@ import {
   type CatalogModel,
   chatModels,
   expectedFigure,
+  freshWord,
   judgeVerdict,
   listPriceUSD,
   namesWord,
@@ -442,9 +443,10 @@ function madeUpAnswer(provider: string, text: string, cutOff: boolean): string {
 }
 
 export function blankThenRetry(seed: number): Scenario {
-  const r = seeded(seed * 29 + 7)
-  const [a, b] = [0, 0].map(() => 10 + Math.floor(r() * 89))
-  const question = `What is ${a} + ${b}? ${NUMBER_ONLY}`
+  // B35.8 — the run's own sum: Retry must reach the model, and a sum an earlier run asked is served from the pool.
+  const r = seeded(seed * 29 + 7 + RUN_SALT)
+  const [a, b] = [0, 0].map(() => 1000 + Math.floor(r() * 9000))
+  const question = `What is ${a} + ${b}? ${NUMBER_ONLY} (${freshWord(2_000 + seed)})`
   return {
     id: 'blank-retry-cut-off',
     title: 'a blank answer offers Retry, which asks the model; an answer stopped at the length limit is marked cut off',
@@ -1315,7 +1317,7 @@ export function everyModelAnswers(streamable: readonly string[]): Scenario {
       ctx.evidence.push({ note: `${models.length} models offered; providers without a key: ${unconfigured.join(', ') || 'none'}` })
       const failures: string[] = []
       const start = app.modelNameInUse
-      for (const m of models) {
+      for (const [n, m] of models.entries()) {
         // One model's failure is that model's FAIL; the rest are still checked.
         try {
           if (!(await app.chooseModel(m.display_name))) {
@@ -1323,13 +1325,15 @@ export function everyModelAnswers(streamable: readonly string[]): Scenario {
             continue
           }
           await app.newChat()
-          // B34.1 — the run's own question: one an earlier run asked is served from the pool, and cannot be priced.
-          const t = await ask(ctx, `Check ${RUN_SALT}. Reply with the single word: ok`, m.display_name)
+          // B35.8 — a word made up tonight, one for each model: a question anybody asked before is served from the pool, and
+          // cannot be priced; and the word coming back is the proof the model answered it.
+          const word = freshWord(n)
+          const t = await ask(ctx, `Reply with the single word: ${word}`, m.display_name)
           if (t.footer.kind !== 'priced') {
             failures.push(`${m.display_name}: ${priced(t) ?? `not priced (${t.footer.kind})`}`)
             continue
           }
-          if (t.answer.trim() === '') failures.push(`${m.display_name}: empty answer`)
+          if (!namesWord(t.answer, word)) failures.push(`${m.display_name}: asked to say "${word}", it answered "${t.answer.trim().slice(0, 80)}"`)
           if (t.footer.model !== m.display_name) failures.push(`${m.display_name}: answered as "${t.footer.model}"`)
           const want = expectedFigure(listPriceUSD(m, t.footer.inputTokens, t.footer.outputTokens),
             t.footer.unit === 'LXC' ? env.usdPerLXC : undefined)
@@ -2048,10 +2052,20 @@ export function planCancelResume(): Scenario {
 }
 
 /**
+ * B35.8 — how long Lens takes to put an answer in the pool. It stores the answer once its stream has ended, not before
+ * (talyvor-lens internal/proxy/stream.go, storeAnswer after the stream loop): the exact copy goes to Redis first, then
+ * one embedding call and one insert for the semantic copy (internal/proxy/proxy.go storeCaches). Nothing waits on an
+ * age or a second asker, so two seconds after the answer has arrived it is there.
+ */
+export const POOL_ACCEPT_MS = 2_000
+
+/**
  * One test user asks a question only it has asked; another test user asks the same and is served it from
  * the pool. The oracle is the contributor's earnings ledger: a new pool_royalty_held row for that serve.
+ * B35.8 — a partner not served from the pool is followed by the next, once: not served twice is the FAIL, an answer that
+ * could be pooled and never reached the pool.
  */
-export function pooledServePaysRoyalty(seed: number, partner: number): Scenario {
+export function pooledServePaysRoyalty(seed: number, partners: readonly number[]): Scenario {
   return {
     id: 'pooled-royalty',
     title: 'an answer served from the pool to another test user pays its contributor a royalty',
@@ -2066,25 +2080,50 @@ export function pooledServePaysRoyalty(seed: number, partner: number): Scenario 
       // B27.16 — whether the model adds correctly is not this scenario's question (user 277's answered 102979
       // to a sum of 101979): what is pooled is checked against the contributor's own answer instead.
       if (t.footer.kind !== 'priced' || t.answer.trim() === '') return { pass: false, detail: `the contributor's question was not answered afresh: ${describe(t)}` }
-      const royalties = async () => (await env.lens.earningsRows(app.user)).filter((x) => x.type === 'pool_royalty_held')
-      const before = new Set((await royalties()).map((x) => x.id))
-      const other = await env.signInUser(partner)
-      let served: Turn
-      try {
-        served = record(ctx, await other.ask(q), `user ${partner} (another test user) asks the same`)
-      } finally {
-        await other.close()
+      // Whose answer a partner is served: the contributor's, or that of a partner before it who was not served and so
+      // answered afresh, and pooled that.
+      const askers: { user: SyntheticUser; answer: string; before: Set<string> }[] = []
+      const royalties = async (u: SyntheticUser) => (await env.lens.earningsRows(u)).filter((x) => x.type === 'pool_royalty_held')
+      askers.push({ user: app.user, answer: t.answer.trim(), before: new Set((await royalties(app.user)).map((x) => x.id)) })
+      await new Promise((done) => setTimeout(done, POOL_ACCEPT_MS))
+      let served: Turn | undefined
+      let servedTo = -1
+      const missed: string[] = []
+      for (const partner of partners) {
+        const before = new Set((await royalties(env.userAt(partner))).map((x) => x.id))
+        const other = await env.signInUser(partner)
+        let got: Turn
+        try {
+          got = record(ctx, await other.ask(q), `user ${partner} (another test user) asks the same`)
+        } finally {
+          await other.close()
+        }
+        if (got.footer.kind === 'pool') {
+          served = got
+          servedTo = partner
+          break
+        }
+        missed.push(`user ${partner} was answered afresh, ${describe(got)}`)
+        if (got.footer.kind === 'priced') askers.push({ user: env.userAt(partner), answer: got.answer.trim(), before })
       }
-      // Not served from the pool, no royalty is owed: that is across-accounts' to judge, not a verdict here.
-      if (served.footer.kind !== 'pool') throw new Error(`user ${partner} was not served from the pool, so no royalty was owed: ${describe(served)}`)
-      if (served.answer.trim() !== t.answer.trim()) return { pass: false, detail: `served from the pool, user ${partner} got "${served.answer.trim()}", not the contributor's "${t.answer.trim()}"` }
-      const rows = await eventually(ctx, 4, royalties, (xs) => xs.some((x) => !before.has(x.id)))
-      const minted = rows.filter((x) => !before.has(x.id))
-      ctx.evidence.push({ note: `the contributor's pool_royalty_held rows: ${before.size} before, ${rows.length} after` +
-        `${minted.length === 0 ? '' : ` — ${minted.map((x) => `${x.amount_ulens} µLENS "${x.description}"`).join('; ')}`}` })
-      if (minted.length === 0) return { pass: false, detail: `served from the pool at ${served.footer.discountPct}% off, and the contributor's earnings gained no royalty row` }
-      if (minted.some((x) => x.amount_ulens <= 0)) return { pass: false, detail: `a royalty row of ${minted.map((x) => x.amount_ulens).join(', ')} µLENS` }
-      return { pass: true, detail: `served from the pool; the contributor earned ${minted.map((x) => x.amount_ulens).join(' + ')} µLENS, held` }
+      if (served === undefined) {
+        return { pass: false, detail: `a poolable answer never reached the pool: the contributor's ${describe(t)}, ` +
+          `${POOL_ACCEPT_MS / 1000} s on not served to ${missed.length} other test user(s) — ${missed.join('; ')}` }
+      }
+      const answered = served.answer.trim()
+      if (!askers.some((x) => x.answer === answered)) {
+        return { pass: false, detail: `served from the pool, user ${servedTo} got "${answered}", not the contributor's "${t.answer.trim()}"` +
+          `${askers.length > 1 ? ` nor any answer asked before it (${askers.slice(1).map((x) => `"${x.answer}"`).join(', ')})` : ''}` }
+      }
+      const owed = askers.filter((x) => x.answer === answered)
+      const found = await eventually(ctx, 4, async () => Promise.all(owed.map(async (x) => ({ x, rows: await royalties(x.user) }))),
+        (all) => all.some(({ x, rows }) => rows.some((row) => !x.before.has(row.id))))
+      const minted = found.flatMap(({ x, rows }) => rows.filter((row) => !x.before.has(row.id)).map((row) => ({ who: x.user.index, row })))
+      ctx.evidence.push({ note: `pool_royalty_held rows of ${owed.map((x) => `user ${x.user.index}`).join(' and ')} after the serve: ` +
+        `${minted.length === 0 ? 'none new' : minted.map(({ who, row }) => `user ${who}: ${row.amount_ulens} µLENS "${row.description}"`).join('; ')}` })
+      if (minted.length === 0) return { pass: false, detail: `served from the pool at ${served.footer.kind === 'pool' ? served.footer.discountPct : 0}% off, and the contributor's earnings gained no royalty row` }
+      if (minted.some(({ row }) => row.amount_ulens <= 0)) return { pass: false, detail: `a royalty row of ${minted.map(({ row }) => row.amount_ulens).join(', ')} µLENS` }
+      return { pass: true, detail: `served from the pool to user ${servedTo}; its contributor (user ${minted[0].who}) earned ${minted.map(({ row }) => row.amount_ulens).join(' + ')} µLENS, held` }
     },
   }
 }
@@ -2105,6 +2144,12 @@ export async function checkLedger(env: RunEnv, user: SyntheticUser): Promise<Ver
     ledger: rows.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })),
   }]
   if (spends.length !== want.count) {
+    // B35.8 — an answer lost to a network drop may or may not have been charged: a ledger that holds no more rows than those
+    // answers explain cannot be judged, which is not a PASS either.
+    if (spends.length > want.count && spends.length <= want.count + want.unseen) {
+      throw new NetworkDropped(`${spends.length} spend rows for ${want.count} charged answers and ${want.unseen} lost to a network drop, ` +
+        'which Lens may or may not have charged: the ledger cannot be judged')
+    }
     return { pass: false, detail: `${spends.length} spend rows for ${want.count} charged answers`, evidence }
   }
   // One µLXC per row of rounding, on top of the shared answers' two-figure display.
@@ -2263,7 +2308,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B17.10, one in ten again. The contributor (7, 17, …) changes no setting and its partner is one of 9,
   // 19, …. The plan comes last, on a user nobody else asks as: what is asked after it is drawn from its
   // allowance, which the ledger read-back does not expect.
-  if (i % 10 === 7 && i + 2 < users) list.push(pooledServePaysRoyalty(i, i + 2))
+  // B35.8 — a second partner, asked once if the first is not served from the pool: the next 9, 19, … when there is one, else 8, 18, ….
+  if (i % 10 === 7 && i + 2 < users) list.push(pooledServePaysRoyalty(i, [i + 2, i + 12 < users ? i + 12 : i + 1]))
   if (i % 10 === 6) list.push(planOnTestCard(i), planCancelResume())
   // B32.71 — a Free workspace's second member, refused in Lens's words; then, once a run, the same workspace on
   // Team takes its fifth and is refused its sixth. Team comes last, on a user nobody else asks as (4, 14, …).

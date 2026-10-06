@@ -16,6 +16,8 @@ import { otherCompanyOnTeam } from './room.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
 export const ACTION_TIMEOUT_MS = 30_000
+/** B35.8 — the most an agent's balance may take to show its dollar figure beside the LXC. */
+const CURRENCY_WAIT_MS = 10_000
 /** An agent's questions are one number long. */
 const AGENT_MAX_TOKENS = 16
 /** A listing's use: Lens runs it with the most output a chat answer may produce. */
@@ -310,7 +312,8 @@ export class AgentBankScreen {
     await this.fresh()
     const balance = this.page.getByTestId(`agent-balance-${agent.id}`)
     // B34.1 — the money figure follows the LXC once the peg is read (money.tsx); read too early, the line is LXC alone.
-    await balance.filter({ hasText: /\(.+\)\s*$/ }).waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+    // B35.8 — waited for up to CURRENCY_WAIT_MS: none by then is what the verdict reads.
+    await balance.filter({ hasText: /\(.+\)\s*$/ }).waitFor({ timeout: CURRENCY_WAIT_MS }).catch(() => undefined)
     return (await balance.innerText()).trim()
   }
 
@@ -651,7 +654,8 @@ export const agentIn = (b: AgentBook, id: string): Agent | undefined => b.agents
 export async function openAgent(ctx: ScenarioCtx, bank: AgentBankScreen, name: string, template?: string): Promise<Agent | string> {
   const err = template === undefined ? await bank.create(name) : await bank.createFrom(name, template)
   if (err !== undefined) return `creating ${name} was refused: ${err}`
-  const a = (await ctx.env.lens.agentBook(ctx.app.user)).agents.find((x) => x.name === name)
+  // B35.8 — the active one: a second attempt opens its agents again by the names the first attempt's, now archived, had.
+  const a = (await ctx.env.lens.agentBook(ctx.app.user)).agents.find((x) => x.name === name && x.archived_at === undefined)
   if (a === undefined) return `${name} shows on the screen but Lens has no such agent`
   if (a.owner_user_id === '') return `${name} was created with no owner`
   return a
@@ -2076,7 +2080,7 @@ export function chatLaunchAgent(seed: number): Scenario {
         const key = (await launch.getByTestId('chat-launch-key').innerText()).trim()
 
         const book = await bookOf(ctx)
-        const a = book.agents.find((x) => x.name === name)
+        const a = book.agents.find((x) => x.name === name && x.archived_at === undefined)
         if (a === undefined) return fail(`the card says ${name} is launched, but Lens's /api/agents has no agent named ${name}`)
         if (a.owner_user_id === '') return fail(`${name} was launched with no owner`)
         if (a.balance_ulxc !== budget) return fail(`launched with a ${budget} µLXC budget; Lens's book says ${name} holds ${a.balance_ulxc}`)
@@ -2602,7 +2606,7 @@ export function walletOnboarding(seed: number): Scenario {
         const key = (await page.getByTestId('onboarding-key').innerText()).trim()
 
         const book = await bookOf(ctx)
-        const a = book.agents.find((x) => x.name === name)
+        const a = book.agents.find((x) => x.name === name && x.archived_at === undefined)
         if (a === undefined) return fail(`Home's three steps finished, but Lens has no agent named ${name}`)
         if (a.owner_user_id === '') return fail(`${name} was created with no owner`)
         if (a.balance_ulxc !== amount) return fail(`funded ${amount} µLXC on Home; Lens says ${name} holds ${a.balance_ulxc}`)

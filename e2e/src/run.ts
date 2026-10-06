@@ -20,9 +20,11 @@ import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap
 import { type ExplorerSummary, type Finding, Notebook, explore } from './explore.ts'
 import { fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
+import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
+import { networkDrop } from './oracles.ts'
 import { groupLeads, reportPath, writeReport, writeTesters } from './report.ts'
-import { roomForAgents } from './room.ts'
-import { CannotTest, type Evidence, type RunEnv, checkLedger, journeyFor } from './scenarios.ts'
+import { archiveAll, roomForAgents } from './room.ts'
+import { CannotTest, type Evidence, type RunEnv, type Scenario, checkLedger, journeyFor } from './scenarios.ts'
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -44,6 +46,16 @@ export interface Outcome {
   seconds: number
   /** B25.5 — the features it is reported under: the screens it opened, or the one it names. */
   features: string[]
+  /** B35.8 — when its verdict came, for the report's environment section. */
+  at?: string
+}
+
+/** B35.8 — a verdict a network drop of the testers' own explains: an ERROR, listed under the environment with its time. */
+export interface NetworkDrop {
+  at: string
+  user: number
+  scenario: string
+  detail: string
 }
 
 export interface RunResult {
@@ -68,12 +80,48 @@ export interface RunResult {
   findings: Finding[]
   /** B25.5 — every screen, BFF route and Lens route, and its state after this run (none when it stopped before the inventory). */
   coverage?: CoverageMap
+  /** B35.8 — the verdicts the testers' own network explains, each an ERROR. */
+  network_drops: NetworkDrop[]
+  /** B35.8 — the Mac's memory at the start and every 5 minutes, and how many users it let run at once. */
+  memory: MemorySample[]
+  /** B35.8 — each scenario that FAILed for one or two users, run again for them before the ledger read-back. */
+  second_attempts: Outcome[]
 }
 
-async function pool<T>(items: T[], width: number, work: (item: T) => Promise<void>): Promise<void> {
+/**
+ * B35.8 — a verdict's status with the testers' own network taken into account: a FAIL or an ERROR that a dropped
+ * connection explains ("Failed to fetch", net::ERR_…, "lens upstream unreachable") is an ERROR, and files nothing.
+ */
+export function classify(status: Status, detail: string): { status: Status; drop?: string } {
+  if (status !== 'FAIL' && status !== 'ERROR') return { status }
+  const drop = networkDrop(detail)
+  return drop === undefined ? { status } : { status: 'ERROR', drop }
+}
+
+/** B35.8 — the scenarios to run again, each for the users it FAILed for, when it failed for one or two of them. */
+export function secondAttemptsOf(outcomes: readonly Pick<Outcome, 'scenario' | 'user' | 'status'>[]): Map<number, string[]> {
+  const failed = new Map<string, number[]>()
+  for (const o of outcomes) if (o.status === 'FAIL') failed.set(o.scenario, [...(failed.get(o.scenario) ?? []), o.user])
+  const again = new Map<number, string[]>()
+  for (const [scenario, users] of failed) {
+    if (users.length > 2) continue
+    for (const u of users) again.set(u, [...(again.get(u) ?? []), scenario])
+  }
+  return again
+}
+
+/** B35.8 — how often a lane past the width the Mac allows now looks again. */
+const LANE_WAIT_MS = 5_000
+
+/** `work` on every item, `width` at a time; B35.8 — a lane at or past `open()` waits before it takes its next item. */
+async function pool<T>(items: T[], width: number, work: (item: T) => Promise<void>, open: () => number = () => width): Promise<void> {
   let next = 0
-  const lanes = Array.from({ length: Math.min(width, items.length) }, async () => {
-    while (next < items.length) await work(items[next++])
+  const lanes = Array.from({ length: Math.min(width, items.length) }, async (_, lane) => {
+    for (;;) {
+      while (lane >= open() && next < items.length) await new Promise((r) => setTimeout(r, LANE_WAIT_MS))
+      if (next >= items.length) return
+      await work(items[next++])
+    }
   })
   await Promise.all(lanes)
 }
@@ -155,6 +203,20 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
   const outcomes: Outcome[] = []
   const summaries: ExplorerSummary[] = []
   const findings: Finding[] = []
+  const drops: NetworkDrop[] = []
+  const secondAttempts: Outcome[] = []
+  // B35.8 — the Mac's memory now and every 5 minutes; the users started at once follow its swap.
+  const memory: MemorySample[] = []
+  let width = cfg.concurrency
+  const sample = async (): Promise<void> => {
+    const m = await readMemory().catch(() => ({}))
+    width = nextWidth(width, cfg.concurrency, m)
+    memory.push({ at: stamp(), ...m, width })
+    const last = memory[memory.length - 1]
+    if (last.swapTotalMB !== undefined) console.log(`memory: ${last.pressure ?? 'pressure unknown'}, swap ${Math.round(last.swapUsedMB ?? 0)} of ${Math.round(last.swapTotalMB)} MB; ${width} users at once`)
+  }
+  await sample()
+  const sampler = setInterval(() => void sample(), SAMPLE_EVERY_MS)
   const rec = new Recorder()
   const lens = new LensClient(cfg.lensURL, cfg.syntheticKey, rec, undefined, undefined, cfg.moderatorKey)
   const cap = new SpendCap(cfg.capUSD)
@@ -221,7 +283,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     if (!catalog.some((m) => m.display_name === cfg.model)) throw new Error(`the catalog has no model named "${cfg.model}"`)
 
     stage = 'the users ran their journeys'
-    const browsers = new Browsers(cfg.headed, incidents)
+    let browsers = new Browsers(cfg.headed, incidents)
     const signIn = async (user: SyntheticUser) =>
       AppUser.signIn(await browsers.get(), user, { appURL: cfg.appURL, syntheticKey: cfg.syntheticKey, cap, catalog, modelName: cfg.model, book, usdPerLXC, recorder: rec })
     const env: RunEnv = {
@@ -236,6 +298,50 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       lensSrc: cfg.lensSrc,
       // B29.21 — beside the day's report, one folder a run, so the report's links outlive out/.
       shots: { dir: join(reportDirOf(cfg), 'shots', shotStamp), link: `shots/${shotStamp}` },
+    }
+
+    /** One scenario, for one signed-in user: its verdict, never a throw. */
+    const attempt = async (app: AppUser, user: SyntheticUser, s: Scenario): Promise<Outcome> => {
+      const base = { user: user.index, workspace: user.workspaceID }
+      const t0 = Date.now()
+      const evidence: Evidence[] = []
+      let status: Status
+      let detail: string
+      let where: string[] | undefined
+      // Everything this scenario makes happen — its browser, a partner it signs in, its calls to
+      // Lens — is recorded as its own, for the coverage map.
+      const tag: Tag = { scenario: s.id, user: user.index }
+      app.tag = tag
+      const scenarioEnv: RunEnv = {
+        ...env,
+        lens: lens.tagged(tag),
+        signInUser: async (index) => {
+          const other = await signIn(users[index])
+          other.tag = tag
+          return other
+        },
+      }
+      try {
+        const v = await timed(SCENARIO_MS, s.id, unlessStopped(s.id, (async () => {
+          await app.newChat() // every scenario starts from an empty conversation
+          if (s.agents !== undefined) await roomForAgents(scenarioEnv.lens, user, s.agents, evidence)
+          return s.run({ app, env: scenarioEnv, evidence })
+        })()))
+        status = v.pass ? 'PASS' : 'FAIL'
+        detail = v.detail
+        if (!v.pass) where = v.where
+      } catch (e) {
+        status = e instanceof CapReached || e instanceof CannotTest ? 'SKIP' : 'ERROR'
+        detail = e instanceof Error ? e.message : String(e)
+        // Where it was when it broke — before going back to Chat, which is not where it broke.
+        where = rec.screensOf(tag)
+        if (status === 'ERROR') await timed(CLOSE_MS, 'going back to Chat', unlessStopped('going back to Chat', app.openChat())).catch(() => undefined)
+      }
+      // B35.8 — the testers' own network dropping is not the feature failing.
+      const c = classify(status, detail)
+      if (c.drop !== undefined) drops.push({ at: stamp(), user: user.index, scenario: s.id, detail })
+      return { ...base, scenario: s.id, title: s.title, status: c.status, detail, evidence, seconds: (Date.now() - t0) / 1000,
+        features: featuresOf(where ?? rec.screensOf(tag), s.feature), at: stamp() }
     }
 
     try {
@@ -261,51 +367,54 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
               outcomes.push({ ...base, scenario: s.id, title: s.title, status: 'SKIP', detail: `not run: ${stoppedBy}`, evidence: [], seconds: 0, features: featuresOf([], s.feature) })
               continue
             }
-            const t0 = Date.now()
-            const evidence: Evidence[] = []
-            let status: Status
-            let detail: string
-            let where: string[] | undefined
-            // Everything this scenario makes happen — its browser, a partner it signs in, its calls to
-            // Lens — is recorded as its own, for the coverage map.
-            const tag: Tag = { scenario: s.id, user: user.index }
-            app.tag = tag
-            const scenarioEnv: RunEnv = {
-              ...env,
-              lens: lens.tagged(tag),
-              signInUser: async (index) => {
-                const other = await signIn(users[index])
-                other.tag = tag
-                return other
-              },
-            }
-            try {
-              const v = await timed(SCENARIO_MS, s.id, unlessStopped(s.id, (async () => {
-                await app.newChat() // every scenario starts from an empty conversation
-                if (s.agents !== undefined) await roomForAgents(scenarioEnv.lens, user, s.agents, evidence)
-                return s.run({ app, env: scenarioEnv, evidence })
-              })()))
-              status = v.pass ? 'PASS' : 'FAIL'
-              detail = v.detail
-              if (!v.pass) where = v.where
-            } catch (e) {
-              status = e instanceof CapReached || e instanceof CannotTest ? 'SKIP' : 'ERROR'
-              detail = e instanceof Error ? e.message : String(e)
-              // Where it was when it broke — before going back to Chat, which is not where it broke.
-              where = rec.screensOf(tag)
-              if (status === 'ERROR') await timed(CLOSE_MS, 'going back to Chat', unlessStopped('going back to Chat', app.openChat())).catch(() => undefined)
-            }
-            outcomes.push({ ...base, scenario: s.id, title: s.title, status, detail, evidence, seconds: (Date.now() - t0) / 1000,
-              features: featuresOf(where ?? rec.screensOf(tag), s.feature) })
-            console.log(`${status.padEnd(5)} user ${String(user.index).padStart(3)} ${s.id}: ${detail}`)
-            if (status === 'ERROR') await checkLens()
+            const o = await attempt(app, user, s)
+            outcomes.push(o)
+            console.log(`${o.status.padEnd(5)} user ${String(user.index).padStart(3)} ${s.id}: ${o.detail}`)
+            if (o.status === 'ERROR') await checkLens()
           }
         } finally {
           await timed(CLOSE_MS, 'closing its browser', app.close()).catch(() => undefined)
         }
-      })
+      }, () => width)
     } finally {
       await timed(CLOSE_MS, 'closing the browser', browsers.close()).catch(() => undefined)
+    }
+
+    // B35.8 — THE SECOND ATTEMPTS, before the ledger read-back, so it books what they charge: a scenario that FAILed for
+    // one or two users runs again for them. The first attempt's FAIL is the one filed; the report shows both.
+    const again = secondAttemptsOf(outcomes)
+    if (again.size > 0 && notRun() === undefined) {
+      stage = 'running again what failed for one or two users'
+      console.log(`second attempts: ${[...again].map(([u, ids]) => `user ${u} ${ids.join(', ')}`).join('; ')}`)
+      const second = new Browsers(cfg.headed, incidents)
+      browsers = second
+      try {
+        await pool([...again], cfg.concurrency, async ([index, ids]) => {
+          const user = users[index]
+          const scenarios = journeyFor(index, users.length, STREAMABLE).filter((s) => ids.includes(s.id))
+          let app: AppUser
+          try {
+            app = await timed(SIGN_IN_MS, 'signing in', unlessStopped('signing in', signIn(user)))
+          } catch (e) {
+            for (const s of scenarios) secondAttempts.push({ user: index, workspace: user.workspaceID, scenario: s.id, title: s.title, status: 'ERROR', detail: `sign-in: ${String(e)}`, evidence: [], seconds: 0, features: featuresOf([], s.feature), at: stamp() })
+            return
+          }
+          try {
+            const archived = await archiveAll(lens.tagged({ scenario: 'second-attempt', user: index }), user).catch((e: unknown) => [`none: ${describe(e)}`])
+            if (archived.length > 0) console.log(`user ${index}, before its second attempts: archived ${archived.join(', ')}`)
+            for (const s of scenarios) {
+              if (notRun() !== undefined) break
+              const o = await attempt(app, user, s)
+              secondAttempts.push(o)
+              console.log(`${o.status.padEnd(5)} user ${String(index).padStart(3)} ${s.id} (second attempt): ${o.detail}`)
+            }
+          } finally {
+            await timed(CLOSE_MS, 'closing its browser', app.close()).catch(() => undefined)
+          }
+        }, () => width)
+      } finally {
+        await timed(CLOSE_MS, 'closing the browser', second.close()).catch(() => undefined)
+      }
     }
 
     // THE LEDGER, once nothing is in flight: a cross-account scenario charges its partner too.
@@ -326,8 +435,12 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
           status: v.pass ? 'PASS' : 'FAIL', detail: v.detail, evidence: v.evidence, seconds: (Date.now() - t0) / 1000, features: ['Ledger'] }
       } catch (e) {
         o = { user: user.index, workspace: user.workspaceID, scenario: 'ledger-matches-answers', title: 'ledger read-back',
-          status: 'ERROR', detail: String(e), evidence: [], seconds: (Date.now() - t0) / 1000, features: ['Ledger'] }
+          status: 'ERROR', detail: e instanceof Error ? e.message : String(e), evidence: [], seconds: (Date.now() - t0) / 1000, features: ['Ledger'] }
       }
+      // B35.8 — answers lost to the testers' network leave a ledger nobody can judge.
+      const c = classify(o.status, o.detail)
+      if (c.drop !== undefined) drops.push({ at: stamp(), user: user.index, scenario: o.scenario, detail: o.detail })
+      o = { ...o, status: c.status, at: stamp() }
       outcomes.push(o)
       if (o.status === 'ERROR') await checkLens()
     })
@@ -380,6 +493,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     halt()
   } finally {
     process.off('unhandledRejection', stray)
+    clearInterval(sampler)
   }
   if (stoppedBy !== undefined) console.log(`STOPPED: ${stoppedBy}`)
 
@@ -404,6 +518,9 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     explorers: summaries,
     findings,
     ...(inv === undefined ? {} : { coverage: buildMap(inv, rec) }),
+    network_drops: drops,
+    memory,
+    second_attempts: secondAttempts.sort((a, b) => a.user - b.user),
   }
 }
 
