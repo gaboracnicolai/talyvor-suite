@@ -24,6 +24,9 @@ import (
 //	POST /api/agents/{id}/rules/simulate {"amount_ulxc", "model"?, "provider"?, "payee"?, "at"?}   B28.30: would they let it through? moves nothing
 //	GET  /api/agents/{id}/rules/history                B28.31: every version of the rules, newest first, who changed them and how
 //	POST /api/agents/{id}/rules/rollback {"version"}   B28.31: put the rules back exactly as they were at that version
+//	GET  /api/agents/{id}/rules/boosts                 B28.32: the limits raised for now, and until when
+//	POST /api/agents/{id}/rules/boosts {"rule", "value", "until"}   B28.32: raise a limit until a time; it reverts by itself
+//	DELETE /api/agents/{id}/rules/boosts/{rule}        B28.32: end a boost before its time
 //	GET  /api/agents/{id}/statement                    the agent's account, newest first
 //	GET  /api/agents/{id}/statement?from=&to=&format=json|csv   B19.22: its statement for a period, to download
 //	GET  /api/agents/statement?from=&to=&format=json|csv        B19.22: every account in the bank, for a period
@@ -79,6 +82,8 @@ func (a *app) agentBankRelayPath(w http.ResponseWriter, r *http.Request, t tenan
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	switch {
+	case resp.StatusCode == http.StatusNoContent: // B28.32: ending a boost answers nothing
+		w.WriteHeader(http.StatusNoContent)
 	case resp.StatusCode >= 200 && resp.StatusCode < 300 && json.Valid(raw):
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
@@ -310,6 +315,56 @@ func (a *app) handleAgentRulesRollback(w http.ResponseWriter, r *http.Request, t
 	// UPSTREAM-BINDS-ONLY lensAgentRulesRollbackBody: none
 	body, _ := json.Marshal(in)
 	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
+}
+
+// handleAgentRuleBoosts — GET and POST /api/agents/{id}/rules/boosts (B28.32). GET lists the agent's limits raised for
+// now, the soonest to end first. POST {"rule", "value", "until"} raises one of its limits to value until that time:
+// Lens (B28.308) judges the rules at each request's time with the boosts in force laid over them, so from until on the
+// limit is the rules' again with nothing to undo. Lens refuses a limit the rules do not set, a value not above it, or
+// a time not in the future, with its sentence.
+func (a *app) handleAgentRuleBoosts(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+		return
+	}
+	suffix, ok := agentSuffix(w, r, "rules/boosts")
+	if !ok {
+		return
+	}
+	if r.Method == http.MethodGet {
+		a.agentBankRelay(w, r, t, http.MethodGet, suffix, nil)
+		return
+	}
+	var in struct {
+		Rule  string    `json:"rule"`
+		Value int64     `json:"value"`
+		Until time.Time `json:"until"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<10)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensAgentRuleBoostBody: none
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPost, suffix, body)
+}
+
+// handleAgentRuleBoostEnd — DELETE /api/agents/{id}/rules/boosts/{rule} (B28.32): ends the agent's boost on that limit
+// now, before its time; the limit is the rules' again. Lens answers 404 when no boost on it is in force.
+func (a *app) handleAgentRuleBoostEnd(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w, http.MethodDelete)
+		return
+	}
+	suffix, ok := agentSuffix(w, r, "rules/boosts")
+	if !ok {
+		return
+	}
+	rule, ok := pathID(w, "limit", r.PathValue("rule"))
+	if !ok {
+		return
+	}
+	a.agentBankRelay(w, r, t, http.MethodDelete, suffix+"/"+url.PathEscape(rule), nil)
 }
 
 // handleAgentStatement — GET /api/agents/{id}/statement: the agent's last 100 lines. With ?from=, ?to=

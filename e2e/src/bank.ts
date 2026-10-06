@@ -176,6 +176,25 @@ export class AgentBankScreen {
     return outcome(c.getByRole('status').filter({ hasText: `back as they were at version ${version}` }), c)
   }
 
+  /**
+   * B28.32 — raises one of the agent's limits on Limit boost to `ulxc` until `until` (epoch ms, a whole minute: the
+   * Until field holds the browser's local time to the minute); undefined, or the refusal's words.
+   */
+  async boostLimit(agent: Agent, label: string, ulxc: number, until: number): Promise<string | undefined> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Limit boost')
+    await c.getByLabel(`Limit to raise for ${agent.name}`).selectOption({ label })
+    await c.getByLabel(`Raise ${agent.name}’s limit to`).fill(lxcText(ulxc))
+    const local = await this.page.evaluate((ms) => {
+      const d = new Date(ms)
+      const p = (n: number) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+    }, until)
+    await c.getByLabel(`Raise ${agent.name}’s limit until`).fill(local)
+    await c.getByRole('button', { name: 'Raise until then' }).click()
+    return outcome(c.getByRole('status').filter({ hasText: 'again by itself' }), c)
+  }
+
   /** B28.31 — what Rules history says of one version: how it came to be, by whom, and what it changed. */
   async rulesVersion(version: number): Promise<string> {
     const row = card(this.page, 'Rules history').getByTestId(`rules-version-${version}`)
@@ -1154,6 +1173,76 @@ export function agentRulesRollback(seed: number): Scenario {
       const row = await bank.rulesVersion(4)
       if (!row.includes('Rolled back to version 1 by you')) return fail(`Rules history does not say who rolled back: "${row}"`)
       return { pass: true, detail: `rolled back to version 1: Lens's rules are byte for byte version 1's (${now}); version 4 "rollback to 1" by ${newest.changed_by}, and Rules history reads "${row}"` }
+    }),
+  }
+}
+
+/**
+ * B28.32 — the DONE line: after expiry a hold at the boosted size writes nothing. An agent funded 1 LXC with a daily
+ * limit of 0.000001 LXC has it raised on Limit boost to 1 LXC until a whole minute one to two minutes away. Before that
+ * time its question is served — one hold posting and one spend row. From that time on Lens lists no boost, its rules
+ * read still says 0.000001 LXC, and the same question is refused by that daily limit with nothing on the agent's
+ * account and no spend row on the ledger.
+ */
+export function agentLimitBoost(seed: number): Scenario {
+  const r = seeded(seed * 43 + 17)
+  return {
+    id: 'agent-limit-boost',
+    title: 'a daily limit raised on Limit boost lets a request through until its time; after it the same request is refused and writes nothing',
+    run: (ctx) => withBank(ctx, async (bank) => {
+      const a = await openAgent(ctx, bank, `Boosted ${seed}`)
+      if (typeof a === 'string') return fail(a)
+      let err = await bank.move(a, 1e6, 'Fund')
+      if (err !== undefined) return fail(`funding was refused: ${err}`)
+      err = await bank.setLimit(a, 'Daily limit', 1)
+      if (err !== undefined) return fail(`the daily limit was not saved: ${err}`)
+      const key = await bank.issueKey(a)
+      const { q, want } = sum(r)
+      const until = Math.ceil((Date.now() + 60_000) / 60_000) * 60_000
+      err = await bank.boostLimit(a, 'Daily limit', 1e6, until)
+      if (err !== undefined) return fail(`the boost was refused: ${err}`)
+      const boost = (await ctx.env.lens.agentBoosts(ctx.app.user, a.id)).find((b) => b.rule === 'daily_limit_ulxc')
+      if (boost?.value !== 1e6 || boost.raised_from !== 1 || Date.parse(boost.until) !== until) {
+        return fail(`Lens does not hold the daily limit raised from 1 to 1,000,000 µLXC until ${new Date(until).toISOString()}: ${JSON.stringify(boost)}`)
+      }
+
+      const lines0 = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+      const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const served = await agentAsks(ctx, key, q, 'under the daily limit raised to 1 LXC')
+      if (!served.ok) return fail(`with the daily limit raised to 1 LXC the request was refused: ${served.status} ${served.error}`)
+      if (Date.now() >= until) return fail(`the request under the boost finished only after its time (${new Date(until).toISOString()}), so it proves nothing`)
+      if (!statesNumber(served.value.text, want)) return fail(`answered wrong: expected ${want}, got "${served.value.text}"`)
+      const lines1 = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+      const spends1 = await spendRows(ctx)
+      const posted = lines1.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id)).filter(requestLine)
+      const charged = spends1.filter((x) => !spends0.has(x.id))
+      if (posted.length !== 1 || charged.length !== 1) {
+        return fail(`under the boost: ${posted.length} hold or spend posting(s) on ${a.name}'s account and ${charged.length} spend row(s); want one of each`)
+      }
+
+      // From until on Lens reads the rules without the boost. Wait for its own clock to agree before asking again.
+      await new Promise((ok) => setTimeout(ok, Math.max(0, until - Date.now()) + 2_000))
+      let left = await ctx.env.lens.agentBoosts(ctx.app.user, a.id)
+      for (let i = 0; i < 15 && left.length > 0; i++) {
+        await new Promise((ok) => setTimeout(ok, 2_000))
+        left = await ctx.env.lens.agentBoosts(ctx.app.user, a.id)
+      }
+      if (left.length > 0) return fail(`30 seconds after its time Lens still lists the boost: ${JSON.stringify(left)}`)
+      const rules = await ctx.env.lens.agentRules(ctx.app.user, a.id)
+      if (rules.daily_limit_ulxc !== 1) return fail(`the rules' daily limit is ${rules.daily_limit_ulxc} µLXC after the boost, not the 1 µLXC it was raised from`)
+
+      const refused = await agentAsks(ctx, key, q, 'the same request after the boost ended')
+      if (refused.ok) return fail(`after the boost ended the request was served: "${refused.value.text}"`)
+      if (refused.status !== 403 || !/daily limit of 0\.000001 LXC/.test(refused.error)) {
+        return fail(`refused, but not by the 0.000001 LXC daily limit: ${refused.status} ${refused.error}`)
+      }
+      const late = (await ctx.env.lens.agentLines(ctx.app.user, a.id)).filter((l) => !lines1.some((o) => o.entry_id === l.entry_id))
+      const chargedLate = (await spendRows(ctx)).filter((x) => !spends0.has(x.id) && !charged.some((c) => c.id === x.id))
+      ctx.evidence.push({ note: `boost until ${new Date(until).toISOString()}; under it: ${posted[0].kind} ${posted[0].amount_ulxc} µLXC; after it: ${late.length} posting(s), ${chargedLate.length} spend row(s), refused "${refused.error}"` })
+      if (late.length > 0 || chargedLate.length > 0) {
+        return fail(`after the boost ended the refused request wrote ${late.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} on ${a.name}'s account and ${chargedLate.length} spend row(s) on the ledger`)
+      }
+      return { pass: true, detail: `under the boost: one ${posted[0].kind} posting (${posted[0].amount_ulxc} µLXC) and one spend row; after ${new Date(until).toISOString()}: no boost listed, the rules still 0.000001 LXC a day, and the same request refused (403) with no posting and no spend row` }
     }),
   }
 }

@@ -87,7 +87,11 @@ interface Rules {
   timezone: string
   pause_on_unusual_spend: boolean
 }
-interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string; versions?: RulesVersion[] }
+interface Agent { id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string; versions?: RulesVersion[]; boosts?: Boost[] }
+/** B28.32 — Lens B28.308's agent_rule_boosts: one of the agent's limits raised from the rules' value until a time. */
+interface Boost { rule: BoostRule; raised_from: number; value: number; until: string; created_by: string; created_at: string }
+const BOOSTABLE = ['max_per_request_ulxc', 'hourly_limit_ulxc', 'daily_limit_ulxc', 'weekly_limit_ulxc', 'monthly_limit_ulxc', 'approval_above_ulxc', 'requests_per_minute'] as const
+type BoostRule = (typeof BOOSTABLE)[number]
 /** B28.31 — Lens B28.307's agent_rules_versions: the rules as each change left them, newest first, by whom and how. */
 interface RulesVersion { version: number; rules: Rules; changed_by: string; change: string; created_at: string }
 interface Posting { posting_id: number; entry_id: string; at: string; ws: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string; model?: string }
@@ -251,7 +255,7 @@ export class Bank {
     const all = this.allPaused.get(agent.ws)
     if (all !== undefined) return rule(`every agent in this workspace is paused (${all.reason || "paused by the workspace's owner"}) — the workspace's owner can resume them`)
     if (agent.paused_at !== undefined) return rule(`the agent is paused (${agent.paused_reason || "paused by the workspace's owner"}) — the workspace's owner can resume it`)
-    const r = agent.rules
+    const r = this.rulesInForce(agent)
     const what = req.payment ? 'payment' : 'request'
     if (r.allowed_models.length > 0 && !req.payment && !r.allowed_models.includes(req.model ?? '')) return rule(`the agent may not use the model "${req.model}"`)
     if (req.payment && req.payee !== undefined) {
@@ -465,6 +469,18 @@ export class Bank {
 
   private broken(name: string): boolean {
     return this.d.brk.split(',').includes(name)
+  }
+
+  /**
+   * B28.32 — the agent's rules with its boosts in force now laid over them, as Lens's agentRulesInForce reads them: a
+   * boost raises its limit only while the rules leave it where it was, and from its time on it is not read.
+   */
+  private rulesInForce(a: Agent): Rules {
+    const r = structuredClone(a.rules)
+    for (const b of (a.boosts ?? []).filter((x) => Date.parse(x.until) > Date.now())) {
+      if (r[b.rule] === b.raised_from && b.value > r[b.rule]) r[b.rule] = b.value
+    }
+    return r
   }
 
   /**
@@ -965,6 +981,31 @@ export class Bank {
       a.rules = structuredClone(back.rules)
       this.recordRules(a, ws.id, `rollback to ${version}`)
       return json(res, 200, a.rules), true
+    }
+    // B28.32 — Lens B28.308's boosts: listed while in force, set over a limit the rules set, ended early by limit.
+    if ((m = /^\/agents\/([^/]+)\/rules\/boosts(?:\/([^/]+))?$/.exec(rest)) !== null) {
+      const a = this.agents.get(m[1])
+      if (a === undefined || a.ws !== ws.id) return json(res, 404, { error: 'economy: no such agent in this workspace' }), true
+      const inForce = (a.boosts ?? []).filter((b) => Date.parse(b.until) > Date.now()).sort((x, y) => x.until.localeCompare(y.until) || x.rule.localeCompare(y.rule))
+      if (m[2] === undefined && method === 'GET') return json(res, 200, { boosts: inForce }), true
+      if (m[2] !== undefined && method === 'DELETE') {
+        if (!inForce.some((b) => b.rule === m?.[2])) return json(res, 404, { error: 'economy: the agent has no boost in force on that limit' }), true
+        a.boosts = (a.boosts ?? []).filter((b) => b.rule !== m?.[2])
+        return res.writeHead(204).end(), true
+      }
+      if (m[2] === undefined && method === 'POST') {
+        const { rule = '', value = 0, until = '' } = await this.body<{ rule?: string; value?: number; until?: string }>(req)
+        if (rule === '' || until === '') return json(res, 400, { error: 'body must be {"rule": <the limit, e.g. daily_limit_ulxc>, "value": <raised to>, "until": <RFC 3339 time>}' }), true
+        const field = BOOSTABLE.find((f) => f === rule)
+        if (field === undefined) return json(res, 400, { error: `economy: invalid agent rule: "${rule}" is not a limit a boost can raise` }), true
+        if (!(Date.parse(until) > Date.now())) return json(res, 400, { error: 'economy: invalid agent rule: a boost needs a time in the future to last until' }), true
+        const current = a.rules[field]
+        if (current === 0) return json(res, 400, { error: 'economy: invalid agent rule: the agent has no such limit to raise; set it in the rules first' }), true
+        if (!(value > current)) return json(res, 400, { error: 'economy: invalid agent rule: a boost must raise the limit above what it is' }), true
+        const b: Boost = { rule: field, raised_from: current, value, until: new Date(until).toISOString(), created_by: `jwt:user:${ws.id}`, created_at: now }
+        a.boosts = [...(a.boosts ?? []).filter((x) => x.rule !== field), b]
+        return json(res, 201, b), true
+      }
     }
     // B28.30 — Lens B28.306's simulator: the rules' judgement of a request, with nothing posted and no approval filed.
     if ((m = /^\/agents\/([^/]+)\/rules\/simulate$/.exec(rest)) !== null && method === 'POST') {

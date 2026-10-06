@@ -59,6 +59,13 @@ func newFakeLensAgentBank(t *testing.T) (*app, *fakeLensAgentBank) {
 			}})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules/rollback"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"daily_limit_ulxc": 5_000_000})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules/boosts") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"rule": "daily_limit_ulxc", "raised_from": 10_000_000, "value": 50_000_000, "until": "2026-10-06T18:00:00Z", "created_by": "jwt:user:ws_1", "created_at": "2026-10-06T09:00:00Z"})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules/boosts"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"boosts": []map[string]any{{"rule": "daily_limit_ulxc", "raised_from": 10_000_000, "value": 50_000_000, "until": "2026-10-06T18:00:00Z", "created_by": "jwt:user:ws_1", "created_at": "2026-10-06T09:00:00Z"}}})
+		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules/boosts/daily_limit_ulxc"):
+			w.WriteHeader(http.StatusNoContent)
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/rules/simulate"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"verdict": "refused", "reason": "the agent has spent 0 LXC of its daily limit of 5 LXC, and this request would cost up to 6 LXC", "amount_ulxc": 6_000_000, "balance_ulxc": 10_000_000})
 		case strings.HasSuffix(r.URL.Path, "/agents/agt_1/archive"):
@@ -428,6 +435,39 @@ func TestRulesHistoryAndRollbackReachLens(t *testing.T) {
 		!strings.HasPrefix(f.got[1], "POST /v1/workspaces/") || !strings.HasSuffix(f.got[1], `/agents/agt_1/rules/rollback {"version":1}`) ||
 		strings.Contains(f.got[1], "ws_other") {
 		t.Fatalf("Lens got %q; want GET …/rules/history and POST …/rules/rollback {\"version\":1}", f.got)
+	}
+}
+
+// B28.32 — a limit boost reaches Lens's rules/boosts with only the limit, the value and the time (a browser's workspace
+// id goes nowhere) and answers Lens's boost; the list answers Lens's, and ending one reaches Lens's DELETE for that limit.
+func TestRuleBoostsReachLens(t *testing.T) {
+	a, f := newFakeLensAgentBank(t)
+	rec := doJSON(a, http.MethodPost, "/api/agents/agt_1/rules/boosts", `{"rule":"daily_limit_ulxc","value":50000000,"until":"2026-10-06T18:00:00Z","workspace_id":"ws_other"}`)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"raised_from":10000000`) {
+		t.Fatalf("boost = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(a, http.MethodGet, "/api/agents/agt_1/rules/boosts", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"until":"2026-10-06T18:00:00Z"`) {
+		t.Fatalf("boosts = %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(a, http.MethodDelete, "/api/agents/agt_1/rules/boosts/daily_limit_ulxc", "")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("end boost = %d %s", rec.Code, rec.Body.String())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	want := []string{
+		`POST /agents/agt_1/rules/boosts {"rule":"daily_limit_ulxc","value":50000000,"until":"2026-10-06T18:00:00Z"}`,
+		`GET /agents/agt_1/rules/boosts `,
+		`DELETE /agents/agt_1/rules/boosts/daily_limit_ulxc `,
+	}
+	if len(f.got) != len(want) {
+		t.Fatalf("Lens got %q; want %q", f.got, want)
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(f.got[i], strings.SplitN(w, " ", 2)[0]+" /v1/workspaces/") || !strings.HasSuffix(f.got[i], strings.SplitN(w, " ", 2)[1]) || strings.Contains(f.got[i], "ws_other") {
+			t.Fatalf("Lens got %q; want %q", f.got[i], w)
+		}
 	}
 }
 

@@ -24,6 +24,7 @@ import {
   type AgentKey,
   type AgentRules,
   type AgentRulesVersion,
+  type AgentRuleBoost,
   type AgentSchedule,
   type AgentTopUp as AgentTopUpValue,
   type StatementLine,
@@ -54,6 +55,7 @@ export const BOOK_KEY = ['agent-book']
 export const APPROVALS_KEY = ['agent-approvals']
 export const rulesKey = (id: string) => ['agent-rules', id]
 export const rulesHistoryKey = (id: string) => ['agent-rules-history', id]
+export const boostsKey = (id: string) => ['agent-rule-boosts', id]
 export const FORECAST_KEY = ['agent-forecast']
 export const statementKey = (id: string) => ['agent-statement', id]
 
@@ -1191,6 +1193,7 @@ function Rules({ agent, agents }: { agent: Agent; agents: Agent[] }) {
           </p>
         )}
       </Card>
+      {rules.isSuccess ? <LimitBoost agent={agent} rules={rules.data} /> : null}
       <RulesHistory
         agent={agent}
         agents={agents}
@@ -1378,6 +1381,166 @@ function RulesHistory({ agent, agents, onRolledBack }: { agent: Agent; agents: A
           )}
         </div>
       ) : null}
+    </Card>
+  )
+}
+
+type BoostField = LimitField | 'requests_per_minute'
+
+/** B28.32 — the limits a boost may raise (Lens's boostableRules), named as the Rules card names them. */
+const BOOSTABLE: readonly (readonly [BoostField, string])[] = [...LIMITS, ['requests_per_minute', 'Requests a minute']]
+
+/** B28.32 — a limit's figure as its rule counts it: LXC, or requests a minute. */
+function boostFigure(rule: string, v: number): React.ReactNode {
+  return rule === 'requests_per_minute' ? (
+    <>
+      <span className="font-figure">{v}</span> requests a minute
+    </>
+  ) : (
+    lxc(v)
+  )
+}
+
+/** B28.32 — a moment as a datetime-local input holds it: in the browser's own time zone, to the minute. */
+function localMinute(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/**
+ * B28.32 — raise one of an agent's limits until a time (Lens B28.308). Lens judges every request at its own time with
+ * the boosts in force laid over the rules, so from that time on the limit is the rules' again with nothing to undo,
+ * and the rules and their history are never touched. A boost raises only a limit the rules set, and only while the
+ * rules leave that limit where it was; it can be ended early.
+ */
+function LimitBoost({ agent, rules }: { agent: Agent; rules: AgentRules }) {
+  const qc = useQueryClient()
+  const boosts = useQuery({
+    queryKey: boostsKey(agent.id),
+    queryFn: () => agentBankApi.boosts(agent.id),
+    // A boost ends by itself: read again just after the soonest one's time, so the card stops showing it then.
+    refetchInterval: (q) => {
+      const soonest = q.state.data?.boosts?.[0]?.until
+      return soonest ? Math.min(Math.max(Date.parse(soonest) - Date.now() + 1000, 1000), 2_147_483_647) : false
+    },
+  })
+  const settable = BOOSTABLE.filter(([field]) => (rules[field] ?? 0) > 0)
+  const [picked, setPicked] = useState('')
+  const rule = settable.find(([field]) => field === picked) ?? settable[0]
+  const [value, setValue] = useState('')
+  const [until, setUntil] = useState(() => localMinute(new Date(Date.now() + 60 * 60_000)))
+  const rate = rule?.[0] === 'requests_per_minute'
+  const raisedTo = rate ? (/^\s*\d+\s*$/.test(value) && Number(value) > 0 ? Number(value) : null) : parseLXC(value)
+  const at = new Date(until)
+  const raise = useMutation({
+    mutationFn: () => agentBankApi.boost(agent.id, { rule: rule?.[0] ?? '', value: raisedTo ?? 0, until: at.toISOString() }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: boostsKey(agent.id) }),
+  })
+  const end = useMutation({
+    mutationFn: (r: string) => agentBankApi.endBoost(agent.id, r),
+    onSuccess: () => {
+      raise.reset()
+      void qc.invalidateQueries({ queryKey: boostsKey(agent.id) })
+    },
+  })
+  const label = (r: string) => BOOSTABLE.find(([field]) => field === r)?.[1] ?? r
+  const inForce: AgentRuleBoost[] = boosts.data?.boosts ?? []
+  const ready = rule !== undefined && raisedTo !== null && !Number.isNaN(at.getTime()) && !raise.isPending
+  return (
+    <Card>
+      <CardHeader>Limit boost</CardHeader>
+      {boosts.isError ? (
+        <p className="px-gutter py-3 text-body text-muted">{readFailure(boosts.error, `${agent.name}’s raised limits`)}</p>
+      ) : inForce.length > 0 ? (
+        <ul className="flex flex-col divide-y divide-rule" aria-label={`Limits raised for ${agent.name}`}>
+          {inForce.map((b) => (
+            <li key={b.rule} className="flex flex-wrap items-center gap-2 px-gutter py-3" data-testid={`boost-${b.rule}`}>
+              <span className="text-body text-ink">
+                {label(b.rule)} raised to {boostFigure(b.rule, b.value)} until <span className="font-figure">{formatWhen(b.until)}</span>,
+                then {boostFigure(b.rule, b.raised_from)} again by itself.
+              </span>
+              {(rules[b.rule as BoostField] ?? 0) === b.raised_from ? (
+                <Pill status="settled">In force</Pill>
+              ) : (
+                <span className="text-caption text-muted">No longer applies: the rules have changed this limit since.</span>
+              )}
+              <span className="text-caption text-muted">
+                Set{changedBy(b.created_by)}, <span className="font-figure">{formatWhen(b.created_at)}</span>
+              </span>
+              <Button
+                className="ml-auto"
+                disabled={end.isPending}
+                aria-label={`End the boost on ${agent.name}’s ${label(b.rule).toLowerCase()} now`}
+                onClick={() => end.mutate(b.rule)}
+              >
+                End now
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {rule === undefined ? (
+        <p className="px-gutter py-3 text-body text-muted">{agent.name} has no limit set to raise. Set one under Rules first.</p>
+      ) : (
+        <form
+          className="flex flex-col gap-2 px-gutter py-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (ready) raise.mutate()
+          }}
+        >
+          <p className="text-body text-muted">
+            Raise one of {agent.name}’s limits for a while. At the time you pick it goes back to the limit in its rules by
+            itself; the rules do not change.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label={`Limit to raise for ${agent.name}`}
+              className={`${scheduleSelect} w-48`}
+              value={rule[0]}
+              onChange={(e) => {
+                setPicked(e.target.value)
+                raise.reset()
+              }}
+            >
+              {settable.map(([field, name]) => (
+                <option key={field} value={field}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <span className="text-body text-muted">from {boostFigure(rule[0], rules[rule[0]] ?? 0)} to</span>
+            <Input
+              aria-label={`Raise ${agent.name}’s limit to`}
+              inputMode={rate ? 'numeric' : 'decimal'}
+              placeholder={rate ? 'a minute' : 'LXC'}
+              className="w-28 font-figure"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <span className="text-body text-muted">until</span>
+            <Input
+              type="datetime-local"
+              aria-label={`Raise ${agent.name}’s limit until`}
+              className="w-56 font-figure"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+            />
+            <Button type="submit" disabled={!ready}>
+              {raise.isPending ? 'Raising…' : 'Raise until then'}
+            </Button>
+          </div>
+          {raise.isSuccess ? (
+            <Note ok>
+              {agent.name}’s {label(raise.data.rule).toLowerCase()} is {boostFigure(raise.data.rule, raise.data.value)} until{' '}
+              <span className="font-figure">{formatWhen(raise.data.until)}</span>, then{' '}
+              {boostFigure(raise.data.rule, raise.data.raised_from)} again by itself.
+            </Note>
+          ) : null}
+          {raise.isError ? <Note ok={false}>{refusalText(raise.error)}</Note> : null}
+          {end.isError ? <Note ok={false}>{refusalText(end.error)}</Note> : null}
+        </form>
+      )}
     </Card>
   )
 }

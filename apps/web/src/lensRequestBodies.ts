@@ -593,6 +593,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/rules/rollback", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentRulesRollbackBody',
   },
+  // B28.32 — raise one of an agent's limits until a time.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/rules/boosts',
+    file: 'apps/bff/agent_bank.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handleAgentRuleBoosts(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/rules/boosts", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensAgentRuleBoostBody',
+  },
   // B28.349 — Chat lists and calls Lens's read-only wallet MCP tools (tools/list, tools/call) on its JSON-RPC route.
   {
     route: 'POST /mcp',

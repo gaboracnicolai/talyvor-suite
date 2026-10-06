@@ -76,6 +76,20 @@ export interface AgentRulesVersion {
   created_at: string
 }
 
+/** Lens economy.AgentRuleBoost (B28.308): one of the agent's limits raised until a time, after which it is the rules' again. */
+export interface AgentRuleBoost {
+  /** the limit, as AgentRules names it: daily_limit_ulxc, requests_per_minute, … */
+  rule: string
+  /** the limit as the rules set it when the boost was set; once the rules change it, the boost no longer applies */
+  raised_from: number
+  /** what it is raised to: µLXC, or requests a minute */
+  value: number
+  until: string
+  /** the credential that set it, as a rules version names it; empty when unknown */
+  created_by: string
+  created_at: string
+}
+
 /** Lens economy.AgentBook: workspace = allocated + unallocated; spent is what the agents spent. */
 export interface AgentBook {
   workspace_balance_ulxc: number
@@ -336,6 +350,7 @@ async function send<T>(method: string, path: string, body: object = {}, headers:
     }
     throw new AgentBankError(res.status, path, sentence)
   }
+  if (res.status === 204) return undefined as T // B28.32: ending a boost answers nothing
   return (await res.json()) as T
 }
 
@@ -406,6 +421,13 @@ export const agentBankApi = {
     getJSON<{ versions: AgentRulesVersion[] | null }>(`/api/agents/${e(id)}/rules/history`, { versions: 'list' }),
   /** B28.31 — put the agent's rules back exactly as they were at version; Lens records that as a new version. */
   rollbackRules: (id: string, version: number) => send<AgentRules>('POST', `/api/agents/${e(id)}/rules/rollback`, { version }),
+  /** B28.32 — the agent's limits raised for now, the soonest to end first. */
+  boosts: (id: string) => getJSON<{ boosts: AgentRuleBoost[] | null }>(`/api/agents/${e(id)}/rules/boosts`, { boosts: 'list' }),
+  /** B28.32 — raise one of the agent's limits to value until a time; from then on it is the rules' limit again by itself. */
+  boost: (id: string, b: { rule: string; value: number; until: string }) =>
+    send<AgentRuleBoost>('POST', `/api/agents/${e(id)}/rules/boosts`, b),
+  /** B28.32 — end the agent's boost on that limit now, before its time. */
+  endBoost: (id: string, rule: string) => send<void>('DELETE', `/api/agents/${e(id)}/rules/boosts/${e(rule)}`),
   statement: (id: string) => getJSON<{ lines: StatementLine[] | null }>(`/api/agents/${e(id)}/statement`, { lines: 'list' }),
   statementFile,
   /** B19.24 — the agent's test-mode card and every purchase on it; null when it has none (Lens answers 404). */

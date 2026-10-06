@@ -291,6 +291,10 @@ const BY_PATH: Record<string, unknown> = {
       },
     ],
   },
+  // B28.32 — the Researcher's daily limit raised from 5 LXC to 8 LXC until the evening.
+  '/api/agents/agt_research/rules/boosts': {
+    boosts: [{ rule: 'daily_limit_ulxc', raised_from: 5_000_000, value: 8_000_000, until: '2099-09-27T18:00:00Z', created_by: 'jwt:user:ws_1', created_at: '2026-09-27T12:30:00Z' }],
+  },
   // B28.6 — the Writer's budget: Home draws each agent's monthly limit against its month's spend.
   '/api/agents/agt_writer/rules': {
     max_per_request_ulxc: 0,
