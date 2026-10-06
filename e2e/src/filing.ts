@@ -13,6 +13,7 @@
 // its numbers are taken out — they are one cause, and one item, carrying each scenario's marker.
 
 import { appendFile, readFile } from 'node:fs/promises'
+import { type EdgeReport, edgeMarker, failedNow } from './edge.ts'
 import { networkDrop } from './oracles.ts'
 import type { ReportedRun } from './report.ts'
 import { scenarioOwners } from './scenarios.ts'
@@ -195,4 +196,62 @@ export async function fileItems(path: string, run: ReportedRun, reportFile: stri
   const filing = itemsFor(buildMd, run, reportFile)
   if (filing.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + filing.append)
   return filing
+}
+
+// B34.3 — Talyvor Edge: a failed phase or workflow of edge-infra's nightly runs files one item for edge-infra, once.
+
+export interface EdgeFiling {
+  append: string
+  filed: { id: string; scenario: string }[]
+  covered: { scenario: string; by: string }[]
+}
+
+/** The items a night's failed Edge phases and workflows call for, against BUILD.md as it stands. Pure. */
+export function edgeItemsFor(buildMd: string, edge: EdgeReport, reportFile: string): EdgeFiling {
+  const covered = coveredScenarios(buildMd)
+  const out: EdgeFiling = { append: '', filed: [], covered: [] }
+  let n = nextB17(buildMd)
+  const date = edge.read_at.slice(0, 10)
+  for (const w of edge.workflows.filter(failedNow)) {
+    const marker = edgeMarker(w)
+    const by = covered.get(marker)
+    if (by !== undefined) {
+      out.covered.push({ scenario: marker, by })
+      continue
+    }
+    const id = `B17.${n++}`
+    const phase = edge.phases.find((p) => p.n === w.phase)
+    const claims = edge.claims.filter((c) => w.phase !== undefined && c.phases.includes(w.phase)).map((c) => `row ${c.row}`)
+    const after = phase === undefined ? [] : edge.phases.filter((p) => p.state === 'not reached')
+    out.append += [
+      '',
+      `## ${id} — the testers found it: Talyvor Edge's nightly ${w.name}${phase === undefined ? ` (${w.conclusion})` : ` stops in PHASE ${phase.n} — ${phase.title}`}`,
+      'repo: edge-infra · deps: none · status: OPEN',
+      `Filed by the e2e run of ${date} (${reportFile}): the latest scheduled ${w.name} run on main (${w.url}, commit ${w.sha}, started ${w.started}) ` +
+        `ended ${w.conclusion}` +
+        (phase === undefined ? `${(w.failedJobs ?? []).length > 0 ? `; failed: ${(w.failedJobs ?? []).join('; ')}` : ''}.`
+          : ` in PHASE ${phase.n}: "X ${phase.why ?? ''}". The phases before it passed; ${after.length} were not reached ` +
+            `(${after.map((p) => p.n).join(', ')}).${claims.length > 0 ? ` docs/self-host-claims.md ${claims.join(', ')} rest on it.` : ''}`),
+      `e2e-scenario: ${marker}`,
+      phase === undefined ? `DONE = the next scheduled ${w.name} run on main is green.` : `DONE = the next scheduled ${w.name} run on main passes PHASE ${phase.n}.`,
+      '',
+    ].join('\n')
+    out.filed.push({ id, scenario: marker })
+  }
+  return out
+}
+
+/** Appends the night's Edge items to BUILD.md at `path` and notes each failed workflow's item. A missing BUILD.md files nothing. */
+export async function fileEdgeItems(path: string, edge: EdgeReport, reportFile: string): Promise<EdgeFiling | undefined> {
+  let buildMd: string
+  try {
+    buildMd = await readFile(path, 'utf8')
+  } catch {
+    return undefined
+  }
+  const f = edgeItemsFor(buildMd, edge, reportFile)
+  if (f.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + f.append)
+  const item = new Map([...f.filed, ...f.covered.map((c) => ({ id: c.by, scenario: c.scenario }))].map((x) => [x.scenario, x.id]))
+  for (const w of edge.workflows.filter(failedNow)) w.item = item.get(edgeMarker(w))
+  return f
 }
