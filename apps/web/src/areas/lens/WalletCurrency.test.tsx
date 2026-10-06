@@ -216,3 +216,61 @@ describe('amounts in your own currency and plain-English rules', () => {
     expect(saved[1].payee_daily_limits_ulxc).toEqual({ merchant_9: 2 * M })
   })
 })
+
+// B35.6 — one failed read of Lens's peg no longer leaves every amount without its dollar figure.
+describe('the dollar figure survives a failed read of the peg', () => {
+  /**
+   * The BFF of mockBff, but the first `failures` reads of the peg answer 502. No read answers before
+   * `shown()`: the screen is up by then, so no part of it mounts later and reads the peg again — the
+   * read after a failed one is the retry's.
+   */
+  function failPeg(failures: number) {
+    mockBff()
+    const bff = vi.mocked(globalThis.fetch).getMockImplementation()!
+    let reads = 0
+    let shown!: () => void
+    const up = new Promise<void>((resolve) => (shown = resolve))
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      if (String(input) !== '/api/lxc/topup-options') return bff(input, init)
+      const read = ++reads
+      await up
+      return read <= failures ? new Response('upstream unreachable', { status: 502 }) : bff(input, init)
+    })
+    return { reads: () => reads, shown }
+  }
+
+  it('shows LXC alone while the peg is unread, and the dollars join it when the second read answers', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const peg = failPeg(1)
+      window.history.pushState({}, '', '/agents')
+      render(<App />)
+
+      await waitFor(() => expect(balanceRow().textContent).toBe('12.5 LXC'))
+      peg.shown()
+      await vi.advanceTimersByTimeAsync(2_000)
+      await waitFor(() => expect(balanceRow().textContent).toBe('12.5 LXC ($1.25)'))
+      expect(peg.reads()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows LXC alone, never a guessed figure, when every read of the peg fails', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const peg = failPeg(Infinity)
+      window.history.pushState({}, '', '/agents')
+      render(<App />)
+
+      await waitFor(() => expect(balanceRow().textContent).toBe('12.5 LXC'))
+      peg.shown()
+      await vi.advanceTimersByTimeAsync(30_000)
+      await waitFor(() => expect(peg.reads()).toBe(4))
+      expect(balanceRow().textContent).toBe('12.5 LXC')
+      expect(within(balanceRow()).queryByTestId('fiat')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

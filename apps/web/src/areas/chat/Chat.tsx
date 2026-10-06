@@ -49,9 +49,8 @@ import { ModelPicker } from './ModelPicker'
 import { useRevealedText } from './reveal'
 import { cutOff } from './chatStream'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatUsdPer1M, pricedAnswer } from './price'
-import { topupApi } from '../lens/topupApi'
 import { formatWhen } from '../lens/format'
-import { Lxc } from '../lens/money'
+import { Lxc, pegQuery } from '../lens/money'
 import { Card } from '../lens/walletBrand'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
@@ -169,7 +168,7 @@ export function Chat() {
     staleTime: 5 * 60_000,
   })
   // The credit peg, from the deployment. Absent ⇒ answers are priced in dollars, never at a guess.
-  const peg = useQuery({ queryKey: ['topup-options'], queryFn: topupApi.options, retry: false })
+  const peg = useQuery(pegQuery)
   const usdPerLXC = peg.data?.usd_per_lxc
   const qc = useQueryClient()
 
