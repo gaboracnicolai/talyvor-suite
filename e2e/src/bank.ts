@@ -1754,6 +1754,121 @@ export function chatLiveStatement(seed: number): Scenario {
 }
 
 /**
+ * B28.87 — the wallet buttons beside Chat: fund, withdraw, pause and pause all, each asked once more before anything is
+ * sent. An agent is made on Agent Wallets and given a key; everything after is done from Chat's statement panel. Each
+ * button only asks, and Lens's book has not moved until Yes. Fund then puts one fund line on its statement on Lens and
+ * Withdraw one withdraw line, its balance in the book their sum; Pause and Resume set and clear its pause on Lens. Then
+ * Pause all, and its next call with its own key is refused before the provider — 403, every agent paused — with nothing
+ * charged. Started again from Chat (at 390, from the Statement button), the same agent is served.
+ */
+export function chatWalletButtons(seed: number): Scenario {
+  const r = seeded(seed * 37 + 11)
+  const funded = 1e6
+  const back = 250_000 + (seed % 9) * 10_000
+  return {
+    id: 'chat-wallet-buttons',
+    title: 'fund, withdraw, pause and pause all from Chat, each confirmed first; after Pause all the agent’s next call is refused',
+    run: async (ctx) =>
+      withBank(ctx, async (bank) => {
+        const a = await openAgent(ctx, bank, `Chat wallet ${seed}`)
+        if (typeof a === 'string') return fail(a)
+        const key = await bank.issueKey(a)
+        const agentNow = async () => agentIn(await bookOf(ctx), a.id)
+        const chat = await ctx.app.tab('/chat')
+        let pausedAll = false
+        try {
+          await chat.setViewportSize({ width: 1440, height: 900 })
+          const panel = chat.getByTestId('chat-live-statement')
+          await panel.getByLabel('Agent').selectOption(a.id, { timeout: ACTION_TIMEOUT_MS })
+          const buttons = panel.getByTestId('chat-wallet-buttons')
+          const confirm = buttons.getByRole('group', { name: 'Confirm' })
+          /** Clicks a button, which only asks; answers what it asked. */
+          const ask = async (name: string): Promise<string> => {
+            await buttons.getByRole('button', { name, exact: true }).click()
+            await confirm.waitFor({ timeout: ACTION_TIMEOUT_MS })
+            return (await confirm.innerText()).replace(/\s+/g, ' ').trim()
+          }
+
+          // Fund, then Withdraw: each asked first; one line each on Lens once it is answered Yes.
+          const moves: { how: string; ulxc: number; kind: string; want: number }[] = [
+            { how: 'Fund', ulxc: funded, kind: 'fund', want: funded },
+            { how: 'Withdraw', ulxc: back, kind: 'withdraw', want: funded - back },
+          ]
+          for (const m of moves) {
+            await buttons.getByLabel(`Amount in LXC for ${a.name}`).fill(lxcText(m.ulxc))
+            const asked = await ask(m.how)
+            ctx.evidence.push({ note: `${m.how} ${lxcText(m.ulxc)} LXC asked: "${asked}"` })
+            const before = (await agentNow())?.balance_ulxc
+            if (before !== m.want + (m.kind === 'fund' ? -m.ulxc : m.ulxc)) return fail(`${m.how} only asked "${asked}", yet Lens's book has ${a.name} holding ${before} µLXC`)
+            await confirm.getByRole('button', { name: `Yes, ${m.how.toLowerCase()}`, exact: true }).click()
+            const err = await outcome(buttons.getByRole('status').filter({ hasText: `${a.name} now holds ${lxcText(m.want)} LXC` }), buttons)
+            if (err !== undefined) return fail(`${m.how} ${lxcText(m.ulxc)} LXC from Chat was refused: ${err}`)
+            const lines = (await ctx.env.lens.agentLines(ctx.app.user, a.id)).filter((l) => l.kind === m.kind)
+            const held = (await agentNow())?.balance_ulxc
+            if (lines.length !== 1 || lines[0].amount_ulxc !== (m.kind === 'fund' ? m.ulxc : -m.ulxc) || held !== m.want || lines[0].balance_after_ulxc !== m.want) {
+              return fail(`${m.how} ${m.ulxc} µLXC from Chat should be one ${m.kind} line on Lens leaving ${m.want}: ${JSON.stringify(lines)}, the book says ${held}`)
+            }
+          }
+
+          // Pause, then Resume: asked first; Lens's book has the agent paused, then not.
+          for (const [how, paused] of [[`Pause ${a.name}`, true], [`Resume ${a.name}`, false]] as const) {
+            const asked = await ask(how)
+            if (((await agentNow())?.paused_at !== undefined) === paused) return fail(`${how} only asked "${asked}", yet Lens already has it ${paused ? 'paused' : 'resumed'}`)
+            await confirm.getByRole('button', { name: `Yes, ${how.charAt(0).toLowerCase()}${how.slice(1)}`, exact: true }).click()
+            await buttons.getByRole('button', { name: paused ? `Resume ${a.name}` : `Pause ${a.name}`, exact: true }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+            if (((await agentNow())?.paused_at !== undefined) !== paused) return fail(`${how} was answered Yes in Chat, but Lens's book has ${a.name} ${paused ? 'not paused' : 'still paused'}`)
+          }
+
+          // Pause all: asked first; then the agent's next call is refused before the provider, and nothing is charged.
+          const asked = await ask('Pause all')
+          if ((await bookOf(ctx)).all_paused_at !== undefined) return fail(`Pause all only asked "${asked}", yet Lens has every agent paused`)
+          await mkdir(ctx.env.outDir, { recursive: true })
+          const wide = join(ctx.env.outDir, `chat-wallet-buttons-1440px-user${ctx.app.user.index}.png`)
+          await chat.screenshot({ path: wide })
+          ctx.evidence.push({ note: `Pause all asked in Chat at 1440px: "${asked}" — ${wide}` })
+          await confirm.getByRole('button', { name: 'Yes, pause all', exact: true }).click()
+          pausedAll = true
+          await buttons.getByTestId('chat-all-paused').waitFor({ timeout: ACTION_TIMEOUT_MS })
+          if ((await bookOf(ctx)).all_paused_at === undefined) return fail('Pause all was answered Yes in Chat, but Lens does not have every agent paused')
+          const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+          const refused = await agentAsks(ctx, key, sum(r).q, `${a.name}, after Pause all in Chat`)
+          if (refused.ok) return fail(`after Pause all in Chat, ${a.name}'s next call was served: "${refused.value.text}"`)
+          if (refused.status !== 403 || !/every agent in this workspace is paused/.test(refused.error)) {
+            return fail(`after Pause all in Chat, ${a.name} was refused, but not by the pause: ${refused.status} ${refused.error}`)
+          }
+          if ((await agentNow())?.balance_ulxc !== funded - back || (await spendRows(ctx)).some((x) => !spends0.has(x.id))) {
+            return fail(`every agent paused, yet something was charged: Lens's book has ${a.name} holding ${(await agentNow())?.balance_ulxc} µLXC`)
+          }
+
+          // Started again from Chat on a phone, from the Statement button: served.
+          await chat.setViewportSize({ width: 390, height: 844 })
+          await chat.getByRole('button', { name: 'Statement', exact: true }).click()
+          await buttons.waitFor({ timeout: ACTION_TIMEOUT_MS })
+          const again = await ask('Start all again')
+          const narrow = join(ctx.env.outDir, `chat-wallet-buttons-390px-user${ctx.app.user.index}.png`)
+          await chat.screenshot({ path: narrow })
+          ctx.evidence.push({ note: `Start all again asked from Chat's Statement button at 390px: "${again}" — ${narrow}` })
+          await confirm.getByRole('button', { name: 'Yes, start all again', exact: true }).click()
+          await buttons.getByRole('button', { name: 'Pause all', exact: true }).waitFor({ timeout: ACTION_TIMEOUT_MS })
+          if ((await bookOf(ctx)).all_paused_at !== undefined) return fail('Start all again was answered Yes in Chat, but Lens still has every agent paused')
+          pausedAll = false
+          const { q, want } = sum(r)
+          const served = await agentAsks(ctx, key, q, `${a.name}, started again from Chat`)
+          if (!served.ok) return fail(`started again from Chat, ${a.name} is still refused: ${served.status} ${served.error}`)
+          if (!statesNumber(served.value.text, want)) return fail(`answered wrong: expected ${want}, got "${served.value.text}"`)
+          return {
+            pass: true,
+            detail: `from Chat, each confirmed first: funded ${funded} and withdrew ${back} µLXC (one fund and one withdraw line on Lens, ${funded - back} left), paused and resumed ${a.name}, then Pause all — its next call refused 403 with nothing charged; started again, served`,
+          }
+        } finally {
+          if (pausedAll) await bank.resumeAll()
+          await chat.close()
+        }
+      }),
+  }
+}
+
+/**
  * B28.350 — B28.85's DONE line, from Chat: `/agent …` typed in the composer goes to no model; it opens a card with the
  * name, budget and rules read from the command, and Launch makes the agent. Lens's /api/agents then has it holding its
  * budget, moved out of the workspace, with its rules as typed. Its first call with the key the card showed is debited

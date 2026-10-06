@@ -49,6 +49,8 @@ export interface Agent {
   /** B28.21 — what it is for, and when it was archived (swept to zero, its keys revoked) */
   description?: string
   archived_at?: string
+  /** B19.6 — set while it is paused on its own */
+  paused_at?: string
 }
 
 /** B25.4 — Lens economy.AgentTransfer (B22.3): credits moved between two agents, of one owner or two. */
