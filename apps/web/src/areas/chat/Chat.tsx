@@ -33,6 +33,7 @@ import {
   upsertConversation,
 } from './history'
 import { Markdown } from './Markdown'
+import { AlertNotices } from './AlertNotices'
 import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
 import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
@@ -766,6 +767,9 @@ export function Chat() {
                 )}
               </section>
             ) : null}
+
+            {/* B28.91 — low balance, a monthly limit near or reached, unusual spend: the wallets' alerts, here. */}
+            <AlertNotices />
 
             {/* B28.84 — an agent's payment waiting for a person, approved with Face ID here in the conversation. */}
             <ApprovalCards />
