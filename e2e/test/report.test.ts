@@ -83,3 +83,14 @@ describe("the testers' environment and the second attempts (B35.8)", () => {
     expect(summary).toContain('- **Environment**: 1 network drop(s), each an ERROR; swap up to 86% full, 10 users at once at the fewest.')
   })
 })
+
+// B34.2 — the report and the TESTERS.md entry name what was tested, and a deploy that landed during the run.
+describe('what was tested', () => {
+  it('names the harness, Lens\'s main at lens-src and production\'s versions, and a deploy during the run', () => {
+    const run: ReportedRun = { ...cutShort, versions: { harness: '29272c1', lens_src: '2e09c95', app: '29272c1', lens: '2e09c95' },
+      production_after: { app: '29272c1', lens: '7a1b2c3' } }
+    const tested = "harness 29272c1; Lens's main at lens-src 2e09c95; production app 29272c1 (/api/version), Lens 2e09c95 → 7a1b2c3 (deployed during the run) (/healthz)."
+    expect(renderRun(run)).toContain(`Tested: ${tested}`)
+    expect(renderSummary(run, 'docs/e2e/report-2026-10-02.md', [])).toContain(`- **Tested**: ${tested}`)
+  })
+})
