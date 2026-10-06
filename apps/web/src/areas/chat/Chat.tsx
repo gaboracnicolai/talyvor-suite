@@ -1077,7 +1077,8 @@ function StatementLines({ lines }: { lines: SpendLine[] }) {
           {shown.map((l) => (
             <li key={`${l.agent_id}-${l.entry_id}`} className="text-caption text-muted">
               <Link className={inlineLink} to={statementLineHref(l)}>
-                {l.agent}: <Lxc ulxc={Math.abs(l.amount_ulxc)} sign={l.amount_ulxc < 0 ? '−' : '+'} />
+                {l.agent}: {l.label !== undefined ? <span data-testid="statement-line-label">{l.label} </span> : null}
+                <Lxc ulxc={Math.abs(l.amount_ulxc)} sign={l.amount_ulxc < 0 ? '−' : '+'} />
                 {l.at !== undefined ? <> · <span className="font-figure">{formatWhen(l.at)}</span></> : null}
               </Link>
             </li>

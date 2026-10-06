@@ -226,6 +226,7 @@ export type PostingKind =
   | 'cash_out'
   | 'pot_in'
   | 'pot_out'
+  | 'platform_fee'
 
 /** Lens economy.AgentStatementLine. */
 export interface StatementLine {
@@ -236,6 +237,8 @@ export interface StatementLine {
   ref?: string
   balance_after_ulxc: number
   at: string
+  /** B32.11 — a platform fee line's words with its rate, "Platform fee 3%". Absent on every other kind. */
+  label?: string
 }
 
 /** Lens economy.AgentPayment. */

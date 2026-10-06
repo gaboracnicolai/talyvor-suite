@@ -126,6 +126,8 @@ export interface SpendLine {
   entry_id: string
   amount_ulxc: number
   at?: string
+  /** B32.69 — a platform fee line's words as Lens wrote them, "Platform fee 3%". */
+  label?: string
 }
 
 /**
@@ -175,7 +177,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 
 /**
  * B28.349 — the statement lines in what wallet_agents_spend answered, as Lens writes it:
- * {"agents": [{"agent_id", "name", "spent_ulxc", "lines": [{"entry_id", "kind", "amount_ulxc", "at"}]}]}.
+ * {"agents": [{"agent_id", "name", "spent_ulxc", "lines": [{"entry_id", "kind", "amount_ulxc", "at"}]}]}, a platform fee line also carrying its "label".
  * A line without an entry cannot be linked to, so it is left out; text that is not that shape names none.
  */
 export function spendLines(text: string): SpendLine[] {
@@ -193,7 +195,14 @@ export function spendLines(text: string): SpendLine[] {
     const agent = typeof a.name === 'string' && a.name !== '' ? a.name : a.agent_id
     for (const l of a.lines) {
       if (!isObject(l) || typeof l.entry_id !== 'string' || l.entry_id === '' || typeof l.amount_ulxc !== 'number') continue
-      out.push({ agent_id: a.agent_id, agent, entry_id: l.entry_id, amount_ulxc: l.amount_ulxc, ...(typeof l.at === 'string' ? { at: l.at } : {}) })
+      out.push({
+        agent_id: a.agent_id,
+        agent,
+        entry_id: l.entry_id,
+        amount_ulxc: l.amount_ulxc,
+        ...(typeof l.at === 'string' ? { at: l.at } : {}),
+        ...(l.kind === 'platform_fee' && typeof l.label === 'string' && l.label !== '' ? { label: l.label } : {}),
+      })
     }
   }
   return out

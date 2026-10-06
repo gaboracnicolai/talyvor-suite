@@ -9,7 +9,8 @@ import { FeatureSpendCard } from './FeatureSpendCard'
 import { InlineFailure, PanelFailure } from '../../components/SessionExpiredBar'
 import { ModelTier } from './ModelTier'
 import { SplitShortfall } from './SplitShortfall'
-import { LEDGER_PAGE, byModel, debitTotal, inWindow, lxcDebitsByModel, splitShortfall, windowExceedsPage } from './spendMath'
+import { LEDGER_PAGE, byModel, debitTotal, feeTotal, inWindow, lxcDebitsByModel, platformFees, splitShortfall, windowExceedsPage } from './spendMath'
+import { PlatformFeeLines, totalHint } from './PlatformFeeLines'
 import { WindowFigure, WindowIncomplete } from './WindowFloor'
 import { Region, RegionScreen } from '../../components/Region'
 
@@ -53,6 +54,8 @@ export function Spend({ now = new Date() }: { now?: Date }) {
   const windowRows = ledger.data ? inWindow(ledger.data, days, now) : []
   const agg = byModel(windowRows)
   const lxcSplit = lxc.data ? lxcDebitsByModel(lxc.data, days, now) : []
+  // B32.69 — the platform fee, each of Lens's fee lines on its own row and counted in the total.
+  const fees = lxc.data ? platformFees(lxc.data, days, now) : []
   // What that split does NOT account for. `lxcSplit` is the WHOLE split on this screen (no
   // top-N slice), so `notShown` is structurally 0 here and only `unattributed` can speak — it
   // is passed anyway rather than dropped, because the day this card slices is the day a
@@ -216,7 +219,7 @@ export function Spend({ now = new Date() }: { now?: Date }) {
           </Row>
           <Row
             label={`Inference debits — ${days}d`}
-            hint="every model — the window total that left the balance"
+            hint={totalHint(fees)}
           >
             {lxc.isLoading ? (
               <span className="text-body text-muted">Loading…</span>
@@ -224,13 +227,14 @@ export function Spend({ now = new Date() }: { now?: Date }) {
               <InlineFailure error={lxc.error} />
             ) : (
               <WindowFigure
-                micros={debitTotal(lxc.data, days, now)}
+                micros={debitTotal(lxc.data, days, now) + feeTotal(fees)}
                 unit="lxc"
                 floor={lxcTruncated}
                 testId="lxc-debit-total"
               />
             )}
           </Row>
+          <PlatformFeeLines fees={fees} floor={lxcTruncated} />
           {/* The per-model split of that total — attributed to the model that SERVED,
               falling back to the requested one. The caption this replaces said the split
               was impossible; it had been possible since #343, and api.lxcLedger was
