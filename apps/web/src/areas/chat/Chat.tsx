@@ -34,6 +34,7 @@ import {
 import { Markdown } from './Markdown'
 import { ApprovalCards } from './ApprovalCards'
 import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
+import { LiveStatement } from './LiveStatement'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
@@ -192,6 +193,10 @@ export function Chat() {
   const [railHidden, setRailHidden] = useState(readRailHidden)
   const [drawerOpen, setDrawerOpen] = useState(false)
   useEffect(() => writeRailHidden(railHidden), [railHidden])
+  // B28.351 — the live statement: a column beside the conversation on a wide screen, a drawer on a narrower one.
+  const statementBeside = useMediaQuery(STATEMENT_BESIDE)
+  const [statementOpen, setStatementOpen] = useState(false)
+  const closeStatement = useCallback(() => setStatementOpen(false), [])
   const toggleRail = useCallback(() => setRailHidden((h) => !h), [])
 
   // B15.5 — ⌘⇧S / Ctrl+Shift+S hides and shows the rail; on a narrow screen it opens the drawer.
@@ -629,6 +634,11 @@ export function Chat() {
               />
             ) : null}
           </div>
+          {!statementBeside ? (
+            <button type="button" className={railButtonClass} onClick={() => setStatementOpen(true)}>
+              Statement
+            </button>
+          ) : null}
         </div>
 
         <div className="flex flex-1 flex-col px-gutter">
@@ -753,8 +763,35 @@ export function Chat() {
           </div>
         </div>
       </div>
+
+      {statementBeside ? (
+        <aside aria-label="Statement" className="sticky top-12 flex h-below-header w-80 shrink-0 flex-col border-l border-rule bg-sidebar">
+          <LiveStatement />
+        </aside>
+      ) : statementOpen ? (
+        <Drawer side="right" label="Statement" onClose={closeStatement}>
+          <LiveStatement />
+        </Drawer>
+      ) : null}
     </div>
   )
+}
+
+/** B28.351 — wide enough for the conversations, the conversation and the statement side by side. */
+const STATEMENT_BESIDE = '(min-width: 1280px)'
+
+/** Whether the screen matches a media query, following it as the window is resized. */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => typeof window.matchMedia !== 'function' || window.matchMedia(query).matches)
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const m = window.matchMedia(query)
+    const on = () => setMatches(m.matches)
+    on()
+    m.addEventListener('change', on)
+    return () => m.removeEventListener('change', on)
+  }, [query])
+  return matches
 }
 
 const railButtonClass = cn(
@@ -880,8 +917,18 @@ function ChatRail({
   )
 }
 
-/** The rail as a drawer on a narrow screen. Escape or the backdrop closes it. */
-function Drawer({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+/** The rail as a drawer on a narrow screen (and, B28.351, the statement from the right). Escape or the backdrop closes it. */
+function Drawer({
+  onClose,
+  children,
+  side = 'left',
+  label = 'Conversations',
+}: {
+  onClose: () => void
+  children: React.ReactNode
+  side?: 'left' | 'right'
+  label?: string
+}) {
   const panelRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null
@@ -896,14 +943,17 @@ function Drawer({ onClose, children }: { onClose: () => void; children: React.Re
     }
   }, [onClose])
   return (
-    <div className="fixed inset-0 z-20 wide:hidden">
-      <button type="button" aria-label="Close conversations" className="absolute inset-0 bg-canvas opacity-80" onClick={onClose} />
+    <div className={cn('fixed inset-0 z-20', side === 'left' && 'wide:hidden')}>
+      <button type="button" aria-label={`Close ${label.toLowerCase()}`} className="absolute inset-0 bg-canvas opacity-80" onClick={onClose} />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Conversations"
-        className="absolute inset-y-0 left-0 flex w-72 max-w-full flex-col border-r border-rule bg-sidebar"
+        aria-label={label}
+        className={cn(
+          'absolute inset-y-0 flex max-w-full flex-col bg-sidebar',
+          side === 'left' ? 'left-0 w-72 border-r border-rule' : 'right-0 w-80 border-l border-rule',
+        )}
       >
         {children}
       </div>
