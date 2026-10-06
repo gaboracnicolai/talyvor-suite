@@ -120,6 +120,15 @@ a scenario 30, a ledger read-back 5. However it ends, the run writes its results
 TESTERS.md with what it has. Both say **STOPPED EARLY** with the cause and when it happened, and the cost
 spent before it stopped. A run that stopped early exits 1.
 
+**The testers' own environment (B35.8).** An answer refused with "Failed to fetch", a `net::ERR_` code or the BFF's
+"lens upstream unreachable" is an ERROR, never a FAIL: the report lists each under **The testers' environment**
+with its time, and it files nothing. A charged answer is booked the moment its footer is read, so a scenario that
+throws after it still leaves the ledger read-back expecting its row. The run reads the Mac's memory pressure and swap
+at the start and every 5 minutes, and the report sets each reading beside the waits that ran out after it; while swap
+is more than three quarters full the run starts half as many users at once, down to 5. A scenario that FAILed for one
+or two users runs again for them before the ledger read-back (their agents archived first): the report shows both
+attempts under **Second attempts**, and the first attempt's FAIL is the one filed.
+
 | Scenario | Who | Oracle |
 |---|---|---|
 | `every-screen` | 1 in 10 | every screen a customer can open (from the map, operator screens left out), opened as a person does — a screen with a parameter from the first link on the one above it: the console's heading names it (a public page shows a heading), nothing says "Nothing at this address", and while it loads there is no page error and no 5xx |
@@ -137,7 +146,7 @@ spent before it stopped. A run that stopped early exits 1.
 |---|---|---|
 | `known-answer` | everyone | `a + b` with numbers unique to the user; the answer states the sum and carries a price |
 | `capital` | everyone | a capital from a fixed table |
-| `every-model` | user 0 | every model the picker offers answers a question of this run's own (one an earlier run asked is served from the pool); its footer shows the price the catalog gives for its token counts |
+| `every-model` | user 0 | every model the picker offers is asked to say back a word made up for this run, one word a model (a question an earlier run asked is served from the pool), and says it; its footer shows the price the catalog gives for its token counts |
 | `repeat-new-chat` | 1 in 10 | an exact repeat in a new chat shows "from your earlier answer · 0 LXC" and the same text; Regenerate is priced; the judge agrees the two answers match |
 | `chat-savings` | 1 in 10 | a question of the run's own, repeated in a new chat, is served from the earlier answer; each row of "Saved in this chat" (cache, shared pool, conversion, Tare) equals the sum of its response header on that chat's answers, and the repeat says what it saved (B28.95) |
 | `one-digit-trap` | 1 in 10 | identical history, then a one-digit change: the change is asked, never served, and answered right |
@@ -213,7 +222,7 @@ never counted in real totals (Nicolai, 30 Sep 2026; Lens B25.2). One user in ten
 | Scenario | Who | Oracle |
 |---|---|---|
 | `plan-test-card` | 6, 16, … (last in the journey) | Plans → Choose Plus → Stripe's hosted checkout, paid with test card 4242 → back in the app; Lens's allowance for the period is granted, at Plus's 2000 cents. The plan is then cancelled at the end of its period |
-| `pooled-royalty` | 7, 17, … with 9, 19, … | a question only this user has asked, asked again by another test user and served from the pool: the contributor's earnings ledger (`tokens/history`) gains a `pool_royalty_held` row. Not served from the pool, it is an ERROR — no royalty was owed |
+| `pooled-royalty` | 7, 17, … with 9, 19, … | a question only this user has asked, asked again by another test user and served from the pool: the contributor's earnings ledger (`tokens/history`) gains a `pool_royalty_held` row. The partner asks 2 s after the answer (Lens pools it once its stream ends); not served, a second partner asks once, and not served twice is a FAIL — an answer that could be pooled never reached the pool |
 
 The plan comes last and on a user nobody else asks as: what is asked after it is drawn from the allowance,
 which the ledger read-back does not expect. In production it needs Lens's test-mode Stripe settings in
