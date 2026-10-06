@@ -36,6 +36,8 @@ function mockBff() {
         ],
       })
     if (url === '/api/agents/approvals') return json({ approvals })
+    // B28.351 — the live statement beside the conversation reads the first agent's statement.
+    if (url === '/api/agents/agt_1/statement') return json({ lines: [] })
     if (url === '/api/agents/passkeys') return json({ passkeys: [{ credential_id: b64u(bytes('cred1')), name: 'iPhone', created_at: '2026-10-06T04:00:00Z' }] })
     const challenge = /^\/api\/agents\/approvals\/([^/]+)\/challenge$/.exec(url)
     if (challenge) return json({ challenge: b64u(bytes(`challenge-${challenge[1]}`)), allow_credentials: [b64u(bytes('cred1'))] })

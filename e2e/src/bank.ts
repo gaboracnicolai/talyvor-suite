@@ -1656,6 +1656,104 @@ export function agentWalletsEmpty(): Scenario {
 }
 
 /**
+ * B28.351 — B28.86's DONE line, from talyvor-suite: a new debit appears on the live statement beside Chat within 5s
+ * without a reload. An agent is made and funded on Agent Wallets; Chat opens in a tab of its own with its statement
+ * panel following that agent; the agent then pays another agent from Agent Wallets, in the other tab, so nothing on the
+ * Chat page is touched. The pay line on Lens's ledger is what the panel must show — the same entry, the same amount and
+ * balance, marked new and linked to its row — within 5s of Lens answering the payment, on the same document. At 390 the
+ * panel opens from Chat's Statement button.
+ */
+export function chatLiveStatement(seed: number): Scenario {
+  const funded = 2e6
+  const amount = 1_000_000 + (seed % 9) * 10_000
+  return {
+    id: 'chat-live-statement',
+    title: 'a debit an agent makes appears on the live statement beside Chat within 5 seconds, without a reload',
+    run: async (ctx) =>
+      withBank(ctx, async (bank) => {
+        const opened: Agent[] = []
+        for (const name of [`Live payer ${seed}`, `Live payee ${seed}`]) {
+          const a = await openAgent(ctx, bank, name)
+          if (typeof a === 'string') return fail(a)
+          opened.push(a)
+        }
+        const [payer, payee] = opened
+        const err = await bank.move(payer, funded, 'Fund')
+        if (err !== undefined) return fail(`funding ${payer.name} was refused: ${err}`)
+        const fund = (await ctx.env.lens.agentLines(ctx.app.user, payer.id)).find((l) => l.kind === 'fund')
+        if (fund === undefined) return fail(`${payer.name} was funded on the screen, but its statement on Lens has no fund line`)
+
+        const chat = await ctx.app.tab('/chat')
+        try {
+          await chat.setViewportSize({ width: 1440, height: 900 })
+          const panel = chat.getByTestId('chat-live-statement')
+          const row = (entry: string) => panel.locator(`[data-testid="live-statement-line"][data-entry="${entry}"]`)
+          await panel.getByLabel('Agent').selectOption(payer.id, { timeout: ACTION_TIMEOUT_MS })
+          try {
+            await row(fund.entry_id).waitFor({ timeout: ACTION_TIMEOUT_MS })
+          } catch {
+            return fail(`the statement beside Chat never showed ${payer.name}'s fund line ${fund.entry_id}: "${(await panel.innerText()).trim()}"`)
+          }
+          // Marks this document: a reload would drop it.
+          await chat.evaluate(() => Object.assign(window, { liveStatementDocument: true }))
+
+          const paid = await bank.pay(payer, payee, amount, `live ${seed}`)
+          const answered = Date.now()
+          const lines = await ctx.env.lens.agentLines(ctx.app.user, payer.id)
+          const debit = lines.find((l) => l.kind === 'pay' && l.amount_ulxc === -amount)
+          if (debit === undefined) return fail(`paying ${payee.name} said "${paid}", but ${payer.name}'s statement on Lens has no pay line of -${amount} µLXC: ${JSON.stringify(lines)}`)
+          const line = row(debit.entry_id)
+          try {
+            await line.waitFor({ timeout: Math.max(0, 5_000 - (Date.now() - answered)) })
+          } catch {
+            return fail(`${payer.name}'s debit ${debit.entry_id} was on Lens, but not on the statement beside Chat within 5s: "${(await panel.innerText()).trim()}"`)
+          }
+          const within = Date.now() - answered
+          if ((await chat.evaluate(() => (window as { liveStatementDocument?: boolean }).liveStatementDocument)) !== true) return fail('Chat was reloaded before the debit showed')
+          const shown = (await line.innerText()).trim()
+          const href = await line.getAttribute('href')
+          const marked = await line.getAttribute('data-new')
+
+          await mkdir(ctx.env.outDir, { recursive: true })
+          const wide = join(ctx.env.outDir, `chat-live-statement-1440px-user${ctx.app.user.index}.png`)
+          await chat.screenshot({ path: wide })
+          ctx.evidence.push({ note: `the statement beside Chat at 1440px: ${wide}` })
+          await chat.setViewportSize({ width: 390, height: 844 })
+          await chat.getByRole('button', { name: 'Statement', exact: true }).click()
+          const narrow = join(ctx.env.outDir, `chat-live-statement-390px-user${ctx.app.user.index}.png`)
+          await panel.waitFor({ timeout: ACTION_TIMEOUT_MS })
+          await chat.screenshot({ path: narrow })
+          ctx.evidence.push({ note: `the statement from Chat's Statement button at 390px: ${narrow}` })
+
+          // The ledger, not the panel: one pay line each way, and the payer's balance that statement's last balance.
+          const book = await bookOf(ctx)
+          const payerLines = await ctx.env.lens.agentLines(ctx.app.user, payer.id)
+          const payeeLines = await ctx.env.lens.agentLines(ctx.app.user, payee.id)
+          ctx.evidence.push({ note: `shown ${within}ms after Lens answered: "${shown}" → ${href}; ${payer.name}: ${payerLines.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ')}` })
+          const out = payerLines.filter((l) => l.kind === 'pay')
+          const into = payeeLines.filter((l) => l.kind === 'pay')
+          if (out.length !== 1 || out[0].amount_ulxc !== -amount || into.length !== 1 || into[0].amount_ulxc !== amount) {
+            return fail(`one payment of ${amount} µLXC should be one pay line each way: ${payer.name} ${JSON.stringify(out)}, ${payee.name} ${JSON.stringify(into)}`)
+          }
+          const held = agentIn(book, payer.id)?.balance_ulxc
+          if (held !== funded - amount || held !== payerLines[0].balance_after_ulxc) {
+            return fail(`${payer.name} was funded ${funded} and paid ${amount} µLXC; Lens's book says it holds ${held}, its statement ends at ${payerLines[0].balance_after_ulxc}`)
+          }
+          if (!shown.includes(lxcText(amount)) || !shown.includes(`Balance ${lxcText(debit.balance_after_ulxc)}`)) {
+            return fail(`Lens put pay ${debit.amount_ulxc} µLXC (balance ${debit.balance_after_ulxc}) on ${payer.name}'s statement; the panel shows "${shown}"`)
+          }
+          if (marked !== 'true') return fail(`the debit showed on the panel, but not marked new: "${shown}"`)
+          const want = `/agents?agent=${encodeURIComponent(payer.id)}&entry=${encodeURIComponent(debit.entry_id)}`
+          if (href !== want) return fail(`the panel links ${href}, not ${payer.name}'s debit ${want}`)
+          return { pass: true, detail: `${payer.name} paid ${payee.name} ${amount} µLXC; the pay line ${debit.entry_id} showed on the statement beside Chat ${within}ms after Lens answered, without a reload, marked new and linked; one pay line each way on Lens, ${held} µLXC left` }
+        } finally {
+          await chat.close()
+        }
+      }),
+  }
+}
+
+/**
  * B28.350 — B28.85's DONE line, from Chat: `/agent …` typed in the composer goes to no model; it opens a card with the
  * name, budget and rules read from the command, and Launch makes the agent. Lens's /api/agents then has it holding its
  * budget, moved out of the workspace, with its rules as typed. Its first call with the key the card showed is debited

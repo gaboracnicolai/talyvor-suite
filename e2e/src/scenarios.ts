@@ -17,7 +17,7 @@ import {
   statesNumber,
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
-import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatLiveStatement, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
@@ -2041,9 +2041,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.269 — then Overview and Spend & routing in plain words, the split note one sentence to the Ledger.
     // B32.69 — then the platform fee on that request: its own line on both, in Lens's words, counted in the total.
     // B28.350 — then /agent typed in Chat: the agent in Lens's book with its budget and rules, its first call debited.
+    // B28.351 — then the statement beside Chat: an agent's debit shows there within 5s, without a reload.
     // B28.84 — last, as nobody else on 6, 16, … decides an approval: a payment approved with Face ID on its card in Chat,
     // one pay line on the statement. Its passkey stays on the workspace, so it runs after every other Chat check here.
-    case 6: list.push(statementReconciles(i), ledgerReadsCorrectly(), spendPlainWords(), spendPlatformFee(), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull(), chatLaunchAgent(i), chatApprovalFaceID(i)); break
+    case 6: list.push(statementReconciles(i), ledgerReadsCorrectly(), spendPlainWords(), spendPlatformFee(), agentBalanceStored(i), agentSpendQuestion(i), chatBrand(), chatHelpInFull(), chatLaunchAgent(i), chatLiveStatement(i), chatApprovalFaceID(i)); break
     // B28.271 — first, while the workspace has no agent: Agent Wallets is only the card that creates one.
     // B28.8 — then, still with no agent: Home's three onboarding steps.
     // B29.12 — then Features, Track, Docs, Developers, Billing and Settings in the brand, each photographed.

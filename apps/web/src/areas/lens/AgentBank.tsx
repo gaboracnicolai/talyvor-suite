@@ -1792,7 +1792,7 @@ function IssueKey({ agent }: { agent: Agent }) {
   )
 }
 
-function lineText(l: StatementLine, nameOf: (id: string) => string): string {
+export function lineText(l: StatementLine, nameOf: (id: string) => string): string {
   const out = l.amount_ulxc < 0
   const other = l.counterparty.startsWith('agent:') ? nameOf(l.counterparty.slice(6)) : 'another agent'
   switch (l.kind) {
