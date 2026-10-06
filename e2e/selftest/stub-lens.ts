@@ -27,6 +27,7 @@
 //   royalty     — an answer served from the pool to another synthetic workspace mints its contributor nothing
 //   roi-brand   — the ROI report wears the old navy and Inter, loads a font from another host, loses its
 //                 mark and prints on a dark canvas (B29.29)
+//   seats-allows — a plan's seat refusal names no plan that would allow the member (B32.71)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -61,6 +62,12 @@ const GRANT_ULXC = 1_000_000_000
 const APP_URL = process.env.STUB_APP_URL ?? 'http://localhost:8797'
 /** What each plan costs a month, in cents, and the allowance a period grants (LENS_SUBSCRIPTION_ALLOWANCE_ULXC). */
 const PLAN_FEES: Record<string, number> = { plus: 2000, pro: 10000, max: 20000 }
+/** B32.71 — the company plans Lens sells a test workspace (B32.10). They grant no allowance. */
+const COMPANY_PLANS: Record<string, number> = { team: 4900, business: 29900 }
+/** B32.12 — each plan's seats in LENS_PLAN_GATES' default (-1 unlimited), in the order a refusal looks for one
+ *  that would allow more; plus, pro and max take free's gates and byok takes team's. */
+const SEATS: [string, number][] = [['free', 1], ['team', 5], ['business', 25], ['enterprise', -1]]
+const GATED_AS: Record<string, string> = { plus: 'free', pro: 'free', max: 'free', byok: 'team' }
 const ALLOWANCE_ULXC = 50_000_000
 
 const model = (id: string, provider: string, display_name: string, input_per_1m: number, output_per_1m: number, release_date: string, tier: string,
@@ -520,10 +527,31 @@ async function stripeCheckout(req: IncomingMessage, res: ServerResponse, session
   const ws = workspaces.get(open.ws)
   if (ws !== undefined && BREAK !== 'subscribe') {
     ws.plan = { id: open.plan, cancel: false }
-    ws.allowance = { granted_ulxc: ALLOWANCE_ULXC, consumed_ulxc: 0, remaining_ulxc: ALLOWANCE_ULXC, fee_usd_cents: PLAN_FEES[open.plan] }
+    if (PLAN_FEES[open.plan] !== undefined) {
+      ws.allowance = { granted_ulxc: ALLOWANCE_ULXC, consumed_ulxc: 0, remaining_ulxc: ALLOWANCE_ULXC, fee_usd_cents: PLAN_FEES[open.plan] }
+    }
   }
   res.writeHead(303, { Location: `${APP_URL}/billing/success?session_id=${session}` })
   res.end()
+}
+
+/**
+ * B32.71 — GET /v1/workspaces/{ws}/plan/seats?members=N as Lens answers it (cmd/lens/plan_gates_handler.go):
+ * 200 when the plan's seats take N members, else 402 with Lens's sentence (internal/plans RefuseCount).
+ */
+function seatsCheck(res: ServerResponse, wsID: string, members: number): void {
+  const ws = workspaces.get(wsID)
+  if (ws === undefined) return json(res, 404, { error: 'workspace not found' })
+  if (!(members >= 0)) return json(res, 400, { error: 'members must be the number of members the workspace would have, ≥ 0' })
+  const plan = ws.plan?.id ?? 'free'
+  const gated = GATED_AS[plan] ?? plan
+  const limit = SEATS.find(([p]) => p === gated)?.[1] ?? 1
+  if (limit === -1 || members <= limit) return json(res, 200, { plan, seats: limit, members })
+  const seat = (n: number) => (n === 1 ? 'seat' : 'seats')
+  const allows = BREAK === 'seats-allows' ? undefined : SEATS.find(([, n]) => n === -1 || n > limit)
+  const error = `LENS_PLAN_GATES: the ${plan} plan allows ${limit} ${seat(limit)}` + (allows === undefined ? ' — a contract with Talyvor sets more'
+    : allows[1] === -1 ? ` — the ${allows[0]} plan allows unlimited seats` : ` — the ${allows[0]} plan allows ${allows[1]} ${seat(allows[1])}`)
+  return json(res, 402, { error, plan, gate: 'seats', limit, allows: allows?.[0] })
 }
 
 /** The Features page's switches: Lens's route for each, and the field it records. */
@@ -588,6 +616,10 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' })
       return void res.end('<!doctype html><title>Stripe Connect onboarding (stub)</title><h1>Stripe Connect onboarding (stub)</h1>')
     }
+    // B32.71 — Track's seats check (B32.73): Track asks about the Lens workspace the BFF named, on a credential
+    // minted for that workspace. The stand-in for that credential is the synthetic key the stub Track is given.
+    const seats = /^\/v1\/workspaces\/([^/]+)\/plan\/seats$/.exec(p)
+    if (seats !== null && req.headers['x-talyvor-synthetic-key'] === KEY) return seatsCheck(res, seats[1], Number(url.searchParams.get('members')))
     // The BFF runs a marketplace use on the session key the chat streams on (B20.3).
     const ws = byToken.get(bearer) ?? byKey.get(bearer)
     if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
@@ -741,7 +773,7 @@ createServer(async (req, res) => {
       }
       if (rest === '/billing/subscribe' && req.method === 'POST') {
         const { plan = '' } = JSON.parse((await read(req)) || '{}') as { plan?: string }
-        if (PLAN_FEES[plan] === undefined) return json(res, 400, { error: `plan ${plan} is not sold here` })
+        if (PLAN_FEES[plan] === undefined && COMPANY_PLANS[plan] === undefined) return json(res, 400, { error: `plan ${plan} is not sold here` })
         if (ws.plan !== undefined) return json(res, 409, { error: 'this workspace already has a live subscription' })
         const session = 'cs_test_' + randomBytes(12).toString('hex')
         checkouts.set(session, { ws: ws.id, plan })
