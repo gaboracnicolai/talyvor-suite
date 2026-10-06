@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
-import { parseRule } from './RuleCommand'
+import { parseAskAbove, parseRule } from './RuleCommand'
 
 // B28.352 — an agent's rule set in plain words in Chat: the sentence opens a card, read as typed, and Save puts the
 // agent's rules back with that one limit changed. The BFF is mocked at the wire; that Lens then refuses an over-limit
@@ -100,6 +100,50 @@ describe('Set an agent’s rule in plain words from Chat (B28.352)', () => {
         monthly_limit_ulxc: 100 * M,
         approval_above_ulxc: 2 * M,
         model_daily_limits_ulxc: { 'claude-haiku-4-5': M, 'claude-opus-5': 5 * M },
+        allowed_models: [],
+        allowed_providers: [],
+        active_from: '',
+        active_until: '',
+        timezone: 'UTC',
+      },
+    ])
+  })
+})
+
+describe('Set an agent’s approval amount from Chat (B28.353)', () => {
+  it('reads the amount and the agent; without LXC it is a question', () => {
+    expect(parseAskAbove('Ask me above 2 LXC')).toEqual({ agent: '', amount: '2' })
+    expect(parseAskAbove('please ask me before anything over 0.5 LXC for “Support bot”.')).toEqual({ agent: 'Support bot', amount: '0.5' })
+    expect(parseAskAbove('Ask me above 2 dollars')).toBeNull()
+  })
+
+  it('saves the approval amount on the workspace’s one agent and keeps every other rule', async () => {
+    const bff = mockBff()
+    window.history.pushState({}, '', '/chat')
+    render(<App />)
+
+    const box = await screen.findByRole('textbox', { name: /message/i })
+    await waitFor(() => expect(box).not.toBeDisabled())
+    fireEvent.change(box, { target: { value: 'Ask me above 2.5 LXC' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    const card = await screen.findByTestId('chat-ask-above')
+    expect(screen.queryAllByTestId('turn-user')).toHaveLength(0) // nothing went to the model
+    await waitFor(() => expect(within(card).getByLabelText('Agent')).toHaveValue('agt_1'))
+    expect(within(card).getByLabelText('Ask above, in LXC')).toHaveValue('2.5')
+    expect(await within(card).findByText('It is', { exact: false })).toHaveTextContent('It is 2 LXC now.')
+    expect(within(card).getByTestId('chat-ask-above-change')).toHaveTextContent(/^A person must approve any request or payment Researcher makes above 2\.5 LXC\./)
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Save the rule' }))
+    const done = await within(card).findByTestId('chat-ask-above-saved')
+    expect(done).toHaveTextContent(/^Saved: a person must approve any request or payment Researcher makes above 2\.5 LXC\. Until then it waits in Approvals\. See its rules on Agent Wallets$/)
+    expect(bff.saved).toEqual([
+      {
+        max_per_request_ulxc: M,
+        daily_limit_ulxc: 8 * M,
+        monthly_limit_ulxc: 100 * M,
+        approval_above_ulxc: 2.5 * M,
+        model_daily_limits_ulxc: { 'claude-opus-5': 2 * M, 'claude-haiku-4-5': M },
         allowed_models: [],
         allowed_providers: [],
         active_from: '',

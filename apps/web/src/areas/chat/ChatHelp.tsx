@@ -46,7 +46,7 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
-    // B28.352 — RuleCommand.tsx reads the sentence and saves the rule.
+    // B28.352, B28.353 — RuleCommand.tsx reads the sentence and saves the rule.
     heading: 'Setting a rule',
     body: (
       <>
@@ -59,6 +59,10 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
         <p>
           Save the rule and Lens refuses any call that would take the agent past it. A limit on one model is by the day;
           without a model it holds across every model. Every other rule stays as it was.
+        </p>
+        <p>
+          To be asked first, say <span className="font-mono">Ask me above 2 LXC for Researcher</span>. Saved, any request or
+          payment of the agent's above that amount waits in Approvals until a person approves it.
         </p>
       </>
     ),
