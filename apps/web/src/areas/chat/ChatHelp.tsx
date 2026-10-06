@@ -108,6 +108,23 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    // B28.98 — StatementCommand.tsx reads the command; Lens writes the file, as Agent Wallets downloads it.
+    heading: 'Downloading a statement',
+    body: (
+      <>
+        <p>
+          Type <span className="font-mono">/statement</span> and the agent&rsquo;s name — for example{' '}
+          <span className="font-mono">/statement Researcher</span> — and a card opens to download its statement for this
+          month, or any period you choose, as a CSV or JSON file: the opening balance, every movement and the closing
+          balance.
+        </p>
+        <p>
+          <span className="font-mono">/statement</span> alone downloads every agent&rsquo;s statement in one file.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'Models',
     body: (
       <>

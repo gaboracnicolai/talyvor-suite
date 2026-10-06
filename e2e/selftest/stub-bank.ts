@@ -405,6 +405,32 @@ export class Bank {
     return { workspace_id: ws, agent_id: agentID, from: from.toISOString(), to: to.toISOString(), accounts, lines, loans, escrows }
   }
 
+  /**
+   * B28.98 — a period statement as Lens writes it (cmd/lens writeStatement): JSON, or with ?format=csv a header, each
+   * account's opening balance, every line, then each account's closing balance; times as Go's RFC 3339 with
+   * nanoseconds, a memo a spreadsheet would run as a formula kept as text.
+   */
+  private answerStatement(res: ServerResponse, st: object | string, url: URL): void {
+    if (typeof st === 'string') return this.d.json(res, 400, { error: st })
+    if (url.searchParams.get('format') !== 'csv') return this.d.json(res, 200, st)
+    const s = st as { from: string; to: string; accounts: { account: string; opening_ulxc: number; closing_ulxc: number }[];
+      lines: { posting_id: number; entry_id: string; at: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string; balance_after_ulxc: number }[] }
+    const at = (t: string) => new Date(t).toISOString().replace(/\.(\d*?)0+Z$/, '.$1Z').replace(/\.Z$/, 'Z')
+    const text = (v: string) => (v !== '' && '=+-@\t\r'.includes(v[0]) ? `'${v}` : v)
+    const cell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
+    const rows = [
+      ['posting_id', 'entry_id', 'at', 'account', 'kind', 'amount_ulxc', 'counterparty', 'ref', 'balance_after_ulxc'],
+      ...s.accounts.map((x) => ['', '', at(s.from), x.account, 'opening', '', '', '', String(x.opening_ulxc)]),
+      ...s.lines.map((l) => [String(l.posting_id), l.entry_id, at(l.at), l.account, l.kind, String(l.amount_ulxc), l.counterparty, text(l.ref ?? ''), String(l.balance_after_ulxc)]),
+      ...s.accounts.map((x) => ['', '', at(s.to), x.account, 'closing', '', '', '', String(x.closing_ulxc)]),
+    ]
+    res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="agent-statement-${s.from.slice(0, 10)}-${s.to.slice(0, 10)}.csv"`,
+    })
+    res.end(rows.map((r) => r.map(cell).join(',') + '\n').join(''))
+  }
+
   private async body<T>(req: IncomingMessage): Promise<T> {
     return JSON.parse((await this.d.read(req)) || '{}') as T
   }
@@ -995,8 +1021,7 @@ export class Bank {
       return json(res, 200, out), true
     }
     if (rest === '/agents/statement' && method === 'GET') {
-      const st = this.statement(ws.id, undefined, url)
-      return json(res, typeof st === 'string' ? 400 : 200, typeof st === 'string' ? { error: st } : st), true
+      return this.answerStatement(res, this.statement(ws.id, undefined, url), url), true
     }
     if (rest === '/agents/alerts') return json(res, 200, { alerts: [], rule: 'an alert when an agent\'s last hour reaches 5× its usual hourly rate' }), true
     if (rest === '/agents/forecast') {
@@ -1152,8 +1177,7 @@ export class Bank {
       }
       if (action === '/statement' && method === 'GET') {
         if (['from', 'to', 'format'].some((k) => url.searchParams.has(k))) {
-          const st = this.statement(ws.id, a.id, url)
-          return json(res, typeof st === 'string' ? 400 : 200, typeof st === 'string' ? { error: st } : st), true
+          return this.answerStatement(res, this.statement(ws.id, a.id, url), url), true
         }
         const own = this.postings.filter((p) => p.account === `agent:${a.id}`)
         let after = 0

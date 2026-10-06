@@ -2757,6 +2757,204 @@ export function chatCardFreeze(seed: number): Scenario {
   }
 }
 
+/** B28.98 — a CSV file's rows (RFC 4180: a quoted cell doubles its quotes and may hold a comma or a line break). */
+export function csvRows(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let cell = ''
+  let quoted = false
+  const end = () => {
+    row.push(cell)
+    cell = ''
+  }
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') {
+        cell += '"'
+        i++
+      } else if (c === '"') quoted = false
+      else cell += c
+    } else if (c === '"') quoted = true
+    else if (c === ',') end()
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++
+      end()
+      rows.push(row)
+      row = []
+    } else cell += c
+  }
+  if (cell !== '' || row.length > 0) {
+    end()
+    rows.push(row)
+  }
+  return rows
+}
+
+/** Lens economy.Statement as GET /api/agents/statement answers it (B19.5). */
+interface PeriodStatement {
+  from: string
+  to: string
+  accounts: { account: string; opening_ulxc: number; closing_ulxc: number }[] | null
+  lines: { posting_id: number; entry_id: string; at: string; account: string; kind: string; amount_ulxc: number; counterparty: string; ref?: string; balance_after_ulxc: number }[] | null
+}
+
+const STATEMENT_CSV_HEADER = ['posting_id', 'entry_id', 'at', 'account', 'kind', 'amount_ulxc', 'counterparty', 'ref', 'balance_after_ulxc']
+
+/** A time to the nanosecond, whatever its offset or trailing zeros: "1759708800.120000000". */
+function instant(t: string): string {
+  const frac = /\.(\d+)/.exec(t)?.[1] ?? ''
+  return `${Math.floor(Date.parse(t) / 1000)}.${frac.padEnd(9, '0')}`
+}
+
+/**
+ * The rows a statement's CSV must hold, as Lens writes it (cmd/lens writeStatement): each account's opening balance,
+ * every line, each account's closing balance; with `account`, only that account's. A memo a spreadsheet would run as
+ * a formula is kept as text, with a leading '. Times are compared as instants.
+ */
+function statementRows(st: PeriodStatement, account?: string): string[][] {
+  const accounts = (st.accounts ?? []).filter((a) => account === undefined || a.account === account)
+  const lines = (st.lines ?? []).filter((l) => account === undefined || l.account === account)
+  const memo = (v: string) => (v !== '' && '=+-@\t\r'.includes(v[0]) ? `'${v}` : v)
+  return [
+    ...accounts.map((a) => ['', '', instant(st.from), a.account, 'opening', '', '', '', String(a.opening_ulxc)]),
+    ...lines.map((l) => [String(l.posting_id), l.entry_id, instant(l.at), l.account, l.kind, String(l.amount_ulxc), l.counterparty, memo(l.ref ?? ''), String(l.balance_after_ulxc)]),
+    ...accounts.map((a) => ['', '', instant(st.to), a.account, 'closing', '', '', '', String(a.closing_ulxc)]),
+  ]
+}
+
+/** Where a downloaded CSV's rows differ from the statement's, or undefined when they are the same rows. */
+function rowsDiffer(csv: string[][], want: string[][]): string | undefined {
+  if (JSON.stringify(csv[0]) !== JSON.stringify(STATEMENT_CSV_HEADER)) return `its header is ${JSON.stringify(csv[0])}`
+  const got = csv.slice(1).map((r) => r.map((v, i) => (i === 2 && v !== '' ? instant(v) : v)))
+  for (let i = 0; i < Math.max(got.length, want.length); i++) {
+    if (JSON.stringify(got[i]) !== JSON.stringify(want[i])) return `row ${i + 1} of ${got.length} is ${JSON.stringify(got[i])}, the statement's (of ${want.length}) ${JSON.stringify(want[i])}`
+  }
+  return undefined
+}
+
+/**
+ * B28.98 — a statement downloaded from Chat is the statement. `/statement <agent>` typed in Chat opens a card, not a
+ * question, that downloads the agent's statement for this month as a CSV file; `/statement` alone downloads every
+ * agent's. Each file's rows are GET /api/agents/statement for the same period, row for row — each account's opening
+ * balance, every line (posting, entry, time, account, kind, amount, counterparty, memo, balance after) and each
+ * closing balance — the agent's file being that statement's rows on the agent's account, which closes at the balance
+ * Lens's book holds for the agent.
+ */
+export function chatStatement(seed: number): Scenario {
+  const funded = 3e6
+  const taken = 1e6
+  return {
+    id: 'chat-statement',
+    owner: 'talyvor-suite',
+    agents: 1,
+    title: 'a statement downloaded from Chat with /statement is, row for row, /api/agents/statement for its period',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env, app } = ctx
+        const agent = await openAgent(ctx, bank, `Statement holder ${seed}`)
+        if (typeof agent === 'string') return fail(agent)
+        const funding = await bank.move(agent, funded, 'Fund')
+        if (funding !== undefined) return fail(`funding ${agent.name} was refused: ${funding}`)
+        const back = await bank.move(agent, taken, 'Take back')
+        if (back !== undefined) return fail(`taking ${lxcText(taken)} LXC back from ${agent.name} was refused: ${back}`)
+
+        const page = app.page
+        const viewport = page.viewportSize()
+        await app.newChat()
+        /** GET /api/agents/statement for [from, to), on the browser's session. */
+        const statementOf = async (from: string, to: string): Promise<PeriodStatement | string> => {
+          const path = `/api/agents/statement?${new URLSearchParams({ from, to, format: 'json' }).toString()}`
+          const res = await page.request.get(new URL(path, page.url()).toString())
+          if (!res.ok()) return `GET ${path} answered ${res.status()}: ${(await res.text()).slice(0, 200)}`
+          return (await res.json()) as PeriodStatement
+        }
+        /**
+         * Types `command` in Chat, downloads the card's CSV, and compares its rows to /api/agents/statement for the same
+         * period, read before and after the download (a line Lens adds between is in one of them): the file's name, or
+         * where it differs.
+         */
+        const inChat = async (command: string, whose: string, account: string | undefined, shoot: boolean): Promise<{ name: string; rows: number } | string> => {
+          const card = page.getByTestId('chat-statement').filter({ hasText: command }).last()
+          try {
+            await page.locator('#chat-message').fill(command)
+            await page.locator('#chat-message').press('Enter')
+            try {
+              await card.waitFor({ timeout: ACTION_TIMEOUT_MS })
+            } catch {
+              return `"${command}" opened no card in Chat`
+            }
+            if ((await page.getByTestId('turn-user').count()) > 0) return `"${command}" was asked of the model`
+            const form = card.getByTestId(account === undefined ? 'bank-statement-download' : 'agent-statement-download')
+            try {
+              await form.waitFor({ timeout: ACTION_TIMEOUT_MS })
+            } catch {
+              return `the card "${command}" opened offers no download of ${account === undefined ? 'every agent’s' : `${agent.name}’s`} statement`
+            }
+            if ((await card.getByLabel('Whose statement').inputValue()) !== whose) return `the card did not read ${account === undefined ? 'every agent' : agent.name} from "${command}"`
+            const from = await form.getByLabel(/^First day of/).inputValue()
+            const through = await form.getByLabel(/^Last day of/).inputValue()
+            const next = new Date(`${through}T00:00:00Z`)
+            next.setUTCDate(next.getUTCDate() + 1)
+            const to = next.toISOString().slice(0, 10)
+            await form.getByLabel(/^File type of/).selectOption('csv')
+            const before = await statementOf(from, to)
+            if (typeof before === 'string') return before
+            const [file] = await Promise.all([
+              page.waitForEvent('download', { timeout: ACTION_TIMEOUT_MS }),
+              form.getByRole('button', { name: 'Download', exact: true }).click(),
+            ])
+            const text = await readFile(await file.path(), 'utf8')
+            const after = await statementOf(from, to)
+            if (typeof after === 'string') return after
+            const csv = csvRows(text)
+            ctx.evidence.push({ note: `"${command}" in Chat saved ${file.suggestedFilename()}: ${csv.length - 1} row(s) for ${from} to ${through}`, answer: text.slice(0, 2000) })
+            const off = rowsDiffer(csv, statementRows(after, account))
+            if (off !== undefined && rowsDiffer(csv, statementRows(before, account)) !== undefined) {
+              return `${file.suggestedFilename()}, downloaded from Chat with "${command}", is not GET /api/agents/statement?from=${from}&to=${to}${account === undefined ? '' : ` on ${account}`}: ${off}`
+            }
+            if (shoot) {
+              await mkdir(env.outDir, { recursive: true })
+              for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+                await page.setViewportSize({ width, height })
+                await card.scrollIntoViewIfNeeded()
+                const shot = join(env.outDir, `chat-statement-${width}px-user${app.user.index}.png`)
+                await page.screenshot({ path: shot })
+                ctx.evidence.push({ note: `the statement card at ${width}px: ${shot}` })
+              }
+            }
+            return { name: file.suggestedFilename(), rows: csv.length - 1 }
+          } finally {
+            if (viewport !== null) await page.setViewportSize(viewport)
+            await card.getByRole('button', { name: 'Close' }).click().catch(() => {})
+          }
+        }
+
+        const mine = await inChat(`/statement ${agent.name}`, agent.id, `agent:${agent.id}`, true)
+        if (typeof mine === 'string') return fail(mine)
+        // Not an empty file that matches an empty statement: the agent's own lines are in it, closing at its balance.
+        const st = await statementOf(utcMonthStart(), utcTomorrow())
+        if (typeof st === 'string') return fail(st)
+        const own = (st.lines ?? []).filter((l) => l.account === `agent:${agent.id}`).map((l) => l.amount_ulxc)
+        const closing = (st.accounts ?? []).find((a) => a.account === `agent:${agent.id}`)?.closing_ulxc
+        const held = agentIn(await bookOf(ctx), agent.id)?.balance_ulxc
+        if (!own.includes(funded) || !own.includes(-taken) || closing !== held || held !== funded - taken) {
+          return fail(`${agent.name} was funded ${funded} µLXC and ${taken} taken back; its statement's lines are ${JSON.stringify(own)}, closing at ${closing} µLXC, and Lens's book holds ${held}`)
+        }
+        const every = await inChat('/statement', '', undefined, false)
+        if (typeof every === 'string') return fail(every)
+        return {
+          pass: true,
+          detail: `"/statement ${agent.name}" in Chat saved ${mine.name}, ${mine.rows} rows, and "/statement" ${every.name}, ${every.rows} rows: each is GET /api/agents/statement for the period row for row, ${agent.name} closing at ${lxcText(funded - taken)} LXC as Lens's book holds`,
+        }
+      }),
+  }
+}
+
+/** The first of this UTC month and tomorrow (UTC), as YYYY-MM-DD: "this month" as Chat's statement card asks for it. */
+const utcMonthStart = (now = new Date()): string => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10)
+const utcTomorrow = (now = new Date()): string => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString().slice(0, 10)
+
 /**
  * B28.91 — a wallet alert raised while Chat is open shows in Chat within ten seconds. An agent with a 1 LXC monthly
  * limit is funded 1 LXC and pays all of it to another agent, with Chat open in its own tab: the payment is read back

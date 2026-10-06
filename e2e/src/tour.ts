@@ -479,17 +479,17 @@ export function chatBrand(): Scenario {
 }
 
 /**
- * B28.267 — /chat/help in full at 1440 and 390: all ten sections (B28.350 added Launching an agent, B28.352 Setting a rule, B28.359 Handing an agent a task, B28.360 Freezing an agent’s card), the last one ending on its last
+ * B28.267 — /chat/help in full at 1440 and 390: all eleven sections (B28.350 added Launching an agent, B28.352 Setting a rule, B28.359 Handing an agent a task, B28.360 Freezing an agent’s card, B28.98 Downloading a statement), the last one ending on its last
  * sentence, and the top bar showing the whole title "How to use Talyvor Chat" (at 390 it was "H…"),
  * with nothing scrolling sideways. Photographed at both widths.
  */
-export const CHAT_HELP_SECTIONS = ['Asking', 'Launching an agent', 'Setting a rule', 'Handing an agent a task', 'Freezing an agent’s card', 'Models', 'Attaching documents', 'What an answer costs', 'What each question sends', 'Where conversations are kept'] as const
+export const CHAT_HELP_SECTIONS = ['Asking', 'Launching an agent', 'Setting a rule', 'Handing an agent a task', 'Freezing an agent’s card', 'Downloading a statement', 'Models', 'Attaching documents', 'What an answer costs', 'What each question sends', 'Where conversations are kept'] as const
 
 export function chatHelpInFull(): Scenario {
   return {
     id: 'chat-help-in-full',
     owner: 'talyvor-suite',
-    title: '/chat/help shows all ten sections, its last sentence, and its whole title, at 1440 and 390',
+    title: '/chat/help shows all eleven sections, its last sentence, and its whole title, at 1440 and 390',
     run: async (ctx) => {
       const { dir, link } = ctx.env.shots
       await mkdir(dir, { recursive: true })
@@ -527,7 +527,7 @@ export function chatHelpInFull(): Scenario {
         await page.close()
       }
       return wrong.length === 0
-        ? { pass: true, detail: '/chat/help in full at 1440 and 390: ten sections, the last sentence, and the whole title' }
+        ? { pass: true, detail: '/chat/help in full at 1440 and 390: eleven sections, the last sentence, and the whole title' }
         : { pass: false, detail: wrong.join('; '), where: ['/chat/help'] }
     },
   }

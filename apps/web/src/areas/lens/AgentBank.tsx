@@ -1948,8 +1948,9 @@ function saveFile(name: string, blob: Blob) {
  * one included.
  */
 /** `primary` (B29.9): Download is the teal action only on the screen it is for — Statements' every-agent card. */
-export function StatementDownload({ agent, primary = false }: { agent: Agent | null; primary?: boolean }) {
-  const [period, setPeriod] = useState(() => monthPeriod('last'))
+/** `month` (B28.98): the period it opens on — last month, or in Chat this one. */
+export function StatementDownload({ agent, primary = false, month = 'last' }: { agent: Agent | null; primary?: boolean; month?: 'last' | 'this' }) {
+  const [period, setPeriod] = useState(() => monthPeriod(month))
   const [format, setFormat] = useState<'csv' | 'json'>('csv')
   const who = agent ? `${agent.name}’s` : 'every agent’s'
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(period.from) && /^\d{4}-\d{2}-\d{2}$/.test(period.through) && period.from <= period.through
