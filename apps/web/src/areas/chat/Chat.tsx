@@ -46,6 +46,7 @@ import { LiveStatement } from './LiveStatement'
 import { MoneyCards } from './MoneyCards'
 import { ChatSavings } from './Savings'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
+import { ChatTotal } from './ChatTotal'
 import { ConversationBudget, budgetRefusal, overBudget, spentULXC } from './ConversationBudget'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
@@ -965,6 +966,8 @@ export function Chat() {
               <PaidBy book={payersBook} payers={payers} value={paidBy} onChange={choosePayer} disabled={pending} />
               {/* B28.361 — the most this conversation may spend. */}
               <ConversationBudget value={budget} spent={spentULXC(messages, usdPerLXC)} onChange={chooseBudget} disabled={pending} />
+              {/* B28.101 — the prices under this conversation's answers, added up; the answer being written is not priced yet. */}
+              <ChatTotal messages={pending ? messages.slice(0, -1) : messages} usdPerLXC={usdPerLXC} />
               {estimate !== undefined ? (
                 // B28.99 — at the list rate, like the footer the answer will carry.
                 <p className="text-caption text-muted" data-testid="cost-preview">
