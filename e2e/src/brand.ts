@@ -148,6 +148,7 @@ async function view(page: Page, url: string, theme: 'dark' | 'light'): Promise<{
 export function brandVisual(): Scenario {
   return {
     id: 'brand-visual',
+    owner: 'talyvor-suite',
     title: 'the public pages and Home, at 1440 and 390 in both themes: photographed, no sideways scroll, the SVG logo, no CSS tile, no #f0a030, no Inter',
     run: async (ctx) => {
       const browser = ctx.app.context.browser()
@@ -306,6 +307,7 @@ function readingInPage(companyLine: string): ReadingLook {
 export function readingPages(): Scenario {
   return {
     id: 'reading-pages',
+    owner: 'talyvor-suite',
     title: 'Documentation, Privacy, Terms and a published board, at 1440 and 390 in both themes: photographed, the logo header, an eyebrow, the teal rule, lines near 65 characters and the footer',
     run: async (ctx) => {
       const browser = ctx.app.context.browser()
@@ -395,6 +397,7 @@ export function companyFaults(path: string, text: string, opening: string): stri
 export function companyLine(): Scenario {
   return {
     id: 'company-line',
+    owner: 'talyvor-suite',
     title: 'the public pages, sign-in, sign-up and Settings name the company, its number and its registered office; Terms and Privacy open with who runs Talyvor',
     run: async (ctx) => {
       const browser = ctx.app.context.browser()
@@ -477,6 +480,7 @@ function sidebarLogosInPage(): string[] {
 export function brandDocs(): Scenario {
   return {
     id: 'brand-docs',
+    owner: 'talyvor-docs',
     title: 'a Docs page and its HTML export, at 1440 and 390 in both themes: photographed, the logo in the sidebar, no #f0a030, no Inter',
     run: async (ctx) => {
       const stamp = Date.now().toString(36)
@@ -666,6 +670,7 @@ function reportLookInPage(): ReportLook {
 export function brandROI(): Scenario {
   return {
     id: 'brand-roi',
+    owner: 'talyvor-lens',
     title: 'the ROI report, at 1440 and 390 in both themes and on paper: photographed, the inline mark, no #1a1a2e or #f0a030, no Inter, nothing from another host, light on paper',
     run: async (ctx) => {
       const browser = ctx.app.context.browser()

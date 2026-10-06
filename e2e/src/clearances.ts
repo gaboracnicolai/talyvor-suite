@@ -48,6 +48,7 @@ export function capabilitiesVerdict(listed: readonly CapabilityStatus[]): { pass
 export function b30Capabilities(): Scenario {
   return {
     id: 'b30-capabilities',
+    owner: 'talyvor-lens',
     title: 'every money-and-markets capability is listed with its class (AMBER or RED) and takes test money only',
     feature: 'Agent Wallets',
     run: async (ctx) => {

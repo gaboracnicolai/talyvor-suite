@@ -24,7 +24,7 @@ import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './mem
 import { networkDrop } from './oracles.ts'
 import { groupLeads, reportPath, writeReport, writeTesters } from './report.ts'
 import { archiveAll, roomForAgents } from './room.ts'
-import { CannotTest, type Evidence, type RunEnv, type Scenario, checkLedger, journeyFor } from './scenarios.ts'
+import { CannotTest, type Evidence, LEDGER_READBACK, type RunEnv, type Scenario, checkLedger, journeyFor } from './scenarios.ts'
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -422,19 +422,19 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     await pool(users, 10, async (user) => {
       const t0 = Date.now()
       let o: Outcome
-      const ledgerEnv: RunEnv = { ...env, lens: lens.tagged({ scenario: 'ledger-matches-answers', user: user.index }) }
+      const ledgerEnv: RunEnv = { ...env, lens: lens.tagged({ scenario: LEDGER_READBACK.id, user: user.index }) }
       if (stoppedBy !== undefined) {
-        outcomes.push({ user: user.index, workspace: user.workspaceID, scenario: 'ledger-matches-answers', title: 'ledger read-back',
+        outcomes.push({ user: user.index, workspace: user.workspaceID, scenario: LEDGER_READBACK.id, title: 'ledger read-back',
           status: 'SKIP', detail: `not run: ${stoppedBy}`, evidence: [], seconds: 0, features: ['Ledger'] })
         return
       }
       try {
         const v = await timed(LEDGER_MS, 'the ledger read-back', unlessStopped('the ledger read-back', checkLedger(ledgerEnv, user)))
-        o = { user: user.index, workspace: user.workspaceID, scenario: 'ledger-matches-answers',
+        o = { user: user.index, workspace: user.workspaceID, scenario: LEDGER_READBACK.id,
           title: 'every charged answer is one spend row on the ledger; a free replay is none',
           status: v.pass ? 'PASS' : 'FAIL', detail: v.detail, evidence: v.evidence, seconds: (Date.now() - t0) / 1000, features: ['Ledger'] }
       } catch (e) {
-        o = { user: user.index, workspace: user.workspaceID, scenario: 'ledger-matches-answers', title: 'ledger read-back',
+        o = { user: user.index, workspace: user.workspaceID, scenario: LEDGER_READBACK.id, title: 'ledger read-back',
           status: 'ERROR', detail: e instanceof Error ? e.message : String(e), evidence: [], seconds: (Date.now() - t0) / 1000, features: ['Ledger'] }
       }
       // B35.8 — answers lost to the testers' network leave a ledger nobody can judge.
@@ -572,7 +572,7 @@ async function main(): Promise<number> {
       }
       for (const x of f.filed) {
         filed[x.scenario] = x.id
-        newItems.push(x.id)
+        if (!newItems.includes(x.id)) newItems.push(x.id)
       }
       for (const x of f.covered) filed[x.scenario] = x.by
       console.log(`build items in ${cfg.buildMd}: ` +

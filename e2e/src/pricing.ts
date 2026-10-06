@@ -192,6 +192,7 @@ export function pricingFee(plan: Plan, seed: number): Scenario {
   const bps = PLATFORM_FEE_BPS[plan]
   return {
     id: `pricing-fee-${plan}`,
+    owner: 'talyvor-lens',
     title: `on ${NAME[plan]}${plan === 'free' ? '' : ' (a test-mode subscription)'}, a model call charged to credits writes its spend row and one platform_fee row of ${bps / 100}% of it, rounded up to the µLXC`,
     feature: 'Pricing',
     run: async (ctx) => {
@@ -219,6 +220,7 @@ export function pricingFee(plan: Plan, seed: number): Scenario {
 export function pricingOwnKey(seed: number): Scenario {
   return {
     id: 'pricing-own-key',
+    owner: 'talyvor-lens',
     title: "on Business, a model call on the workspace's own provider key goes on that key, and the ledger gains no spend row and no platform_fee row",
     feature: 'Pricing',
     run: async (ctx) => {
@@ -244,6 +246,7 @@ export function pricingOwnKey(seed: number): Scenario {
 export function pricingFreeAgents(seed: number): Scenario {
   return {
     id: 'pricing-free-agents',
+    owner: 'talyvor-lens',
     title: `a Free workspace makes up to ${FREE_AGENTS} agents; the fourth is refused in Lens's words, naming LENS_PLAN_GATES, the free plan and the team plan, and the workspace still has ${FREE_AGENTS}`,
     feature: 'Agent Wallets',
     run: async (ctx) => {
@@ -271,6 +274,7 @@ export function pricingFreeAgents(seed: number): Scenario {
 export function pricingSellerSplit(seed: number, seller: number): Scenario {
   return {
     id: 'pricing-seller-split',
+    owner: 'talyvor-lens',
     title: "a seller's first $1.00 sale, its buyer's bill paid, clears at 850,000 µUSD to the seller and 150,000 µUSD to Talyvor",
     feature: 'Marketplace',
     run: async (ctx) => {
@@ -291,6 +295,7 @@ export function pricingSellerSplit(seed: number, seller: number): Scenario {
 export function pricingApproved(): Scenario {
   return {
     id: 'pricing-approved',
+    owner: 'talyvor-suite',
     title: "/pricing shows Team at $49 and Business at $299 a month, the prices Lens's public plans read serves",
     run: async (ctx) => {
       const served = await ctx.env.lens.companyPlans()

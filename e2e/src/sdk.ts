@@ -103,6 +103,7 @@ const show = (lines: readonly StatementLine[]): string => lines.map((l) => `${l.
 export function sdkWalletQuickstart(seed: number): Scenario {
   return {
     id: 'sdk-wallet-quickstart',
+    owner: 'talyvor-lens',
     agents: 1,
     title: "the TypeScript SDK's README quickstart: an agent created, funded 10 LXC, keyed, calling a model through Lens, and its statement",
     feature: 'Agent Wallets',
