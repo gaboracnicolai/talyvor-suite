@@ -46,6 +46,24 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    // B28.352 — RuleCommand.tsx reads the sentence and saves the rule.
+    heading: 'Setting a rule',
+    body: (
+      <>
+        <p>
+          Say what an agent may spend, in LXC — for example{' '}
+          <span className="font-mono">Cap Researcher at 5 LXC a day on Opus</span>, or{' '}
+          <span className="font-mono">Limit Researcher to 50 LXC a month</span>. That is not sent to the model: a card opens in
+          the conversation with the agent, the amount, how often and the model filled in, and the limit as it is now.
+        </p>
+        <p>
+          Save the rule and Lens refuses any call that would take the agent past it. A limit on one model is by the day;
+          without a model it holds across every model. Every other rule stays as it was.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'Models',
     body: (
       <>

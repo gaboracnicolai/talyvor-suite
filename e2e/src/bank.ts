@@ -1970,6 +1970,99 @@ export function chatLaunchAgent(seed: number): Scenario {
 }
 
 /**
+ * B28.352 — B28.88's DONE line, from Chat: "Cap agent <name> at 0.000001 LXC a day on Opus" typed in the composer goes
+ * to no model; it opens a card with the agent, the amount, a day and the newest Opus read from the sentence, and Save puts
+ * the rule on Lens. Lens's rules then hold that cap on the model, every other rule as it was, and the agent's next call
+ * to that model is refused before the provider — no posting on its statement and no spend row on the ledger. Where the
+ * catalog has no Opus beside the judge model, its dearest sibling from the same provider stands in, named in full.
+ */
+export function chatPlainRule(seed: number): Scenario {
+  const r = seeded(seed * 59 + 5)
+  const cap = 1 // µLXC: the agent's first call to the model passes it
+  return {
+    id: 'chat-plain-rule',
+    title: 'a rule typed in plain words in Chat is saved on Lens, and the agent’s next call over it is refused with nothing posted or charged',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env } = ctx
+        const siblings = env.catalog.filter((m) => m.provider === env.judgeProvider && m.id !== env.judgeModel && !m.deprecated && m.output_per_1m > 0)
+        const opus = siblings.some((m) => /opus/i.test(m.id))
+        const dear = siblings.find((m) => /opus/i.test(m.id)) ?? [...siblings].sort((x, y) => y.output_per_1m - x.output_per_1m)[0]
+        if (dear === undefined) throw new CannotTest(`the catalog has no second ${env.judgeProvider} model to cap beside ${env.judgeModel}`)
+        const a = await openAgent(ctx, bank, `Plain rule ${seed}`)
+        if (typeof a === 'string') return fail(a)
+        const err = await bank.move(a, 1e6, 'Fund')
+        if (err !== undefined) return fail(`funding was refused: ${err}`)
+        const key = await bank.issueKey(a)
+        const before = await env.lens.agentRules(ctx.app.user, a.id)
+        const page = await ctx.app.tab('/chat')
+        try {
+          await page.setViewportSize({ width: 1440, height: 900 })
+          const sentence = `Cap agent ${a.name} at ${lxcText(cap)} LXC a day on ${opus ? 'Opus' : dear.display_name}`
+          await page.locator('#chat-message').fill(sentence)
+          await page.locator('#chat-message').press('Enter')
+          const rule = page.getByTestId('chat-rule').filter({ hasText: sentence })
+          try {
+            await rule.waitFor({ timeout: ACTION_TIMEOUT_MS })
+          } catch {
+            return fail(`"${sentence}" opened no rule card in Chat`)
+          }
+          if ((await page.getByTestId('turn-user').filter({ hasText: sentence }).count()) > 0) return fail('the rule was sent to the model as a question')
+          await rule.getByTestId('chat-rule-change').waitFor({ timeout: ACTION_TIMEOUT_MS })
+          let model = await rule.getByLabel('On which model').inputValue()
+          const read = [await rule.getByLabel('Agent').inputValue(), await rule.getByLabel('At most, in LXC').inputValue(), await rule.getByLabel('How often').inputValue()]
+          if (read.join('|') !== [a.id, lxcText(cap), 'day'].join('|')) return fail(`the card read "${sentence}" as ${JSON.stringify(read)}, not ${a.id}, ${lxcText(cap)} LXC, a day`)
+          if (opus ? !/opus/i.test(model) : model !== dear.id) return fail(`"${sentence}" named ${opus ? 'Opus' : dear.id}; the card chose ${JSON.stringify(model)}`)
+          if (env.catalog.find((m) => m.id === model)?.provider !== env.judgeProvider) {
+            // The newest Opus is another provider's; this run can call only the judge's, so its Opus is chosen on the card.
+            ctx.evidence.push({ note: `"Opus" read as ${model}; ${dear.id} chosen on the card, as the run calls ${env.judgeProvider} only` })
+            await rule.getByLabel('On which model').selectOption(dear.id)
+            model = dear.id
+          }
+          const asked = (await rule.getByTestId('chat-rule-change').innerText()).trim()
+          await rule.getByRole('button', { name: 'Save the rule', exact: true }).click()
+          const refusedSave = await outcome(rule.getByTestId('chat-rule-saved'), rule)
+          if (refusedSave !== undefined) return fail(`saving "${sentence}" was refused: ${refusedSave}`)
+          const said = (await rule.getByTestId('chat-rule-saved').innerText()).trim()
+
+          // The rule as Lens holds it: the cap on that model, by the name Lens reads it back by, and nothing else moved.
+          const after = await env.lens.agentRules(ctx.app.user, a.id)
+          const capKey = (m: string) => m.trim().toLowerCase().replace(/-(\d{8}|\d{4}-\d{2}-\d{2}|latest)$/, '')
+          const stored = Object.entries(after.model_daily_limits_ulxc ?? {}).find(([m]) => capKey(m) === capKey(model))?.[1]
+          ctx.evidence.push({ note: `Chat: "${asked}" → "${said}"; Lens holds ${a.name}'s per-model daily limits as ${JSON.stringify(after.model_daily_limits_ulxc ?? {})}` })
+          if (stored !== cap) return fail(`saved ${cap} µLXC a day on ${model} from Chat; Lens holds ${JSON.stringify(after.model_daily_limits_ulxc ?? {})}`)
+          const kept = (['max_per_request_ulxc', 'daily_limit_ulxc', 'monthly_limit_ulxc', 'approval_above_ulxc'] as const).filter((f) => after[f] !== before[f])
+          if (kept.length > 0) return fail(`setting one model's cap from Chat changed ${kept.map((f) => `${f} ${before[f]} → ${after[f]}`).join(', ')}`)
+
+          await mkdir(env.outDir, { recursive: true })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            await rule.scrollIntoViewIfNeeded()
+            const shot = join(env.outDir, `chat-plain-rule-${width}px-user${ctx.app.user.index}.png`)
+            await page.screenshot({ path: shot })
+            ctx.evidence.push({ note: `the saved rule at ${width}px: ${shot}` })
+          }
+
+          // Over the rule: refused before the provider, with nothing on the agent's statement and nothing on the ledger.
+          const lines0 = await env.lens.agentLines(ctx.app.user, a.id)
+          const spends0 = new Set((await spendRows(ctx)).map((x) => x.id))
+          const refused = await agentAsks(ctx, key, sum(r).q, `${model}, past the ${lxcText(cap)} LXC a day set from Chat`, model)
+          if (refused.ok) return fail(`${model}'s daily limit of ${lxcText(cap)} LXC, set from Chat, let a request through: "${refused.value.text}"`)
+          if (refused.status !== 403 || !/daily limit .* for the model/.test(refused.error)) return fail(`${model} was refused, but not by its daily limit: ${refused.status} ${refused.error}`)
+          const late = (await env.lens.agentLines(ctx.app.user, a.id)).filter((l) => !lines0.some((o) => o.entry_id === l.entry_id))
+          const charged = (await spendRows(ctx)).filter((x) => !spends0.has(x.id))
+          if (late.length > 0 || charged.length > 0) {
+            return fail(`refused by the rule set from Chat, yet it wrote ${late.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ') || 'nothing'} on ${a.name}'s statement and ${charged.length} spend row(s) on the ledger`)
+          }
+          return { pass: true, detail: `"${sentence}" in Chat saved ${cap} µLXC a day on ${model} on Lens, every other rule as it was; ${a.name}'s next call to it was refused 403 with no posting and no spend row` }
+        } finally {
+          await page.close()
+        }
+      }),
+  }
+}
+
+/**
  * B28.8 — a brand-new workspace's first agent, from Home's three steps, with no full-screen consent page:
  * created with a monthly budget and an approval amount, funded, given a key — and its first request, sent
  * with that key, shown on Home as it lands on its statement. Sharing is one line on Home to untick. Every
