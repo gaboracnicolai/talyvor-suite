@@ -18,8 +18,10 @@ import { formatBPS, formatLimit, formatMinor, planName, type Fees, type PlanGate
 export const PREVIEW_LABEL = 'Preview — test money only'
 
 export function PreviewLabel() {
+  // The status hue is the dot, never the words (packages/ui invariant: text is never a hue).
   return (
-    <span className="inline-block rounded-pill border border-held px-2 py-0.5 text-caption text-held">
+    <span className="inline-flex items-center gap-1.5 rounded-pill border border-rule-strong px-2 py-0.5 text-caption text-ink">
+      <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-pill bg-held" />
       {PREVIEW_LABEL}
     </span>
   )
