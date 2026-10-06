@@ -80,6 +80,14 @@ describe('Plans (B13.3)', () => {
     expect(JSON.parse(window.sessionStorage.getItem(PENDING_PLAN_KEY)!).plan).toBe('pro')
   })
 
+  it('says answers earn once the workspace has bought credits, not on every plan (B30.91)', async () => {
+    serve({ capability: 'subscriptions', enabled: true, data: UNSUBSCRIBED })
+    renderIn(<Plans />)
+
+    expect(await screen.findByText(/Your answers earn once your workspace has bought credits\./)).toBeInTheDocument()
+    expect(screen.queryByText(/earn on every plan/)).not.toBeInTheDocument()
+  })
+
   it('shows on each plan card the LXC of usage it includes this month, as /api/pricing states it (B28.5)', async () => {
     serve({ capability: 'subscriptions', enabled: true, data: UNSUBSCRIBED })
     renderIn(<Plans />)

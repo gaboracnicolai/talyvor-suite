@@ -1764,6 +1764,31 @@ export function plansIncludedUsage(): Scenario {
   }
 }
 
+/**
+ * B30.91 — /plans says answers earn once the workspace has bought credits (Lens's earnverify), never that they
+ * earn on every plan.
+ */
+export function plansEarnSentence(): Scenario {
+  return {
+    id: 'plans-earn-sentence',
+    title: '/plans says answers earn once the workspace has bought credits, not on every plan',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/plans')
+      let said: string
+      try {
+        said = (await page.getByText(/Every plan\s+reaches every model/).innerText({ timeout: ACTION_TIMEOUT_MS })).trim()
+      } finally {
+        await page.close()
+      }
+      ctx.evidence.push({ note: `/plans: ${said}` })
+      if (/earn on every plan/.test(said)) return { pass: false, detail: `/plans still says answers earn on every plan: "${said}"` }
+      return said.includes('Your answers earn once your workspace has bought credits.')
+        ? { pass: true, detail: 'answers earn once the workspace has bought credits' }
+        : { pass: false, detail: `/plans does not say when answers earn: "${said}"` }
+    },
+  }
+}
+
 // ─── B17.10 — a test user's plan on a Stripe test card, and a pooled serve's royalty ────────────────
 
 /** The plan a test user subscribes to, at the price Plans shows for it (apps/web planApi.ts PLANS). */
@@ -1962,7 +1987,7 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
     // B29.4 — then /marketing in the board's design, at 1440 and at 390; B29.5 — /pricing in the brand.
     // B28.274 — and /terms and /privacy dated and read to their last line.
-    case 9: list.push(walletHero(), marketingBoard(), honestPages(), legalPagesWhole(), pricingTruth(), pricingBoard(), plansIncludedUsage()); break
+    case 9: list.push(walletHero(), marketingBoard(), honestPages(), legalPagesWhole(), pricingTruth(), pricingBoard(), plansIncludedUsage(), plansEarnSentence()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.
