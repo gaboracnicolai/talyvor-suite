@@ -33,6 +33,7 @@ import {
 } from './history'
 import { Markdown } from './Markdown'
 import { ApprovalCards } from './ApprovalCards'
+import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
@@ -173,6 +174,9 @@ export function Chat() {
   const [failure, setFailure] = useState<Refusal | null>(null)
   const [unreadable, setUnreadable] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
+  // B28.350 — each /agent command typed here: a card that launches the agent, kept while the page is open.
+  const [launches, setLaunches] = useState<{ id: number; command: string }[]>([])
+  const launchSeq = useRef(0)
 
   // History is scoped to who is signed in; until that is known there is nowhere to keep it.
   const me = useAuthMeReader()
@@ -405,7 +409,13 @@ export function Chat() {
   const send = useCallback(
     (text: string = draft) => {
       const question = text.trim()
-      if (question === '' || selected === undefined || pending) return
+      if (question === '') return
+      if (LAUNCH_COMMAND.test(question)) {
+        setDraft('')
+        setLaunches((l) => [...l, { id: ++launchSeq.current, command: question }])
+        return
+      }
+      if (selected === undefined || pending) return
       if (uploading.length > 0) {
         setWaiting(true)
         return
@@ -674,6 +684,15 @@ export function Chat() {
                 ))}
               </ol>
             )}
+
+            {/* B28.350 — /agent launches an agent with its budget, rules and key, on a card here instead of a question. */}
+            {launches.length > 0 ? (
+              <section aria-label="Launching agents" className="flex flex-col gap-3 pb-6">
+                {launches.map((l) => (
+                  <LaunchAgentCard key={l.id} command={l.command} onClose={() => setLaunches((ls) => ls.filter((x) => x.id !== l.id))} />
+                ))}
+              </section>
+            ) : null}
 
             {/* B28.84 — an agent's payment waiting for a person, approved with Face ID here in the conversation. */}
             <ApprovalCards />

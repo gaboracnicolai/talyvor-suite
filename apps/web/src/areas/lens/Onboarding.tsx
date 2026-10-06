@@ -170,8 +170,8 @@ function FundStep({ agent, book, onFunded }: { agent: Agent; book: AgentBook; on
 
 const REQUEST_KINDS: readonly StatementLine['kind'][] = ['spend', 'hold', 'settle', 'release']
 
-/** The oldest line a request put on the statement; Lens lists it newest first. */
-const firstRequest = (lines: StatementLine[] | null | undefined): StatementLine | null =>
+/** The oldest line a request put on the statement; Lens lists it newest first. Chat's launch card (B28.350) reads it too. */
+export const firstRequest = (lines: StatementLine[] | null | undefined): StatementLine | null =>
   [...(lines ?? [])].reverse().find((l) => REQUEST_KINDS.includes(l.kind)) ?? null
 
 /** Step 3: its key, a snippet to paste, and the statement read until the agent's first request is on it. */

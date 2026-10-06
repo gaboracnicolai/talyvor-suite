@@ -1656,6 +1656,107 @@ export function agentWalletsEmpty(): Scenario {
 }
 
 /**
+ * B28.350 — B28.85's DONE line, from Chat: `/agent …` typed in the composer goes to no model; it opens a card with the
+ * name, budget and rules read from the command, and Launch makes the agent. Lens's /api/agents then has it holding its
+ * budget, moved out of the workspace, with its rules as typed. Its first call with the key the card showed is debited
+ * from its wallet — a request line on its statement, its balance in the book that statement's last balance — and the
+ * card shows that line and links it.
+ */
+export function chatLaunchAgent(seed: number): Scenario {
+  const r = seeded(seed * 53 + 7)
+  const budget = 2e6
+  const daily = 1e6
+  const approval = 500_000
+  return {
+    id: 'chat-launch-agent',
+    title: 'an agent launched from Chat with /agent is in Lens’s book with its budget and rules, and its first call is debited from its wallet',
+    run: async (ctx) => {
+      const name = `Launched ${seed}`
+      const before = await bookOf(ctx)
+      if (before.unallocated_ulxc < budget) throw new CannotTest(`the workspace has ${before.unallocated_ulxc} µLXC free, under the ${budget} µLXC budget`)
+      const page = await ctx.app.tab('/chat')
+      try {
+        const command = `/agent ${name} budget ${lxcText(budget)} LXC, ${lxcText(daily)} a day, ask me above ${lxcText(approval)}`
+        await page.locator('#chat-message').fill(command)
+        await page.locator('#chat-message').press('Enter')
+        const launch = page.getByTestId('chat-launch').filter({ hasText: command })
+        try {
+          await launch.waitFor({ timeout: ACTION_TIMEOUT_MS })
+        } catch {
+          return fail(`"${command}" opened no launch card in Chat`)
+        }
+        if ((await page.getByTestId('turn-user').filter({ hasText: command }).count()) > 0) return fail('the /agent command was sent to the model as a question')
+        const read = [
+          await launch.getByLabel('Agent name').inputValue(),
+          await launch.getByLabel('Budget, in LXC').inputValue(),
+          await launch.getByLabel('At most a day, in LXC').inputValue(),
+          await launch.getByLabel('Ask a person above, in LXC').inputValue(),
+        ]
+        const meant = [name, lxcText(budget), lxcText(daily), lxcText(approval)]
+        if (read.join('|') !== meant.join('|')) return fail(`the card read "${command}" as ${JSON.stringify(read)}, not ${JSON.stringify(meant)}`)
+
+        await launch.getByRole('button', { name: `Launch ${name}`, exact: true }).click()
+        const refused = await outcome(launch.getByTestId('chat-launch-key'), launch)
+        if (refused !== undefined) return fail(`launching ${name} was refused: ${refused}`)
+        const key = (await launch.getByTestId('chat-launch-key').innerText()).trim()
+
+        const book = await bookOf(ctx)
+        const a = book.agents.find((x) => x.name === name)
+        if (a === undefined) return fail(`the card says ${name} is launched, but Lens's /api/agents has no agent named ${name}`)
+        if (a.owner_user_id === '') return fail(`${name} was launched with no owner`)
+        if (a.balance_ulxc !== budget) return fail(`launched with a ${budget} µLXC budget; Lens's book says ${name} holds ${a.balance_ulxc}`)
+        if (book.allocated_ulxc !== before.allocated_ulxc + budget || book.workspace_balance_ulxc !== before.workspace_balance_ulxc) {
+          return fail(`the budget did not come out of the workspace: allocated ${before.allocated_ulxc} → ${book.allocated_ulxc}, workspace ${before.workspace_balance_ulxc} → ${book.workspace_balance_ulxc} µLXC`)
+        }
+        const rules = await ctx.env.lens.agentRules(ctx.app.user, a.id)
+        if (rules.monthly_limit_ulxc !== budget || rules.daily_limit_ulxc !== daily || rules.approval_above_ulxc !== approval) {
+          return fail(`typed a ${budget} budget, ${daily} a day and ${approval} to ask above (µLXC); Lens stored ${rules.monthly_limit_ulxc}, ${rules.daily_limit_ulxc} and ${rules.approval_above_ulxc}`)
+        }
+
+        const served = await agentAsks(ctx, key, sum(r).q, `${name}'s first call, with the key Chat showed`)
+        if (!served.ok) return fail(`${name}'s first call, with the key Chat showed, was refused: ${served.status} ${served.error}`)
+        const shown = launch.getByTestId('chat-launch-first-call')
+        try {
+          await shown.waitFor({ timeout: 60_000 })
+        } catch {
+          return fail(`${name}'s call was served, but the card never showed it: "${(await launch.innerText()).trim()}"`)
+        }
+        const said = (await shown.innerText()).trim()
+        const href = await shown.getByRole('link').getAttribute('href')
+        await mkdir(ctx.env.outDir, { recursive: true })
+        for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+          await page.setViewportSize({ width, height })
+          await launch.scrollIntoViewIfNeeded()
+          const shot = join(ctx.env.outDir, `chat-launch-${width}px-user${ctx.app.user.index}.png`)
+          // The key is masked: it spends this agent's wallet, and the picture outlives the run.
+          await page.screenshot({ path: shot, mask: [launch.getByTestId('chat-launch-key')] })
+          ctx.evidence.push({ note: `the card at ${width}px: ${shot}` })
+        }
+
+        // The ledger, not the card: Lens lists the statement newest first.
+        const lines = await ctx.env.lens.agentLines(ctx.app.user, a.id)
+        const held = agentIn(await bookOf(ctx), a.id)?.balance_ulxc
+        ctx.evidence.push({ note: `Chat: "${said}" → ${href}; ${name}'s statement: ${lines.map((l) => `${l.kind} ${l.amount_ulxc}`).join(', ')}; it holds ${held} µLXC` })
+        const funded = lines.filter((l) => l.kind === 'fund')
+        if (funded.length !== 1 || funded[0].amount_ulxc !== budget) return fail(`${name}'s statement should hold one fund line of ${budget} µLXC: ${JSON.stringify(funded)}`)
+        const debit = [...lines].reverse().find((l) => ['spend', 'hold', 'settle', 'release'].includes(l.kind))
+        if (debit === undefined || debit.amount_ulxc >= 0) return fail(`served, yet ${name}'s statement has no debit for the call: ${JSON.stringify(lines)}`)
+        const net = lines.reduce((t, l) => t + l.amount_ulxc, 0)
+        if (held === undefined || held >= budget || held !== net || held !== lines[0].balance_after_ulxc) {
+          return fail(`${name}'s first call was not debited from its wallet: it holds ${held} µLXC of its ${budget} budget; its statement sums to ${net} and ends at ${lines[0].balance_after_ulxc}`)
+        }
+        if (!said.includes(lxcText(Math.abs(debit.amount_ulxc)))) return fail(`Lens put ${debit.kind} ${debit.amount_ulxc} µLXC on ${name}'s statement; the card says "${said}"`)
+        const want = `/agents?agent=${encodeURIComponent(a.id)}&entry=${encodeURIComponent(debit.entry_id)}`
+        if (href !== want) return fail(`the card links ${href}, not ${name}'s first call ${want}`)
+        return { pass: true, detail: `"${command}" launched ${name} from Chat: Lens's book has it holding its ${budget} µLXC budget out of the workspace, its rules as typed; its first call was debited (${debit.kind} ${debit.amount_ulxc} µLXC, ${held} left), shown and linked on the card` }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
+/**
  * B28.8 — a brand-new workspace's first agent, from Home's three steps, with no full-screen consent page:
  * created with a monthly budget and an approval amount, funded, given a key — and its first request, sent
  * with that key, shown on Home as it lands on its statement. Sharing is one line on Home to untick. Every
