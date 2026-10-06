@@ -562,12 +562,13 @@ function watch(context: BrowserContext, appURL: string, rec: Recorder, tag: () =
     const url = new URL(req.url())
     const s = started.get(req)
     if (s === undefined || !bff(url, req)) return
+    started.delete(req)
     rec.hit(s.tag, { kind: 'bff', method: req.method(), path: url.pathname, status, ms: Date.now() - s.at,
       from: req.isNavigationRequest() ? url.pathname : s.from })
   }
-  context.on('requestfinished', (req) => {
-    void req.response().then((r) => done(req, r?.status() ?? 0), () => done(req, 0))
-  })
+  // B34.5 — at its answer, not once its body is read: a body the page never reads (a revoke's, a restore's) never
+  // "finishes", so the request was never recorded and its route read "not covered" though a scenario reached it.
+  context.on('response', (res) => done(res.request(), res.status()))
   context.on('requestfailed', (req) => done(req, 0))
   const page = (p: Page) => {
     p.on('framenavigated', (f) => {

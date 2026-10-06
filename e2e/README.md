@@ -318,6 +318,31 @@ In the self-test each fails on a planted defect (stub-bank.ts and stub-lens.ts),
 order: `request-unpaid`, `loan-no-payout`, `escrow-dispute-pays`, `send-one-side`, `pot-lock-ignored`,
 `freeze-ignored`, `approval-deny-pays`, `sim-fill-free`, `convert-free` and `licence-renews`.
 
+## B34.5 — every screen and BFF route has a tester
+
+The public board screen and every BFF route the 5 Oct self-test read "not covered" — and the plan change B34.1's
+stale reason had excused — are reached by a scenario (`src/surface.ts`), once a run, from the screen a person uses. Each oracle is what Lens, Track or Docs stored, read
+back afterwards. A route for something production has switched off (provider keys, pattern mining) is checked to
+refuse and store nothing. The coverage map now records a BFF request when its answer arrives, not once its body has
+been read: a revoke's or a restore's body the page never reads never "finished", so those routes read "not covered"
+though a scenario had reached them.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `session-sign-out` | 0 | `/api/version`: the BFF and the bundle were built from one commit; `/api/workspaces` lists exactly the workspace Lens gives the token; an unknown `/api/` path is a JSON 404. Sign out in a second browser: that session's `/auth/me` reads signed out and its reads are 401, and the first browser is still signed in |
+| `lens-convert` | 0 | the quote on Royalties is Lens's rate and minimum; under the minimum refused; with no spendable LENS the conversion is not offered and one asked for is refused (402), the LXC ledger, LXC balance and LENS balance unmoved — with LENS, one LXC posting of the amount and LENS down by the quoted cost |
+| `wallet-fx` | 1 | an agent's 12.5 LXC shown in pounds and in euros ("Show amounts in"): its dollar value at Lens's peg at the rates the ECB published today, read from the ECB's own file, which `/api/fx` states too |
+| `track-workspace-restore` | 1 | deleted on Workspace settings (its slug typed): Track holds it deleted with the day it goes, not live; Restore: live again with its issues |
+| `wrong-answer-stored` | 2 | an answer served from the earlier one, marked Wrong answer: asked again it goes to the model, one spend row; Features' Delete everything stored: Lens holds no answer and no conversion for the workspace |
+| `track-search-cycle-board` | 3 | Search issues finds the issue by its words alone; a cycle's progress line counts exactly what Track holds in it; a board published opens at `/board/:token` with Track's issues, signed out too; turned off, the link reads "This board isn't available" and Track no longer lists it |
+| `pattern-mining-switch` | 3 | Routing pattern sharing switched on and off, Lens holds each; where Lens runs no pattern mining, no switch and an opt-in is refused, nothing stored |
+| `docs-tools` | 4 | search finds the page by a word only it holds; its space reads as Docs holds it; pinned and unpinned in Docs' pins; Fix grammar, Write with AI and a suggested title, each saved, are what Docs holds; a changelog entry for a Track issue is the one Docs wrote |
+| `chat-tool-guard` | 4 | Chat is offered only Lens's read-only wallet tools, as Lens lists them; `wallet_send` through the tool route is refused; a read Lens does not offer says so; the ledger has not moved |
+| `api-key-revoke` | 5 | a key made on API keys works on Lens; revoked there (its prefix typed), Lens no longer lists it and refuses it (401) |
+| `byok-addon` | 5, on a workspace of its own | Team bought with the test card; Add BYOK to Team on Plans: Lens's subscription and plan hold the add-on and allow own keys; Remove BYOK: neither does; the subscription is cancelled after |
+| `plan-change` | 7, on a workspace of its own | Plus bought with the test card; Switch to Pro and Move to Pro on Plans: Lens's subscription is on Pro, and its allowance is Pro's price with Plus's included usage moved toward Pro's by the share of the period left (Lens B18.14), as Lens's plans read states both; the subscription is cancelled after |
+| `provider-keys` | 8 | an OpenAI key added on Settings is the one Lens holds (its last four) and gone once removed there; where Lens holds no provider keys (production today) Settings says so and one sent anyway is refused, nothing stored |
+
 ## B25.8 — the slow money, brought due inside the run
 
 Lens (B25.7) brings a test workspace's slow money due now, with the synthetic key: a loan's next instalment,

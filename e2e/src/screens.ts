@@ -12,7 +12,7 @@ const SAVE_TIMEOUT_MS = 15_000
 export type LoggingPolicy = 'full' | 'metadata' | 'none'
 
 export class FeaturesScreen {
-  private readonly page: Page
+  readonly page: Page
 
   private constructor(page: Page) {
     this.page = page

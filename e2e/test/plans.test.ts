@@ -24,9 +24,10 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     const c = cast(journeys)
     const holds = { free: 3, team: TEAM_AGENTS, business: Infinity }
     journeys.forEach((j, i) => expect(j.filter((x) => x.own !== true).reduce((n, x) => n + (x.agents ?? 0), 0)).toBeLessThanOrEqual(holds[c.plans[i]]))
-    // User 9 is every catalog-v4 scenario's other company; seats-free and each paid plan's agent gate run on their own.
+    // User 9 is every catalog-v4 scenario's other company; seats-free, each paid plan's agent gate, BYOK and a plan change (B34.5,
+    // each bought with the test card) run on their own.
     expect(c.plans[9]).toBe('business')
-    expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['plan-agents-business:business', 'plan-agents-team:team', 'seats-free:free', 'seats-team:free'])
+    expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['byok-addon:free', 'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'seats-free:free', 'seats-team:free'])
   })
 
   it('creates each plan’s workspaces in one call, each user at its index and each gate’s own beside it', async () => {

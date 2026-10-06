@@ -121,10 +121,10 @@ interface Workspace {
   guardrails: Record<string, unknown> & { enable_injection: boolean; enable_pii: boolean }
   budgets: Budget[]
   usage: { total: number; hits: number; pooled: number; converted: number }
-  plan?: { id: string; cancel: boolean }
+  plan?: { id: string; cancel: boolean; byok?: boolean }
   /** B35.7 — the plan the testers created it on (talyvor-lens B35.1), read after a subscription. */
   syntheticPlan?: string
-  allowance?: { granted_ulxc: number; consumed_ulxc: number; remaining_ulxc: number; fee_usd_cents: number }
+  allowance?: { granted_ulxc: number; consumed_ulxc: number; remaining_ulxc: number; fee_usd_cents: number; period_start?: string; period_end?: string }
   earnings: Earned[]
 }
 
@@ -154,6 +154,8 @@ const byKey = new Map<string, Workspace>()
 const pool = new Map<string, { owner: string; answer: string }>()
 /** Open checkouts on the stand-in for Stripe: session → the workspace and the plan it is for. */
 const checkouts = new Map<string, { ws: string; plan: string }>()
+/** B34.5 — each answer's X-Talyvor-Request-ID, and what it answered: Chat's Wrong answer names it (Lens POST /v1/feedback). */
+const answered = new Map<string, { ws: string; key: string }>()
 
 function book(ws: Workspace, amount: number, type: string, description: string, tags: object = {}): number {
   if (type === 'spend') for (const b of ws.budgets) b.spent_usd += (-amount / 1e6) * USD_PER_LXC
@@ -446,6 +448,9 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   ws.usage.total++
 
   const key = JSON.stringify([model.id, messages.map((m) => [m.role, text(m)])])
+  const rid = 'req_' + randomBytes(10).toString('hex')
+  headers['X-Talyvor-Request-ID'] = rid
+  answered.set(rid, { ws: ws.id, key })
   const bypass = req.headers['x-talyvor-cache'] === 'bypass' && !(BREAK === 'logging' && ws.settings.logging_policy === 'none')
   let answer: string
   let charge = 0
@@ -557,7 +562,8 @@ async function stripeCheckout(req: IncomingMessage, res: ServerResponse, session
   if (ws !== undefined && BREAK !== 'subscribe') {
     ws.plan = { id: open.plan, cancel: false }
     if (PLAN_FEES[open.plan] !== undefined) {
-      ws.allowance = { granted_ulxc: ALLOWANCE_ULXC, consumed_ulxc: 0, remaining_ulxc: ALLOWANCE_ULXC, fee_usd_cents: PLAN_FEES[open.plan] }
+      ws.allowance = { granted_ulxc: ALLOWANCE_ULXC, consumed_ulxc: 0, remaining_ulxc: ALLOWANCE_ULXC, fee_usd_cents: PLAN_FEES[open.plan],
+        period_start: new Date().toISOString(), period_end: new Date(Date.now() + 30 * 86400e3).toISOString() }
     }
   }
   res.writeHead(303, { Location: `${APP_URL}/billing/success?session_id=${session}` })
@@ -698,14 +704,24 @@ createServer(async (req, res) => {
       byKey.set(key, ws)
       return json(res, 201, { key, expires_at: new Date(Date.now() + 3600e3).toISOString() })
     }
+    // B34.5 — an answer marked wrong (Lens B15.4): its stored copy and its pooled copy go, and it is never served again.
+    if (p === '/v1/feedback' && req.method === 'POST') {
+      const { request_id = '', signal = '' } = JSON.parse((await read(req)) || '{}') as { request_id?: string; signal?: string }
+      const a = answered.get(request_id)
+      if (a === undefined || a.ws !== ws.id || !['negative', 'repeat'].includes(signal)) return json(res, 404, { error: 'no such request for this workspace' })
+      const stored = ws.answers.delete(a.key)
+      const pooled = pool.get(a.key)?.owner === ws.id && pool.delete(a.key)
+      return json(res, 200, { stored, served_from: stored ? 'cache' : 'model', answers_removed: stored ? 1 : 0, exact_copies_removed: (stored ? 1 : 0) + (pooled ? 1 : 0) })
+    }
+    const view = () => ({ id: ws.id, name: 'Synthetic user', cache_prefix: `ws:${ws.id}:`, spend_limit_usd: 0, allowed_models: [], allowed_providers: [],
+      max_tokens_per_request: 0, max_output_tokens: 0, max_input_tokens: 0, active: true, ...ws.settings, synthetic: true, created_at: ws.created_at })
+    // B34.5 — the workspaces a token may act in, as Lens lists them (newListMyWorkspacesHandler): its own, alone.
+    if (p === '/v1/workspaces' && req.method === 'GET') return json(res, 200, [view()])
     const scoped = /^\/v1\/workspaces\/([^/]+)(\/.*)?$/.exec(p)
     if (scoped !== null) {
       if (scoped[1] !== ws.id) return json(res, 403, { error: 'forbidden' })
       const rest = scoped[2] ?? ''
-      if (rest === '') {
-        return json(res, 200, { id: ws.id, name: 'Synthetic user', cache_prefix: `ws:${ws.id}:`, spend_limit_usd: 0, allowed_models: [], allowed_providers: [],
-          max_tokens_per_request: 0, max_output_tokens: 0, max_input_tokens: 0, active: true, ...ws.settings, synthetic: true, created_at: ws.created_at })
-      }
+      if (rest === '') return json(res, 200, view())
       if (await bank.workspaceRoute(req, res, ws, rest, url)) return
       const setting = SETTINGS[rest]
       if (setting !== undefined && req.method === 'PUT') {
@@ -759,7 +775,10 @@ createServer(async (req, res) => {
       if (rest === '/distill/usage') return json(res, 200, { converted: ws.usage.converted, vision_ocr: 0, days: 30 })
       // B29.12 — Settings reads provider keys. Lens mounts the route only while key custody is armed
       // (talyvor-lens cmd/lens/main.go, `if byokStore != nil`); unarmed, as here, it is not found.
-      if (rest === '/provider-keys') return json(res, 404, { error: 'not found' })
+      if (rest === '/provider-keys' || rest.startsWith('/provider-keys/')) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+        return void res.end('404 page not found\n')
+      }
       if (rest === '/earnings') {
         const held = ws.earnings.filter((e) => e.type.endsWith('_held')).reduce((n, e) => n + e.amount_ulens, 0)
         return json(res, 200, { workspace_id: ws.id, contribution_settled_ulens: 0, capital_settled_ulens: 0, settled_ulens: 0, held_ulens: held, revoked_ulens: 0,
@@ -783,7 +802,21 @@ createServer(async (req, res) => {
         return json(res, 200, { month_start: start.toISOString(), saved_usd: 0, list_usd: usd, charged_usd: usd, requests: n, unmeasured_requests: 0 })
       }
       if (rest === '/deletion-requests') return json(res, 200, { requests: [] })
+      // Pattern mining is off on production (LENS_PATTERN_MINING_ENABLED): an opt-in either way is refused.
+      if (rest === '/pattern-mining/opt-in' && req.method !== 'GET') return json(res, 503, { error: 'pattern mining is not enabled on this deployment' })
       if (rest === '/pattern-mining/opt-in') return json(res, 200, { enabled: false, opted_in: false })
+      // B34.5 — what the workspace stored, deleted (Lens B21.3): confirmed with its id or its name.
+      if (rest === '/stored-answers' && req.method === 'DELETE') {
+        const { scope = '', confirm = '' } = JSON.parse((await read(req)) || '{}') as { scope?: string; confirm?: string }
+        if (scope !== 'shared' && scope !== 'all') return json(res, 400, { error: 'scope must be "shared" or "all"' })
+        if (confirm !== ws.id && confirm !== 'Synthetic user') return json(res, 400, { error: "confirm must be this workspace's name, typed exactly — this cannot be undone" })
+        const shared = [...pool].filter(([, a]) => a.owner === ws.id).map(([k]) => k)
+        for (const k of shared) pool.delete(k)
+        const own = ws.answers.size - shared.filter((k) => ws.answers.has(k)).length
+        if (scope === 'all') ws.answers.clear()
+        else for (const k of shared) ws.answers.delete(k)
+        return json(res, 200, { shared_answers: shared.length, private_answers: scope === 'all' ? own : 0, shared_conversions: 0, private_conversions: 0 })
+      }
       if (rest === '/stored-answers') {
         const shared = [...pool.values()].filter((a) => a.owner === ws.id).length
         return json(res, 200, { shared_answers: shared, private_answers: ws.answers.size - shared, shared_conversions: 0, private_conversions: 0,
@@ -846,20 +879,48 @@ createServer(async (req, res) => {
       // B32.12 — the plan Lens holds the workspace to, its gates, and the agents it has now (archived ones not counted).
       if (rest === '/plan' && req.method === 'GET') {
         const gated = gatedAs(ws)
-        return json(res, 200, { plan: ws.plan?.id ?? ws.syntheticPlan ?? 'free', gated_as: gated, byok_add_on: false, own_provider_keys_allowed: false,
+        const byok = ws.plan?.byok ?? false
+        return json(res, 200, { plan: ws.plan?.id ?? ws.syntheticPlan ?? 'free', gated_as: gated, byok_add_on: byok, own_provider_keys_allowed: byok || gated === 'business',
           gates: { agents: PLAN_AGENTS[gated] ?? 3, slack_teams_approvals: gated !== 'free' }, agents_used: bank.activeAgents(ws.id) })
       }
       if (rest === '/billing/allowance') {
         return json(res, 200, { allowance: ws.allowance === undefined ? null : { workspace_id: ws.id, ...ws.allowance },
           earned_ulens: 0, earned_held_ulens: 0, earned_usd_cents: 0, earned_back_usd_cents: 0 })
       }
+      // B34.5 — a live plan for individuals moved to another (Lens B18.14): the allowance follows at once here, as
+      // Stripe's webhook makes it follow on Lens.
+      if (rest === '/billing/subscription/plan' && req.method === 'POST') {
+        const { plan = '' } = JSON.parse((await read(req)) || '{}') as { plan?: string }
+        if (PLAN_FEES[plan] === undefined) return json(res, 400, { error: `plan ${plan} is not one to move to` })
+        if (ws.plan === undefined || PLAN_FEES[ws.plan.id] === undefined) return json(res, 409, { error: 'billing: workspace has no live subscription to change' })
+        if (ws.plan.id === plan) return json(res, 409, { error: `billing: the subscription is already on ${plan}` })
+        const was = ws.plan.id
+        ws.plan.id = plan
+        // The allowance moves by the difference in included usage times the share of the period left (B18.14).
+        const included = (p: string) => (ALLOWANCE_ULXC * PLAN_FEES[p]) / PLAN_FEES.plus
+        const a = ws.allowance
+        if (a !== undefined) {
+          const [start, end] = [Date.parse(a.period_start ?? ''), Date.parse(a.period_end ?? '')]
+          const left = end > start ? Math.min(1, Math.max(0, (end - Date.now()) / (end - start))) : 1
+          const granted = Math.max(a.consumed_ulxc, Math.round(a.granted_ulxc + (included(plan) - included(was)) * left))
+          ws.allowance = { ...a, granted_ulxc: granted, remaining_ulxc: granted - a.consumed_ulxc, fee_usd_cents: PLAN_FEES[plan] }
+        }
+      }
+      // B34.5 — BYOK, Team's add-on (Lens B32.10): added to or removed from a live Team subscription.
+      if (rest === '/billing/subscription/byok' && (req.method === 'POST' || req.method === 'DELETE')) {
+        if (ws.plan === undefined) return json(res, 409, { error: 'billing: workspace has no live subscription' })
+        if (ws.plan.id !== 'team') return json(res, 409, { error: `billing: the BYOK add-on is Team's — this workspace is on ${ws.plan.id}` })
+        if ((ws.plan.byok ?? false) === (req.method === 'POST')) return json(res, 409, { error: 'billing: the Team subscription already is as asked' })
+        ws.plan.byok = req.method === 'POST'
+      }
       if ((rest === '/billing/subscription/cancel' || rest === '/billing/subscription/resume') && req.method === 'POST') {
         if (ws.plan === undefined) return json(res, 409, { error: 'this workspace has no live subscription' })
         ws.plan.cancel = rest.endsWith('/cancel')
       }
-      if (rest === '/billing/subscription' || rest === '/billing/subscription/cancel' || rest === '/billing/subscription/resume') {
+      if (['/billing/subscription', '/billing/subscription/cancel', '/billing/subscription/resume', '/billing/subscription/byok', '/billing/subscription/plan'].includes(rest)) {
         return json(res, 200, { subscribed: ws.plan !== undefined, status: ws.plan === undefined ? undefined : 'active',
-          current_period_end: new Date(Date.now() + 30 * 86400e3).toISOString(), cancel_at_period_end: ws.plan?.cancel ?? false, livemode: false })
+          current_period_end: new Date(Date.now() + 30 * 86400e3).toISOString(), cancel_at_period_end: ws.plan?.cancel ?? false, livemode: false,
+          plan: ws.plan?.id, byok: ws.plan?.byok ?? false })
       }
       if (rest === '/roi/report' && url.searchParams.get('format') === 'html') {
         let html = ROI_REPORT.replaceAll('ws-selftest', ws.id)
