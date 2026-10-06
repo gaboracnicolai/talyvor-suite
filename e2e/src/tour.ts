@@ -171,8 +171,10 @@ export function appShell(): Scenario {
       try {
         const nav = page.getByRole('navigation', { name: 'Sections' })
         await nav.locator('a[aria-current="page"]').waitFor({ timeout: HEADING_TIMEOUT_MS })
+        // The theme first, then a pause: a NavItem's colours ease over 200ms, and read mid-ease they are the light theme's.
+        await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'))
+        await page.waitForTimeout(400)
         const seen = await page.evaluate(() => {
-          document.documentElement.setAttribute('data-theme', 'dark')
           const nav = document.querySelector('nav[aria-label="Sections"]')!
           // Privacy and Terms are the two policy links under the rule, not destinations; they carry no icon.
           const rows = Array.from(nav.querySelectorAll('a[href]')).filter((a) => !['/privacy', '/terms'].includes(a.getAttribute('href') ?? ''))
@@ -275,7 +277,8 @@ export function homeCards(): Scenario {
 
 /**
  * B29.9 — the wallet screens in the brand, as the browser paints them in the dark theme: each screen's one
- * teal action (Fund on Agent Wallets, Approve on Approvals, Download on Statements, none elsewhere), its
+ * teal action (Fund on Agent Wallets, Approve on Approvals, Download on Statements, Open Setup on Royalties while nothing
+ * has earned, none elsewhere), its
  * cards on the raised plane, every LXC amount in IBM Plex Mono with tabular figures, and a pill on each
  * waiting approval and each statement line. Runs after wallet-home, whose agent is funded and waiting.
  */
@@ -283,7 +286,8 @@ export const WALLET_SCREENS = [
   { path: '/agents', title: 'Agent Wallets', teal: 'Fund' },
   { path: '/approvals', title: 'Approvals', teal: 'Approve' },
   { path: '/statements', title: 'Statements', teal: 'Download' },
-  { path: '/statements/royalties', title: 'Royalties', teal: null },
+  // B34.1 — nothing has earned on this user's work, so Royalties' one action is Open Setup, where poolable work is consented to.
+  { path: '/statements/royalties', title: 'Royalties', teal: 'Open Setup' },
   { path: '/ledger', title: 'Ledger', teal: null },
   { path: '/spend', title: 'Spend & routing', teal: null },
 ] as const

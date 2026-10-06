@@ -103,6 +103,14 @@ export function judgeVerdict(reply: string): boolean | undefined {
   return undefined
 }
 
+/**
+ * B34.1 — a number this run's questions carry and no earlier run's did. Lens's shared pool rightly serves a question
+ * any workspace asked before, so a scenario that must reach the model — the one-digit trap, a follow-up in a new
+ * context, a model priced at its catalog rate — asks one no other run asked. Fixed for the process, so every user
+ * of the run shares it and each user's own number still keeps them apart.
+ */
+export const RUN_SALT = 1 + Math.floor(Math.random() * 999_999)
+
 /** A small deterministic generator, so a run's questions are reproducible from its seed. The seed is
  *  scrambled first (murmur3's finaliser, one-to-one on 32 bits), so 0 and 1 are different streams and
  *  neighbouring seeds don't open with near-identical draws. */

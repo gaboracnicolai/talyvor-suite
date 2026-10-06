@@ -64,6 +64,9 @@ const APP_URL = process.env.STUB_APP_URL ?? 'http://localhost:8797'
 const PLAN_FEES: Record<string, number> = { plus: 2000, pro: 10000, max: 20000 }
 /** B32.71 — the company plans Lens sells a test workspace (B32.10). They grant no allowance. */
 const COMPANY_PLANS: Record<string, number> = { team: 4900, business: 29900 }
+/** B32.11 — the platform fee on AI spend by plan, and B32.12 — the agents each plan holds (lens.env.example's defaults). */
+const PLATFORM_FEE_BPS: Record<string, number> = { free: 550, team: 300, business: 100 }
+const PLAN_AGENTS: Record<string, number> = { free: 3, team: 25, business: -1 }
 /** B32.12 — each plan's seats in LENS_PLAN_GATES' default (-1 unlimited), in the order a refusal looks for one
  *  that would allow more; plus, pro and max take free's gates and byok takes team's. */
 const SEATS: [string, number][] = [['free', 1], ['team', 5], ['business', 25], ['enterprise', -1]]
@@ -149,13 +152,28 @@ const pool = new Map<string, { owner: string; answer: string }>()
 /** Open checkouts on the stand-in for Stripe: session → the workspace and the plan it is for. */
 const checkouts = new Map<string, { ws: string; plan: string }>()
 
-function book(ws: Workspace, amount: number, type: string, description: string, tags: object = {}): void {
+function book(ws: Workspace, amount: number, type: string, description: string, tags: object = {}): number {
   if (type === 'spend') for (const b of ws.budgets) b.spent_usd += (-amount / 1e6) * USD_PER_LXC
   ws.balance += amount
   // A synthetic workspace's credits are a grant Lens marks as such.
   const metadata = type === 'admin_grant' ? { funding: 'grant', synthetic: true } : tags
+  const at = new Date().toISOString()
   ws.ledger.unshift({ id: randomBytes(8).toString('hex'), workspace_id: ws.id, amount_ulxc: amount, balance_after_ulxc: ws.balance,
-    type, description, metadata, created_at: new Date().toISOString() })
+    type, description, metadata, created_at: at })
+  if (type !== 'spend' || amount >= 0) return 0
+  // B32.11 — a model call charged to credits carries its plan's platform fee, rounded up, its own row beside the spend.
+  const bps = PLATFORM_FEE_BPS[gatedAs(ws)]
+  const fee = Math.ceil((-amount * bps) / 10_000)
+  ws.balance -= fee
+  ws.ledger.unshift({ id: randomBytes(8).toString('hex'), workspace_id: ws.id, amount_ulxc: -fee, balance_after_ulxc: ws.balance,
+    type: 'platform_fee', description: `Platform fee ${bps / 100}%`, metadata: { platform_fee_bps: bps, spend_ulxc: -amount }, created_at: at })
+  return fee
+}
+
+/** B32.12 — the plan a workspace's gates are read under: a chat plan takes Free's. */
+function gatedAs(ws: Workspace): string {
+  const id = ws.plan?.id ?? 'free'
+  return PLAN_FEES[id] !== undefined ? 'free' : id
 }
 
 /** What the workspace spent this calendar month, in dollars (Lens spend/current-month). */
@@ -428,6 +446,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const bypass = req.headers['x-talyvor-cache'] === 'bypass' && !(BREAK === 'logging' && ws.settings.logging_policy === 'none')
   let answer: string
   let charge = 0
+  let fee = 0
   const own = personal || tooled ? undefined : ws.answers.get(key)
   const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) : undefined
   const inTok = tokens(messages.map(text).join(' ')) + 8
@@ -444,7 +463,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       charge = Math.round(((inTok * model.input_per_1m + tokens(answer) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6 * 0.7)
       headers['X-Talyvor-Pool-Discount-Rate'] = '0.3'
       headers['X-Talyvor-Pool-Charged-ULXC'] = String(charge)
-      book(ws, -charge, 'spend', 'pooled answer')
+      fee = book(ws, -charge, 'spend', 'pooled answer')
       // The contributor's royalty, held (Lens poolroyalty: minted between two synthetic workspaces since B25.2).
       const owner = workspaces.get(shared.owner)
       if (owner !== undefined && BREAK !== 'royalty') {
@@ -458,11 +477,11 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     answer = think(messages)
     const outTok = tokens(answer)
     charge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
-    book(ws, -charge, 'spend', `${model.id} answer`)
+    fee = book(ws, -charge, 'spend', `${model.id} answer`)
     if (keep) ws.answers.set(key, answer)
     if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
   }
-  if (agentCall !== undefined) bank.spent(agentCall.agent, charge, model.id)
+  if (agentCall !== undefined) bank.spent(agentCall.agent, charge, model.id, fee)
   const outTok = tokens(answer)
   const shownIn = BREAK === 'price' ? inTok * 2 : inTok
 
@@ -605,6 +624,23 @@ createServer(async (req, res) => {
       return json(res, 201, { created: out.length, workspaces: out })
     }
     if (p === '/v1/economy/conversion-rate') return json(res, 200, { lens_per_lxc: 1, rate: 1, usd_per_lxc: USD_PER_LXC })
+    // B32.14 — the price card's three public reads, as Lens states them with no credential: the plans, what each company
+    // plan unlocks, and every fee (lens.env.example's defaults).
+    if (p === '/v1/billing/plans') {
+      return json(res, 200, { plans: Object.entries(PLAN_FEES).map(([id, cents]) => ({ id, usd_cents: cents, included_ulxc: (ALLOWANCE_ULXC * cents) / PLAN_FEES.plus })),
+        company_plans: Object.entries(COMPANY_PLANS).map(([id, cents]) => ({ id, usd_cents: cents })), byok_add_on_usd_cents: 19900, enterprise_from_usd_cents: 250000 })
+    }
+    if (p === '/v1/public/plan-gates') {
+      const gate = (agents: number, seats: number, keys: string, live: boolean, sso: boolean, edge: boolean) =>
+        ({ agents, seats, own_provider_keys: keys, live_money: live, slack_teams_approvals: live, sso, audit_export: sso, edge })
+      return json(res, 200, { order: ['free', 'team', 'business', 'enterprise'], plans: { free: gate(3, 1, 'none', false, false, false),
+        team: gate(25, 5, 'add_on', true, false, false), business: gate(-1, 25, 'included', true, true, false), enterprise: gate(-1, -1, 'included', true, true, true) } })
+    }
+    if (p === '/v1/public/fees') {
+      return json(res, 200, { market_take_bps: 1500, services_take_bps: 500, compute_take_bps: 500, lending_fee_bps: 100,
+        platform_fee_bps: { ...PLATFORM_FEE_BPS, enterprise: 100 }, fx_margin_bps: { free: 0, team: 50, business: 25, enterprise: 15 },
+        intl_payment_fee_minor: { GBP: 500, EUR: 600, USD: 700 }, merchant_fee_bps: 75, merchant_a2a_fee_bps: 100 })
+    }
     const paying = /^\/stub-checkout\/(\w+)$/.exec(p)
     if (paying !== null) return await stripeCheckout(req, res, paying[1])
     const proxied = /^\/v1\/proxy\/([a-z]+)\/(.+)$/.exec(p)
@@ -778,6 +814,12 @@ createServer(async (req, res) => {
         const session = 'cs_test_' + randomBytes(12).toString('hex')
         checkouts.set(session, { ws: ws.id, plan })
         return json(res, 200, { url: `${BASE}/stub-checkout/${session}` })
+      }
+      // B32.12 — the plan Lens holds the workspace to, its gates, and the agents it has now (archived ones not counted).
+      if (rest === '/plan' && req.method === 'GET') {
+        const gated = gatedAs(ws)
+        return json(res, 200, { plan: ws.plan?.id ?? 'free', gated_as: gated, byok_add_on: false, own_provider_keys_allowed: false,
+          gates: { agents: PLAN_AGENTS[gated] ?? 3 }, agents_used: bank.activeAgents(ws.id) })
       }
       if (rest === '/billing/allowance') {
         return json(res, 200, { allowance: ws.allowance === undefined ? null : { workspace_id: ws.id, ...ws.allowance },

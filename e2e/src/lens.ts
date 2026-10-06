@@ -364,6 +364,8 @@ export interface WorkspacePlan {
   byok_add_on: boolean
   own_provider_keys_allowed: boolean
   agents_used: number
+  /** B34.1 — what the plan unlocks: the agents it holds, -1 for unlimited (LENS_PLAN_GATES). */
+  gates: { agents: number }
 }
 
 /** B32.15 — Lens's refusal of what a plan does not unlock (402): its sentence names LENS_PLAN_GATES and both plans. */
@@ -442,6 +444,9 @@ const RESET_RUNS_ON_MS = 90_000
 const LEDGER_RESTART_MS = 60_000
 /** B17.34 — how long a publish is sent again, under its Idempotency-Key, while Lens restarts. */
 const PUBLISH_RESTART_MS = 60_000
+/** B34.1 — how often a request Lens's rate limiter turned away is made again, and the longest it waits for each. */
+const RATE_LIMIT_RETRIES = 3
+const RATE_LIMIT_WAIT_MAX_S = 60
 
 export class LensClient {
   readonly baseURL: string
@@ -467,14 +472,23 @@ export class LensClient {
     return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys, this.moderatorKey)
   }
 
-  /** Every request to Lens goes through here, so the coverage map sees each one with its time. */
+  /**
+   * Every request to Lens goes through here, so the coverage map sees each one with its time. B34.1 — Lens's rate
+   * limiter (a workspace's requests a minute) answers 429 with Retry-After before any handler has run, so the request
+   * is made again when it says; an agent rule's own 429 ("requests a minute") is an answer, and is returned.
+   */
   private async send(method: string, path: string, init: RequestInit = {}): Promise<Response> {
     const t0 = Date.now()
     let status = 0
     try {
-      const res = await fetch(this.baseURL + path, { ...init, method })
-      status = res.status
-      return res
+      for (let attempt = 0; ; attempt++) {
+        const res = await fetch(this.baseURL + path, { ...init, method })
+        status = res.status
+        if (res.status !== 429 || attempt >= RATE_LIMIT_RETRIES || !(await res.clone().text()).includes('"limit_type"')) return res
+        await res.body?.cancel()
+        const wait = Math.min(Number(res.headers.get('Retry-After')) || 1, RATE_LIMIT_WAIT_MAX_S)
+        await new Promise((r) => setTimeout(r, wait * 1000))
+      }
     } finally {
       this.recorder?.hit(this.tag, { kind: 'lens', method, path: path.split('?')[0], status, ms: Date.now() - t0 })
     }
@@ -777,6 +791,14 @@ export class LensClient {
   /** The plan Lens holds the workspace to, its gates, and the agents it has now. */
   async workspacePlan(user: SyntheticUser): Promise<WorkspacePlan> {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/plan`, this.bearer(user.token))) as WorkspacePlan
+  }
+
+  /** B34.1 — retires an agent as the workspace's owner: its balance swept back to the workspace, its keys revoked. */
+  async archiveAgent(user: SyntheticUser, agentID: string): Promise<Answered<unknown>> {
+    const res = await this.send('POST', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/archive`,
+      { headers: { ...this.bearer(user.token), Accept: 'application/json' } })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: null } : { ok: false, status: res.status, error: refusalOf(raw) }
   }
 
   /** Creates an agent as the workspace's owner: the agent, or Lens's refusal as it wrote it. */

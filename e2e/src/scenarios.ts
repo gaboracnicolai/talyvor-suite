@@ -13,6 +13,7 @@ import {
   judgeVerdict,
   listPriceUSD,
   namesWord,
+  RUN_SALT,
   seeded,
   statesNumber,
 } from './oracles.ts'
@@ -83,6 +84,8 @@ export interface Scenario {
   title: string
   /** B25.5 — the feature it is reported under when it opens no screen of its own; otherwise the screens it opened. */
   feature?: string
+  /** B34.1 — the most agents of its own workspace it opens: the runner first makes room for them on the plan (room.ts). */
+  agents?: number
   run: (ctx: ScenarioCtx) => Promise<Verdict>
 }
 
@@ -213,9 +216,9 @@ export function repeatInNewChat(seed: number): Scenario {
 }
 
 export function oneDigitTrap(seed: number): Scenario {
-  // Unique to each user in a run: a number another user already asked about is rightly served from the
-  // shared pool, and would read here as the trap springing.
-  const x = 40 + seed
+  // Unique to each user in a run, and to the run (B34.1): a number another user already asked about is rightly
+  // served from the shared pool, and would read here as the trap springing.
+  const x = 40 + seed + 1000 * RUN_SALT
   const setup = `Let x = ${x}. Reply with OK.`
   return {
     id: 'one-digit-trap',
@@ -286,8 +289,10 @@ export function acrossAccounts(seed: number, partner: number): Scenario {
 }
 
 export function followUpNotCached(seed: number): Scenario {
-  const r = seeded(seed * 13 + 5)
-  const [a, b, c, d] = [0, 0, 0, 0].map(() => 10 + Math.floor(r() * 89))
+  // B34.1 — four-digit sums of the run's own: two-digit ones repeat across runs, and an earlier run's identical
+  // history is rightly served from the pool.
+  const r = seeded(seed * 13 + 5 + RUN_SALT)
+  const [a, b, c, d] = [0, 0, 0, 0].map(() => 1000 + Math.floor(r() * 9000))
   const follow = `Multiply that by 2. ${NUMBER_ONLY}`
   return {
     id: 'follow-up-not-cached',
@@ -436,7 +441,13 @@ export function sidebarStaysHidden(): Scenario {
       const shown = await page.getByRole('button', { name: 'Show sidebar' }).isVisible()
       const listVisible = await page.getByRole('list', { name: 'Saved conversations' }).isVisible()
       ctx.evidence.push({ note: `after reload: "Show sidebar" visible=${shown}, saved conversations visible=${listVisible}` })
-      if (shown) await page.getByRole('button', { name: 'Show sidebar' }).click()
+      if (shown) {
+        await page.getByRole('button', { name: 'Show sidebar' }).click()
+        // B34.1 — once Chat knows who is signed in it reopens the most recent conversation (B28.275); the next scenario's
+        // new chat must come after that, not before it.
+        await page.getByRole('list', { name: 'Saved conversations' }).or(page.getByText('No conversations yet.')).first()
+          .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+      }
       return shown && !listVisible
         ? { pass: true, detail: 'hidden after the reload' }
         : { pass: false, detail: `after the reload the sidebar was ${listVisible ? 'shown again' : 'in neither state'}` }
@@ -486,6 +497,9 @@ export function sentBeforeIdentity(seed: number): Scenario {
         await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
         const listed = await saved.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
         const none = await page.getByText('No conversations yet.').isVisible()
+        // B34.1 — reopened, its turns draw after the list: read once they have, or once they have had the time to.
+        await page.locator('[data-testid="turn-user"]').filter({ hasText: question }).first()
+          .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
         const reopened = (await page.locator('[data-testid="turn-user"]').allInnerTexts()).join(' ')
         ctx.evidence.push({ note: `before the reload the thread showed "${onScreen.slice(0, 120)}"; after it, listed=${listed}, "No conversations yet."=${none}, on screen "${reopened.slice(0, 120)}"` })
         // The main tab must not reopen into this conversation the next time /chat loads.
@@ -781,6 +795,10 @@ export function marketingBoard(): Scenario {
             const p = box(photo)!
             const h1 = box(document.querySelector('h1'))!
             const logo = Array.from(document.querySelectorAll<HTMLImageElement>('img[data-brand="logo"]')).find((i) => getComputedStyle(i).display !== 'none')
+            // B34.1 — the logo loads like the photo; read before it has, it is "not loaded".
+            if (logo !== undefined && !logo.complete) {
+              await new Promise((r) => { logo.addEventListener('load', r, { once: true }); logo.addEventListener('error', r, { once: true }) })
+            }
             return {
               src: photo.currentSrc,
               loaded: photo.naturalWidth > 0,
@@ -924,7 +942,7 @@ export function walletDocs(): Scenario {
 }
 
 /** B28.3 — the pricing and privacy pages make no claim the code does not keep: nothing says no
- *  charge recurs (plans and BYOK bill monthly), and privacy does not say the product beats going direct.
+ *  charge recurs (a paid plan, BYOK with it, bills monthly), and privacy does not say the product beats going direct.
  *  B28.16 — privacy and terms cover Agent Wallets and the Marketplace, and neither says deletion or
  *  cash-out does not exist (Features deletes stored answers; Agent Wallets cashes LXC out). */
 export function honestPages(): Scenario {
@@ -934,7 +952,8 @@ export function honestPages(): Scenario {
     run: async (ctx) => {
       const missing: string[] = []
       for (const [path, banned, ...wanted] of [
-        ['/pricing', /nothing\s+recurs|only charge is the requests you run|self-hosted/i, /a plan or BYOK, if you choose one, is billed every month/i],
+        // B32.14 — BYOK is Team's add-on, billed with the plan.
+        ['/pricing', /nothing\s+recurs|only charge is the requests you run|self-hosted/i, /a paid plan, if you choose one, is billed every month/i],
         [
           '/privacy',
           /cheaper than going direct|no self-service data deletion/i,
@@ -1002,16 +1021,19 @@ export function legalPagesWhole(): Scenario {
   }
 }
 
-/** B28.4 — /pricing lists Plus, Pro, Max and BYOK once each, at the prices the signed-in /plans screen
- *  sells them at, and the Marketplace bill once. The oracle is /plans itself: no price is typed in here. */
+/** B28.4 — /pricing lists every offer once, at the price the signed-in /plans screen sells it at, and the Marketplace
+ *  bill once. B32.14 — the offers are the approved price card: Free, Team, Business and Enterprise for companies;
+ *  Plus, Pro and Max for individuals; BYOK as Team's add-on. The oracle is /plans itself: no price is typed in here. */
 export function pricingTruth(): Scenario {
   return {
     id: 'pricing-truth',
-    title: 'pricing lists every plan, BYOK and the marketplace bill once, at the prices /plans sells',
+    title: 'pricing lists every company plan, every plan for individuals, BYOK and the marketplace bill once, at the prices /plans sells',
     run: async (ctx) => {
       const money = /\$[\d,]+(?:\.\d\d)?/
       const pricing = await ctx.app.tab('/pricing')
       const listed: { name: string; price: string }[] = []
+      const companies: Record<string, { cards: number; price: string }> = {}
+      let byokOnTeam = ''
       let bills = 0
       try {
         const cards = pricing.getByTestId('pricing-plan')
@@ -1022,6 +1044,13 @@ export function pricingTruth(): Scenario {
             price: (await card.getByTestId('pricing-plan-price').innerText()).trim(),
           })
         }
+        for (const id of COMPANY_OFFERS) {
+          const card = pricing.getByTestId(`company-plan-${id}`)
+          const n = await card.count()
+          companies[id] = { cards: n, price: n === 1 ? (await card.getByTestId(`price-${id}`).innerText()).trim() : '' }
+        }
+        byokOnTeam = (await pricing.getByTestId('company-plan-team').locator('div').filter({ has: pricing.getByText('Own provider keys', { exact: true }) })
+          .locator('dd').first().innerText().catch(() => '')).replace(/\s+/g, ' ').trim()
         bills = await pricing.getByRole('heading', { level: 2, name: /one bill a month/i }).count()
       } finally {
         await pricing.close()
@@ -1029,37 +1058,53 @@ export function pricingTruth(): Scenario {
       const plans = await ctx.app.tab('/plans')
       const sold: Record<string, string> = {}
       try {
-        for (const name of ['Plus', 'Pro', 'Max']) {
-          const card = plans.locator('li').filter({ has: plans.getByText(name, { exact: true }) }).first()
-          await card.waitFor({ state: 'visible' })
-          sold[name] = (await card.innerText()).match(money)?.[0] ?? '(no price)'
+        for (const [name, id] of [['Plus', 'plus'], ['Pro', 'pro'], ['Max', 'max']]) {
+          const price = plans.getByTestId(`plan-price-${id}`)
+          await price.waitFor({ state: 'visible' })
+          sold[name] = (await price.innerText()).match(money)?.[0] ?? '(no price)'
         }
-        const byok = plans.locator('section[aria-labelledby="plan-byok"]')
+        for (const id of COMPANY_OFFERS.filter((c) => c !== 'free')) {
+          const price = plans.getByTestId(`price-${id}`)
+          await price.waitFor({ state: 'visible' })
+          sold[id] = (await price.innerText()).match(money)?.[0] ?? '(no price)'
+        }
+        const byok = plans.getByTestId('plan-price-byok')
         await byok.waitFor({ state: 'visible' })
         sold.BYOK = (await byok.innerText()).match(money)?.[0] ?? '(no price)'
       } finally {
         await plans.close()
       }
-      ctx.evidence.push({ note: `/pricing ${JSON.stringify(listed)}; /plans ${JSON.stringify(sold)}; marketplace bill headings ${bills}` })
+      ctx.evidence.push({ note: `/pricing ${JSON.stringify(listed)}, companies ${JSON.stringify(companies)}, BYOK on Team "${byokOnTeam}"; /plans ${JSON.stringify(sold)}; marketplace bill headings ${bills}` })
       const wrong = [
-        ...Object.entries(sold).map(([name, price]) => {
+        ...['Plus', 'Pro', 'Max'].map((name) => {
           const on = listed.filter((o) => o.name === name)
           if (on.length !== 1) return `${name} listed ${on.length} times`
-          return on[0].price === price ? '' : `${name} is ${on[0].price} on /pricing but ${price} on /plans`
+          return on[0].price === sold[name] ? '' : `${name} is ${on[0].price} on /pricing but ${sold[name]} on /plans`
         }),
-        listed.length === 4 ? '' : `${listed.length} offers listed, not 4`,
+        listed.length === 3 ? '' : `${listed.length} plans for individuals listed, not 3`,
+        ...COMPANY_OFFERS.map((id) => {
+          const c = companies[id]
+          if (c.cards !== 1) return `${id} listed ${c.cards} times`
+          const want = id === 'free' ? '$0' : sold[id]
+          return c.price === want ? '' : `${id} is ${c.price} on /pricing but ${want} on /plans`
+        }),
+        byokOnTeam.includes(`${sold.BYOK} add-on`) ? '' : `Team's own provider keys read "${byokOnTeam}", not BYOK's ${sold.BYOK} add-on`,
         bills === 1 ? '' : `the marketplace bill is listed ${bills} times`,
       ].filter((m) => m !== '')
       return wrong.length === 0
-        ? { pass: true, detail: `Plus ${sold.Plus}, Pro ${sold.Pro}, Max ${sold.Max}, BYOK ${sold.BYOK} and the marketplace bill, once each, as /plans sells them` }
+        ? { pass: true, detail: `Free, Team ${sold.team}, Business ${sold.business}, Enterprise ${sold.enterprise}; Plus ${sold.Plus}, Pro ${sold.Pro}, Max ${sold.Max}; BYOK ${sold.BYOK} on Team; the marketplace bill — once each, as /plans sells them` }
         : { pass: false, detail: `/pricing: ${wrong.join('; ')}` }
     },
   }
 }
 
-/** B29.5 — /pricing in the brand, at 1440 and at 390: every plan card on the raised plane with one
- *  teal button to /plans, Pro and only Pro outlined in accent, every price set in IBM Plex Mono (the
- *  font loaded, not just named), an eyebrow over each section, the H1 unchanged, nothing sideways. */
+/** B32.14 — the company plans, smallest first, as the price card draws them. */
+const COMPANY_OFFERS = ['free', 'team', 'business', 'enterprise'] as const
+
+/** B29.5 — /pricing in the brand, at 1440 and at 390: every plan card on the raised plane with one teal button,
+ *  Pro and only Pro outlined in accent, every price set in IBM Plex Mono (the font loaded, not just named), an
+ *  eyebrow over each section, the H1 unchanged, nothing sideways. B32.14 — the cards are the approved price card:
+ *  four company plans (Start free, Choose Team, Choose Business, Talk to us) and three for individuals (Choose …). */
 export function pricingBoard(): Scenario {
   return {
     id: 'pricing-board',
@@ -1069,6 +1114,7 @@ export function pricingBoard(): Scenario {
       const wrong: string[] = []
       try {
         await page.getByTestId('pricing-plan').first().waitFor({ state: 'visible' })
+        await page.getByTestId('company-plan-team').waitFor({ state: 'visible' })
         for (const [width, height] of [[1440, 900], [390, 844]] as const) {
           await page.setViewportSize({ width, height })
           const got = await page.evaluate(async () => {
@@ -1084,34 +1130,38 @@ export function pricingBoard(): Scenario {
             }
             const raised = resolve('background-color', 'var(--raised)')
             const accent = resolve('background-color', 'var(--accent)')
-            const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="pricing-plan"]')).map((card) => {
-              const price = card.querySelector<HTMLElement>('[data-testid="pricing-plan-price"]')!
+            const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="pricing-plan"], [data-testid^="company-plan-"]')).map((card) => {
+              const price = card.querySelector<HTMLElement>('[data-testid="pricing-plan-price"], [data-testid^="price-"]')
               const links = Array.from(card.querySelectorAll<HTMLAnchorElement>('a'))
               const style = getComputedStyle(card)
               return {
-                name: card.querySelector('[data-testid="pricing-plan-name"]')!.textContent ?? '',
+                name: (card.querySelector('[data-testid="pricing-plan-name"]') ?? card.querySelector('p'))?.textContent?.trim() ?? '',
                 raised: style.backgroundColor === raised,
                 outlined: style.borderTopColor === accent,
-                buttons: links.map((a) => ({ text: a.innerText.trim(), href: new URL(a.href).pathname, teal: getComputedStyle(a).backgroundColor === accent })),
-                mono: /IBM Plex Mono/.test(getComputedStyle(price).fontFamily) && document.fonts.check(`28px "IBM Plex Mono"`),
+                buttons: links.map((a) => ({ text: a.innerText.trim(), href: a.getAttribute('href') ?? '', teal: getComputedStyle(a).backgroundColor === accent })),
+                mono: price !== null && /IBM Plex Mono/.test(getComputedStyle(price).fontFamily) && document.fonts.check(`28px "IBM Plex Mono"`),
               }
             })
-            const main = document.querySelector('main')!.innerText
+            // Each eyebrow's label as drawn, in spaced caps (Landing.tsx Eyebrow).
+            const labels = Array.from(document.querySelectorAll<HTMLElement>('main .text-eyebrow')).map((e) => e.innerText.trim())
             return {
               cards,
               h1: document.querySelector('h1')!.textContent!.trim(),
-              eyebrows: ['PRICING', 'CREDIT FOR AGENTS', 'WHAT A REQUEST COSTS', 'PLANS FOR PEOPLE', 'THE MARKETPLACE BILL', 'WHAT YOU ARE NOT CHARGED FOR'].filter((e) => !main.includes(e)),
+              eyebrows: ['PRICING', 'CREDIT FOR AGENTS', 'WHAT A REQUEST COSTS', 'PLANS', 'THE MARKETPLACE BILL', 'WHAT YOU ARE NOT CHARGED FOR']
+                .filter((e) => !labels.includes(e)),
               scroll: document.documentElement.scrollWidth,
               client: document.documentElement.clientWidth,
             }
           })
           ctx.evidence.push({ note: `${width}: ${JSON.stringify(got.cards.map((c) => ({ ...c, buttons: c.buttons.map((b) => b.text) })))}; scroll ${got.scroll}/${got.client}` })
           const at = `${width}px`
-          if (got.cards.length !== 4) wrong.push(`${at}: ${got.cards.length} plan cards, not 4`)
+          const names = got.cards.map((c) => c.name)
+          if (names.join() !== PRICE_CARDS.map((c) => c.name).join()) wrong.push(`${at}: the plan cards are [${names.join(', ')}], not [${PRICE_CARDS.map((c) => c.name).join(', ')}]`)
           for (const c of got.cards) {
+            const want = PRICE_CARDS.find((p) => p.name === c.name)
             if (!c.raised) wrong.push(`${at}: ${c.name} is not on the raised plane`)
-            if (c.buttons.length !== 1 || c.buttons[0].text !== `Choose ${c.name}` || c.buttons[0].href !== '/plans' || !c.buttons[0].teal) {
-              wrong.push(`${at}: ${c.name}'s buttons are ${JSON.stringify(c.buttons)}, not one teal "Choose ${c.name}" to /plans`)
+            if (want !== undefined && (c.buttons.length !== 1 || c.buttons[0].text !== want.button || !c.buttons[0].href.startsWith(want.href) || !c.buttons[0].teal)) {
+              wrong.push(`${at}: ${c.name}'s buttons are ${JSON.stringify(c.buttons)}, not one teal "${want.button}" to ${want.href}`)
             }
             if (!c.mono) wrong.push(`${at}: ${c.name}'s price is not in IBM Plex Mono`)
           }
@@ -1125,11 +1175,22 @@ export function pricingBoard(): Scenario {
         await page.close()
       }
       return wrong.length === 0
-        ? { pass: true, detail: 'four raised plan cards with one teal "Choose" each, Pro outlined, mono prices, every eyebrow, at 1440 and 390' }
+        ? { pass: true, detail: 'four company and three individual plan cards, raised, one teal button each, Pro outlined, mono prices, every eyebrow, at 1440 and 390' }
         : { pass: false, detail: `/pricing: ${wrong.join('; ')}` }
     },
   }
 }
+
+/** B32.14 — the price card's plans in the order /pricing draws them, each with its one button and where it goes. */
+const PRICE_CARDS = [
+  { name: 'Free', button: 'Start free', href: '/signup' },
+  { name: 'Team', button: 'Choose Team', href: '/plans' },
+  { name: 'Business', button: 'Choose Business', href: '/plans' },
+  { name: 'Enterprise', button: 'Talk to us', href: 'mailto:' },
+  { name: 'Plus', button: 'Choose Plus', href: '/plans' },
+  { name: 'Pro', button: 'Choose Pro', href: '/plans' },
+  { name: 'Max', button: 'Choose Max', href: '/plans' },
+] as const
 
 export function streamsProgressively(): Scenario {
   return {
@@ -1170,7 +1231,8 @@ export function everyModelAnswers(streamable: readonly string[]): Scenario {
             continue
           }
           await app.newChat()
-          const t = await ask(ctx, 'Reply with the single word: ok', m.display_name)
+          // B34.1 — the run's own question: one an earlier run asked is served from the pool, and cannot be priced.
+          const t = await ask(ctx, `Check ${RUN_SALT}. Reply with the single word: ok`, m.display_name)
           if (t.footer.kind !== 'priced') {
             failures.push(`${m.display_name}: ${priced(t) ?? `not priced (${t.footer.kind})`}`)
             continue

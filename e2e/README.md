@@ -90,8 +90,9 @@ made it, each call the harness makes to Lens, and each page error — all filed 
 Lens route the app reaches through the BFF is counted through the BFF route that leads to it.
 
 Each entry ends in one state: **covered** (the scenarios that reached it, ×users), **explorers only** (nothing
-with an oracle checked it), **cannot be tested yet** (and why — an operator screen, Lens's admin key, a Stripe
-checkout until B25.2, a wallet action between test users until B25.3/B25.4), or **not covered**.
+with an oracle checked it), **cannot be tested yet** (and why — an operator screen, Lens's admin key, the
+identity provider's sign-in, a webhook signed by Stripe or the card issuer, the BFF's provisioning secret), or
+**not covered**.
 
 **The report is written per feature** — a feature is a screen's title, or what a scenario names — each with
 what works (with the evidence), what is broken (with the evidence and its build item), the errors the browsers
@@ -136,7 +137,7 @@ spent before it stopped. A run that stopped early exits 1.
 |---|---|---|
 | `known-answer` | everyone | `a + b` with numbers unique to the user; the answer states the sum and carries a price |
 | `capital` | everyone | a capital from a fixed table |
-| `every-model` | user 0 | every model the picker offers answers; its footer shows the price the catalog gives for its token counts |
+| `every-model` | user 0 | every model the picker offers answers a question of this run's own (one an earlier run asked is served from the pool); its footer shows the price the catalog gives for its token counts |
 | `repeat-new-chat` | 1 in 10 | an exact repeat in a new chat shows "from your earlier answer · 0 LXC" and the same text; Regenerate is priced; the judge agrees the two answers match |
 | `one-digit-trap` | 1 in 10 | identical history, then a one-digit change: the change is asked, never served, and answered right |
 | `rephrase-same-account` | 1 in 10 | a rephrasing is answered right; if it was served, the judge agrees with a fresh answer |
@@ -179,9 +180,9 @@ from Lens: the agents' book and postings, the approvals, the marketplace bill an
 | Scenario | Who | Oracle |
 |---|---|---|
 | `agent-open-fund` | 1 in 10 | an agent created and funded on the screen holds exactly that; the workspace's balance is unchanged and = with agents + free |
-| `sdk-wallet-quickstart` | 1 in 10 (after `agent-open-fund`) | the TypeScript SDK's README quickstart, with Lens's own `sdk/typescript` from `--lens-src`: the owner creates an agent, funds it 10 LXC, issues its key; the agent asks a model through `.openai()` with that key; the agent's statement opens on the fund line (+10,000,000 µLXC), then the call's spend line at 10,000,000 minus that spend, each line's balance following from the one before. `--lens-src none` skips it |
+| `sdk-wallet-quickstart` | 1 in 10 (after `agent-open-fund`) | the TypeScript SDK's README quickstart, with Lens's own `sdk/typescript` from `--lens-src`: the owner creates an agent, funds it 10 LXC, issues its key; the agent asks a model through `.openai()` with that key; the agent's statement opens on the fund line (+10,000,000 µLXC), then the call's hold, the settle that gives back what the answer did not use, and its platform fee at the plan's rate (B32.11), each line's balance following from the one before. `--lens-src none` skips it |
 | `features-wallets-first` | 1 in 10 (after `sdk-wallet-quickstart`) | an agent created and funded on Agent Wallets has one fund line of exactly that on its statement; then Features opens on the Agent Wallets row, whose line names the agents and the LXC they hold as Lens's book has them, and its Marketplace row counts the listings Lens's catalogue holds |
-| `agent-limit` | 1 in 10 | a limit per request of 0.000001 LXC refuses the agent's request (403, the limit named) with its balance and the ledger unmoved; raised to 1 LXC, the same request is served once from the agent's balance |
+| `agent-limit` | 1 in 10 | a limit per request of 0.000001 LXC refuses the agent's request (403, the limit named) with its balance and the ledger unmoved; raised to 1 LXC, the same request is served once from the agent's balance, which falls by its spend row and its platform fee row (B32.11) |
 | `wallet-currency` | 1 in 10 (after `agent-limit`) | an agent funded 12.5 LXC on Agent Wallets: Lens's book has it holding exactly 12,500,000 µLXC and its row reads "12.5 LXC ($1.25)" at the peg; its Allowed models field is a select, the model picked there is the one model Lens stores in its rules, and the Rules card says "It may use only <that model>." |
 | `agent-archive` | 1 in 10 (after `agent-approval`) | an agent funded 0.75 LXC and given a key is renamed and described on Agent Wallets, and Lens's book carries both; archived there, its account gains exactly ONE line — a withdraw of -750,000 µLXC leaving 0 — the workspace's agents hold that much less and the workspace the same, and its key is then refused with no new line on its account and no spend row on the ledger |
 | `agent-rule-simulator` | 1 in 10 (after `agent-hourly-limit`) | an agent funded 2 LXC with a daily limit of 1 LXC asks Would it pass? on Agent Wallets of a 1.5 LXC payment to another of the workspace's agents and is told Refused, by the daily limit; of 0.5 LXC, Allowed — and neither agent's account gains a line, and the payer still holds 2 LXC |
@@ -189,15 +190,18 @@ from Lens: the agents' book and postings, the approvals, the marketplace bill an
 | `agent-limit-boost` | 1 in 10 (after `agent-rules-rollback`) | an agent funded 1 LXC with a daily limit of 0.000001 LXC has it raised on Limit boost to 1 LXC until a whole minute 1–2 minutes away: before then its question writes one hold posting and one spend row; from then on Lens lists no boost, its rules read is still 0.000001 LXC, and the same question is refused (403) by that daily limit with no posting and no spend row |
 | `agent-pause-all` | 1 in 10 | Pause every agent refuses both agents (403, every agent paused) with nothing charged; started again, one is served |
 | `agent-approval` | 1 in 10 | a 1 LXC payment above a 0.5 LXC approval amount waits in Approvals with nothing moved, Lens's approval and its row naming the payee and memo ("Payer N wants to pay Payee N 1 LXC — …"); Approve pays it once (one pay line, the approval used) |
-| `company-payment` | 1 in 10 | an agent pays another company's agent with its own key: one line on the payer's marketplace bill (and on Your bill); the payee's pending earnings rise by exactly the amount, and nothing is payable or available before that bill is paid and the 14-day holdback passes |
+| `company-payment` | 1 in 10 | an agent pays another company's agent with its own key: one line on the payer's marketplace bill (and on Your bill); the payee's pending earnings rise by exactly its 95% (a service: Talyvor takes 5%, B32.8), and nothing is payable or available before that bill is paid and the 14-day holdback passes |
 | `marketplace-sale` | 1 in 10 | another company publishes a prompt at 0.5 LXC on Publish; this user uses it on its page: the right answer, one line on their bill, one spend row for the model it called, and the seller's pending earnings up by exactly their share |
-| `statement-reconciles` | 1 in 10 | after funding, a payment, a take-back and a request, the statement downloaded from Agent Wallets: each account's opening + in − out = closing, every entry sums to zero, each agent closes at its balance, and spend = the ledger's spend row |
+| `statement-reconciles` | 1 in 10 | after funding, a payment, a take-back and a request, the statement downloaded from Agent Wallets: each account's opening + in − out = closing, every entry sums to zero, each agent closes at its balance, and spend = the ledger's spend row and the platform fee row beside it |
 | `ledger-reads-correctly` | 1 in 10 (after `statement-reconciles`) | the Ledger's first page, right after that request's hold, release and charge: every amount and balance in LXC to six decimals with no µ, each balance the row below plus that row's amount, and every row shown a row of Lens's own ledger |
 | `agent-balance-stored` | 1 in 10 (after `statement-reconciles`) | one agent funded 100 times at once, each a different amount, through Lens as the owner: the balance Lens stores and reads as one row equals the 100 postings on the downloaded statement and their sum, every funding sums to zero, the workspace's agents hold that much more, and Agent Wallets shows the same balance |
 | `agent-spend-question` | 1 in 10 (after `agent-balance-stored`) | an agent funded 2 LXC pays another agent 1.23 LXC; asked in Chat what it spent today, the model answers through Lens's wallet tool (`wallet_agents_spend`, via the BFF's `/api/chat/tools/call`): its words say 1.23, the link under them is to exactly that pay line on Lens's statement and opens Agent Wallets with the row marked, and the agent's account has no new line. SKIP until Lens offers the tool (talyvor-lens B28.83) |
 
 The other company is a user no other scenario reads the earnings of: 9, 19, … take a payment, 8, 18, …
-sell. A synthetic company's bill is never paid, so a sale or a payment stays pending: the scenarios check
+sell. B34.1 — a workspace on Free holds three agents (LENS_PLAN_GATES): the other company, which up to nine
+users open agents in at once, goes on Team with the test card the first time a scenario opens one there; a
+scenario that opens agents of its own (`agents` in the catalog) first archives its workspace's oldest, as an
+owner retires agents it no longer uses. A synthetic company's bill is never paid, so a sale or a payment stays pending: the scenarios check
 it is pending, exactly, and not yet payable — the holdback itself is Lens's own test (B20.2, B20.5).
 
 ## Plans on a Stripe test card, and a pooled serve's royalty (B17.10)

@@ -338,18 +338,10 @@ const CANNOT: { kind: Kind; path: RegExp; method?: RegExp; why: string }[] = [
   { kind: 'screen', path: /^\/(operator|marketplace\/review)$/, why: 'operator only: a tester is never an operator (B17.1)' },
   { kind: 'bff', path: /^\/api\/admin\//, why: 'operator only: a tester is never an operator (B17.1)' },
   { kind: 'bff', path: /^\/auth\/(login|callback)$/, why: 'the identity provider\'s sign-in: testers sign in through /auth/synthetic (B17.2)' },
-  { kind: 'bff', path: /^\/api\/(billing\/subscribe|lxc\/checkout|billing\/subscription\/plan)$/,
-    why: 'a top-up or a plan change through Stripe test mode (B25.2): plan-test-card subscribes and plan-cancel-resume cancels and resumes, nothing tops up or changes a plan yet' },
-  { kind: 'bff', path: /^\/api\/(agents|wallets|marketplace)\//, method: /^(POST|PUT|PATCH|DELETE|ANY)$/,
-    why: 'a wallet, bank or marketplace action between test users: waits on B25.3, and B25.4 adds its scenario' },
   { kind: 'lens', path: /^\/v1\/admin\/|^\/metrics$|^\/v1\/api\/metrics\/prometheus$/, why: 'Lens\'s admin key only: testers never hold it' },
   { kind: 'lens', path: /^\/v1\/billing\/webhook(\/test)?$/, why: 'Stripe\'s webhook (live or test mode), signed with Stripe\'s secret' },
   { kind: 'lens', path: /^\/v1\/agent-cards\/authorizations$/, why: 'the card issuer\'s authorization webhook, signed by the issuer' },
   { kind: 'lens', path: /^\/v1\/provision$/, why: 'the BFF\'s provisioning secret only' },
-  { kind: 'lens', path: /\/billing\/(checkout|subscribe|subscription\/(plan|cancel|resume))$/,
-    why: 'a top-up or a plan change through Stripe test mode (B25.2): plan-test-card subscribes, nothing tops up or changes a plan yet' },
-  { kind: 'lens', path: /^\/v1\/workspaces\/\{wsID\}\/(agents|escrows|loans|money-requests|transfers|cash-outs|marketplace)\b|^\/v1\/wallets\//,
-    method: /^(POST|PUT|PATCH|DELETE|ANY)$/, why: 'a wallet, bank or marketplace action between test users: waits on B25.3, and B25.4 adds its scenario' },
 ]
 
 export function cannotTest(e: Entry): string | undefined {
