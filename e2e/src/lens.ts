@@ -231,6 +231,17 @@ export interface AgentBook {
   all_paused_at?: string
 }
 
+/**
+ * Lens economy.SpendForecast (B19.6): each agent's spend this UTC month and where it is heading. B28.94 adds, per agent,
+ * what it holds and when that runs out at its pace so far (RFC 3339 in the agent's time zone; null: it does not).
+ */
+export interface SpendForecastRead {
+  at: string
+  month_start: string
+  month_end: string
+  agents: { agent_id: string; name: string; spent_ulxc: number; forecast_ulxc: number; balance_ulxc?: number; runs_out_at?: string | null }[] | null
+}
+
 /** Lens economy.AgentApproval. A payment names who it pays and why (Lens B23.5). */
 export interface AgentApproval {
   id: string
@@ -670,6 +681,11 @@ export class LensClient {
   async agentBoosts(user: SyntheticUser, agentID: string): Promise<AgentRuleBoost[]> {
     const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/rules/boosts`, this.bearer(user.token))) as { boosts?: AgentRuleBoost[] | null }
     return body.boosts ?? []
+  }
+
+  /** B28.357 — the workspace's month-end forecast as of now, every agent in it (Lens B19.6). */
+  async agentForecast(user: SyntheticUser): Promise<SpendForecastRead> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/forecast`, this.bearer(user.token))) as SpendForecastRead
   }
 
   /** B17.6 — one agent's account, newest first (Lens B19.3). */

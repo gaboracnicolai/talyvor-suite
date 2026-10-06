@@ -22,6 +22,11 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
           the last question again and replaces the answer. Wrong answer removes a stored answer so it
           is never served again, to you or anyone. Code blocks have their own Copy button.
         </p>
+        <p>
+          {/* B28.357 — ForecastQuestion.tsx answers it from Lens's forecast. */}
+          Ask <span className="font-mono">Will Researcher run out this month?</span> and the answer comes from the
+          month-end forecast, not the model: whether the agent runs out at its pace so far this month, and on which day.
+        </p>
       </>
     ),
   },

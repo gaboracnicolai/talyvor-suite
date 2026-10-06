@@ -964,7 +964,11 @@ export class Bank {
         const spent = this.postings.filter((p) => p.account === `agent:${a.id}` && p.at >= start.toISOString() &&
           (['spend', 'hold', 'settle', 'release', 'card'].includes(p.kind) || (p.kind === 'pay' && p.amount_ulxc < 0)))
           .reduce((s, p) => s - p.amount_ulxc, 0)
-        return { agent_id: a.id, name: a.name, spent_ulxc: spent, forecast_ulxc: runOn(spent) }
+        // B28.357 — B28.94's contract: what the agent holds, and when that runs out at the month's pace so far
+        // (balance × elapsed ÷ spent from now); null when it has spent nothing, so does not run out at that pace.
+        const balance = this.balance(`agent:${a.id}`)
+        const left = spent <= 0 ? null : (Math.max(balance, 0) * Math.max(1, d.getTime() - start.getTime())) / spent
+        return { agent_id: a.id, name: a.name, spent_ulxc: spent, forecast_ulxc: runOn(spent), balance_ulxc: balance, runs_out_at: left === null ? null : new Date(d.getTime() + left).toISOString() }
       })
       const spent = agents.reduce((s, a) => s + a.spent_ulxc, 0)
       return json(res, 200, { at: now, month_start: start.toISOString(), month_end: end.toISOString(), spent_ulxc: spent, forecast_ulxc: runOn(spent), agents }), true
