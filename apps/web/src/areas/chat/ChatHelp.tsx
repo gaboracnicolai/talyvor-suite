@@ -26,6 +26,26 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    // B28.350 — LaunchAgent.tsx reads the command and launches the agent.
+    heading: 'Launching an agent',
+    body: (
+      <>
+        <p>
+          Type <span className="font-mono">/agent</span>, its name and what it may spend — for example{' '}
+          <span className="font-mono">/agent Researcher budget 20 LXC, 5 a day, ask me above 2</span>. That is not sent to
+          the model: a card opens in the conversation with the name, the budget and the rules filled in, to check before
+          anything moves.
+        </p>
+        <p>
+          Launch creates the agent, moves its budget from the workspace into its wallet and saves its rules: at most the
+          budget in a month, the daily limit, and the amount above which a person must approve. Then it issues the
+          agent&rsquo;s key, shown once, and waits for the agent&rsquo;s first call, which it links on the agent&rsquo;s
+          statement.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'Models',
     body: (
       <>

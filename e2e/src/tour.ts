@@ -469,16 +469,16 @@ export function chatBrand(): Scenario {
 }
 
 /**
- * B28.267 — /chat/help in full at 1440 and 390: all six sections, the last one ending on its last
+ * B28.267 — /chat/help in full at 1440 and 390: all seven sections (B28.350 added Launching an agent), the last one ending on its last
  * sentence, and the top bar showing the whole title "How to use Talyvor Chat" (at 390 it was "H…"),
  * with nothing scrolling sideways. Photographed at both widths.
  */
-export const CHAT_HELP_SECTIONS = ['Asking', 'Models', 'Attaching documents', 'What an answer costs', 'What each question sends', 'Where conversations are kept'] as const
+export const CHAT_HELP_SECTIONS = ['Asking', 'Launching an agent', 'Models', 'Attaching documents', 'What an answer costs', 'What each question sends', 'Where conversations are kept'] as const
 
 export function chatHelpInFull(): Scenario {
   return {
     id: 'chat-help-in-full',
-    title: '/chat/help shows all six sections, its last sentence, and its whole title, at 1440 and 390',
+    title: '/chat/help shows all seven sections, its last sentence, and its whole title, at 1440 and 390',
     run: async (ctx) => {
       const { dir, link } = ctx.env.shots
       await mkdir(dir, { recursive: true })
@@ -516,7 +516,7 @@ export function chatHelpInFull(): Scenario {
         await page.close()
       }
       return wrong.length === 0
-        ? { pass: true, detail: '/chat/help in full at 1440 and 390: six sections, the last sentence, and the whole title' }
+        ? { pass: true, detail: '/chat/help in full at 1440 and 390: seven sections, the last sentence, and the whole title' }
         : { pass: false, detail: wrong.join('; '), where: ['/chat/help'] }
     },
   }
