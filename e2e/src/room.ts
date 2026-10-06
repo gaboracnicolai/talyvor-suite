@@ -4,7 +4,7 @@
 //   · before a scenario that opens agents of its own, the workspace's oldest agents — left by the scenarios
 //     before it — are archived until the new ones fit (an archive sweeps the balance back and revokes the keys);
 //   · the other company goes on Team, paid with Stripe's test card on a checkout Lens opens, the first time a
-//     scenario opens an agent in it.
+//     scenario opens an agent in it. B35.7 — since the run creates it on Business (plans.ts), only when it is not.
 // Neither loosens an oracle: a scenario still opens its agents on the screen or through Lens, and a refusal
 // past the plan's agents still reads as the FAIL it is.
 
@@ -68,7 +68,8 @@ export function otherCompanyOnTeam(ctx: ScenarioCtx, partner: number): Promise<s
 
 async function subscribeTeam(ctx: ScenarioCtx, partner: number, co: SyntheticUser): Promise<string | undefined> {
   const { lens } = ctx.env
-  if ((await lens.workspacePlan(co)).plan === 'team') return undefined
+  // B35.7 — on Team or above (the run creates a counterparty on Business), there is nothing to buy.
+  if ((await lens.workspacePlan(co)).plan !== 'free') return undefined
   const start = await lens.startSubscription(co, 'team')
   if (!start.ok || start.value.url === undefined) return `Lens opens the other company no Team checkout: ${start.status} ${start.ok ? 'without a url' : start.error}`
   let other: AppUser | undefined

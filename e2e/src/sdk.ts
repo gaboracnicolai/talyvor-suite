@@ -12,7 +12,7 @@ import ts from 'typescript'
 import { chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
 import { freshWord, listPriceUSD, namesWord } from './oracles.ts'
-import { PLATFORM_FEE_BPS, type Plan } from './pricing.ts'
+import { platformFeeOf } from './bank.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
 /** What the quickstart funds the agent with: 10 LXC. */
@@ -149,8 +149,9 @@ export function sdkWalletQuickstart(seed: number): Scenario {
       // 5. Read its statement, newest first.
       const { lines } = await owner.agents.statement(agent.id)
       ctx.evidence.push({ note: `the statement of ${agent.id}`, ledger: lines.map((l) => ({ type: l.kind, amount_ulxc: l.amount_ulxc, created_at: l.at })) })
-      const plan = (await env.lens.workspacePlan(app.user)).gated_as as Plan
-      const st = quickstartStatement(lines, PLATFORM_FEE_BPS[plan])
+      // B35.7 — its platform fee at the rate Lens states for the workspace's plan.
+      const { plan, bps } = await platformFeeOf(ctx)
+      const st = quickstartStatement(lines, bps)
       if (!st.pass) return { pass: false, detail: st.detail }
       return { pass: true, detail: `the statement holds the fund line (+${QUICKSTART_FUND_ULXC} µLXC) and the model call: ${st.spentULXC} µLXC spent and its platform fee on ${plan}, each line's balance following from the one before` }
     },
