@@ -24,6 +24,8 @@ import { CannotTest, type Scenario, type ScenarioCtx } from './scenarios.ts'
 const USE_MAX_TOKENS = 4096
 /** How long a tick-driven step (a schedule's run, a cash-out's payment) may take: Lens ticks every minute. */
 const TICK_WAIT_MS = 240_000
+/** B35.8 — the most the testers wait for Lens to meter a marketplace use, which it does within a minute. */
+const METER_WAIT_MS = 90_000
 const DAY_MS = 24 * 3600e3
 
 /** The other company: another test user, and an agent of its own, made and funded through Lens. */
@@ -855,8 +857,10 @@ export async function buyFrom(ctx: ScenarioCtx, seller: number, seed: number, pr
 
 /** The buyer's bill paid now (B25.7), tried until Lens has metered the use (within a minute): the bill, or why not. */
 export async function payBill(ctx: ScenarioCtx): Promise<PaidTestBill | string> {
-  const paid = await until(() => ctx.env.lens.payTestBill(ctx.app.user), (x) => x.ok || x.status !== 409)
+  // B35.8 — Lens meters a use within a minute; until it has, paying is refused with a 409. A use not metered by the limit is the FAIL.
+  const paid = await until(() => ctx.env.lens.payTestBill(ctx.app.user), (x) => x.ok || x.status !== 409, METER_WAIT_MS)
   ctx.evidence.push({ note: "the buyer's bill paid now (B25.7)", answer: JSON.stringify(paid) })
+  if (!paid.ok && paid.status === 409) return `the use was not metered ${METER_WAIT_MS / 1000} s on, so the buyer's bill could not be paid: 409 ${paid.error}`
   if (!paid.ok) return `paying the buyer's bill was refused: ${paid.status} ${paid.error}`
   if (paid.value.uses_cleared !== 1) return `paying a bill of one use cleared ${paid.value.uses_cleared}`
   return paid.value

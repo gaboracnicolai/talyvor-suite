@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import type { Browser } from 'playwright'
 import { describe, expect, it } from 'vitest'
-import { AppUser, Pace, noAnswer, whileUp } from '../src/app.ts'
+import { AppUser, ChargeBook, Pace, bookAnswer, noAnswer, readAnswered, whileUp } from '../src/app.ts'
 
 describe('noAnswer (B26.20)', () => {
   const q = 'What is the code word in the attached document?'
@@ -61,5 +61,19 @@ describe("a tester's pace (B34.1)", () => {
     expect(Date.now() - t0).toBeLessThan(20)
     await pace.take()
     expect(Date.now() - t0).toBeGreaterThanOrEqual(40)
+  })
+})
+
+describe('an answer is booked the moment its footer is read (B35.8)', () => {
+  it('books the charge though what comes straight after it throws', async () => {
+    const book = new ChargeBook()
+    const catalog = [{ id: 'claude-haiku-4-5', provider: 'anthropic', display_name: 'Claude Haiku 4.5', input_per_1m: 1, output_per_1m: 5 }]
+    const footer = async () => '≈ 0.0007 LXC · Claude Haiku 4.5 · 40 in / 6 out tokens '
+    const timedOut = async (): Promise<string> => {
+      throw new Error("locator.evaluate: Timeout 30000ms exceeded. waiting for locator('[data-testid=\"turn-assistant\"]').first()")
+    }
+    await expect(readAnswered(footer, timedOut, (text) => bookAnswer(book, 'ws_86', text, catalog, 0.1))).rejects.toThrow('Timeout 30000ms')
+    // 40 in and 6 out at $1 and $5 a million is $0.00007, 700 µLXC at $0.10 an LXC.
+    expect(book.of('ws_86')).toEqual({ count: 1, ulxc: 700, slack: 0, unseen: 0 })
   })
 })

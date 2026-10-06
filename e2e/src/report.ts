@@ -11,6 +11,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { type CoverageMap, type Row, tallyLine } from './coverage.ts'
 import type { ExplorerSummary, Finding } from './explore.ts'
+import type { MemorySample } from './memory.ts'
 import type { Evidence } from './scenarios.ts'
 
 /** The parts of a run's result the report reads (run.ts RunResult). */
@@ -40,6 +41,8 @@ export interface ReportedRun {
     seconds?: number
     /** B25.5 — the features it is reported under. */
     features?: string[]
+    /** B35.8 — when its verdict came. */
+    at?: string
   }[]
   explorers?: ExplorerSummary[]
   findings?: Finding[]
@@ -47,6 +50,12 @@ export interface ReportedRun {
   coverage?: CoverageMap
   /** Each failing scenario's build item (B17.4): filed by this run, or already open. */
   filed?: Record<string, string>
+  /** B35.8 — the verdicts the testers' own network explains, each an ERROR (run.ts). */
+  network_drops?: { at: string; user: number; scenario: string; detail: string }[]
+  /** B35.8 — the Mac's memory at the start and every 5 minutes. */
+  memory?: MemorySample[]
+  /** B35.8 — the scenarios that FAILed for one or two users, run again for them. */
+  second_attempts?: ReportedRun['outcomes']
 }
 
 type Outcome = ReportedRun['outcomes'][number]
@@ -242,6 +251,51 @@ export function renderMap(map: CoverageMap): string[] {
   return lines
 }
 
+/** B35.8 — a wait that ran out: Playwright's, the run's own, or an answer that never came. */
+const TIMED_OUT = /Timeout \d+ms exceeded|nothing within \d+|no answer and no error after/
+const clock = (iso: string): string => `${iso.slice(11, 19)}Z`
+const gb = (mb: number): string => (mb / 1024).toFixed(1)
+
+/** B35.8 — the testers' environment: the network drops, each with its time, and the Mac's memory beside the night's timeouts. */
+export function renderEnvironment(run: ReportedRun): string[] {
+  const drops = run.network_drops ?? []
+  const memory = run.memory ?? []
+  if (drops.length === 0 && memory.length === 0) return []
+  const lines = ['', "### The testers' environment", '']
+  lines.push(drops.length === 0 ? 'No network drop.' : `Network drops — ${drops.length}, each an ERROR, nothing filed:`, '')
+  for (const d of drops) lines.push(`- ${clock(d.at)} user ${d.user} \`${d.scenario}\`: ${cell(d.detail.split('\n')[0])}`)
+  if (drops.length > 0) lines.push('')
+  if (memory.length > 0) {
+    const timeouts = run.outcomes.filter((o) => (o.status === 'FAIL' || o.status === 'ERROR') && o.at !== undefined && TIMED_OUT.test(o.detail))
+    lines.push("The Mac's memory at the start and every 5 minutes, beside the waits that ran out until the next reading:", '',
+      '| At | Memory pressure | Swap used | Users at once | Timeouts |', '|---|---|---|---:|---:|')
+    for (const [i, m] of memory.entries()) {
+      const until = memory[i + 1]?.at ?? '9999'
+      const n = timeouts.filter((o) => (o.at as string) >= m.at && (o.at as string) < until).length
+      const swap = m.swapUsedMB === undefined || m.swapTotalMB === undefined ? 'not read'
+        : `${gb(m.swapUsedMB)} of ${gb(m.swapTotalMB)} GB${m.swapTotalMB > 0 ? ` (${Math.round((100 * m.swapUsedMB) / m.swapTotalMB)}%)` : ''}`
+      lines.push(`| ${clock(m.at)} | ${m.pressure ?? 'not read'} | ${swap} | ${m.width} | ${n} |`)
+    }
+    lines.push('')
+  }
+  return lines
+}
+
+/** B35.8 — each scenario that FAILed for one or two users, both attempts side by side; the first attempt's FAIL is filed. */
+export function renderSecondAttempts(run: ReportedRun): string[] {
+  const again = run.second_attempts ?? []
+  if (again.length === 0) return []
+  const lines = ['', '### Second attempts', '',
+    'A scenario that failed for one or two users ran again for them at the end of the night, before the ledger read-back. ' +
+    "The first attempt's FAIL is the one filed.", '',
+    '| Scenario | User | First attempt | Second attempt |', '|---|---:|---|---|']
+  for (const o of again) {
+    const first = run.outcomes.find((x) => x.scenario === o.scenario && x.user === o.user)
+    lines.push(`| \`${o.scenario}\` | ${o.user} | ${first === undefined ? '' : `${first.status}: ${cell(first.detail)}`} | ${o.status}: ${cell(o.detail)} |`)
+  }
+  return lines
+}
+
 /** One run as a report section. */
 export function renderRun(run: ReportedRun): string {
   const c = run.counts
@@ -269,6 +323,7 @@ export function renderRun(run: ReportedRun): string {
     for (const o of os) n[o.status]++
     lines.push(`| \`${id}\` | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${cell(os[0].title)} |`)
   }
+  lines.push(...renderSecondAttempts(run), ...renderEnvironment(run))
 
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
@@ -291,8 +346,8 @@ export function renderRun(run: ReportedRun): string {
   lines.push(...explorerTable(run))
 
   lines.push('', '### Every verdict', '')
-  for (const o of run.outcomes) {
-    lines.push(`<details><summary>${o.status} ${o.scenario} — user ${o.user}: ${escapeHTML(o.detail)}</summary>`, '')
+  for (const [o, again] of [...run.outcomes.map((x) => [x, false] as const), ...(run.second_attempts ?? []).map((x) => [x, true] as const)]) {
+    lines.push(`<details><summary>${o.status} ${o.scenario} — user ${o.user}${again ? ' (second attempt)' : ''}: ${escapeHTML(o.detail)}</summary>`, '')
     lines.push(...(o.evidence.length > 0 ? evidenceLines(o.evidence) : ['- no evidence recorded']), '', '</details>')
   }
   if (map !== undefined) lines.push(...renderMap(map))
@@ -356,11 +411,28 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
       `${groupLeads(findings).length} explorer lead(s)${findings.length > 0 ? ` on ${[...new Set(findings.map((f) => f.feature ?? '(no screen)'))].join(', ')}` : ''}.`,
     ...(run.stopped_by === undefined ? [] : [`- **STOPPED EARLY**: ${run.stopped_by}.`]),
     ...(run.incidents ?? []).map((i) => `- **Incident**: ${i}.`),
+    ...environmentLine(run),
     `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
       `${run.stopped_by === undefined ? '' : ', spent before it stopped'}.`,
     `- **Report**: ${report}`,
     '',
   ].join('\n')
+}
+
+/** B35.8 — the environment and the second attempts in one line each, when there was anything to say. */
+function environmentLine(run: ReportedRun): string[] {
+  const out: string[] = []
+  const again = run.second_attempts ?? []
+  if (again.length > 0) out.push(`- **Second attempts**: ${again.filter((o) => o.status === 'PASS').length} of ${again.length} passed the second time.`)
+  const drops = run.network_drops?.length ?? 0
+  const read = (run.memory ?? []).filter((m) => m.swapUsedMB !== undefined && m.swapTotalMB !== undefined && m.swapTotalMB > 0)
+  const peak = read.length === 0 ? undefined : Math.max(...read.map((m) => (m.swapUsedMB as number) / (m.swapTotalMB as number)))
+  const fewest = run.memory === undefined || run.memory.length === 0 ? undefined : Math.min(...run.memory.map((m) => m.width))
+  if (drops > 0 || peak !== undefined) {
+    out.push(`- **Environment**: ${drops} network drop(s), each an ERROR` +
+      `${peak === undefined ? '' : `; swap up to ${Math.round(100 * peak)}% full, ${fewest} users at once at the fewest`}.`)
+  }
+  return out
 }
 
 /** Puts the run's summary at the top of TESTERS.md, under its heading; earlier runs stay below. */

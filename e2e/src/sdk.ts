@@ -4,7 +4,6 @@
 // issues its key; the agent makes one model call through Lens with that key (the SDK's .openai()); the
 // owner reads its statement. The oracle is the statement's rows, never a status code.
 
-import { randomInt } from 'node:crypto'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -12,7 +11,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { chargeULXC } from './app.ts'
 import { worstInputTokens } from './budget.ts'
-import { listPriceUSD, statesNumber } from './oracles.ts'
+import { freshWord, listPriceUSD, namesWord } from './oracles.ts'
 import { PLATFORM_FEE_BPS, type Plan } from './pricing.ts'
 import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
@@ -125,10 +124,10 @@ export function sdkWalletQuickstart(seed: number): Scenario {
       // 3. Issue the agent its own key.
       const { key } = await owner.agents.issueKey(agent.id)
 
-      // 4. The agent calls a model through Lens with that key. A question no one has asked, so it is neither replayed nor pooled.
-      const a = randomInt(1000, 10000)
-      const b = randomInt(1000, 10000)
-      const question = `What is ${a} + ${b}? Reply with the number only.`
+      // 4. The agent calls a model through Lens with that key. B35.8 — a word made up tonight, asked back: a question no one
+      // has asked is neither replayed nor pooled, and saying a word back is no sum for the model to get wrong.
+      const word = freshWord(1_000 + seed)
+      const question = `Reply with the single word: ${word}`
       const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(question.length), MAX_TOKENS))
       let r: Completion
       try {
@@ -144,7 +143,7 @@ export function sdkWalletQuickstart(seed: number): Scenario {
       // Booked as every charged answer is, for the ledger read-back.
       if (cost !== undefined) env.book.add(workspaceId, chargeULXC(cost, env.usdPerLXC))
       ctx.evidence.push({ note: `the agent asked ${model.id} with its own key`, question, answer })
-      if (!statesNumber(answer, a + b)) return { pass: false, detail: `the model call answered wrong: expected ${a + b}, got "${answer}"` }
+      if (!namesWord(answer, word)) return { pass: false, detail: `the model call answered wrong: asked to say "${word}", it said "${answer}"` }
 
       // 5. Read its statement, newest first.
       const { lines } = await owner.agents.statement(agent.id)

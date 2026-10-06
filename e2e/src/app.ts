@@ -6,7 +6,7 @@ import type { Browser, BrowserContext, Locator, Page, Request } from 'playwright
 import { type Hold, type SpendCap, worstInputTokens } from './budget.ts'
 import type { Recorder, Tag } from './coverage.ts'
 import type { SyntheticUser } from './lens.ts'
-import { type CatalogModel, type Footer, listPriceUSD, parseFooter } from './oracles.ts'
+import { type CatalogModel, type Footer, listPriceUSD, networkDrop, parseFooter } from './oracles.ts'
 
 /** The most output a chat answer may produce: the web app sends max_tokens 4096 (chatApi.ts). */
 const CHAT_MAX_OUTPUT_TOKENS = 4096
@@ -23,6 +23,9 @@ export interface Turn {
 }
 
 export class SignInRefused extends Error {}
+
+/** B35.8 — an answer refused because the testers' own network dropped ("Failed to fetch", net::ERR_…): the run's ERROR, never a FAIL. */
+export class NetworkDropped extends Error {}
 
 /** B34.1 — the most API requests a tester's browser sends a second, and in one burst: well under Lens's 1,000 a minute. */
 const API_PER_SECOND = 13
@@ -86,6 +89,15 @@ export function whileUp<T>(browser: Goes, what: string, work: Promise<T>, ms = O
   return Promise.race([work, gone]).finally(() => end())
 }
 
+/** `work`, or an error saying `what` once `ms` pass. */
+function timedOut<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} within ${ms / 1000} s`)), ms)
+  })
+  return Promise.race([work, late]).finally(() => clearTimeout(timer))
+}
+
 /** B26.20 — what the Chat screen showed when neither an answer nor its failure line came. */
 export interface Stalled {
   question: string
@@ -122,6 +134,8 @@ export interface Charged {
   ulxc: number
   /** How far the total may honestly differ: a shared answer's charge is shown to two figures only. */
   slack: number
+  /** B35.8 — answers lost to a network drop: each may or may not have reached Lens and been charged. */
+  unseen: number
 }
 
 /** Dollars → µLXC as Lens debits a charge: rounded UP (talyvor-lens internal/proxy/shadow_lxc.go). */
@@ -139,12 +153,53 @@ export class ChargeBook {
   /** `requests`: B28.349 — an answer that called a tool first is that many requests, each its own spend row. */
   add(workspaceID: string, ulxc: number, slack = 0, requests = 1): void {
     const c = this.of(workspaceID)
-    this.charged.set(workspaceID, { count: c.count + requests, ulxc: c.ulxc + ulxc, slack: c.slack + slack })
+    this.charged.set(workspaceID, { ...c, count: c.count + requests, ulxc: c.ulxc + ulxc, slack: c.slack + slack })
+  }
+
+  /** B35.8 — an answer whose charge the harness never saw: its question left the browser and the network dropped. */
+  lost(workspaceID: string): void {
+    const c = this.of(workspaceID)
+    this.charged.set(workspaceID, { ...c, unseen: c.unseen + 1 })
   }
 
   of(workspaceID: string): Charged {
-    return this.charged.get(workspaceID) ?? { count: 0, ulxc: 0, slack: 0 }
+    return this.charged.get(workspaceID) ?? { count: 0, ulxc: 0, slack: 0, unseen: 0 }
   }
+}
+
+/**
+ * B35.8 — what an answer's footer says it cost, booked to `workspaceID`: a priced answer at the catalog's list price (one
+ * by a model the catalog does not name, at any price), a shared one at the credits it states, a replay at nothing.
+ */
+export function bookAnswer(book: ChargeBook, workspaceID: string, footerText: string, catalog: readonly CatalogModel[],
+  usdPerLXC: number): { footer: Footer; costUSD: number | undefined } {
+  const footer = parseFooter(footerText)
+  if (footer.kind === 'priced') {
+    const m = catalog.find((c) => c.display_name === footer.model)
+    const costUSD = m === undefined ? undefined : listPriceUSD(m, footer.inputTokens, footer.outputTokens)
+    // A model the catalog does not name cannot be priced: its charge is anyone's guess.
+    book.add(workspaceID, costUSD === undefined ? 0 : chargeULXC(costUSD, usdPerLXC), costUSD === undefined ? Number.POSITIVE_INFINITY : 0, footer.requests)
+    return { footer, costUSD }
+  }
+  if (footer.kind === 'cache') return { footer, costUSD: 0 }
+  if (footer.kind === 'pool') {
+    // Lens states a shared answer's charge in credits, shown to two significant figures.
+    book.add(workspaceID, footer.figure * 1e6, footer.figure * 1e6 * 0.05 + 1)
+    return { footer, costUSD: footer.figure * usdPerLXC }
+  }
+  return { footer, costUSD: undefined }
+}
+
+/**
+ * B35.8 — an answered turn, read as the ledger needs it: its footer first, booked (`book`) the moment it is read, then
+ * the answer's text. Whatever throws after the footer — the text's read timing out, the scenario's next step — the
+ * read-back still expects the spend row this answer wrote.
+ */
+export async function readAnswered(footerText: () => Promise<string>, answerText: () => Promise<string>,
+  book: (footerText: string) => { footer: Footer; costUSD: number | undefined }): Promise<{ footerText: string; footer: Footer; costUSD: number | undefined; answer: string }> {
+  const text = (await footerText()).trim()
+  const booked = book(text)
+  return { footerText: text, ...booked, answer: await answerText() }
 }
 
 export class AppUser {
@@ -364,11 +419,23 @@ export class AppUser {
    */
   async askAnswered(question: string, sse: string): Promise<Locator> {
     const stream = '**/api/ai/stream/**'
-    const turn = this.page.locator('[data-testid="turn-assistant"]').nth(await this.page.locator('[data-testid="turn-assistant"]').count())
-    await this.page.route(stream, (route) => route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse }), { times: 1 })
+    // B35.8 — the newest answer once the made-up one is in: a conversation Chat reopened under the question would put
+    // older answers at the index counted before it was sent.
+    const turn = this.page.locator('[data-testid="turn-assistant"]').last()
+    let answered = (): void => undefined
+    const madeUp = new Promise<void>((r) => {
+      answered = r
+    })
+    await this.page.route(stream, async (route) => {
+      await route.fulfill({ status: 200, contentType: 'text/event-stream', body: sse })
+      answered()
+    }, { times: 1 })
     try {
       await this.page.locator('#chat-message').fill(question)
       await this.page.locator('#chat-message').press('Enter')
+      // B35.8 — the route stays until the made-up answer is in: a question sent after it went would be asked of the model
+      // for real, charged, and never booked.
+      await timedOut(madeUp, ANSWER_TIMEOUT_MS, `the question "${question}" was never sent for its made-up answer`)
       await turn.locator('[data-testid="turn-blank"], [data-testid="turn-cost"]').first().waitFor({ state: 'visible', timeout: ANSWER_TIMEOUT_MS })
     } finally {
       await this.page.unroute(stream).catch(() => undefined)
@@ -441,10 +508,14 @@ export class AppUser {
       const error = (await alert.first().innerText()).trim()
       // A refused request may still have reached the provider; count it at its worst.
       this.cap.settle(hold, undefined)
+      // B35.8 — the testers' network, not the feature: an ERROR, and an answer the ledger may or may not hold.
+      if (networkDrop(error) !== undefined) {
+        this.book.lost(this.user.workspaceID)
+        throw new NetworkDropped(`the answer to "${question.slice(0, 80)}" was refused for a network drop: ${error}`)
+      }
       return { question, answer: '', footerText: '', footer: { kind: 'unreadable', text: error }, costUSD: undefined, error }
     }
-    const footerText = (await footer.innerText()).trim()
-    const answer = await turn.evaluate((li) => {
+    const read = await readAnswered(() => footer.innerText(), () => turn.evaluate((li) => {
       const root = li.firstElementChild
       if (root === null) return ''
       return Array.from(root.children)
@@ -452,25 +523,13 @@ export class AppUser {
         .map((c) => (c as HTMLElement).innerText)
         .join('\n')
         .trim()
+    }), (text) => {
+      const booked = bookAnswer(this.book, this.user.workspaceID, text, this.catalog, this.usdPerLXC)
+      this.cap.settle(hold, booked.costUSD)
+      return booked
     })
-    const parsed = parseFooter(footerText)
-    let costUSD: number | undefined
-    if (parsed.kind === 'priced') {
-      const m = this.catalog.find((c) => c.display_name === parsed.model)
-      costUSD = m === undefined ? undefined : listPriceUSD(m, parsed.inputTokens, parsed.outputTokens)
-      // A model the catalog does not name cannot be priced: its charge is anyone's guess.
-      this.book.add(this.user.workspaceID, costUSD === undefined ? 0 : chargeULXC(costUSD, this.usdPerLXC),
-        costUSD === undefined ? Number.POSITIVE_INFINITY : 0, parsed.requests)
-    } else if (parsed.kind === 'cache') {
-      costUSD = 0
-    } else if (parsed.kind === 'pool') {
-      // Lens states a shared answer's charge in credits, shown to two significant figures.
-      costUSD = parsed.figure * this.usdPerLXC
-      this.book.add(this.user.workspaceID, parsed.figure * 1e6, parsed.figure * 1e6 * 0.05 + 1)
-    }
-    this.cap.settle(hold, costUSD)
-    this.conversationChars += question.length + answer.length
-    return { question, answer, footerText, footer: parsed, costUSD }
+    this.conversationChars += question.length + read.answer.length
+    return { question, answer: read.answer, footerText: read.footerText, footer: read.footer, costUSD: read.costUSD }
   }
 
   private model(): CatalogModel {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatModels, expectedFigure, judgeVerdict, listPriceUSD, namesWord, parseFooter, seeded, statesNumber } from '../src/oracles.ts'
+import { chatModels, expectedFigure, freshWord, judgeVerdict, listPriceUSD, namesWord, parseFooter, seeded, statesNumber } from '../src/oracles.ts'
 
 describe('parseFooter reads every line the Chat screen writes under an answer', () => {
   it('a priced answer, in LXC or dollars', () => {
@@ -60,5 +60,16 @@ describe('seeded', () => {
     const [zero, one] = [draws(0), draws(1)]
     expect(zero).not.toEqual(one)
     expect(zero[0]).not.toBeCloseTo(one[0], 1)
+  })
+})
+
+describe('a word made up for the run (B35.8)', () => {
+  it('is the same for a seed all run, another for each seed and each run, and a word namesWord finds', () => {
+    const w = freshWord(3, 42)
+    expect(w).toMatch(/^[a-z]{10}$/)
+    expect(freshWord(3, 42)).toBe(w)
+    expect(new Set(Array.from({ length: 40 }, (_, n) => freshWord(n, 42))).size).toBe(40)
+    expect(freshWord(3, 43)).not.toBe(w)
+    expect(namesWord(`${w[0].toUpperCase()}${w.slice(1)}.`, w)).toBe(true)
   })
 })

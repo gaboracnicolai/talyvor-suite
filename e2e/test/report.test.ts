@@ -55,3 +55,31 @@ describe('screenshots in the report', () => {
     expect(report).toContain('  - screenshot: [marketing-1440-dark.jpg](shots/2026-10-05T03-00-00-000Z/marketing-1440-dark.jpg)')
   })
 })
+
+describe("the testers' environment and the second attempts (B35.8)", () => {
+  it('lists each network drop with its time, the memory beside the timeouts, and both attempts', () => {
+    const night: ReportedRun = {
+      ...cutShort, stopped_by: undefined, incidents: [], counts: { PASS: 0, FAIL: 1, SKIP: 0, ERROR: 2 },
+      outcomes: [
+        { scenario: 'capital', title: 'capital', user: 3, workspace: 'ws3', status: 'FAIL', detail: 'expected Lima, got "Paris"', evidence: [], at: '2026-10-06T08:31:00.000Z' },
+        { scenario: 'known-answer', title: 'sum', user: 5, workspace: 'ws5', status: 'ERROR', detail: 'the answer to "What is 1 + 2?" was refused for a network drop: Failed to fetch', evidence: [], at: '2026-10-06T08:33:00.000Z' },
+        { scenario: 'agent-pause-all', title: 'pause', user: 2, workspace: 'ws2', status: 'ERROR', detail: 'locator.click: Timeout 30000ms exceeded.', evidence: [], at: '2026-10-06T08:36:00.000Z' },
+      ],
+      network_drops: [{ at: '2026-10-06T08:33:00.000Z', user: 5, scenario: 'known-answer', detail: 'the answer to "What is 1 + 2?" was refused for a network drop: Failed to fetch' }],
+      memory: [
+        { at: '2026-10-06T08:30:00.000Z', pressure: 'normal', swapUsedMB: 6144, swapTotalMB: 9216, width: 20 },
+        { at: '2026-10-06T08:35:00.000Z', pressure: 'warn', swapUsedMB: 7900, swapTotalMB: 9216, width: 10 },
+      ],
+      second_attempts: [{ scenario: 'capital', title: 'capital', user: 3, workspace: 'ws3', status: 'PASS', detail: 'Peru → Lima', evidence: [] }],
+    }
+    const report = renderRun(night)
+    expect(report).toContain('- 08:33:00Z user 5 `known-answer`: the answer to "What is 1 + 2?" was refused for a network drop: Failed to fetch')
+    expect(report).toContain('| 08:30:00Z | normal | 6.0 of 9.0 GB (67%) | 20 | 0 |')
+    expect(report).toContain('| 08:35:00Z | warn | 7.7 of 9.0 GB (86%) | 10 | 1 |')
+    expect(report).toContain('| `capital` | 3 | FAIL: expected Lima, got "Paris" | PASS: Peru → Lima |')
+    expect(report).toContain('PASS capital — user 3 (second attempt): Peru → Lima')
+    const summary = renderSummary(night, 'docs/e2e/report-2026-10-06.md', [])
+    expect(summary).toContain('- **Second attempts**: 1 of 1 passed the second time.')
+    expect(summary).toContain('- **Environment**: 1 network drop(s), each an ERROR; swap up to 86% full, 10 users at once at the fewest.')
+  })
+})
