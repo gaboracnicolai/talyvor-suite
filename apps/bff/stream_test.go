@@ -65,6 +65,7 @@ type streamUpstream struct {
 	gotBudget       string
 	gotReportCharge string // B28.362 — X-Talyvor-Report-Charge as Lens received it
 	gotWebSearch    string // B28.372 — X-Talyvor-Web-Search as Lens received it
+	gotRunCode      string // B28.373 — X-Talyvor-Run-Code as Lens received it
 	gotFeature      string // B28.106 — X-Talyvor-Feature as Lens received it
 	refuse          string
 	answerHeaders   map[string]string // set on the proxied answer, as Lens does on a cache serve
@@ -122,6 +123,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotBudget = r.Header.Get("X-Talyvor-Conversation-Budget-ULXC")
 			u.gotReportCharge = r.Header.Get("X-Talyvor-Report-Charge")
 			u.gotWebSearch = r.Header.Get("X-Talyvor-Web-Search")
+			u.gotRunCode = r.Header.Get("X-Talyvor-Run-Code")
 			u.gotFeature = r.Header.Get("X-Talyvor-Feature")
 			if u.refuse != "" {
 				w.Header().Set("Content-Type", "application/json")
@@ -151,6 +153,9 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 				}
 				if u.gotWebSearch == "on" {
 					_, _ = io.WriteString(w, citationsFrame) // as Lens does when asked to search the web
+				}
+				if u.gotRunCode == "on" {
+					_, _ = io.WriteString(w, codeRunFrame) // as Lens does for code the model ran in its sandbox
 				}
 				_, _ = io.WriteString(w, "data: two\n\n")
 				if fl != nil {
@@ -1216,6 +1221,49 @@ func TestStream_SearchTheWebReachesLensAndItsSourcesReachTheChat(t *testing.T) {
 			}
 			if got := strings.Contains(string(body), citationsFrame); got != (tc.wantUp == "on") {
 				t.Fatalf("the chat received %q: the sources frame there is %v, want %v", body, got, tc.wantUp == "on")
+			}
+		})
+	}
+}
+
+// codeRunFrame is the frame Lens adds for each piece of code the model ran in its sandbox (apps/web chatStream.ts
+// CODE_RUN_FRAME).
+const codeRunFrame = "event: talyvor.code_run\ndata: {\"type\":\"talyvor.code_run\",\"language\":\"python\",\"code\":\"print(541)\",\"stdout\":\"541\\n\",\"exit_code\":0}\n\n"
+
+// B28.373 — Chat's Run code reaches Lens (only the one value), and the frame for the code the model ran reaches the
+// chat as Lens wrote it.
+func TestStream_RunCodeReachesLensAndWhatItRanReachesTheChat(t *testing.T) {
+	for _, tc := range []struct {
+		name, sent, wantUp string
+	}{
+		{"on", "on", "on"},
+		{"off", "", ""},
+		{"any other value is not forwarded", "always", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newStreamUpstream(t)
+			up.noBlock = true
+			a, sess := streamApp(t, up)
+			ts := httptest.NewServer(a)
+			defer ts.Close()
+			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+			req.AddCookie(sess)
+			req.Header.Set("Origin", "https://app.talyvor.com")
+			req.Header.Set("Content-Type", "application/json")
+			if tc.sent != "" {
+				req.Header.Set("X-Talyvor-Run-Code", tc.sent)
+			}
+			resp, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatalf("do: %v", err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if up.gotRunCode != tc.wantUp {
+				t.Fatalf("Lens received X-Talyvor-Run-Code %q, want %q", up.gotRunCode, tc.wantUp)
+			}
+			if got := strings.Contains(string(body), codeRunFrame); got != (tc.wantUp == "on") {
+				t.Fatalf("the chat received %q: the code-run frame there is %v, want %v", body, got, tc.wantUp == "on")
 			}
 		})
 	}

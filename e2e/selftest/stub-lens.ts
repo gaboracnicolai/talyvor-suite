@@ -59,6 +59,7 @@
 //   ratelimit-open — the rate limiter lets every request through, as Lens's does when Redis errors and it fails open (B28.288)
 //   retry-after — a request the rate limiter refuses is answered 429 without Retry-After (B28.288)
 //   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
+//   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -341,6 +342,20 @@ const WEB_PAGES = [
   { path: '/web/news/rates', title: 'Central bank holds rates' },
   { path: '/web/news/markets', title: 'Markets close higher' },
 ]
+
+/**
+ * talyvor-lens B28.119 — Chat's Run code: asked for the nth prime, the model writes this code and Lens's sandbox runs it.
+ * The stub's sandbox is the same trial division, run here; the answer is what it printed. Undefined for any other question.
+ */
+function primeRun(q: string): { nth: string; code: string; stdout: string } | undefined {
+  const m = /\bthe (\d+)(st|nd|rd|th) prime\b/i.exec(q)
+  const n = m === null ? NaN : Number(m[1])
+  if (!(n >= 1 && n <= 10_000)) return undefined
+  const code = `primes = []\nk = 2\nwhile len(primes) < ${n}:\n    if all(k % p for p in primes if p * p <= k):\n        primes.append(k)\n    k += 1\nprint(primes[-1])`
+  const primes: number[] = []
+  for (let k = 2; primes.length < n; k++) if (primes.every((p) => p * p > k || k % p !== 0)) primes.push(k)
+  return { nth: `${n}${m![2].toLowerCase()}`, code, stdout: `${primes[n - 1]}\n` }
+}
 
 /** The stand-in model: arithmetic, capitals, and the harness's own fixed prompts. */
 function think(messages: Msg[]): string {
@@ -642,6 +657,9 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   let fee = 0
   // talyvor-lens B28.118 — Chat's Search the web (X-Talyvor-Web-Search: on): two pages "found", which this stub serves.
   const searched = req.headers['x-talyvor-web-search'] === 'on' && !broke('web-search')
+  // talyvor-lens B28.119 — Chat's Run code (X-Talyvor-Run-Code: on): the code the model ran for a fresh answer, if any.
+  const runCode = req.headers['x-talyvor-run-code'] === 'on' && !broke('run-code')
+  let ran: ReturnType<typeof primeRun>
   // talyvor-lens B28.102 — what a model's answer was charged, said in the stream; STUB_BREAK=charge says a µLXC more.
   let charged: number | undefined
   // B28.368 — the answer stopped at max_tokens, as a model's does.
@@ -689,7 +707,9 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       }
     }
   } else {
-    answer = think(messages)
+    // talyvor-lens B28.119 — with Run code on, the nth prime is worked out by code run in the sandbox.
+    ran = runCode ? primeRun(text(messages[messages.length - 1])) : undefined
+    answer = ran !== undefined ? `The ${ran.nth} prime is ${ran.stdout.trim()}.` : think(messages)
     // talyvor-lens B28.118 — searched first, the answer cites the pages it was given.
     if (searched) answer += ' [1] [2]'
     if (body.max_tokens !== undefined && tokens(answer) > body.max_tokens) {
@@ -731,6 +751,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
   // talyvor-lens B28.118 — the pages it searched, first, on either writer (apps/web chatStream.ts CITATIONS_FRAME).
   if (searched) send('talyvor.citations', { type: 'talyvor.citations', citations: WEB_PAGES.map((p, i) => ({ n: i + 1, url: `${BASE}${p.path}`, title: p.title })) })
+  // talyvor-lens B28.119 — the code it ran and what that printed, on either writer (apps/web chatStream.ts CODE_RUN_FRAME).
+  if (ran !== undefined) send('talyvor.code_run', { type: 'talyvor.code_run', language: 'python', code: ran.code, stdout: ran.stdout, stderr: '', exit_code: 0 })
   const sayCharged = () => {
     if (charged !== undefined && req.headers['x-talyvor-report-charge'] === 'true') send('talyvor.charge', { type: 'talyvor.charge', charged_ulxc: charged })
   }

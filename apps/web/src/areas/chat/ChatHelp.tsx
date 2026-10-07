@@ -181,6 +181,19 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    heading: 'Running code',
+    body: (
+      <>
+        <p>
+          Run code sits beside Search the web. While it is on, the model may write code and run it in a sandbox to work
+          an answer out — a sum, a count, a list to sort. Under the answer, Code it ran shows each piece of code word
+          for word and what it printed, so you can check the working. It stays on for every question until you turn it
+          off.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'What an answer costs',
     body: (
       <>

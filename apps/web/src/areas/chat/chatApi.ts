@@ -1,5 +1,5 @@
 import { ApiError, readableList } from '../../lib/api'
-import { type Citation, type ToolCallPiece, type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
+import { type Citation, type CodeRun, type ToolCallPiece, type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
 import type { AnswerCost, AnswerSource } from './price'
 import { PROMPT_RESOLVED_HEADER, promptReference } from './promptLibrary'
 
@@ -129,6 +129,9 @@ export interface ChatMessage {
   /** B28.372 — on an answer asked with Search the web on: the pages Lens searched and gave the model, by the number the
    *  answer cites each with (chatStream.ts CITATIONS_FRAME); empty when none came back. Screen-side only. */
   citations?: Citation[]
+  /** B28.373 — on an answer asked with Run code on: the code the model ran in Lens's sandbox and what it printed, in the
+   *  order it ran (chatStream.ts CODE_RUN_FRAME). Screen-side only. */
+  code_runs?: CodeRun[]
 }
 
 /** B28.370 — the named prompt an answer was asked with, and whether Lens's answer said it used it. */
@@ -166,6 +169,10 @@ export const REPORT_CHARGE_HEADER = 'X-Talyvor-Report-Charge'
  *  model (chatStream.ts CITATIONS_FRAME; talyvor-lens B28.118). */
 export const WEB_SEARCH_HEADER = 'X-Talyvor-Web-Search'
 
+/** B28.373 — `on` lets the model run code in Lens's sandbox while it answers, and asks Lens to say in the stream what it
+ *  ran and what that printed (chatStream.ts CODE_RUN_FRAME; talyvor-lens B28.119). */
+export const RUN_CODE_HEADER = 'X-Talyvor-Run-Code'
+
 /** B28.361 — which conversation a request is part of, and its budget in µLXC when it has one. */
 export interface ConversationTag {
   id: string
@@ -176,6 +183,8 @@ export interface ConversationTag {
   prompt?: string
   /** B28.372 — Search the web is on for this question: Lens searches first and the answer cites the pages. */
   web_search?: boolean
+  /** B28.373 — Run code is on for this question: the model may run code in Lens's sandbox to answer it. */
+  run_code?: boolean
 }
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
@@ -624,6 +633,8 @@ export interface StreamHandlers {
     promptResolved?: boolean
     /** B28.372 — the pages Lens searched and gave the model, when it said; for askChat, the last request's that said. */
     citations?: Citation[]
+    /** B28.373 — the code the model ran in Lens's sandbox, in order; for askChat, every request's. */
+    codeRuns?: CodeRun[]
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
@@ -678,6 +689,7 @@ export async function streamChat(
       ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),
       [REPORT_CHARGE_HEADER]: 'true',
       ...(conversation?.web_search === true ? { [WEB_SEARCH_HEADER]: 'on' } : {}),
+      ...(conversation?.run_code === true ? { [RUN_CODE_HEADER]: 'on' } : {}),
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions, conversation?.prompt)),
     signal,
@@ -729,6 +741,7 @@ export async function streamChat(
   let finish: string | undefined
   let charged: number | undefined
   let citations: Citation[] | undefined
+  const codeRuns: CodeRun[] = []
   // B28.349 — the tool calls arriving in pieces, by their index in the answer.
   const pieces = new Map<number, ToolCall>()
   const gather = (p: ToolCallPiece) => {
@@ -755,6 +768,7 @@ export async function streamChat(
         finish = got.finish ?? finish
         charged = got.charged_ulxc ?? charged
         citations = got.citations ?? citations
+        codeRuns.push(...(got.codeRuns ?? []))
         if (got.error !== undefined) {
           handlers.onError(got.error)
           return
@@ -762,7 +776,7 @@ export async function streamChat(
         for (const d of got.deltas) handlers.onDelta(d.text)
         for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations, codeRuns })
           return
         }
       }
@@ -777,7 +791,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations, codeRuns })
 }
 
 /** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */
@@ -828,6 +842,8 @@ export async function askChat(
   let written = false
   // B28.372 — the pages Lens last said it searched, over every request the question took.
   let citations: Citation[] | undefined
+  // B28.373 — the code the model ran, over every request the question took.
+  const codeRuns: CodeRun[] = []
   const spend: SpendLine[] = []
   for (let round = 1; ; round++) {
     let said = ''
@@ -864,10 +880,11 @@ export async function askChat(
     charged = charged === undefined || done.chargedULXC === undefined ? undefined : charged + done.chargedULXC
     unrecognised += done.unrecognised
     citations = done.citations ?? citations
+    codeRuns.push(...(done.codeRuns ?? []))
     billed = billed === null || billed === done.paidBy ? done.paidBy : undefined
     const calls = done.toolCalls ?? []
     if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
-      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, citations, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
+      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, citations, codeRuns, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
       return
     }
     const results = await Promise.all(calls.map((c) => callChatTool(c, signal)))

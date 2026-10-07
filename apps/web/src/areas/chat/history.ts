@@ -172,6 +172,7 @@ export function continuedAnswer(head: ChatMessage, more: ChatMessage): ChatMessa
     payer: more.payer ?? head.payer,
     auto: head.auto || more.auto ? true : undefined,
     citations: head.citations ?? more.citations,
+    code_runs: head.code_runs === undefined && more.code_runs === undefined ? undefined : [...(head.code_runs ?? []), ...(more.code_runs ?? [])],
   }
 }
 

@@ -3702,6 +3702,64 @@ export function chatWebSearch(seed: number): Scenario {
 }
 
 /**
+ * B28.373 — code execution in a sandbox (talyvor-lens B28.119): "the 100th prime" asked with Chat's Run code on. The
+ * answer says 541, and under it is the code the model ran in Lens's sandbox, whose output is 541 — so the figure was
+ * worked out, not remembered.
+ */
+export function chatRunCode(seed: number): Scenario {
+  return {
+    id: 'chat-run-code',
+    owner: 'talyvor-lens',
+    title: 'with Run code on, "the 100th prime" returns 541, worked out by code the model ran in the sandbox',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      await app.newChat()
+      const toggle = page.getByRole('button', { name: 'Run code' })
+      await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+      try {
+        const t = await ask(ctx, `What is the 100th prime? Run code to work it out. (${freshWord(seed * 10 + 1, 1 + Math.floor(Math.random() * 999_999))})`)
+        if (t.error !== undefined) return { pass: false, detail: `refused: ${t.error}` }
+        const turn = page.locator('[data-testid="turn-assistant"]').last()
+        await turn.getByTestId('turn-code-runs').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        const runs = await turn.getByTestId('turn-code-run').evaluateAll((els) =>
+          els.map((el) => ({
+            code: el.querySelector('[data-testid="turn-code-run-code"]')?.textContent ?? '',
+            output: el.querySelector('[data-testid="turn-code-run-output"]')?.textContent ?? '',
+          })),
+        )
+        const says = /(?<![\d,.])541(?![\d,]|\.\d)/.test(t.answer)
+        ctx.evidence.push({ note: `the code it ran: ${runs.length === 0 ? 'none shown' : runs.map((r) => `${JSON.stringify(r.code.slice(0, 300))} printed ${JSON.stringify(r.output.slice(0, 200))}`).join('; ')}` })
+        if (runs.length === 0) {
+          return { pass: false, detail: `the answer ${describe(t)} shows no code run — Lens did not run the model's code in its sandbox, or did not say so (talyvor-lens B28.119)` }
+        }
+        const printed = runs.some((r) => /(?<!\d)541(?!\d)/.test(r.output))
+        const viewport = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const wide = join(env.outDir, `chat-run-code-1440px-user${app.user.index}.png`)
+        const narrow = join(env.outDir, `chat-run-code-390px-user${app.user.index}.png`)
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await turn.getByTestId('turn-code-runs').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: wide })
+        await page.setViewportSize({ width: 390, height: 844 })
+        await turn.getByTestId('turn-code-runs').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: narrow })
+        if (viewport !== null) await page.setViewportSize(viewport)
+        ctx.evidence.push({ note: `the code it ran at 1440px: ${wide}; at 390px: ${narrow}` })
+        if (!says) return { pass: false, detail: `the answer ${describe(t)} does not say 541` }
+        return printed
+          ? { pass: true, detail: `the answer says 541, and the code it ran (${runs.length} run${runs.length === 1 ? '' : 's'}) printed 541` }
+          : { pass: false, detail: `the answer says 541, but none of the ${runs.length} run(s) under it printed 541: ${runs.map((r) => JSON.stringify(r.output.slice(0, 120))).join('; ')}` }
+      } finally {
+        // Off again, so the questions after this one in the same tab run no code.
+        if ((await toggle.getAttribute('aria-pressed').catch(() => null)) === 'true') await toggle.click().catch(() => undefined)
+      }
+    },
+  }
+}
+
+/**
  * Which scenarios user `i` runs. Everyone runs the two known-answer questions; one in ten of the users
  * also runs each of the others, so 100 users cover the catalog ten times over; user 0 prices every
  * model. A user runs at most one scenario from each catalog, v1 first. The ledger read-back runs for everyone after all journeys (checkLedger).
@@ -3713,7 +3771,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       if (i === 0) list.push(everyModelAnswers(streamable))
       break
     // B28.358 — then a repeat in a new chat, and Saved in this chat totals what its answer's headers said it saved.
-    case 1: list.push(repeatInNewChat(i), chatSavingsPanel(i)); break
+    // B28.373 — and "the 100th prime" with Run code on: 541, printed by the code the model ran in the sandbox.
+    case 1: list.push(repeatInNewChat(i), chatSavingsPanel(i), chatRunCode(i)); break
     // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
     // B28.108 — and a word from an old answer finding its conversation among 500.
     // B28.109 — and a new chat in a project, sent with the project's instructions.
