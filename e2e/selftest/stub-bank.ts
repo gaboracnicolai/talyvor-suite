@@ -28,6 +28,8 @@
 //   report-lost         — a report is acknowledged and never reaches the moderators' queue
 //   takedown-no-refund  — taking a listing down refunds nobody
 //   connect-none        — Connect with Stripe sends the browser to Stripe but records no account
+//   secret-published    — B28.282: a listing carrying a secret is published like any other
+//   self-use-billed     — B28.282: a seller's use of their own listing is billed, and earns them its price
 //   b30-capability-gone — fx, one of B30.1's money-and-markets capabilities, is missing from the list (B30.115)
 //
 // B25.8 adds what Lens (B25.7) brings due for a test workspace with the synthetic key: a loan's instalment
@@ -182,6 +184,9 @@ interface Report { id: string; listing_id: string; reporter: string; reason: str
 interface ConnectAccount { stripe_account_id: string; country: string; details_submitted: boolean; payouts_enabled: boolean; currently_due: string[] }
 
 const PERIOD_MS: Record<string, number> = { hour: 3600e3, day: 24 * 3600e3, week: 7 * 24 * 3600e3, month: 30 * 24 * 3600e3 }
+/** B28.282 — what Lens's publish scan refuses outright (market scan.go): a credential shape, never ordinary text. */
+const SECRETS: [string, RegExp][] = [['aws_access_key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/], ['openai_key', /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}/],
+  ['stripe_key', /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/], ['talyvor_key', /\btlv_[A-Za-z0-9_-]{20,}/]]
 /** What Lens's publish review holds for a person to judge (market B20.4): text that reads as a prompt injection. */
 const READS_AS_INJECTION = /\b(you are now|pretend (you are|to be)|ignore (all )?(previous|prior) instructions)\b/i
 /** The capabilities Agent Wallets asks after (Lens economy.Capabilities): each test money only. */
@@ -1439,6 +1444,11 @@ export class Bank {
       const parents = (b.parents ?? []).map((p) => ({ p, l: this.listings.get(p.listing_id), g: this.grants.find((g) => g.ws === ws.id && g.listing_id === p.listing_id && g.version === p.version) }))
       const unfit = parents.find((x) => x.l === undefined || (x.l.workspace_id !== ws.id && x.g === undefined))
       if (unfit !== undefined) return json(res, 400, { error: `market: invalid listing: ${unfit.p.listing_id} version ${unfit.p.version} is not yours to build on; remix it first` }), true
+      const secret = SECRETS.find(([, re]) => re.test(`${b.title} ${b.description ?? ''} ${JSON.stringify(b.artifact)}`))
+      if (secret !== undefined && !this.broken('secret-published')) {
+        return json(res, 422, { error: `market: the listing cannot be published: it contains a secret (${secret[0]}) — remove it and publish again`,
+          scan: { secrets: [secret[0]], injection_risk: 0, refused: `it contains a secret (${secret[0]}) — remove it and publish again` } }), true
+      }
       const l: Listing = { id: id('lst_'), workspace_id: ws.id, kind: b.kind ?? 'prompt', title: b.title, description: b.description ?? '',
         price_per_use_ulxc: b.price_per_use_ulxc ?? 0, visibility: b.visibility ?? 'public', latest_version: 1, created_at: now, updated_at: now,
         review_status: READS_AS_INJECTION.test(`${b.title} ${b.description ?? ''} ${JSON.stringify(b.artifact)}`) ? 'held' : 'approved',
@@ -1537,7 +1547,7 @@ export class Bank {
       if (model === '') return json(res, 400, { error: 'market: this listing names no model, so the use must' }), true
       const ran = this.d.runModel(ws, model, template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, v: string) => b.variables?.[v] ?? ''))
       if ('error' in ran) return json(res, 400, { error: ran.error }), true
-      const charge = l.workspace_id === ws.id ? 'own' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
+      const charge = l.workspace_id === ws.id && !this.broken('self-use-billed') ? 'own' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
       const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: '', price_ulxc: charge === 'billed' ? l.price_per_use_ulxc : 0,
         charge, used_at: now, payee_agent_id: '', memo: '' }
       this.uses.push(use)

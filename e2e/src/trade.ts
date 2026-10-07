@@ -668,6 +668,72 @@ export function marketTakedown(seed: number, seller: number): Scenario {
   }
 }
 
+/**
+ * B28.282 — marketplace abuse is caught: a listing carrying a secret is refused on Publish and never listed, and a
+ * seller's use of their own paid listing runs, puts nothing on their marketplace bill and earns them nothing. On a
+ * workspace of its own, so no other scenario's sale moves the bill or the earnings it reads.
+ */
+export function marketAbuse(seed: number): Scenario {
+  const r = seeded(seed * 47 + 23)
+  const a = 100 + Math.floor(r() * 900)
+  const b = 100 + Math.floor(r() * 900)
+  const price = 400_000
+  const template = `What is {{a}} + {{b}}? Reply with the number only.`
+  // An access key's shape, made at run time so no key-shaped literal sits in this file.
+  const key = 'AKIA' + Array.from({ length: 16 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'[Math.floor(r() * 32)]).join('')
+  return {
+    id: 'market-abuse',
+    owner: 'talyvor-lens',
+    own: true,
+    title: "a listing carrying an access key is refused on Publish for the secret and never listed; a seller's use of their own paid listing answers, " +
+      'puts nothing on their bill and earns them nothing',
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const keyed = `Keyed ${seed}-${a}`
+      const leaked = await publishPrompt(app, { title: keyed, template: `Sign in with ${key}, then: ${template}`, priceULXC: price, model: app.modelNameInUse })
+      ctx.evidence.push({ note: `publish "${keyed}" with an access key in its template: ${leaked.id ?? leaked.error}` })
+      if (leaked.id !== undefined) return fail(`a listing carrying an access key was published as ${leaked.id}`)
+      if (!/secret/i.test(leaked.error ?? '')) return fail(`a listing carrying an access key was refused, but not for the secret: "${leaked.error}"`)
+      if ((await env.lens.ownListings(app.user)).some((l) => l.title === keyed)) return fail("refused, the listing carrying the key is among the seller's listings")
+
+      const title = `Own sums ${seed}-${a}`
+      const published = await publishPrompt(app, { title, template, priceULXC: price, model: app.modelNameInUse })
+      ctx.evidence.push({ note: `publish "${title}" at ${lxcText(price)} LXC a use: ${published.id ?? published.error}` })
+      if (published.id === undefined) return fail(`publishing was refused: ${published.error}`)
+      const id = published.id
+      const earned0 = await env.lens.marketEarnings(app.user)
+      const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+      if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
+      const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
+      let used
+      try {
+        used = await runListing(app, id, { a: String(a), b: String(b) })
+      } catch (e) {
+        env.cap.settle(hold, undefined)
+        throw e
+      }
+      const charged = (await spendRows(ctx)).filter((x) => !rows0.has(x.id))
+      env.cap.settle(hold, used.error === undefined ? (charged.reduce((s, x) => s - x.amount_ulxc, 0) / 1e6) * env.usdPerLXC : undefined)
+      for (const x of charged) env.book.add(app.user.workspaceID, -x.amount_ulxc)
+      ctx.evidence.push({ note: 'the seller uses their own listing', answer: used.shown, error: used.error })
+      if (used.error !== undefined) return fail(`the seller's use of their own listing was refused: ${used.error}`)
+      if (!statesNumber(used.shown ?? '', a + b)) return fail(`the listing answered wrong: expected ${a + b}, got "${used.shown}"`)
+      // The model it called is the seller's spend as any request is: one row on their ledger, and nothing for the listing.
+      if (charged.length !== 1) return fail(`the model the listing called made ${charged.length} spend row(s) on the seller's ledger`)
+      const lines = ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === id)
+      if (lines.length > 0) return fail(`a seller's use of their own listing put ${lines.length} line(s) on their bill: ${JSON.stringify(lines)}`)
+      const earned = await env.lens.marketEarnings(app.user)
+      ctx.evidence.push({ note: `the seller's earnings before ${JSON.stringify(earned0)}, after ${JSON.stringify(earned)}` })
+      if (earned.pending_uses !== earned0.pending_uses || earned.pending_usd_micros !== earned0.pending_usd_micros || earned.lifetime_gross_usd_micros !== earned0.lifetime_gross_usd_micros) {
+        return fail(`a seller's use of their own listing earned them: pending ${earned0.pending_uses} → ${earned.pending_uses} uses, ${earned0.pending_usd_micros} → ${earned.pending_usd_micros} µUSD`)
+      }
+      return { pass: true, detail: `the access key refused for the secret ("${leaked.error}") and not listed; the seller's own use answered ${a + b}, ` +
+        'one spend row for the model and nothing on their bill, their earnings unmoved' }
+    },
+  }
+}
+
 export function marketPayoutConnect(): Scenario {
   return {
     id: 'market-payout-connect',
