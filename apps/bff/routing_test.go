@@ -11,6 +11,7 @@ import (
 
 // B28.364 — the hint's read asks Lens for the session's workspace with the provider and input range
 // Chat sent, and answers the model, provider and basis Lens named, nothing else of its reply.
+// B28.106 — in the cohort Chat's questions are tagged with, "chat".
 func TestRoutingRecommendationIsLensPickForTheWorkspace(t *testing.T) {
 	var asked, bearer string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +30,7 @@ func TestRoutingRecommendationIsLensPickForTheWorkspace(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/routing/recommendation = %d %s", rec.Code, rec.Body.String())
 	}
-	ws := strings.TrimSuffix(strings.TrimPrefix(asked, "/v1/workspaces/"), "/routing/recommendation?input_range=small&provider=openai")
+	ws := strings.TrimSuffix(strings.TrimPrefix(asked, "/v1/workspaces/"), "/routing/recommendation?feature=chat&input_range=small&provider=openai")
 	if ws == "" || strings.Contains(ws, "/") || bearer != "Bearer jwt-for-"+ws {
 		t.Fatalf("Lens was asked %q with %q, want the session's workspace's route with its own key", asked, bearer)
 	}

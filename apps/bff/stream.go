@@ -282,6 +282,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			// ⚠ NOT application/json. The shared forward() sets that, and it is how a streaming lane
 			// silently becomes a buffered one.
 			up.Header.Set("Accept", "text/event-stream")
+			// B28.106 — every request on this route is Chat's, so its spend is tagged "chat" in Lens's Spend by
+			// feature. Set here, never read from the browser: a tag the page chose could book Chat's spend to Docs.
+			up.Header.Set(featureHeader, chatFeature)
 			// B10.3 — a message with an attached document asks Lens to convert it (distill), so a
 			// workspace on `opt_in` converts it too. Only the one opt-in value is forwarded; every other
 			// request header stays behind, as it always has.
@@ -403,6 +406,13 @@ const (
 // reportChargeHeader asks Lens to add, before the stream's terminator, a frame saying what it charged for the answer
 // (B28.362; the frame is apps/web chatStream.ts CHARGE_FRAME). The frame passes through relayFlushing untouched.
 const reportChargeHeader = "X-Talyvor-Report-Charge"
+
+// featureHeader is the tag Lens groups spend by (token_events.feature, /v1/api/spend/by-feature), and chatFeature
+// Chat's tag on it (B28.106). The cheaper-model hint asks Lens for the same cohort (routing.go).
+const (
+	featureHeader = "X-Talyvor-Feature"
+	chatFeature   = "chat"
+)
 
 // conversationIDPattern is the shape of a conversation id Chat makes (a UUID, or base36 where the browser has none).
 var conversationIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)
