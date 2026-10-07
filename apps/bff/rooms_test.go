@@ -79,3 +79,74 @@ func TestRoomsRelayToLensOnTheSessionsWorkspace(t *testing.T) {
 		t.Fatalf("Lens received %q, want the join with the accepted terms version", got[2])
 	}
 }
+
+// B32.54 — a room's event stream reaches the browser event by event, while Lens still holds it open, with the cursor the
+// browser resumes from; and a vote and a run reach Lens on the room and contribution the screen named, with its body.
+func TestRoomEventsStreamAndRoomWritesRelay(t *testing.T) {
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, r.Method+" "+r.URL.RequestURI()+" "+r.Header.Get("Last-Event-ID")+" "+string(raw))
+		mu.Unlock()
+		if strings.HasSuffix(r.URL.Path, "/events") {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "id: 8\ndata: {\"cursor\":8,\"kind\":\"message.posted\"}\n\n")
+			w.(http.Flusher).Flush()
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+	a := newApp(config{addr: "127.0.0.1:0", lensBaseURL: srv.URL, provisionSecret: testProvisionSecret, webDist: t.TempDir(), authMode: authModeDisabled}, nil)
+	bff := httptest.NewServer(a)
+	t.Cleanup(bff.Close)
+
+	req, _ := http.NewRequest(http.MethodGet, bff.URL+"/api/rooms/room_1/events", nil)
+	req.Header.Set("Last-Event-ID", "7")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("events = %d %q, want 200 text/event-stream", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	buf := make([]byte, 256)
+	n, err := resp.Body.Read(buf)
+	if err != nil || !strings.Contains(string(buf[:n]), `"cursor":8`) {
+		t.Fatalf("first read = %q %v, want the event while Lens still holds the stream open", buf[:n], err)
+	}
+
+	if rec := doJSON(a, http.MethodPut, "/api/rooms/room_1/contributions/c_2/vote", `{"value":-1}`); rec.Code != http.StatusOK {
+		t.Fatalf("vote = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/rooms/room_1/runs", `{"target":"c_2","input":"go","pay":"room"}`); rec.Code != http.StatusOK {
+		t.Fatalf("run = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/rooms/room_1/runs", `{"target":"c_2","payer_workspace_id":"ws_other"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a run naming its own payer = %d, want 400 before Lens is asked", rec.Code)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		"GET /v1/rooms/room_1/events 7 ",
+		`PUT /v1/rooms/room_1/contributions/c_2/vote  {"value":-1}`,
+		`POST /v1/rooms/room_1/runs  {"target":"c_2","input":"go","pay":"room"}`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("Lens received\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}

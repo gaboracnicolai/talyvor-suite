@@ -114,7 +114,7 @@ function Browse() {
 // ── Publish ────────────────────────────────────────────────────────────────────────────────────────
 
 /** What each kind's artifact needs, as the seller writes it (Lens market.requiredField). */
-const ARTIFACT: Record<ListingKind, { field: string; label: string; hint: string }> = {
+export const ARTIFACT: Record<ListingKind, { field: string; label: string; hint: string }> = {
   agent: { field: 'system_prompt', label: 'System prompt', hint: 'How the agent behaves, as you run it.' },
   prompt: { field: 'template', label: 'Template', hint: 'Write {{name}} where the person using it fills in a value.' },
   skill: { field: 'instructions', label: 'Instructions', hint: 'What the model should do with the person’s input.' },
@@ -134,7 +134,7 @@ const VISIBILITY: readonly [Visibility, string][] = [
   ['private', 'Private — only this workspace'],
 ]
 
-function artifactOf(kind: ListingKind, body: string, model: string): Record<string, unknown> {
+export function artifactOf(kind: ListingKind, body: string, model: string): Record<string, unknown> {
   const lines = body
     .split('\n')
     .map((s) => s.trim())
