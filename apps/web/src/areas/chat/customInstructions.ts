@@ -43,7 +43,8 @@ export function saveCustomInstructions(scope: string, text: string, now: number)
   }
 }
 
-/** What a question is sent with: the person's own instructions first, then the project's; '' is none. */
-export function instructionsFor(custom: string, project: string | undefined): string {
-  return [custom.trim(), (project ?? '').trim()].filter((t) => t !== '').join('\n\n')
+/** What a question is sent with: the person's own instructions first, then what Chat remembers about them (B28.371,
+ *  memory.ts), then the project's; '' is none. */
+export function instructionsFor(custom: string, project: string | undefined, remembered = ''): string {
+  return [custom.trim(), remembered.trim(), (project ?? '').trim()].filter((t) => t !== '').join('\n\n')
 }

@@ -7,6 +7,7 @@ import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS, savedLine } from './Chat'
 import { CONTINUE_PROMPT, type Conversation, historyKey, loadConversations } from './history'
 import { InstructionsPage } from './InstructionsPage'
 import { PromptsPage } from './PromptsPage'
+import { MemoryPage } from './MemoryPage'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
 // (apps/bff/lens.go, apps/bff/stream.go). These tests drive the real fetch surface, mocked at the
@@ -1526,5 +1527,60 @@ describe('prompt library (B28.370)', () => {
     await ask('And now?')
     await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
     expect(sent(1).messages[0]).toEqual({ role: 'system', content: 'lens:prompt:support-tone' })
+  })
+})
+
+describe('memory (B28.371)', () => {
+  it('off until turned on; a remembered fact is sent with a new chat, and deleted it is sent no more', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"Noted."}}]}\n\ndata: [DONE]\n\n' })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/chat']}>
+          <Routes>
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat/memory" element={<MemoryPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    const answered = async (n: number) => {
+      await waitFor(() => expect(posted).toHaveBeenCalledTimes(n))
+      await screen.findByRole('button', { name: 'Regenerate' })
+    }
+    const sent = (n: number) => JSON.parse(String(posted.mock.calls[n][0].init.body))
+    const fact = 'my studio is called Heron Works'
+
+    // Off by default: "Remember that …" is not sent to the model, and nothing is kept until the card is asked to.
+    await chooseModel('Claude Opus 5')
+    await ask(`Remember that ${fact}.`)
+    expect((await screen.findByTestId('chat-card-remember-state')).textContent).toBe(`Memory is off, so “${fact}” was not kept.`)
+    fireEvent.click(screen.getByRole('button', { name: 'Turn memory on and remember it' }))
+    expect(screen.getByTestId('chat-card-remember-state').textContent).toContain(`Remembered: “${fact}”.`)
+    expect(posted).not.toHaveBeenCalled()
+
+    // A new chat says what it is sent with, and Anthropic gets the fact in its own system field.
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
+    expect((await screen.findByTestId('memory-line')).textContent).toContain(fact)
+    await ask('What should I call my newsletter?')
+    await answered(1)
+    expect(sent(0).system).toBe(`What the person you are talking to asked you to remember about them:\n- ${fact}`)
+
+    // Listed on the Memory page, and deleted there.
+    fireEvent.click((await screen.findAllByRole('link', { name: 'Memory' }))[0])
+    expect((await screen.findByTestId('memory-facts')).textContent).toContain(fact)
+    fireEvent.click(screen.getByRole('button', { name: `Delete “${fact}”` }))
+    expect((await screen.findByRole('status')).textContent).toBe('Deleted. No question is sent with it again.')
+    expect(screen.getByTestId('memory-empty')).toBeTruthy()
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Chat' }))
+
+    // The next new chat is sent without it.
+    fireEvent.click((await screen.findAllByRole('button', { name: 'New chat' }))[0])
+    await chooseModel('Claude Opus 5')
+    await ask('And a name for my podcast?')
+    await answered(2)
+    expect(screen.queryByTestId('memory-line')).toBeNull()
+    expect(sent(1).system).toBeUndefined()
+    expect(JSON.stringify(sent(1))).not.toContain('Heron Works')
   })
 })
