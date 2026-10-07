@@ -605,7 +605,7 @@ describe('conversation history', () => {
 
     renderChat()
     expect(await screen.findByRole('button', { name: 'Capital of France?' })).toBeTruthy()
-    expect(screen.queryByText('No conversations yet.')).toBeNull()
+    expect(screen.queryByText(/No conversations yet/)).toBeNull()
     expect(screen.getByTestId('turn-assistant').textContent).toContain('Paris.')
   })
 
@@ -636,6 +636,57 @@ describe('conversation history', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save name' }))
     expect(await screen.findByRole('button', { name: 'Geography' })).toBeTruthy()
     expect(loadConversations('user-a').list[0]?.title).toBe('Geography')
+  })
+
+  it('B28.110 — a pinned chat stays at the top, above newer ones, after a reload; unpinned it goes back to its place', async () => {
+    seed('user-a', { id: 'a', title: 'Older', updated_at: 1 }, { id: 'b', title: 'Newer', updated_at: 2 })
+    mockChat()
+    const tab = renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: 'Older' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Pin' }))
+    tab.unmount()
+    expect(loadConversations('user-a').list.find((c) => c.id === 'a')?.pinned).toBe(true)
+
+    renderChat()
+    const pinned = await screen.findByRole('list', { name: 'Pinned conversations' })
+    const rest = screen.getByRole('list', { name: 'Saved conversations' })
+    expect(within(pinned).getAllByRole('button').map((b) => b.textContent)).toEqual(['Older'])
+    expect(within(rest).getAllByRole('button').map((b) => b.textContent)).toEqual(['Newer'])
+    expect(pinned.compareDocumentPosition(rest) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(within(pinned).getByRole('button', { name: 'Older' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Unpin' }))
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Pinned conversations' })).toBeNull())
+    expect(within(screen.getByRole('list', { name: 'Saved conversations' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Newer', 'Older'])
+  })
+
+  it('B28.110 — an archived chat leaves the list and is not reopened by a reload; unarchived, or asked in again, it is back', async () => {
+    seed('user-a', { id: 'a', title: 'Older', updated_at: 1 }, { id: 'b', title: 'Newer', updated_at: 2 })
+    mockChat({ body: 'data: {"choices":[{"delta":{"content":"Again."}}]}\n\ndata: [DONE]\n\n' })
+    const tab = renderChat()
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('answer to Newer'))
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    expect(await screen.findByTestId('conversation-archived')).toBeTruthy()
+    expect(within(screen.getByRole('list', { name: 'Saved conversations' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Older'])
+    tab.unmount()
+
+    // A reload opens the newest conversation that is not archived.
+    renderChat()
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('answer to Older'))
+    const toggle = screen.getByRole('button', { name: 'Archived 1' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    fireEvent.click(within(screen.getByRole('list', { name: 'Archived conversations' })).getByRole('button', { name: 'Newer' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Unarchive' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Archived/ })).toBeNull())
+    expect(within(screen.getByRole('list', { name: 'Saved conversations' })).getAllByRole('button').map((b) => b.textContent)).toEqual(['Newer', 'Older'])
+
+    // Archived again, a question asked in it brings it back to the list.
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    await ask('One more?')
+    await screen.findByRole('button', { name: 'Regenerate' })
+    expect(loadConversations('user-a').list.find((c) => c.id === 'b')?.archived).toBeUndefined()
+    expect(screen.queryByRole('button', { name: /^Archived/ })).toBeNull()
   })
 
   it('B28.108 — a word from an old answer finds its conversation among 500, and opens it', async () => {

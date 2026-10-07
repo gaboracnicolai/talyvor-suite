@@ -29,6 +29,10 @@ export interface Conversation {
   updated_at: number
   /** B28.365 — when this browser last saved a change to it (a rename too, which leaves updated_at); syncs merge by it. */
   changed_at?: number
+  /** B28.110 — kept at the top of the rail until unpinned; absent, not pinned. */
+  pinned?: true
+  /** B28.110 — out of the rail's list, under Archived, until unarchived or asked in again; absent, not archived. */
+  archived?: true
   messages: ChatMessage[]
 }
 
@@ -119,11 +123,40 @@ export function upsertConversation(
     ...(paidBy !== undefined && paidBy !== '' ? { paid_by: paidBy } : {}),
     ...(budgetULXC !== undefined ? { budget_ulxc: budgetULXC } : {}),
     ...((projectId ?? prior?.project_id) !== undefined ? { project_id: projectId ?? prior?.project_id } : {}),
+    // B28.110 — a pin outlasts new turns; a question asked in an archived conversation brings it back to the list.
+    ...(prior?.pinned ? { pinned: true as const } : {}),
     created_at: prior?.created_at ?? now,
     updated_at: now,
     messages: kept,
   }
   return [next, ...list.filter((c) => c.id !== id)]
+}
+
+/** B28.110 — the rail's three groups, each newest first: pinned, the rest, and archived. */
+export function railGroups(list: Conversation[]): { pinned: Conversation[]; recent: Conversation[]; archived: Conversation[] } {
+  return {
+    pinned: list.filter((c) => c.pinned && !c.archived),
+    recent: list.filter((c) => !c.pinned && !c.archived),
+    archived: list.filter((c) => c.archived),
+  }
+}
+
+/** B28.110 — pins or unpins one conversation. Pinned and archived exclude each other: pinning unarchives. */
+export function setPinned(list: Conversation[], id: string, pinned: boolean): Conversation[] {
+  return list.map((c) => {
+    if (c.id !== id) return c
+    const { pinned: _p, archived: _a, ...rest } = c
+    return pinned ? { ...rest, pinned: true } : rest
+  })
+}
+
+/** B28.110 — archives or unarchives one conversation; archiving unpins it. */
+export function setArchived(list: Conversation[], id: string, archived: boolean): Conversation[] {
+  return list.map((c) => {
+    if (c.id !== id) return c
+    const { pinned: _p, archived: _a, ...rest } = c
+    return archived ? { ...rest, archived: true } : rest
+  })
 }
 
 /** B28.108 — one conversation a search found, and the words around where it was found. */
