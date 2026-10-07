@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS, savedLine } from './Chat'
-import { type Conversation, historyKey, loadConversations } from './history'
+import { CONTINUE_PROMPT, type Conversation, historyKey, loadConversations } from './history'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
 // (apps/bff/lens.go, apps/bff/stream.go). These tests drive the real fetch surface, mocked at the
@@ -1111,6 +1111,38 @@ describe('the reading column (B10.3)', () => {
       'Cut off The model reached its length limit before it finished this answer.',
     )
     expect(screen.getByTestId('turn-assistant').textContent).toContain('The first of many')
+  })
+
+  // B28.368 — what B28.113's Lens side receives: Continue sends the thread with the cut-off answer, to its last whole
+  // word, and then CONTINUE_PROMPT, asked afresh. What comes back is added to the answer, which is priced and saved whole.
+  it('B28.113 — Continue on a cut-off answer asks the model to go on, and adds what it writes to the answer', async () => {
+    const said = (text: string, stop: string, out: number) =>
+      'data: {"type":"message_start","message":{"model":"claude-opus-5","usage":{"input_tokens":10}}}\n\n' +
+      `data: ${JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text } })}\n\n` +
+      `data: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: stop }, usage: { output_tokens: out } })}\n\n` +
+      'data: {"type":"message_stop"}\n\n'
+    const { posted } = mockChat({ bodies: [said('Once upon a time, far aw', 'max_tokens', 16), said('away, there lived a fox.', 'end_turn', 8)] })
+    renderChat()
+    await chooseModel('Claude Opus 5')
+    await ask('Tell me a story')
+    await screen.findByTestId('turn-cut-off')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').querySelector('p')?.textContent).toBe('Once upon a time, far away, there lived a fox.'))
+    expect(JSON.parse(String(posted.mock.calls[1][0].init.body)).messages).toEqual([
+      { role: 'user', content: 'Tell me a story' },
+      { role: 'assistant', content: 'Once upon a time, far' },
+      { role: 'user', content: CONTINUE_PROMPT },
+    ])
+    expect(new Headers(posted.mock.calls[1][0].init.headers).get('X-Talyvor-Cache')).toBe('bypass')
+    // Whole now: no mark, no Continue; and its price is both requests'.
+    expect(screen.queryByTestId('turn-cut-off')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    expect((await screen.findByTestId('turn-cost')).textContent).toMatch(/ · Claude Opus 5 · 20 in \/ 24 out tokens · 2 requests$/)
+    const saved = loadConversations('user-a').list[0].messages
+    expect(saved).toHaveLength(2)
+    expect(saved[1]).toMatchObject({ content: 'Once upon a time, far away, there lived a fox.', requests: 2, cost: { input_tokens: 20, output_tokens: 24 } })
+    expect(saved[1].incomplete).toBeUndefined()
   })
 
   it('links to the how-to page from the rail', async () => {

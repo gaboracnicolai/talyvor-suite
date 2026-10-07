@@ -877,6 +877,41 @@ export function answerVersionsSurviveReload(seed: number): Scenario {
   }
 }
 
+/** B28.368 — a real answer cut off at a tiny max_tokens, and Continue: the answer keeps what it said and goes on, and
+ *  its price counts both requests. Only the question's request is sent with max_tokens 16 (Chat never asks for so
+ *  little); Continue's goes as Chat sends it. */
+export function continueCutOff(seed: number): Scenario {
+  const r = seeded(seed * 41 + 17 + RUN_SALT)
+  const to = 60 + Math.floor(r() * 30)
+  // The run's own word, so the model is asked rather than an earlier run's cut-off answer served from the pool.
+  const q = `List the whole numbers from 1 to ${to}, separated by spaces, and nothing else. (${freshWord(3_000 + seed)})`
+  return {
+    id: 'chat-continue-cut-off',
+    owner: 'talyvor-suite',
+    title: 'an answer cut off at a tiny max_tokens goes on when Continue is pressed',
+    run: async (ctx) => {
+      await ctx.app.newChat()
+      const cut = record(ctx, await ctx.app.askWithMaxTokens(q, 16), 'asked with max_tokens 16')
+      if (cut.error !== undefined) return { pass: false, detail: `the question was refused: ${cut.error}` }
+      const turn = ctx.app.page.locator('[data-testid="turn-assistant"]').last()
+      if (!(await turn.getByTestId('turn-cut-off').isVisible())) {
+        return { pass: false, detail: `the answer to a 16-token limit carried no "Cut off" mark: ${describe(cut)}` }
+      }
+      const more = record(ctx, await ctx.app.continueAnswer(q), 'Continue')
+      if (more.error !== undefined) return { pass: false, detail: `Continue was refused: ${more.error}` }
+      // Continue goes on from the answer's last whole word, so the word the limit cut is written again.
+      const kept = cut.answer.replace(/\s*\S*$/, '')
+      if (!more.answer.startsWith(kept) || more.answer.length <= cut.answer.length) {
+        return { pass: false, detail: `Continue did not add to "${cut.answer}": the answer now reads ${describe(more)}` }
+      }
+      if (more.footer.kind !== 'priced' || more.footer.requests !== 2) {
+        return { pass: false, detail: `the continued answer's price does not count both requests: "${more.footerText}"` }
+      }
+      return { pass: true, detail: `cut off at "${cut.answer.slice(-24)}", Continue went on to "…${more.answer.slice(-24)}", priced as 2 requests` }
+    },
+  }
+}
+
 /** B28.110 — a conversation pinned in Chat stays at the top of the rail after a reload: seeded as the person's oldest,
  *  opened, pinned with the button over it, and after the reload the first conversation the rail lists, under Pinned.
  *  Nothing is asked of a model, and the browser's history is put back after. */
@@ -3275,8 +3310,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i), answerVersionsSurviveReload(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
+    // B28.368 — and an answer cut off at a tiny max_tokens, which Continue carries on.
     case 6:
-      list.push(sidebarStaysHidden(), blankThenRetry(i))
+      list.push(sidebarStaysHidden(), blankThenRetry(i), continueCutOff(i))
       if (i < 10) list.push(costPreview(i))
       break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.

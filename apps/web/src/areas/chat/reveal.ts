@@ -31,10 +31,15 @@ export const FINISHED_CPS = 600
 
 /** The pacer, separate from React so its arithmetic can be tested frame by frame. */
 export class Reveal {
-  private shown = 0
+  private shown: number
   private received = 0
   private perMs = 0
   private complete = false
+
+  /** B28.113 — `shown` characters are already on screen: a continued answer reveals only what is added. */
+  constructor(shown = 0) {
+    this.shown = shown
+  }
 
   /** `received` characters have arrived; `complete` once no more will. */
   arrive(received: number, complete: boolean): void {
@@ -86,6 +91,7 @@ export function useRevealedText(text: string, live: boolean): { text: string; re
   useEffect(() => {
     if (!paced) return
     const continues = text.startsWith(seen.current)
+    const prior = seen.current
     seen.current = text
     if (pacer.current !== null && !continues) pacer.current = null // a regenerated or different answer
     if (pacer.current === null) {
@@ -93,8 +99,11 @@ export function useRevealedText(text: string, live: boolean): { text: string; re
         setRevealing(false)
         return
       }
-      pacer.current = new Reveal()
-      setCount(0)
+      // B28.113 — an answer continued keeps what it already showed (Continue trims it to its last break first).
+      let kept = 0
+      while (kept < prior.length && kept < text.length && prior[kept] === text[kept]) kept++
+      pacer.current = new Reveal(kept)
+      setCount(kept)
       setRevealing(true)
     }
     pacer.current.arrive(text.length, !live)

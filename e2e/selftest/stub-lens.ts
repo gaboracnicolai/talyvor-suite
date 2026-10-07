@@ -320,6 +320,9 @@ function shrink(v: unknown): unknown {
   return v
 }
 
+/** B28.368 — what Chat's Continue asks after an answer cut off at the length limit (apps/web history.ts CONTINUE_PROMPT). */
+const CONTINUE = /^Your answer above was cut off at the length limit\./
+
 /** The stand-in model: arithmetic, capitals, and the harness's own fixed prompts. */
 function think(messages: Msg[]): string {
   // B28.349 — told what the agents spent, it says the total in LXC.
@@ -333,6 +336,12 @@ function think(messages: Msg[]): string {
   }
   const q = text(messages[messages.length - 1])
   const all = messages.map(text).join('\n')
+  // B28.368 — asked to go on with an answer it cut off: the rest of the whole answer, after what it had said.
+  if (CONTINUE.test(q) && messages.length >= 3) {
+    const had = text(messages[messages.length - 2])
+    const whole = think(messages.slice(0, -2))
+    return whole.startsWith(had) ? whole.slice(had.length) : whole
+  }
   let m
   // An explorer (B17.5), scripted: open Chat, type a question, send it, note a finding, stop.
   if ((m = /^You are an explorer testing Talyvor[\s\S]*?\nStep (\d+) of/.exec(q))) {
@@ -544,6 +553,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   let fee = 0
   // talyvor-lens B28.102 — what a model's answer was charged, said in the stream; STUB_BREAK=charge says a µLXC more.
   let charged: number | undefined
+  // B28.368 — the answer stopped at max_tokens, as a model's does.
+  let cut = false
   const own = personal || tooled ? undefined : ws.answers.get(key)
   const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) ?? (broke('pool-negation') ? looseMatch(model.id, said) : undefined) : undefined
   if (broke('pool-tells') && [...workspaces.values()].some((w) => w.id !== ws.id && w.answers.has(key))) headers['X-Talyvor-Pool-Seen'] = 'elsewhere'
@@ -588,6 +599,10 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     }
   } else {
     answer = think(messages)
+    if (body.max_tokens !== undefined && tokens(answer) > body.max_tokens) {
+      answer = answer.slice(0, body.max_tokens * 4)
+      cut = true
+    }
     const outTok = tokens(answer)
     charge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
     fee = book(ws, -charge, 'spend', `${model.id} answer`)
@@ -630,7 +645,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       send('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: p } })
       await new Promise((r) => setTimeout(r, 30))
     }
-    send('message_delta', { type: 'message_delta', usage: { output_tokens: outTok } })
+    send('message_delta', { type: 'message_delta', delta: { stop_reason: cut ? 'max_tokens' : 'end_turn' }, usage: { output_tokens: outTok } })
     sayCharged()
     send('message_stop', { type: 'message_stop' })
   } else {
@@ -638,6 +653,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       res.write(`data: ${JSON.stringify({ ...named, choices: [{ index: 0, delta: { content: p } }] })}\n\n`)
       await new Promise((r) => setTimeout(r, 30))
     }
+    res.write(`data: ${JSON.stringify({ ...named, choices: [{ index: 0, delta: {}, finish_reason: cut ? 'length' : 'stop' }] })}\n\n`)
     res.write(`data: ${JSON.stringify({ ...named, choices: [], usage: { prompt_tokens: shownIn, completion_tokens: outTok } })}\n\n`)
     sayCharged()
     res.write('data: [DONE]\n\n')
