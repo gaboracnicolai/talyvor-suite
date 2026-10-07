@@ -63,6 +63,7 @@ type streamUpstream struct {
 	// 402 Lens answers instead of streaming.
 	gotConversation string
 	gotBudget       string
+	gotReportCharge string // B28.362 — X-Talyvor-Report-Charge as Lens received it
 	refuse          string
 	answerHeaders   map[string]string // set on the proxied answer, as Lens does on a cache serve
 	// replayUnlessBypassed sets answerHeaders only on a request without X-Talyvor-Cache: bypass, as
@@ -117,6 +118,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotPaidBy = r.Header.Get("X-Talyvor-Paid-By")
 			u.gotConversation = r.Header.Get("X-Talyvor-Conversation-ID")
 			u.gotBudget = r.Header.Get("X-Talyvor-Conversation-Budget-ULXC")
+			u.gotReportCharge = r.Header.Get("X-Talyvor-Report-Charge")
 			if u.refuse != "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusPaymentRequired)
@@ -140,6 +142,9 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 				fl.Flush()
 			}
 			if u.noBlock {
+				if u.gotReportCharge == "true" {
+					_, _ = io.WriteString(w, chargeFrame) // as Lens does when asked what it charged
+				}
 				_, _ = io.WriteString(w, "data: two\n\n")
 				if fl != nil {
 					fl.Flush()
@@ -1121,5 +1126,47 @@ func TestStream_ConversationAndItsBudgetReachLens(t *testing.T) {
 	resp, body := post(t, up, map[string]string{"X-Talyvor-Conversation-ID": id, "X-Talyvor-Conversation-Budget-ULXC": "50000"})
 	if resp.StatusCode != http.StatusPaymentRequired || body != up.refuse {
 		t.Errorf("Lens refused past the budget: the chat received %d %q, want 402 %q", resp.StatusCode, body, up.refuse)
+	}
+}
+
+// chargeFrame is the frame Lens adds to say what an answer was charged, in µLXC (apps/web chatStream.ts CHARGE_FRAME).
+const chargeFrame = "event: talyvor.charge\ndata: {\"type\":\"talyvor.charge\",\"charged_ulxc\":1350}\n\n"
+
+// B28.362 — Chat's ask for what Lens charged reaches Lens (only the one value), and the frame Lens answers with reaches
+// the chat as Lens wrote it.
+func TestStream_TheAskForTheChargeReachesLensAndItsFrameReachesTheChat(t *testing.T) {
+	for _, tc := range []struct {
+		name, sent, wantUp string
+	}{
+		{"asked", "true", "true"},
+		{"not asked", "", ""},
+		{"any other value is not forwarded", "yes", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newStreamUpstream(t)
+			up.noBlock = true
+			a, sess := streamApp(t, up)
+			ts := httptest.NewServer(a)
+			defer ts.Close()
+			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+			req.AddCookie(sess)
+			req.Header.Set("Origin", "https://app.talyvor.com")
+			req.Header.Set("Content-Type", "application/json")
+			if tc.sent != "" {
+				req.Header.Set("X-Talyvor-Report-Charge", tc.sent)
+			}
+			resp, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatalf("do: %v", err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if up.gotReportCharge != tc.wantUp {
+				t.Fatalf("Lens received X-Talyvor-Report-Charge %q, want %q", up.gotReportCharge, tc.wantUp)
+			}
+			if got := strings.Contains(string(body), chargeFrame); got != (tc.wantUp == "true") {
+				t.Fatalf("the chat received %q: the charge frame there is %v, want %v", body, got, tc.wantUp == "true")
+			}
+		})
 	}
 }

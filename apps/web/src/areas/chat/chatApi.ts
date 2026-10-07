@@ -104,6 +104,9 @@ export interface ChatMessage {
   requests?: number
   /** B28.354 — on an answer in a conversation an agent pays for: that agent, and whether Lens said it billed it. */
   payer?: AnswerPayer
+  /** B28.362 — on an answer: what Lens charged for it, in µLXC, when Lens said (chatStream.ts CHARGE_FRAME). It is the
+   *  figure under the answer in place of the estimate, and what the conversation's total counts. */
+  charged_ulxc?: number
 }
 
 /** B28.354 — the agent chosen to pay for an answer. `billed` only when Lens's answer named that agent. */
@@ -127,6 +130,9 @@ export const PAID_BY_HEADER = 'X-Talyvor-Paid-By'
  */
 export const CONVERSATION_HEADER = 'X-Talyvor-Conversation-ID'
 export const CONVERSATION_BUDGET_HEADER = 'X-Talyvor-Conversation-Budget-ULXC'
+
+/** B28.362 — asks Lens to say in the stream what it charged for the answer (chatStream.ts CHARGE_FRAME). */
+export const REPORT_CHARGE_HEADER = 'X-Talyvor-Report-Charge'
 
 /** B28.361 — which conversation a request is part of, and its budget in µLXC when it has one. */
 export interface ConversationTag {
@@ -540,6 +546,9 @@ export interface StreamHandlers {
     requests?: number
     /** B28.354 — the agent Lens says it billed for the answer (X-Talyvor-Paid-By); absent when the workspace paid. */
     paidBy?: string
+    /** B28.362 — what Lens charged for the answer, in µLXC, when it said; for askChat, every request the answer took,
+     *  added, and only when Lens said for each. */
+    chargedULXC?: number
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
@@ -592,6 +601,7 @@ export async function streamChat(
       ...(paidBy !== undefined && paidBy !== '' ? { [PAID_BY_HEADER]: paidBy } : {}),
       ...(conversation !== undefined ? { [CONVERSATION_HEADER]: conversation.id } : {}),
       ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),
+      [REPORT_CHARGE_HEADER]: 'true',
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange)),
     signal,
@@ -640,6 +650,7 @@ export async function streamChat(
   let usage: Usage | undefined
   let served: string | undefined
   let finish: string | undefined
+  let charged: number | undefined
   // B28.349 — the tool calls arriving in pieces, by their index in the answer.
   const pieces = new Map<number, ToolCall>()
   const gather = (p: ToolCallPiece) => {
@@ -664,6 +675,7 @@ export async function streamChat(
         usage = mergeUsage(usage, got.usage)
         served = got.model ?? served
         finish = got.finish ?? finish
+        charged = got.charged_ulxc ?? charged
         if (got.error !== undefined) {
           handlers.onError(got.error)
           return
@@ -671,7 +683,7 @@ export async function streamChat(
         for (const d of got.deltas) handlers.onDelta(d.text)
         for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged })
           return
         }
       }
@@ -686,7 +698,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged })
 }
 
 /** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */
@@ -731,6 +743,8 @@ export async function askChat(
   let billed: string | undefined | null = null
   let usage: Usage | undefined
   let tare: TareSaved | undefined
+  // B28.362 — what Lens charged for the requests so far; unknown once one of them went unsaid.
+  let charged: number | undefined = 0
   let unrecognised = 0
   let written = false
   const spend: SpendLine[] = []
@@ -766,11 +780,12 @@ export async function askChat(
     written ||= said !== ''
     usage = addUsage(usage, done.usage)
     tare = addTare(tare, done.tare)
+    charged = charged === undefined || done.chargedULXC === undefined ? undefined : charged + done.chargedULXC
     unrecognised += done.unrecognised
     billed = billed === null || billed === done.paidBy ? done.paidBy : undefined
     const calls = done.toolCalls ?? []
     if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
-      handlers.onDone({ ...done, usage, tare, unrecognised, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
+      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
       return
     }
     const results = await Promise.all(calls.map((c) => callChatTool(c, signal)))

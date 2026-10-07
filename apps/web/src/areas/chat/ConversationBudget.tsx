@@ -48,6 +48,8 @@ export function spentULXC(messages: readonly ChatMessage[], usdPerLXC: number | 
   for (const m of messages) {
     if (m.role !== 'assistant') continue
     if (m.source?.kind === 'pool') total += m.source.charged_ulxc
+    // B28.362 — what Lens charged for it, once it said, in place of the estimate.
+    else if (m.source === undefined && m.charged_ulxc !== undefined) total += m.charged_ulxc
     else if (m.source === undefined && m.cost !== undefined) total += ulxcOf(m.cost.usd, usdPerLXC)
   }
   return total

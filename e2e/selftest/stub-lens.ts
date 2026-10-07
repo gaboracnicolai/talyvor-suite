@@ -29,6 +29,7 @@
 //                 mark and prints on a dark canvas (B29.29)
 //   seats-allows — a plan's seat refusal names no plan that would allow the member (B32.71)
 //   savings     — a replay does not say what it saved, as Lens before B28.95 (B28.358)
+//   charge      — the stream says a model's answer was charged a µLXC more than its spend row (B28.362)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -398,9 +399,14 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     const inTok = tokens(messages.map(text).join(' ')) + 8
     const args = JSON.stringify({ from: new Date().toISOString().slice(0, 10), ...(asked[1] === 'my agents' ? {} : { agent: asked[1] }) })
     const outTok = tokens(args) + 8
-    book(ws, -Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6), 'spend', `${model.id} tool call`)
+    const toolCharge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
+    book(ws, -toolCharge, 'spend', `${model.id} tool call`)
     ws.usage.total++
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+    // talyvor-lens B28.102 — what the request was charged, before the terminator, when asked (apps/web chatStream.ts CHARGE_FRAME).
+    const charged = () => {
+      if (req.headers['x-talyvor-report-charge'] === 'true') res.write(`event: talyvor.charge\ndata: ${JSON.stringify({ type: 'talyvor.charge', charged_ulxc: toolCharge })}\n\n`)
+    }
     const call = 'call_' + randomBytes(6).toString('hex')
     if (provider === 'anthropic') {
       const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
@@ -409,10 +415,12 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       send('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: args } })
       send('content_block_stop', { type: 'content_block_stop', index: 0 })
       send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: outTok } })
+      charged()
       send('message_stop', { type: 'message_stop' })
     } else {
       res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: call, type: 'function', function: { name: 'wallet_agents_spend', arguments: args } }] }, finish_reason: 'tool_calls' }] })}\n\n`)
       res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: inTok, completion_tokens: outTok } })}\n\n`)
+      charged()
       res.write('data: [DONE]\n\n')
     }
     return void res.end()
@@ -455,6 +463,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   let answer: string
   let charge = 0
   let fee = 0
+  // talyvor-lens B28.102 — what a model's answer was charged, said in the stream; STUB_BREAK=charge says a µLXC more.
+  let charged: number | undefined
   const own = personal || tooled ? undefined : ws.answers.get(key)
   const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) : undefined
   const inTok = tokens(messages.map(text).join(' ')) + 8
@@ -493,6 +503,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     const outTok = tokens(answer)
     charge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
     fee = book(ws, -charge, 'spend', `${model.id} answer`)
+    charged = BREAK === 'charge' ? charge + 1 : charge
     if (keep) ws.answers.set(key, answer)
     if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
   }
@@ -511,6 +522,9 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   res.writeHead(200, { 'Content-Type': 'text/event-stream', ...headers })
   const pieces = answer.match(/.{1,12}/gs) ?? ['']
   const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  const sayCharged = () => {
+    if (charged !== undefined && req.headers['x-talyvor-report-charge'] === 'true') send('talyvor.charge', { type: 'talyvor.charge', charged_ulxc: charged })
+  }
   if (provider === 'anthropic') {
     send('message_start', { type: 'message_start', message: { usage: { input_tokens: shownIn, output_tokens: 0 } } })
     for (const p of pieces) {
@@ -518,6 +532,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       await new Promise((r) => setTimeout(r, 30))
     }
     send('message_delta', { type: 'message_delta', usage: { output_tokens: outTok } })
+    sayCharged()
     send('message_stop', { type: 'message_stop' })
   } else {
     for (const p of pieces) {
@@ -525,6 +540,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       await new Promise((r) => setTimeout(r, 30))
     }
     res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: shownIn, completion_tokens: outTok } })}\n\n`)
+    sayCharged()
     res.write('data: [DONE]\n\n')
   }
   res.end()

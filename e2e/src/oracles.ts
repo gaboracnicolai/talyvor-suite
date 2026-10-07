@@ -13,7 +13,17 @@ export interface CatalogModel {
 
 /** What the line under an answer says (apps/web/src/areas/chat/Chat.tsx, data-testid="turn-cost"). */
 export type Footer =
-  | { kind: 'priced'; figure: number; unit: 'USD' | 'LXC'; model: string; inputTokens: number; outputTokens: number; requests?: number }
+  | {
+      kind: 'priced'
+      figure: number
+      unit: 'USD' | 'LXC'
+      model: string
+      inputTokens: number
+      outputTokens: number
+      requests?: number
+      /** B28.362 — the footer states what Lens charged ("0.00135 LXC charged · …"), in µLXC, not an estimate. */
+      chargedULXC?: number
+    }
   | { kind: 'cache' }
   | { kind: 'pool'; discountPct: number; figure: number }
   | { kind: 'unpriced' }
@@ -21,6 +31,7 @@ export type Footer =
 
 const PRICED = /^≈ (\$?)([\d,.]+)( LXC)? · (.+) · ([\d,]+) in \/ ([\d,]+) out tokens(?: · (\d+) requests)?$/
 const POOL = /^shared answer · (\d+)% off · ≈ ([\d,.]+) LXC$/
+const CHARGED = /^([\d,.]+) LXC charged · (.+) · ([\d,]+) in \/ ([\d,]+) out tokens(?: · (\d+) requests)?$/
 
 export function parseFooter(raw: string): Footer {
   const text = raw.replace(/\s+/g, ' ').trim()
@@ -28,6 +39,19 @@ export function parseFooter(raw: string): Footer {
   if (text.startsWith('Price not known')) return { kind: 'unpriced' }
   const pool = POOL.exec(text)
   if (pool !== null) return { kind: 'pool', discountPct: Number(pool[1]), figure: num(pool[2]) }
+  const c = CHARGED.exec(text)
+  if (c !== null) {
+    return {
+      kind: 'priced',
+      figure: num(c[1]),
+      unit: 'LXC',
+      model: c[2],
+      inputTokens: num(c[3]),
+      outputTokens: num(c[4]),
+      ...(c[5] !== undefined ? { requests: Number(c[5]) } : {}),
+      chargedULXC: Math.round(num(c[1]) * 1e6),
+    }
+  }
   const p = PRICED.exec(text)
   if (p !== null && (p[1] === '$') !== (p[3] === ' LXC')) {
     return {
@@ -76,6 +100,11 @@ export function expectedFigure(usd: number, usdPerLXC: number | undefined): stri
         ? amount.toLocaleString('en-US', { maximumSignificantDigits: 2 })
         : amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   return pegged ? `≈ ${figure} LXC` : `≈ $${figure}`
+}
+
+/** B28.362 — the footer's figure once Lens has said what it charged, in µLXC: every digit, no "≈". */
+export function chargedFigure(ulxc: number): string {
+  return `${(ulxc / 1e6).toLocaleString('en-US', { maximumFractionDigits: 6 })} LXC charged`
 }
 
 /** What a priced footer's figure means in dollars. */

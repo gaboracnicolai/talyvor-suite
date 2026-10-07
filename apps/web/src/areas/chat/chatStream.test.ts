@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cutOff, extractDeltas, splitFrames } from './chatStream'
+import { CHARGE_FRAME, cutOff, extractDeltas, splitFrames } from './chatStream'
 
 // THE SSE PARSER — the half of the chat screen that a rendering test cannot see.
 //
@@ -150,4 +150,12 @@ it('reads the stop reason from both shapes; only the length limit counts as cut 
   expect([openai.finish, anthropic.finish]).toEqual(['length', 'max_tokens'])
   expect([openai.finish, anthropic.finish].map(cutOff)).toEqual([true, true])
   expect(['stop', 'end_turn', undefined].map(cutOff)).toEqual([false, false, false])
+})
+
+// B28.362 — Lens's charge frame reads the same on either writer, as what the answer was charged; a figure that is not a
+// whole µLXC is counted, not taken.
+it('reads what Lens charged from its own frame, and counts one it cannot take', () => {
+  const frame = `event: ${CHARGE_FRAME}\ndata: {"type":"${CHARGE_FRAME}","charged_ulxc":1620}`
+  expect(extractDeltas(frame)).toEqual({ deltas: [], done: false, unrecognised: 0, charged_ulxc: 1620 })
+  expect(extractDeltas(`data: {"type":"${CHARGE_FRAME}","charged_ulxc":1.5}`)).toEqual({ deltas: [], done: false, unrecognised: 1 })
 })
