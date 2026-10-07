@@ -43,7 +43,23 @@ export interface Extraction {
   finish?: string
   /** B28.349 — pieces of the tool calls the model is making in this frame. */
   toolCalls?: ToolCallPiece[]
+  /** B28.362 — what Lens charged for the answer, in µLXC, when this frame is Lens's CHARGE_FRAME. */
+  charged_ulxc?: number
 }
+
+/**
+ * B28.362 — the frame Lens adds to a stream to say what the answer was charged (talyvor-lens B28.102), when the
+ * request asked with `X-Talyvor-Report-Charge: true` (chatApi.ts REPORT_CHARGE_HEADER; an SDK reading Lens directly
+ * never sees it), on either writer, after the provider's last usage frame and BEFORE the terminator (`data: [DONE]`, `message_stop`) — the
+ * reader stops at the terminator, so a frame after it is never read:
+ *
+ *     event: talyvor.charge
+ *     data: {"type":"talyvor.charge","charged_ulxc":1350}
+ *
+ * `charged_ulxc` is what the request was charged, in µLXC as a whole number: the amount of the spend row Lens wrote for
+ * it (a platform fee is a row of its own, not in it). Chat puts it under the answer in place of the estimate.
+ */
+export const CHARGE_FRAME = 'talyvor.charge'
 
 /** B28.81 — the stop reasons that mean the model ran out of room, not out of answer. */
 export function cutOff(finish: string | undefined): boolean {
@@ -152,6 +168,7 @@ export function extractDeltas(frame: string): Extraction {
   let usage: Usage | undefined
   let model: string | undefined
   let finish: string | undefined
+  let charged: number | undefined
   const toolCalls: ToolCallPiece[] = []
 
   for (const payload of dataLines(frame)) {
@@ -188,6 +205,13 @@ export function extractDeltas(frame: string): Extraction {
     // ── Anthropic ──────────────────────────────────────────────────────────
     const type = obj.type
     if (typeof type === 'string') {
+      // B28.362 — Lens's own frame, on either writer: what it charged. A figure that is not a whole µLXC is counted.
+      if (type === CHARGE_FRAME) {
+        const c = obj.charged_ulxc
+        if (typeof c === 'number' && Number.isSafeInteger(c) && c >= 0) charged = c
+        else unrecognised += 1
+        continue
+      }
       if (type === 'content_block_delta') {
         const d = obj.delta
         if (isRecord(d) && d.type === 'text_delta' && typeof d.text === 'string') {
@@ -280,5 +304,6 @@ export function extractDeltas(frame: string): Extraction {
   if (model !== undefined) out.model = model
   if (finish !== undefined) out.finish = finish
   if (toolCalls.length > 0) out.toolCalls = toolCalls
+  if (charged !== undefined) out.charged_ulxc = charged
   return out
 }

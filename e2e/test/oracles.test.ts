@@ -8,6 +8,11 @@ describe('parseFooter reads every line the Chat screen writes under an answer', 
     })
     expect(parseFooter('≈ $0.000059 · GPT-6 Luna · 1,204 in / 9 out tokens')).toMatchObject({ unit: 'USD', inputTokens: 1204 })
   })
+  it('a priced answer once Lens said what it charged (B28.362)', () => {
+    expect(parseFooter('0.000592 LXC charged · Claude Haiku 4.5 · 14 in / 9 out tokens · 2 requests')).toEqual({
+      kind: 'priced', figure: 0.000592, unit: 'LXC', model: 'Claude Haiku 4.5', inputTokens: 14, outputTokens: 9, requests: 2, chargedULXC: 592,
+    })
+  })
   it('a replay, a shared answer, no price, and anything else', () => {
     expect(parseFooter('from your earlier answer · 0 LXC')).toEqual({ kind: 'cache' })
     expect(parseFooter('shared answer · 30% off · ≈ 0.0004 LXC')).toEqual({ kind: 'pool', discountPct: 30, figure: 0.0004 })

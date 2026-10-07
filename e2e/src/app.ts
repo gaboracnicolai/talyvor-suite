@@ -177,8 +177,10 @@ export function bookAnswer(book: ChargeBook, workspaceID: string, footerText: st
   if (footer.kind === 'priced') {
     const m = catalog.find((c) => c.display_name === footer.model)
     const costUSD = m === undefined ? undefined : listPriceUSD(m, footer.inputTokens, footer.outputTokens)
+    // B28.362 — what Lens said it charged is booked as it is.
+    if (footer.chargedULXC !== undefined) book.add(workspaceID, footer.chargedULXC, 0, footer.requests)
     // A model the catalog does not name cannot be priced: its charge is anyone's guess.
-    book.add(workspaceID, costUSD === undefined ? 0 : chargeULXC(costUSD, usdPerLXC), costUSD === undefined ? Number.POSITIVE_INFINITY : 0, footer.requests)
+    else book.add(workspaceID, costUSD === undefined ? 0 : chargeULXC(costUSD, usdPerLXC), costUSD === undefined ? Number.POSITIVE_INFINITY : 0, footer.requests)
     return { footer, costUSD }
   }
   if (footer.kind === 'cache') return { footer, costUSD: 0 }

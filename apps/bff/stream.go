@@ -300,6 +300,11 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			if budget != "" {
 				up.Header.Set(conversationBudgetHeader, budget)
 			}
+			// B28.362 — Chat asks Lens to say in the stream what it charged for the answer (talyvor-lens B28.102).
+			// Only the one value is forwarded: Lens adds its frame only for a reader that asked for it.
+			if strings.EqualFold(strings.TrimSpace(r.Header.Get(reportChargeHeader)), "true") {
+				up.Header.Set(reportChargeHeader, "true")
+			}
 			return a.streamClient.Do(up)
 		}
 
@@ -394,6 +399,10 @@ const (
 	conversationHeader       = "X-Talyvor-Conversation-ID"
 	conversationBudgetHeader = "X-Talyvor-Conversation-Budget-ULXC"
 )
+
+// reportChargeHeader asks Lens to add, before the stream's terminator, a frame saying what it charged for the answer
+// (B28.362; the frame is apps/web chatStream.ts CHARGE_FRAME). The frame passes through relayFlushing untouched.
+const reportChargeHeader = "X-Talyvor-Report-Charge"
 
 // conversationIDPattern is the shape of a conversation id Chat makes (a UUID, or base36 where the browser has none).
 var conversationIDPattern = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)

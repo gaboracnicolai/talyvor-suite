@@ -12,6 +12,7 @@ import type { Fees, LedgerRow, LensClient, SyntheticUser } from './lens.ts'
 import { percent, platformFeeBPS } from './fees.ts'
 import {
   type CatalogModel,
+  chargedFigure,
   chatModels,
   expectedFigure,
   freshWord,
@@ -1529,7 +1530,8 @@ export function chatTotalAfterReload(seed: number): Scenario {
         if (f.kind === 'priced') {
           const m = env.catalog.find((c) => c.display_name === f.model)
           if (m === undefined) return { pass: false, detail: `the footer [${text}] names a model the catalog does not` }
-          ulxc += chargeULXC(listPriceUSD(m, f.inputTokens, f.outputTokens), env.usdPerLXC)
+          // B28.362 — or what Lens said it charged, once it says.
+          ulxc += f.chargedULXC ?? chargeULXC(listPriceUSD(m, f.inputTokens, f.outputTokens), env.usdPerLXC)
         } else if (f.kind === 'pool') {
           // Two significant figures: the true charge is within half a unit of the second.
           ulxc += f.figure * 1e6
@@ -1546,6 +1548,55 @@ export function chatTotalAfterReload(seed: number): Scenario {
       return diff <= slack + 0.001
         ? { pass: true, detail: `after the reload "${after}" — the ${read.length} footers add up to ${ulxc / 1e6} LXC` }
         : { pass: false, detail: `after the reload "${after}", but the ${read.length} footers add up to ${ulxc / 1e6} LXC` }
+    },
+  }
+}
+
+/**
+ * B28.362 — the real charge under an answer, not the estimate (talyvor-lens B28.102): a question asked afresh, and the
+ * footer under its answer states what Lens charged — "0.00135 LXC charged · …" — which is the amount of the one spend
+ * row Lens wrote for it.
+ */
+export function chatChargedFooter(seed: number): Scenario {
+  return {
+    id: 'chat-charged',
+    owner: 'talyvor-lens',
+    title: 'the figure under an answer is what Lens charged for it: the amount of its spend row',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      await app.newChat()
+      const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+      const t = await ask(ctx, `Name the largest ocean in one word. (${freshWord(seed * 10 + 7, 1 + Math.floor(Math.random() * 999_999))})`)
+      const noPrice = priced(t)
+      if (noPrice !== undefined) return { pass: false, detail: noPrice }
+      if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
+      if (t.footer.chargedULXC === undefined) {
+        return { pass: false, detail: `the footer is still the estimate [${t.footerText}]: Lens did not say what it charged (talyvor-lens B28.102)` }
+      }
+      // The spend row is written as the answer is charged; room for it to land.
+      let fresh: LedgerRow[] = []
+      for (let tries = 0; tries < 10 && fresh.length === 0; tries++) {
+        if (tries > 0) await app.page.waitForTimeout(1_000)
+        fresh = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
+      }
+      ctx.evidence.push({ note: `the footer [${t.footerText}]; the spend rows written for it`, ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+      if (fresh.length !== 1) return { pass: false, detail: `the answer [${t.footerText}] wrote ${fresh.length} spend rows, not one` }
+      const row = -fresh[0].amount_ulxc
+      if (row !== t.footer.chargedULXC) {
+        return { pass: false, detail: `the footer says ${t.footer.chargedULXC} µLXC charged [${t.footerText}], the answer's spend row ${row} µLXC` }
+      }
+      const { page } = app
+      const viewport = page.viewportSize()
+      await mkdir(env.outDir, { recursive: true })
+      const wide = join(env.outDir, `chat-charged-1440px-user${app.user.index}.png`)
+      const narrow = join(env.outDir, `chat-charged-390px-user${app.user.index}.png`)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.screenshot({ path: wide })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.screenshot({ path: narrow })
+      if (viewport !== null) await page.setViewportSize(viewport)
+      ctx.evidence.push({ note: `the footer at 1440px: ${wide}; at 390px: ${narrow}` })
+      return { pass: true, detail: `the footer says ${chargedFigure(row)}, and the answer's spend row is ${row} µLXC` }
     },
   }
 }
@@ -1581,8 +1632,10 @@ export function everyModelAnswers(streamable: readonly string[]): Scenario {
           }
           if (!namesWord(t.answer, word)) failures.push(`${m.display_name}: asked to say "${word}", it answered "${t.answer.trim().slice(0, 80)}"`)
           if (t.footer.model !== m.display_name) failures.push(`${m.display_name}: answered as "${t.footer.model}"`)
-          const want = expectedFigure(listPriceUSD(m, t.footer.inputTokens, t.footer.outputTokens),
-            t.footer.unit === 'LXC' ? env.usdPerLXC : undefined)
+          const list = listPriceUSD(m, t.footer.inputTokens, t.footer.outputTokens)
+          // B28.362 — once Lens says what it charged, the footer is that, every digit: the list price rounded up to a µLXC.
+          const want = t.footer.chargedULXC !== undefined ? chargedFigure(chargeULXC(list, env.usdPerLXC))
+            : expectedFigure(list, t.footer.unit === 'LXC' ? env.usdPerLXC : undefined)
           if (!t.footerText.startsWith(want + ' · ')) failures.push(`${m.display_name}: shows "${t.footerText}", catalog says ${want}`)
         } catch (e) {
           if (e instanceof CapReached) throw e
@@ -2477,7 +2530,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
     // B28.361 — and a question over its chat's budget, refused before the model: no request, no spend row.
     // B28.101 — and a chat's running total, after a reload, equal to the prices under its answers.
-    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i)); break
+    // B28.362 — and the figure under an answer, what Lens charged: its spend row.
+    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
     // B29.6 — sign-in and sign-up in the brand, signed out.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break

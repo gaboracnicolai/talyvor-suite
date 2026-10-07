@@ -53,7 +53,7 @@ import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
 import { useRevealedText } from './reveal'
 import { cutOff } from './chatStream'
-import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatCostRange, formatUsdPer1M, pricedAnswer } from './price'
+import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatCharged, formatCostRange, formatUsdPer1M, pricedAnswer } from './price'
 import { previewCost } from './estimate'
 import { formatWhen } from '../lens/format'
 import { Lxc, pegQuery } from '../lens/money'
@@ -367,6 +367,7 @@ export function Chat() {
       let spend: SpendLine[] | undefined
       let requests: number | undefined
       let answerPayer: AnswerPayer | undefined
+      let charged: number | undefined
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
       const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
@@ -394,7 +395,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -422,16 +423,18 @@ export function Chat() {
             // B1.4 — every answer carries its price; see pricedAnswer() for which model names it.
             // B15.6 — except one the model did not write just now: a replayed or shared answer is
             // priced by where it came from, not by the tokens it once took.
+            // B28.362 — and once Lens says what it charged, that is the figure, in place of the estimate.
             const priced = from === undefined ? pricedAnswer(usage, selected, servedBy, catalog.data ?? []) : undefined
-            if (priced !== undefined || from !== undefined) {
+            if (priced !== undefined || from !== undefined || chargedULXC !== undefined) {
               cost = priced
               source = from
+              charged = chargedULXC
               // B28.349 — an answer that called a tool first took more than one request, and each was charged.
               requests = took
               setMessages((prev) => {
                 const next = [...prev]
                 const last = next[next.length - 1]
-                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved, tare, requests: took }
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved, tare, requests: took, charged_ulxc: chargedULXC }
                 return next
               })
             }
@@ -496,7 +499,7 @@ export function Chat() {
           list,
           id,
           model,
-          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer }],
+          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged }],
           Date.now(),
           payer,
           cap,
@@ -1342,11 +1345,13 @@ function Reply({
             {message.source !== undefined
               ? answerSourceLine(message.source)
               : message.cost !== undefined
-                ? `${formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model} · ` +
+                ? `${message.charged_ulxc !== undefined ? formatCharged(message.charged_ulxc) : formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model} · ` +
                   `${message.cost.input_tokens.toLocaleString('en-US')} in / ` +
                   `${message.cost.output_tokens.toLocaleString('en-US')} out tokens` +
                   (message.requests !== undefined && message.requests > 1 ? ` · ${message.requests} requests` : '')
-                : 'Price not known — the provider reported no token counts for this answer'}
+                : message.charged_ulxc !== undefined
+                  ? formatCharged(message.charged_ulxc)
+                  : 'Price not known — the provider reported no token counts for this answer'}
           </p>
           {message.marked_wrong ? (
             <p className="ml-1 w-full text-caption text-muted" data-testid="turn-marked">

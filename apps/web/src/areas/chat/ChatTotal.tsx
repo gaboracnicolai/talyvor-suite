@@ -27,9 +27,11 @@ export function chatTotal(messages: readonly ChatMessage[], usdPerLXC: number | 
   const t: ChatTotalFigures = { priced: 0, unpriced: 0, ulxc: 0, usd: 0 }
   for (const m of messages) {
     if (m.role !== 'assistant') continue
-    if (m.source !== undefined || m.cost !== undefined) t.priced++
+    if (m.source !== undefined || m.cost !== undefined || m.charged_ulxc !== undefined) t.priced++
     else if (m.content !== '' && m.incomplete !== 'blank') t.unpriced++
     if (m.source?.kind === 'pool') t.ulxc += m.source.charged_ulxc
+    // B28.362 — an answer Lens said it charged for adds that, in credits, whatever the peg.
+    else if (m.source === undefined && m.charged_ulxc !== undefined) t.ulxc += m.charged_ulxc
     else if (m.source === undefined && m.cost !== undefined && !pegged(usdPerLXC)) t.usd += m.cost.usd
   }
   if (pegged(usdPerLXC)) t.ulxc = spentULXC(messages, usdPerLXC) ?? 0

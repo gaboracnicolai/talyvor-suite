@@ -183,6 +183,14 @@ export function formatAnswerCost(usd: number, usdPerLXC: number | undefined): st
 }
 
 /**
+ * B28.362 — what Lens charged for an answer, from µLXC, every digit kept and no "≈": `1350` is `0.00135 LXC charged`.
+ * It is the ledger's figure, so it is not rounded to two significant digits as an estimate is.
+ */
+export function formatCharged(ulxc: number): string {
+  return `${(ulxc / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 6 })} LXC charged`
+}
+
+/**
  * B28.99 — a cost range before sending, in the footer's units (credits at the deployment's peg, dollars
  * without one). Each end is rounded AWAY from the middle — the low end down, the high end up — so the
  * range shown is never narrower than the range estimated.
