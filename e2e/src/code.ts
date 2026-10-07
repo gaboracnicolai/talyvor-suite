@@ -219,8 +219,9 @@ export async function runCode(d: CodeDeps): Promise<CodeReport> {
     return out
   }
 
+  // The CLI is given only what it needs: never the run's own keys (LENS_SYNTHETIC_KEY, a GitHub token).
   const env: NodeJS.ProcessEnv = {
-    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('TALYVOR_'))),
+    ...Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'LANG'].flatMap((k) => (process.env[k] === undefined ? [] : [[k, process.env[k]]]))),
     TALYVOR_LENS_URL: d.lens.baseURL,
     TALYVOR_LENS_API_KEY: key,
     TALYVOR_WORKSPACE_ID: user.workspaceID,
