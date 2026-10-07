@@ -34,6 +34,7 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--code-src` | `E2E_CODE_SRC` | `<out>/code-src` | the checkout the CLI is built from; not given, the run keeps its own there, brought up to main each run the way `--lens-src` is |
 | `--upstream-port` | `E2E_UPSTREAM_PORT` | 0 | B28.287 — the port the run's synthetic upstream listens on, for a Lens started with `LENS_VLLM_BASE_URL=http://<this machine>:<port>`; 0 (production, whose vLLM traffic goes nowhere the run can see) leaves `keys-not-forwarded` a SKIP |
 | `--hostile-prs` | `E2E_HOSTILE_PRS` | on | B28.289 — the hostile pull requests made against each repo's main after the scenarios; `none` makes none |
+| `--deep-rounds` | `E2E_DEEP_ROUNDS` | 0 | B28.292 — rounds of the weekly deep red-team pass after the scenarios, under the same cap; the nightly sets it on `E2E_DEEP_DAY` only (default 3 rounds) |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -110,6 +111,26 @@ the change naming what it caught, and the repo's workflow still runs it on every
 scenario. One whose change no longer applies to main is **STALE** and files one for the testers' harness, since it has
 stopped testing anything. A missing checkout or tool is **NOT RUN** and files nothing. The report gets a **Hostile pull
 requests** section and TESTERS.md one line. The self-test FAILs unless `postinstall-suite` is caught.
+
+## The weekly deep red-team pass (B28.292)
+
+Once a week — on `E2E_DEEP_DAY` (`date +%u`: 1 Monday … 7 Sunday, default 7) — the nightly sets `E2E_DEEP_ROUNDS`
+(default 3; 0 every other night, whatever the settings say) and the run goes on, after its own scenarios and their second
+attempts and before Talyvor Code and the explorers, to the deep pass (`src/deep.ts`). Each round, an attacker created for
+the run with the night's users plays every red-team scenario back to back — `ledger-moves-at-once`, `ledger-call-once`,
+`webhook-unsigned`, `webhook-replayed`, `agent-rules-unbypassable`, `market-abuse`, `pool-isolation`, `injection-exfil`,
+`ssrf-refused`, `file-bomb-bounded`, `csrf-refused`, `script-inert`, `keys-unlisted`, `keys-not-forwarded`,
+`rate-limits-hold` and `cross-company-test-money` — each on a fresh workspace of its own, trading with a counterparty made
+for that round alone. Rounds run one after another, never at once (`keys-not-forwarded` listens on the one upstream port).
+
+It is **under the same hard cap**: every question reserves against the run's one cap, and once the cap is reached what is
+left of the pass SKIPs, and the explorers get whatever it left. Its users' ledgers are read back with everyone else's.
+A FAIL is **filed like any other** — under its scenario's `e2e-scenario:` marker, so a failure the night's own run already
+filed is not filed twice — and the item says which round caught it, and when nothing else that night FAILED the scenario,
+that it slipped through the nightly's own run. The report gets a **Weekly deep red-team pass** section (each scenario's
+verdict in every round, and its item) and TESTERS.md one line. By hand: `E2E_DEEP_ROUNDS=3 pnpm --filter @talyvor/e2e run …`.
+Self-test: `E2E_DEEP_ROUNDS=1 STUB_BREAK=ratelimit-open-later` — the limiter fails open only after the first workspace that
+bursts it — PASSes the night's `rate-limits-hold` and FAILs round 1's, which is filed.
 
 ## Every night, and the explorers (B17.5)
 

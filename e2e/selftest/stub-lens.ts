@@ -58,6 +58,8 @@
 //   key-listed  — the workspace's list of API keys shows each key whole (B28.287)
 //   ratelimit-open — the rate limiter lets every request through, as Lens's does when Redis errors and it fails open (B28.288)
 //   retry-after — a request the rate limiter refuses is answered 429 without Retry-After (B28.288)
+//   ratelimit-open-later — the rate limiter holds for the first workspace that bursts it and lets every one after through,
+//                 as Lens's does once Redis starts erroring after the night's own run (B28.292: only the deep pass FAILs)
 //   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
 //   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
 //
@@ -425,13 +427,16 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
  */
 const PER_SECOND = 100
 const windows = new Map<string, { from: number; n: number }>()
+/** The first workspace a burst took past the limit, for STUB_BREAK=ratelimit-open-later. */
+let firstBurst: string | undefined
 function limited(res: ServerResponse, ws: string, credential: string): boolean {
   const now = Date.now()
   const seen = windows.get(`${ws}:${credential}`)
   const w = seen === undefined || now - seen.from >= 1000 ? { from: now, n: 0 } : seen
   w.n++
   windows.set(`${ws}:${credential}`, w)
-  if (w.n <= PER_SECOND || broke('ratelimit-open')) {
+  if (w.n > PER_SECOND) firstBurst ??= ws
+  if (w.n <= PER_SECOND || broke('ratelimit-open') || (broke('ratelimit-open-later') && firstBurst !== ws)) {
     res.setHeader('X-RateLimit-Remaining', String(Math.max(PER_SECOND - w.n, 0)))
     return false
   }

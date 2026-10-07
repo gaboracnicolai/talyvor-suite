@@ -49,6 +49,8 @@ export interface ReportedRun {
     at?: string
     /** B35.7 — the plan of the workspace it ran on. */
     plan?: string
+    /** B28.292 — the round of the weekly deep red-team pass it was played in; absent for the night's own scenarios. */
+    deep?: number
   }[]
   explorers?: ExplorerSummary[]
   findings?: Finding[]
@@ -71,6 +73,8 @@ export interface ReportedRun {
   code?: CodeReport
   /** B28.289 — the hostile pull requests made against each repo's main, and whether CI stops each (hostile.ts). */
   hostile?: HostileReport
+  /** B28.292 — the rounds of the weekly deep red-team pass the run was to play; absent on a night without one. */
+  deep_rounds?: number
 }
 
 type Outcome = ReportedRun['outcomes'][number]
@@ -336,6 +340,39 @@ export function renderSecondAttempts(run: ReportedRun): string[] {
   return lines
 }
 
+/** B28.292 — the weekly deep red-team pass: each red-team scenario's verdict in every round, and the item a FAIL is filed in. */
+export function renderDeep(run: ReportedRun): string[] {
+  const deep = run.outcomes.filter((o) => o.deep !== undefined)
+  const rounds = Math.max(run.deep_rounds ?? 0, ...deep.map((o) => o.deep as number))
+  if (rounds === 0) return []
+  const each = Array.from({ length: rounds }, (_, r) => r + 1)
+  const lines = ['', '### Weekly deep red-team pass', '',
+    `${rounds} round(s), one after another, after the night's own scenarios and under the same cap: in each, an attacker created ` +
+    'for the run played every red-team scenario back to back, each on a fresh workspace of its own, against a counterparty made ' +
+    'for that round. A FAIL is filed like any other, under its scenario.', '']
+  if (deep.length === 0) return [...lines, 'Nothing was played: the run stopped before it.']
+  lines.push(`| Scenario | ${each.map((r) => `Round ${r}`).join(' | ')} | Build item |`, `|---|${each.map(() => '---|').join('')}---|`)
+  for (const [id, os] of byScenario(deep)) {
+    const verdicts = each.map((r) => os.filter((o) => o.deep === r).map((o) => o.status).join(', ') || '—')
+    lines.push(`| \`${id}\` | ${verdicts.join(' | ')} | ${os.some((o) => o.status === 'FAIL') ? run.filed?.[id] ?? 'not filed' : ''} |`)
+  }
+  return lines
+}
+
+/** B28.292 — the weekly deep red-team pass in one line, on the night it ran. */
+function deepLine(run: ReportedRun): string[] {
+  const deep = run.outcomes.filter((o) => o.deep !== undefined)
+  const rounds = Math.max(run.deep_rounds ?? 0, ...deep.map((o) => o.deep as number))
+  if (rounds === 0) return []
+  const n = { PASS: 0, FAIL: 0, ERROR: 0, SKIP: 0 }
+  for (const o of deep) n[o.status]++
+  const failing = [...byScenario(deep)].filter(([, os]) => os.some((o) => o.status === 'FAIL')).map(([id, os]) =>
+    `\`${id}\` (round ${[...new Set(os.filter((o) => o.status === 'FAIL').map((o) => o.deep))].join(', ')}${run.filed?.[id] !== undefined ? `, ${run.filed[id]}` : ''})`)
+  return [`- **Deep red-team pass**: ${rounds} round(s); ${n.PASS} of ${deep.length} verdicts passed` +
+    `${n.ERROR > 0 ? `, ${n.ERROR} errored` : ''}${n.SKIP > 0 ? `, ${n.SKIP} skipped` : ''}; ` +
+    `${failing.length === 0 ? 'no FAIL' : `FAILED: ${failing.join(', ')}`}.`]
+}
+
 /** B35.7 — per plan: the workspaces on it, what ran on them and what it found. */
 export function renderPlans(run: ReportedRun): string[] {
   const on = new Map<string, Outcome[]>()
@@ -383,7 +420,7 @@ export function renderRun(run: ReportedRun): string {
     for (const o of os) n[o.status]++
     lines.push(`| \`${id}\` | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${cell(os[0].title)} |`)
   }
-  lines.push(...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code), ...renderHostile(run.hostile))
+  lines.push(...renderDeep(run), ...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code), ...renderHostile(run.hostile))
 
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
@@ -407,7 +444,7 @@ export function renderRun(run: ReportedRun): string {
 
   lines.push('', '### Every verdict', '')
   for (const [o, again] of [...run.outcomes.map((x) => [x, false] as const), ...(run.second_attempts ?? []).map((x) => [x, true] as const)]) {
-    lines.push(`<details><summary>${o.status} ${o.scenario} — user ${o.user}${again ? ' (second attempt)' : ''}: ${escapeHTML(o.detail)}</summary>`, '')
+    lines.push(`<details><summary>${o.status} ${o.scenario} — user ${o.user}${o.deep === undefined ? '' : `, deep round ${o.deep}`}${again ? ' (second attempt)' : ''}: ${escapeHTML(o.detail)}</summary>`, '')
     lines.push(...(o.evidence.length > 0 ? evidenceLines(o.evidence) : ['- no evidence recorded']), '', '</details>')
   }
   if (map !== undefined) lines.push(...renderMap(map))
@@ -471,6 +508,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
       `${groupLeads(findings).length} explorer lead(s)${findings.length > 0 ? ` on ${[...new Set(findings.map((f) => f.feature ?? '(no screen)'))].join(', ')}` : ''}.`,
     ...(run.stopped_by === undefined ? [] : [`- **STOPPED EARLY**: ${run.stopped_by}.`]),
     ...(run.incidents ?? []).map((i) => `- **Incident**: ${i}.`),
+    ...deepLine(run),
     ...environmentLine(run),
     ...edgeLine(run.edge),
     ...codeLine(run.code),

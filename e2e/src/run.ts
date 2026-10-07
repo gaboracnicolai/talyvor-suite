@@ -16,6 +16,7 @@ import { type Browser, chromium } from 'playwright'
 import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
+import { deepJourneys, roundOf } from './deep.ts'
 import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap, cannotTest, inventory, leastCovered, refreshLensCheckout } from './coverage.ts'
 import { type CodeReport, codeSkipped, runCode } from './code.ts'
 import { type EdgeReport, readEdge } from './edge.ts'
@@ -55,6 +56,8 @@ export interface Outcome {
   at?: string
   /** B35.7 — the plan the workspace it ran on was created on. */
   plan?: string
+  /** B28.292 — the round of the weekly deep red-team pass it was played in; absent for the night's own scenarios. */
+  deep?: number
 }
 
 /** B35.8 — a verdict a network drop of the testers' own explains: an ERROR, listed under the environment with its time. */
@@ -99,6 +102,8 @@ export interface RunResult {
   code?: CodeReport
   /** B28.289 — the hostile pull requests made against each repo's main, and whether CI stops each (hostile.ts). */
   hostile?: HostileReport
+  /** B28.292 — the rounds of the weekly deep red-team pass this run was to play; absent on a night without one. */
+  deep_rounds?: number
   /** B34.2 — what was tested: the harness, Lens's main at lens-src, and production's versions at the start. */
   versions?: Versions
   /** B34.2 — production's versions read again at the end, to show a deploy that landed during the run. */
@@ -300,12 +305,14 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
 
     // B35.7 — each user on the largest plan its scenarios need, and each plan gate's own workspace on exactly its plan.
     stage = 'creating the synthetic users'
-    const journeys = Array.from({ length: cfg.users }, (_, i) => journeyFor(i, cfg.users, STREAMABLE))
+    // B28.292 — on the weekly night, the deep pass's attackers and counterparties after them, created fresh with them.
+    const journeys = [...Array.from({ length: cfg.users }, (_, i) => journeyFor(i, cfg.users, STREAMABLE)), ...deepJourneys(cfg.users, cfg.deepRounds)]
     const seated = await seat(lens, cast(journeys))
     users = seated.users
     const onPlan = (plan: string) => users.filter((u) => u.plan === plan).length
     console.log(`created ${users.length} synthetic users (free ${onPlan('free')}, team ${onPlan('team')}, business ${onPlan('business')}) ` +
-      `and ${seated.own.size} workspace(s) of their own for the plan gates`)
+      `and ${seated.own.size} workspace(s) of their own for the plan gates` +
+      (cfg.deepRounds > 0 ? `; the last ${users.length - cfg.users} are the weekly deep red-team pass's ${cfg.deepRounds} round(s)` : ''))
     // B27.16 — this run's users only: another run going on at the same time keeps its answers and credits.
     stage = "resetting the run's synthetic workspaces"
     const reset = await lens.reset([...users, ...seated.own.values()].map((u) => u.workspaceID))
@@ -401,7 +408,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     }
 
     try {
-      await pool(users, cfg.concurrency, async (user) => {
+      await pool(users.slice(0, cfg.users), cfg.concurrency, async (user) => {
         const journey = journeys[user.index]
         const base = { user: user.index, workspace: user.workspaceID, plan: user.plan }
         const before = notRun()
@@ -476,15 +483,66 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       }
     }
 
+    // B28.292 — THE WEEKLY DEEP RED-TEAM PASS, after the night's own scenarios and under the same cap, before the ledger
+    // read-back so it books what the pass charges: round after round, a fresh attacker plays every red-team scenario
+    // back to back, each on a fresh workspace of its own (deep.ts). Never two at once: keys-not-forwarded listens on one port.
+    const attackers = users.slice(cfg.users).filter((u) => journeys[u.index].length > 0)
+    if (attackers.length > 0) {
+      stage = 'the weekly deep red-team pass'
+      const deep = new Browsers(cfg.headed, incidents)
+      browsers = deep
+      try {
+        for (const user of attackers) {
+          const round = roundOf(user.index, cfg.users)
+          const base = { user: user.index, workspace: user.workspaceID, plan: user.plan, deep: round }
+          const journey = journeys[user.index]
+          const skipped = (s: Scenario, detail: string): Outcome => ({ ...base, scenario: s.id, title: s.title, status: 'SKIP', detail, evidence: [], seconds: 0, features: featuresOf([], s.feature) })
+          const before = notRun()
+          if (before !== undefined) {
+            for (const s of journey) outcomes.push(skipped(s, before))
+            continue
+          }
+          let app: AppUser
+          try {
+            app = await timed(SIGN_IN_MS, 'signing in', unlessStopped('signing in', signIn(user)))
+          } catch (e) {
+            for (const s of journey) outcomes.push({ ...skipped(s, `sign-in: ${String(e)}`), status: 'ERROR' })
+            await checkLens()
+            continue
+          }
+          try {
+            for (const s of journey) {
+              const why = notRun()
+              if (why !== undefined) {
+                outcomes.push(skipped(s, why))
+                continue
+              }
+              const own = s.own === true ? seated.own.get(seatKey(user.index, s.id)) : undefined
+              const o: Outcome = { ...(own === undefined ? await attempt(app, user, s) : await onItsOwn(own, s)), deep: round }
+              outcomes.push(o)
+              console.log(`${o.status.padEnd(5)} deep round ${round} (user ${user.index}) ${s.id}: ${o.detail}`)
+              if (o.status === 'ERROR') await checkLens()
+            }
+          } finally {
+            await timed(CLOSE_MS, 'closing its browser', app.close()).catch(() => undefined)
+          }
+        }
+      } finally {
+        await timed(CLOSE_MS, 'closing the browser', deep.close()).catch(() => undefined)
+      }
+    }
+
     // THE LEDGER, once nothing is in flight: a cross-account scenario charges its partner too.
     stage = 'reading back each user\'s ledger'
     await pool(users, 10, async (user) => {
       const t0 = Date.now()
       let o: Outcome
       const ledgerEnv: RunEnv = { ...env, lens: lens.tagged({ scenario: LEDGER_READBACK.id, user: user.index }) }
+      // B28.292 — a deep round's users' ledgers are that round's.
+      const deep = roundOf(user.index, cfg.users)
       if (stoppedBy !== undefined) {
         outcomes.push({ user: user.index, workspace: user.workspaceID, plan: user.plan, scenario: LEDGER_READBACK.id, title: 'ledger read-back',
-          status: 'SKIP', detail: `not run: ${stoppedBy}`, evidence: [], seconds: 0, features: ['Ledger'] })
+          status: 'SKIP', detail: `not run: ${stoppedBy}`, evidence: [], seconds: 0, features: ['Ledger'], ...(deep === undefined ? {} : { deep }) })
         return
       }
       try {
@@ -499,7 +557,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       // B35.8 — answers lost to the testers' network leave a ledger nobody can judge.
       const c = classify(o.status, o.detail)
       if (c.drop !== undefined) drops.push({ at: stamp(), user: user.index, scenario: o.scenario, detail: o.detail })
-      o = { ...o, status: c.status, at: stamp() }
+      o = { ...o, status: c.status, at: stamp(), ...(deep === undefined ? {} : { deep }) }
       outcomes.push(o)
       if (o.status === 'ERROR') await checkLens()
     })
@@ -580,6 +638,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     model: cfg.model,
     cap_usd: cfg.capUSD,
     spent_usd: Number(cap.spentUSD.toFixed(6)),
+    ...(cfg.deepRounds > 0 ? { deep_rounds: cfg.deepRounds } : {}),
     stopped_at_cap: stoppedAtCap ?? cap.reached,
     ...(stoppedBy === undefined ? {} : { stopped_by: stoppedBy }),
     incidents,
