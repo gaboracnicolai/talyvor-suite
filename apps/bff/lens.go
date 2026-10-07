@@ -438,6 +438,14 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/rooms", a.requireTenant(a.handleRooms))
 	a.mux.HandleFunc("/api/rooms/{id}", a.requireTenant(a.handleRoom))
 	a.mux.HandleFunc("/api/rooms/{id}/join", a.requireTenant(a.handleRoomJoin))
+	// B32.54 — the room screen: messages and their event stream, contributions and votes, and runs. See rooms.go.
+	a.mux.HandleFunc("/api/rooms/{id}/messages", a.requireTenant(a.handleRoomMessages))
+	a.mux.HandleFunc("/api/rooms/{id}/events", a.requireTenant(a.handleRoomEvents))
+	a.mux.HandleFunc("/api/rooms/{id}/contributions", a.requireTenant(a.handleRoomContributions))
+	a.mux.HandleFunc("/api/rooms/{id}/contributions/{cid}", a.requireTenant(a.handleRoomContribution))
+	a.mux.HandleFunc("/api/rooms/{id}/contributions/{cid}/fork", a.requireTenant(a.handleRoomFork))
+	a.mux.HandleFunc("/api/rooms/{id}/contributions/{cid}/vote", a.requireTenant(a.handleRoomVote))
+	a.mux.HandleFunc("/api/rooms/{id}/runs", a.requireTenant(a.handleRoomRun))
 	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
 	// previews, with no model call and no charge. See tryit.go.
 	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
 	"slices"
+	"time"
 )
 
 // rooms.go — B32.53: Chat's rooms. Lens's rooms (B32.28–B32.30) relayed the way marketplace.go relays the
@@ -116,4 +118,231 @@ func (a *app) handleRoomJoin(w http.ResponseWriter, r *http.Request, t tenant) {
 		return
 	}
 	a.marketRelay(w, r, a.client, t.token, http.MethodPost, "/v1/rooms/"+url.PathEscape(id)+"/join", body, "")
+}
+
+// B32.54 — the room screen. Lens's messages, event stream, contributions and runs (B32.30, B32.31, B32.33), relayed the
+// same way, on the session's workspace token:
+//
+//	GET   /api/rooms/{id}/messages?before=&after=&limit=   a page of the room's messages, oldest first, with its events_cursor
+//	POST  /api/rooms/{id}/messages                         {body}: a member posts
+//	GET   /api/rooms/{id}/events?after=                    the room's events as Server-Sent Events, relayed as they come
+//	GET   /api/rooms/{id}/contributions                    the room's contributions with their tallies and this member's vote
+//	POST  /api/rooms/{id}/contributions                    {kind, title, description, artifact, changelog, price_usd_micros, parents}
+//	GET   /api/rooms/{id}/contributions/{cid}              one, with its listing
+//	PATCH /api/rooms/{id}/contributions/{cid}              {status}: the owner or an editor accepts or rejects it
+//	POST  /api/rooms/{id}/contributions/{cid}/fork         {title, description, artifact, changelog, price_usd_micros}
+//	PUT   /api/rooms/{id}/contributions/{cid}/vote         {value}: +1 or −1, the latest counting
+//	POST  /api/rooms/{id}/runs                             {target, version, input, variables, model, pay, max_price_usd_micros}
+//
+// Lens decides who may post, contribute, vote and run, and on whose money: paying "room", the room's wallet judges and
+// pays; paying "self", the member's own workspace. The run's message — what ran, what it cost and who paid — reaches
+// every member through the event stream.
+
+var (
+	roomMessageKeys      = map[string][]string{"body": nil}
+	roomContributionKeys = map[string][]string{"kind": nil, "title": nil, "description": nil, "artifact": nil, "changelog": nil,
+		"price_usd_micros": nil, "parents": nil}
+	roomForkKeys     = map[string][]string{"title": nil, "description": nil, "artifact": nil, "changelog": nil, "price_usd_micros": nil}
+	roomVoteKeys     = map[string][]string{"value": nil}
+	roomDecisionKeys = map[string][]string{"status": nil}
+	roomRunKeys      = map[string][]string{"target": nil, "version": nil, "input": nil, "variables": nil, "model": nil, "pay": nil,
+		"max_price_usd_micros": nil}
+)
+
+// roomPath is Lens's path for a room's sub-resource, from the request's {id} and, when cid is true, its {cid}.
+func roomPath(w http.ResponseWriter, r *http.Request, rest string, cid bool) (string, bool) {
+	id, ok := pathID(w, "room id", r.PathValue("id"))
+	if !ok {
+		return "", false
+	}
+	p := "/v1/rooms/" + url.PathEscape(id)
+	if cid {
+		c, ok := pathID(w, "contribution id", r.PathValue("cid"))
+		if !ok {
+			return "", false
+		}
+		p += "/contributions/" + url.PathEscape(c)
+	}
+	return p + rest, true
+}
+
+// handleRoomMessages — GET a page of the room's messages; POST {body} posts one.
+func (a *app) handleRoomMessages(w http.ResponseWriter, r *http.Request, t tenant) {
+	path, ok := roomPath(w, r, "/messages", false)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		q := url.Values{}
+		for _, k := range []string{"before", "after", "limit"} {
+			if v := r.URL.Query().Get(k); v != "" {
+				q.Set(k, v)
+			}
+		}
+		if len(q) > 0 {
+			path += "?" + q.Encode()
+		}
+		a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+	case http.MethodPost:
+		body, ok := roomBody(w, r, 64<<10, roomMessageKeys)
+		if !ok {
+			return
+		}
+		a.marketRelay(w, r, a.client, t.token, http.MethodPost, path, body, "")
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+	}
+}
+
+// handleRoomEvents — GET /api/rooms/{id}/events?after=: Lens's event stream, flushed to the browser as each event comes.
+// Lens ends each stream after a while and the browser's EventSource reconnects with Last-Event-ID, which is passed on.
+func (a *app) handleRoomEvents(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	path, ok := roomPath(w, r, "/events", false)
+	if !ok {
+		return
+	}
+	if after := r.URL.Query().Get("after"); after != "" {
+		path += "?after=" + url.QueryEscape(after)
+	}
+	up, err := http.NewRequestWithContext(r.Context(), http.MethodGet, a.cfg.lensBaseURL+path, nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
+		return
+	}
+	up.Header.Set("Authorization", "Bearer "+t.token) // server-side only
+	up.Header.Set("Accept", "text/event-stream")
+	if id := r.Header.Get("Last-Event-ID"); id != "" {
+		up.Header.Set("Last-Event-ID", id)
+	}
+	resp, err := a.streamClient.Do(up)
+	if err != nil {
+		if r.Context().Err() == nil {
+			writeUpstreamFailure(w, "lens", err)
+		}
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		var refusal struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &refusal) != nil || refusal.Error == "" {
+			refusal.Error = "Lens refused this"
+		}
+		if resp.StatusCode < 400 || resp.StatusCode >= 500 {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Lens could not answer just now"})
+			return
+		}
+		writeJSON(w, resp.StatusCode, map[string]string{"error": refusal.Error})
+		return
+	}
+	// The server's write deadline would cut a stream Lens keeps open; Lens ends it itself.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	relayFlushing(w, resp.Body)
+}
+
+// handleRoomContributions — GET the room's contributions; POST proposes one.
+func (a *app) handleRoomContributions(w http.ResponseWriter, r *http.Request, t tenant) {
+	path, ok := roomPath(w, r, "/contributions", false)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+	case http.MethodPost:
+		body, ok := roomBody(w, r, 256<<10, roomContributionKeys)
+		if !ok {
+			return
+		}
+		a.marketRelay(w, r, a.client, t.token, http.MethodPost, path, body, "")
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+	}
+}
+
+// handleRoomContribution — GET one contribution; PATCH {status} accepts or rejects it.
+func (a *app) handleRoomContribution(w http.ResponseWriter, r *http.Request, t tenant) {
+	path, ok := roomPath(w, r, "", true)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+	case http.MethodPatch:
+		body, ok := roomBody(w, r, 1<<10, roomDecisionKeys)
+		if !ok {
+			return
+		}
+		a.marketRelay(w, r, a.client, t.token, http.MethodPatch, path, body, "")
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPatch)
+	}
+}
+
+// handleRoomFork — POST /api/rooms/{id}/contributions/{cid}/fork.
+func (a *app) handleRoomFork(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	path, ok := roomPath(w, r, "/fork", true)
+	if !ok {
+		return
+	}
+	body, ok := roomBody(w, r, 256<<10, roomForkKeys)
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, path, body, "")
+}
+
+// handleRoomVote — PUT /api/rooms/{id}/contributions/{cid}/vote {value}.
+func (a *app) handleRoomVote(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPut {
+		methodNotAllowed(w, http.MethodPut)
+		return
+	}
+	path, ok := roomPath(w, r, "/vote", true)
+	if !ok {
+		return
+	}
+	body, ok := roomBody(w, r, 1<<10, roomVoteKeys)
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPut, path, body, "")
+}
+
+// handleRoomRun — POST /api/rooms/{id}/runs: a member runs a contribution or a listing, on the room or on themself. It
+// may call models for minutes, as a marketplace use does, so it carries the use's bound rather than the shared client's.
+func (a *app) handleRoomRun(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	path, ok := roomPath(w, r, "/runs", false)
+	if !ok {
+		return
+	}
+	body, ok := roomBody(w, r, 256<<10, roomRunKeys)
+	if !ok {
+		return
+	}
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(marketUseTimeout + 10*time.Second))
+	ctx, cancel := context.WithTimeout(r.Context(), marketUseTimeout)
+	defer cancel()
+	a.marketRelay(w, r.WithContext(ctx), marketUseClient, t.token, http.MethodPost, path, body,
+		"Paid listings cannot be used on this deployment yet: it has no marketplace bill to put them on.")
 }

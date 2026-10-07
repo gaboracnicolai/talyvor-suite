@@ -22,7 +22,9 @@ import {
   shareText,
   spendPolicyText,
   splitRuleText,
+  usdText,
 } from './roomsApi'
+import { RoomBudget, RoomLive } from './Room'
 
 // Rooms.tsx — B32.53: Chat becomes a list of open chats. A room is a chat other workspaces and their agents
 // join to build something together (Lens B32.28–B32.30): the directory of open rooms by topic and the rooms
@@ -31,12 +33,6 @@ import {
 //
 // Lens decides everything: who may open or join, what the plan allows (rooms_plan_limits) and whether the
 // terms accepted are current. On a refusal these screens show Lens's own sentence.
-
-/** A price per use in µUSD, to the cent — or finer, when a use costs less than a cent. */
-export function usdText(micros: number): string {
-  if (micros <= 0) return 'Free'
-  return `$${(micros / 1_000_000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
-}
 
 function roomHref(id: string) {
   return `/rooms/${encodeURIComponent(id)}`
@@ -363,6 +359,9 @@ function RoomPage() {
   const t = r.terms
   const members = r.members ?? []
   const asks = r.me === null || !r.me.terms_current
+  // B32.54 — a member under the current terms is in the room: its conversation, contributions and runs (Room.tsx).
+  const inside = !asks
+  const n = (i: number) => String(inside ? i + 3 : i).padStart(2, '0')
   return (
     <>
       <Region
@@ -381,8 +380,10 @@ function RoomPage() {
           {r.member_count === 1 ? 'member' : 'members'} · last active{' '}
           <span className="font-figure">{formatWhen(r.last_activity_at)}</span>
         </p>
+        {inside && r.wallet ? <RoomBudget wallet={r.wallet} /> : null}
       </Region>
-      <Region index="01" label="Terms" className="flex max-w-2xl flex-col gap-3">
+      {inside ? <RoomLive room={r} /> : null}
+      <Region index={n(1)} label="Terms" className="flex max-w-2xl flex-col gap-3">
         <Card>
           <Row stack label="Default price per use">
             <span className="font-figure text-body text-ink">{usdText(t.default_price_usd_micros)}</span>
@@ -433,7 +434,7 @@ function RoomPage() {
           <Note ok>You are in this room as {r.me?.role === 'owner' ? 'its owner' : `a ${r.me?.role ?? 'member'}`}.</Note>
         )}
       </Region>
-      <Region index="02" label="Members" className="flex max-w-2xl flex-col gap-3">
+      <Region index={n(2)} label="Members" className="flex max-w-2xl flex-col gap-3">
         <Card>
           {members.length === 0 ? (
             <p className="p-gutter text-body text-muted">Nobody is in this room yet.</p>

@@ -439,6 +439,26 @@ export interface LensRooms {
   invited: LensRoom[] | null
 }
 
+/** B32.54 — Lens's rooms.Message. */
+export interface LensRoomMessage {
+  id: string
+  cursor: number
+  author_workspace_id: string
+  kind: string
+  body: string
+}
+
+/** B32.54 — Lens's rooms.Contribution. */
+export interface LensContribution {
+  id: string
+  title: string
+  author_workspace_id: string
+  forked_from?: string
+  status: string
+  tally: number
+  my_vote: number
+}
+
 /** B32.53 — GET /v1/rooms/{id}: the room, its terms and its members, and the caller's membership (null: not a member). */
 export interface LensRoomDetail extends LensRoom {
   terms: { version: number; split_rule: string; remix_share_bps: number; default_price_usd_micros: number; spend_policy: string }
@@ -896,6 +916,27 @@ export class LensClient {
   /** B32.53 — one room as this user reads it (GET /v1/rooms/{id}): its terms, members and the user's own membership. */
   async room(user: SyntheticUser, id: string): Promise<LensRoomDetail> {
     return (await this.call('GET', `/v1/rooms/${encodeURIComponent(id)}`, this.bearer(user.token))) as LensRoomDetail
+  }
+
+  /** B32.54 — a room's latest messages as this user reads them (GET /v1/rooms/{id}/messages), oldest first. */
+  async roomMessages(user: SyntheticUser, id: string): Promise<LensRoomMessage[]> {
+    const page = (await this.call('GET', `/v1/rooms/${encodeURIComponent(id)}/messages?limit=200`, this.bearer(user.token))) as {
+      messages: LensRoomMessage[] | null
+    }
+    return page.messages ?? []
+  }
+
+  /** B32.54 — posts a message to a room as this user's workspace (POST /v1/rooms/{id}/messages), as another tab would. */
+  async postRoomMessage(user: SyntheticUser, id: string, body: string): Promise<LensRoomMessage> {
+    return (await this.call('POST', `/v1/rooms/${encodeURIComponent(id)}/messages`, this.bearer(user.token), { body })) as LensRoomMessage
+  }
+
+  /** B32.54 — a room's contributions with their tallies and this user's vote (GET /v1/rooms/{id}/contributions). */
+  async roomContributions(user: SyntheticUser, id: string): Promise<LensContribution[]> {
+    const body = (await this.call('GET', `/v1/rooms/${encodeURIComponent(id)}/contributions`, this.bearer(user.token))) as {
+      contributions: LensContribution[] | null
+    }
+    return body.contributions ?? []
   }
 
   /** B34.1 — retires an agent as the workspace's owner: its balance swept back to the workspace, its keys revoked. */

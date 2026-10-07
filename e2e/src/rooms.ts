@@ -4,6 +4,11 @@
 // workspace's rooms with the workspace as its owner, it is not in the public list, another company reading it is
 // 404 — and Chat's rail and the directory show it. A private room, so a nightly run puts nothing in the public
 // directory real people read; that also takes a plan that allows one (Free allows none, rooms_plan_limits).
+//
+// B32.54 — and the room screen (apps/web/src/areas/rooms/Room.tsx): the owner posts a message from the composer, a
+// message posted to Lens from elsewhere appears on the open screen without a reload (the event stream through
+// apps/bff/rooms.go), and a contribution is proposed, forked and voted on. Lens's own reads are the oracle: both
+// messages are the room's, the fork's original is the contribution it forked, and the vote is the tally.
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -37,7 +42,7 @@ export function roomsPrivate(seed: number): Scenario {
   return {
     id: 'rooms-private',
     owner: 'talyvor-suite',
-    title: 'a private room opened on /rooms/new is the workspace’s on Lens, in Chat’s rail and the directory, and 404 to another company',
+    title: 'a private room opened on /rooms/new is the workspace’s on Lens, in Chat’s rail and the directory, and 404 to another company; its screen posts, streams, proposes, forks and votes',
     plan: 'team',
     own: true,
     run: async (ctx) => {
@@ -84,7 +89,64 @@ export function roomsPrivate(seed: number): Scenario {
         if (!(await shown(page.getByRole('heading', { name: title })))) return fail(`after opening, the room's screen does not show "${title}"`)
         const notice = (await page.getByTestId('room-stored-notice').innerText()).trim()
         if (notice !== STORED_NOTICE) return fail(`the room's first screen says "${notice}", not where its messages are kept`)
-        await shoot(ctx, page, 'room', 390, 844, `the room's first screen at 390: "${title}"`)
+
+        // B32.54 — the room screen. A message from the composer, and one posted to Lens from elsewhere that the open screen
+        // shows without a reload.
+        const messages = page.getByRole('list', { name: 'Messages' })
+        const mine = `Hello from the room screen ${seed}`
+        await page.getByLabel('Message', { exact: true }).fill(mine)
+        const [sent] = await Promise.all([
+          page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === `/api/rooms/${id}/messages`, { timeout: ACTION_TIMEOUT_MS }),
+          page.getByRole('button', { name: 'Send', exact: true }).click(),
+        ])
+        ctx.evidence.push({ note: `Send "${mine}": POST /api/rooms/${id}/messages answered ${sent.status()}` })
+        if (sent.status() !== 201) return fail(`posting a message from the room screen was answered ${sent.status()}`)
+        if (!(await shown(messages.getByText(mine, { exact: true })))) return fail('the message sent from the composer is not in the conversation')
+        const elsewhere = `Posted from elsewhere ${seed}-${Date.now().toString(36)}`
+        await lens.postRoomMessage(user, id, elsewhere)
+        if (!(await shown(messages.getByText(elsewhere, { exact: true })))) {
+          return fail('a message posted to the room on Lens did not appear on the open room screen without a reload')
+        }
+        const kept = (await lens.roomMessages(user, id)).map((m) => m.body)
+        ctx.evidence.push({ note: `Lens's GET /v1/rooms/${id}/messages: ${kept.length} messages` })
+        if (!kept.includes(mine) || !kept.includes(elsewhere)) return fail(`Lens's messages for room ${id} lack ${!kept.includes(mine) ? 'the composer’s' : 'the one posted elsewhere'}`)
+
+        // A contribution proposed, forked and voted on.
+        const work = `Pricing prompt ${seed}`
+        await page.getByRole('button', { name: 'Propose', exact: true }).click()
+        // The form is found by its Title input: a textarea's label reads its text too once it is filled.
+        const proposeForm = page.locator('form', { has: page.getByLabel('Title', { exact: true }) })
+        await proposeForm.getByLabel('Title', { exact: true }).fill(work)
+        await proposeForm.getByLabel('Template', { exact: true }).fill('Price {{product}} per seat.')
+        const [proposed] = await Promise.all([
+          page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === `/api/rooms/${id}/contributions`, { timeout: ACTION_TIMEOUT_MS }),
+          proposeForm.getByRole('button', { name: 'Propose', exact: true }).click(),
+        ])
+        const original = (await proposed.json().catch(() => ({}))) as { id?: string; error?: string }
+        ctx.evidence.push({ note: `Propose "${work}": answered ${proposed.status()}`, answer: JSON.stringify(original).slice(0, 300) })
+        if (proposed.status() !== 201 || original.id === undefined) return fail(`proposing a contribution was answered ${proposed.status()} "${original.error ?? ''}"`)
+        const board = page.getByRole('list', { name: 'Contributions' })
+        await board.getByRole('button', { name: 'Fork', exact: true }).first().click()
+        const [forked] = await Promise.all([
+          page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname.endsWith('/fork'), { timeout: ACTION_TIMEOUT_MS }),
+          page.getByRole('group', { name: `Fork ${work}` }).getByRole('button', { name: 'Fork it', exact: true }).click(),
+        ])
+        if (forked.status() !== 201) return fail(`forking the contribution was answered ${forked.status()} ${await forked.text()}`)
+        const [voted] = await Promise.all([
+          page.waitForResponse((r) => r.request().method() === 'PUT' && new URL(r.url()).pathname.endsWith('/vote'), { timeout: ACTION_TIMEOUT_MS }),
+          page.getByRole('button', { name: `Vote for ${work}`, exact: true }).click(),
+        ])
+        if (voted.status() !== 200) return fail(`voting for the contribution was answered ${voted.status()} ${await voted.text()}`)
+        const cs = await lens.roomContributions(user, id)
+        ctx.evidence.push({ note: `Lens's GET /v1/rooms/${id}/contributions: ${cs.map((c) => `${c.title} (tally ${c.tally}, forked from ${c.forked_from ?? '-'})`).join(', ')}` })
+        const proposedOne = cs.find((c) => c.id === original.id)
+        const fork = cs.find((c) => c.forked_from === original.id)
+        if (proposedOne === undefined) return fail(`Lens does not list contribution ${original.id} in room ${id}`)
+        if (fork === undefined) return fail(`Lens lists no contribution forked from ${original.id}`)
+        if (proposedOne.tally !== 1 || proposedOne.my_vote !== 1) return fail(`Lens's tally for ${original.id} is ${proposedOne.tally} with my vote ${proposedOne.my_vote}, not the +1 cast`)
+        await page.evaluate(() => window.scrollTo(0, 0)) // the reload keeps the scroll; the screen is shown from its top
+        await shoot(ctx, page, 'room', 1440, 900, `the room screen at 1440: "${title}"`)
+        await shoot(ctx, page, 'room', 390, 844, `the room screen at 390: "${title}"`)
         await page.setViewportSize(viewport)
         await page.goto(`${origin}/rooms`)
         if (!(await shown(page.getByRole('list', { name: 'Your rooms' }).getByRole('link', { name: title, exact: true })))) {
@@ -97,7 +159,7 @@ export function roomsPrivate(seed: number): Scenario {
         const rail = page.getByRole('complementary', { name: 'Conversations' }).getByRole('list', { name: 'Your rooms' })
         if (!(await shown(rail.getByRole('link', { name: title, exact: true })))) return fail('Chat’s rail does not show the room under Rooms')
         await shoot(ctx, page, 'chat-rooms', 1440, 900, 'Chat with the room in its rail at 1440')
-        return { pass: true, detail: `private room ${id} is ${user.workspaceID}'s on Lens, absent from the public list, 404 to another company, and shown in the directory and Chat's rail` }
+        return { pass: true, detail: `private room ${id} is ${user.workspaceID}'s on Lens, absent from the public list, 404 to another company, and shown in the directory and Chat's rail; its screen posted, streamed a message from elsewhere, proposed, forked and voted` }
       } finally {
         await page.setViewportSize(viewport)
       }

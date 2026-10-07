@@ -267,6 +267,13 @@ func everyMutatingRoute() []mutatingRoute {
 		// B32.53 — opening a room and joining one.
 		{method: http.MethodPost, path: "/api/rooms", body: `{"title":"t","visibility":"public"}`},
 		{method: http.MethodPost, path: "/api/rooms/x1/join", body: `{"terms_version":1}`},
+		// B32.54 — the room screen: a message, a contribution, its fork, a vote, a decision and a run.
+		{method: http.MethodPost, path: "/api/rooms/x1/messages", body: `{"body":"hello"}`},
+		{method: http.MethodPost, path: "/api/rooms/x1/contributions", body: `{"kind":"prompt","title":"t","artifact":{"template":"x"}}`},
+		{method: http.MethodPatch, path: "/api/rooms/x1/contributions/x1", body: `{"status":"accepted"}`},
+		{method: http.MethodPost, path: "/api/rooms/x1/contributions/x1/fork", body: `{"title":"t"}`},
+		{method: http.MethodPut, path: "/api/rooms/x1/contributions/x1/vote", body: `{"value":1}`},
+		{method: http.MethodPost, path: "/api/rooms/x1/runs", body: `{"target":"x1","input":"go","pay":"room"}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys", body: `{"credential_id":"c","name":"n","public_key":"p","client_data_json":"j","authenticator_data":"a"}`},
