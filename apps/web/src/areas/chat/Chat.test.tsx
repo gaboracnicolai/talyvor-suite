@@ -1188,3 +1188,57 @@ describe('a new chat carries nothing from another (B16.4)', () => {
     expect([bodies[2], bodies[3], bodies[4]]).toEqual([bodies[0], bodies[0], bodies[0]])
   })
 })
+
+describe('projects (B28.109)', () => {
+  it('a new chat in a project is sent with its instructions, in each provider’s shape; a chat outside it is not', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"Noted."}}]}\n\ndata: [DONE]\n\n' })
+    const view = renderChat()
+    const answered = async (n: number) => {
+      await waitFor(() => expect(posted).toHaveBeenCalledTimes(n))
+      await screen.findByRole('button', { name: 'Regenerate' })
+    }
+    const sent = (n: number) => JSON.parse(String(posted.mock.calls[n][0].init.body))
+    const told = 'Answer as our finance lead. Use pounds.'
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New project' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project name' }), { target: { value: 'Finance' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+    // A new project opens on its page with its instructions being written.
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Instructions' }), { target: { value: told } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save instructions' }))
+    expect((await screen.findByTestId('project-instructions')).textContent).toBe(told)
+
+    // Anthropic: its own system field.
+    await chooseModel('Claude Opus 5')
+    await ask('What did we spend?')
+    await answered(1)
+    expect(sent(0).system).toBe(told)
+    expect(sent(0).messages).toEqual([{ role: 'user', content: 'What did we spend?' }])
+    expect(screen.getByTestId('conversation-project').textContent).toBe('In Finance · sent with its instructions')
+
+    // A second new chat in the project, on OpenAI: a system message first. And the follow-up in it carries them too.
+    fireEvent.click(within(screen.getByRole('list', { name: 'Your projects' })).getByRole('button', { name: 'Finance' }))
+    expect(within(screen.getByRole('region', { name: 'Chats in this project' })).getByRole('button', { name: 'What did we spend?' })).toBeTruthy()
+    await chooseModel('GPT-4o')
+    await ask('And last month?')
+    await answered(2)
+    expect(sent(1).messages).toEqual([{ role: 'system', content: told }, { role: 'user', content: 'And last month?' }])
+    await ask('Per agent?')
+    await answered(3)
+    expect(sent(2).messages[0]).toEqual({ role: 'system', content: told })
+
+    // New chat, outside any project: nothing of the project is sent.
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
+    await ask('What is the capital of France?')
+    await answered(4)
+    expect(sent(3).messages).toEqual([{ role: 'user', content: 'What is the capital of France?' }])
+    expect(sent(3).system).toBeUndefined()
+
+    // Kept in this browser: after a reload the project is listed and its chats still carry it.
+    view.unmount()
+    expect(loadConversations('user-a').list.filter((c) => c.project_id !== undefined).map((c) => c.title).sort()).toEqual(['And last month?', 'What did we spend?'])
+    renderChat()
+    fireEvent.click(await screen.findByRole('button', { name: 'Finance' }))
+    expect((await screen.findByTestId('project-instructions')).textContent).toBe(told)
+  })
+})

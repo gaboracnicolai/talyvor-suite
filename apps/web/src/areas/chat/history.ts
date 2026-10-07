@@ -23,6 +23,8 @@ export interface Conversation {
   paid_by?: string
   /** B28.361 — the most this conversation may spend, in µLXC; absent, no budget. */
   budget_ulxc?: number
+  /** B28.109 — the project it was started in, whose instructions every question in it is sent with; absent, none. */
+  project_id?: string
   created_at: number
   updated_at: number
   /** B28.365 — when this browser last saved a change to it (a rename too, which leaves updated_at); syncs merge by it. */
@@ -101,6 +103,8 @@ export function upsertConversation(
   now: number,
   paidBy?: string,
   budgetULXC?: number,
+  /** B28.109 — a conversation stays in the project it was started in. */
+  projectId?: string,
 ): Conversation[] {
   const kept = messages
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
@@ -114,6 +118,7 @@ export function upsertConversation(
     model_id: modelId,
     ...(paidBy !== undefined && paidBy !== '' ? { paid_by: paidBy } : {}),
     ...(budgetULXC !== undefined ? { budget_ulxc: budgetULXC } : {}),
+    ...((projectId ?? prior?.project_id) !== undefined ? { project_id: projectId ?? prior?.project_id } : {}),
     created_at: prior?.created_at ?? now,
     updated_at: now,
     messages: kept,
