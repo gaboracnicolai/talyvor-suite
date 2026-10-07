@@ -3454,7 +3454,10 @@ export function chatCustomInstructions(seed: number): Scenario {
 /** B28.370 — a prompt saved in Chat's prompt library is kept in Lens by name; opened in a new chat from its card, a
  *  real question is sent with the prompt's name, Lens swaps its text in and answers X-Talyvor-Prompt-Resolved: true,
  *  and the answer says it was asked with the prompt. Lens has no way to delete a prompt, so the one saved stays in the
- *  workspace's library under its run's name; the conversation is taken out of this browser after. */
+ *  workspace's library under its run's name; the conversation is taken out of this browser after.
+ *  ⚠ IT ASKS ON THE USER'S OWN CHAT TAB, because app.ask books the answer for the ledger read-back, so it moves only
+ *  inside the app — a reload there leaves the next scenario counting answers before the history has loaded — and leaves
+ *  the tab on a new chat with no prompt. */
 export function chatPromptLibrary(seed: number): Scenario {
   const tag = `${seed}-${Date.now().toString(36)}`
   const name = `heron-${tag}`
@@ -3468,7 +3471,8 @@ export function chatPromptLibrary(seed: number): Scenario {
       const { app } = ctx
       const page = app.page
       try {
-        await page.goto(new URL('/chat/prompts', page.url()).toString())
+        if (new URL(page.url()).pathname !== '/chat') await app.openChat()
+        await page.getByRole('link', { name: 'Prompt library' }).first().click()
         await page.getByRole('textbox', { name: 'Name' }).fill(name)
         await page.getByRole('textbox', { name: 'Prompt' }).fill(text)
         await page.getByRole('button', { name: 'Save prompt' }).click()
@@ -3496,14 +3500,17 @@ export function chatPromptLibrary(seed: number): Scenario {
         if (resolved !== 'true' || !lineText.includes(name)) return { pass: false, detail: `the answer did not say it was asked with ${name}: "${lineText.slice(0, 160)}"` }
         return { pass: true, detail: `${name} saved in the library and used in a new chat: Lens swapped it in (X-Talyvor-Prompt-Resolved: true) and the answer says so` }
       } finally {
-        // Out of this browser again: the conversation asked with the prompt, so the next question is not sent with it.
+        // Out of this browser again: the conversation asked with the prompt, so the next question is not sent with it,
+        // and the tab back on Chat, on a new chat.
         await page.evaluate((tag) => {
           for (const key of Object.keys(localStorage).filter((k) => k.startsWith('talyvor.chat.v1:'))) {
             const convs = JSON.parse(localStorage.getItem(key) ?? '[]') as Array<{ title?: string }>
             localStorage.setItem(key, JSON.stringify(convs.filter((c) => !(c.title ?? '').includes(tag))))
           }
         }, tag).catch(() => undefined)
-        await app.openChat().catch(() => undefined)
+        if (new URL(page.url()).pathname !== '/chat') await page.getByRole('link', { name: 'Back to Chat' }).click().catch(() => undefined)
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        await app.newChat().catch(() => undefined)
       }
     },
   }
