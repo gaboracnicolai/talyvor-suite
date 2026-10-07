@@ -56,6 +56,8 @@
 //   key-forward — a plain request's X-Talyvor-Key and X-API-Key go on to the vLLM upstream (B28.287)
 //   key-forward-stream — a streamed request goes on to the vLLM upstream with every header it came with, its key too (B28.287)
 //   key-listed  — the workspace's list of API keys shows each key whole (B28.287)
+//   ratelimit-open — the rate limiter lets every request through, as Lens's does when Redis errors and it fails open (B28.288)
+//   retry-after — a request the rate limiter refuses is answered 429 without Retry-After (B28.288)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -383,6 +385,31 @@ const tokens = (s: string): number => Math.max(1, Math.ceil(s.length / 4))
 function json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   res.writeHead(status, { 'Content-Type': 'application/json', ...headers })
   res.end(JSON.stringify(body))
+}
+
+/**
+ * B28.288 — Lens's rate limiter (talyvor-lens internal/ratelimit, its DefaultRules' second): 100 requests a second a key,
+ * the one past it answered 429 with Retry-After, X-RateLimit-Remaining 0 and the window it hit. Counted on the workspace
+ * read alone (GET /v1/workspaces/{ws}, which rate-limits-hold bursts), so no other scenario's requests are refused here.
+ * STUB_BREAK=ratelimit-open lets every request through, as Lens's limiter does when Redis errors; retry-after refuses
+ * without saying when to come back.
+ */
+const PER_SECOND = 100
+const windows = new Map<string, { from: number; n: number }>()
+function limited(res: ServerResponse, ws: string, credential: string): boolean {
+  const now = Date.now()
+  const seen = windows.get(`${ws}:${credential}`)
+  const w = seen === undefined || now - seen.from >= 1000 ? { from: now, n: 0 } : seen
+  w.n++
+  windows.set(`${ws}:${credential}`, w)
+  if (w.n <= PER_SECOND || broke('ratelimit-open')) {
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(PER_SECOND - w.n, 0)))
+    return false
+  }
+  const secs = Math.max(1, Math.ceil((w.from + 1000 - now) / 1000))
+  json(res, 429, { error: 'rate limit exceeded', limit_type: 'second', retry_after_seconds: secs },
+    { ...(broke('retry-after') ? {} : { 'Retry-After': String(secs) }), 'X-RateLimit-Remaining': '0' })
+  return true
 }
 
 async function read(req: IncomingMessage): Promise<string> {
@@ -950,7 +977,7 @@ createServer(async (req, res) => {
     if (scoped !== null) {
       if (scoped[1] !== ws.id) return json(res, 403, { error: 'forbidden' })
       const rest = scoped[2] ?? ''
-      if (rest === '') return json(res, 200, view())
+      if (rest === '') return limited(res, ws.id, bearer) ? undefined : json(res, 200, view())
       if (await bank.workspaceRoute(req, res, ws, rest, url)) return
       // B28.285 — compute nodes, verified only when Lens's guarded probe reaches them (stub-guards.ts).
       if (rest === '/nodes' || rest.startsWith('/nodes/')) {

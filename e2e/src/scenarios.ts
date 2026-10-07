@@ -51,6 +51,7 @@ import { injectionExfil } from './injection.ts'
 import { fileBombBounded, ssrfRefused } from './ssrf.ts'
 import { csrfRefused, scriptInert } from './session.ts'
 import { keysNotForwarded, keysUnlisted } from './keys.ts'
+import { rateLimitsHold } from './ratelimit.ts'
 
 export interface Evidence {
   note?: string
@@ -3730,6 +3731,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B28.287 — the workspace's keys, once a run, each on a workspace of its own: no list or stats read returns one, and a
   // synthetic upstream Lens sends its vLLM traffic to sees none of the credentials a request came with.
   if (i === 9) list.push(keysUnlisted(), keysNotForwarded())
+  // B28.288 — Lens's rate limiter, once a run, on a workspace of its own: a burst of reads at once on one token is refused
+  // past the limit, each refusal saying when to come back, and the next read once that has passed is served.
+  if (i === 7) list.push(rateLimitsHold())
   return list
 }
 

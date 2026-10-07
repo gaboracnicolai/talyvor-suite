@@ -40,6 +40,9 @@ export interface JudgeReply {
 /** B17.6 — an answer Lens may refuse: what it answered, or its status and sentence. */
 export type Answered<T> = { ok: true; status: number; value: T } | { ok: false; status: number; error: string }
 
+/** B28.288 — one request of a burst as Lens answered it: its status, the limiter's two headers (null when absent) and the body. */
+export interface BurstAnswer { status: number; retryAfter: string | null; remaining: string | null; text: string }
+
 /** Lens economy.Agent, as much of it as the bank scenarios read. */
 export interface Agent {
   id: string
@@ -606,6 +609,26 @@ export class LensClient {
     } catch (e) {
       return { status: 0, ms: Date.now() - t0, body: e instanceof Error ? e.message : String(e) }
     }
+  }
+
+  /**
+   * B28.288 — `n` reads of `path` on `credential`, all sent at once and each answered as it came: a request Lens's rate
+   * limiter turns away is not made again, as send() makes it. Status 0, and why, for one not answered within `timeoutMs`.
+   */
+  async burst(credential: string, path: string, n: number, timeoutMs: number): Promise<BurstAnswer[]> {
+    return Promise.all(Array.from({ length: n }, async (): Promise<BurstAnswer> => {
+      const t0 = Date.now()
+      let status = 0
+      try {
+        const res = await fetch(this.baseURL + path, { headers: { Accept: 'application/json', ...this.bearer(credential) }, signal: AbortSignal.timeout(timeoutMs) })
+        status = res.status
+        return { status, retryAfter: res.headers.get('Retry-After'), remaining: res.headers.get('X-RateLimit-Remaining'), text: (await res.text()).slice(0, 300) }
+      } catch (e) {
+        return { status: 0, retryAfter: null, remaining: null, text: e instanceof Error ? e.message : String(e) }
+      } finally {
+        this.recorder?.hit(this.tag, { kind: 'lens', method: 'GET', path: path.split('?')[0], status, ms: Date.now() - t0 })
+      }
+    }))
   }
 
   /** B29.29 — the workspace's executive ROI report, as the HTML Lens renders it for this user's own token. */
