@@ -331,6 +331,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
       userCount: users.length,
       outDir: cfg.outDir,
       lensSrc: cfg.lensSrc,
+      webhookSecret: cfg.webhookSecret,
       // B29.21 — beside the day's report, one folder a run, so the report's links outlive out/.
       shots: { dir: join(reportDirOf(cfg), 'shots', shotStamp), link: `shots/${shotStamp}` },
     }

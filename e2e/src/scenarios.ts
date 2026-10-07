@@ -44,6 +44,7 @@ import { roomsPrivate } from './rooms.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
 import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
+import { webhookReplayed, webhookUnsigned } from './webhooks.ts'
 
 export interface Evidence {
   note?: string
@@ -84,6 +85,8 @@ export interface RunEnv {
   outDir: string
   /** B28.440 — the run's checkout of talyvor-lens (--lens-src), whose sdk/typescript the SDK quickstart runs; 'none' when not given. */
   lensSrc: string
+  /** B28.280 — the signing secret of Lens's test-mode Stripe webhook (LENS_STRIPE_TEST_WEBHOOK_SECRET); '' when not given. */
+  webhookSecret: string
   /** B29.21 — where the run's screenshots for the report go: `dir` on disk, `link` the same place as the report links it. */
   shots: { dir: string; link: string }
 }
@@ -3266,6 +3269,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // again leave the agent holding exactly what landed, and a request retried under one key and a stream hung up on are
   // each billed once.
   if (i === 2) list.push(ledgerMovesAtOnce(), ledgerCallOnce())
+  // B28.280 — Stripe's webhooks, once a run, each on a workspace of its own: an unsigned or forged event credits nothing,
+  // and a signed one sent again credits once.
+  if (i === 2) list.push(webhookUnsigned(), webhookReplayed())
   return list
 }
 

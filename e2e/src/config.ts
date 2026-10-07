@@ -14,6 +14,11 @@ export interface RunConfig {
   syntheticKey: string
   /** B25.4 — LENS_MODERATOR_KEY: a moderator key, for the review queue's approve and take down; '' tests neither */
   moderatorKey: string
+  /**
+   * B28.280 — LENS_STRIPE_TEST_WEBHOOK_SECRET: the signing secret of Lens's test-mode Stripe webhook, the same value Lens
+   * boots with, so the testers can sign an event as Stripe does and send it again; '' leaves webhook-replayed a SKIP
+   */
+  webhookSecret: string
   users: number
   /** How many users drive a browser at the same moment. */
   concurrency: number
@@ -113,6 +118,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     lensURL,
     syntheticKey,
     moderatorKey: env.LENS_MODERATOR_KEY ?? '',
+    webhookSecret: env.LENS_STRIPE_TEST_WEBHOOK_SECRET ?? '',
     users: Math.floor(num('users', 'E2E_USERS', DEFAULTS.users)),
     concurrency: Math.floor(num('concurrency', 'E2E_CONCURRENCY', DEFAULTS.concurrency)),
     capUSD: num('cap-usd', 'E2E_CAP_USD', DEFAULTS.capUSD),
