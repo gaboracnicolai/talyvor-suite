@@ -123,6 +123,7 @@ export function walletGiveBack(seed: number, partner: number): Scenario {
   return {
     id: 'wallet-give-back',
     owner: 'talyvor-lens',
+    items: ['B28.23', 'B28.299'],
     agents: 1,
     partners: [partner],
     title: "another company's agent sends a person's agent credits, and the person gives them back on Agent Wallets: one refund both sides see, one posting on each account, both balances moved by it",
@@ -318,6 +319,7 @@ export function chatMoneyRequests(seed: number, partner: number): Scenario {
   return {
     id: 'chat-money-requests',
     owner: 'talyvor-suite',
+    items: ['B28.92', 'B28.355'],
     agents: 1,
     partners: [partner],
     title: "another company's agent asks a person's agent for credits and is paid on Accept in Chat; an escrow confirmed delivered in Chat is released to the payee",
@@ -738,6 +740,7 @@ export function marketPayoutConnect(): Scenario {
   return {
     id: 'market-payout-connect',
     owner: 'talyvor-lens',
+    items: ['B28.276'],
     title: 'a seller connects Stripe on Your listings & earnings to be paid out: the browser goes to Stripe and Lens holds their test-mode Connect account',
     run: async (ctx) => {
       const { env, app } = ctx

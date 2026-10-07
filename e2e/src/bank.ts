@@ -819,6 +819,7 @@ export function agentHourlyLimit(seed: number): Scenario {
   return {
     id: 'agent-hourly-limit',
     owner: 'talyvor-lens',
+    items: ['B28.24', 'B28.300'],
     agents: 1,
     title: 'an hourly cap set on Agent Wallets refuses a request over it with no posting; raised, the same request writes one',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -870,6 +871,7 @@ export function agentModelLimit(seed: number): Scenario {
   return {
     id: 'agent-model-limit',
     owner: 'talyvor-lens',
+    items: ['B28.25', 'B28.301'],
     agents: 1,
     title: 'a daily cap on one model, set on Agent Wallets, refuses a request to it with no posting while another model under its own cap writes one',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -933,6 +935,7 @@ export function agentRequestRate(seed: number): Scenario {
   return {
     id: 'agent-request-rate',
     owner: 'talyvor-lens',
+    items: ['B28.26', 'B28.302'],
     agents: 1,
     title: `the ${PER_MINUTE + 1}st request in a minute under a ${PER_MINUTE}-a-minute rule set on Agent Wallets is refused with no hold; the ${PER_MINUTE} before it each write one`,
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -994,6 +997,7 @@ export function agentPayeeLists(seed: number): Scenario {
   return {
     id: 'agent-payee-lists',
     owner: 'talyvor-lens',
+    items: ['B28.27', 'B28.303'],
     agents: 3,
     title: 'a payment to a payee the agent\'s rules block posts nothing; one to a payee they allow posts its pair',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1045,6 +1049,7 @@ export function agentPayeeDailyCap(seed: number): Scenario {
   return {
     id: 'agent-payee-daily-cap',
     owner: 'talyvor-lens',
+    items: ['B28.28', 'B28.304'],
     agents: 2,
     title: 'a second payment to one payee past its daily cap is refused and leaves exactly the first pay posting',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1091,6 +1096,7 @@ export function agentRuleSimulator(seed: number): Scenario {
   return {
     id: 'agent-rule-simulator',
     owner: 'talyvor-lens',
+    items: ['B28.30', 'B28.306'],
     agents: 2,
     title: 'Would it pass? refuses a payment over the daily limit and allows one under it, and neither posts anything',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1140,6 +1146,7 @@ export function agentSpendQuestion(seed: number): Scenario {
   return {
     id: 'agent-spend-question',
     owner: 'talyvor-suite',
+    items: ['B28.83', 'B28.349'],
     agents: 2,
     title: 'Asked what an agent spent, Chat answers 1.23 LXC through Lens’s wallet tool and links the statement line',
     run: async (ctx) => {
@@ -1203,6 +1210,7 @@ export function agentRulesRollback(seed: number): Scenario {
   return {
     id: 'agent-rules-rollback',
     owner: 'talyvor-lens',
+    items: ['B28.31', 'B28.307'],
     agents: 1,
     title: 'Rolling an agent’s rules back on Rules history restores the earlier rules exactly and records who did it',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1250,6 +1258,7 @@ export function agentLimitBoost(seed: number): Scenario {
   return {
     id: 'agent-limit-boost',
     owner: 'talyvor-lens',
+    items: ['B28.32', 'B28.308'],
     agents: 1,
     title: 'a daily limit raised on Limit boost lets a request through until its time; after it the same request is refused and writes nothing',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1348,6 +1357,7 @@ export function agentRuleTemplate(seed: number): Scenario {
   return {
     id: 'agent-rule-template',
     owner: 'talyvor-suite',
+    items: ['B28.29', 'B28.305'],
     agents: 1,
     title: 'an agent created from a rule template on Agent Wallets has exactly the template as its rules in Lens; another template applied replaces them whole',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1479,6 +1489,7 @@ export function agentApprovalPush(seed: number): Scenario {
   return {
     id: 'agent-approval-push',
     owner: 'talyvor-suite',
+    items: ['B28.38'],
     agents: 2,
     title: 'Approve on the approval push decides it from the service worker: Lens’s row is approved without opening the app',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1569,6 +1580,7 @@ export function chatApprovalFaceID(seed: number): Scenario {
   return {
     id: 'chat-approval-face-id',
     owner: 'talyvor-suite',
+    items: ['B28.84'],
     agents: 2,
     title: 'an agent’s payment waiting for a person is a card in Chat; approved with Face ID, it is one pay line on the statement',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1653,6 +1665,7 @@ export function walletHome(seed: number): Scenario {
   return {
     id: 'wallet-home',
     owner: 'talyvor-suite',
+    items: ['B28.6'],
     agents: 1,
     title: 'the first screen after sign-in is Home: each agent’s budget used and the approvals waiting, as Lens has them',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -1708,6 +1721,7 @@ export function agentWalletsEmpty(): Scenario {
   return {
     id: 'agent-wallets-empty',
     owner: 'talyvor-suite',
+    items: ['B28.271'],
     title: 'Agent Wallets with no agents shows only the "Create your first agent" card — no pause-all, forecast or approvals',
     run: async (ctx) => {
       const book = await bookOf(ctx)
@@ -1745,6 +1759,7 @@ export function chatLiveStatement(seed: number): Scenario {
   return {
     id: 'chat-live-statement',
     owner: 'talyvor-suite',
+    items: ['B28.86', 'B28.351'],
     agents: 2,
     title: 'a debit an agent makes appears on the live statement beside Chat within 5 seconds, without a reload',
     run: async (ctx) =>
@@ -1848,6 +1863,7 @@ export function chatRecentCalls(seed: number): Scenario {
   return {
     id: 'chat-recent-calls',
     owner: 'talyvor-suite',
+    items: ['B28.93', 'B28.356'],
     agents: 1,
     title: "an agent's newest 20 calls under Recent calls beside Chat are its statement on Lens: each request's cost, newest first, linked to its row",
     run: async (ctx) =>
@@ -1967,6 +1983,7 @@ export function chatWalletButtons(seed: number): Scenario {
   return {
     id: 'chat-wallet-buttons',
     owner: 'talyvor-suite',
+    items: ['B28.87'],
     agents: 1,
     title: 'fund, withdraw, pause and pause all from Chat, each confirmed first; after Pause all the agent’s next call is refused',
     run: async (ctx) =>
@@ -2084,6 +2101,7 @@ export function chatLaunchAgent(seed: number): Scenario {
   return {
     id: 'chat-launch-agent',
     owner: 'talyvor-suite',
+    items: ['B28.85', 'B28.350'],
     agents: 1,
     title: 'an agent launched from Chat with /agent is in Lens’s book with its budget and rules, and its first call is debited from its wallet',
     run: async (ctx) => {
@@ -2185,6 +2203,7 @@ export function chatPlainRule(seed: number): Scenario {
   return {
     id: 'chat-plain-rule',
     owner: 'talyvor-suite',
+    items: ['B28.88', 'B28.352'],
     agents: 1,
     title: 'a rule typed in plain words in Chat is saved on Lens, and the agent’s next call over it is refused with nothing posted or charged',
     run: (ctx) =>
@@ -2279,6 +2298,7 @@ export function chatAskAbove(seed: number): Scenario {
   return {
     id: 'chat-ask-above',
     owner: 'talyvor-suite',
+    items: ['B28.89', 'B28.353'],
     agents: 2,
     title: '"Ask me above 2 LXC" typed in Chat sets the agent’s approval amount on Lens: 2.1 LXC then waits for a person and 1.9 LXC is paid',
     run: (ctx) =>
@@ -2373,6 +2393,7 @@ export function chatForecastAnswer(seed: number): Scenario {
   return {
     id: 'chat-forecast-answer',
     owner: 'talyvor-suite',
+    items: ['B28.94', 'B28.357'],
     agents: 2,
     title: '"Will <agent> run out this month?" in Chat is answered from the forecast: the day it states is the runs_out_at Lens’s /forecast gives',
     run: (ctx) =>
@@ -2449,6 +2470,7 @@ export function chatPaidBy(seed: number): Scenario {
   return {
     id: 'chat-paid-by',
     owner: 'talyvor-suite',
+    items: ['B28.90', 'B28.354'],
     agents: 1,
     title: 'an agent chosen in Chat’s Paid by pays for the conversation: the charge lands on its statement and the workspace balance does not move',
     run: (ctx) =>
@@ -2534,6 +2556,7 @@ export function chatAgentTask(seed: number): Scenario {
   return {
     id: 'chat-agent-task',
     owner: 'talyvor-suite',
+    items: ['B28.96', 'B28.359'],
     agents: 1,
     title: 'a task handed to an agent from Chat with /task runs on its wallet: every call it makes is charged to the agent’s statement, the workspace balance does not move',
     run: (ctx) =>
@@ -2660,6 +2683,7 @@ export function chatCardFreeze(seed: number): Scenario {
   return {
     id: 'chat-card-freeze',
     owner: 'talyvor-lens',
+    items: ['B28.97', 'B28.360'],
     agents: 1,
     title: 'an agent’s card frozen from Chat with /freeze refuses a purchase, nothing leaves the agent; /unfreeze lets the next one through',
     run: (ctx) =>
@@ -2847,6 +2871,7 @@ export function chatStatement(seed: number): Scenario {
   return {
     id: 'chat-statement',
     owner: 'talyvor-suite',
+    items: ['B28.98'],
     agents: 1,
     title: 'a statement downloaded from Chat with /statement is, row for row, /api/agents/statement for its period',
     run: (ctx) =>
@@ -2967,6 +2992,7 @@ export function chatWalletAlerts(seed: number): Scenario {
   return {
     id: 'chat-wallet-alerts',
     owner: 'talyvor-suite',
+    items: ['B28.91'],
     agents: 2,
     title: 'an agent that runs out and reaches its monthly limit while Chat is open is shown in Chat within ten seconds',
     run: (ctx) =>
@@ -3052,6 +3078,7 @@ export function walletOnboarding(seed: number): Scenario {
   return {
     id: 'wallet-onboarding',
     owner: 'talyvor-suite',
+    items: ['B28.8'],
     agents: 1,
     title: 'a new workspace creates, funds and keys its first agent in Home’s three steps and sees its first request land, with no consent page',
     run: async (ctx) => {
@@ -3128,6 +3155,7 @@ export function walletFirstNav(): Scenario {
   return {
     id: 'wallet-first-nav',
     owner: 'talyvor-suite',
+    items: ['B28.7'],
     title: 'the sidebar leads with the wallet, its Approvals badge is Lens’s pending count, and every link opens a page',
     run: async (ctx) => {
       const page = await ctx.app.tab('/')
@@ -3196,6 +3224,7 @@ export function approvalsBadge(seed: number): Scenario {
   return {
     id: 'approvals-badge',
     owner: 'talyvor-suite',
+    items: ['B28.45'],
     agents: 2,
     title: 'the Approvals badge is live: approving one takes it down by one without a reload, and so does a decision made in another tab',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -3456,6 +3485,7 @@ export function ledgerReadsCorrectly(): Scenario {
   return {
     id: 'ledger-reads-correctly',
     owner: 'talyvor-suite',
+    items: ['B28.268'],
     title: 'the Ledger shows every amount and balance in LXC, and each balance is the row below plus that row’s amount',
     run: async (ctx) => {
       const page = await ctx.app.tab('/ledger')
@@ -3509,6 +3539,7 @@ export function spendPlainWords(): Scenario {
   return {
     id: 'spend-plain-words',
     owner: 'talyvor-suite',
+    items: ['B28.269'],
     title: 'Overview and Spend & routing say "This month, in US dollars" in plain words, and any not-broken-down note is one sentence pointing to the Ledger',
     run: async (ctx) => {
       const seen: string[] = []
@@ -3618,6 +3649,7 @@ export function billingReturnPages(): Scenario {
   return {
     id: 'billing-return-pages',
     owner: 'talyvor-suite',
+    items: ['B28.270'],
     title: '/billing/success with no checkout says "No payment to confirm here." and /billing/cancel says "No payment was taken."',
     run: async (ctx) => {
       const seen: string[] = []
@@ -3684,6 +3716,7 @@ export function agentBalanceStored(seed: number): Scenario {
   return {
     id: 'agent-balance-stored',
     owner: 'talyvor-lens',
+    items: ['B28.20', 'B28.297'],
     agents: 1,
     title: `an agent funded ${MANY_FUNDINGS} times at once holds exactly their sum: the balance Lens stores, the postings on the statement and the screen all agree`,
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -3732,6 +3765,7 @@ export function walletCurrency(seed: number): Scenario {
   return {
     id: 'wallet-currency',
     owner: 'talyvor-suite',
+    items: ['B28.22'],
     agents: 1,
     title: 'an agent funded 12.5 LXC shows its dollar value beside it, and its allowed model is picked, not typed: Lens stores exactly the model picked',
     run: (ctx) => withBank(ctx, async (bank) => {
@@ -3772,6 +3806,7 @@ export function agentArchive(seed: number): Scenario {
   return {
     id: 'agent-archive',
     owner: 'talyvor-lens',
+    items: ['B28.21', 'B28.298'],
     agents: 1,
     title: 'an agent renamed, described and archived on Agent Wallets: one withdraw posting sweeps its whole balance back to the workspace, and its key then writes no hold',
     run: (ctx) => withBank(ctx, async (bank) => {

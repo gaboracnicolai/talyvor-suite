@@ -9,11 +9,12 @@
 // it could not start (its flags). B26.18 — whatever stops it, it writes its report and summary first.
 
 import { realpathSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { type Browser, chromium } from 'playwright'
 import { AppUser, ChargeBook } from './app.ts'
+import { type B28Report, b28Report } from './b28.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
 import { deepJourneys, roundOf } from './deep.ts'
@@ -21,7 +22,7 @@ import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap
 import { type CodeReport, codeSkipped, runCode } from './code.ts'
 import { type EdgeReport, readEdge } from './edge.ts'
 import { type ExplorerSummary, type Finding, Notebook, explore } from './explore.ts'
-import { fileCodeItems, fileEdgeItems, fileHostileItems, fileItems } from './filing.ts'
+import { fileB28Items, fileCodeItems, fileEdgeItems, fileHostileItems, fileItems } from './filing.ts'
 import { type HostileReport, type Repo, runHostile } from './hostile.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
 import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
@@ -29,7 +30,7 @@ import { networkDrop } from './oracles.ts'
 import { cast, seat, seatKey } from './plans.ts'
 import { groupLeads, reportPath, writeReport, writeTesters } from './report.ts'
 import { archiveAll, roomForAgents } from './room.ts'
-import { CannotTest, type Evidence, LEDGER_READBACK, type RunEnv, type Scenario, checkLedger, journeyFor } from './scenarios.ts'
+import { CannotTest, type Evidence, LEDGER_READBACK, type RunEnv, type Scenario, checkLedger, journeyFor, scenarioItems } from './scenarios.ts'
 import { type Versions, productionVersions, readVersions, versionsLine } from './versions.ts'
 
 /** The repository this file is in: reports go to its docs/e2e unless told otherwise. */
@@ -102,6 +103,8 @@ export interface RunResult {
   code?: CodeReport
   /** B28.289 — the hostile pull requests made against each repo's main, and whether CI stops each (hostile.ts). */
   hostile?: HostileReport
+  /** B28.293 — every DONE B28 feature in the queue, the scenarios that name it and their verdicts this run (b28.ts). */
+  b28?: B28Report
   /** B28.292 — the rounds of the weekly deep red-team pass this run was to play; absent on a night without one. */
   deep_rounds?: number
   /** B34.2 — what was tested: the harness, Lens's main at lens-src, and production's versions at the start. */
@@ -687,6 +690,17 @@ async function main(): Promise<number> {
     result.hostile = await runHostile({ 'talyvor-suite': REPO, 'talyvor-lens': cfg.lensSrc, 'talyvor-track': cfg.trackSrc, 'talyvor-docs': cfg.docsSrc }, behind)
     console.log(`hostile pull requests: ${result.hostile.prs.map((v) => `${v.id} ${v.state}`).join(', ')}`)
   }
+  // B28.293 — every DONE B28 feature in the queue, the scenarios that name it and their verdicts this run.
+  if (cfg.buildMd !== 'none') {
+    try {
+      result.b28 = b28Report(await readFile(cfg.buildMd, 'utf8'), scenarioItems(), result.outcomes)
+      const f = result.b28.features
+      console.log(`B28 features: ${f.filter((x) => x.state === 'tested').length} of ${f.length} DONE tested this run, ` +
+        `${f.filter((x) => x.state === 'no scenario').length} with no scenario`)
+    } catch (e) {
+      console.log(`B28 features: no queue to read at ${cfg.buildMd} (${describe(e)})`)
+    }
+  }
   const attempt = async (what: string, write: () => Promise<void>): Promise<void> => {
     try {
       await write()
@@ -758,6 +772,16 @@ async function main(): Promise<number> {
       if (f === undefined) return
       for (const x of f.filed) newItems.push(x.id)
       console.log(`hostile pull request build items: ${f.filed.map((x) => `${x.id} (${x.scenario})`).join(', ') || 'none new'}` +
+        (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
+    })
+  }
+  const b28 = result.b28
+  if (cfg.buildMd !== 'none' && b28 !== undefined) {
+    await attempt(`the untested B28 features' build items to ${cfg.buildMd}`, async () => {
+      const f = await fileB28Items(cfg.buildMd, b28, shown)
+      if (f === undefined) return
+      for (const x of f.filed) newItems.push(x.id)
+      console.log(`untested B28 feature build items: ${f.filed.map((x) => `${x.id} (${x.scenario})`).join(', ') || 'none new'}` +
         (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
     })
   }

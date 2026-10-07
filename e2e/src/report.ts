@@ -9,6 +9,7 @@
 
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { type B28Report, b28Line, renderB28 } from './b28.ts'
 import { type CodeReport, codeLine, renderCode } from './code.ts'
 import { type CoverageMap, type Row, tallyLine } from './coverage.ts'
 import { type EdgeReport, edgeLine, renderEdge } from './edge.ts'
@@ -73,6 +74,8 @@ export interface ReportedRun {
   code?: CodeReport
   /** B28.289 — the hostile pull requests made against each repo's main, and whether CI stops each (hostile.ts). */
   hostile?: HostileReport
+  /** B28.293 — every DONE B28 feature in the queue, the scenarios that name it and their verdicts this run (b28.ts). */
+  b28?: B28Report
   /** B28.292 — the rounds of the weekly deep red-team pass the run was to play; absent on a night without one. */
   deep_rounds?: number
 }
@@ -420,7 +423,8 @@ export function renderRun(run: ReportedRun): string {
     for (const o of os) n[o.status]++
     lines.push(`| \`${id}\` | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${cell(os[0].title)} |`)
   }
-  lines.push(...renderDeep(run), ...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code), ...renderHostile(run.hostile))
+  lines.push(...renderDeep(run), ...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code), ...renderHostile(run.hostile),
+    ...renderB28(run.b28, run.filed))
 
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
@@ -513,6 +517,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
     ...edgeLine(run.edge),
     ...codeLine(run.code),
     ...hostileLine(run.hostile),
+    ...b28Line(run.b28),
     `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
       `${run.stopped_by === undefined ? '' : ', spent before it stopped'}.`,
     `- **Report**: ${report}`,

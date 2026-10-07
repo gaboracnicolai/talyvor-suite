@@ -489,6 +489,7 @@ export function chatHelpInFull(): Scenario {
   return {
     id: 'chat-help-in-full',
     owner: 'talyvor-suite',
+    items: ['B28.267'],
     title: '/chat/help shows all eleven sections, its last sentence, and its whole title, at 1440 and 390',
     run: async (ctx) => {
       const { dir, link } = ctx.env.shots

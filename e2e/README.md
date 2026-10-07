@@ -132,6 +132,21 @@ verdict in every round, and its item) and TESTERS.md one line. By hand: `E2E_DEE
 Self-test: `E2E_DEEP_ROUNDS=1 STUB_BREAK=ratelimit-open-later` — the limiter fails open only after the first workspace that
 bursts it — PASSes the night's `rate-limits-hold` and FAILs round 1's, which is filed.
 
+## Every B28 feature with its own test (B28.293)
+
+**A scenario names the build items whose feature it exercises end to end**: `items: ['B28.24', 'B28.300']` beside its
+`owner` — the item on each side of a split feature. Ship a B28 feature with the scenario that names it, asserting the
+ledger row where money moves, and a planted stub defect it FAILs on.
+
+After the scenarios the run reads `--build-md` (`src/b28.ts`) and the report gets a **B28 features** section: every B28
+item marked DONE, the scenarios that name it and their verdicts this run, so the count of features tested rises as they
+land and a feature that breaks or goes away FAILs by name. The testers' own items (repo `talyvor-e2e`, or titled for an
+e2e scenario) are tests, not features; edge-infra's are proven on kind (the Talyvor Edge section); and `NO_SCENARIO`
+holds the few no scenario can reach, each with the true reason (words only on GitHub, CI configuration, Track and Docs
+served only to the BFF). A DONE feature none of that covers, and no scenario names, files one item for `talyvor-e2e`,
+`deps:` the feature, `e2e-scenario: b28-untested-<id>`, under the same once-only rule as a scenario; an OPEN, CLAIMED or
+BLOCKED e2e item whose `deps:` name the feature holds it instead. TESTERS.md gets the section in one line.
+
 ## Every night, and the explorers (B17.5)
 
 `scripts/e2e-nightly.sh` is installed once under launchd and left running (B34.2):
