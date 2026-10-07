@@ -81,7 +81,7 @@ import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
 import { DOC_CAP, auditWebhook, docxDocument, nodesAvailable, nodesRoute } from './stub-guards.ts'
-import { roomsRoute } from './stub-rooms.ts'
+import { roomsModeratorRoute, roomsRoute } from './stub-rooms.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -937,6 +937,8 @@ createServer(async (req, res) => {
     if (await bank.agentPay(req, res, bearer, p)) return
     if (await bank.agentUse(req, res, bearer, p)) return
     if (await bank.moderatorRoute(req, res, bearer, p)) return
+    // B32.91 — the operator's room queue, keep and close, on the same moderator key (stub-rooms.ts).
+    if (await roomsModeratorRoute(req, res, p, bearer, process.env.STUB_MODERATOR_KEY ?? '')) return
     if (p.startsWith('/stub-connect/')) {
       res.writeHead(200, { 'Content-Type': 'text/html' })
       return void res.end('<!doctype html><title>Stripe Connect onboarding (stub)</title><h1>Stripe Connect onboarding (stub)</h1>')

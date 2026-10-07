@@ -33,6 +33,20 @@
 //                                               refused 403 above what the budget has left less the open prizes
 //   GET    /v1/workspaces/{ws}/agents/{wallet}/rules   the room wallet's rules; PUT refuses a monthly limit above the
 //                                               owner's plan's room_budget_max_usd (or none) 402 naming rooms_plan_limits
+//
+// B32.91 — and room safety (Lens B32.52), for the moderation scenario:
+//
+//   POST   /v1/rooms/{id}/reports                 {reason, details}: 201; a public room reported by HIDE_AT workspaces
+//   POST   /v1/rooms/{id}/messages/{m}/reports    leaves GET /v1/rooms and reads under_review until the operator reviews it
+//   PATCH  /v1/rooms/{id}/members/{ws}            {banned: true|false}: a banned member is removed, its post and join 403
+//   POST   /v1/rooms/{id}/runs                    {target, pay}: a run paid by the room is a line on the room wallet's
+//   GET    /v1/workspaces/{ws}/agents/{wallet}/statement   statement; a closed room's run, post and join are 409
+//   GET    /v1/admin/rooms/reports                the moderator key: the queue, with hide_at
+//   POST   /v1/admin/rooms/{id}/moderate          {action: keep|close, reason}: its operator_audit row in the answer
+//   GET    /v1/admin/operator-audit               403 to a moderator key, as Lens answers it
+//
+// STUB_BREAK=room-reports keeps a reported room listed; room-ban lets a banned member post; room-close refuses a closed
+// room's run and spends its wallet anyway — each of them a defect the scenario must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -58,7 +72,20 @@ interface Room {
   created_at: string; last_activity_at: string
   /** B32.55 — the owner's plan when it opened the room, its invites and prizes, and its wallet's rules. */
   plan: string; invites: Invite[]; prizes: Prize[]; walletRules: Record<string, unknown>
+  /** B32.91 — its reports, the workspaces banned from it, and its wallet's statement lines, newest last. */
+  reports: Report[]; banned: string[]; walletLines: { entry_id: string; kind: string; amount_ulxc: number; counterparty: string; ref: string; balance_after_ulxc: number; at: string }[]
 }
+
+interface Report { id: string; ws: string; message_id?: string; reason: string; details: string; created_at: string; resolution?: string }
+
+/** LENS_ROOM_REPORTS_HIDE's default: the workspaces whose open reports take a public room off the list. */
+const HIDE_AT = 3
+/** The workspaces with an open report of `r`, less any whose earlier report the operator kept (Lens openReporters). */
+const openReporters = (r: Room) => new Set(r.reports.filter((x) => x.resolution === undefined && !r.reports.some((k) => k.ws === x.ws && k.resolution === 'kept')).map((x) => x.ws)).size
+const underReview = (r: Room) => r.visibility === 'public' && r.status === 'open' && openReporters(r) >= HIDE_AT
+const closedRoom = { error: 'rooms: conflict: the room is closed' }
+const bannedFrom = { error: "rooms: not allowed: the room's owner or an editor has banned you from this room" }
+const audit: { id: number; actor: string; action: string; target: string; detail: string; occurred_at: string; recorded_at: string }[] = []
 
 /** One LXC is ten cents at the peg: µLXC to µUSD. */
 const ULXC_PER_USD = 10_000_000
@@ -125,7 +152,12 @@ async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, 
   if (what === 'messages' && req.method === 'GET') {
     return json(res, 200, { messages: messages.get(r.id) ?? [], more: false, events_cursor: cursor }), true
   }
+  if (req.method !== 'GET' && r.status === 'closed') return json(res, 409, closedRoom), true
   if (what === 'messages' && req.method === 'POST') {
+    if (r.banned.includes(ws) && BREAK !== 'room-ban') return json(res, 403, bannedFrom), true
+    if (!r.members.some((m) => m.workspace_id === ws) && !(r.banned.includes(ws) && BREAK === 'room-ban')) {
+      return json(res, 403, { error: 'rooms: not allowed: join the room to post in it' }), true
+    }
     const text = String((await body(req)).body ?? '')
     if (text.trim() === '') return json(res, 400, { error: 'rooms: invalid request: a message needs a body' }), true
     return json(res, 201, post(r.id, ws, text)), true
@@ -195,7 +227,8 @@ const detail = (r: Room, ws: string) => {
     max_per_request_ulxc: 0, approval_above_ulxc: 0, budget_max_ulxc: budgetMax(r), spend_policy: r.terms.spend_policy, may_spend: me.role === 'owner',
     ...(me.role === 'owner' ? {} : { why_not: 'only the room’s owner spends its budget' }),
   }
-  return { ...view(r), terms: r.terms, members: r.members.map((m) => member(r, m)), agents: [], me: me === undefined ? null : member(r, me), ...(wallet ? { wallet } : {}) }
+  return { ...view(r), terms: r.terms, members: r.members.map((m) => member(r, m)), agents: [], me: me === undefined ? null : member(r, me), ...(wallet ? { wallet } : {}),
+    ...(underReview(r) ? { under_review: true } : {}) }
 }
 
 /** Answers a rooms route for workspace `ws` on plan `plan`; false when `p` is not one. */
@@ -206,7 +239,7 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
     const topic = (url.searchParams.get('topic') ?? '').toLowerCase()
     const all = [...rooms.values()].sort((a, b) => b.last_activity_at.localeCompare(a.last_activity_at))
     json(res, 200, {
-      rooms: all.filter((r) => r.visibility === 'public' && r.status === 'open' && (topic === '' || r.topic.toLowerCase() === topic)).map(view),
+      rooms: all.filter((r) => r.visibility === 'public' && r.status === 'open' && (topic === '' || r.topic.toLowerCase() === topic) && (BREAK === 'room-reports' || !underReview(r))).map(view),
       joined: all.filter((r) => r.members.some((m) => m.workspace_id === ws)).map(view),
       invited: [],
       limits: { plan, limit_as: LIMITS[plan] === undefined ? 'free' : plan, ...limits,
@@ -240,23 +273,27 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
       created_at: now, last_activity_at: now, plan: LIMITS[plan] === undefined ? 'free' : plan, invites: [], prizes: [],
       walletRules: { max_per_request_ulxc: 0, daily_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0, allowed_models: null,
         allowed_providers: null, active_from: '', active_until: '', timezone: '' },
+      reports: [], banned: [], walletLines: [],
     }
     rooms.set(r.id, r)
     json(res, 201, detail(r, ws))
     return true
   }
   if (await settingsOutsideRoom(req, res, p, ws)) return true
-  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions|members|invites|prizes)/.exec(p)
+  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions|members|invites|prizes|reports|runs)/.exec(p)
   if (one === null) return false
   const r = rooms.get(decodeURIComponent(one[1]))
   if (r === undefined || (r.visibility === 'private' && !r.members.some((m) => m.workspace_id === ws))) {
     json(res, 404, { error: 'rooms: not found: no such room' })
     return true
   }
+  if (await roomSafety(req, res, p, ws, r)) return true
   if (await roomScreen(req, res, p, url, ws, r)) return true
   if (await roomSettings(req, res, p, ws, r)) return true
   if (one[2] === undefined && req.method === 'GET') return json(res, 200, detail(r, ws)), true
   if (one[2] === '/join' && req.method === 'POST') {
+    if (r.banned.includes(ws)) return json(res, 403, bannedFrom), true
+    if (r.status !== 'open') return json(res, 409, closedRoom), true
     const d = await body(req)
     if (d.terms_version !== r.terms.version) {
       json(res, 409, { error: `rooms: conflict: the room's terms are at version ${r.terms.version}; read them and join with terms_version ${r.terms.version}` })
@@ -301,10 +338,11 @@ async function settingsOutsideRoom(req: IncomingMessage, res: ServerResponse, p:
     }
     return false
   }
-  const rules = /^\/v1\/workspaces\/([^/]+)\/agents\/(ag_room_[^/]+)\/rules$/.exec(p)
+  const rules = /^\/v1\/workspaces\/([^/]+)\/agents\/(ag_room_[^/]+)\/(rules|statement)$/.exec(p)
   if (rules === null || rules[1] !== ws) return false
   const r = [...rooms.values()].find((x) => walletID(x) === rules[2] && x.owner_workspace_id === ws)
   if (r === undefined) return json(res, 404, { error: 'economy: agent not found' }), true
+  if (rules[3] === 'statement') return req.method === 'GET' ? (json(res, 200, { agent_id: walletID(r), lines: [...r.walletLines].reverse() }), true) : false
   if (req.method === 'GET') return json(res, 200, r.walletRules), true
   if (req.method !== 'PUT') return false
   const d = await body(req)
@@ -335,6 +373,11 @@ async function roomSettings(req: IncomingMessage, res: ServerResponse, p: string
     if (m === undefined) return json(res, 404, { error: 'rooms: not found: no such member' }), true
     if (m.role === 'owner') return json(res, 400, { error: "rooms: invalid request: the owner's membership does not change" }), true
     const d = await body(req)
+    if (d.banned === true) {
+      r.members = r.members.filter((x) => x !== m)
+      if (!r.banned.includes(m.workspace_id)) r.banned.push(m.workspace_id)
+      return json(res, 200, { ...member(r, m), banned_at: new Date().toISOString() }), true
+    }
     if (d.remove === true) {
       r.members = r.members.filter((x) => x !== m)
       return json(res, 200, member(r, m)), true
@@ -378,4 +421,70 @@ async function roomSettings(req: IncomingMessage, res: ServerResponse, p: string
     return json(res, 201, z), true
   }
   return false
+}
+
+/** B32.91 — reports of a room or a message, and a run in it; false when `p` is neither. */
+async function roomSafety(req: IncomingMessage, res: ServerResponse, p: string, ws: string, r: Room): Promise<boolean> {
+  const rep = /^\/v1\/rooms\/[^/]+(?:\/messages\/([^/]+))?\/reports$/.exec(p)
+  if (rep !== null && req.method === 'POST') {
+    const d = await body(req)
+    const messageID = rep[1] === undefined ? undefined : decodeURIComponent(rep[1])
+    if (messageID !== undefined && !(messages.get(r.id) ?? []).some((m) => m.id === messageID)) return json(res, 404, { error: 'rooms: not found: no such message' }), true
+    const was = r.reports.find((x) => x.ws === ws && x.message_id === messageID && x.resolution === undefined)
+    if (was !== undefined) return json(res, 200, { id: was.id, room_id: r.id, reason: was.reason, created_at: was.created_at, already_reported: true }), true
+    const x: Report = { id: 'rrep_' + randomBytes(10).toString('hex'), ws, ...(messageID ? { message_id: messageID } : {}), reason: String(d.reason ?? ''),
+      details: String(d.details ?? ''), created_at: new Date().toISOString() }
+    r.reports.push(x)
+    return json(res, 201, { id: x.id, room_id: r.id, ...(messageID ? { message_id: messageID } : {}), reason: x.reason, details: x.details, created_at: x.created_at }), true
+  }
+  if (p !== `/v1/rooms/${r.id}/runs` || req.method !== 'POST') return false
+  if (!r.members.some((m) => m.workspace_id === ws)) return json(res, 403, { error: 'rooms: not allowed: join the room to run things in it' }), true
+  // STUB_BREAK=room-close: a closed room's run is refused, and its wallet is spent anyway — only the statement shows it.
+  const closed = r.status === 'closed'
+  if (closed && BREAK !== 'room-close') return json(res, 409, closedRoom), true
+  const d = await body(req)
+  const target = (contributions.get(r.id) ?? []).find((c) => c.id === String(d.target ?? ''))
+  if (target === undefined) return json(res, 404, { error: 'market: not found: no such listing' }), true
+  const at = new Date().toISOString()
+  const cost = 1_000
+  const balance = r.walletLines.reduce((n, l) => n + l.amount_ulxc, 0) - cost
+  r.walletLines.push({ entry_id: 'je_' + randomBytes(8).toString('hex'), kind: 'agent_spend', amount_ulxc: -cost, counterparty: 'models', ref: target.listing_id, balance_after_ulxc: balance, at })
+  if (closed) return json(res, 409, closedRoom), true
+  const m = post(r.id, ws, `ran “${target.title}”, paid by the room`, 'run', { run: 'use', listing_id: target.listing_id, pay: d.pay ?? 'room' })
+  return json(res, 200, { use: { id: 'use_' + randomBytes(8).toString('hex'), listing_id: target.listing_id, charge: cost }, pay: d.pay ?? 'room', message: m }), true
+}
+
+/** B32.91 — the operator's room routes behind the moderator key naming its operator; false when `p` is not one. */
+export async function roomsModeratorRoute(req: IncomingMessage, res: ServerResponse, p: string, key: string, moderatorKey: string): Promise<boolean> {
+  if (!p.startsWith('/v1/admin/rooms/') && p !== '/v1/admin/operator-audit') return false
+  if (moderatorKey === '' || key !== moderatorKey) return json(res, 401, { error: 'admin credentials required' }), true
+  const operator = String(req.headers['x-talyvor-operator'] ?? '').trim()
+  if (operator === '') return json(res, 400, { error: 'a moderator key must name the operator it acts for in X-Talyvor-Operator' }), true
+  if (p === '/v1/admin/operator-audit') return json(res, 403, { error: 'a moderator key may only use the marketplace review queue' }), true
+  if (p === '/v1/admin/rooms/reports' && req.method === 'GET') {
+    const open = [...rooms.values()].filter((r) => r.reports.some((x) => x.resolution === undefined))
+    return json(res, 200, { rooms: open.map((r) => ({ room: view(r), reporters: openReporters(r), hidden: underReview(r),
+      reports: r.reports.filter((x) => x.resolution === undefined) })), hide_at: HIDE_AT, setting: 'LENS_ROOM_REPORTS_HIDE' }), true
+  }
+  const mod = /^\/v1\/admin\/rooms\/([^/]+)\/moderate$/.exec(p)
+  if (mod === null || req.method !== 'POST') return false
+  const r = rooms.get(decodeURIComponent(mod[1]))
+  if (r === undefined) return json(res, 404, { error: 'rooms: not found: no such room' }), true
+  const d = await body(req)
+  const action = String(d.action ?? '')
+  const reason = String(d.reason ?? '').trim()
+  if (action !== 'keep' && action !== 'close') return json(res, 400, { error: 'rooms: invalid request: action must be keep, lock, unlock or close' }), true
+  if (action === 'close' && reason === '') return json(res, 400, { error: 'rooms: invalid request: say why the room is closed: reason' }), true
+  if (action === 'close' && r.status === 'closed') return json(res, 409, { error: 'rooms: conflict: the room is already closed' }), true
+  const open = r.reports.filter((x) => x.resolution === undefined)
+  for (const x of open) x.resolution = action === 'keep' ? 'kept' : 'closed'
+  if (action === 'close') {
+    r.status = 'closed'
+    post(r.id, '', 'Talyvor has closed this room: it takes no more messages, and its budget is spent no more.', 'system', { room_status: 'closed' })
+  }
+  const now = new Date().toISOString()
+  const a = { id: audit.length + 1, actor: operator, action: `room.${action}`, target: r.id,
+    detail: open.length > 0 ? `${reason} (resolved ${open.length} open reports)`.trim() : reason, occurred_at: now, recorded_at: now }
+  audit.push(a)
+  return json(res, 200, { room: view(r), resolved_reports: open.length, audit: a }), true
 }
