@@ -76,6 +76,8 @@ import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
 import { Sources, WebSearchToggle } from './WebSearch'
 import { CodeRuns, RunCodeToggle } from './RunCode'
+import { Canvas, OpenInCanvas } from './Canvas'
+import { artifactHtml, artifactTitle, htmlArtifacts, withArtifactEdit } from './artifacts'
 import { useRevealedText } from './reveal'
 import { cutOff } from './chatStream'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatCharged, formatCostRange, formatUsdPer1M, pricedAnswer } from './price'
@@ -265,6 +267,9 @@ export function Chat() {
   const [budget, setBudget] = useState<number | undefined>(undefined)
   // B28.111 — the question being edited in place, by its place in the thread; null when none is.
   const [editing, setEditing] = useState<number | null>(null)
+  // B28.120 — the HTML block open in the canvas: the answer's place in the thread and the block's among its HTML blocks.
+  const [canvas, setCanvas] = useState<{ at: number; n: number } | null>(null)
+  const closeCanvas = useCallback(() => setCanvas(null), [])
 
   // History is scoped to who is signed in; until that is known there is nowhere to keep it.
   const me = useAuthMeReader()
@@ -333,6 +338,7 @@ export function Chat() {
     setDrawerOpen(false)
     setWaiting(false)
     setEditing(null)
+    setCanvas(null)
   }, [])
 
   // B28.275 — a question can be sent before who is signed in is known. Until then its conversation
@@ -876,6 +882,7 @@ export function Chat() {
       const next = showVersion(messages, at, to)
       setMessages(next)
       setEditing(null)
+      setCanvas(null)
       setFailure(null)
       if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, messages: next } : c)))
     },
@@ -909,6 +916,30 @@ export function Chat() {
     },
     [activeId, store],
   )
+
+  // B28.120 — an edit made in the canvas, kept with the conversation like the answer it was made to. Saved as the canvas
+  // closes on the way to another conversation, it is the one it was made in that keeps it: in storage only.
+  const saveArtifact = useCallback(
+    (at: number, n: number, html: string) => {
+      const next = withArtifactEdit(messages, at, n, html)
+      if (activeRef.current === activeId) setMessages(next)
+      if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, messages: next } : c)))
+    },
+    [activeId, messages, store],
+  )
+  const canvasHtml = canvas === null ? undefined : artifactHtml(messages[canvas.at], canvas.n)
+  const canvasPanel =
+    canvas === null || canvasHtml === undefined ? null : (
+      <Canvas
+        key={`${activeId ?? ''}:${canvas.at}:${canvas.n}`}
+        title={artifactTitle(canvasHtml, canvas.n)}
+        html={canvasHtml}
+        original={htmlArtifacts(messages[canvas.at]?.content ?? '')[canvas.n] ?? canvasHtml}
+        locked={pending}
+        onSave={(html) => saveArtifact(canvas.at, canvas.n, html)}
+        onClose={closeCanvas}
+      />
+    )
 
   // B10.2 — Stop ends the answer where it is. streamChat returns silently on an aborted signal
   // (neither onDone nor onError), so the screen leaves the answering state here; run() then keeps
@@ -1155,6 +1186,7 @@ export function Chat() {
                         onVersion={pending ? undefined : (to) => switchVersion(i, to)}
                         onMarkWrong={m.request_id !== undefined ? () => markWrong(m.request_id!) : undefined}
                         onReveal={i === messages.length - 1 ? follow : undefined}
+                        onOpenArtifact={(n) => setCanvas({ at: i, n })}
                         usdPerLXC={usdPerLXC}
                         fallbackModel={selected?.display_name}
                       />
@@ -1341,7 +1373,18 @@ export function Chat() {
         </div>
       </div>
 
-      {statementBeside ? (
+      {/* B28.120 — the canvas, open: beside the conversation where the statement stands, a drawer on a narrower screen. */}
+      {canvasPanel !== null ? (
+        statementBeside ? (
+          <aside aria-label="Canvas" className="sticky top-12 flex h-below-header w-2/5 shrink-0 flex-col border-l border-rule">
+            {canvasPanel}
+          </aside>
+        ) : (
+          <Drawer side="right" label="Canvas" wide onClose={closeCanvas}>
+            {canvasPanel}
+          </Drawer>
+        )
+      ) : statementBeside ? (
         <aside aria-label="Statement" className="sticky top-12 flex h-below-header w-80 shrink-0 flex-col border-l border-rule bg-sidebar">
           {/* B28.358 — what the cache, the shared pool, conversion and Tare saved in this conversation. */}
           <ChatSavings messages={messages} />
@@ -1657,11 +1700,14 @@ function Drawer({
   children,
   side = 'left',
   label = 'Conversations',
+  wide = false,
 }: {
   onClose: () => void
   children: React.ReactNode
   side?: 'left' | 'right'
   label?: string
+  /** B28.120 — as wide as the screen allows, up to a page's width: the canvas. */
+  wide?: boolean
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
@@ -1686,7 +1732,7 @@ function Drawer({
         aria-label={label}
         className={cn(
           'absolute inset-y-0 flex max-w-full flex-col bg-sidebar',
-          side === 'left' ? 'left-0 w-72 border-r border-rule' : 'right-0 w-80 border-l border-rule',
+          side === 'left' ? 'left-0 w-72 border-r border-rule' : cn('right-0 border-l border-rule', wide ? 'w-full max-w-2xl' : 'w-80'),
         )}
       >
         {children}
@@ -1868,6 +1914,7 @@ function Reply({
   onVersion,
   onMarkWrong,
   onReveal,
+  onOpenArtifact,
   usdPerLXC,
   fallbackModel,
 }: {
@@ -1883,6 +1930,8 @@ function Reply({
   onMarkWrong?: () => Promise<void>
   /** Called as the answer grows on screen, so the view can follow it. */
   onReveal?: () => void
+  /** B28.120 — opens the answer's HTML block `n` in the canvas. */
+  onOpenArtifact?: (n: number) => void
   usdPerLXC: number | undefined
   fallbackModel: string | undefined
 }) {
@@ -1914,7 +1963,15 @@ function Reply({
           {canRegenerate ? <Button onClick={onRegenerate}>Retry</Button> : null}
         </div>
       ) : (
-        <Markdown source={shown.text} />
+        <Markdown
+          source={shown.text}
+          htmlAction={
+            // B28.120 — once the answer is whole: an HTML block still being written is not yet a page.
+            onOpenArtifact !== undefined && !answering && !shown.revealing
+              ? (n) => <OpenInCanvas edited={message.artifact_edits?.[n] !== undefined} onOpen={() => onOpenArtifact(n)} />
+              : undefined
+          }
+        />
       )}
       {message.spend !== undefined && message.spend.length > 0 && !answering && !shown.revealing ? <StatementLines lines={message.spend} /> : null}
       {message.citations !== undefined && message.incomplete !== 'blank' && !answering && !shown.revealing ? <Sources citations={message.citations} /> : null}

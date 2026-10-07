@@ -132,6 +132,9 @@ export interface ChatMessage {
   /** B28.373 — on an answer asked with Run code on: the code the model ran in Lens's sandbox and what it printed, in the
    *  order it ran (chatStream.ts CODE_RUN_FRAME). Screen-side only. */
   code_runs?: CodeRun[]
+  /** B28.120 — on an answer: its HTML artifacts as edited in the canvas, by their place among its HTML blocks
+   *  (artifacts.ts); one never edited is not here. Screen-side only. */
+  artifact_edits?: Record<number, string>
 }
 
 /** B28.370 — the named prompt an answer was asked with, and whether Lens's answer said it used it. */
