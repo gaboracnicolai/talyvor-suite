@@ -726,3 +726,118 @@ export function brandROI(): Scenario {
     },
   }
 }
+
+/** B36.1 — how far apart two pixels may be, per channel, and still read as one surface. */
+const HERO_EDGE_TOLERANCE = 8
+
+/** B36.1 — one edge of the hero photograph as pixels: per sample, the largest per-channel gap between
+ *  the pixel and what it should melt into (the page background, or the pixel across the photo's edge). */
+export interface HeroEdge {
+  /** Which edge, at which size and theme, in words. */
+  edge: string
+  gaps: number[]
+}
+
+/** The oracle: each edge where the photograph still meets the page in a line a person can see. */
+export function heroFadeFaults(edges: HeroEdge[]): string[] {
+  return edges.flatMap((e) => {
+    if (e.gaps.length === 0) return [`${e.edge}: nothing sampled`]
+    return Math.max(...e.gaps) > HERO_EDGE_TOLERANCE ? [`${e.edge}: a hard edge (${e.gaps.join(' ')} apart, over ${HERO_EDGE_TOLERANCE})`] : []
+  })
+}
+
+/** Reads the RGB of each point of a PNG screenshot, decoded by the browser in a blank page. */
+async function pixelsAt(scratch: Page, png: Buffer, points: [number, number][]): Promise<number[][]> {
+  return scratch.evaluate(async ({ b64, points }) => {
+    const img = new Image()
+    img.src = `data:image/png;base64,${b64}`
+    await img.decode()
+    const canvas = document.createElement('canvas')
+    canvas.width = img.width
+    canvas.height = img.height
+    const g = canvas.getContext('2d')!
+    g.drawImage(img, 0, 0)
+    return points.map(([x, y]) => Array.from(g.getImageData(Math.round(x), Math.round(y), 1, 1).data.slice(0, 3)))
+  }, { b64: png.toString('base64'), points })
+}
+
+const gap = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(v - b[i]!)))
+
+/** B36.1 — the hero photograph fades into the page: no line where it meets the text half or the page
+ *  below it. Signed out on /marketing in both themes. At 1440×900, at ten heights the pixel 2px inside
+ *  the photo's left edge is the page background, and the pixels 4px either side of that edge match;
+ *  at ten points across, the pixel 3px above the hero's bottom is the page background. At 390×844 the
+ *  photo's top and bottom rows are the page background. Each within 8 per channel. */
+export function heroFade(): Scenario {
+  return {
+    id: 'hero-fade',
+    owner: 'talyvor-suite',
+    title: '/marketing: the hero photograph fades into the page on its left and bottom edges at 1440, and top and bottom at 390, in both themes',
+    run: async (ctx) => {
+      const browser = ctx.app.context.browser()
+      if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
+      const origin = new URL(ctx.app.page.url()).origin
+      const { dir, link } = ctx.env.shots
+      await mkdir(dir, { recursive: true })
+      const edges: HeroEdge[] = []
+      for (const theme of THEMES) {
+        const stranger = await browser.newContext({ colorScheme: theme, deviceScaleFactor: 1 })
+        try {
+          const page = await stranger.newPage()
+          const scratch = await stranger.newPage()
+          for (const [width, height] of VIEWPORTS) {
+            await page.setViewportSize({ width, height })
+            await view(page, `${origin}/marketing`, theme)
+            const geo = await page.evaluate(async () => {
+              const img = document.querySelector<HTMLImageElement>('figure.tal-hero-photo img')!
+              await img.decode().catch(() => undefined)
+              const abs = (r: DOMRect) => ({ top: r.top + scrollY, bottom: r.bottom + scrollY, left: r.left, right: r.right })
+              const section = document.querySelector('figure.tal-hero-photo')!.closest('section')!
+              // The page background: the first ancestor of the hero that paints one.
+              let bg = 'rgb(0, 0, 0)'
+              for (let el: Element | null = section; el !== null; el = el.parentElement) {
+                const c = getComputedStyle(el).backgroundColor
+                if (c !== 'transparent' && !/,\s*0\)$/.test(c)) { bg = c; break }
+              }
+              return { s: abs(section.getBoundingClientRect()), f: abs(img.closest('figure')!.getBoundingClientRect()), bg: bg.match(/\d+/g)!.slice(0, 3).map(Number) }
+            })
+            const png = await page.screenshot({ fullPage: true, animations: 'disabled' })
+            const file = `hero-fade-${width}-${theme}.jpg`
+            await page.screenshot({ path: join(dir, file), type: 'jpeg', quality: 80 })
+            const { s, f, bg } = geo
+            const across = Array.from({ length: 10 }, (_, k) => f.left + (f.right - f.left) * ((k + 0.5) / 10))
+            const at = `${width} ${theme}`
+            if (width === 1440) {
+              const ys = Array.from({ length: 10 }, (_, k) => s.top + (s.bottom - s.top) * (0.1 + (0.8 * k) / 9))
+              const px = await pixelsAt(scratch, png, [
+                ...ys.flatMap((y): [number, number][] => [[f.left + 2, y], [f.left - 4, y], [f.left + 4, y]]),
+                ...across.map((x): [number, number] => [x, s.bottom - 3]),
+              ])
+              edges.push(
+                { edge: `${at} left edge against the page`, gaps: ys.map((_, k) => gap(px[k * 3]!, bg)) },
+                { edge: `${at} across the left edge`, gaps: ys.map((_, k) => gap(px[k * 3 + 1]!, px[k * 3 + 2]!)) },
+                { edge: `${at} bottom against the page`, gaps: across.map((_, k) => gap(px[30 + k]!, bg)) },
+              )
+            } else {
+              const px = await pixelsAt(scratch, png, across.flatMap((x): [number, number][] => [[x, Math.ceil(f.top)], [x, Math.floor(f.bottom) - 1]]))
+              edges.push(
+                { edge: `${at} top row against the page`, gaps: across.map((_, k) => gap(px[k * 2]!, bg)) },
+                { edge: `${at} bottom row against the page`, gaps: across.map((_, k) => gap(px[k * 2 + 1]!, bg)) },
+              )
+            }
+            const mine = edges.filter((e) => e.edge.startsWith(at))
+            ctx.evidence.push({ note: `/marketing ${width}×${height} ${theme}: page rgb(${bg.join(', ')}); ${mine.map((e) => `${e.edge.slice(at.length + 1)} ${e.gaps.join(' ')}`).join('; ')}`, shot: `${link}/${file}` })
+          }
+          await scratch.close()
+          await page.close()
+        } finally {
+          await stranger.close()
+        }
+      }
+      const faults = heroFadeFaults(edges)
+      return faults.length === 0
+        ? { pass: true, detail: `the hero photograph fades into the page at 1440 and 390 in both themes: every sampled edge pixel within ${HERO_EDGE_TOLERANCE} of the page` }
+        : { pass: false, detail: `/marketing: ${faults.join('; ')}`, where: ['/marketing'] }
+    },
+  }
+}

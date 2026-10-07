@@ -213,7 +213,11 @@ export function Landing() {
           Below the motion: the board's pieces the preset has no token for — the logo lockup per
           theme, and the hero photograph and its scrim. Colour comes only from the
           theme's variables. The photograph's figure carries data-theme="dark", so its scrim is
-          Obsidian in both themes. */}
+          Obsidian in both themes.
+
+          B36.1: the figure itself is masked, so its left and bottom edges (top and bottom under the
+          text on a phone) fade to transparent and whichever theme the page is in shows through —
+          nothing is painted over the photo, and the man at the glass sits in the opaque part. */}
       <style>{`
         @keyframes tal-rise { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
         .tal-rise { animation: tal-rise .42s cubic-bezier(.2,.7,.3,1) both }
@@ -229,6 +233,12 @@ export function Landing() {
         [data-theme='light'] .tal-logo-dark { display: none }
         [data-theme='light'] .tal-logo-light { display: block }
         .tal-hero-photo { position: relative; margin: 0; aspect-ratio: 16 / 9; overflow: hidden; background: var(--canvas) }
+        .tal-hero-photo {
+          -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.35) 6%, rgba(0,0,0,.75) 12%, #000 18%,
+            #000 78%, rgba(0,0,0,.9) 83%, rgba(0,0,0,.65) 89%, rgba(0,0,0,.35) 94%, rgba(0,0,0,.12) 98%, transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.35) 6%, rgba(0,0,0,.75) 12%, #000 18%,
+            #000 78%, rgba(0,0,0,.9) 83%, rgba(0,0,0,.65) 89%, rgba(0,0,0,.35) 94%, rgba(0,0,0,.12) 98%, transparent 100%);
+        }
         .tal-hero-photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 50% }
         .tal-hero-scrim {
           position: absolute; inset: 0;
@@ -237,6 +247,24 @@ export function Landing() {
         }
         @media (min-width: 840px) {
           .tal-hero-photo { position: absolute; top: 0; bottom: 0; left: 50%; right: 0; aspect-ratio: auto }
+          .tal-hero-photo {
+            -webkit-mask-image:
+              linear-gradient(to right, transparent 0%, rgba(0,0,0,.06) 6%, rgba(0,0,0,.18) 12%, rgba(0,0,0,.36) 18%,
+                rgba(0,0,0,.56) 24%, rgba(0,0,0,.74) 30%, rgba(0,0,0,.88) 36%, rgba(0,0,0,.97) 42%, #000 48%),
+              linear-gradient(to bottom, #000 0%, #000 78%, rgba(0,0,0,.9) 83%, rgba(0,0,0,.65) 89%, rgba(0,0,0,.35) 94%,
+                rgba(0,0,0,.12) 98%, transparent 100%);
+            mask-image:
+              linear-gradient(to right, transparent 0%, rgba(0,0,0,.06) 6%, rgba(0,0,0,.18) 12%, rgba(0,0,0,.36) 18%,
+                rgba(0,0,0,.56) 24%, rgba(0,0,0,.74) 30%, rgba(0,0,0,.88) 36%, rgba(0,0,0,.97) 42%, #000 48%),
+              linear-gradient(to bottom, #000 0%, #000 78%, rgba(0,0,0,.9) 83%, rgba(0,0,0,.65) 89%, rgba(0,0,0,.35) 94%,
+                rgba(0,0,0,.12) 98%, transparent 100%);
+            -webkit-mask-composite: source-in;
+            mask-composite: intersect;
+            -webkit-mask-repeat: no-repeat;
+            mask-repeat: no-repeat;
+            -webkit-mask-size: 100% 100%;
+            mask-size: 100% 100%;
+          }
           .tal-hero-photo img { object-position: 62% 50% }
           .tal-hero-scrim {
             background: linear-gradient(90deg, var(--canvas) 0%, color-mix(in srgb, var(--canvas) 72%, transparent) 26%,
@@ -293,7 +321,8 @@ export function Landing() {
 
       <main className="flex-1">
         {/* ── 00 · The product ─────────────────────────────────────────────── */}
-        <section aria-labelledby="hero-heading" className="relative overflow-hidden border-b border-rule">
+        {/* No border-b on this one section: the photograph fades out at its bottom (B36.1). */}
+        <section aria-labelledby="hero-heading" className="relative overflow-hidden">
           <div className="relative z-10 mx-auto w-full max-w-6xl px-gutter pb-12 pt-14 wide:pb-28 wide:pt-24">
             <div className="wide:w-1/2 wide:pr-12">
               <div className="tal-stagger">

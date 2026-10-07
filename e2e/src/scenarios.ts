@@ -35,7 +35,7 @@ import { agentApprovalDenied, lxcConvertBonds, marketRemixLicence, walletCardFre
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
-import { brandDocs, brandROI, brandVisual, companyLine, readingPages } from './brand.ts'
+import { brandDocs, brandROI, brandVisual, companyLine, heroFade, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
@@ -2791,7 +2791,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
     // B29.4 — then /marketing in the board's design, at 1440 and at 390; B29.5 — /pricing in the brand.
     // B28.274 — and /terms and /privacy dated and read to their last line.
-    case 9: list.push(walletHero(), marketingBoard(), honestPages(), legalPagesWhole(), pricingTruth(), pricingBoard(), plansIncludedUsage(), plansEarnSentence()); break
+    // B36.1 — and the hero photograph fading into the page, in both themes.
+    case 9: list.push(walletHero(), marketingBoard(), heroFade(), honestPages(), legalPagesWhole(), pricingTruth(), pricingBoard(), plansIncludedUsage(), plansEarnSentence()); break
   }
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.

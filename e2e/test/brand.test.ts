@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, exportBrandFaults, readingFaults, roiBrandFaults } from '../src/brand.ts'
+import { COMPANY_LINE, type Look, type ReportLook, brandFaults, companyFaults, docsBrandFaults, exportBrandFaults, heroFadeFaults, readingFaults, roiBrandFaults } from '../src/brand.ts'
 
 const brand: Look = {
   scroll: 390, client: 390, logos: ['svg mark', 'svg wordmark'], tiles: [], amberCount: 0, amber: [], inter: [],
@@ -91,6 +91,25 @@ describe('the brand-roi oracle (B29.29)', () => {
       'a font stack with Inter: Inter, sans-serif (h1)',
       'a dark canvas on paper (rgb(26, 26, 46))',
       '1 request(s) to another host: http://fonts.invalid/inter.css',
+    ])
+  })
+})
+
+describe('the hero-fade oracle (B36.1)', () => {
+  // Measured on /marketing at 1440×900 in the light theme, 7 Oct 2026: before the mask, and after it.
+  it('passes a photo that melts into the page, and names each edge still drawn as a line', () => {
+    expect(heroFadeFaults([
+      { edge: '1440 light left edge against the page', gaps: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1] },
+      { edge: '1440 light bottom against the page', gaps: [0, 1, 2, 3, 3, 3, 3, 3, 3, 3] },
+    ])).toEqual([])
+    expect(heroFadeFaults([
+      { edge: '1440 light left edge against the page', gaps: [238, 238, 238] },
+      { edge: '1440 light bottom against the page', gaps: [3, 9] },
+      { edge: '390 light top row against the page', gaps: [] },
+    ])).toEqual([
+      '1440 light left edge against the page: a hard edge (238 238 238 apart, over 8)',
+      '1440 light bottom against the page: a hard edge (3 9 apart, over 8)',
+      '390 light top row against the page: nothing sampled',
     ])
   })
 })
