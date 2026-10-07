@@ -624,6 +624,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'func AnswerFeedbackHandler(',
     subject: 'lensFeedbackBody',
   },
+  // B28.370 — Chat's prompt library saves a named prompt in the workspace.
+  {
+    route: 'POST /v1/prompts',
+    file: 'apps/bff/chat_prompts.go',
+    kind: 'map-literal',
+    anchor: 'json.Marshal(map[string]string{"name": in.Name, "content": in.Content, "description": in.Description})',
+    upstreamFile: 'internal/prompts/manager.go',
+    upstreamAnchor: 'type Prompt struct {',
+    subject: 'lensPromptCreateBody',
+  },
 ]
 
 /**

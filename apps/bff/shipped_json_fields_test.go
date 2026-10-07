@@ -87,6 +87,7 @@ var builtByThisService = map[string]string{
 // suspicious and checking them would report the decoder as a defect.
 var decodedFromUpstream = map[string]string{
 	"mcpReply":               "Lens's POST /mcp JSON-RPC reply, decoded in mcpCall() (B28.349)",
+	"chatPrompt":             "one named prompt, decoded from Lens's GET /v1/prompts list or POST /v1/prompts reply in handleChatPrompts (B28.370)",
 	"provisionResult":        "Lens's POST /v1/provision reply, decoded in provision()",
 	"trackBootstrapResult":   "Track's POST /v1/bootstrap reply, decoded in bootstrapTrackWorkspace()",
 	"trackProjectCreateBody": "request body this service POSTs to Track's project create (B4.2), built from four chosen fields",

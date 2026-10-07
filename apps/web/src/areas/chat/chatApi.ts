@@ -1,6 +1,7 @@
 import { ApiError, readableList } from '../../lib/api'
 import { type ToolCallPiece, type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
 import type { AnswerCost, AnswerSource } from './price'
+import { PROMPT_RESOLVED_HEADER, promptReference } from './promptLibrary'
 
 // chatApi.ts — the wire for W4.6.1 step 6.
 //
@@ -123,6 +124,14 @@ export interface ChatMessage {
   versions?: ChatMessage[][]
   /** B28.112 — with `versions`, where this answer stands among all of them, from 0. */
   version?: number
+  /** B28.370 — on an answer in a chat that uses a named prompt: which, and whether Lens said it swapped it in. */
+  prompt?: AnswerPrompt
+}
+
+/** B28.370 — the named prompt an answer was asked with, and whether Lens's answer said it used it. */
+export interface AnswerPrompt {
+  name: string
+  resolved: boolean
 }
 
 /** B28.354 — the agent chosen to pay for an answer. `billed` only when Lens's answer named that agent. */
@@ -156,6 +165,8 @@ export interface ConversationTag {
   budget_ulxc?: number
   /** B28.109 — the instructions of the project the conversation is in, sent to the model with every request. */
   instructions?: string
+  /** B28.370 — the named prompt from the library the conversation uses, sent by name for Lens to swap in. */
+  prompt?: string
 }
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
@@ -481,7 +492,7 @@ export const CHAT_MAX_TOKENS = 4096
  * Bedrock serves Anthropic's models and Lens fills in 1024 when it is absent, which cuts long
  * answers short, so it is sent there too.
  */
-function requestBody(provider: string, model: string, turns: ChatMessage[], tools: ChatTool[] = [], exchange: unknown[] = [], instructions = ''): unknown {
+function requestBody(provider: string, model: string, turns: ChatMessage[], tools: ChatTool[] = [], exchange: unknown[] = [], instructions = '', prompt = ''): unknown {
   // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
   // refuses a message with a field it does not know.
   // B28.78 — and never an answer that said nothing. A stopped, failed or blank answer stays in the
@@ -520,11 +531,16 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
         : { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })) }
   // B28.109 — a project's instructions: Anthropic's own `system` field (Bedrock serves Anthropic's models), and a
   // system message first everywhere else. None, and the body is exactly what it was before projects.
+  // B28.370 — a named prompt goes by name, first: a system message of exactly "lens:prompt:<name>", which Lens swaps
+  // for the prompt's text. With instructions too, Anthropic's `system` is two text blocks, the prompt's first.
   const told = instructions.trim()
+  const named = prompt === '' ? '' : promptReference(prompt)
+  const systems = [named, told].filter((s) => s !== '')
   if (provider === 'anthropic' || provider === 'bedrock') {
-    return { model, max_tokens: CHAT_MAX_TOKENS, stream: true, ...(told !== '' ? { system: told } : {}), messages, ...offered }
+    const system = systems.length === 0 ? {} : { system: systems.length === 1 ? systems[0] : systems.map((text) => ({ type: 'text', text })) }
+    return { model, max_tokens: CHAT_MAX_TOKENS, stream: true, ...system, messages, ...offered }
   }
-  return { model, stream: true, messages: told !== '' ? [{ role: 'system', content: told }, ...messages] : messages, ...offered }
+  return { model, stream: true, messages: [...systems.map((content) => ({ role: 'system', content })), ...messages], ...offered }
 }
 
 /** B28.349 — a tool call's arguments as the object Anthropic's tool_use block carries. */
@@ -595,6 +611,8 @@ export interface StreamHandlers {
     /** B28.362 — what Lens charged for the answer, in µLXC, when it said; for askChat, every request the answer took,
      *  added, and only when Lens said for each. */
     chargedULXC?: number
+    /** B28.370 — Lens said it swapped the conversation's named prompt in (X-Talyvor-Prompt-Resolved: true). */
+    promptResolved?: boolean
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
@@ -649,7 +667,7 @@ export async function streamChat(
       ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),
       [REPORT_CHARGE_HEADER]: 'true',
     },
-    body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions)),
+    body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions, conversation?.prompt)),
     signal,
   }
 
@@ -689,6 +707,7 @@ export async function streamChat(
   const tare = tareSaved(res.headers)
   const requestId = res.headers.get('X-Talyvor-Request-ID') ?? undefined
   const paidByLens = res.headers.get(PAID_BY_HEADER) ?? undefined
+  const promptResolved = res.headers.get(PROMPT_RESOLVED_HEADER) === 'true'
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -729,7 +748,7 @@ export async function streamChat(
         for (const d of got.deltas) handlers.onDelta(d.text)
         for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved })
           return
         }
       }
@@ -744,7 +763,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved })
 }
 
 /** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */

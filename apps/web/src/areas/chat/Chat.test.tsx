@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS, savedLine } from './Chat'
 import { CONTINUE_PROMPT, type Conversation, historyKey, loadConversations } from './history'
 import { InstructionsPage } from './InstructionsPage'
+import { PromptsPage } from './PromptsPage'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
 // (apps/bff/lens.go, apps/bff/stream.go). These tests drive the real fetch surface, mocked at the
@@ -62,6 +63,7 @@ function mockChat({
   answerHeaders = {},
   unconfigured = [],
   identityAfter,
+  prompts,
 }: {
   catalog?: unknown
   catalogStatus?: number
@@ -85,6 +87,8 @@ function mockChat({
   unconfigured?: string[]
   /** B28.275 — /auth/me answers only once this settles, so a question can be sent before it does. */
   identityAfter?: Promise<void>
+  /** B28.370 — the workspace's prompt library as Lens holds it; a prompt saved is added to it. */
+  prompts?: Array<{ name: string; version: number; description: string; content: string }>
 } = {}) {
   const posted = vi.fn()
   const uploaded = vi.fn()
@@ -119,6 +123,14 @@ function mockChat({
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
+    }
+    if (url === '/api/chat/prompts' && prompts !== undefined) {
+      if (init?.method === 'POST') {
+        const saved = { ...(JSON.parse(String(init.body)) as { name: string; content: string; description: string }), version: 1 }
+        prompts.push(saved)
+        return new Response(JSON.stringify(saved), { status: 201, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({ prompts }), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     if (url === '/api/ai/providers') {
       return new Response(JSON.stringify({ unconfigured }), {
@@ -1468,5 +1480,51 @@ describe('custom instructions (B28.115)', () => {
     await ask('What did we spend?')
     await answered(3)
     expect(sent(2).messages[0]).toEqual({ role: 'system', content: 'Answer in French.\n\nUse pounds.' })
+  })
+})
+
+describe('prompt library (B28.370)', () => {
+  it('a prompt saved in the library is used in a new chat by name, and the answer says Lens swapped it in', async () => {
+    const { posted } = mockChat({
+      body: 'data: {"choices":[{"delta":{"content":"Happy to help."}}]}\n\ndata: [DONE]\n\n',
+      prompts: [],
+      answerHeaders: { 'X-Talyvor-Prompt-Resolved': 'true' },
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/chat']}>
+          <Routes>
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat/prompts" element={<PromptsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    const sent = (n: number) => JSON.parse(String(posted.mock.calls[n][0].init.body))
+
+    // Saved on the page Chat's rail links to, and opened from its card in a new chat.
+    fireEvent.click((await screen.findAllByRole('link', { name: 'Prompt library' }))[0])
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Name' }), { target: { value: 'support-tone' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Prompt' }), { target: { value: 'Answer as a calm support agent.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save prompt' }))
+    expect((await screen.findByRole('status')).textContent).toContain('Saved support-tone.')
+    fireEvent.click(await screen.findByRole('link', { name: 'Use in a new chat' }))
+    await waitFor(() => expect((screen.getByRole('combobox', { name: /^Prompt/ }) as HTMLSelectElement).value).toBe('support-tone'))
+
+    // Anthropic gets the prompt's name in its system field, for Lens to swap in; the answer says it was.
+    await chooseModel('Claude Opus 5')
+    await ask('My card was declined.')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    expect(sent(0).system).toBe('lens:prompt:support-tone')
+    const line = await screen.findByTestId('turn-prompt')
+    expect(line.dataset.resolved).toBe('true')
+    expect(line.textContent).toBe('Asked with the prompt support-tone from your library')
+
+    // The next question in that chat, on OpenAI: the same name, as a system message first.
+    await chooseModel('GPT-4o')
+    await ask('And now?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+    expect(sent(1).messages[0]).toEqual({ role: 'system', content: 'lens:prompt:support-tone' })
   })
 })

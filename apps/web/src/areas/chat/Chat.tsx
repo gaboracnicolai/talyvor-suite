@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 import { Button, Input, cn, focusRing, inlineLink } from '@talyvor/ui'
 
@@ -63,6 +63,8 @@ import { LiveStatement } from './LiveStatement'
 import { MoneyCards } from './MoneyCards'
 import { ChatSavings } from './Savings'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
+import { PromptLine, PromptPicker, usePromptLibrary } from './PromptChoice'
+import { PROMPT_NAME_PATTERN } from './promptLibrary'
 import { ChatTotal } from './ChatTotal'
 import { AllowanceMeter } from './AllowanceMeter'
 import { CheaperHint } from './CheaperHint'
@@ -271,6 +273,12 @@ export function Chat() {
   // B28.115 — the person's custom instructions (/chat/instructions), sent with every question, before the project's.
   const [custom, setCustom] = useState('')
   const told = instructionsFor(custom, project?.instructions)
+  // B28.370 — the named prompt from the library this conversation uses; '' is none. Sent by name, Lens swaps it in.
+  const [promptName, setPromptName] = useState('')
+  const library = usePromptLibrary()
+  // Its text, when the library has it, is part of what a question is priced on before it is sent.
+  const promptText = library.data?.find((p) => p.name === promptName)?.content ?? ''
+  const pricedWith = [promptText, told].filter((t) => t !== '').join('\n\n')
 
   // The rail: hidden on a wide screen by choice (remembered per browser), a drawer on a narrow one.
   const [railHidden, setRailHidden] = useState(readRailHidden)
@@ -303,6 +311,7 @@ export function Chat() {
     if (c !== undefined) setModelId(c.model_id)
     setPaidBy(c?.paid_by ?? '')
     setBudget(c?.budget_ulxc)
+    setPromptName(c?.prompt ?? '')
     setFailure(null)
     setUnreadable(0)
     setRenaming(null)
@@ -347,6 +356,17 @@ export function Chat() {
   useEffect(() => {
     if (scope !== null) setCustom(loadCustomInstructions(scope).text)
   }, [scope])
+  // B28.370 — "Use in a new chat" on the prompt library opens /chat?prompt=<name>: a new chat with that prompt chosen.
+  // Declared after the effect that opens the latest conversation, so it wins once the history is read.
+  const [params, setParams] = useSearchParams()
+  const startWith = params.get('prompt')
+  // Only a name the library could hold is taken; anything else opens no prompt.
+  useEffect(() => {
+    if (scope === null || startWith === null) return
+    open(undefined)
+    setPromptName(PROMPT_NAME_PATTERN.test(startWith) ? startWith : '')
+    setParams({}, { replace: true })
+  }, [scope, startWith, open, setParams])
 
   // ⚠ READS STORAGE, NOT STATE. It runs after an await inside run(), where `history` from the
   // closure is a render old; merging into that would drop a rename made while it streamed.
@@ -396,7 +416,7 @@ export function Chat() {
     (modelId === AUTO_MODEL_ID ? picker.auto : models.find((m) => m.id === modelId)) ?? picker.defaultModel
   // B28.99 — what sending the draft will cost, as a range, while it is typed.
   const asking = draft.trim()
-  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [], told)
+  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [], pricedWith)
   const estimate =
     selected !== undefined && !pending && asking !== '' && !answeredHere(asking)
       ? withLowEnd(preview(selected), selected.auto && preview(selected.auto.cheapest))
@@ -422,6 +442,8 @@ export function Chat() {
       // B28.109 — and the project's instructions, as they read when the question was asked; B28.115 — after the
       // person's own.
       const inProject = project?.id
+      // B28.370 — and the named prompt, as chosen when the question was asked.
+      const named = promptName
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       const carry = was === undefined ? {} : keptVersions(was, turn.length)
       // B28.113 — continued, the screen and the saved thread end on the answer, not on what Continue asked.
@@ -430,7 +452,7 @@ export function Chat() {
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer. B28.112 — asked again, nothing is lost: the thread stays as it was until the new version comes.
-      if (carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject))
+      if (carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject, named))
       setMessages([...thread, head === undefined ? { role: 'assistant', content: '', ...carry } : { role: 'assistant', content: start, versions: head.versions, version: head.version }])
       setPending(true)
       setFailure(null)
@@ -450,6 +472,7 @@ export function Chat() {
       let answerPayer: AnswerPayer | undefined
       let charged: number | undefined
       let auto: boolean | undefined
+      let usedPrompt: ChatMessage['prompt']
       let failed = false
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
       const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
@@ -478,7 +501,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -555,6 +578,17 @@ export function Chat() {
                 return next
               })
             }
+            // B28.370 — in a conversation that uses a named prompt, whether Lens said it swapped it in.
+            if (named !== '') {
+              const p = { name: named, resolved: promptResolved === true }
+              usedPrompt = p
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, prompt: p }
+                return next
+              })
+            }
             // B28.81 — an answer that finished having said nothing, or stopped at the length limit, says so
             // rather than looking like a whole answer.
             incomplete = answer.trim() === '' ? 'blank' : cutOff(finish) ? 'cut_off' : undefined
@@ -586,7 +620,7 @@ export function Chat() {
         fresh,
         tools,
         payer,
-        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}) },
+        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}) },
       )
       // B28.112 — asked again and nothing came back (stopped, refused, blank): the answer it had is shown and kept.
       if (was !== undefined && carry.versions !== undefined && answer.trim() === '') {
@@ -600,7 +634,7 @@ export function Chat() {
         if (!failed && !controller.signal.aborted) setFailure({ text: 'Nothing more came back. The answer is as it was.' })
         return
       }
-      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...carry }
+      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...carry }
       store((list) =>
         upsertConversation(
           list,
@@ -611,10 +645,11 @@ export function Chat() {
           payer,
           cap,
           inProject,
+          named,
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, project, qc, selected, store, told],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -622,6 +657,15 @@ export function Chat() {
     (agentID: string) => {
       setPaidBy(agentID)
       if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, paid_by: agentID === '' ? undefined : agentID } : c)))
+    },
+    [activeId, store],
+  )
+
+  // B28.370 — a prompt chosen is kept with the conversation at once, like the payer.
+  const choosePrompt = useCallback(
+    (name: string) => {
+      setPromptName(name)
+      if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, prompt: name === '' ? undefined : name } : c)))
     },
     [activeId, store],
   )
@@ -641,12 +685,12 @@ export function Chat() {
   const refuseOverBudget = useCallback(
     (turns: ChatMessage[], question: string, docs: ChatAttachment[], using: ChatModel | undefined = selected): boolean => {
       if (using === undefined) return false
-      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? [], told), usdPerLXC)
+      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? [], pricedWith), usdPerLXC)
       if (over === undefined) return false
       setFailure({ text: budgetRefusal(over), remedy: { label: 'Start a new chat', action: 'new_chat' } })
       return true
     },
-    [budget, chatTools.data, messages, selected, told, usdPerLXC],
+    [budget, chatTools.data, messages, pricedWith, selected, usdPerLXC],
   )
 
   const send = useCallback(
@@ -1187,6 +1231,8 @@ export function Chat() {
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
               {/* B28.354 — which wallet pays for this conversation. */}
               <PaidBy book={payersBook} payers={payers} value={paidBy} onChange={choosePayer} disabled={pending} />
+              {/* B28.370 — the named prompt from the library this conversation is sent with. */}
+              <PromptPicker library={library} value={promptName} onChange={choosePrompt} disabled={pending} />
               {/* B28.361 — the most this conversation may spend. */}
               <ConversationBudget value={budget} spent={spentULXC(messages, usdPerLXC)} onChange={chooseBudget} disabled={pending} />
               {/* B28.101 — the prices under this conversation's answers, added up; the answer being written is not priced yet. */}
@@ -1479,6 +1525,10 @@ function ChatRail({
         {/* B28.115 — what to tell the model in every chat. */}
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/instructions">
           Custom instructions
+        </Link>
+        {/* B28.370 — the workspace's named prompts, kept in Lens, to use in any chat. */}
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/prompts">
+          Prompt library
         </Link>
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/help">
           How to use Talyvor Chat
@@ -1840,6 +1890,7 @@ function Reply({
             </p>
           ) : null}
           {message.payer !== undefined ? <PayerLine payer={message.payer} /> : null}
+          {message.prompt !== undefined ? <PromptLine prompt={message.prompt} /> : null}
           {savedLine(message.saved) !== undefined ? (
             <p className="ml-1 w-full font-figure text-caption text-faint" data-testid="turn-saved">
               {savedLine(message.saved)}

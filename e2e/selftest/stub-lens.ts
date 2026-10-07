@@ -183,6 +183,13 @@ interface Workspace {
   syntheticPlan?: string
   allowance?: { granted_ulxc: number; consumed_ulxc: number; remaining_ulxc: number; fee_usd_cents: number; period_start?: string; period_end?: string }
   earnings: Earned[]
+  /** B28.370 — the workspace's named prompts, by name (talyvor-lens /v1/prompts), each at its one version. */
+  prompts?: Map<string, NamedPrompt>
+}
+
+interface NamedPrompt {
+  id: string; name: string; version: number; content: string; description: string; workspace_id: string; is_active: boolean
+  created_by: string; created_at: string; updated_at: string
 }
 
 function newWorkspace(id: string, token: string): Workspace {
@@ -519,6 +526,20 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       message: `messages.${blank}: all messages must have non-empty content except for the optional final assistant message` } })
   }
   const headers: Record<string, string> = {}
+  // B28.370 — talyvor-lens prompts.Resolve: a system message, or Anthropic's system string, of exactly "lens:prompt:<name>"
+  // is swapped for the workspace's prompt of that name, and the answer says so.
+  const promptNamed = (s: unknown) => (typeof s === 'string' && s.startsWith('lens:prompt:') ? ws.prompts?.get(s.slice('lens:prompt:'.length).trim()) : undefined)
+  const system = (body as { system?: unknown }).system
+  if (promptNamed(system) !== undefined) {
+    ;(body as { system?: unknown }).system = promptNamed(system)?.content
+    headers['X-Talyvor-Prompt-Resolved'] = 'true'
+  }
+  for (const m of messages) {
+    const prompt = m.role === 'system' ? promptNamed(m.content) : undefined
+    if (prompt === undefined) continue
+    m.content = prompt.content
+    headers['X-Talyvor-Prompt-Resolved'] = 'true'
+  }
 
   // The guardrails first: an injection is refused before the budget, the cache and the model; personal
   // data keeps the request out of the cache and the pool.
@@ -959,6 +980,20 @@ createServer(async (req, res) => {
       const key = 'tlv_sk_' + randomBytes(24).toString('hex')
       byKey.set(key, ws)
       return json(res, 201, { key, expires_at: new Date(Date.now() + 3600e3).toISOString() })
+    }
+    // B28.370 — the workspace's named prompts (talyvor-lens /v1/prompts): listed, and one saved at version 1.
+    if (p === '/v1/prompts' && req.method === 'GET') return json(res, 200, [...(ws.prompts?.values() ?? [])])
+    if (p === '/v1/prompts' && req.method === 'POST') {
+      const { name = '', content = '', description = '' } = JSON.parse((await read(req)) || '{}') as { name?: string; content?: string; description?: string }
+      if (name.trim() === '') return json(res, 400, { error: 'prompts: Name required' })
+      if (content === '') return json(res, 400, { error: 'prompts: Content required' })
+      const prompts = (ws.prompts ??= new Map())
+      if (prompts.has(name)) return json(res, 400, { error: 'prompts: insert: duplicate key value violates unique constraint' })
+      const now = new Date().toISOString()
+      const prompt: NamedPrompt = { id: randomBytes(16).toString('hex'), name, version: 1, content, description, workspace_id: ws.id, is_active: true,
+        created_by: '', created_at: now, updated_at: now }
+      prompts.set(name, prompt)
+      return json(res, 201, prompt)
     }
     // B34.5 — an answer marked wrong (Lens B15.4): its stored copy and its pooled copy go, and it is never served again.
     if (p === '/v1/feedback' && req.method === 'POST') {
