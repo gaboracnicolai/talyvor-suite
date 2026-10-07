@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// B32.53 — a room is opened on the session's own workspace with the body the screen sent, a fourth public room on
-// a Free plan reaches the screen with Lens's rooms_plan_limits sentence, the directory asks Lens for the topic
-// asked, and a join carries the terms version the person accepted.
+// B32.53 — a room is opened on the session's own workspace with the body the screen sent and no other key, a fourth
+// public room on a Free plan reaches the screen with Lens's rooms_plan_limits sentence, the directory asks Lens for
+// the topic asked, and a join carries the terms version the person accepted.
 func TestRoomsRelayToLensOnTheSessionsWorkspace(t *testing.T) {
 	var mu sync.Mutex
 	var got []string
@@ -51,6 +51,12 @@ func TestRoomsRelayToLensOnTheSessionsWorkspace(t *testing.T) {
 	}
 	if rec = doJSON(a, http.MethodPost, "/api/rooms", `{"title":`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("a body that is not JSON = %d, want 400 before Lens is asked", rec.Code)
+	}
+	// Nothing the screen does not send reaches Lens: not an owner, not a key inside the terms.
+	for _, body := range []string{`{"title":"Mine","owner_workspace_id":"ws_other"}`, `{"title":"Mine","terms":{"split_rule":"equal","status":"closed"}}`} {
+		if rec = doJSON(a, http.MethodPost, "/api/rooms", body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("open with %s = %d, want 400 before Lens is asked", body, rec.Code)
+		}
 	}
 	if rec = doJSON(a, http.MethodGet, "/api/rooms?topic=open+source", ""); rec.Code != http.StatusOK {
 		t.Fatalf("directory = %d %s", rec.Code, rec.Body.String())
