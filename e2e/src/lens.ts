@@ -753,6 +753,11 @@ export class LensClient {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/earnings`, this.bearer(user.token))) as MarketEarnings
   }
 
+  /** B28.104 — the workspace's prepaid balance, as Lens's GET …/lxc/balance states it. */
+  async lxcBalance(user: SyntheticUser): Promise<number> {
+    return ((await this.call('GET', `/v1/workspaces/${user.workspaceID}/lxc/balance`, this.bearer(user.token))) as { balance_ulxc: number }).balance_ulxc
+  }
+
   /**
    * B17.10 — the plan's allowance this period: null when the workspace has no plan, or Lens's refusal
    * (404: Lens sells this workspace no plan).

@@ -48,6 +48,7 @@ import { MoneyCards } from './MoneyCards'
 import { ChatSavings } from './Savings'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
 import { ChatTotal } from './ChatTotal'
+import { AllowanceMeter } from './AllowanceMeter'
 import { ConversationBudget, budgetRefusal, overBudget, spentULXC } from './ConversationBudget'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
@@ -983,6 +984,8 @@ export function Chat() {
               <ConversationBudget value={budget} spent={spentULXC(messages, usdPerLXC)} onChange={chooseBudget} disabled={pending} />
               {/* B28.101 — the prices under this conversation's answers, added up; the answer being written is not priced yet. */}
               <ChatTotal messages={pending ? messages.slice(0, -1) : messages} usdPerLXC={usdPerLXC} />
+              {/* B28.104 — the plan's allowance used and the prepaid balance, read again once an answer is charged. */}
+              <AllowanceMeter answering={pending} />
               {estimate !== undefined ? (
                 // B28.99 — at the list rate, like the footer the answer will carry.
                 <p className="text-caption text-muted" data-testid="cost-preview">

@@ -4,7 +4,7 @@
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Request, Response } from 'playwright'
+import type { Page, Request, Response } from 'playwright'
 import { type AppUser, type Attachment, type ChargeBook, NetworkDropped, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
 import { CapReached, worstInputTokens } from './budget.ts'
@@ -1602,6 +1602,78 @@ export function chatChargedFooter(seed: number): Scenario {
   }
 }
 
+/** An LXC figure as Chat prints it ("149.99838 LXC", "1,204.5 LXC"), in µLXC. */
+function lxcFigure(text: string): number | undefined {
+  const n = Number(text.replace(/LXC|,|\s/g, ''))
+  return text.trim() === '' || !Number.isFinite(n) ? undefined : Math.round(n * 1e6)
+}
+
+/** B28.104 — what Chat's meter shows: the plan's allowance left (absent without a plan) and the prepaid balance. */
+async function meterFigures(page: Page): Promise<{ left: number | undefined; prepaid: number | undefined }> {
+  const read = async (id: string) => {
+    const at = page.locator(`[data-testid="${id}"]`)
+    return (await at.count()) === 0 ? undefined : lxcFigure(await at.first().innerText())
+  }
+  return { left: await read('allowance-left'), prepaid: await read('prepaid-balance') }
+}
+
+/**
+ * B28.104 — the plan's allowance used and the prepaid balance, under the box in Chat. A question asked afresh, and once
+ * it is answered the meter shows what Lens holds — GET …/billing/allowance's remaining and GET …/lxc/balance — and the
+ * prepaid balance dropped by exactly the rows Lens wrote to the ledger for the answer.
+ */
+export function chatMeter(seed: number): Scenario {
+  return {
+    id: 'chat-meter',
+    owner: 'talyvor-suite',
+    title: 'the meter under the box drops by what an answer was charged: Lens’s allowance and balance, and the answer’s ledger rows',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      await app.newChat()
+      await page.locator('[data-testid="prepaid-balance"]').waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => {})
+      const before = await meterFigures(page)
+      if (before.prepaid === undefined) return { pass: false, detail: 'Chat shows no prepaid balance under the box' }
+      const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+      const t = await ask(ctx, `Name the smallest ocean in one word. (${freshWord(seed * 10 + 8, 1 + Math.floor(Math.random() * 999_999))})`)
+      const noPrice = priced(t)
+      if (noPrice !== undefined) return { pass: false, detail: noPrice }
+      if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
+      // The meter reads Lens again once the answer is done, and each second until a figure moves.
+      let after = await meterFigures(page)
+      for (let tries = 0; tries < 15 && after.left === before.left && after.prepaid === before.prepaid; tries++) {
+        await page.waitForTimeout(1_000)
+        after = await meterFigures(page)
+      }
+      const plan = await env.lens.allowance(app.user)
+      const balance = await env.lens.lxcBalance(app.user)
+      const rows = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id))
+      const held = plan.ok && plan.value !== null ? plan.value.remaining_ulxc : undefined
+      ctx.evidence.push({ note: `the meter before ${JSON.stringify(before)}, after ${JSON.stringify(after)}; Lens: ${held ?? 'no'} µLXC of allowance left, a ${balance} µLXC balance; the rows written for [${t.footerText}]`,
+        ledger: rows.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+      if (after.prepaid !== balance) return { pass: false, detail: `the meter says ${after.prepaid} µLXC prepaid, Lens's balance is ${balance} µLXC` }
+      if (after.left !== held) return { pass: false, detail: `the meter says ${after.left ?? 'no'} µLXC of allowance left, Lens's allowance read ${held ?? 'none'}` }
+      const drawn = -rows.reduce((n, r) => n + r.amount_ulxc, 0)
+      if (before.prepaid - after.prepaid !== drawn) {
+        return { pass: false, detail: `the meter's prepaid balance dropped ${before.prepaid - after.prepaid} µLXC; the ledger rows written for the answer come to ${drawn} µLXC` }
+      }
+      const dropped = (before.left ?? 0) - (after.left ?? 0) + before.prepaid - after.prepaid
+      if (dropped <= 0) return { pass: false, detail: `the answer [${t.footerText}] was charged, and the meter did not drop: ${JSON.stringify(before)} → ${JSON.stringify(after)}` }
+      const viewport = page.viewportSize()
+      await mkdir(env.outDir, { recursive: true })
+      const wide = join(env.outDir, `chat-meter-1440px-user${app.user.index}.png`)
+      const narrow = join(env.outDir, `chat-meter-390px-user${app.user.index}.png`)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.screenshot({ path: wide })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.screenshot({ path: narrow })
+      if (viewport !== null) await page.setViewportSize(viewport)
+      ctx.evidence.push({ note: `the meter at 1440px: ${wide}; at 390px: ${narrow}` })
+      return { pass: true, detail: `the meter dropped ${dropped} µLXC (${before.prepaid - after.prepaid} prepaid, the answer's ledger rows) and reads what Lens holds` }
+    },
+  }
+}
+
 /**
  * B28.363 — Auto (cheapest good) (talyvor-lens B28.103): chosen in the picker, a question asked afresh is answered by
  * the model Lens chose, the footer names that model, and the one spend row Lens wrote for it is that model's list price
@@ -2603,7 +2675,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.361 — and a question over its chat's budget, refused before the model: no request, no spend row.
     // B28.101 — and a chat's running total, after a reload, equal to the prices under its answers.
     // B28.362 — and the figure under an answer, what Lens charged: its spend row.
-    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i)); break
+    // B28.104 — and the meter under the box, dropped by that charge: Lens's allowance and balance.
+    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i), chatMeter(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
     // B29.6 — sign-in and sign-up in the brand, signed out.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
