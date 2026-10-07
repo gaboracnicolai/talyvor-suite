@@ -26,7 +26,16 @@ export interface ChatModel {
   release_date?: string
   /** B18.60 — its place in the provider's line-up: frontier | balanced | fast | embedding. */
   tier?: string
+  /** B28.363 — set only on the Auto choice (autoChoice): the cheapest and the dearest model it can be served by. */
+  auto?: { cheapest: ChatModel; dearest: ChatModel }
 }
+
+/**
+ * B28.363 — the model a request names to let Lens choose: talyvor-lens routes model "auto" to the cheapest model that
+ * answers it well (B28.103, its proxy isAutoRoute), and the stream names the model that served it.
+ */
+export const AUTO_MODEL_ID = 'auto'
+export const AUTO_MODEL_NAME = 'Auto (cheapest good)'
 
 /**
  * STREAMABLE_PROVIDERS — the providers whose STREAM this client can read: every provider Lens
@@ -107,6 +116,8 @@ export interface ChatMessage {
   /** B28.362 — on an answer: what Lens charged for it, in µLXC, when Lens said (chatStream.ts CHARGE_FRAME). It is the
    *  figure under the answer in place of the estimate, and what the conversation's total counts. */
   charged_ulxc?: number
+  /** B28.363 — on an answer asked of Auto: Lens chose the model that served it, and the stream named it. */
+  auto?: boolean
 }
 
 /** B28.354 — the agent chosen to pay for an answer. `billed` only when Lens's answer named that agent. */
@@ -386,6 +397,8 @@ export interface PickerCatalog {
   unconfigured: number
   /** The newest frontier model among the offered ones (else the newest) — the default, from the catalog's fields. */
   defaultModel: ChatModel | undefined
+  /** B28.363 — the Auto choice, when anything is offered. */
+  auto: ChatModel | undefined
 }
 
 /**
@@ -424,6 +437,29 @@ export function pickerCatalog(all: ChatModel[], unconfiguredProviders: readonly 
     omitted: all.length - priced.length,
     unconfigured: priced.length - chat.length,
     defaultModel: [...offered].filter((m) => m.tier === 'frontier').sort(newestFirst)[0] ?? [...offered].sort(newestFirst)[0],
+    auto: autoChoice(offered),
+  }
+}
+
+/** A model's list price for an answer as long as its question, the yardstick "cheapest" is measured by. */
+const listRate = (m: ChatModel) => m.input_per_1m + m.output_per_1m
+
+/**
+ * B28.363 — the Auto choice: asked on the provider of the cheapest model offered, where Lens picks the cheapest model
+ * that answers well. Until the stream names that model it is priced at the provider's dearest offered model, so an
+ * answer is never priced below what it may have cost.
+ */
+export function autoChoice(offered: readonly ChatModel[]): ChatModel | undefined {
+  const cheapest = [...offered].sort((a, b) => listRate(a) - listRate(b))[0]
+  if (cheapest === undefined) return undefined
+  const dearest = offered.filter((m) => m.provider === cheapest.provider).sort((a, b) => listRate(b) - listRate(a))[0]
+  return {
+    id: AUTO_MODEL_ID,
+    provider: cheapest.provider,
+    display_name: AUTO_MODEL_NAME,
+    input_per_1m: dearest.input_per_1m,
+    output_per_1m: dearest.output_per_1m,
+    auto: { cheapest, dearest },
   }
 }
 

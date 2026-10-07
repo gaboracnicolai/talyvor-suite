@@ -1601,6 +1601,73 @@ export function chatChargedFooter(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.363 — Auto (cheapest good) (talyvor-lens B28.103): chosen in the picker, a question asked afresh is answered by
+ * the model Lens chose, the footer names that model, and the one spend row Lens wrote for it is that model's list price
+ * for the footer's tokens — the answer names the model it was charged for.
+ */
+export function chatAutoModel(seed: number): Scenario {
+  return {
+    id: 'chat-auto',
+    owner: 'talyvor-lens',
+    title: 'Auto (cheapest good): the answer names the model Lens chose, and its spend row is that model’s price',
+    run: async (ctx) => {
+      // The user's own model again afterwards: the scenarios after this one ask it.
+      const start = ctx.app.modelNameInUse
+      try {
+        return await askAuto(ctx, seed)
+      } finally {
+        await ctx.app.chooseModel(start)
+        await ctx.app.newChat()
+      }
+    },
+  }
+}
+
+async function askAuto(ctx: ScenarioCtx, seed: number): Promise<Verdict> {
+  const { app, env } = ctx
+  await app.newChat()
+  if (!(await app.chooseModel('Auto (cheapest good)'))) return { pass: false, detail: 'the model picker does not offer Auto (cheapest good)' }
+  const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+  const t = await ask(ctx, `Name the smallest planet in one word. (${freshWord(seed * 10 + 3, 1 + Math.floor(Math.random() * 999_999))})`)
+  const noPrice = priced(t)
+  if (noPrice !== undefined) return { pass: false, detail: noPrice }
+  if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
+  if (t.footer.auto !== true) {
+    return { pass: false, detail: `the footer [${t.footerText}] does not name the model Lens chose: the stream did not say (talyvor-lens B28.103)` }
+  }
+  const footer = t.footer
+  const m = env.catalog.find((c) => c.display_name === footer.model)
+  if (m === undefined) return { pass: false, detail: `the footer [${t.footerText}] names a model the catalog does not` }
+  let fresh: LedgerRow[] = []
+  for (let tries = 0; tries < 10 && fresh.length === 0; tries++) {
+    if (tries > 0) await app.page.waitForTimeout(1_000)
+    fresh = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
+  }
+  ctx.evidence.push({ note: `the footer [${t.footerText}]; the spend rows written for it`, ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+  if (fresh.length !== 1) return { pass: false, detail: `the answer [${t.footerText}] wrote ${fresh.length} spend rows, not one` }
+  const row = -fresh[0].amount_ulxc
+  const price = chargeULXC(listPriceUSD(m, footer.inputTokens, footer.outputTokens), env.usdPerLXC)
+  if (row !== price) {
+    return { pass: false, detail: `the footer names ${m.display_name}, whose list price for ${footer.inputTokens} in / ${footer.outputTokens} out is ${price} µLXC, and the answer's spend row is ${row} µLXC [${t.footerText}]` }
+  }
+  const { page } = app
+  const viewport = page.viewportSize()
+  await mkdir(env.outDir, { recursive: true })
+  const wide = join(env.outDir, `chat-auto-1440px-user${app.user.index}.png`)
+  const narrow = join(env.outDir, `chat-auto-390px-user${app.user.index}.png`)
+  // With the picker open, so the screenshots show Auto where it is chosen as well as the answer it served.
+  await page.locator('button[aria-label="Model: Auto (cheapest good)"]').click()
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.screenshot({ path: wide })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: narrow })
+  await page.keyboard.press('Escape')
+  if (viewport !== null) await page.setViewportSize(viewport)
+  ctx.evidence.push({ note: `the footer at 1440px: ${wide}; at 390px: ${narrow}` })
+  return { pass: true, detail: `Auto was served by ${m.display_name}, and the answer's spend row is its price, ${row} µLXC` }
+}
+
 export function everyModelAnswers(streamable: readonly string[]): Scenario {
   return {
     id: 'every-model',
@@ -2518,7 +2585,11 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i)); break
-    case 4: if (i + 5 < users) list.push(acrossAccounts(i, i + 5)); break
+    // B28.363 — and a question asked of Auto (cheapest good): the answer names the model Lens chose, charged at its price.
+    case 4:
+      if (i + 5 < users) list.push(acrossAccounts(i, i + 5))
+      list.push(chatAutoModel(i))
+      break
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
     case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.

@@ -535,7 +535,10 @@ export class AppUser {
   }
 
   private model(): CatalogModel {
-    const m = this.catalog.find((c) => c.display_name === this.modelName)
+    // B28.363 — Auto may be served by any chat model: the spend cap holds the dearest.
+    const m = this.modelName === 'Auto (cheapest good)'
+      ? this.catalog.filter((c) => c.output_per_1m > 0).sort((x, y) => y.input_per_1m + y.output_per_1m - x.input_per_1m - x.output_per_1m)[0]
+      : this.catalog.find((c) => c.display_name === this.modelName)
     if (m === undefined) throw new Error(`the catalog has no model named "${this.modelName}"`)
     return m
   }

@@ -7,6 +7,7 @@ import { Button, Input, cn, focusRing, inlineLink } from '@talyvor/ui'
 import { InlineFailure } from '../../components/SessionExpiredBar'
 import { useAuthMeReader } from '../../lib/authMe'
 import {
+  AUTO_MODEL_ID,
   type AnswerPayer,
   type ChatAttachment,
   type ChatMessage,
@@ -54,7 +55,7 @@ import { ModelPicker } from './ModelPicker'
 import { useRevealedText } from './reveal'
 import { cutOff } from './chatStream'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatCharged, formatCostRange, formatUsdPer1M, pricedAnswer } from './price'
-import { previewCost } from './estimate'
+import { type CostRange, previewCost } from './estimate'
 import { formatWhen } from '../lens/format'
 import { Lxc, pegQuery } from '../lens/money'
 import { Card } from '../lens/walletBrand'
@@ -175,6 +176,11 @@ function answeredHere(question: string): boolean {
     isAskAboveCommand(question) ||
     isRunOutQuestion(question)
   )
+}
+
+/** B28.363 — Auto's range: the dearest model it may choose at the high end, the cheapest at the low. */
+function withLowEnd(range: CostRange | undefined, low: CostRange | undefined): CostRange | undefined {
+  return range === undefined || low === undefined ? range : { ...range, low_usd: low.low_usd }
 }
 
 export function Chat() {
@@ -324,13 +330,15 @@ export function Chat() {
   // model name typed into this file.
   const picker = pickerCatalog(catalog.data ?? [], providers.data ?? [])
   const models = picker.offered
+  // B28.363 — or Auto (cheapest good), where Lens chooses the model for each question.
   const selected: ChatModel | undefined =
-    models.find((m) => m.id === modelId) ?? picker.defaultModel
+    (modelId === AUTO_MODEL_ID ? picker.auto : models.find((m) => m.id === modelId)) ?? picker.defaultModel
   // B28.99 — what sending the draft will cost, as a range, while it is typed.
   const asking = draft.trim()
+  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [])
   const estimate =
     selected !== undefined && !pending && asking !== '' && !answeredHere(asking)
-      ? previewCost(messages, asking, attachments, selected, chatTools.data ?? [])
+      ? withLowEnd(preview(selected), selected.auto && preview(selected.auto.cheapest))
       : undefined
   // B28.361 — the draft could take this conversation past its budget: said under the box before it is sent.
   const draftOver = overBudget(budget, messages, estimate, usdPerLXC)
@@ -368,6 +376,7 @@ export function Chat() {
       let requests: number | undefined
       let answerPayer: AnswerPayer | undefined
       let charged: number | undefined
+      let auto: boolean | undefined
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
       const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
@@ -425,6 +434,8 @@ export function Chat() {
             // priced by where it came from, not by the tokens it once took.
             // B28.362 — and once Lens says what it charged, that is the figure, in place of the estimate.
             const priced = from === undefined ? pricedAnswer(usage, selected, servedBy, catalog.data ?? []) : undefined
+            // B28.363 — asked of Auto, and the stream named the model Lens chose.
+            const chosen = selected.auto !== undefined && servedBy !== undefined && servedBy !== AUTO_MODEL_ID ? true : undefined
             if (priced !== undefined || from !== undefined || chargedULXC !== undefined) {
               cost = priced
               source = from
@@ -434,10 +445,11 @@ export function Chat() {
               setMessages((prev) => {
                 const next = [...prev]
                 const last = next[next.length - 1]
-                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved, tare, requests: took, charged_ulxc: chargedULXC }
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, cost: priced, source: from, saved, tare, requests: took, charged_ulxc: chargedULXC, auto: chosen }
                 return next
               })
             }
+            auto = chosen
             // B23.12 — the id a thumbs-down names this answer by.
             if (rid !== undefined) {
               requestId = rid
@@ -499,7 +511,7 @@ export function Chat() {
           list,
           id,
           model,
-          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged }],
+          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto }],
           Date.now(),
           payer,
           cap,
@@ -985,8 +997,18 @@ export function Chat() {
                 // "you spent" figure here would be a claim about a ledger that did not move. Figures
                 // on the figure face.
                 <p className="font-figure text-caption text-faint">
-                  List price · {formatUsdPer1M(selected.input_per_1m)} in /{' '}
-                  {formatUsdPer1M(selected.output_per_1m)} out per 1M tokens
+                  {/* B28.363 — Auto's price is the model it chooses: from the cheapest to the dearest it may choose, one
+                      figure when they are the same. */}
+                  {selected.auto === undefined ? 'List price · ' : 'Auto · list price '}
+                  {formatUsdPer1M((selected.auto?.cheapest ?? selected).input_per_1m)}
+                  {selected.auto !== undefined && selected.auto.dearest.input_per_1m !== selected.auto.cheapest.input_per_1m
+                    ? `–${formatUsdPer1M(selected.auto.dearest.input_per_1m)}`
+                    : ''}{' '}
+                  in / {formatUsdPer1M((selected.auto?.cheapest ?? selected).output_per_1m)}
+                  {selected.auto !== undefined && selected.auto.dearest.output_per_1m !== selected.auto.cheapest.output_per_1m
+                    ? `–${formatUsdPer1M(selected.auto.dearest.output_per_1m)}`
+                    : ''}{' '}
+                  out per 1M tokens
                 </p>
               ) : null}
             </div>
@@ -1345,7 +1367,7 @@ function Reply({
             {message.source !== undefined
               ? answerSourceLine(message.source)
               : message.cost !== undefined
-                ? `${message.charged_ulxc !== undefined ? formatCharged(message.charged_ulxc) : formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model} · ` +
+                ? `${message.charged_ulxc !== undefined ? formatCharged(message.charged_ulxc) : formatAnswerCost(message.cost.usd, usdPerLXC)} · ${message.cost.model}${message.auto ? ', chosen by Auto' : ''} · ` +
                   `${message.cost.input_tokens.toLocaleString('en-US')} in / ` +
                   `${message.cost.output_tokens.toLocaleString('en-US')} out tokens` +
                   (message.requests !== undefined && message.requests > 1 ? ` · ${message.requests} requests` : '')
