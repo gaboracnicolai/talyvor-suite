@@ -1112,6 +1112,11 @@ export class LensClient {
     return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/agents/${agentID}/card/authorizations`, p)
   }
 
+  /** B34.8 — a test workspace put on `plan` with the synthetic key, as Lens B35.1 lets the testers do. */
+  async setTestPlan(user: SyntheticUser, plan: Plan): Promise<Answered<{ plan: { plan: string } }>> {
+    return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/plan`, { plan })
+  }
+
   private async synthetic<T>(method: string, path: string, body?: unknown): Promise<Answered<T>> {
     const res = await this.send(method, path, {
       headers: { [SYNTHETIC_KEY_HEADER]: this.key, Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },

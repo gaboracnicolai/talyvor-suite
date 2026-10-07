@@ -368,6 +368,25 @@ keys (production holds no sealing key) are checked to refuse and move nothing.
 | `settings-stored-answers` | 6, on a workspace of its own | an answer is stored and its exact repeat served free; marked `negative` with POST /v1/feedback it is removed and the next repeat is charged; deleting everything stored (scope all, the workspace's name) zeroes the counts and the next repeat is charged; a deletion request is filed once and listed as requested |
 | `settings-prompts` | 6, on a workspace of its own | a prompt made, read and listed is used by a request whose system prompt names it (`X-Talyvor-Prompt-Resolved`) and the model follows it; a second version, the history and the diff, and the next request follows it; rolled back, the next follows the first |
 
+## B34.8 — evals, outputs, attribution, nodes and switched-off features have testers
+
+Lens's evals, output verdicts and attribution, attribution by branch and by pull request, compute, cache and embedding
+nodes, PoVI receipts, challenges and stakes, annotation stakes and tasks, LENS transfers, pattern mining, the audit
+webhook and credits bought, which the 7 Oct map read "not covered", are reached by a scenario (`src/economy.ts`), once a
+run, each on a workspace of its own with that workspace's own key or token. What Lens runs is checked on what it stores:
+made, read back, and seen where Lens says it is. What it has switched off — the token exchange and LENS staking (B18.1),
+artifacts without `LENS_H5_ARTIFACT_ENABLED`, pattern mining — is checked to refuse and move nothing: the LXC ledger, the
+LENS balance and the LENS history as they were. Every model call is a charge on the ledger.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `evals` | 1, on a workspace of its own | a case made with a tag is listed by it; a run of the tag stores one result, read back by run, results, `/v1/eval/runs` and `/v1/api/eval/runs`; a dataset made and listed takes a case, refuses a run past its cap (402, nothing moved), runs within it and is listed; a schedule made switched off is listed; each run that asks a model is a spend row on the workspace's ledger; an eval for the pool is attested by another company, refused to its author (403), 404 when unknown, and no LENS moves |
+| `lens-tokens` | 1, on a workspace of its own | the rates and the four mining reads answer for the workspace; an annotation stake with no LENS is 402 and unstaking nothing moves nothing; no task is answered; a LENS transfer to another company with none to send is 402; the token exchange and LENS staking routes are 404; pattern mining, switched off, refuses the opt-in and reads not opted in, and opting out reads out; nothing moves on either company |
+| `outputs-attribution` | 3, on a workspace of its own | one request naming a branch, a pull request, a repository, a commit and an author is one charge at the catalog price, counted at that charge in the workspace's branches, the branch, the pull request (with its commit and author), the summary, the repository's branch and its top branches; an output Lens names takes a mechanical verdict and an attribution, read back, and refuses a second (409); an output the workspace never produced is refused both (403) and has no attribution (404); an artifact, switched off, is 404; the audit export starts for a webhook (202) and is refused without one (400); nothing else is charged |
+| `nodes` | 3, on a workspace of its own | a compute, a cache and an embedding node at an address nothing answers at are registered, listed unverified and offered for their model to nobody; each heartbeat is taken from its owner and refused (404) for a node that does not exist and for another company; another company cannot remove one; removed, each lists inactive; nothing is charged or minted |
+| `povi` | 5, on a workspace of its own | a node registered with an ed25519 key signs a receipt: verified and recorded, nothing minted; one altered after signing is recorded unverified; a challenge on the signed one is recorded against the node, read back three ways, never issued twice, 404 to another company; a stake of LENS the workspace does not have is refused, unbond and release are refused with nothing staked, another company cannot stake the node; nothing is charged, minted or slashed |
+| `credits-top-up` | 8, on a workspace of its own | the testers' key puts the workspace on Team and back on Free, and Lens holds it to each; a top-up below $10 is refused (400) with nothing moved; $10 paid with Stripe's test card is one credit of exactly 100 LXC on the ledger, and the balance moves by exactly that |
+
 ## B25.8 — the slow money, brought due inside the run
 
 Lens (B25.7) brings a test workspace's slow money due now, with the synthetic key: a loan's next instalment,
