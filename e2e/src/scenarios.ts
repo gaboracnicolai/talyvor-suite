@@ -3638,6 +3638,69 @@ export function chatMemory(seed: number): Scenario {
 }
 
 /**
+ * B28.372 — web search with citations (talyvor-lens B28.118): a news question asked with Chat's Search the web on, and
+ * its answer lists the pages Lens searched and gave the model. At least two of them open, as a reader clicking them
+ * would: each link's own address, loaded in a tab of its own.
+ */
+export function chatWebSearch(seed: number): Scenario {
+  return {
+    id: 'chat-web-search',
+    owner: 'talyvor-lens',
+    title: 'with Search the web on, a news answer cites at least two pages, and each of them opens',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      await app.newChat()
+      const toggle = page.getByRole('button', { name: 'Search the web' })
+      await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
+      try {
+        const t = await ask(ctx, `What is in the news today about central banks? Cite your sources. (${freshWord(seed * 10 + 3, 1 + Math.floor(Math.random() * 999_999))})`)
+        if (t.error !== undefined) return { pass: false, detail: `refused: ${t.error}` }
+        const turn = page.locator('[data-testid="turn-assistant"]').last()
+        await turn.locator('[data-testid="turn-sources"], [data-testid="turn-sources-none"]').first()
+          .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        const hrefs = await turn.getByTestId('turn-source').evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href))
+        if (hrefs.length === 0) {
+          const said = (await turn.getByTestId('turn-sources-none').innerText().catch(() => '')).trim()
+          return { pass: false, detail: `the answer [${t.footerText}] lists no sources${said === '' ? '' : `: "${said}"`} — Lens did not say which pages it searched (talyvor-lens B28.118)` }
+        }
+        const opened: { href: string; status?: number }[] = []
+        for (const href of hrefs) {
+          const tab = await app.context.newPage()
+          try {
+            const r = await tab.goto(href, { timeout: ACTION_TIMEOUT_MS, waitUntil: 'domcontentloaded' }).catch(() => null)
+            opened.push({ href, status: r?.status() })
+          } finally {
+            await tab.close()
+          }
+        }
+        const working = opened.filter((o) => o.status !== undefined && o.status >= 200 && o.status < 400)
+        ctx.evidence.push({ note: `the answer's sources, each opened: ${opened.map((o) => `${o.href} → ${o.status ?? 'did not load'}`).join('; ')}` })
+        const viewport = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const wide = join(env.outDir, `chat-web-search-1440px-user${app.user.index}.png`)
+        const narrow = join(env.outDir, `chat-web-search-390px-user${app.user.index}.png`)
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await turn.getByTestId('turn-sources').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: wide })
+        await page.setViewportSize({ width: 390, height: 844 })
+        await turn.getByTestId('turn-sources').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: narrow })
+        if (viewport !== null) await page.setViewportSize(viewport)
+        ctx.evidence.push({ note: `the sources at 1440px: ${wide}; at 390px: ${narrow}` })
+        return working.length >= 2
+          ? { pass: true, detail: `the answer cites ${hrefs.length} pages and ${working.length} of them open` }
+          : { pass: false, detail: `the answer cites ${hrefs.length} pages and ${working.length} of them open: ${opened.map((o) => `${o.href} → ${o.status ?? 'did not load'}`).join('; ')}` }
+      } finally {
+        // Off again, so the questions after this one in the same tab are not searched.
+        if ((await toggle.getAttribute('aria-pressed').catch(() => null)) === 'true') await toggle.click().catch(() => undefined)
+      }
+    },
+  }
+}
+
+/**
  * Which scenarios user `i` runs. Everyone runs the two known-answer questions; one in ten of the users
  * also runs each of the others, so 100 users cover the catalog ten times over; user 0 prices every
  * model. A user runs at most one scenario from each catalog, v1 first. The ledger read-back runs for everyone after all journeys (checkLedger).
@@ -3659,7 +3722,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i), chatProjectInstructions(i), chatCustomInstructions(i), chatPromptLibrary(i), chatMemory(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     // B32.53 — and a private room opened on /rooms/new: Lens's, in Chat's rail and the directory, 404 to another company.
-    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i)); break
+    // B28.372 — and a news question with Search the web on: its answer cites at least two pages, and each opens.
+    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i), chatWebSearch(i)); break
     // B28.363 — and a question asked of Auto (cheapest good): the answer names the model Lens chose, charged at its price.
     case 4:
       if (i + 5 < users) list.push(acrossAccounts(i, i + 5))

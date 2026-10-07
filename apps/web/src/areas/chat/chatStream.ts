@@ -45,6 +45,8 @@ export interface Extraction {
   toolCalls?: ToolCallPiece[]
   /** B28.362 — what Lens charged for the answer, in µLXC, when this frame is Lens's CHARGE_FRAME. */
   charged_ulxc?: number
+  /** B28.372 — the web pages Lens searched and gave the model, when this frame is Lens's CITATIONS_FRAME. */
+  citations?: Citation[]
 }
 
 /**
@@ -60,6 +62,40 @@ export interface Extraction {
  * it (a platform fee is a row of its own, not in it). Chat puts it under the answer in place of the estimate.
  */
 export const CHARGE_FRAME = 'talyvor.charge'
+
+/**
+ * B28.372 — the frame Lens adds to a stream when the request asked it to search the web first (talyvor-lens B28.118),
+ * with `X-Talyvor-Web-Search: on` (chatApi.ts WEB_SEARCH_HEADER): the pages it found and gave the model, numbered as the
+ * model was told to cite them in its answer ("[1]", "[2]"). On either writer, anywhere before the terminator — first,
+ * as soon as the search is back, is best:
+ *
+ *     event: talyvor.citations
+ *     data: {"type":"talyvor.citations","citations":[{"n":1,"url":"https://…","title":"…"},{"n":2,"url":"https://…"}]}
+ *
+ * `n` is the number from 1, `url` the page (only http and https are shown), `title` the page's title when the search
+ * gave one. A search that found nothing sends `"citations":[]`. Chat lists them under the answer as its sources.
+ */
+export const CITATIONS_FRAME = 'talyvor.citations'
+
+/** B28.372 — one page Lens searched and gave the model, by the number the answer cites it with. */
+export interface Citation {
+  n: number
+  url: string
+  title?: string
+}
+
+/** B28.372 — the pages in a CITATIONS_FRAME that can be linked; undefined when the frame is not that shape. */
+function citationsOf(v: unknown): Citation[] | undefined {
+  if (!Array.isArray(v)) return undefined
+  const out: Citation[] = []
+  for (const c of v) {
+    if (!isRecord(c) || typeof c.n !== 'number' || !Number.isSafeInteger(c.n) || c.n < 1 || typeof c.url !== 'string') return undefined
+    // A link is only ever made to a web page: a javascript: or data: URL from outside is dropped, not rendered.
+    if (!/^https?:\/\/[^\s]+$/i.test(c.url)) continue
+    out.push({ n: c.n, url: c.url, ...(typeof c.title === 'string' && c.title.trim() !== '' ? { title: c.title.trim() } : {}) })
+  }
+  return out.sort((a, b) => a.n - b.n)
+}
 
 /** B28.81 — the stop reasons that mean the model ran out of room, not out of answer. */
 export function cutOff(finish: string | undefined): boolean {
@@ -169,6 +205,7 @@ export function extractDeltas(frame: string): Extraction {
   let model: string | undefined
   let finish: string | undefined
   let charged: number | undefined
+  let citations: Citation[] | undefined
   const toolCalls: ToolCallPiece[] = []
 
   for (const payload of dataLines(frame)) {
@@ -209,6 +246,13 @@ export function extractDeltas(frame: string): Extraction {
       if (type === CHARGE_FRAME) {
         const c = obj.charged_ulxc
         if (typeof c === 'number' && Number.isSafeInteger(c) && c >= 0) charged = c
+        else unrecognised += 1
+        continue
+      }
+      // B28.372 — Lens's own frame, on either writer: the pages it searched. A frame of another shape is counted.
+      if (type === CITATIONS_FRAME) {
+        const got = citationsOf(obj.citations)
+        if (got !== undefined) citations = got
         else unrecognised += 1
         continue
       }
@@ -305,5 +349,6 @@ export function extractDeltas(frame: string): Extraction {
   if (finish !== undefined) out.finish = finish
   if (toolCalls.length > 0) out.toolCalls = toolCalls
   if (charged !== undefined) out.charged_ulxc = charged
+  if (citations !== undefined) out.citations = citations
   return out
 }
