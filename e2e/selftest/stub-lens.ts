@@ -348,9 +348,9 @@ function think(messages: Msg[]): string {
   if ((m = /^Is (\d+)( not)? greater than (\d+)\?/.exec(q))) return (Number(m[1]) > Number(m[3])) !== (m[2] !== undefined) ? 'Yes' : 'No'
   if (/^Let x = \d+/.test(q)) return 'OK'
   if ((m = /What is x \+ (\d+)\?/.exec(q))) return String(Number(/Let x = (\d+)/.exec(all)?.[1] ?? NaN) + Number(m[1]))
-  if (/^Multiply that by 2/.test(q)) {
+  if ((m = /^Multiply that by (\d+)/.exec(q))) {
     const prev = messages.slice(0, -1).reverse().find((x) => x.role === 'assistant')
-    return String(2 * Number(prev === undefined ? NaN : text(prev)))
+    return String(Number(m[1]) * Number(prev === undefined ? NaN : text(prev)))
   }
   if ((m = /capital of ([A-Za-z ]+)\?/.exec(q))) return CAPITALS[m[1].trim().toLowerCase()] ?? 'I do not know.'
   if ((m = /single word: (\w+)/.exec(q))) return m[1]

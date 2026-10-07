@@ -484,6 +484,21 @@ export class AppUser {
   }
 
   /**
+   * B28.366 — presses Edit on the `nth` question (from 0), puts `question` in its place and sends it: the thread is asked
+   * again from that turn, and the turns after it are dropped. Reads the new answer, the `nth` answer in the thread.
+   */
+  async editAndResend(nth: number, question: string): Promise<Turn> {
+    const hold = this.reserve(question.length)
+    await this.page.locator('[data-testid="turn-assistant"]').nth(nth).locator('[data-testid="turn-cost"]')
+      .evaluate((el) => el.setAttribute('data-e2e-old', '1'))
+    await this.page.locator('[data-testid="turn-user"]').nth(nth).getByRole('button', { name: 'Edit' }).click()
+    const form = this.page.getByRole('form', { name: 'Edit question' })
+    await form.getByRole('textbox').fill(question)
+    await form.getByRole('button', { name: 'Send' }).click()
+    return this.finish(question, this.page.locator('[data-testid="turn-assistant"]').nth(nth), hold)
+  }
+
+  /**
    * B28.364 — presses "Re-ask with <model>" under the last answer: the question is asked afresh of that model, which the
    * conversation then keeps. Reads the new answer.
    */

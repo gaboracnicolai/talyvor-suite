@@ -242,6 +242,8 @@ export function Chat() {
   const { book: payersBook, payers } = usePayers()
   // B28.361 — the most this conversation may spend, in µLXC; undefined, no budget.
   const [budget, setBudget] = useState<number | undefined>(undefined)
+  // B28.111 — the question being edited in place, by its place in the thread; null when none is.
+  const [editing, setEditing] = useState<number | null>(null)
 
   // History is scoped to who is signed in; until that is known there is nowhere to keep it.
   const me = useAuthMeReader()
@@ -296,6 +298,7 @@ export function Chat() {
     setConfirmingDelete(false)
     setDrawerOpen(false)
     setWaiting(false)
+    setEditing(null)
   }, [])
 
   // B28.275 — a question can be sent before who is signed in is known. Until then its conversation
@@ -721,6 +724,22 @@ export function Chat() {
     [messages, refuseOverBudget, run],
   )
 
+  // B28.111 — a question edited and sent again: the thread is asked again from it, and what followed it is dropped,
+  // as Regenerate drops the answer it replaces. Its documents go with it; sent unchanged, the model is asked afresh.
+  const resend = useCallback(
+    (at: number, text: string) => {
+      const question = text.trim()
+      const asked = messages[at]
+      if (question === '' || asked === undefined || asked.role !== 'user') return
+      const before = messages.slice(0, at)
+      if (refuseOverBudget(before, question, asked.attachments ?? [])) return
+      setEditing(null)
+      const { converted: _was, ...kept } = asked
+      void run([...before, { ...kept, content: question }], question === asked.content)
+    },
+    [messages, refuseOverBudget, run],
+  )
+
   // B23.12 — a thumbs-down: Lens removes the stored answer so nobody is served it again, and the answer
   // says so — in the saved conversation too, so it still says so when reopened.
   const markWrong = useCallback(
@@ -942,16 +961,32 @@ export function Chat() {
                     // two turns can carry byte-identical text.
                     key={i}
                     data-testid={m.role === 'user' ? 'turn-user' : 'turn-assistant'}
-                    className={m.role === 'user' ? 'flex justify-end' : undefined}
+                    className={m.role === 'user' ? 'flex flex-col items-end' : undefined}
                   >
-                    {m.role === 'user' ? (
-                      <div className="max-w-prose rounded-card border border-rule bg-raised px-4 py-3 text-reading text-ink">
-                        <span className="sr-only">You: </span>
-                        {m.attachments !== undefined && m.attachments.length > 0 ? (
-                          <SentDocuments message={m} answering={pending && i === messages.length - 2} />
+                    {m.role === 'user' && editing === i ? (
+                      <EditQuestion
+                        question={m.content}
+                        later={messages.slice(i + 1).filter((t) => t.role === 'user').length}
+                        pending={pending}
+                        onCancel={() => setEditing(null)}
+                        onSend={(text) => resend(i, text)}
+                      />
+                    ) : m.role === 'user' ? (
+                      <>
+                        <div className="max-w-prose rounded-card border border-rule bg-raised px-4 py-3 text-reading text-ink">
+                          <span className="sr-only">You: </span>
+                          {m.attachments !== undefined && m.attachments.length > 0 ? (
+                            <SentDocuments message={m} answering={pending && i === messages.length - 2} />
+                          ) : null}
+                          <p className="whitespace-pre-wrap">{m.content}</p>
+                        </div>
+                        {/* B28.111 — any question can be edited and sent again, once nothing is being answered. */}
+                        {!pending ? (
+                          <button type="button" className={cn(turnActionClass, '-mr-2 mt-1')} onClick={() => setEditing(i)}>
+                            Edit
+                          </button>
                         ) : null}
-                        <p className="whitespace-pre-wrap">{m.content}</p>
-                      </div>
+                      </>
                     ) : (
                       <Reply
                         message={m}
@@ -1161,6 +1196,9 @@ const railButtonClass = cn(
   'inline-flex h-8 items-center rounded-control px-2 text-caption text-muted transition-colors duration-200 hover:text-ink',
   focusRing,
 )
+
+/** A quiet action under a turn, drawn as Reply's Regenerate is. */
+const turnActionClass = cn('rounded-control px-2 py-1 text-caption text-muted transition-colors duration-200 hover:text-ink', focusRing)
 
 const railIconClass = cn(
   'inline-flex h-8 w-8 items-center justify-center rounded-control text-muted transition-colors duration-200 hover:text-ink disabled:text-faint disabled:hover:text-faint',
@@ -1487,6 +1525,82 @@ function SentDocuments({ message, answering }: { message: ChatMessage; answering
                 : 'The file itself isn’t kept after a reload, so later questions can’t see it.'}
       </p>
     </div>
+  )
+}
+
+/**
+ * B28.111 — a question edited in place. Send asks the thread again from it: its answer, and every turn after it, are
+ * replaced. Enter sends, Shift+Enter is a new line and Escape leaves it as it was, as in the composer.
+ */
+function EditQuestion({
+  question,
+  later,
+  pending,
+  onCancel,
+  onSend,
+}: {
+  question: string
+  /** How many questions were asked after this one; they go with its answer. */
+  later: number
+  /** An answer is being written: it can be sent once that ends. */
+  pending: boolean
+  onCancel: () => void
+  onSend: (text: string) => void
+}) {
+  const [text, setText] = useState(question)
+  return (
+    <form
+      aria-label="Edit question"
+      className="w-full max-w-prose rounded-card border border-rule-strong bg-raised"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSend(text)
+      }}
+    >
+      <label className="block">
+        <span className="sr-only">Your question</span>
+        <textarea
+          autoFocus
+          rows={3}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              onCancel()
+              return
+            }
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return
+            if (e.shiftKey && !e.metaKey && !e.ctrlKey) return
+            e.preventDefault()
+            if (!pending) onSend(text)
+          }}
+          className={cn(
+            'block max-h-60 w-full resize-y rounded-t-card bg-raised px-4 pt-3 text-reading text-ink',
+            'placeholder:text-faint',
+            'transition-colors duration-200 hover:border-rule-strong',
+            'disabled:cursor-not-allowed disabled:opacity-50',
+            focusRing,
+          )}
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-2 px-2 pb-2 pt-1">
+        <p className="min-w-0 flex-1 px-2 text-caption text-muted" data-testid="edit-replaces">
+          {later === 0 ? (
+            'Sending replaces its answer.'
+          ) : (
+            <>
+              Sending replaces its answer and the <span className="font-figure">{later}</span>{' '}
+              {later === 1 ? 'question' : 'questions'} after it.
+            </>
+          )}
+        </p>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button type="submit" variant="primary" disabled={pending || text.trim() === ''}>
+          Send
+        </Button>
+      </div>
+    </form>
   )
 }
 
