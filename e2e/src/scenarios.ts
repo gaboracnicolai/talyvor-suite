@@ -37,6 +37,7 @@ import { sdkWalletQuickstart } from './sdk.ts'
 import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine, heroFade, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
+import { crossCompanyTestMoney } from './testmoney.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
 import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
@@ -3826,6 +3827,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 3: if (i + 3 < users) list.push(marketPayout(i, i + 3)); break
     case 6: list.push(marketBillRefund(i, i - 5)); break
   }
+  // B28.290 — money between two companies stays test money: a send, a loan and the cash-out of it, each read back as
+  // test money in its class on both ledgers, one in ten again, by 0, 10, … who already trade with 9, 19, ….
+  if (i % 10 === 0 && other < users) list.push(crossCompanyTestMoney(i, other))
   // B25.5 — every Lens read a customer's key can make, a few times a run.
   // B30.115 — then the money-and-markets capabilities, each in its class and on test money only.
   if (i % 100 === 8) list.push(lensReads(), b30Capabilities())

@@ -31,6 +31,7 @@
 //   secret-published    — B28.282: a listing carrying a secret is published like any other
 //   self-use-billed     — B28.282: a seller's use of their own listing is billed, and earns them its price
 //   b30-capability-gone — fx, one of B30.1's money-and-markets capabilities, is missing from the list (B30.115)
+//   cross-company-live  — B28.290: money between two companies is real money: no test money on the transfer, its ledger rows funded live
 //
 // B25.8 adds what Lens (B25.7) brings due for a test workspace with the synthetic key: a loan's instalment
 // (taken or missed by tick(), as Lens's minute tick does), a buyer's bill paid and refunded, a purchase on
@@ -739,11 +740,19 @@ export class Bank {
     if (refused !== undefined) return refused
     const have = this.balance(`agent:${from.id}`)
     if (amount > have) return { status: 409, error: `economy: the agent holds ${lxc(have)} LXC` }
+    const live = from.ws !== to.ws && this.broken('cross-company-live')
     const t: Transfer = { id: id('xfr_'), from_workspace_id: from.ws, from_agent_id: from.id, to_workspace_id: to.ws, to_agent_id: to.id, amount_ulxc: amount,
-      memo, class: from.ws === to.ws ? 'GREEN' : 'AMBER', test_funded_ulxc: amount, created_at: new Date().toISOString(), ...links }
+      memo, class: from.ws === to.ws ? 'GREEN' : 'AMBER', test_funded_ulxc: live ? 0 : amount, created_at: new Date().toISOString(), ...links }
     this.transfers.unshift(t)
     this.post(from.ws, 'transfer', [[`agent:${from.id}`, -amount, `agent:${to.id}`]], t.id)
     if (credit) this.post(to.ws, 'transfer', [[`agent:${to.id}`, amount, `agent:${from.id}`]], t.id)
+    // B28.290 — as Lens's moveLXC: between two workspaces the credits leave one's LXC balance and reach the other's, a ledger
+    // row on each naming the transfer and its class.
+    if (from.ws !== to.ws) {
+      const tags = (other: Agent) => ({ transfer_id: t.id, counterparty_agent_id: other.id, counterparty_workspace_id: other.ws, class: t.class, ...(live ? { funding: 'live' } : {}) })
+      this.d.credit(from.ws, -amount, 'agent_transfer', 'credits sent to another agent', tags(to))
+      if (credit) this.d.credit(to.ws, amount, 'agent_transfer', 'credits received from another agent', tags(from))
+    }
     return t
   }
 
@@ -1176,7 +1185,11 @@ export class Bank {
       const c: CashOut = { id: id('cso_'), workspace_id: ws.id, agent_id: a.id, amount_ulxc: n, amount_uusd: n / 10, test_funded_ulxc: n,
         destination: b.destination.trim(), partner: 'test', status: 'held', created_at: now }
       this.cashOuts.unshift(c)
-      if (!this.broken('cash-out-free')) this.post(ws.id, 'cash_out', [[`agent:${a.id}`, -n, `cash_out:${c.id}`], [`cash_out:${c.id}`, n, `agent:${a.id}`]], c.id)
+      if (!this.broken('cash-out-free')) {
+        this.post(ws.id, 'cash_out', [[`agent:${a.id}`, -n, `cash_out:${c.id}`], [`cash_out:${c.id}`, n, `agent:${a.id}`]], c.id)
+        // B28.290 — as Lens's moveCashOutLXC: the held credits leave the workspace's LXC balance, a RED row naming the cash-out and its partner.
+        this.d.credit(ws.id, -n, 'agent_cash_out', 'credits held to be cashed out', { cash_out_id: c.id, agent_id: a.id, partner: c.partner, class: 'RED' })
+      }
       return json(res, 201, c), true
     }
     if (action === '/card' && method === 'GET') {

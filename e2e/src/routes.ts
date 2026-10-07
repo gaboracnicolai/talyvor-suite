@@ -38,12 +38,12 @@ export async function bff<T>(ctx: ScenarioCtx, method: string, path: string, bod
 }
 
 /** What a step answered, for the evidence. */
-const said = (a: Answered<unknown>): string => a.ok ? `${a.status} ${JSON.stringify(a.value).slice(0, 300)}` : `refused ${a.status}: ${a.error}`
+export const said = (a: Answered<unknown>): string => a.ok ? `${a.status} ${JSON.stringify(a.value).slice(0, 300)}` : `refused ${a.status}: ${a.error}`
 
 // ─── both sides' accounts ────────────────────────────────────────────────────
 
 /** One side of a trade: a company and one of its agents. */
-interface Side { user: SyntheticUser; agent: string; who: string }
+export interface Side { user: SyntheticUser; agent: string; who: string }
 type Books = { lines: AgentLine[]; balance: number | undefined }[]
 
 async function books(ctx: ScenarioCtx, sides: readonly Side[]): Promise<Books> {
@@ -80,7 +80,7 @@ async function movedBy(ctx: ScenarioCtx, sides: readonly Side[], before: Books, 
 }
 
 /** An agent of the person's own workspace, created and funded through the app (Agent Wallets' own BFF routes). */
-async function appAgent(ctx: ScenarioCtx, name: string, fund: number): Promise<Side | string> {
+export async function appAgent(ctx: ScenarioCtx, name: string, fund: number): Promise<Side | string> {
   const made = await bff<{ id: string; name: string }>(ctx, 'POST', '/api/agents', { name })
   if (!made.ok) return `creating ${name} in the app was refused: ${made.status} ${made.error}`
   if (fund > 0) {
@@ -91,12 +91,12 @@ async function appAgent(ctx: ScenarioCtx, name: string, fund: number): Promise<S
 }
 
 /** The other company and its agent, as a side; funded with `fund` µLXC. */
-async function otherSide(ctx: ScenarioCtx, partner: number, name: string, fund: number): Promise<Side> {
+export async function otherSide(ctx: ScenarioCtx, partner: number, name: string, fund: number): Promise<Side> {
   const o = await otherCompany(ctx, partner, name, fund)
   return { user: o.co, agent: o.agent.id, who: `the other company's ${name}` }
 }
 
-const memoOf = (what: string, seed: number): string => `${what} ${seed}-${RUN_SALT}`
+export const memoOf = (what: string, seed: number): string => `${what} ${seed}-${RUN_SALT}`
 
 // ─── money requests: asked, accepted, declined, given back ───────────────────
 
