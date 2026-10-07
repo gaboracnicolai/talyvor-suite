@@ -31,6 +31,7 @@
 //   savings     — a replay does not say what it saved, as Lens before B28.95 (B28.358)
 //   charge      — the stream says a model's answer was charged a µLXC more than its spend row (B28.362)
 //   auto        — an "auto" answer is charged at the model Lens chose, but the stream names a dearer one (B28.363)
+//   meter       — the balance read lags the ledger by 30 seconds, so Chat's meter does not drop by the charge (B28.104)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -960,7 +961,8 @@ createServer(async (req, res) => {
         return json(res, 200, ws.earnings.slice(offset, offset + limit))
       }
       if (rest === '/lxc/balance') {
-        return json(res, 200, { workspace_id: ws.id, balance_ulxc: ws.balance, lifetime_minted_ulxc: ws.ledger.filter((r) => r.amount_ulxc > 0).reduce((n, r) => n + r.amount_ulxc, 0),
+        const lag = BREAK === 'meter' ? ws.ledger.filter((r) => Date.now() - Date.parse(r.created_at) < 30_000).reduce((n, r) => n + r.amount_ulxc, 0) : 0
+        return json(res, 200, { workspace_id: ws.id, balance_ulxc: ws.balance - lag, lifetime_minted_ulxc: ws.ledger.filter((r) => r.amount_ulxc > 0).reduce((n, r) => n + r.amount_ulxc, 0),
           lifetime_spent_ulxc: ws.ledger.filter((r) => r.type === 'spend').reduce((n, r) => n - r.amount_ulxc, 0), usd_value_uusd: Math.round(ws.balance * USD_PER_LXC) })
       }
       if (rest === '/lxc/history') {
