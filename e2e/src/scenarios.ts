@@ -797,6 +797,40 @@ export function chatProjectInstructions(seed: number): Scenario {
   }
 }
 
+/** B28.366 — a question edited and sent again re-runs the thread from that turn: a sum, then "Multiply that by 2",
+ *  and that second question edited to "by 3" and sent. It is answered from the turn before it, and the thread holds
+ *  two questions again, the "by 2" answer gone. */
+export function editResendRerunsThread(seed: number): Scenario {
+  // The run's own sum, so the model is asked rather than an earlier run's answer served from the pool.
+  const r = seeded(seed * 31 + 11 + RUN_SALT)
+  const [a, b] = [0, 0].map(() => 1000 + Math.floor(r() * 9000))
+  const by2 = `Multiply that by 2. ${NUMBER_ONLY}`
+  const by3 = `Multiply that by 3. ${NUMBER_ONLY}`
+  return {
+    id: 'chat-edit-resend',
+    owner: 'talyvor-suite',
+    title: 'a question edited and sent again re-runs the thread from that turn',
+    run: async (ctx) => {
+      await ctx.app.newChat()
+      await ask(ctx, `What is ${a} + ${b}? ${NUMBER_ONLY}`, 'the first question')
+      const before = await ask(ctx, by2, 'the follow-up, before the edit')
+      if (!statesNumber(before.answer, 2 * (a + b))) return { pass: false, detail: `the follow-up was wrong before any edit: ${describe(before)}` }
+      const t = record(ctx, await ctx.app.editAndResend(1, by3), 'the follow-up edited to "by 3" and sent')
+      if (t.error !== undefined) return { pass: false, detail: `the edited question was refused: ${t.error}` }
+      const questions = await ctx.app.page.locator('[data-testid="turn-user"]').allInnerTexts()
+      const answers = await ctx.app.page.locator('[data-testid="turn-assistant"]').count()
+      ctx.evidence.push({ note: `after the edit the thread holds ${questions.length} questions and ${answers} answers` })
+      if (questions.length !== 2 || answers !== 2) {
+        return { pass: false, detail: `after the edit the thread holds ${questions.length} questions and ${answers} answers, not 2 and 2` }
+      }
+      if (!questions[1]?.includes('by 3')) return { pass: false, detail: `the second question reads "${questions[1]}", not the edited one` }
+      return statesNumber(t.answer, 3 * (a + b))
+        ? { pass: true, detail: `edited to "by 3", the thread re-ran from that turn: ${3 * (a + b)}, the "by 2" answer gone` }
+        : { pass: false, detail: `expected ${3 * (a + b)} from the turn before the edit, got ${describe(t)}` }
+    },
+  }
+}
+
 /** B28.110 — a conversation pinned in Chat stays at the top of the rail after a reload: seeded as the person's oldest,
  *  opened, pinned with the button over it, and after the reload the first conversation the rail lists, under Pinned.
  *  Nothing is asked of a model, and the browser's history is put back after. */
@@ -3190,7 +3224,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       break
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
     // B28.110 — and a chat pinned, still the first in the rail after a reload.
-    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i)); break
+    // B28.366 — and a follow-up edited and sent again, the thread re-run from it.
+    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
     case 6:

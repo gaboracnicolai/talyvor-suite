@@ -925,6 +925,58 @@ describe('the reading column (B10.3)', () => {
     await waitFor(() => expect(screen.getAllByTestId('turn-assistant')).toHaveLength(1))
   })
 
+  // B28.366 — what B28.111's Lens side receives: the turns before the edited question, then the question as edited.
+  it('B28.111 — a question edited and sent again re-runs the thread from that turn; the turns after it are gone, after a reload too', async () => {
+    const said = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`
+    const { posted } = mockChat({ bodies: [said('12.'), said('24.'), said('48.'), said('36.')] })
+    const tab = renderChat()
+    for (const q of ['What is 5 + 7?', 'Multiply that by 2.', 'And by 2 again.']) {
+      await ask(q)
+      await screen.findByRole('button', { name: 'Regenerate' })
+    }
+    fireEvent.click(within(screen.getAllByTestId('turn-user')[1]!).getByRole('button', { name: 'Edit' }))
+    const form = screen.getByRole('form', { name: 'Edit question' })
+    expect(within(form).getByTestId('edit-replaces').textContent).toBe('Sending replaces its answer and the 1 question after it.')
+    fireEvent.change(within(form).getByRole('textbox'), { target: { value: 'Multiply that by 3.' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Send' }))
+
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(4))
+    const sent = posted.mock.calls[3][0].init
+    expect(JSON.parse(String(sent.body)).messages).toEqual([
+      { role: 'user', content: 'What is 5 + 7?' },
+      { role: 'assistant', content: '12.' },
+      { role: 'user', content: 'Multiply that by 3.' },
+    ])
+    // A changed question is a new one: Lens may serve it as it would any question.
+    expect(new Headers(sent.headers).get('X-Talyvor-Cache')).toBeNull()
+    await screen.findByRole('button', { name: 'Regenerate' })
+    expect(screen.queryByRole('form', { name: 'Edit question' })).toBeNull()
+    expect(screen.getAllByTestId('turn-user').map((t) => t.querySelector('p')?.textContent)).toEqual(['What is 5 + 7?', 'Multiply that by 3.'])
+    expect(screen.getAllByTestId('turn-assistant').map((t) => t.querySelector('p')?.textContent)).toEqual(['12.', '36.'])
+    tab.unmount()
+    expect(loadConversations('user-a').list[0]?.messages.map((m) => m.content)).toEqual(['What is 5 + 7?', '12.', 'Multiply that by 3.', '36.'])
+  })
+
+  it('B28.111 — a question sent again unchanged is asked of the model afresh, as Regenerate does; Escape leaves it as it was', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"first"}}]}\n\ndata: [DONE]\n\n' })
+    renderChat()
+    await ask('question')
+    await screen.findByRole('button', { name: 'Regenerate' })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your question' }), { target: { value: 'something else' } })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your question' }), { key: 'Escape' })
+    expect(screen.queryByRole('form', { name: 'Edit question' })).toBeNull()
+    expect(screen.getByTestId('turn-user').querySelector('p')?.textContent).toBe('question')
+    expect(posted).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.getByTestId('edit-replaces').textContent).toBe('Sending replaces its answer.')
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your question' }), { key: 'Enter' })
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+    expect(new Headers(posted.mock.calls[1][0].init.headers).get('X-Talyvor-Cache')).toBe('bypass')
+    expect(JSON.parse(String(posted.mock.calls[1][0].init.body)).messages).toEqual([{ role: 'user', content: 'question' }])
+  })
+
   // B15.6 — the footer says where an answer came from when the model did not write it just now.
   it('an answer Lens replayed from the cache says it came from your earlier answer, at 0 LXC', async () => {
     mockChat({
