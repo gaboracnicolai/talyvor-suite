@@ -90,6 +90,32 @@ export function listPriceUSD(m: Pick<CatalogModel, 'input_per_1m' | 'output_per_
   return (inputTokens * m.input_per_1m + outputTokens * m.output_per_1m) / 1_000_000
 }
 
+/** B28.364 — Lens's input-size cohort for a question of this many input tokens (talyvor-lens internal/mining inputBucket). */
+export function inputRange(tokens: number): 'small' | 'medium' | 'large' | 'xlarge' {
+  return tokens < 500 ? 'small' : tokens < 2000 ? 'medium' : tokens < 8000 ? 'large' : 'xlarge'
+}
+
+/**
+ * B28.364 — the model Chat's cheaper-model hint must offer under an answer `answeredBy` wrote with these tokens, given
+ * Lens's /routing/recommendation: the recommended model when Lens states a basis, the picker offers it on the same
+ * provider, it is not the model that answered, and those tokens cost less on it. Otherwise none, and no hint.
+ */
+export function expectedCheaper<M extends CatalogModel>(
+  rec: { model: string; provider: string; basis: string },
+  answeredBy: M,
+  inputTokens: number,
+  outputTokens: number,
+  catalog: readonly M[],
+): M | undefined {
+  if (rec.basis !== 'quality_per_dollar' && rec.basis !== 'quality') return undefined
+  // Lens may name a dated variant of a catalog id (gpt-6-luna-2026-09-22 is gpt-6-luna); the longest id wins.
+  const named = chatModels(catalog)
+    .filter((m) => m.provider === rec.provider && (rec.model === m.id || (rec.model.startsWith(`${m.id}-`) && /\d/.test(rec.model.charAt(m.id.length + 1)))))
+    .sort((a, b) => b.id.length - a.id.length)[0]
+  if (named === undefined || named.display_name === answeredBy.display_name) return undefined
+  return listPriceUSD(named, inputTokens, outputTokens) < listPriceUSD(answeredBy, inputTokens, outputTokens) ? named : undefined
+}
+
 /**
  * The footer's figure as the screen should print it. Written from the rule, not imported from
  * apps/web: an oracle that calls the code under test agrees with it by construction.

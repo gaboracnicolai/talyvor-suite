@@ -231,6 +231,20 @@
     "earned_back_usd_cents": "number"
    }
   },
+  "/v1/workspaces/{wsID}/routing/recommendation?provider=openai&input_range=small": {
+   "status": 200,
+   "shape": {
+    "model": "string",
+    "provider": "string",
+    "basis": "string",
+    "sample_size": "number",
+    "distinct_workspaces": "number",
+    "confidence": "string",
+    "expected_quality": "number",
+    "expected_cost_per_1k": "number",
+    "reason": "string"
+   }
+  },
   "/v1/workspaces/{wsID}/billing/subscription": {
    "status": 200,
    "shape": {

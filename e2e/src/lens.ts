@@ -412,6 +412,15 @@ export interface PlanAllowance {
 }
 
 /** B28.5 — one plan as Lens's public plans read states it: its price, and the µLXC it includes this month. */
+/** B28.364 — Lens's routing.Recommendation, as GET …/routing/recommendation answers it. */
+export interface RoutingRecommendation {
+  model: string
+  provider: string
+  basis: string
+  confidence: string
+  reason: string
+}
+
 export interface PricedPlan {
   id: string
   usd_cents: number
@@ -769,6 +778,18 @@ export class LensClient {
     return res.ok
       ? { ok: true, status: res.status, value: (JSON.parse(raw) as { allowance: PlanAllowance | null }).allowance }
       : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /**
+   * B28.364 — the model Lens recommends for questions of `inputRange` on `provider` (GET …/routing/recommendation), the
+   * read behind Chat's cheaper-model hint; basis "none" is no recommendation.
+   */
+  async routingRecommendation(user: SyntheticUser, provider: string, inputRange: string): Promise<Answered<RoutingRecommendation>> {
+    const q = new URLSearchParams({ provider, input_range: inputRange })
+    const res = await this.send('GET', `/v1/workspaces/${user.workspaceID}/routing/recommendation?${q.toString()}`,
+      { headers: { ...this.bearer(user.token), Accept: 'application/json' } })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) as RoutingRecommendation } : { ok: false, status: res.status, error: refusalOf(raw) }
   }
 
   /**

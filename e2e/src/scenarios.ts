@@ -14,8 +14,10 @@ import {
   type CatalogModel,
   chargedFigure,
   chatModels,
+  expectedCheaper,
   expectedFigure,
   freshWord,
+  inputRange,
   judgeVerdict,
   listPriceUSD,
   namesWord,
@@ -1742,6 +1744,107 @@ async function askAuto(ctx: ScenarioCtx, seed: number): Promise<Verdict> {
   return { pass: true, detail: `Auto was served by ${m.display_name}, and the answer's spend row is its price, ${row} µLXC` }
 }
 
+/**
+ * B28.364 — the cheaper-model hint (talyvor-lens B28.105). A question asked afresh of the dearest model that has a
+ * cheaper one beside it on its provider. Under the answer, Chat offers exactly the model Lens's /routing/recommendation
+ * names for the answer's provider and input size when the picker offers it and it is cheaper for the answer's tokens,
+ * and nothing otherwise. Offered, "Re-ask with" asks again of that model: the footer names it, and the one spend row Lens
+ * wrote for the re-ask is that model's list price for the footer's tokens.
+ */
+export function chatCheaperHint(seed: number, streamable: readonly string[]): Scenario {
+  return {
+    id: 'chat-cheaper',
+    owner: 'talyvor-lens',
+    title: 'the cheaper-model hint is Lens’s recommendation, and the re-ask is answered and charged by that model',
+    run: async (ctx) => {
+      // The user's own model again afterwards: the scenarios after this one ask it.
+      const start = ctx.app.modelNameInUse
+      try {
+        return await askCheaper(ctx, seed, streamable)
+      } finally {
+        await ctx.app.chooseModel(start)
+        await ctx.app.newChat()
+      }
+    },
+  }
+}
+
+async function askCheaper(ctx: ScenarioCtx, seed: number, streamable: readonly string[]): Promise<Verdict> {
+  const { app, env } = ctx
+  const { page } = app
+  const res = await page.request.get(new URL('/api/ai/providers', page.url()).toString())
+  const unconfigured = res.ok() ? (((await res.json()) as { unconfigured?: string[] }).unconfigured ?? []) : []
+  const offered = chatModels(env.catalog).filter((m) => streamable.includes(m.provider) && !unconfigured.includes(m.provider))
+  const price = (m: CatalogModel) => m.input_per_1m + m.output_per_1m
+  const asked = offered.filter((m) => offered.some((o) => o.provider === m.provider && price(o) < price(m))).sort((a, b) => price(b) - price(a))[0]
+  if (asked === undefined) return { pass: false, detail: 'no provider Chat can ask offers two chat models, so no answer can have a cheaper one' }
+  await app.newChat()
+  if (!(await app.chooseModel(asked.display_name))) return { pass: false, detail: `the model picker does not offer ${asked.display_name}` }
+  const q = `Name the largest planet in one word. (${freshWord(seed * 10 + 4, 1 + Math.floor(Math.random() * 999_999))})`
+  const t = await ask(ctx, q)
+  const noPrice = priced(t)
+  if (noPrice !== undefined) return { pass: false, detail: noPrice }
+  if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
+  const footer = t.footer
+  const answeredBy = offered.find((m) => m.display_name === footer.model)
+  if (answeredBy === undefined) return { pass: false, detail: `the footer [${t.footerText}] names a model the picker does not offer` }
+  const range = inputRange(footer.inputTokens)
+  const rec = await env.lens.routingRecommendation(app.user, asked.provider, range)
+  if (!rec.ok) return { pass: false, detail: `Lens refused GET …/routing/recommendation?provider=${asked.provider}&input_range=${range}: ${rec.status} ${rec.error}` }
+  const lens = `Lens recommends ${rec.value.model === '' ? 'no model' : rec.value.model} (${rec.value.basis}) for ${asked.provider}/${range}`
+  ctx.evidence.push({ note: `${lens}: ${rec.value.reason}` })
+  const want = expectedCheaper(rec.value, answeredBy, footer.inputTokens, footer.outputTokens, offered)
+  const hint = page.locator('[data-testid="turn-assistant"]').last().locator('[data-testid="cheaper-hint"]')
+  if (want === undefined) {
+    // Chat reads Lens once the answer is done; a hint that should not be there has five seconds to appear.
+    for (let tries = 0; tries < 5; tries++) {
+      if ((await hint.count()) > 0) return { pass: false, detail: `${lens}, nothing cheaper the picker offers for [${t.footerText}], and Chat offers: ${await hint.innerText()}` }
+      await page.waitForTimeout(1_000)
+    }
+    return { pass: true, detail: `${lens}: nothing cheaper the picker offers for [${t.footerText}], and Chat offers nothing` }
+  }
+  const button = `Re-ask with ${want.display_name}`
+  try {
+    await hint.getByRole('button', { name: button }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+  } catch {
+    return { pass: false, detail: `${lens}, cheaper for [${t.footerText}], and Chat offers ${(await hint.count()) > 0 ? await hint.innerText() : 'nothing'}` }
+  }
+  const viewport = page.viewportSize()
+  await mkdir(env.outDir, { recursive: true })
+  const wide = join(env.outDir, `chat-cheaper-1440px-user${app.user.index}.png`)
+  const narrow = join(env.outDir, `chat-cheaper-390px-user${app.user.index}.png`)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await hint.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: wide })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await hint.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: narrow })
+  if (viewport !== null) await page.setViewportSize(viewport)
+  ctx.evidence.push({ note: `the hint at 1440px: ${wide}; at 390px: ${narrow}` })
+
+  const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+  const r = await app.reaskWith(q, want.display_name)
+  record(ctx, r, button)
+  const noRePrice = priced(r)
+  if (noRePrice !== undefined) return { pass: false, detail: `the re-ask: ${noRePrice}` }
+  if (r.footer.kind !== 'priced') return { pass: false, detail: `the re-ask was not written by the model just now: [${r.footerText}]` }
+  const again = r.footer
+  if (again.model !== want.display_name) return { pass: false, detail: `${button} was answered by ${again.model}, not ${want.display_name} [${r.footerText}]` }
+  let fresh: LedgerRow[] = []
+  for (let tries = 0; tries < 10 && fresh.length === 0; tries++) {
+    if (tries > 0) await page.waitForTimeout(1_000)
+    fresh = (await env.lens.ledger(app.user)).filter((row) => !seen.has(row.id) && row.type === 'spend')
+  }
+  ctx.evidence.push({ note: `the re-ask [${r.footerText}]; the spend rows written for it`, ledger: fresh.map((row) => ({ type: row.type, amount_ulxc: row.amount_ulxc, created_at: row.created_at })) })
+  if (fresh.length !== 1) return { pass: false, detail: `the re-ask [${r.footerText}] wrote ${fresh.length} spend rows, not one` }
+  const row = -fresh[0].amount_ulxc
+  const listed = chargeULXC(listPriceUSD(want, again.inputTokens, again.outputTokens), env.usdPerLXC)
+  if (row !== listed) {
+    return { pass: false, detail: `the re-ask names ${want.display_name}, whose list price for ${again.inputTokens} in / ${again.outputTokens} out is ${listed} µLXC, and its spend row is ${row} µLXC [${r.footerText}]` }
+  }
+  return { pass: true, detail: `${lens}; Chat offered it under [${t.footerText}], and the re-ask was answered by ${want.display_name} and charged its price, ${row} µLXC` }
+}
+
 export function everyModelAnswers(streamable: readonly string[]): Scenario {
   return {
     id: 'every-model',
@@ -2663,6 +2766,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 4:
       if (i + 5 < users) list.push(acrossAccounts(i, i + 5))
       list.push(chatAutoModel(i))
+      // B28.364 — and the cheaper-model hint: Lens's recommendation under the answer, and the re-ask on it charged at its price.
+      list.push(chatCheaperHint(i, streamable))
       break
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
     case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break

@@ -32,6 +32,8 @@
 //   charge      — the stream says a model's answer was charged a µLXC more than its spend row (B28.362)
 //   auto        — an "auto" answer is charged at the model Lens chose, but the stream names a dearer one (B28.363)
 //   meter       — the balance read lags the ledger by 30 seconds, so Chat's meter does not drop by the charge (B28.104)
+//   cheaper     — a question asked afresh of a provider's cheapest chat model, as Chat's "Re-ask with" asks it, is
+//                 answered, named and charged by the provider's dearest (B28.364)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -89,6 +91,11 @@ const CATALOG = [
   model('text-embedding-3-large', 'openai', 'Embedding 3 large', 0.13, 0, '2024-01-25', 'embedding', false),
 ]
 const CONFIGURED = new Set(['anthropic', 'openai'])
+
+/** A provider's chat models, the cheapest first. */
+function chatModelsOf(provider: string) {
+  return CATALOG.filter((c) => c.provider === provider && c.output_per_1m > 0).sort((a, b) => a.input_per_1m + a.output_per_1m - b.input_per_1m - b.output_per_1m)
+}
 
 const CAPITALS: Record<string, string> = {
   france: 'Paris', japan: 'Tokyo', canada: 'Ottawa', australia: 'Canberra', kenya: 'Nairobi', norway: 'Oslo',
@@ -365,10 +372,13 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const body = JSON.parse(raw || '{}') as { model?: string; stream?: boolean; max_tokens?: number; messages?: Msg[]; tools?: { name?: string; function?: { name?: string } }[] }
   // talyvor-lens B28.103 — model "auto" is served by the provider's cheapest chat model, and the stream names it.
   const auto = body.model === 'auto'
-  const model = auto
+  const requested = auto
     ? CATALOG.filter((c) => c.provider === provider && c.output_per_1m > 0).sort((a, b) => a.input_per_1m + a.output_per_1m - b.input_per_1m - b.output_per_1m)[0]
     : CATALOG.find((c) => c.id === body.model)
-  const named = !auto ? {} : { model: BREAK === 'auto' ? 'claude-sonnet-5' : model?.id }
+  // STUB_BREAK=cheaper (B28.364) — the re-ask of the cheapest model is served by the dearest, which the stream names.
+  const swapped = BREAK === 'cheaper' && !auto && req.headers['x-talyvor-cache'] === 'bypass' && requested !== undefined && requested.id === chatModelsOf(provider)[0]?.id
+  const model = swapped ? chatModelsOf(provider).at(-1) : requested
+  const named = swapped ? { model: model?.id } : !auto ? {} : { model: BREAK === 'auto' ? 'claude-sonnet-5' : model?.id }
   if (model === undefined || (provider === 'anthropic') !== (path === 'v1/messages')) return json(res, 400, { error: 'bad request' })
   const messages = body.messages ?? []
   // B28.78 — Anthropic refuses a conversation holding an answer that said nothing, as a stopped one does.
@@ -905,6 +915,18 @@ createServer(async (req, res) => {
         const byok = ws.plan?.byok ?? false
         return json(res, 200, { plan: ws.plan?.id ?? ws.syntheticPlan ?? 'free', gated_as: gated, byok_add_on: byok, own_provider_keys_allowed: byok || gated === 'business',
           gates: { agents: PLAN_AGENTS[gated] ?? 3, slack_teams_approvals: gated !== 'free' }, agents_used: bank.activeAgents(ws.id) })
+      }
+      // B28.364 — Lens's routing advisor (GET …/routing/recommendation) as one that has learned a provider's cheapest chat
+      // model answers every question well: that model, on the quality-per-dollar basis, in Lens's routing.Recommendation.
+      if (rest === '/routing/recommendation' && req.method === 'GET') {
+        const provider = url.searchParams.get('provider') || 'openai'
+        const range = url.searchParams.get('input_range') || 'medium'
+        const best = chatModelsOf(provider)[0]
+        return json(res, 200, best === undefined
+          ? { model: '', provider, basis: 'none', sample_size: 0, distinct_workspaces: 0, confidence: '', expected_quality: 0, expected_cost_per_1k: 0,
+            reason: `no qualifying ${provider} candidate for /${range} (need ≥50 samples across ≥3 workspaces)` }
+          : { model: best.id, provider, basis: 'quality_per_dollar', sample_size: 120, distinct_workspaces: 5, confidence: 'medium', expected_quality: 0.9,
+            expected_cost_per_1k: (best.input_per_1m + best.output_per_1m) / 2000, reason: `best quality_per_dollar for /${range} among ${provider} models: ${best.id}` })
       }
       if (rest === '/billing/allowance') {
         return json(res, 200, { allowance: ws.allowance === undefined ? null : { workspace_id: ws.id, ...ws.allowance },

@@ -49,6 +49,7 @@ import { ChatSavings } from './Savings'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
 import { ChatTotal } from './ChatTotal'
 import { AllowanceMeter } from './AllowanceMeter'
+import { CheaperHint } from './CheaperHint'
 import { ConversationBudget, budgetRefusal, overBudget, spentULXC } from './ConversationBudget'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
@@ -344,12 +345,13 @@ export function Chat() {
   // B28.361 — the draft could take this conversation past its budget: said under the box before it is sent.
   const draftOver = overBudget(budget, messages, estimate, usdPerLXC)
 
-  /** Streams an answer to `turn`, whose last message is the question. */
+  /** Streams an answer to `turn`, whose last message is the question; B28.364 — asked of `using` when given. */
   const run = useCallback(
-    async (turn: ChatMessage[], fresh = false) => {
-      if (selected === undefined || pending) return
+    async (turn: ChatMessage[], fresh = false, using?: ChatModel) => {
+      const target = using ?? selected
+      if (target === undefined || pending) return
       const id = activeId ?? newConversationId()
-      const model = selected.id
+      const model = target.id
       // B28.354 — who pays is read once per question, as the person chose it when they asked.
       const payer = paidBy
       // B28.361 — and so is the budget: every request the question takes carries it, with the conversation's id.
@@ -386,8 +388,8 @@ export function Chat() {
       let sentTurn = turn
 
       await askChat(
-        selected.provider,
-        selected.id,
+        target.provider,
+        target.id,
         turn,
         {
           onDelta: (chunk) => {
@@ -434,9 +436,9 @@ export function Chat() {
             // B15.6 — except one the model did not write just now: a replayed or shared answer is
             // priced by where it came from, not by the tokens it once took.
             // B28.362 — and once Lens says what it charged, that is the figure, in place of the estimate.
-            const priced = from === undefined ? pricedAnswer(usage, selected, servedBy, catalog.data ?? []) : undefined
+            const priced = from === undefined ? pricedAnswer(usage, target, servedBy, catalog.data ?? []) : undefined
             // B28.363 — asked of Auto, and the stream named the model Lens chose.
-            const chosen = selected.auto !== undefined && servedBy !== undefined && servedBy !== AUTO_MODEL_ID ? true : undefined
+            const chosen = target.auto !== undefined && servedBy !== undefined && servedBy !== AUTO_MODEL_ID ? true : undefined
             if (priced !== undefined || from !== undefined || chargedULXC !== undefined) {
               cost = priced
               source = from
@@ -544,9 +546,9 @@ export function Chat() {
   // B28.361 — a question that could take the conversation past its budget is refused here, before anything is sent:
   // what the conversation has spent and the most the question could cost, against the budget.
   const refuseOverBudget = useCallback(
-    (turns: ChatMessage[], question: string, docs: ChatAttachment[]): boolean => {
-      if (selected === undefined) return false
-      const over = overBudget(budget, messages, previewCost(turns, question, docs, selected, chatTools.data ?? []), usdPerLXC)
+    (turns: ChatMessage[], question: string, docs: ChatAttachment[], using: ChatModel | undefined = selected): boolean => {
+      if (using === undefined) return false
+      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? []), usdPerLXC)
       if (over === undefined) return false
       setFailure({ text: budgetRefusal(over), remedy: { label: 'Start a new chat', action: 'new_chat' } })
       return true
@@ -658,6 +660,20 @@ export function Chat() {
     if (refuseOverBudget(messages.slice(0, lastUser), asked.content, asked.attachments ?? [])) return
     void run(messages.slice(0, lastUser + 1), true)
   }, [messages, refuseOverBudget, run])
+
+  // B28.364 — the cheaper-model hint's one click: the last question asked again of that model, which the conversation
+  // then keeps. Like Regenerate, the answer it replaces is dropped and the model is asked afresh.
+  const reask = useCallback(
+    (model: ChatModel) => {
+      const lastUser = messages.map((m) => m.role).lastIndexOf('user')
+      if (lastUser < 0) return
+      const asked = messages[lastUser]
+      if (refuseOverBudget(messages.slice(0, lastUser), asked.content, asked.attachments ?? [], model)) return
+      setModelId(model.id)
+      void run(messages.slice(0, lastUser + 1), true, model)
+    },
+    [messages, refuseOverBudget, run],
+  )
 
   // B23.12 — a thumbs-down: Lens removes the stored answer so nobody is served it again, and the answer
   // says so — in the saved conversation too, so it still says so when reopened.
@@ -862,6 +878,9 @@ export function Chat() {
                         fallbackModel={selected?.display_name}
                       />
                     )}
+                    {m.role === 'assistant' && !pending && i === messages.length - 1 && selected !== undefined ? (
+                      <CheaperHint answer={m} asked={selected} offered={models} usdPerLXC={usdPerLXC} onReask={reask} />
+                    ) : null}
                   </li>
                 ))}
               </ol>
