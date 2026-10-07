@@ -22,6 +22,25 @@ export interface Turn {
   error?: string
 }
 
+/** B28.369 — one column of a comparison on /chat/compare: its model's answer and the line under it, or what refused it. */
+export interface ComparedColumn {
+  model: string
+  answer: string
+  footerText: string
+  footer: Footer
+  costUSD?: number
+  error?: string
+}
+
+export interface Compared {
+  page: Page
+  columns: ComparedColumn[]
+  /** Each column's answer length, every time it changed before its footer appeared. */
+  lengths: number[][]
+  /** Each request to a model, when it started and when its stream ended (ms since the epoch). */
+  streams: { started: number; ended?: number }[]
+}
+
 export class SignInRefused extends Error {}
 
 /** B35.8 — an answer refused because the testers' own network dropped ("Failed to fetch", net::ERR_…): the run's ERROR, never a FAIL. */
@@ -542,6 +561,89 @@ export class AppUser {
     await last.locator('[data-testid="turn-cost"]').evaluate((el) => el.setAttribute('data-e2e-old', '1'))
     await last.getByRole('button', { name: `Re-ask with ${displayName}` }).click()
     return this.finish(question, this.page.locator('[data-testid="turn-assistant"]').last(), hold)
+  }
+
+  /**
+   * B28.369 — one question to the models named, side by side on /chat/compare, in a tab of its own: each column's model
+   * chosen in its picker, the question sent once, and every column read when it finishes — its footer booked the moment
+   * it is read, as an answer in Chat is. `lengths` is each column's answer length every time it changed before its footer
+   * appeared, recorded inside the page; `streams` is when each request to the model started and ended, from the browser.
+   * A model the page does not offer comes back as undefined, with nothing sent.
+   */
+  async compare(question: string, displayNames: readonly string[]): Promise<Compared | undefined> {
+    const page = await this.tab('/chat/compare')
+    const box = page.locator('#compare-question')
+    await box.waitFor({ state: 'visible' })
+    for (const [i, name] of displayNames.entries()) {
+      const column = page.getByRole('group', { name: `Column ${i + 1}` })
+      const trigger = column.locator('button[aria-label^="Model: "]')
+      if ((await trigger.getAttribute('aria-label')) === `Model: ${name}`) continue
+      await trigger.click()
+      await column.getByLabel('Search models').fill(name)
+      const option = column.getByRole('option', { name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( \\(selected\\))? \\$`) }).first()
+      try {
+        await option.waitFor({ state: 'visible', timeout: 5_000 })
+      } catch {
+        await page.close()
+        return undefined
+      }
+      await option.click()
+      await column.locator(`button[aria-label="Model: ${name}"]`).waitFor({ state: 'visible' })
+    }
+    const holds = displayNames.map((name) => {
+      const m = this.catalog.find((c) => c.display_name === name)
+      if (m === undefined) throw new Error(`the catalog has no model named "${name}"`)
+      return this.cap.reserve(listPriceUSD(m, worstInputTokens(question.length), CHAT_MAX_OUTPUT_TOKENS))
+    })
+    const streams: { started: number; ended?: number }[] = []
+    page.on('request', (r) => {
+      if (!r.url().includes('/api/ai/stream/')) return
+      const s: { started: number; ended?: number } = { started: Date.now() }
+      streams.push(s)
+      void r.response().then((res) => res?.finished()).finally(() => {
+        s.ended = Date.now()
+      })
+    })
+    await page.evaluate((n) => {
+      const w = window as unknown as { e2eCompareLengths?: number[][] }
+      w.e2eCompareLengths = Array.from({ length: n }, () => [])
+      const watch = () => {
+        document.querySelectorAll('[data-testid="compare-column"]').forEach((col, i) => {
+          if (col.querySelector('[data-testid="compare-cost"]') !== null) return
+          const len = (col.querySelector('[data-testid="turn-reply"]')?.textContent ?? '').length
+          const seen = w.e2eCompareLengths?.[i]
+          if (seen !== undefined && len > 0 && seen[seen.length - 1] !== len) seen.push(len)
+        })
+        requestAnimationFrame(watch)
+      }
+      requestAnimationFrame(watch)
+    }, displayNames.length)
+    await box.fill(question)
+    await box.press('Enter')
+    const columns: ComparedColumn[] = []
+    try {
+      for (const [i, name] of displayNames.entries()) {
+        const col = page.locator('[data-testid="compare-column"]').nth(i)
+        const footer = col.getByTestId('compare-cost')
+        await footer.or(col.getByTestId('compare-failure')).or(col.getByTestId('compare-blank')).first().waitFor({ state: 'visible', timeout: ANSWER_TIMEOUT_MS })
+        if (!(await footer.isVisible())) {
+          this.cap.settle(holds[i], undefined)
+          columns.push({ model: name, answer: '', footerText: '', footer: { kind: 'unreadable', text: '' }, error: (await col.getByTestId('compare-failure').or(col.getByTestId('compare-blank')).first().innerText()).trim() })
+          continue
+        }
+        const read = await readAnswered(() => footer.innerText(), async () => (await col.getByTestId('turn-reply').innerText()).trim(), (text) => {
+          const booked = bookAnswer(this.book, this.user.workspaceID, text, this.catalog, this.usdPerLXC)
+          this.cap.settle(holds[i], booked.costUSD)
+          return booked
+        })
+        columns.push({ model: name, answer: read.answer, footerText: read.footerText, footer: read.footer, costUSD: read.costUSD })
+      }
+    } catch (e) {
+      for (const h of holds.slice(columns.length)) this.cap.settle(h, undefined)
+      throw e
+    }
+    const lengths = await page.evaluate(() => (window as unknown as { e2eCompareLengths?: number[][] }).e2eCompareLengths ?? [])
+    return { page, columns, lengths, streams }
   }
 
   private reserve(extraChars: number): Hold {

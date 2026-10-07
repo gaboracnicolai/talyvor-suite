@@ -77,6 +77,8 @@ const PINNED: Readonly<Record<string, string>> = {
   '/ledger': 'Ledger',
   '/chat': 'Chat',
   '/chat/help': 'How to use Talyvor Chat',
+  // B28.369 — compare models side by side.
+  '/chat/compare': 'Compare models',
   '/rooms': 'Rooms',
   // B28.10 — Earnings became Royalties, under Statements; /earnings redirects to it.
   '/statements/royalties': 'Royalties',

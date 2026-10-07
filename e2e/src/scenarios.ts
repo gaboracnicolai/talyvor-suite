@@ -913,6 +913,82 @@ export function continueCutOff(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.369 — compare models side by side (talyvor-lens B28.114: "three priced columns stream for one prompt"). On
+ * /chat/compare the run's model and the two cheapest other models Chat offers are asked one question at once: all three
+ * requests are open together, each column's text grows before its price appears, and each column's price is the
+ * amount of a spend row of its own — what Lens said it charged, or the list price Lens charges at until it says.
+ */
+export function compareModels(seed: number, streamable: readonly string[]): Scenario {
+  return {
+    id: 'chat-compare-models',
+    owner: 'talyvor-suite',
+    title: 'three models answer one question side by side, each column streamed and priced at its spend row',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const to = 30 + Math.floor(Math.random() * 20)
+      // A word of this attempt's own, so each model is asked rather than an earlier answer replayed — a second attempt too.
+      const q = `List the whole numbers from 1 to ${to}, separated by spaces, and nothing else. (${freshWord(5_000 + seed, 1 + Math.floor(Math.random() * 999_999))})`
+      const res = await app.page.request.get(new URL('/api/ai/providers', app.page.url()).toString())
+      const unconfigured = res.ok() ? (((await res.json()) as { unconfigured?: string[] }).unconfigured ?? []) : []
+      const price = (m: CatalogModel) => m.input_per_1m + m.output_per_1m
+      const offered = chatModels(env.catalog).filter((m) => streamable.includes(m.provider) && !unconfigured.includes(m.provider))
+      const others = offered.filter((m) => m.display_name !== app.modelNameInUse).sort((a, b) => price(a) - price(b))
+      const names = [app.modelNameInUse, ...others.slice(0, 2).map((m) => m.display_name)]
+      if (names.length < 3) return { pass: false, detail: `Chat offers ${offered.length} chat models; a comparison needs three` }
+      const seen = new Set((await env.lens.ledger(app.user)).map((row) => row.id))
+      const got = await app.compare(q, names)
+      if (got === undefined) return { pass: false, detail: `/chat/compare does not offer every one of ${names.join(', ')}` }
+      const { page, columns, lengths, streams } = got
+      try {
+        for (const c of columns) ctx.evidence.push({ note: `column ${c.model}`, question: q, answer: c.answer.slice(0, 200), footer: c.footerText, error: c.error })
+        ctx.evidence.push({ note: `answer lengths seen while each column streamed: ${lengths.map((l) => `[${l.join(',')}]`).join(' ')}` })
+        const refused = columns.find((c) => c.error !== undefined || c.footer.kind !== 'priced')
+        if (refused !== undefined) return { pass: false, detail: `the ${refused.model} column did not end in a price of its own: ${refused.error ?? `[${refused.footerText}]`}` }
+        // All three asked at once: the last request started before the first one ended.
+        const lastStart = Math.max(...streams.map((s) => s.started))
+        const firstEnd = Math.min(...streams.map((s) => s.ended ?? Number.POSITIVE_INFINITY))
+        if (streams.length !== 3 || !(lastStart < firstEnd)) {
+          return { pass: false, detail: `${streams.length} requests to the models, not three open at once: ${JSON.stringify(streams)}` }
+        }
+        const still = columns.findIndex((_, i) => (lengths[i] ?? []).length < 2)
+        if (still !== -1) return { pass: false, detail: `the ${columns[still].model} column's answer appeared all at once (lengths [${(lengths[still] ?? []).join(',')}]), not streamed` }
+        const wrong = columns.find((c) => !statesNumber(c.answer, to))
+        if (wrong !== undefined) return { pass: false, detail: `the ${wrong.model} column did not count to ${to}: "${wrong.answer.slice(0, 160)}"` }
+        // Each column's price against the spend rows its request wrote: the same amounts, one each.
+        let fresh: LedgerRow[] = []
+        for (let tries = 0; tries < 10 && fresh.length < 3; tries++) {
+          if (tries > 0) await page.waitForTimeout(1_000)
+          fresh = (await env.lens.ledger(app.user)).filter((row) => !seen.has(row.id) && row.type === 'spend')
+        }
+        ctx.evidence.push({ note: 'the spend rows the comparison wrote', ledger: fresh.map((row) => ({ type: row.type, amount_ulxc: row.amount_ulxc, created_at: row.created_at })) })
+        if (fresh.length !== 3) return { pass: false, detail: `the three answers wrote ${fresh.length} spend rows, not three` }
+        const rows = fresh.map((row) => -row.amount_ulxc).sort((a, b) => a - b)
+        // What Lens said it charged is the row's amount exactly; an estimate at the list price may round a µLXC apart.
+        const said = columns.map((c) => (c.footer.kind === 'priced' ? c.footer.chargedULXC : undefined))
+        const shown = columns
+          .map((c, i) => said[i] ?? (c.costUSD === undefined ? Number.NaN : chargeULXC(c.costUSD, env.usdPerLXC)))
+          .sort((a, b) => a - b)
+        const slack = said.every((n) => n !== undefined) ? 0 : 1
+        if (shown.some((n, i) => !(Math.abs(n - rows[i]) <= slack))) {
+          return { pass: false, detail: `the columns say ${shown.join(', ')} µLXC; the spend rows are ${rows.join(', ')} µLXC` }
+        }
+        await mkdir(env.outDir, { recursive: true })
+        const wide = join(env.outDir, `chat-compare-1440px-user${app.user.index}.png`)
+        const narrow = join(env.outDir, `chat-compare-390px-user${app.user.index}.png`)
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.screenshot({ path: wide, fullPage: true })
+        await page.setViewportSize({ width: 390, height: 844 })
+        await page.screenshot({ path: narrow, fullPage: true })
+        ctx.evidence.push({ note: `the comparison at 1440px: ${wide}; at 390px: ${narrow}` })
+        return { pass: true, detail: `${names.join(', ')} streamed side by side; their columns say ${shown.join(', ')} µLXC, the three spend rows ${rows.join(', ')} µLXC` }
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 /** B28.110 — a conversation pinned in Chat stays at the top of the rail after a reload: seeded as the person's oldest,
  *  opened, pinned with the button over it, and after the reload the first conversation the rail lists, under Pinned.
  *  Nothing is asked of a model, and the browser's history is put back after. */
@@ -3314,6 +3390,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.368 — and an answer cut off at a tiny max_tokens, which Continue carries on.
     case 6:
       list.push(sidebarStaysHidden(), blankThenRetry(i), continueCutOff(i))
+      // B28.369 — and three models asked one question side by side, each column priced at its own spend row.
+      list.push(compareModels(i, streamable))
       if (i < 10) list.push(costPreview(i))
       break
     // B28.348 — then each of Lens's refusals, made up in the browser, read as itself.
