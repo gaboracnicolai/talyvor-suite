@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS, savedLine } from './Chat'
 import { CONTINUE_PROMPT, type Conversation, historyKey, loadConversations } from './history'
+import { InstructionsPage } from './InstructionsPage'
 
 // /chat is LIVE — wired to the BFF's GET /api/models and POST /api/ai/stream/{provider}/{rest...}
 // (apps/bff/lens.go, apps/bff/stream.go). These tests drive the real fetch surface, mocked at the
@@ -1414,5 +1415,58 @@ describe('projects (B28.109)', () => {
     renderChat()
     fireEvent.click(await screen.findByRole('button', { name: 'Finance' }))
     expect((await screen.findByTestId('project-instructions')).textContent).toBe(told)
+  })
+})
+
+describe('custom instructions (B28.115)', () => {
+  it('"Answer in French" saved once is sent with the first question of every new chat, before a project’s own', async () => {
+    const { posted } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"D’accord."}}]}\n\ndata: [DONE]\n\n' })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/chat']}>
+          <Routes>
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat/instructions" element={<InstructionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    const answered = async (n: number) => {
+      await waitFor(() => expect(posted).toHaveBeenCalledTimes(n))
+      await screen.findByRole('button', { name: 'Regenerate' })
+    }
+    const sent = (n: number) => JSON.parse(String(posted.mock.calls[n][0].init.body))
+
+    // Written once, on the page Chat's rail links to.
+    fireEvent.click((await screen.findAllByRole('link', { name: 'Custom instructions' }))[0])
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Custom instructions' }), { target: { value: '  Answer in French.  ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save instructions' }))
+    expect((await screen.findByRole('status')).textContent).toBe('Saved. Every new chat is sent with them.')
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Chat' }))
+
+    // A new chat says what it is sent with, and Anthropic gets them in its own system field.
+    expect((await screen.findByTestId('custom-instructions-line')).textContent).toContain('Answer in French.')
+    await chooseModel('Claude Opus 5')
+    await ask('What is a wallet?')
+    await answered(1)
+    expect(sent(0).system).toBe('Answer in French.')
+
+    // Another new chat, on OpenAI: a system message first, with nothing set again.
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[0])
+    await chooseModel('GPT-4o')
+    await ask('And a card?')
+    await answered(2)
+    expect(sent(1).messages).toEqual([{ role: 'system', content: 'Answer in French.' }, { role: 'user', content: 'And a card?' }])
+
+    // In a project, the person's own come first and the project's after them.
+    fireEvent.click(screen.getByRole('button', { name: 'New project' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project name' }), { target: { value: 'Finance' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Instructions' }), { target: { value: 'Use pounds.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save instructions' }))
+    await ask('What did we spend?')
+    await answered(3)
+    expect(sent(2).messages[0]).toEqual({ role: 'system', content: 'Answer in French.\n\nUse pounds.' })
   })
 })
