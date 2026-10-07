@@ -88,6 +88,8 @@ const SIDEBAR_DESTINATIONS = [
   '/ledger',
   // B8.1 — every screen the console mounts, grouped by product.
   '/chat',
+  // B32.53 — rooms, indented under Chat.
+  '/rooms',
   '/track/board',
   '/track/cycles',
   '/track/projects',

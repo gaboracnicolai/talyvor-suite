@@ -262,6 +262,9 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/x1/card", body: `{"first_name":"a","last_name":"b","line1":"c","city":"d","postal_code":"e"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/connect", body: `{"country":"GB"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/credits", body: `{}`},
+		// B32.53 — opening a room and joining one.
+		{method: http.MethodPost, path: "/api/rooms", body: `{"title":"t","visibility":"public"}`},
+		{method: http.MethodPost, path: "/api/rooms/x1/join", body: `{"terms_version":1}`},
 		{method: http.MethodPost, path: "/api/agents/approvals/x1/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys/challenge", body: `{}`},
 		{method: http.MethodPost, path: "/api/agents/passkeys", body: `{"credential_id":"c","name":"n","public_key":"p","client_data_json":"j","authenticator_data":"a"}`},

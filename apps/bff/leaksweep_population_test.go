@@ -429,9 +429,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE EIGHTY-SIXTH AND EIGHTY-SEVENTH ARE B28.360'S CARD FREEZE, POST only: /api/agents/{id}/card/freeze and
 	// /card/unfreeze. Each relays Lens's answer — the card — and holds nothing; whether the card is frozen is read
 	// back through GET /api/agents/{id}/card, which the sweep reaches.
-	if len(methodOnly) > 87 {
+	//
+	// THE EIGHTY-EIGHTH IS B32.53'S JOINING A ROOM, POST only: /api/rooms/{id}/join. It relays Lens's answer — the
+	// membership — and holds nothing; who is in the room is read back through GET /api/rooms/{id}, which the sweep
+	// reaches.
+	if len(methodOnly) > 88 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 87 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 88 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

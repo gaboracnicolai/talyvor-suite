@@ -127,6 +127,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/chat': 0,
   // B10.3 — the how-to page is prose sections under <h3>s, no cards.
   '/chat/help': 0,
+  // B32.53 — the rooms directory: rooms are list cards under Region headings, no Card.
+  '/rooms': 0,
   // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. Royalties is
   // built from Region and renders no Card at all; its regions carry their own headings. B28.10
   // moved it under Statements; /earnings redirects to the same screen.

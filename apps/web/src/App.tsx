@@ -45,6 +45,7 @@ import { Plans } from './areas/lens/Plans'
 import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { Chat } from './areas/chat/Chat'
 import { ChatHelp } from './areas/chat/ChatHelp'
+import { RoomsArea } from './areas/rooms/Rooms'
 import { TrackArea } from './areas/track/TrackArea'
 import { PublicBoard } from './areas/board/PublicBoard'
 import { DocsArea } from './areas/docs/DocsArea'
@@ -217,6 +218,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/chat', title: 'Chat', element: <Chat /> },
   // B10.3 — the chat carries no instructions; they live here, linked from its rail.
   { path: '/chat/help', title: 'How to use Talyvor Chat', element: <ChatHelp /> },
+  // B32.53 — rooms: open chats other workspaces join, the directory and a new room. Chat's rail lists them too.
+  { path: '/rooms/*', title: 'Rooms', element: <RoomsArea /> },
   // THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect targets already default to
   // app.talyvor.com/billing/success?session_id={CHECKOUT_SESSION_ID} and /billing/cancel — the
   // design assumed the suite owned them. A customer arrives here by full page load from Stripe,
@@ -395,6 +398,7 @@ function Sidebar() {
         {item('/statements', 'Statements', 'statement')}
         {item('/statements/royalties', 'Royalties', 'coins', { indent: true })}
         {item('/chat', 'Chat', 'chat', { wildcard: true })}
+        {item('/rooms', 'Rooms', 'members', { indent: true, wildcard: true })}
       </div>
       <Group label="Marketplace" {...fold.group('Marketplace')}>
         {item('/marketplace', 'Browse', 'grid', {

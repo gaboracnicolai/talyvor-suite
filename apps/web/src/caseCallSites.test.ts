@@ -408,16 +408,18 @@ const PINS: Record<string, Pin> = {
   // 77 → 78 at B28.354: the "Paid by" label under Chat's composer.
   // 78 → 79 at B28.358: the "Saved in this chat" eyebrow beside Chat.
   // 79 → 80 at B28.361: the "Budget" label under Chat's composer.
+  // 80 → 86 at B32.53: the rooms' eyebrows — a room card's topic, Members and visibility, the Invited and Terms
+  // labels, and the Rooms heading in Chat's rail.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 80,
+    states: 86,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 80,
+    states: 86,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

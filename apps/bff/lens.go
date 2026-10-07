@@ -432,6 +432,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/marketplace/payouts", a.requireTenant(a.handleMarketPayouts)) // B20.6
 	a.mux.HandleFunc("/api/marketplace/payouts/connect", a.requireTenant(a.handleMarketPayoutsConnect))
 	a.mux.HandleFunc("/api/marketplace/payouts/credits", a.requireTenant(a.handleMarketPayoutsCredits))
+	// B32.53 — rooms: the open chats Chat lists, opening one and joining one. See rooms.go.
+	a.mux.HandleFunc("/api/rooms", a.requireTenant(a.handleRooms))
+	a.mux.HandleFunc("/api/rooms/{id}", a.requireTenant(a.handleRoom))
+	a.mux.HandleFunc("/api/rooms/{id}/join", a.requireTenant(a.handleRoomJoin))
 	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
 	// previews, with no model call and no charge. See tryit.go.
 	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))

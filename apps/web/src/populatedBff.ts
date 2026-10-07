@@ -197,6 +197,18 @@ const BY_PATH: Record<string, unknown> = {
       { id: 'lst_review', workspace_id: 'ws-seller', kind: 'agent', title: 'Code reviewer', description: 'Reviews a diff for correctness.', price_per_use_ulxc: 0, visibility: 'public', latest_version: 1, created_at: '2026-09-27T11:00:00Z', updated_at: '2026-09-27T11:00:00Z' },
     ],
   },
+  // B32.53 — rooms: one this workspace is in, one open room it is not, and its Free plan's room limits.
+  '/api/rooms': {
+    rooms: [
+      { id: 'room_pricing', owner_workspace_id: 'ws_populated', title: 'Agent pricing research', topic: 'research', description: 'What agents pay for, and what they should.', visibility: 'public', status: 'open', terms_version: 1, member_count: 3, created_at: '2026-10-05T09:00:00Z', last_activity_at: '2026-10-06T16:00:00Z' },
+      { id: 'room_evals', owner_workspace_id: 'ws-seller', title: 'Open-source evals', topic: 'evaluation', description: 'Evaluations anyone can run.', visibility: 'public', status: 'open', terms_version: 2, member_count: 12, created_at: '2026-10-04T09:00:00Z', last_activity_at: '2026-10-06T12:00:00Z' },
+    ],
+    joined: [
+      { id: 'room_pricing', owner_workspace_id: 'ws_populated', title: 'Agent pricing research', topic: 'research', description: 'What agents pay for, and what they should.', visibility: 'public', status: 'open', terms_version: 1, member_count: 3, created_at: '2026-10-05T09:00:00Z', last_activity_at: '2026-10-06T16:00:00Z' },
+    ],
+    invited: null,
+    limits: { plan: 'free', limit_as: 'free', public_rooms: 3, private_rooms: 0, members_per_room: 50, agents_per_room: 10, room_budget_max_usd: 100, public_rooms_open: 1, private_rooms_open: 0 },
+  },
   // B18.25 — the operator screen: one busy workspace and one that never made a request.
   '/api/admin/workspaces': {
     workspaces: [

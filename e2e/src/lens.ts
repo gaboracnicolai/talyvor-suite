@@ -412,6 +412,32 @@ export interface PlanAllowance {
 }
 
 /** B28.5 — one plan as Lens's public plans read states it: its price, and the µLXC it includes this month. */
+/** B32.53 — Lens's rooms.Room. */
+export interface LensRoom {
+  id: string
+  owner_workspace_id: string
+  title: string
+  topic: string
+  visibility: string
+  status: string
+  terms_version: number
+  member_count: number
+}
+
+/** B32.53 — GET /v1/rooms: the open public rooms, and the rooms the caller's workspace is in. */
+export interface LensRooms {
+  rooms: LensRoom[] | null
+  joined: LensRoom[] | null
+  invited: LensRoom[] | null
+}
+
+/** B32.53 — GET /v1/rooms/{id}: the room, its terms and its members, and the caller's membership (null: not a member). */
+export interface LensRoomDetail extends LensRoom {
+  terms: { version: number; split_rule: string; remix_share_bps: number; default_price_usd_micros: number; spend_policy: string }
+  members: { workspace_id: string; role: string }[] | null
+  me: { workspace_id: string; role: string } | null
+}
+
 /** B28.364 — Lens's routing.Recommendation, as GET …/routing/recommendation answers it. */
 export interface RoutingRecommendation {
   model: string
@@ -847,6 +873,16 @@ export class LensClient {
   /** The plan Lens holds the workspace to, its gates, and the agents it has now. */
   async workspacePlan(user: SyntheticUser): Promise<WorkspacePlan> {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/plan`, this.bearer(user.token))) as WorkspacePlan
+  }
+
+  /** B32.53 — the rooms as Lens lists them to this user (GET /v1/rooms): the open public ones, and the ones it is in. */
+  async rooms(user: SyntheticUser): Promise<LensRooms> {
+    return (await this.call('GET', '/v1/rooms', this.bearer(user.token))) as LensRooms
+  }
+
+  /** B32.53 — one room as this user reads it (GET /v1/rooms/{id}): its terms, members and the user's own membership. */
+  async room(user: SyntheticUser, id: string): Promise<LensRoomDetail> {
+    return (await this.call('GET', `/v1/rooms/${encodeURIComponent(id)}`, this.bearer(user.token))) as LensRoomDetail
   }
 
   /** B34.1 — retires an agent as the workspace's owner: its balance swept back to the workspace, its keys revoked. */
