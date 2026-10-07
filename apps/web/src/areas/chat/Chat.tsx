@@ -29,6 +29,7 @@ import {
 import {
   type Conversation,
   type History,
+  keptVersions,
   loadConversations,
   newConversationId,
   railGroups,
@@ -36,6 +37,7 @@ import {
   searchConversations,
   setArchived,
   setPinned,
+  showVersion,
   upsertConversation,
 } from './history'
 import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
@@ -390,9 +392,11 @@ export function Chat() {
   // B28.361 — the draft could take this conversation past its budget: said under the box before it is sent.
   const draftOver = overBudget(budget, messages, estimate, usdPerLXC)
 
-  /** Streams an answer to `turn`, whose last message is the question; B28.364 — asked of `using` when given. */
+  /** Streams an answer to `turn`, whose last message is the question; B28.364 — asked of `using` when given.
+   *  B28.112 — `was` is the thread when the question is asked again: the answer it had, with every version of it, stays
+   *  as the new answer's earlier versions, and if no new answer comes the thread is put back as it was. */
   const run = useCallback(
-    async (turn: ChatMessage[], fresh = false, using?: ChatModel) => {
+    async (turn: ChatMessage[], fresh = false, using?: ChatModel, was?: ChatMessage[]) => {
       const target = using ?? selected
       if (target === undefined || pending) return
       const id = activeId ?? newConversationId()
@@ -405,11 +409,12 @@ export function Chat() {
       const inProject = project?.id
       const told = project?.instructions ?? ''
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
+      const carry = was === undefined ? {} : keptVersions(was, turn.length)
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
-      // answer.
-      store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject))
-      setMessages([...turn, { role: 'assistant', content: '' }])
+      // answer. B28.112 — asked again, nothing is lost: the thread stays as it was until the new version comes.
+      if (carry.versions === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject))
+      setMessages([...turn, { role: 'assistant', content: '', ...carry }])
       setPending(true)
       setFailure(null)
       setUnreadable(0)
@@ -428,6 +433,7 @@ export function Chat() {
       let answerPayer: AnswerPayer | undefined
       let charged: number | undefined
       let auto: boolean | undefined
+      let failed = false
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
       const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
@@ -450,7 +456,7 @@ export function Chat() {
               const next = [...prev]
               const last = next[next.length - 1]
               if (last !== undefined && last.role === 'assistant') {
-                next[next.length - 1] = { role: 'assistant', content: last.content + chunk }
+                next[next.length - 1] = { ...last, content: last.content + chunk }
               }
               return next
             })
@@ -547,6 +553,7 @@ export function Chat() {
             setUnreadable(unrecognised)
           },
           onError: (message, remedy) => {
+            failed = true
             setPending(false)
             setFailure({ text: message, remedy })
           },
@@ -557,12 +564,18 @@ export function Chat() {
         payer,
         { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}) },
       )
+      // B28.112 — asked again and nothing came back (stopped, refused, blank): the answer it had is shown and kept.
+      if (was !== undefined && carry.versions !== undefined && answer.trim() === '') {
+        setMessages(was)
+        if (!failed && !controller.signal.aborted) setFailure({ text: 'No new version came back. The answer is as it was.' })
+        return
+      }
       store((list) =>
         upsertConversation(
           list,
           id,
           model,
-          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto }],
+          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...carry }],
           Date.now(),
           payer,
           cap,
@@ -700,18 +713,18 @@ export function Chat() {
     if (attachError === null) sendRef.current()
   }, [attachError, uploading, waiting])
 
-  // Regenerate answers the last question again: the previous answer is dropped, not kept beside it.
+  // Regenerate answers the last question again. B28.112 — the previous answer is kept beside it, as a version.
   // B15.6 — and it always asks the model: without the bypass Lens would replay the answer it has.
   const regenerate = useCallback(() => {
     const lastUser = messages.map((m) => m.role).lastIndexOf('user')
     if (lastUser < 0) return
     const asked = messages[lastUser]
     if (refuseOverBudget(messages.slice(0, lastUser), asked.content, asked.attachments ?? [])) return
-    void run(messages.slice(0, lastUser + 1), true)
+    void run(messages.slice(0, lastUser + 1), true, undefined, messages)
   }, [messages, refuseOverBudget, run])
 
   // B28.364 — the cheaper-model hint's one click: the last question asked again of that model, which the conversation
-  // then keeps. Like Regenerate, the answer it replaces is dropped and the model is asked afresh.
+  // then keeps. Like Regenerate, the model is asked afresh and the answer it replaces is kept as a version (B28.112).
   const reask = useCallback(
     (model: ChatModel) => {
       const lastUser = messages.map((m) => m.role).lastIndexOf('user')
@@ -719,9 +732,21 @@ export function Chat() {
       const asked = messages[lastUser]
       if (refuseOverBudget(messages.slice(0, lastUser), asked.content, asked.attachments ?? [], model)) return
       setModelId(model.id)
-      void run(messages.slice(0, lastUser + 1), true, model)
+      void run(messages.slice(0, lastUser + 1), true, model, messages)
     },
     [messages, refuseOverBudget, run],
+  )
+
+  // B28.112 — another version of an answer shown, with the turns that followed it, and kept so: a reload shows it too.
+  const switchVersion = useCallback(
+    (at: number, to: number) => {
+      const next = showVersion(messages, at, to)
+      setMessages(next)
+      setEditing(null)
+      setFailure(null)
+      if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, messages: next } : c)))
+    },
+    [activeId, messages, store],
   )
 
   // B28.111 — a question edited and sent again: the thread is asked again from it, and what followed it is dropped,
@@ -993,6 +1018,7 @@ export function Chat() {
                         answering={pending && i === messages.length - 1}
                         canRegenerate={!pending && i === messages.length - 1}
                         onRegenerate={regenerate}
+                        onVersion={pending ? undefined : (to) => switchVersion(i, to)}
                         onMarkWrong={m.request_id !== undefined ? () => markWrong(m.request_id!) : undefined}
                         onReveal={i === messages.length - 1 ? follow : undefined}
                         usdPerLXC={usdPerLXC}
@@ -1636,6 +1662,7 @@ function Reply({
   answering,
   canRegenerate,
   onRegenerate,
+  onVersion,
   onMarkWrong,
   onReveal,
   usdPerLXC,
@@ -1645,6 +1672,8 @@ function Reply({
   answering: boolean
   canRegenerate: boolean
   onRegenerate: () => void
+  /** B28.112 — shows another version of this answer, by its place from 0; absent while an answer is being written. */
+  onVersion?: (to: number) => void
   /** B23.12 — marks the answer wrong; absent when Lens gave no id to name it by. */
   onMarkWrong?: () => Promise<void>
   /** Called as the answer grows on screen, so the view can follow it. */
@@ -1692,7 +1721,10 @@ function Reply({
               The model reached its length limit before it finished this answer.
             </p>
           ) : null}
-          <CopyButton text={message.content} label="Copy" className="-ml-2" />
+          {message.versions !== undefined && message.versions.length > 0 && onVersion !== undefined ? (
+            <Versions at={message.version ?? message.versions.length} of={message.versions.length + 1} onShow={onVersion} />
+          ) : null}
+          <CopyButton text={message.content} label="Copy" className={message.versions?.length ? undefined : '-ml-2'} />
           {canRegenerate ? (
             <button
               type="button"
@@ -1749,6 +1781,31 @@ function Reply({
           ) : null}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** B28.112 — "‹ 2 / 3 ›" under an answer asked for more than once: the arrows show the version before or after. */
+function Versions({ at, of, onShow }: { at: number; of: number; onShow: (to: number) => void }) {
+  const arrow = cn(
+    'inline-flex h-7 w-7 items-center justify-center rounded-control text-muted transition-colors duration-200 hover:text-ink disabled:text-faint disabled:hover:text-faint',
+    focusRing,
+  )
+  return (
+    <div role="group" aria-label="Versions of this answer" className="-ml-2 mr-1 flex items-center">
+      <button type="button" className={arrow} aria-label="Previous version" disabled={at <= 0} onClick={() => onShow(at - 1)}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 6l-6 6 6 6" />
+        </svg>
+      </button>
+      <span className="px-1 font-figure text-caption text-muted" data-testid="turn-version">
+        {at + 1} / {of}
+      </span>
+      <button type="button" className={arrow} aria-label="Next version" disabled={at >= of - 1} onClick={() => onShow(at + 1)}>
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 6l6 6-6 6" />
+        </svg>
+      </button>
     </div>
   )
 }

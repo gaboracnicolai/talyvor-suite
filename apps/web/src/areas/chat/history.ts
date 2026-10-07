@@ -87,6 +87,39 @@ export function titleFrom(messages: ChatMessage[]): string {
   return first.length <= TITLE_MAX ? first : first.slice(0, TITLE_MAX - 1).trimEnd() + '…'
 }
 
+/** B28.112 — every version of the answer at `at`, oldest first, each the answer with the turns that followed it; the
+ *  one shown is the thread from `at` on. */
+function versionsAt(messages: readonly ChatMessage[], at: number): ChatMessage[][] {
+  const shown = messages[at]
+  if (shown === undefined) return []
+  const { versions = [], version = versions.length, ...answer } = shown
+  const all = [...versions]
+  // A failed answer later in the thread is left out, as upsertConversation leaves it out of the saved thread.
+  all.splice(version, 0, [answer, ...messages.slice(at + 1).filter((m) => !(m.role === 'assistant' && m.content === ''))])
+  return all
+}
+
+/** B28.112 — what a new answer to the question before `at` carries: every version the answer at `at` had, so the new
+ *  one is the last. An answer that said nothing is not a version. */
+export function keptVersions(messages: readonly ChatMessage[], at: number): Pick<ChatMessage, 'versions' | 'version'> {
+  const all = versionsAt(messages, at).filter((v) => (v[0]?.content.trim() ?? '') !== '')
+  return all.length === 0 ? {} : { versions: all, version: all.length }
+}
+
+/** B28.112 — the thread with the answer at `at` switched to its version `to`, which brings back the turns that followed
+ *  it; the version it leaves keeps its own. */
+export function showVersion(messages: ChatMessage[], at: number, to: number): ChatMessage[] {
+  const all = versionsAt(messages, at)
+  const [answer, ...after] = all[to] ?? []
+  if (answer === undefined) return messages
+  return [...messages.slice(0, at), { ...answer, versions: all.filter((_, i) => i !== to), version: to }, ...after]
+}
+
+/** B28.112 — every turn in a thread, its answers' other versions too: each of them was asked for and paid for. */
+export function everyTurn(messages: readonly ChatMessage[]): ChatMessage[] {
+  return messages.flatMap((m) => [m, ...(m.versions ?? []).flatMap(everyTurn)])
+}
+
 export function newConversationId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()

@@ -832,6 +832,50 @@ export function editResendRerunsThread(seed: number): Scenario {
   }
 }
 
+/** B28.367 — Regenerate keeps the earlier answer as a version: a sum answered, Regenerate pressed, and after a reload
+ *  the answer still reads "2 / 2"; Previous version shows the first, "1 / 2". Both versions state the sum. */
+export function answerVersionsSurviveReload(seed: number): Scenario {
+  // The run's own sum, so the model is asked rather than an earlier run's answer served from the pool.
+  const r = seeded(seed * 37 + 13 + RUN_SALT)
+  const [a, b] = [0, 0].map(() => 1000 + Math.floor(r() * 9000))
+  const q = `What is ${a} + ${b}? ${NUMBER_ONLY}`
+  return {
+    id: 'chat-answer-versions',
+    owner: 'talyvor-suite',
+    title: 'Regenerate keeps the earlier answer as a version, and both survive a reload',
+    run: async (ctx) => {
+      const { page } = ctx.app
+      await ctx.app.newChat()
+      const first = await ask(ctx, q, 'the first version')
+      if (!statesNumber(first.answer, a + b)) return { pass: false, detail: `the first answer was wrong: ${describe(first)}` }
+      const second = record(ctx, await ctx.app.regenerate(q), 'Regenerate: the second version')
+      if (second.error !== undefined) return { pass: false, detail: `Regenerate was refused: ${second.error}` }
+      const label = page.locator('[data-testid="turn-assistant"]').last().getByTestId('turn-version')
+      const shown = () => page.locator('[data-testid="turn-assistant"]').last().evaluate((li) =>
+        Array.from(li.firstElementChild?.children ?? [])
+          .filter((c) => !c.classList.contains('sr-only') && c.querySelector('[data-testid="turn-cost"]') === null)
+          .map((c) => (c as HTMLElement).innerText).join('\n').trim())
+      const before = (await label.innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+      if (before !== '2 / 2') return { pass: false, detail: `after Regenerate the answer reads "${before}", not "2 / 2"` }
+
+      await page.reload()
+      await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const after = (await label.innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+      const latest = await shown()
+      await page.getByRole('button', { name: 'Previous version' }).click({ timeout: ACTION_TIMEOUT_MS })
+      const earlier = (await label.innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+      const oldest = await shown()
+      ctx.evidence.push({ note: `after the reload "${after}": "${latest}"; Previous version "${earlier}": "${oldest}"` })
+      if (after !== '2 / 2') return { pass: false, detail: `after the reload the answer reads "${after}", not "2 / 2"` }
+      if (earlier !== '1 / 2') return { pass: false, detail: `Previous version reads "${earlier}", not "1 / 2"` }
+      if (!statesNumber(latest, a + b) || !statesNumber(oldest, a + b)) {
+        return { pass: false, detail: `the versions read "${oldest}" and "${latest}"; both should state ${a + b}` }
+      }
+      return { pass: true, detail: `both versions of the answer survived the reload, each stating ${a + b}` }
+    },
+  }
+}
+
 /** B28.110 — a conversation pinned in Chat stays at the top of the rail after a reload: seeded as the person's oldest,
  *  opened, pinned with the button over it, and after the reload the first conversation the rail lists, under Pinned.
  *  Nothing is asked of a model, and the browser's history is put back after. */
@@ -3226,7 +3270,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
     // B28.110 — and a chat pinned, still the first in the rail after a reload.
     // B28.366 — and a follow-up edited and sent again, the thread re-run from it.
-    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i)); break
+    // B28.367 — and an answer regenerated, both versions still there after a reload.
+    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i), answerVersionsSurviveReload(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
     case 6:

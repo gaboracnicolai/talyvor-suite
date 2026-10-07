@@ -1,5 +1,6 @@
 import type { ChatMessage } from './chatApi'
 import { spentULXC } from './ConversationBudget'
+import { everyTurn } from './history'
 
 // B28.101 — a running total for the conversation, under the box: the prices under its answers added up. It is worked
 // out from the answers themselves, which are kept with the conversation in this browser (history.ts), so a reopened
@@ -22,10 +23,10 @@ export interface ChatTotalFigures {
 const pegged = (usdPerLXC: number | undefined): usdPerLXC is number =>
   typeof usdPerLXC === 'number' && Number.isFinite(usdPerLXC) && usdPerLXC > 0
 
-/** The conversation's answers, priced as their footers price them, added up. */
+/** The conversation's answers, priced as their footers price them, added up; B28.112 — every version of each. */
 export function chatTotal(messages: readonly ChatMessage[], usdPerLXC: number | undefined): ChatTotalFigures {
   const t: ChatTotalFigures = { priced: 0, unpriced: 0, ulxc: 0, usd: 0 }
-  for (const m of messages) {
+  for (const m of everyTurn(messages)) {
     if (m.role !== 'assistant') continue
     if (m.source !== undefined || m.cost !== undefined || m.charged_ulxc !== undefined) t.priced++
     else if (m.content !== '' && m.incomplete !== 'blank') t.unpriced++

@@ -977,6 +977,45 @@ describe('the reading column (B10.3)', () => {
     expect(JSON.parse(String(posted.mock.calls[1][0].init.body)).messages).toEqual([{ role: 'user', content: 'question' }])
   })
 
+  // B28.367 — what B28.112's Lens side receives: Regenerate asks afresh, and a question after a version is sent with the
+  // thread as that version left it. Both versions, each with the turns that followed it, are kept with the conversation.
+  it('B28.112 — Regenerate keeps the earlier answer as a version; each version keeps its own thread, after a reload too', async () => {
+    const said = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`
+    const { posted } = mockChat({ bodies: [said('Paris.'), said('It is Paris.'), said('About 2.1 million.')] })
+    const answers = () => screen.getAllByTestId('turn-assistant').map((t) => t.querySelector('p')?.textContent)
+    const tab = renderChat()
+    await ask('Capital of France?')
+    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }))
+    await waitFor(() => expect(screen.getByTestId('turn-version').textContent).toBe('2 / 2'))
+    expect(new Headers(posted.mock.calls[1][0].init.headers).get('X-Talyvor-Cache')).toBe('bypass')
+    expect(answers()).toEqual(['It is Paris.'])
+
+    await ask('How many people live there?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(3))
+    expect(JSON.parse(String(posted.mock.calls[2][0].init.body)).messages).toEqual([
+      { role: 'user', content: 'Capital of France?' },
+      { role: 'assistant', content: 'It is Paris.' },
+      { role: 'user', content: 'How many people live there?' },
+    ])
+    await waitFor(() => expect(answers()).toEqual(['It is Paris.', 'About 2.1 million.']))
+    await screen.findAllByRole('button', { name: 'Copy' })
+    // The first version has no follow-up: showing it shows the thread as it was then.
+    fireEvent.click(screen.getByRole('button', { name: 'Previous version' }))
+    expect(screen.getByTestId('turn-version').textContent).toBe('1 / 2')
+    expect(answers()).toEqual(['Paris.'])
+    expect(screen.getAllByTestId('turn-user')).toHaveLength(1)
+    tab.unmount()
+
+    renderChat()
+    await waitFor(() => expect(screen.getByTestId('turn-version').textContent).toBe('1 / 2'))
+    expect(answers()).toEqual(['Paris.'])
+    fireEvent.click(screen.getByRole('button', { name: 'Next version' }))
+    expect(screen.getByTestId('turn-version').textContent).toBe('2 / 2')
+    expect(answers()).toEqual(['It is Paris.', 'About 2.1 million.'])
+    expect(screen.getAllByTestId('turn-user').map((t) => t.querySelector('p')?.textContent)).toEqual(['Capital of France?', 'How many people live there?'])
+    expect(posted).toHaveBeenCalledTimes(3)
+  })
+
   // B15.6 — the footer says where an answer came from when the model did not write it just now.
   it('an answer Lens replayed from the cache says it came from your earlier answer, at 0 LXC', async () => {
     mockChat({

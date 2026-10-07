@@ -118,6 +118,11 @@ export interface ChatMessage {
   charged_ulxc?: number
   /** B28.363 — on an answer asked of Auto: Lens chose the model that served it, and the stream named it. */
   auto?: boolean
+  /** B28.112 — on an answer asked for again: its other versions, oldest first, each the answer with the turns that
+   *  followed it. Screen-side only, like the price: requestBody() sends role and content. */
+  versions?: ChatMessage[][]
+  /** B28.112 — with `versions`, where this answer stands among all of them, from 0. */
+  version?: number
 }
 
 /** B28.354 — the agent chosen to pay for an answer. `billed` only when Lens's answer named that agent. */
