@@ -4,6 +4,7 @@ import { cn, focusRing } from '@talyvor/ui'
 
 import type { ChatMessage } from './chatApi'
 import type { CostRange } from './estimate'
+import { everyTurn } from './history'
 
 // B28.361 — a budget per conversation. "Budget", under the composer, caps what one conversation may spend, in LXC.
 // It is kept with the conversation (history.ts) and every request the conversation makes carries it to Lens with the
@@ -45,7 +46,8 @@ export function parseBudget(text: string): number | undefined | null {
 export function spentULXC(messages: readonly ChatMessage[], usdPerLXC: number | undefined): number | undefined {
   if (!pegged(usdPerLXC)) return undefined
   let total = 0
-  for (const m of messages) {
+  // B28.112 — an answer's other versions were paid for too.
+  for (const m of everyTurn(messages)) {
     if (m.role !== 'assistant') continue
     if (m.source?.kind === 'pool') total += m.source.charged_ulxc
     // B28.362 — what Lens charged for it, once it said, in place of the estimate.

@@ -69,4 +69,18 @@ describe('a running total for the conversation (B28.101)', () => {
     render(<App />)
     await waitFor(() => expect(screen.getByTestId('chat-total').textContent).toBe('This chat so far ≈ 0.00835 LXC · 2 answers'))
   })
+
+  // B28.112 — Regenerate keeps the earlier answer as a version, and it was paid for: the total counts it, shown or not.
+  it('counts every version of an answer', async () => {
+    mockBff()
+    window.history.pushState({}, '', '/chat')
+    render(<App />)
+    await screen.findByRole('button', { name: 'Model: Claude Opus 5' })
+    await ask('The capital of France?')
+    fireEvent.click(await screen.findByRole('button', { name: 'Regenerate' }))
+    await waitFor(() => expect(screen.getByTestId('turn-version').textContent).toBe('2 / 2'))
+    expect(screen.getByTestId('chat-total').textContent).toBe('This chat so far ≈ 0.00835 LXC · 2 answers')
+    fireEvent.click(screen.getByRole('button', { name: 'Previous version' }))
+    expect(screen.getByTestId('chat-total').textContent).toBe('This chat so far ≈ 0.00835 LXC · 2 answers')
+  })
 })
