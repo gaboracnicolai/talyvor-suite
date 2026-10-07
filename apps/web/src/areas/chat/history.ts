@@ -25,6 +25,8 @@ export interface Conversation {
   budget_ulxc?: number
   /** B28.109 — the project it was started in, whose instructions every question in it is sent with; absent, none. */
   project_id?: string
+  /** B28.370 — the named prompt from the library every question in it is sent with; absent, none. */
+  prompt?: string
   created_at: number
   updated_at: number
   /** B28.365 — when this browser last saved a change to it (a rename too, which leaves updated_at); syncs merge by it. */
@@ -194,6 +196,8 @@ export function upsertConversation(
   budgetULXC?: number,
   /** B28.109 — a conversation stays in the project it was started in. */
   projectId?: string,
+  /** B28.370 — the named prompt it uses; '' is none. */
+  prompt?: string,
 ): Conversation[] {
   const kept = messages
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
@@ -208,6 +212,7 @@ export function upsertConversation(
     ...(paidBy !== undefined && paidBy !== '' ? { paid_by: paidBy } : {}),
     ...(budgetULXC !== undefined ? { budget_ulxc: budgetULXC } : {}),
     ...((projectId ?? prior?.project_id) !== undefined ? { project_id: projectId ?? prior?.project_id } : {}),
+    ...(prompt !== undefined && prompt !== '' ? { prompt } : {}),
     // B28.110 — a pin outlasts new turns; a question asked in an archived conversation brings it back to the list.
     ...(prior?.pinned ? { pinned: true as const } : {}),
     created_at: prior?.created_at ?? now,

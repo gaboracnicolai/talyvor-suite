@@ -3451,6 +3451,71 @@ export function chatCustomInstructions(seed: number): Scenario {
   }
 }
 
+/** B28.370 — a prompt saved in Chat's prompt library is kept in Lens by name; opened in a new chat from its card, a
+ *  real question is sent with the prompt's name, Lens swaps its text in and answers X-Talyvor-Prompt-Resolved: true,
+ *  and the answer says it was asked with the prompt. Lens has no way to delete a prompt, so the one saved stays in the
+ *  workspace's library under its run's name; the conversation is taken out of this browser after.
+ *  ⚠ IT ASKS ON THE USER'S OWN CHAT TAB, because app.ask books the answer for the ledger read-back, so it moves only
+ *  inside the app — a reload there leaves the next scenario counting answers before the history has loaded — and leaves
+ *  the tab on a new chat with no prompt. */
+export function chatPromptLibrary(seed: number): Scenario {
+  const tag = `${seed}-${Date.now().toString(36)}`
+  const name = `heron-${tag}`
+  const text = `End every answer with the word heron${tag}.`
+  const question = `What is a wallet, in one sentence? ${tag}`
+  return {
+    id: 'chat-prompt-library',
+    owner: 'talyvor-suite',
+    title: 'a prompt saved in the library, used in a new chat by name: Lens swaps it in and says so, and the answer says it was used',
+    run: async (ctx) => {
+      const { app } = ctx
+      const page = app.page
+      try {
+        if (new URL(page.url()).pathname !== '/chat') await app.openChat()
+        await page.getByRole('link', { name: 'Prompt library' }).first().click()
+        await page.getByRole('textbox', { name: 'Name' }).fill(name)
+        await page.getByRole('textbox', { name: 'Prompt' }).fill(text)
+        await page.getByRole('button', { name: 'Save prompt' }).click()
+        const said = (await page.getByRole('status').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+        ctx.evidence.push({ note: `saving ${name} said "${said.slice(0, 160)}"` })
+        if (!said.startsWith(`Saved ${name}.`)) return { pass: false, detail: `saving the prompt said "${said.slice(0, 160)}"` }
+        await page.getByTestId('prompt-card').filter({ hasText: name }).getByRole('link', { name: 'Use in a new chat' }).click()
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        const chosen = await page.locator('#chat-prompt').inputValue({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')
+        if (chosen !== name) return { pass: false, detail: `"Use in a new chat" opened Chat with the prompt "${chosen}" chosen, not ${name}` }
+        await app.newChat()
+
+        const streamed = page.waitForResponse((r) => r.url().includes('/api/ai/stream/') && r.request().method() === 'POST', { timeout: ACTION_TIMEOUT_MS * 4 })
+        const t = await ask(ctx, question, `asked with the prompt ${name}`)
+        const res = await streamed
+        const sent = res.request().postData() ?? ''
+        const header = res.headers()['x-talyvor-prompt-resolved'] ?? ''
+        const line = page.getByTestId('turn-prompt').last()
+        const resolved = await line.getAttribute('data-resolved', { timeout: ACTION_TIMEOUT_MS }).catch(() => null)
+        const lineText = (await line.innerText().catch(() => '')).trim()
+        ctx.evidence.push({ note: `sent ${sent.includes(`"lens:prompt:${name}"`) ? 'the prompt by name' : 'no reference to the prompt'}; X-Talyvor-Prompt-Resolved "${header}"; under the answer "${lineText.slice(0, 160)}"; the answer ${t.answer.includes(`heron${tag}`) ? 'follows' : 'does not end with'} the prompt` })
+        if (t.error !== undefined) return { pass: false, detail: `the question asked with the prompt was refused: ${t.error}` }
+        if (!sent.includes(`"lens:prompt:${name}"`)) return { pass: false, detail: `the question went to the model without lens:prompt:${name}` }
+        if (header !== 'true') return { pass: false, detail: `Lens's answer to a question naming ${name} carried no X-Talyvor-Prompt-Resolved: true ("${header}")` }
+        if (resolved !== 'true' || !lineText.includes(name)) return { pass: false, detail: `the answer did not say it was asked with ${name}: "${lineText.slice(0, 160)}"` }
+        return { pass: true, detail: `${name} saved in the library and used in a new chat: Lens swapped it in (X-Talyvor-Prompt-Resolved: true) and the answer says so` }
+      } finally {
+        // Out of this browser again: the conversation asked with the prompt, so the next question is not sent with it,
+        // and the tab back on Chat, on a new chat.
+        await page.evaluate((tag) => {
+          for (const key of Object.keys(localStorage).filter((k) => k.startsWith('talyvor.chat.v1:'))) {
+            const convs = JSON.parse(localStorage.getItem(key) ?? '[]') as Array<{ title?: string }>
+            localStorage.setItem(key, JSON.stringify(convs.filter((c) => !(c.title ?? '').includes(tag))))
+          }
+        }, tag).catch(() => undefined)
+        if (new URL(page.url()).pathname !== '/chat') await page.getByRole('link', { name: 'Back to Chat' }).click().catch(() => undefined)
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        await app.newChat().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /**
  * Which scenarios user `i` runs. Everyone runs the two known-answer questions; one in ten of the users
  * also runs each of the others, so 100 users cover the catalog ten times over; user 0 prices every
@@ -3468,7 +3533,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.108 — and a word from an old answer finding its conversation among 500.
     // B28.109 — and a new chat in a project, sent with the project's instructions.
     // B28.115 — and custom instructions, sent with the first question of two new chats.
-    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i), chatProjectInstructions(i), chatCustomInstructions(i)); break
+    // B28.370 — and a prompt saved in the library, used in a new chat by name and swapped in by Lens.
+    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i), chatProjectInstructions(i), chatCustomInstructions(i), chatPromptLibrary(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     // B32.53 — and a private room opened on /rooms/new: Lens's, in Chat's rail and the directory, 404 to another company.
     case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i)); break

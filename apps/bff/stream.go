@@ -363,6 +363,11 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		if v := resp.Header.Get(paidByHeader); v != "" {
 			w.Header().Set(paidByHeader, v)
 		}
+		// B28.370 — Lens swapped a "lens:prompt:<name>" system message for the named prompt (chat_prompts.go); the chat
+		// says so under the answer.
+		if v := resp.Header.Get(promptResolvedHeader); v != "" {
+			w.Header().Set(promptResolvedHeader, v)
+		}
 		// B23.12 — which request this answer was, so a thumbs-down on it can name it (feedback.go).
 		if v := resp.Header.Get(requestIDHeader); v != "" {
 			w.Header().Set(requestIDHeader, v)

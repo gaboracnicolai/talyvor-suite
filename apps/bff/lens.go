@@ -280,6 +280,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B28.349 — Chat asks what the agents spent through Lens's wallet MCP tools, read-only ones only. See chat_tools.go.
 	a.mux.HandleFunc("/api/chat/tools", a.requireTenant(a.handleChatTools))
 	a.mux.HandleFunc("/api/chat/tools/call", a.requireTenant(a.handleChatToolCall))
+	// B28.370 — the prompt library: the workspace's named prompts in Lens, listed and saved. See chat_prompts.go.
+	a.mux.HandleFunc("/api/chat/prompts", a.requireTenant(a.handleChatPrompts))
 	// B28.365 — the person's history, sealed in their browser, synced across their devices when they turn it on.
 	a.mux.HandleFunc("/api/chat/history-sync", a.requireTenant(a.handleChatHistorySync))
 

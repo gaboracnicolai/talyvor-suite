@@ -74,6 +74,8 @@ const BODIES: Record<string, unknown> = {
   '/api/ai/providers': { unconfigured: [] },
   // B28.99 — Chat reads the wallet tools on load: they are part of the price it shows before a question is sent.
   '/api/chat/tools': { tools: [] },
+  // B28.370 — and the workspace's prompt library, offered under the box.
+  '/api/chat/prompts': { prompts: [{ name: 'support-tone', version: 2, description: 'Replies to customers', content: 'Answer as a calm support agent.' }] },
 
   // The BFF's capability envelope (apps/bff/lens.go#forwardGated), never a bare list. This was
   // `[{ id: 'bond-1', … }]`, which the screen read as switched off; off is what it showed, so off

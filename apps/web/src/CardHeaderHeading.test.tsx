@@ -131,6 +131,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/chat/compare': 0,
   // B28.115 — one form in a bordered box, no Card.
   '/chat/instructions': 0,
+  // B28.370 — the prompt cards are list items in a bordered box, no Card.
+  '/chat/prompts': 0,
   // B32.53 — the rooms directory: rooms are list cards under Region headings, no Card.
   '/rooms': 0,
   // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. Royalties is
