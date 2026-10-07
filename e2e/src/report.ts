@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { type CodeReport, codeLine, renderCode } from './code.ts'
 import { type CoverageMap, type Row, tallyLine } from './coverage.ts'
 import { type EdgeReport, edgeLine, renderEdge } from './edge.ts'
+import { type HostileReport, hostileLine, renderHostile } from './hostile.ts'
 import type { ExplorerSummary, Finding } from './explore.ts'
 import type { MemorySample } from './memory.ts'
 import type { Evidence } from './scenarios.ts'
@@ -68,6 +69,8 @@ export interface ReportedRun {
   edge?: EdgeReport
   /** B34.10 — the CLI built from talyvor-code's main, run on a synthetic agent's key, and its extension's and plugin's CI (code.ts). */
   code?: CodeReport
+  /** B28.289 — the hostile pull requests made against each repo's main, and whether CI stops each (hostile.ts). */
+  hostile?: HostileReport
 }
 
 type Outcome = ReportedRun['outcomes'][number]
@@ -380,7 +383,7 @@ export function renderRun(run: ReportedRun): string {
     for (const o of os) n[o.status]++
     lines.push(`| \`${id}\` | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${cell(os[0].title)} |`)
   }
-  lines.push(...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code))
+  lines.push(...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code), ...renderHostile(run.hostile))
 
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
@@ -471,6 +474,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
     ...environmentLine(run),
     ...edgeLine(run.edge),
     ...codeLine(run.code),
+    ...hostileLine(run.hostile),
     `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
       `${run.stopped_by === undefined ? '' : ', spent before it stopped'}.`,
     `- **Report**: ${report}`,

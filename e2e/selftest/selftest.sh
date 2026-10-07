@@ -63,7 +63,7 @@ if [ "${E2E_FAULTS:-}" = 1 ]; then
     --app "http://localhost:$bff_port" --lens "http://127.0.0.1:$stub_port" \
     --users "${E2E_USERS:-10}" --concurrency "${E2E_CONCURRENCY:-5}" --cap-usd "${E2E_CAP_USD:-1}" \
     --out "$out" --report-dir "$out" --build-md "$tmp/BUILD.md" --testers-md "$out/TESTERS.md" \
-    --lens-src none --track-src none --docs-src none --code-repo none --explorers 2 --explore-minutes 1 >"$tmp/run.log" 2>&1 &
+    --lens-src none --track-src none --docs-src none --code-repo none --hostile-prs none --explorers 2 --explore-minutes 1 >"$tmp/run.log" 2>&1 &
   run=$!
   count() { grep -cE "$1" "$tmp/run.log" || true; }
   until_count() { # until_count <what> <pattern> <n>
@@ -76,7 +76,7 @@ if [ "${E2E_FAULTS:-}" = 1 ]; then
   }
   until_count verdicts '^(PASS|FAIL|ERROR|SKIP) ' 3
   passed=$(count '^PASS ')
-  pkill -9 -P $run # the run's browser: the only process the run starts (--lens-src, --track-src and --docs-src none clone nothing; --code-repo none builds nothing)
+  pkill -9 -P $run # the run's browser: the only process the run starts (--lens-src, --track-src and --docs-src none clone nothing; --code-repo none builds nothing; --hostile-prs none installs nothing)
   echo "selftest: killed the run's browser after $passed passes"
   # Every scenario in the dead browser errors, so a new PASS is a user's on the browser that replaced it.
   until_count 'passes on a new browser' '^PASS ' $((passed + 1))
@@ -110,6 +110,13 @@ LENS_SYNTHETIC_KEY=$key LENS_MODERATOR_KEY=$moderator LENS_STRIPE_TEST_WEBHOOK_S
   --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}" --testers-md "${E2E_TESTERS_MD:-$tmp/TESTERS.md}" \
   ${E2E_LENS_SRC:+--lens-src "$E2E_LENS_SRC"} ${E2E_TRACK_SRC:+--track-src "$E2E_TRACK_SRC"} ${E2E_DOCS_SRC:+--docs-src "$E2E_DOCS_SRC"} \
   --explorers "${E2E_EXPLORERS:-2}" --explore-minutes "${E2E_EXPLORE_MINUTES:-1}" || code=$?
+# B28.289 — the suite's own hostile pull request, a dependency whose postinstall runs code, must be caught for real.
+results=$(ls -t "${E2E_OUT:-$here/../out}"/run-*.json | head -1)
+if ! node -e 'const v = (JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hostile?.prs ?? []).find((p) => p.id === "postinstall-suite")
+if (v?.state !== "caught") { console.log(JSON.stringify(v)); process.exit(1) }' "$results"; then
+  echo "selftest: FAILED — CI would not stop the hostile pull request postinstall-suite (B28.289)"
+  code=1
+fi
 if grep -F 'reset EVERY synthetic workspace' "$tmp/stub.log"; then
   echo "selftest: FAILED — the run reset every synthetic workspace; it must name its own users (B27.16)"
   code=1
