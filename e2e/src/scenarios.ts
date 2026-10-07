@@ -30,7 +30,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatForecastAnswer, chatLiveStatement, chatPaidBy, chatAgentTask, chatCardFreeze, chatStatement, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { chatMoneyRequests, marketAbuse, marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { apiKeyRevoke, byokAddon, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackProject, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
+import { apiKeyRevoke, byokAddon, chatFileBug, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackProject, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
 import { agentApprovalDenied, lxcConvertBonds, marketRemixLicence, walletCardFreeze, walletEscrowLens, walletHandlePause, walletLoansAnswered, walletRequestsAnswered, walletScheduleTopUpPot, walletTradingSim } from './routes.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
@@ -3900,7 +3900,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     // B32.53 — and a private room opened on /rooms/new: Lens's, in Chat's rail and the directory, 404 to another company.
     // B28.372 — and a news question with Search the web on: its answer cites at least two pages, and each opens.
-    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i), chatWebSearch(i)); break
+    // B28.374 — and "file this as a bug": a Track issue filed on a yes, linked under the answer, held by Track.
+    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i), chatWebSearch(i), chatFileBug(i)); break
     // B28.363 — and a question asked of Auto (cheapest good): the answer names the model Lens chose, charged at its price.
     case 4:
       if (i + 5 < users) list.push(acrossAccounts(i, i + 5))

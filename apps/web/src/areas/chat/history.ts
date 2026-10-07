@@ -173,6 +173,8 @@ export function continuedAnswer(head: ChatMessage, more: ChatMessage): ChatMessa
     auto: head.auto || more.auto ? true : undefined,
     citations: head.citations ?? more.citations,
     code_runs: head.code_runs === undefined && more.code_runs === undefined ? undefined : [...(head.code_runs ?? []), ...(more.code_runs ?? [])],
+    tools_used: head.tools_used === undefined && more.tools_used === undefined ? undefined : [...new Set([...(head.tools_used ?? []), ...(more.tools_used ?? [])])],
+    filed: head.filed === undefined && more.filed === undefined ? undefined : [...(head.filed ?? []), ...(more.filed ?? [])],
   }
 }
 

@@ -288,6 +288,26 @@ function toolResultOf(messages: Msg[]): string | undefined {
 /** B28.349 — a question the stand-in model answers with Lens's wallet tool, when it is offered. */
 const SPEND_QUESTION = /^What did (.+?) spend today\?/
 
+/** B28.374 — "file this as a bug", which the stand-in model answers with Track's create_issue, when it is offered. */
+const FILE_BUG = /\bfile (?:this|it) as a bug\b/i
+
+/** B28.374 — the issue it files for "file this as a bug": the sentences before it are the bug, the first its title. */
+function bugReport(q: string): { title: string; description: string } {
+  const bug = q.slice(0, FILE_BUG.exec(q)?.index ?? q.length).trim()
+  const title = (bug.split(/(?<=[.!?])\s+/)[0] ?? '').replace(/[.!?]$/, '').trim()
+  return { title: title === '' ? 'A bug reported in Chat' : title, description: bug }
+}
+
+/** B28.374 — what Track said it filed, when a tool's answer is create_issue's: {"id", "identifier", "title", …}. */
+function filedOf(result: string): { identifier: string; title: string } | undefined {
+  try {
+    const v = JSON.parse(result) as { identifier?: unknown; title?: unknown }
+    return typeof v.identifier === 'string' ? { identifier: v.identifier, title: typeof v.title === 'string' ? v.title : '' } : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** HTML (or anything else, as it is) to the Markdown Lens's conversion produces. */
 function toMarkdown(raw: string, mediaType: string): string {
   if (!/html/.test(mediaType)) return raw.trim()
@@ -364,6 +384,10 @@ function think(messages: Msg[]): string {
   // B28.349 — told what the agents spent, it says the total in LXC.
   const spent = toolResultOf(messages)
   if (spent !== undefined) {
+    // B28.374 — told what Track filed, it names the issue; told it was not filed, it says so in the tool's words.
+    const filed = filedOf(spent)
+    if (filed !== undefined) return `Filed it in Track as ${filed.identifier}: ${filed.title}.`
+    if (FILE_BUG.test(messages.map(text).join('\n'))) return `I did not file it. ${spent}`
     try {
       return `Your agents spent ${(JSON.parse(spent) as { total_ulxc: number }).total_ulxc / 1e6} LXC today.`
     } catch {
@@ -590,10 +614,18 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   // An answer that used a tool depends on the books at that moment, so none of it is kept or replayed; a question that
   // was only offered one is kept as any other.
   const tooled = messages.some((m) => m.role === 'tool' || (Array.isArray(m.content) && m.content.some((c) => c.type === 'tool_use' || c.type === 'tool_result')))
-  const asked = SPEND_QUESTION.exec(text(messages[messages.length - 1] ?? { role: 'user', content: '' }))
-  if ((body.tools ?? []).some((t) => (t.name ?? t.function?.name) === 'wallet_agents_spend') && toolResultOf(messages) === undefined && asked !== null && body.stream) {
+  const lastAsked = text(messages[messages.length - 1] ?? { role: 'user', content: '' })
+  const asked = SPEND_QUESTION.exec(lastAsked)
+  const offeredTool = (name: string) => (body.tools ?? []).some((t) => (t.name ?? t.function?.name) === name)
+  // B28.374 — offered Track's create_issue and told to file a bug, it files it.
+  const tool = toolResultOf(messages) !== undefined || !body.stream ? undefined
+    : offeredTool('wallet_agents_spend') && asked !== null ? 'wallet_agents_spend'
+    : offeredTool('create_issue') && FILE_BUG.test(lastAsked) ? 'create_issue'
+    : undefined
+  if (tool !== undefined) {
     const inTok = tokens(messages.map(text).join(' ')) + 8
-    const args = JSON.stringify({ from: new Date().toISOString().slice(0, 10), ...(asked[1] === 'my agents' ? {} : { agent: asked[1] }) })
+    const args = tool === 'create_issue' ? JSON.stringify(bugReport(lastAsked))
+      : JSON.stringify({ from: new Date().toISOString().slice(0, 10), ...(asked?.[1] === 'my agents' ? {} : { agent: asked?.[1] }) })
     const outTok = tokens(args) + 8
     const toolCharge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
     book(ws, -toolCharge, 'spend', `${model.id} tool call`)
@@ -608,14 +640,14 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     if (provider === 'anthropic') {
       const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
       send('message_start', { type: 'message_start', message: { usage: { input_tokens: inTok, output_tokens: 0 } } })
-      send('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: call, name: 'wallet_agents_spend', input: {} } })
+      send('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: call, name: tool, input: {} } })
       send('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: args } })
       send('content_block_stop', { type: 'content_block_stop', index: 0 })
       send('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: outTok } })
       charged()
       send('message_stop', { type: 'message_stop' })
     } else {
-      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: call, type: 'function', function: { name: 'wallet_agents_spend', arguments: args } }] }, finish_reason: 'tool_calls' }] })}\n\n`)
+      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: call, type: 'function', function: { name: tool, arguments: args } }] }, finish_reason: 'tool_calls' }] })}\n\n`)
       res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: inTok, completion_tokens: outTok } })}\n\n`)
       charged()
       res.write('data: [DONE]\n\n')

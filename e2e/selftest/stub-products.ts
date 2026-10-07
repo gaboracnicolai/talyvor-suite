@@ -9,6 +9,7 @@
 //   export       — a list read of 250 issues (the export's page size) leaves the oldest one out
 //   docs-export  — a Docs page's HTML export is set in Inter, its links in #f0a030
 //   seats        — Track adds a member without asking Lens whether the plan has a seat for them (B32.71)
+//   file-bug     — Track's MCP create_issue says it filed the issue and keeps nothing (B28.374)
 
 import { randomBytes } from 'node:crypto'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
@@ -128,7 +129,51 @@ async function addMember(req: IncomingMessage, res: ServerResponse, ws: string):
   return json(res, 201, m)
 }
 
+/** One JSON-RPC request to a stub's /mcp, and its answer: a result, or an error with JSON-RPC's code. */
+type RPC = { method?: string; params?: { name?: string; arguments?: Record<string, unknown> } }
+const rpcResult = (res: ServerResponse, result: unknown) => json(res, 200, { jsonrpc: '2.0', id: 1, result })
+const rpcError = (res: ServerResponse, code: number, message: string) => json(res, 200, { jsonrpc: '2.0', id: 1, error: { code, message } })
+const rpcText = (res: ServerResponse, v: unknown) => rpcResult(res, { content: [{ type: 'text', text: JSON.stringify(v) }] })
+const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+
+/**
+ * B28.374 — Track's /mcp as Chat uses it (talyvor-track internal/mcp): create_issue and search_issues, each acting on
+ * the workspace_id argument, which must be the caller's own — the authz chokepoint's check — and create_issue in one of
+ * its teams. What create_issue files is an issue like any other, so /api/track/issues lists it.
+ */
+async function trackMCP(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const rpc = await body<RPC>(req)
+  if (rpc.method === 'tools/list') {
+    return rpcResult(res, { tools: [
+      { name: 'create_issue', description: 'Create a new issue in a team\'s queue. Returns the assigned identifier (e.g. ENG-42) and a URL that opens the issue in Track.',
+        inputSchema: { type: 'object', properties: { workspace_id: { type: 'string' }, team_id: { type: 'string' }, title: { type: 'string', description: 'Short summary; appears in lists.' },
+          description: { type: 'string', description: 'Markdown body; optional.' } }, required: ['workspace_id', 'team_id', 'title'] } },
+      { name: 'search_issues', description: 'Full-text search over issue titles and descriptions.',
+        inputSchema: { type: 'object', properties: { workspace_id: { type: 'string' }, query: { type: 'string' } }, required: ['workspace_id', 'query'] } },
+      { name: 'update_issue', description: 'Patch one or more fields of an existing issue.', inputSchema: { type: 'object', properties: { issue_id: { type: 'string' } }, required: ['issue_id'] } },
+    ] })
+  }
+  if (rpc.method !== 'tools/call') return rpcError(res, -32601, 'method not found')
+  const args = rpc.params?.arguments ?? {}
+  const ws = str(args.workspace_id)
+  if (ws === '' || byEmail.get(String(req.headers['x-user-email'] ?? '')) !== ws) return rpcError(res, -32001, 'not a member of this workspace')
+  const mine = issues.filter((i) => i.workspace === ws)
+  if (rpc.params?.name === 'search_issues') {
+    const q = str(args.query).toLowerCase().split(/\s+/).filter((w) => w !== '')
+    return rpcText(res, mine.filter((i) => q.every((w) => `${i.title} ${i.description}`.toLowerCase().includes(w))).map((i) => ({ id: i.id, identifier: i.identifier, title: i.title, status: i.status })))
+  }
+  if (rpc.params?.name !== 'create_issue') return rpcError(res, -32601, `unknown tool: ${rpc.params?.name}`)
+  if (str(args.team_id) !== TEAM.id) return rpcError(res, -32602, 'team_id required')
+  if (str(args.title).trim() === '') return rpcError(res, -32602, 'title required')
+  const at = now()
+  const issue: Issue = { id: id(), workspace: ws, identifier: `ENG-${mine.length + 1}`, title: str(args.title), description: str(args.description), status: 'todo',
+    priority: 0, team_id: TEAM.id, project_id: null, assignee_id: null, ai_cost_usd: 0, ai_tokens: 0, created_at: at, updated_at: at }
+  if (BREAK !== 'file-bug') issues.push(issue)
+  return rpcText(res, { id: issue.id, identifier: issue.identifier, title: issue.title, status: issue.status, priority: 0, url: `/issues/${issue.identifier}` })
+}
+
 serve(TRACK_PORT, 'track', async (req, res, path, url) => {
+  if (path === '/mcp' && req.method === 'POST') return trackMCP(req, res)
   if (path === '/v1/workspaces') {
     const ws = byEmail.get(String(req.headers['x-user-email'] ?? ''))
     const deleted = url.searchParams.get('deleted') === 'true'
@@ -311,6 +356,17 @@ function exportHTML(p: Page): string {
 
 serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
   let m: RegExpExecArray | null
+  // B28.374 — Docs' /mcp as Chat uses it (talyvor-docs internal/mcp): search_docs over the pages, by title and text.
+  if (path === '/mcp' && req.method === 'POST') {
+    const rpc = await body<RPC>(req)
+    if (rpc.method === 'tools/list') {
+      return rpcResult(res, { tools: [{ name: 'search_docs', description: 'Search Talyvor Docs by query string.',
+        inputSchema: { type: 'object', properties: { query: { type: 'string' }, workspace_id: { type: 'string' } }, required: ['query', 'workspace_id'] } }] })
+    }
+    if (rpc.method !== 'tools/call' || rpc.params?.name !== 'search_docs') return rpcError(res, -32601, 'method not found')
+    const q = str(rpc.params.arguments?.query).toLowerCase()
+    return rpcText(res, pages.filter((p) => `${p.title} ${p.content_text}`.toLowerCase().includes(q)).slice(0, 5).map((p) => ({ id: p.id, title: p.title, space_id: p.space_id })))
+  }
   if ((m = /^\/v1\/spaces\/([^/]+)\/pages\/([^/]+)\/export$/.exec(path))) {
     const [, space, pageID] = m
     const p = pages.find((x) => x.space_id === space && x.id === pageID)
