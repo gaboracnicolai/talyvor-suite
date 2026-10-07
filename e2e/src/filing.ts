@@ -109,6 +109,14 @@ function shownOf(o: Outcome): string[] {
     .map((e) => oneLine(`asked "${e.question ?? ''}" → ${e.error !== undefined ? `refused: ${e.error}` : `"${(e.answer ?? '').slice(0, 160)}" [${e.footer ?? ''}]`}`))
 }
 
+/** B28.292 — the rounds of the weekly deep red-team pass that FAILed a scenario, and whether nothing else that night did. */
+function deepNote(fails: Outcome[]): string[] {
+  const rounds = [...new Set(fails.flatMap((f) => (f.deep === undefined ? [] : [f.deep])))]
+  if (rounds.length === 0) return []
+  return [`The weekly deep red-team pass (B28.292) caught it, in round ${rounds.join(', ')}` +
+    (fails.every((f) => f.deep !== undefined) ? ": nothing else that night FAILED it, so it slipped through the nightly's own run." : '.')]
+}
+
 /** The items a run's FAILs call for, against BUILD.md as it stands. Pure: nothing is written. */
 export function itemsFor(buildMd: string, run: ReportedRun, reportFile: string, owners: Map<string, string> = scenarioOwners()): Filing {
   const covered = coveredScenarios(buildMd)
@@ -158,6 +166,7 @@ export function itemsFor(buildMd: string, run: ReportedRun, reportFile: string, 
           return `- \`${s}\` (${ownerOf(s)}): ${f.length} of ${ranFor(s)}. User ${f[0].user} (${f[0].workspace}): ${oneLine(f[0].detail)}` +
             (shown.length > 0 ? ` Evidence: ${shown.join('; ')}` : '')
         }),
+        ...deepNote(c.scenarios.flatMap((s) => s.fails)),
         `${LENS} gives the refusal and is where it is looked for first; the cause may be in how a screen or the testers reached Lens.`,
         ...c.scenarios.map(({ scenario: s }) => `e2e-scenario: ${s}`),
         `DONE = none of these scenarios FAILs with this refusal in the next production run.`,
@@ -177,6 +186,7 @@ export function itemsFor(buildMd: string, run: ReportedRun, reportFile: string, 
       `Filed by the e2e run of ${date} (${reportFile}): the \`${scenario}\` scenario FAILED for ${fails.length} of ${ranFor(scenario)} ` +
         `synthetic user(s). First, user ${first.user} (${first.workspace}): ${oneLine(first.detail)}`,
       ...(shown.length > 0 ? [`Evidence: ${shown.join('; ')}`] : []),
+      ...deepNote(fails),
       `${repo} is where it is looked for first; the defect may sit in another repo on the path.`,
       `e2e-scenario: ${scenario}`,
       `DONE = the \`${scenario}\` scenario PASSes for every user in the next production run.`,

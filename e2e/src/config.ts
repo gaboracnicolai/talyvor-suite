@@ -68,6 +68,11 @@ export interface RunConfig {
   codeClone: string | undefined
   /** B28.289 — the hostile pull requests made against each repo's main after the scenarios (hostile.ts); 'none' makes none. */
   hostilePRs: boolean
+  /**
+   * B28.292 — the weekly deep red-team pass's rounds, after the scenarios and under the same cap: each a fresh attacker
+   * playing every red-team scenario back to back (deep.ts); 0, as on every night but the weekly one, plays none.
+   */
+  deepRounds: number
   headed: boolean
 }
 
@@ -153,6 +158,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     codeSrc: pick('code-src', 'E2E_CODE_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/code-src`,
     codeClone: pick('code-src', 'E2E_CODE_SRC') !== undefined ? undefined : `https://github.com/${codeRepo}.git`,
     hostilePRs: pick('hostile-prs', 'E2E_HOSTILE_PRS') !== 'none',
+    deepRounds: Math.floor(num('deep-rounds', 'E2E_DEEP_ROUNDS', 0, true)),
     headed: flags.get('headed') === 'true',
   }
 }

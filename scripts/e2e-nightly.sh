@@ -10,7 +10,8 @@
 # then runs the harness — the scenarios for E2E_USERS synthetic users, then E2E_EXPLORERS AI explorers for
 # E2E_EXPLORE_MINUTES each — all under ONE hard cap, E2E_CAP_USD. The day's report is appended to docs/e2e/,
 # and each new failure is filed in ~/talyvor-queue/BUILD.md (B17.4), and a short summary is put at the top of
-# ~/talyvor-queue/TESTERS.md (B25.5). B34.2 — a checkout that cannot be brought to main's head runs nothing:
+# ~/talyvor-queue/TESTERS.md (B25.5). B28.292 — once a week, on E2E_DEEP_DAY (1 Monday … 7 Sunday, default 7), the run
+# goes on after its scenarios to the deep red-team pass, E2E_DEEP_ROUNDS rounds (default 3) under the same cap. B34.2 — a checkout that cannot be brought to main's head runs nothing:
 # the night writes a TESTERS.md entry saying why and which commit it would have tested, and exits 2. Nothing
 # here deploys, pushes or commits.
 #
@@ -185,6 +186,8 @@ run_once() {
     . "$env_file"
     set +a
     export E2E_EXPLORERS=${E2E_EXPLORERS:-10} E2E_EXPLORE_MINUTES=${E2E_EXPLORE_MINUTES:-30}
+    # B28.292 — the deep red-team pass on the weekly night only, whatever the settings say about its rounds.
+    if [ "$(date +%u)" = "${E2E_DEEP_DAY:-7}" ]; then export E2E_DEEP_ROUNDS=${E2E_DEEP_ROUNDS:-3}; else export E2E_DEEP_ROUNDS=0; fi
     cd "$repo" || exit 2
     to_main
     if [ -n "$why" ]; then
@@ -195,7 +198,7 @@ run_once() {
     fi
     pnpm install --frozen-lockfile >>"$state/nightly.log" 2>&1 || { log "pnpm install failed — skipped"; exit 2; }
     pnpm --filter @talyvor/e2e exec playwright install chromium >>"$state/nightly.log" 2>&1
-    log "run starting at $(git rev-parse --short HEAD): ${E2E_USERS:-100} users, $E2E_EXPLORERS explorers, cap \$${E2E_CAP_USD:-5}"
+    log "run starting at $(git rev-parse --short HEAD): ${E2E_USERS:-100} users, $E2E_EXPLORERS explorers, cap \$${E2E_CAP_USD:-5}$([ "$E2E_DEEP_ROUNDS" != 0 ] && echo ", the weekly deep red-team pass: $E2E_DEEP_ROUNDS round(s)")"
     node --experimental-strip-types --no-warnings e2e/src/run.ts >>"$state/nightly.log" 2>&1
   )
   code=$?
