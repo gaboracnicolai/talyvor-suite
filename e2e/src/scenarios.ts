@@ -796,6 +796,69 @@ export function chatProjectInstructions(seed: number): Scenario {
   }
 }
 
+/** B28.110 — a conversation pinned in Chat stays at the top of the rail after a reload: seeded as the person's oldest,
+ *  opened, pinned with the button over it, and after the reload the first conversation the rail lists, under Pinned.
+ *  Nothing is asked of a model, and the browser's history is put back after. */
+export function pinnedSurvivesReload(seed: number): Scenario {
+  const tag = `${seed}-${Date.now().toString(36)}`
+  const id = `e2e-pin-${tag}`
+  const title = `e2e pinned ${tag}`
+  return {
+    id: 'chat-pinned-survives-reload',
+    owner: 'talyvor-suite',
+    title: 'a pinned chat survives a reload at the top',
+    run: async (ctx) => {
+      const page = await ctx.app.context.newPage()
+      let restore: { key: string; prior: string | null } | null = null
+      try {
+        await page.goto(new URL('/chat', ctx.app.page.url()).toString())
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        // Chat keeps history under who /auth/me says is signed in (apps/web Chat.tsx's scope).
+        restore = await page.evaluate(async ({ id: cid, title: t }) => {
+          const me = (await (await fetch('/auth/me')).json()) as { mode?: string; workspace_id?: string; user?: { sub?: string } }
+          const scope = me.user?.sub ?? me.workspace_id ?? (me.mode === 'disabled' ? 'local' : null)
+          if (scope === null) return null
+          const key = `talyvor.chat.v1:${scope}`
+          const prior = localStorage.getItem(key)
+          // Older than anything the person made: unpinned, it is the last in the rail.
+          const seeded = { id: cid, title: t, renamed: false, model_id: 'e2e', created_at: 1, updated_at: 1,
+            messages: [{ role: 'user', content: t }, { role: 'assistant', content: `The answer to ${t}.` }] }
+          localStorage.setItem(key, JSON.stringify([...(JSON.parse(prior ?? '[]') as unknown[]), seeded]))
+          return { key, prior }
+        }, { id, title })
+        if (restore === null) return { pass: false, detail: '/auth/me named nobody, so Chat keeps no history to pin' }
+        await page.reload()
+        await page.getByRole('list', { name: 'Saved conversations' }).getByRole('button', { name: title }).click({ timeout: ACTION_TIMEOUT_MS })
+        await page.getByRole('button', { name: 'Pin', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+        await page.getByRole('button', { name: 'Unpin', exact: true }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+
+        await page.reload()
+        await page.getByRole('list', { name: 'Pinned conversations' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        // The rail's conversations in the order it shows them: Pinned, then the rest.
+        const pinned = await page.locator('ul[aria-label="Pinned conversations"] > li > button').allInnerTexts().catch(() => [] as string[])
+        const order = await page.locator('ul[aria-label="Pinned conversations"] > li > button, ul[aria-label="Saved conversations"] > li > button')
+          .allInnerTexts().catch(() => [] as string[])
+        const stored = await page.evaluate(({ key, cid }) => {
+          const list = JSON.parse(localStorage.getItem(key) ?? '[]') as Array<{ id?: string; pinned?: boolean }>
+          return list.find((c) => c.id === cid)?.pinned === true
+        }, { key: restore.key, cid: id })
+        const at = order.indexOf(title)
+        ctx.evidence.push({ note: `after the reload the rail lists [${order.slice(0, 5).join(', ')}${order.length > 5 ? ', …' : ''}] (${order.length}), ${pinned.length} pinned; stored pinned=${stored}` })
+        if (!stored) return { pass: false, detail: 'Pin did not keep the conversation pinned in this browser' }
+        // At the top: among the pinned, which the rail lists before every other conversation.
+        if (at < 0 || at >= pinned.length) return { pass: false, detail: `after a reload the pinned conversation is ${at < 0 ? 'not in the rail' : `number ${at + 1} of ${order.length}, below an unpinned one`}` }
+        return { pass: true, detail: `the person's oldest conversation, pinned, is number ${at + 1} of ${order.length} in the rail after a reload, under Pinned` }
+      } finally {
+        if (restore !== null) {
+          await page.evaluate(({ key, prior }) => (prior === null ? localStorage.removeItem(key) : localStorage.setItem(key, prior)), restore)
+            .catch(() => undefined)
+        }
+        await page.close().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /** B28.266 — Royalties (the old /earnings address), Members, Setup and API keys, each opened cold in a tab of
  *  its own as a person opens a bookmark: at the load event each already shows its heading, and once its
  *  reads answer none is left on "Loading…". Then on API keys a key is created: its name field is empty
@@ -3125,7 +3188,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       list.push(chatCheaperHint(i, streamable))
       break
     // B28.78 — then an answer stopped before it said anything, and the next question in that chat.
-    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i)); break
+    // B28.110 — and a chat pinned, still the first in the rail after a reload.
+    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
     case 6:

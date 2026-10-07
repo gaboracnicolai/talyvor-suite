@@ -31,8 +31,11 @@ import {
   type History,
   loadConversations,
   newConversationId,
+  railGroups,
   saveConversations,
   searchConversations,
+  setArchived,
+  setPinned,
   upsertConversation,
 } from './history'
 import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
@@ -320,7 +323,8 @@ export function Chat() {
       return
     }
     setHistory(read)
-    open(read.list[0])
+    // B28.110 — an archived conversation was put away, so a reload does not reopen it.
+    open(read.list.find((c) => !c.archived))
   }, [scope, open])
 
   useEffect(() => {
@@ -840,7 +844,7 @@ export function Chat() {
       ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex min-h-row items-center gap-2 px-gutter pt-2">
+        <div className="flex min-h-row flex-wrap items-center gap-2 px-gutter pt-2">
           <button
             type="button"
             className={cn(railButtonClass, 'wide:hidden')}
@@ -848,7 +852,8 @@ export function Chat() {
           >
             Conversations
           </button>
-          <div className="min-w-0 flex-1">
+          {/* B28.110 — on a narrow screen the open conversation's name and actions take a line of their own. */}
+          <div className="order-last min-w-0 grow basis-full wide:order-none wide:basis-0">
             {active !== undefined ? (
               <ConversationTitle
                 conversation={active}
@@ -868,6 +873,8 @@ export function Chat() {
                   }
                   setRenaming(null)
                 }}
+                onPin={() => store((list) => setPinned(list, active.id, !active.pinned))}
+                onArchive={() => store((list) => setArchived(list, active.id, !active.archived))}
                 onDeleteStart={() => {
                   setRenaming(null)
                   setConfirmingDelete(true)
@@ -886,7 +893,7 @@ export function Chat() {
             ) : null}
           </div>
           {!statementBeside ? (
-            <button type="button" className={railButtonClass} onClick={() => setStatementOpen(true)}>
+            <button type="button" className={cn(railButtonClass, 'ml-auto')} onClick={() => setStatementOpen(true)}>
               Statement
             </button>
           ) : null}
@@ -1235,6 +1242,8 @@ function ChatRail({
   const query = useDeferredValue(search.trim())
   const found = useMemo(() => (query === '' ? null : searchConversations(history.list, query)), [history.list, query])
   const searchable = signedIn && history.error === null && history.list.length > 0
+  const groups = useMemo(() => railGroups(history.list), [history.list])
+  const [showArchived, setShowArchived] = useState(false)
   return (
     <div className="flex h-full min-h-0 flex-col p-2">
       <Button className="w-full justify-start" onClick={onNew} disabled={pending || activeId === null}>
@@ -1270,30 +1279,38 @@ function ChatRail({
             {history.error} Nothing is shown rather than an empty list that would read as none saved.
           </p>
         ) : history.list.length === 0 ? (
-          <p className="px-2 text-caption text-muted">No conversations yet.</p>
+          <p className="px-2 text-caption text-muted">No conversations yet. Ask a question to start one.</p>
         ) : found === null ? (
-          <ul className="space-y-1" aria-label="Saved conversations">
-            {history.list.map((c) => (
-              <li key={c.id}>
+          // B28.110 — pinned first, then the rest; archived ones only when asked for.
+          <>
+            {groups.pinned.length > 0 ? (
+              <section aria-label="Pinned" className="mb-3">
+                <span className="block px-2 pb-1 font-figure text-eyebrow uppercase text-label">Pinned</span>
+                <SavedList label="Pinned conversations" list={groups.pinned} activeId={activeId} pending={pending} onOpen={onOpen} />
+              </section>
+            ) : null}
+            {groups.recent.length > 0 ? (
+              <SavedList label="Saved conversations" list={groups.recent} activeId={activeId} pending={pending} onOpen={onOpen} />
+            ) : groups.pinned.length === 0 ? (
+              <p className="px-2 text-caption text-muted">Every conversation is archived.</p>
+            ) : null}
+            {groups.archived.length > 0 ? (
+              <div className="mt-3">
                 <button
                   type="button"
-                  className={cn(
-                    'block w-full truncate rounded-control px-2 py-2 text-left text-body',
-                    'transition-colors duration-200 hover:bg-surface',
-                    'disabled:cursor-not-allowed disabled:opacity-50',
-                    // B29.10 — the open conversation as the app's sidebar marks the page you are on.
-                    c.id === activeId ? 'bg-accent-tint text-accent-strong hover:bg-accent-tint' : 'text-ink',
-                    focusRing,
-                  )}
-                  aria-current={c.id === activeId ? 'true' : undefined}
-                  disabled={pending}
-                  onClick={() => onOpen(c)}
+                  className={cn(railButtonClass, 'w-full justify-between')}
+                  aria-expanded={showArchived}
+                  onClick={() => setShowArchived((s) => !s)}
                 >
-                  {c.title}
+                  <span>Archived</span>{' '}
+                  <span className="font-figure">{groups.archived.length}</span>
                 </button>
-              </li>
-            ))}
-          </ul>
+                {showArchived ? (
+                  <SavedList label="Archived conversations" list={groups.archived} activeId={activeId} pending={pending} onOpen={onOpen} />
+                ) : null}
+              </div>
+            ) : null}
+          </>
         ) : (
           // B28.108 — what a search found: each conversation's name, and the words around where it was found.
           <>
@@ -1355,6 +1372,46 @@ function ChatRail({
         </Link>
       </div>
     </div>
+  )
+}
+
+/** One of the rail's lists of saved conversations; each opens it. */
+function SavedList({
+  label,
+  list,
+  activeId,
+  pending,
+  onOpen,
+}: {
+  label: string
+  list: Conversation[]
+  activeId: string | null
+  pending: boolean
+  onOpen: (c: Conversation) => void
+}) {
+  return (
+    <ul className="space-y-1" aria-label={label}>
+      {list.map((c) => (
+        <li key={c.id}>
+          <button
+            type="button"
+            className={cn(
+              'block w-full truncate rounded-control px-2 py-2 text-left text-body',
+              'transition-colors duration-200 hover:bg-surface',
+              'disabled:cursor-not-allowed disabled:opacity-50',
+              // B29.10 — the open conversation as the app's sidebar marks the page you are on.
+              c.id === activeId ? 'bg-accent-tint text-accent-strong hover:bg-accent-tint' : 'text-ink',
+              focusRing,
+            )}
+            aria-current={c.id === activeId ? 'true' : undefined}
+            disabled={pending}
+            onClick={() => onOpen(c)}
+          >
+            {c.title}
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -1792,6 +1849,8 @@ function ConversationTitle({
   onRenameChange,
   onRenameCancel,
   onRenameSave,
+  onPin,
+  onArchive,
   onDeleteStart,
   onDeleteCancel,
   onDeleteConfirm,
@@ -1804,6 +1863,9 @@ function ConversationTitle({
   onRenameChange: (title: string) => void
   onRenameCancel: () => void
   onRenameSave: () => void
+  /** B28.110 — each toggles: Pin and Unpin, Archive and Unarchive. */
+  onPin: () => void
+  onArchive: () => void
   onDeleteStart: () => void
   onDeleteCancel: () => void
   onDeleteConfirm: () => void
@@ -1851,6 +1913,18 @@ function ConversationTitle({
   return (
     <div className="flex items-center gap-1">
       <h2 className="min-w-0 flex-1 truncate text-body font-medium text-ink">{conversation.title}</h2>
+      {conversation.archived ? (
+        <span className="text-caption text-muted" data-testid="conversation-archived">
+          Archived
+        </span>
+      ) : (
+        <button type="button" className={railButtonClass} onClick={onPin} disabled={disabled}>
+          {conversation.pinned ? 'Unpin' : 'Pin'}
+        </button>
+      )}
+      <button type="button" className={railButtonClass} onClick={onArchive} disabled={disabled}>
+        {conversation.archived ? 'Unarchive' : 'Archive'}
+      </button>
       <button type="button" className={railButtonClass} onClick={onRenameStart} disabled={disabled}>
         Rename
       </button>
