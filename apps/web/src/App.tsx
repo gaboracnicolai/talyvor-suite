@@ -48,6 +48,7 @@ import { ChatHelp } from './areas/chat/ChatHelp'
 import { CompareModels } from './areas/chat/CompareModels'
 import { InstructionsPage } from './areas/chat/InstructionsPage'
 import { PromptsPage } from './areas/chat/PromptsPage'
+import { MemoryPage } from './areas/chat/MemoryPage'
 import { RoomsArea } from './areas/rooms/Rooms'
 import { TrackArea } from './areas/track/TrackArea'
 import { PublicBoard } from './areas/board/PublicBoard'
@@ -227,6 +228,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/chat/instructions', title: 'Custom instructions', element: <InstructionsPage /> },
   // B28.370 — the prompt library: the workspace's named prompts in Lens, used in any chat by name. Linked from Chat's rail.
   { path: '/chat/prompts', title: 'Prompt library', element: <PromptsPage /> },
+  // B28.371 — memory: what Chat remembers about the person, opt-in, every fact listed and deleted. Linked from Chat's rail.
+  { path: '/chat/memory', title: 'Memory', element: <MemoryPage /> },
   // B32.53 — rooms: open chats other workspaces join, the directory and a new room. Chat's rail lists them too.
   { path: '/rooms/*', title: 'Rooms', element: <RoomsArea /> },
   // THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect targets already default to

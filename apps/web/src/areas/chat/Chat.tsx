@@ -59,6 +59,8 @@ import { CardFreezeCard, FREEZE_COMMAND } from './CardFreeze'
 import { STATEMENT_COMMAND, StatementCard } from './StatementCommand'
 import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
 import { ForecastCard, isRunOutQuestion } from './ForecastQuestion'
+import { isRememberCommand, memoryInstructions, parseRemember, remember } from './memory'
+import { RememberCard, useChatMemory } from './MemoryPage'
 import { LiveStatement } from './LiveStatement'
 import { MoneyCards } from './MoneyCards'
 import { ChatSavings } from './Savings'
@@ -195,7 +197,8 @@ function answeredHere(question: string): boolean {
     STATEMENT_COMMAND.test(question) ||
     isRuleCommand(question) ||
     isAskAboveCommand(question) ||
-    isRunOutQuestion(question)
+    isRunOutQuestion(question) ||
+    isRememberCommand(question)
   )
 }
 
@@ -247,6 +250,8 @@ export function Chat() {
   const [statements, setStatements] = useState<{ id: number; command: string }[]>([])
   // B28.357 — each "Will Researcher run out this month?": a card that answers it from Lens's forecast.
   const [forecasts, setForecasts] = useState<{ id: number; question: string }[]>([])
+  // B28.371 — each "Remember that …": a card that says it was remembered, or that memory is off.
+  const [remembering, setRemembering] = useState<{ id: number; fact: string }[]>([])
   // B28.354 — the agent whose wallet pays for this conversation; '' is the workspace.
   const [paidBy, setPaidBy] = useState('')
   const { book: payersBook, payers } = usePayers()
@@ -272,7 +277,10 @@ export function Chat() {
   const project = projects.list.find((p) => p.id === projectId)
   // B28.115 — the person's custom instructions (/chat/instructions), sent with every question, before the project's.
   const [custom, setCustom] = useState('')
-  const told = instructionsFor(custom, project?.instructions)
+  // B28.371 — and what Chat remembers about them (/chat/memory), once they turn memory on: after their own, before the
+  // project's.
+  const { memory, update: updateMemory } = useChatMemory(scope)
+  const told = instructionsFor(custom, project?.instructions, memoryInstructions(memory))
   // B28.370 — the named prompt from the library this conversation uses; '' is none. Sent by name, Lens swaps it in.
   const [promptName, setPromptName] = useState('')
   const library = usePromptLibrary()
@@ -727,6 +735,14 @@ export function Chat() {
         setForecasts((l) => [...l, { id: ++launchSeq.current, question }])
         return
       }
+      // B28.371 — kept at once with memory on; with it off, nothing is kept until the card is asked to.
+      const fact = parseRemember(question)
+      if (fact !== null) {
+        setDraft('')
+        if (memory.on) updateMemory((m) => remember(m, fact, Date.now()))
+        setRemembering((l) => [...l, { id: ++launchSeq.current, fact }])
+        return
+      }
       if (selected === undefined || pending) return
       if (uploading.length > 0) {
         setWaiting(true)
@@ -740,7 +756,7 @@ export function Chat() {
       setAttachError(null)
       void run([...messages, docs.length > 0 ? { role: 'user', content: question, attachments: docs } : { role: 'user', content: question }])
     },
-    [attachments, draft, messages, pending, refuseOverBudget, run, selected, uploading],
+    [attachments, draft, memory.on, messages, pending, refuseOverBudget, run, selected, updateMemory, uploading],
   )
 
   const attach = useCallback(
@@ -1061,7 +1077,7 @@ export function Chat() {
                 onOpenChat={open}
               />
             ) : messages.length === 0 ? (
-              <Greeting disabled={pending} custom={custom} onAsk={(prompt) => send(prompt)} />
+              <Greeting disabled={pending} custom={custom} remembered={memory.on ? memory.facts.map((f) => f.text) : []} onAsk={(prompt) => send(prompt)} />
             ) : (
               <ol className="space-y-8 py-6">
                 {messages.map((m, i) => (
@@ -1172,6 +1188,22 @@ export function Chat() {
               <section aria-label="Forecasts" className="flex flex-col gap-3 pb-6">
                 {forecasts.map((l) => (
                   <ForecastCard key={l.id} question={l.question} onClose={() => setForecasts((ls) => ls.filter((x) => x.id !== l.id))} />
+                ))}
+              </section>
+            ) : null}
+
+            {/* B28.371 — "Remember that …", kept here instead of asked: what Chat now remembers, and a way to take it back. */}
+            {remembering.length > 0 ? (
+              <section aria-label="Remembered" className="flex flex-col gap-3 pb-6">
+                {remembering.map((l) => (
+                  <RememberCard
+                    key={l.id}
+                    fact={l.fact}
+                    memory={memory}
+                    onRemember={(f) => updateMemory((m) => remember({ ...m, on: true }, f, Date.now()))}
+                    onForget={(f) => updateMemory((m) => ({ ...m, facts: m.facts.filter((x) => x.text.toLowerCase() !== f.toLowerCase()) }))}
+                    onClose={() => setRemembering((ls) => ls.filter((x) => x.id !== l.id))}
+                  />
                 ))}
               </section>
             ) : null}
@@ -1530,6 +1562,10 @@ function ChatRail({
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/prompts">
           Prompt library
         </Link>
+        {/* B28.371 — what Chat remembers about the person, on or off, each fact deleted there. */}
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/memory">
+          Memory
+        </Link>
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/help">
           How to use Talyvor Chat
         </Link>
@@ -1729,7 +1765,17 @@ function EditQuestion({
   )
 }
 
-function Greeting({ disabled, custom, onAsk }: { disabled: boolean; custom: string; onAsk: (prompt: string) => void }) {
+function Greeting({
+  disabled,
+  custom,
+  remembered,
+  onAsk,
+}: {
+  disabled: boolean
+  custom: string
+  remembered: readonly string[]
+  onAsk: (prompt: string) => void
+}) {
   return (
     <div className="flex flex-1 flex-col justify-center py-10">
       <h2 className="text-title text-ink">What can I help with?</h2>
@@ -1741,6 +1787,16 @@ function Greeting({ disabled, custom, onAsk }: { disabled: boolean; custom: stri
             Edit
           </Link>
           <span className="mt-1 line-clamp-2 text-ink">{custom.trim()}</span>
+        </p>
+      ) : null}
+      {/* B28.371 — and with what Chat remembers, while memory is on. */}
+      {remembered.length > 0 ? (
+        <p className="mt-2 text-caption text-muted" data-testid="memory-line">
+          Sent with what Chat remembers about you ·{' '}
+          <Link className={`text-ink ${inlineLink}`} to="/chat/memory">
+            See or delete
+          </Link>
+          <span className="mt-1 line-clamp-2 text-ink">{remembered.join(' · ')}</span>
         </p>
       ) : null}
       <ul className="mt-6 grid gap-2 wide:grid-cols-2" aria-label="Example questions">
