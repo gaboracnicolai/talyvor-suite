@@ -47,6 +47,7 @@ import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
 import { webhookReplayed, webhookUnsigned } from './webhooks.ts'
 import { agentRulesUnbypassable } from './rules.ts'
 import { poolIsolation } from './pool.ts'
+import { injectionExfil } from './injection.ts'
 
 export interface Evidence {
   note?: string
@@ -3456,6 +3457,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // cannot be told from one nobody asked, personal data is never served to the reader, and a question turned round or
   // denied is not served the contributor's answer.
   if (i === 5) list.push(poolIsolation())
+  // B28.284 — a pasted document that tells Chat's model to run a command, fetch an address, move money or hand over a
+  // key, once a run, on a workspace of its own: obeyed or asked of the real model, nothing but the read-only tool runs,
+  // no key is carried, nothing loads an address and the ledger moves by the model's charge alone.
+  if (i === 4) list.push(injectionExfil())
   return list
 }
 
