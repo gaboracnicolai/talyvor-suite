@@ -280,10 +280,16 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     versions = await readVersions(REPO, cfg.lensSrc, cfg.appURL, cfg.lensURL)
     if (stale !== undefined) versions.lens_src += ` (${stale})`
     console.log(`testing: ${versionsLine(versions)}`)
-    inv = await inventory(REPO, cfg.lensSrc)
+    // B34.9 — Track's and Docs' own checkouts, up to their main the same way; one that cannot be is named in the map.
+    for (const [src, repo, name] of [[cfg.trackSrc, cfg.trackRepo, 'Track'], [cfg.docsSrc, cfg.docsRepo, 'Docs']] as const) {
+      const behind = repo === undefined ? undefined : await refreshLensCheckout(src, repo, name)
+      if (behind !== undefined) incidents.push(`${stamp()} the map's ${name} routes are read from an older checkout or none: ${behind}`)
+    }
+    inv = await inventory(REPO, cfg.lensSrc, cfg.trackSrc, cfg.docsSrc)
     screens = new Matcher(inv.screens, false)
-    console.log(`inventory: ${inv.screens.length} screens, ${inv.bff.length} BFF routes, ` +
-      `${inv.lensMissing === undefined ? `${inv.lens.length} Lens routes` : `no Lens routes (${inv.lensMissing})`}`)
+    const listed = (n: number, name: string, missing: string | undefined) => (missing === undefined ? `${n} ${name} routes` : `no ${name} routes (${missing})`)
+    console.log(`inventory: ${inv.screens.length} screens, ${inv.bff.length} BFF routes, ${listed(inv.lens.length, 'Lens', inv.lensMissing)}, ` +
+      `${listed(inv.track.length, 'Track', inv.trackMissing)}, ${listed(inv.docs.length, 'Docs', inv.docsMissing)}`)
 
     // B35.7 — each user on the largest plan its scenarios need, and each plan gate's own workspace on exactly its plan.
     stage = 'creating the synthetic users'

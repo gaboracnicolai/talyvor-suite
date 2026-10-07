@@ -38,6 +38,11 @@ export interface RunConfig {
   lensSrc: string
   /** Where the run clones Lens from into its own lensSrc; undefined when lensSrc was given, which is left as it is. */
   lensRepo: string | undefined
+  /** B34.9 — checkouts of talyvor-track and talyvor-docs, whose routes the coverage map lists; 'none' lists none. */
+  trackSrc: string
+  trackRepo: string | undefined
+  docsSrc: string
+  docsRepo: string | undefined
   /** B25.5 — where each run's short summary is written for the morning brief; 'none' writes none. */
   testersMd: string
   /** B34.3 — the repo whose nightly workflows on main the report's Talyvor Edge section reads with gh; 'none' reads none. */
@@ -56,6 +61,8 @@ export const DEFAULTS = {
   exploreMinutes: 30,
   explorerModel: 'claude-haiku-4-5',
   lensRepo: 'https://github.com/gaboracnicolai/talyvor-lens.git',
+  trackRepo: 'https://github.com/gaboracnicolai/talyvor-track.git',
+  docsRepo: 'https://github.com/gaboracnicolai/talyvor-docs.git',
 } as const
 
 export function parseConfig(argv: string[], env: Record<string, string | undefined>): RunConfig {
@@ -111,6 +118,11 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     // Unless told where one is, the run keeps its own checkout of Lens, up to its main (coverage.ts).
     lensSrc: pick('lens-src', 'E2E_LENS_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/lens-src`,
     lensRepo: pick('lens-src', 'E2E_LENS_SRC') !== undefined ? undefined : env.E2E_LENS_REPO ?? DEFAULTS.lensRepo,
+    // B34.9 — Track's and Docs' the same way.
+    trackSrc: pick('track-src', 'E2E_TRACK_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/track-src`,
+    trackRepo: pick('track-src', 'E2E_TRACK_SRC') !== undefined ? undefined : env.E2E_TRACK_REPO ?? DEFAULTS.trackRepo,
+    docsSrc: pick('docs-src', 'E2E_DOCS_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/docs-src`,
+    docsRepo: pick('docs-src', 'E2E_DOCS_SRC') !== undefined ? undefined : env.E2E_DOCS_REPO ?? DEFAULTS.docsRepo,
     testersMd: pick('testers-md', 'E2E_TESTERS_MD') ?? `${env.HOME ?? ''}/talyvor-queue/TESTERS.md`,
     edgeRepo: pick('edge-repo', 'E2E_EDGE_REPO') ?? EDGE_REPO,
     headed: flags.get('headed') === 'true',

@@ -463,6 +463,57 @@ export function trackSearchCycleBoard(seed: number): Scenario {
   }
 }
 
+interface TrackProjectRead { id: string; name: string; identifier: string; description: string; team_id: string }
+
+/**
+ * B34.9 — Track's Projects: the person names a project and presses Start project, and Track holds it with that name,
+ * identifier and description, under the workspace's team, and the screen lists it. The last Track route the app sends a
+ * request to that no scenario reached (POST /v1/workspaces/{wsID}/projects, through POST /api/track/projects).
+ */
+export function trackProject(seed: number): Scenario {
+  const name = `Billing retries ${seed}-${RUN_SALT % 10000}`
+  const identifier = `P${seed}${RUN_SALT % 1000}`
+  const description = `Started by tester ${seed}`
+  return {
+    id: 'track-project',
+    owner: 'talyvor-track',
+    title: 'Track: Start project on Projects makes a project Track holds with its name, identifier and description, and the screen lists it',
+    run: async (ctx) => {
+      const page = await ctx.app.tab('/track/projects')
+      try {
+        await page.locator('#project-name').waitFor({ timeout: 30_000 })
+        await page.locator('#project-name').fill(name)
+        await page.getByLabel('Identifier').fill(identifier)
+        await page.getByLabel('Description (optional)').fill(description)
+        const [started] = await Promise.all([
+          page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/track/projects', { timeout: 30_000 }).catch(() => undefined),
+          page.getByRole('button', { name: 'Start project' }).click(),
+        ])
+        const row = page.locator('li').filter({ hasText: name })
+        const listed = await row.first().waitFor({ timeout: 30_000 }).then(() => true, () => false)
+        const held = await readFrom<TrackProjectRead[]>(page, '/api/track/projects')
+        const project = typeof held === 'string' ? undefined : held.find((p) => p.name === name)
+        const teams = await readFrom<{ id: string }[]>(page, '/api/track/teams')
+        ctx.evidence.push({ note: `Start project "${name}" (${identifier}) was answered ${started === undefined ? 'by no request' : started.status()}; ` +
+          `Track holds ${typeof held === 'string' ? held : project === undefined ? `${held.length} project(s), not this one` : JSON.stringify(project)}; ` +
+          `the screen ${listed ? 'lists it' : 'does not list it'}` })
+        if (project === undefined) {
+          const alert = (await page.getByRole('alert').allInnerTexts()).join(' ').trim()
+          return fail(`after Start project, Track holds no project named "${name}"${alert === '' ? '' : ` ("${alert}")`}`)
+        }
+        const failures: string[] = []
+        if (project.identifier !== identifier) failures.push(`Track holds identifier "${project.identifier}", not "${identifier}"`)
+        if (project.description !== description) failures.push(`Track holds description "${project.description}", not "${description}"`)
+        if (typeof teams === 'string' || !teams.some((t) => t.id === project.team_id)) failures.push(`Track holds it under team ${project.team_id}, not one of this workspace's`)
+        if (!listed) failures.push(`Projects does not list "${name}", which Track holds`)
+        return failures.length === 0 ? { pass: true, detail: `Track holds "${name}" (${identifier}) under the workspace's team, and Projects lists it` } : fail(failures.join('; '))
+      } finally {
+        await page.close()
+      }
+    },
+  }
+}
+
 // ─── Docs: search, a space, pin, and the AI tools on a page ───────────────────
 
 interface DocsPageRead { id: string; title: string; content_text: string }

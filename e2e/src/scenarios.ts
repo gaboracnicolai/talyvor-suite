@@ -30,7 +30,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatForecastAnswer, chatLiveStatement, chatPaidBy, chatAgentTask, chatCardFreeze, chatStatement, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { chatMoneyRequests, marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { apiKeyRevoke, byokAddon, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
+import { apiKeyRevoke, byokAddon, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackProject, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
 import { agentApprovalDenied, lxcConvertBonds, marketRemixLicence, walletCardFreeze, walletEscrowLens, walletHandlePause, walletLoansAnswered, walletRequestsAnswered, walletScheduleTopUpPot, walletTradingSim } from './routes.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
@@ -2962,6 +2962,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 1) list.push(walletFX(i), trackWorkspaceRestore(i))
   if (i === 2) list.push(wrongAnswerStored(i))
   if (i === 3) list.push(trackSearchCycleBoard(i), patternMiningSwitch())
+  // B34.9 — and the one Track route the app sends a request to that none of those reached: a project started on Projects.
+  if (i === 3) list.push(trackProject(i))
   if (i === 4) list.push(docsTools(i), chatToolGuard())
   if (i === 5) list.push(apiKeyRevoke(i), byokAddon(i))
   if (i === 7) list.push(planChange(i))

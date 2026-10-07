@@ -12,6 +12,11 @@
 // under-counts those; where two Lens routes fit (GET /api/marketplace/listings: the public list and the
 // workspace's own) both are linked, and the row names the BFF route it came through.
 //
+// B34.9 — Track and Docs too: every route talyvor-track and talyvor-docs register (their cmd/<name> and
+// internal/, from checkouts kept up to main like Lens's). Neither is reachable but through the BFF, so a
+// Track or Docs route is counted through the BFF route that sends a request to it — read from the BFF's
+// own Go: each call it makes to Track or Docs, the path it builds there and the method it sends.
+//
 // Each entry ends in one state: covered (by the scenarios named), seen by the explorers only (no oracle
 // checked it), cannot be tested yet (and why), or not covered.
 
@@ -20,7 +25,17 @@ import { access, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-export type Kind = 'screen' | 'bff' | 'lens'
+export type Product = 'track' | 'docs'
+export type Kind = 'screen' | 'bff' | 'lens' | Product
+
+/** B34.9 — one request a BFF route sends to Track or Docs. */
+export interface Upstream {
+  product: Product
+  /** The method it sends, or SAME when it sends the one it was called with. */
+  method: string
+  /** The path it builds, `{}` where a value goes. */
+  path: string
+}
 
 export interface Entry {
   kind: Kind
@@ -36,6 +51,8 @@ export interface Entry {
   public?: boolean
   /** BFF only: the paths its registration names, which link it to Lens routes. */
   names?: string[]
+  /** BFF only: what it sends to Track and Docs, which links it to their routes. */
+  upstreams?: Upstream[]
 }
 
 export interface Inventory {
@@ -44,6 +61,20 @@ export interface Inventory {
   lens: Entry[]
   /** Why Lens's routes are not listed, when they are not. */
   lensMissing?: string
+  track: Entry[]
+  docs: Entry[]
+  trackMissing?: string
+  docsMissing?: string
+  /**
+   * B34.9 — why a Track or Docs route no BFF route sends a request to cannot be tested, when that is
+   * true of this checkout: the deploy files publish both only to the BFF, and every call the BFF makes
+   * to them was read. Undefined when it is not, and then such a route reads not covered.
+   */
+  productsBehindBFF?: string
+  /** Why the deploy files do not show that, when they do not. */
+  productsNotBehind?: string
+  /** Calls the BFF makes to Track or Docs whose path could not be read (each `file: the call`). */
+  unreadCalls: string[]
 }
 
 /** "IssueDetail" → "Issue Detail". */
@@ -96,7 +127,12 @@ export async function screensFrom(webSrc: string): Promise<Entry[]> {
 
 /** The BFF's routes: every mux.HandleFunc / mux.Handle in apps/bff/lens.go, with the paths each names. */
 export function bffRoutesFrom(lensGo: string): Entry[] {
-  const out: Entry[] = []
+  return bffRegistrations(lensGo).map((r) => r.entry)
+}
+
+/** Each BFF route with the text of the call that registers it: its handler, which upstreamsOf reads. */
+function bffRegistrations(lensGo: string): { entry: Entry; handler: string }[] {
+  const out: { entry: Entry; handler: string }[] = []
   for (const m of lensGo.matchAll(/\bmux\.Handle(?:Func)?\(\s*"([^"]+)"/g)) {
     // The statement runs to the parenthesis that closes this call.
     let depth = 0
@@ -108,7 +144,7 @@ export function bffRoutesFrom(lensGo: string): Entry[] {
     const rest = lensGo.slice(m.index + m[0].length, end)
     const names = [...rest.matchAll(/"(\/[^"]*)"/g)].map((n) => n[1])
     const [method, path] = /^[A-Z]+ /.test(m[1]) ? m[1].split(' ', 2) : ['ANY', m[1]]
-    out.push({ kind: 'bff', path, method, feature: '', names })
+    out.push({ entry: { kind: 'bff', path, method, feature: '', names }, handler: rest })
   }
   if (out.length === 0) throw new Error('no routes found in the BFF\'s lens.go')
   return out
@@ -160,12 +196,12 @@ export async function lensRoutesFrom(lensSrc: string): Promise<Entry[]> {
 }
 
 /**
- * Brings the run's own shallow checkout of Lens at `dir` up to its main, cloning it from `repoURL` the
- * first time. Answers why it could not, or undefined. The run does this itself rather than leave it to
- * whatever started it: a nightly loop started before this existed runs the new harness with its old
- * script, and would list no Lens route at all.
+ * Brings the run's own shallow checkout of Lens (or Track, or Docs — `name`) at `dir` up to its main,
+ * cloning it from `repoURL` the first time. Answers why it could not, or undefined. The run does this
+ * itself rather than leave it to whatever started it: a nightly loop started before this existed runs
+ * the new harness with its old script, and would list no Lens route at all.
  */
-export async function refreshLensCheckout(dir: string, repoURL: string): Promise<string | undefined> {
+export async function refreshLensCheckout(dir: string, repoURL: string, name = 'Lens'): Promise<string | undefined> {
   const git = (...args: string[]) => promisify(execFile)('git', args, { timeout: 120_000 })
   try {
     if (await access(join(dir, '.git')).then(() => true, () => false)) {
@@ -176,19 +212,386 @@ export async function refreshLensCheckout(dir: string, repoURL: string): Promise
     }
     return undefined
   } catch (e) {
-    return `could not bring ${dir} up to Lens's main from ${repoURL}: ${(e instanceof Error ? e.message : String(e)).split('\n')[0]}`
+    return `could not bring ${dir} up to ${name}'s main from ${repoURL}: ${(e instanceof Error ? e.message : String(e)).split('\n')[0]}`
   }
 }
 
-/** The whole inventory. `lensSrc` 'none' (or unreadable) leaves Lens's routes out and says why. */
-export async function inventory(repo: string, lensSrc: string): Promise<Inventory> {
+// ── TRACK AND DOCS ROUTES (B34.9) ───────────────────────────────────────────────────────────────────
+
+/**
+ * Go source with its comments blanked, every offset kept; with `strings`, the insides of its string and
+ * rune literals too, so that what is left can be counted for braces and parentheses.
+ */
+function goMask(src: string, strings: boolean): string {
+  let out = ''
+  for (let i = 0; i < src.length;) {
+    const c = src[i]
+    if (c === '/' && (src[i + 1] === '/' || src[i + 1] === '*')) {
+      const block = src[i + 1] === '*'
+      const stop = block ? src.indexOf('*/', i + 2) : src.indexOf('\n', i)
+      const end = stop === -1 ? src.length : block ? stop + 2 : stop
+      out += src.slice(i, end).replace(/[^\n]/g, ' ')
+      i = end
+      continue
+    }
+    if (c === '"' || c === '\'' || c === '`') {
+      let j = i + 1
+      while (j < src.length && src[j] !== c && !(c !== '`' && src[j] === '\n')) j += c !== '`' && src[j] === '\\' ? 2 : 1
+      const end = Math.min(src.length, j + 1)
+      out += strings ? c + src.slice(i + 1, end - 1).replace(/[^\n]/g, ' ') + src.slice(Math.max(i + 1, end - 1), end) : src.slice(i, end)
+      i = end
+      continue
+    }
+    out += c
+    i++
+  }
+  return out
+}
+
+/** The index of the bracket that closes the one at `open`, in masked source. */
+function closing(shape: string, open: number): number {
+  let depth = 0
+  for (let i = open; i < shape.length; i++) {
+    if ('([{'.includes(shape[i])) depth++
+    else if (')]}'.includes(shape[i]) && --depth === 0) return i
+  }
+  return shape.length
+}
+
+/** `a, f(b, c), "d,e"` → ['a', 'f(b, c)', '"d,e"']: split at `sep` where no bracket or string is open. */
+function splitTop(code: string, sep: string): string[] {
+  const shape = goMask(code, true)
+  const out: string[] = []
+  let depth = 0
+  let from = 0
+  for (let i = 0; i < shape.length; i++) {
+    if ('([{'.includes(shape[i])) depth++
+    else if (')]}'.includes(shape[i])) depth--
+    else if (shape[i] === sep && depth === 0) {
+      out.push(code.slice(from, i).trim())
+      from = i + 1
+    }
+  }
+  const last = code.slice(from).trim()
+  return out.length === 0 && last === '' ? [] : [...out, last]
+}
+
+const joinPath = (prefix: string, p: string): string => (p === '/' || p === '' ? prefix || '/' : prefix + p)
+
+/**
+ * The routes one Go file of a chi service registers, each with the prefix of every
+ * r.Route("/p", func(r chi.Router) { … }) it sits in and the function it is registered in; and the
+ * prefix in force wherever the file hands its router to a handler's Mount(r), MountService(r) or
+ * MountPublic(r).
+ */
+export function chiRoutesFromGo(src: string): { routes: { method: string; path: string; fn: string }[]; mounts: string[] } {
+  const code = goMask(src, false)
+  const shape = goMask(src, true)
+  const opens = new Map<number, string>()
+  for (const m of code.matchAll(/\.Route\(\s*"([^"]*)"\s*,\s*func\s*\(/g)) {
+    const brace = shape.indexOf('{', m.index + m[0].length)
+    if (brace !== -1) opens.set(brace, m[1])
+  }
+  // chi's own registrations only — Lens's lower-case registrars and an identifier before the path are
+  // not, so a client's c.get(ctx, "/v1/…") to another service is not read as a route of this one.
+  const call = /\.(Get|Post|Put|Patch|Delete|Head|Options|Handle|HandleFunc|Method|MethodFunc)\(\s*(?:"([A-Z]+)"\s*,\s*)?"(\/[^"]*)"/g
+  const events: { at: number; route?: { method: string; path: string } }[] = [
+    ...[...code.matchAll(call)].flatMap((m) => {
+      const method = m[2] ?? VERB[m[1]]
+      return method === undefined ? [] : [{ at: m.index, route: { method, path: m[3] } }]
+    }),
+    ...[...code.matchAll(/\.Mount\w*\(\s*\w+\s*\)/g)].map((m) => ({ at: m.index })),
+  ].sort((a, b) => a.at - b.at)
+  const funcs = [...code.matchAll(/^func\s+(?:\([^)]*\)\s*)?(\w+)/gm)].map((m) => ({ at: m.index, name: m[1] }))
+  const fnAt = (at: number) => funcs.filter((f) => f.at < at).pop()?.name ?? ''
+  const routes: { method: string; path: string; fn: string }[] = []
+  const mounts: string[] = []
+  const stack: { depth: number; prefix: string }[] = []
+  const prefix = () => stack[stack.length - 1]?.prefix ?? ''
+  let depth = 0
+  let next = 0
+  for (let i = 0; i <= shape.length && next < events.length; i++) {
+    for (; next < events.length && events[next].at === i; next++) {
+      const r = events[next].route
+      if (r === undefined) mounts.push(prefix())
+      else routes.push({ method: r.method, path: joinPath(prefix(), r.path), fn: fnAt(i) })
+    }
+    if (shape[i] === '{') {
+      depth++
+      const p = opens.get(i)
+      if (p !== undefined) stack.push({ depth, prefix: joinPath(prefix(), p) })
+    } else if (shape[i] === '}') {
+      if (stack[stack.length - 1]?.depth === depth) stack.pop()
+      depth--
+    }
+  }
+  return { routes, mounts }
+}
+
+/**
+ * Every route Track or Docs registers, from a checkout: cmd/<product>, where the router is built, and
+ * internal/, whose handlers' Mount functions it calls — under the one prefix (/v1) every Mount(r) in
+ * cmd/<product> sits in. Mounted under more than one, which handler is under which cannot be read here,
+ * and it says so. A route internal/ registers outside a Mount function is on a router of its own (Docs'
+ * custom-domain pages) and is listed as registered.
+ */
+export async function productRoutesFrom(src: string, product: Product): Promise<Entry[]> {
+  const goFiles = async (dir: string, deep: boolean) => (await readdir(join(src, dir), { recursive: deep }))
+    .map(String).filter((f) => f.endsWith('.go') && !f.endsWith('_test.go')).sort().map((f) => join(src, dir, f))
+  const seen = new Map<string, Entry>()
+  const add = (path: string, method: string) => seen.set(`${method} ${path}`, { kind: product, path, method, feature: '' })
+  const prefixes = new Set<string>()
+  for (const f of await goFiles(join('cmd', product), false)) {
+    const { routes, mounts } = chiRoutesFromGo(await readFile(f, 'utf8'))
+    for (const r of routes) add(r.path, r.method)
+    for (const m of mounts) prefixes.add(m)
+  }
+  if (prefixes.size !== 1) {
+    throw new Error(`cmd/${product} mounts its handlers under ${prefixes.size === 0 ? 'no prefix that could be read' : [...prefixes].join(' and ')}`)
+  }
+  const [base] = prefixes
+  for (const f of await goFiles('internal', true)) {
+    for (const r of chiRoutesFromGo(await readFile(f, 'utf8')).routes) add(r.fn.startsWith('Mount') ? joinPath(base, r.path) : r.path, r.method)
+  }
+  if (seen.size === 0) throw new Error(`no routes found under ${src}/cmd/${product}`)
+  return [...seen.values()]
+}
+
+// ── WHAT THE BFF SENDS TO TRACK AND DOCS (B34.9) ────────────────────────────────────────────────────
+
+interface GoFunc {
+  file: string
+  params: string[]
+  /** Comments blanked, strings kept. */
+  body: string
+}
+
+interface GoPackage {
+  /** Methods on the BFF's *app, by name. */
+  methods: Map<string, GoFunc>
+  /** Plain functions, by name. */
+  funcs: Map<string, GoFunc>
+  /** String constants that are paths. */
+  consts: Map<string, string>
+}
+
+/** The BFF's functions, methods and path constants, from its non-test Go files. */
+function goPackage(files: { name: string; src: string }[]): GoPackage {
+  const pkg: GoPackage = { methods: new Map(), funcs: new Map(), consts: new Map() }
+  for (const { name, src } of files) {
+    const code = goMask(src, false)
+    const shape = goMask(src, true)
+    for (const m of code.matchAll(/^func\s+(\(\s*\w+\s+\*?app\s*\)\s*)?(\w+)\s*\(/gm)) {
+      const open = m.index + m[0].length - 1
+      const close = closing(shape, open)
+      const params = splitTop(code.slice(open + 1, close), ',').map((p) => /^\w+/.exec(p)?.[0] ?? '')
+      // The body is the first { after the parameters that does not open a result type's interface{} or struct{…}.
+      let brace = shape.indexOf('{', close)
+      while (brace !== -1 && /\b(interface|struct)\s*$/.test(shape.slice(close, brace))) brace = shape.indexOf('{', closing(shape, brace) + 1)
+      if (brace === -1) continue
+      const end = closing(shape, brace)
+      ;(m[1] === undefined ? pkg.funcs : pkg.methods).set(m[2], { file: name, params, body: code.slice(brace + 1, end) })
+    }
+    for (const m of code.matchAll(/^(?:const\s+|\t)(\w+)(?:\s+string)?\s*=\s*"(\/[^"]*)"\s*$/gm)) {
+      if (/^const\b/.test(m[0]) || /\bconst \([^)]*$/.test(code.slice(0, m.index))) pkg.consts.set(m[1], m[2])
+    }
+  }
+  return pkg
+}
+
+/** One function being read, and what its caller passed for each of its parameters. */
+interface Scope {
+  fn: GoFunc
+  args: Map<string, { expr: string; scope: Scope | undefined }>
+}
+
+/** The expression from `at` to the end of its statement. */
+function statementAt(code: string, at: number): string {
+  const shape = goMask(code, true)
+  let depth = 0
+  for (let i = at; i < shape.length; i++) {
+    if ('([{'.includes(shape[i])) depth++
+    else if (')]}'.includes(shape[i])) depth--
+    if ((shape[i] === '\n' && depth === 0 && !/[+,(]\s*$/.test(shape.slice(at, i))) || depth < 0) return code.slice(at, i)
+  }
+  return code.slice(at)
+}
+
+/** What a Go expression is, as a path: its literals, and `{}` for each value. Undefined when it cannot be read. */
+function pathOf(expr: string, scope: Scope | undefined, pkg: GoPackage, depth = 0): string | undefined {
+  if (depth > 12) return undefined
+  let out = ''
+  for (const piece of splitTop(expr, '+')) {
+    const lit = /^"([^"\\]*)"$/.exec(piece)
+    if (lit !== null) {
+      out += lit[1]
+      continue
+    }
+    const call = /^(\w+)\(([\s\S]*)\)$/.exec(piece)
+    const fn = call === null ? undefined : pkg.funcs.get(call[1])
+    if (call !== null && fn !== undefined) {
+      const returns = [...fn.body.matchAll(/\breturn\s+/g)]
+      if (returns.length !== 1) return undefined
+      const args = splitTop(call[2], ',')
+      const inner: Scope = { fn, args: new Map(fn.params.map((p, i) => [p, { expr: args[i] ?? '', scope }])) }
+      const v = pathOf(statementAt(fn.body, returns[0].index + returns[0][0].length), inner, pkg, depth + 1)
+      if (v === undefined) return undefined
+      out += v
+      continue
+    }
+    if (/^\w+$/.test(piece)) {
+      const bound = scope?.args.get(piece)
+      if (bound !== undefined) {
+        const v = pathOf(bound.expr, bound.scope, pkg, depth + 1)
+        if (v === undefined) return undefined
+        out += v
+        continue
+      }
+      // A parameter its caller did not bind holds what the caller passes, which is not known here.
+      if (scope?.fn.params.includes(piece)) return undefined
+      const local = scope === undefined ? null : new RegExp(`(?:^|[;{]|\\n)\\s*${piece}\\s*:?=(?!=)\\s*`).exec(scope.fn.body)
+      if (local !== null && scope !== undefined) {
+        const v = pathOf(statementAt(scope.fn.body, local.index + local[0].length), scope, pkg, depth + 1)
+        if (v === undefined) return undefined
+        out += v
+        continue
+      }
+      const c = pkg.consts.get(piece)
+      out += c ?? '{}'
+      continue
+    }
+    out += '{}'
+  }
+  return out
+}
+
+/** A method expression's verb: http.MethodPost → POST, r.Method → SAME. */
+function methodOf(expr: string, scope: Scope | undefined): string {
+  const bound = /^\w+$/.test(expr) ? scope?.args.get(expr) : undefined
+  if (bound !== undefined) return methodOf(bound.expr, bound.scope)
+  const m = /^http\.Method(\w+)$/.exec(expr) ?? /^"([A-Z]+)"$/.exec(expr)
+  return m === null ? 'SAME' : m[1].toUpperCase()
+}
+
+/** The product a forwardProduct call names ("track") or a request URL starts at (a.cfg.docsBaseURL). */
+function productOf(expr: string, scope: Scope | undefined): Product | undefined {
+  const bound = /^\w+$/.test(expr) ? scope?.args.get(expr) : undefined
+  if (bound !== undefined) return productOf(bound.expr, bound.scope)
+  const m = /^"(track|docs)"$/.exec(expr) ?? /\b(track|docs)BaseURL$/.exec(expr)
+  return m === null ? undefined : m[1] as Product
+}
+
+/** The BFF's own helpers that take a product and a path: their calls are read where they are made. */
+const FORWARD = new Set(['forwardProduct', 'forwardProductWith'])
+
+/**
+ * Every request a stretch of BFF code sends to Track or Docs: each forwardProduct call (product, path,
+ * method) and each http.NewRequest to a Track or Docs base URL, in it and in every method of *app it
+ * calls, with that method's parameters bound to what was passed. `sites` records, for each such call in
+ * the package, whether its path was read.
+ */
+function upstreamsIn(code: string, scope: Scope | undefined, pkg: GoPackage, sites: Map<string, boolean>,
+  visited: Set<string> | undefined, out: Upstream[]): void {
+  const shape = goMask(code, true)
+  const argsAt = (open: number) => splitTop(code.slice(open + 1, closing(shape, open)), ',')
+  const site = (at: number, open: number, read: boolean) => {
+    const key = `${scope?.fn.file ?? 'apps/bff/lens.go'}: ${code.slice(at, closing(shape, open) + 1).replace(/\s+/g, ' ')}`
+    sites.set(key, (sites.get(key) ?? false) || read)
+  }
+  const push = (u: Upstream) => {
+    if (!out.some((o) => o.product === u.product && o.method === u.method && o.path === u.path)) out.push(u)
+  }
+  for (const m of code.matchAll(/\ba\.(\w+)\(/g)) {
+    const open = m.index + m[0].length - 1
+    const args = argsAt(open)
+    if (FORWARD.has(m[1])) {
+      const product = productOf(args[2] ?? '', scope)
+      if (product === undefined) continue
+      const path = pathOf(args[5] ?? '', scope, pkg)
+      site(m.index, open, path !== undefined)
+      if (path !== undefined) push({ product, method: methodOf(args[7] ?? '', scope), path })
+      continue
+    }
+    const fn = pkg.methods.get(m[1])
+    // Each method once per argument list: the same call twice sends the same requests.
+    const key = `${m[1]}(${args.join(', ')})`
+    if (fn === undefined || visited === undefined || visited.has(key)) continue
+    visited.add(key)
+    upstreamsIn(fn.body, { fn, args: new Map(fn.params.map((p, i) => [p, { expr: args[i] ?? '', scope }])) }, pkg, sites, visited, out)
+  }
+  for (const m of code.matchAll(/\bhttp\.NewRequest(WithContext)?\(/g)) {
+    const open = m.index + m[0].length - 1
+    const args = argsAt(open)
+    const [method, url] = m[1] === undefined ? args : args.slice(1)
+    const [base, ...rest] = splitTop(url ?? '', '+')
+    const product = productOf(base ?? '', scope)
+    if (product === undefined) continue
+    const path = pathOf(rest.join(' + '), scope, pkg)
+    site(m.index, open, path !== undefined)
+    if (path !== undefined) push({ product, method: methodOf(method ?? '', scope), path })
+  }
+}
+
+/**
+ * What each BFF route sends to Track and Docs, read from apps/bff, with every call the BFF makes to
+ * either that could not be read — anywhere in the package, so a call no route was seen to reach is
+ * counted too.
+ */
+export async function bffUpstreams(bffDir: string): Promise<{ routes: { entry: Entry; upstreams: Upstream[] }[]; unread: string[] }> {
+  const names = (await readdir(bffDir)).filter((f) => f.endsWith('.go') && !f.endsWith('_test.go')).sort()
+  const files = await Promise.all(names.map(async (name) => ({ name: `apps/bff/${name}`, src: await readFile(join(bffDir, name), 'utf8') })))
+  const pkg = goPackage(files)
+  const sites = new Map<string, boolean>()
+  const routes = bffRegistrations(goMask(files.find((f) => f.name === 'apps/bff/lens.go')?.src ?? '', false)).map(({ entry, handler }) => {
+    const upstreams: Upstream[] = []
+    upstreamsIn(handler, undefined, pkg, sites, new Set(), upstreams)
+    return { entry, upstreams }
+  })
+  // Every such call in the package, reached from a route or not: one no route reached is one the map cannot link.
+  for (const [name, fn] of [...pkg.methods, ...pkg.funcs]) {
+    if (!FORWARD.has(name)) upstreamsIn(fn.body, { fn, args: new Map() }, pkg, sites, undefined, [])
+  }
+  return { routes, unread: [...sites].filter(([, read]) => !read).map(([k]) => k) }
+}
+
+/**
+ * Whether the deploy files serve Track and Docs only to the BFF: each port track-docs.compose.yaml
+ * publishes is on 127.0.0.1, and the Caddyfile proxies nothing but the BFF. Answers the reason, or why not.
+ */
+export async function behindBFF(repo: string): Promise<{ why?: string; not?: string }> {
+  const read = async (f: string) => (await readFile(join(repo, 'deploy', f), 'utf8').catch(() => '')).replace(/(^|\s)#.*$/gm, '$1')
+  const ports = [...(await read('track-docs.compose.yaml')).matchAll(/^\s*-\s*"?([\d.]*:?\d+:\d+)"?\s*$/gm)].map((m) => m[1])
+  const proxies = [...(await read('Caddyfile')).matchAll(/reverse_proxy\s+(\S+)/g)].map((m) => m[1])
+  if (ports.length === 0) return { not: 'deploy/track-docs.compose.yaml publishes no port that could be read' }
+  const open = ports.filter((p) => !p.startsWith('127.0.0.1:'))
+  if (open.length > 0) return { not: `deploy/track-docs.compose.yaml publishes ${open.join(', ')} beyond 127.0.0.1` }
+  const bff = proxies.filter((p) => !p.endsWith(':8787'))
+  if (proxies.length === 0 || bff.length > 0) return { not: `deploy/Caddyfile proxies ${bff.join(', ') || 'nothing that could be read'}, not only the BFF` }
+  return { why: `served only to the BFF (deploy/ publishes ${ports.join(', ')}), and no BFF route sends this request; one that did would make it testable` }
+}
+
+/** The whole inventory. A checkout 'none' (or unreadable) leaves that service's routes out and says why. */
+export async function inventory(repo: string, lensSrc: string, trackSrc = 'none', docsSrc = 'none'): Promise<Inventory> {
   const screens = await screensFrom(join(repo, 'apps/web/src'))
-  const bff = bffRoutesFrom(await readFile(join(repo, 'apps/bff/lens.go'), 'utf8'))
-  if (lensSrc === 'none') return { screens, bff, lens: [], lensMissing: 'no Lens checkout was given (--lens-src none)' }
+  const { routes, unread } = await bffUpstreams(join(repo, 'apps/bff'))
+  const bff = routes.map(({ entry, upstreams }) => ({ ...entry, upstreams }))
+  const product = async (product: Product, src: string, flag: string): Promise<{ routes: Entry[]; missing?: string }> => {
+    const name = product === 'track' ? 'Track' : 'Docs'
+    if (src === 'none') return { routes: [], missing: `no ${name} checkout was given (--${flag} none)` }
+    try {
+      return { routes: await productRoutesFrom(src, product) }
+    } catch (e) {
+      return { routes: [], missing: `${name}'s source could not be read at ${src}: ${e instanceof Error ? e.message : String(e)}` }
+    }
+  }
+  const [track, docs, behind] = await Promise.all([product('track', trackSrc, 'track-src'), product('docs', docsSrc, 'docs-src'), behindBFF(repo)])
+  const inv: Inventory = { screens, bff, lens: [], track: track.routes, docs: docs.routes, trackMissing: track.missing, docsMissing: docs.missing,
+    productsBehindBFF: unread.length === 0 ? behind.why : undefined, productsNotBehind: behind.not, unreadCalls: unread }
+  if (lensSrc === 'none') return { ...inv, lensMissing: 'no Lens checkout was given (--lens-src none)' }
   try {
-    return { screens, bff, lens: await lensRoutesFrom(lensSrc) }
+    return { ...inv, lens: await lensRoutesFrom(lensSrc) }
   } catch (e) {
-    return { screens, bff, lens: [], lensMissing: `Lens's source could not be read at ${lensSrc}: ${e instanceof Error ? e.message : String(e)}` }
+    return { ...inv, lensMissing: `Lens's source could not be read at ${lensSrc}: ${e instanceof Error ? e.message : String(e)}` }
   }
 }
 
@@ -326,6 +729,14 @@ export interface CoverageMap {
   bff: Row[]
   lens: Row[]
   lensMissing?: string
+  /** B34.9 — Track's and Docs' routes, each through the BFF routes that send requests to it. */
+  track: Row[]
+  docs: Row[]
+  trackMissing?: string
+  docsMissing?: string
+  /** Why a Track or Docs route no BFF route sends a request to is not given a reason, when it is not. */
+  productsNotBehind?: string
+  unreadCalls: string[]
   /** Page errors the browsers saw, one per feature and message. */
   errors: { feature: string; where: string; message: string; count: number; scenarios: string[] }[]
 }
@@ -376,6 +787,24 @@ export function lensThrough(bff: Entry, method: string, lens: readonly Entry[]):
   return lens.filter((l) => (l.method === 'ANY' || method === 'ANY' || l.method === method) && tails.some((t) => leadsTo(segsOf(l.path), t)))
 }
 
+/**
+ * B34.9 — the Track and Docs routes a BFF route sends requests to when it is called with `method`: each
+ * request it sends with that method, or with the one it was called with, to the route that would serve
+ * it there (a literal segment before a value: /issues/semantic-search is not the issue {id}). A request
+ * with a method of its own (POST /issues) is counted only when the BFF route is called with that method,
+ * because the handler that sends it is the one that method picks (GET lists the issues, POST creates one).
+ */
+export function productThrough(bff: Entry, method: string, products: Record<Product, Matcher>): Entry[] {
+  const out: Entry[] = []
+  for (const u of bff.upstreams ?? []) {
+    const sent = u.method === 'SAME' ? method : u.method
+    if (sent !== method) continue
+    const p = products[u.product].match(sent, u.path)
+    if (p !== undefined && !out.includes(p)) out.push(p)
+  }
+  return out
+}
+
 const bump = (r: Record<string, number>, k: string, n = 1) => { r[k] = (r[k] ?? 0) + n }
 
 /** The run's map: every entry of the inventory with its state, from what was recorded. */
@@ -388,8 +817,9 @@ export function buildMap(inv: Inventory, rec: Recorder): CoverageMap {
   const ms = new Map<Entry, number[]>()
   const methods = new Map<Entry, Set<string>>()
   const who = new Map<Entry, Map<string, Set<number>>>()
-  for (const e of [...inv.screens, ...inv.bff, ...inv.lens]) rows.set(e, blank(e))
-  const matchers: Record<Kind, Matcher> = { screen: screenMatch, bff: new Matcher(inv.bff, true), lens: new Matcher(inv.lens, false) }
+  for (const e of [...inv.screens, ...inv.bff, ...inv.lens, ...inv.track, ...inv.docs]) rows.set(e, blank(e))
+  const products: Record<Product, Matcher> = { track: new Matcher(inv.track, false), docs: new Matcher(inv.docs, false) }
+  const matchers: Record<Kind, Matcher> = { screen: screenMatch, bff: new Matcher(inv.bff, true), lens: new Matcher(inv.lens, false), ...products }
 
   for (const h of rec.hits) {
     const e = matchers[h.kind].match(h.kind === 'screen' ? 'GET' : h.method, h.kind === 'screen' ? h.path.replace(/(.)\/$/, '$1') : h.path)
@@ -403,10 +833,10 @@ export function buildMap(inv: Inventory, rec: Recorder): CoverageMap {
     if (h.from !== undefined && !r.from.includes(featureOf(h.from))) r.from.push(featureOf(h.from))
     methods.set(e, (methods.get(e) ?? new Set()).add(h.method))
   }
-  // A Lens route reached through the app takes the users of the BFF route that led to it.
+  // A Lens, Track or Docs route reached through the app takes the users of the BFF route that led to it.
   for (const b of inv.bff) {
     for (const m of methods.get(b) ?? []) {
-      for (const l of lensThrough(b, m, inv.lens)) {
+      for (const l of [...lensThrough(b, m, inv.lens), ...productThrough(b, m, products)]) {
         const users = who.get(l) ?? new Map<string, Set<number>>()
         for (const [scenario, set] of who.get(b) ?? []) users.set(scenario, new Set([...(users.get(scenario) ?? []), ...set]))
         who.set(l, users)
@@ -415,13 +845,18 @@ export function buildMap(inv: Inventory, rec: Recorder): CoverageMap {
       }
     }
   }
+  // A Track or Docs route some BFF route sends a request to, with some method: the rest the app cannot reach.
+  const sent = new Set<Entry>()
+  for (const b of inv.bff) {
+    for (const m of new Set([...inv.track, ...inv.docs].map((p) => p.method))) for (const p of productThrough(b, m, products)) sent.add(p)
+  }
   for (const [e, r] of rows) {
     for (const [scenario, set] of who.get(e) ?? []) {
       if (scenario === 'explorer') r.explorers = set.size
       else r.by[scenario] = set.size
     }
     r.timing = timing(ms.get(e) ?? [])
-    const why = cannotTest(e)
+    const why = e.kind === 'track' || e.kind === 'docs' ? (sent.has(e) ? undefined : inv.productsBehindBFF) : cannotTest(e)
     r.state = Object.keys(r.by).length > 0 ? 'covered' : r.explorers > 0 ? 'explorers only' : why !== undefined ? 'cannot be tested yet' : 'not covered'
     if (r.state === 'cannot be tested yet') r.why = why
   }
@@ -439,6 +874,12 @@ export function buildMap(inv: Inventory, rec: Recorder): CoverageMap {
     bff: inv.bff.map((e) => rows.get(e)!),
     lens: inv.lens.map((e) => rows.get(e)!),
     lensMissing: inv.lensMissing,
+    track: inv.track.map((e) => rows.get(e)!),
+    docs: inv.docs.map((e) => rows.get(e)!),
+    trackMissing: inv.trackMissing,
+    docsMissing: inv.docsMissing,
+    productsNotBehind: inv.productsNotBehind,
+    unreadCalls: inv.unreadCalls,
     errors: [...errors.values()],
   }
 }
