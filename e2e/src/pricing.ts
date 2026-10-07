@@ -134,7 +134,7 @@ export function pricesVerdict(served: readonly { id: string; usd_cents: number }
 
 // ─── reaching each figure ────────────────────────────────────────────────────
 
-async function within<T>(read: () => Promise<T>, done: (v: T) => boolean, ms: number): Promise<T> {
+export async function within<T>(read: () => Promise<T>, done: (v: T) => boolean, ms: number): Promise<T> {
   const end = Date.now() + ms
   for (;;) {
     const v = await read()

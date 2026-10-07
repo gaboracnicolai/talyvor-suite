@@ -37,6 +37,7 @@ import { brandDocs, brandROI, brandVisual, companyLine, readingPages } from './b
 import { b30Capabilities } from './clearances.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
+import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
 
 export interface Evidence {
   note?: string
@@ -2783,6 +2784,11 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 5) list.push(apiKeyRevoke(i), byokAddon(i))
   if (i === 7) list.push(planChange(i))
   if (i === 8) list.push(providerKeys(i))
+  // B34.6 — every way into Lens's gateway, once a run, each on a workspace of its own: the provider routes and both
+  // compatible prefixes, the workspace's keys and their rotation, MCP, tokens and session keys, and sessions.
+  if (i === 3) list.push(gatewayProviders())
+  if (i === 5) list.push(gatewayKeys())
+  if (i === 7) list.push(gatewayMCP(), gatewayAuth(), gatewaySessions())
   return list
 }
 
