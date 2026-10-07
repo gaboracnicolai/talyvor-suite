@@ -27,7 +27,9 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // User 9 is every catalog-v4 scenario's other company; seats-free, each paid plan's agent gate, BYOK and a plan change (B34.5,
     // each bought with the test card) run on their own.
     expect(c.plans[9]).toBe('business')
-    expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['byok-addon:free', 'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'seats-free:free', 'seats-team:free'])
+    // B34.6 — and every way into Lens's gateway, each on a workspace nothing else touches.
+    expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['byok-addon:free', 'gateway-auth:free', 'gateway-keys:free', 'gateway-mcp:free', 'gateway-providers:free',
+      'gateway-sessions:free', 'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'seats-free:free', 'seats-team:free'])
   })
 
   it('creates each plan’s workspaces in one call, each user at its index and each gate’s own beside it', async () => {

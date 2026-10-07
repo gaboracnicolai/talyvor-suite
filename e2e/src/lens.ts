@@ -1007,6 +1007,52 @@ export class LensClient {
     return this.answer(method, path.replace('{ws}', user.workspaceID), user.token, body, headers)
   }
 
+  /**
+   * B34.6 — one request as a customer's software makes it, on `credential` (a key or a token; '' for none): Lens's
+   * status, headers and body, never thrown. The gateway's routes are judged on all three.
+   */
+  async as(credential: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; headers: Headers; text: string }> {
+    const res = await this.send(method, path, {
+      headers: {
+        Accept: 'application/json',
+        ...(credential === '' ? {} : this.bearer(credential)),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        ...headers,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    return { status: res.status, headers: res.headers, text: await res.text() }
+  }
+
+  /**
+   * B34.6 — the first event a server-sent stream sends, on `credential`, within `ms`; the stream is closed after it. Status
+   * 0 when not even its headers came in time, and no event when they did and nothing followed; an answer that is no
+   * stream is its body.
+   */
+  async firstEvent(credential: string, path: string, ms: number): Promise<{ status: number; event: string }> {
+    const stop = new AbortController()
+    const timer = setTimeout(() => stop.abort(), ms)
+    let status = 0
+    try {
+      const res = await this.send('GET', path, { headers: { Accept: 'text/event-stream', ...(credential === '' ? {} : this.bearer(credential)) }, signal: stop.signal })
+      status = res.status
+      if (res.status !== 200 || res.body === null) return { status: res.status, event: (await res.text()).slice(0, 300) }
+      const reader = res.body.getReader()
+      let text = ''
+      while (!text.includes('\n\n')) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        text += new TextDecoder().decode(chunk.value)
+      }
+      return { status: res.status, event: text.split('\n\n')[0] }
+    } catch (e) {
+      return { status, event: status === 0 ? describe(e) : '' }
+    } finally {
+      clearTimeout(timer)
+      stop.abort()
+    }
+  }
+
   /** B25.8 — takes LXC back from an agent into its workspace, as the workspace's owner. */
   async withdrawAgent(user: SyntheticUser, agentID: string, amountULXC: number): Promise<void> {
     await this.call('POST', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/withdraw`, this.bearer(user.token), { amount_ulxc: amountULXC })
