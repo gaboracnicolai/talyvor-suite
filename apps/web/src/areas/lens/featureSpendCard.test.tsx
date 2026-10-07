@@ -133,5 +133,7 @@ describe('FeatureSpendCard', () => {
     renderCard()
     await screen.findByText('docs-ai-summarize')
     expect(screen.getByText(/Track tags its calls with the issue/)).toBeInTheDocument()
+    // B28.106 — and Chat's own tag, so its row is not read as an unknown caller's.
+    expect(screen.getByText(/Questions asked in Chat are tagged/)).toHaveTextContent('Questions asked in Chat are tagged chat.')
   })
 })

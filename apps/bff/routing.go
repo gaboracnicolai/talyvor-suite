@@ -16,7 +16,8 @@ import (
 // among the models the workspace may use — or none. Chat offers it under an answer when it costs
 // less than the model that wrote the answer, with one click to ask again on it.
 //
-// No feature is sent: Chat sends no X-Talyvor-Feature, so its questions are in Lens's "" cohort.
+// The feature is Chat's own tag: Chat's questions reach Lens as X-Talyvor-Feature: chat (B28.106), so they are
+// in Lens's "chat" cohort.
 //
 // ⚠ PROJECTED FIELD BY FIELD, like /api/features: Lens's reason names how many questions and
 // workspaces the pick rests on, and the screen needs only the model, its provider and the basis.
@@ -50,7 +51,7 @@ func (a *app) handleRoutingRecommendation(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "input_range must be small, medium, large or xlarge"})
 		return
 	}
-	q := url.Values{"provider": {provider}, "input_range": {inputRange}}
+	q := url.Values{"provider": {provider}, "input_range": {inputRange}, "feature": {chatFeature}}
 	raw, err := a.lensGet(r.Context(), t, lensWorkspacePath(t, "/routing/recommendation?"+q.Encode()))
 	var in routingRecommendation
 	if err == nil {

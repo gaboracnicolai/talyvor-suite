@@ -467,6 +467,7 @@ const ARRAYS: Record<string, unknown[]> = {
     },
   ],
   '/api/spend/by-feature': [
+    { feature: 'chat', cost_usd: 2.35, requests: 96 },
     { feature: 'docs.ask', cost_usd: 1.1, requests: 42 },
     { feature: 'track.triage', cost_usd: 0.4, requests: 12 },
   ],

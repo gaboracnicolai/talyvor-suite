@@ -50,9 +50,10 @@ export function FeatureSpendCard({ days }: { days: 7 | 30 }) {
       <CardHeader>Spend by feature</CardHeader>
       <div className="px-gutter pb-1 pt-2.5 text-caption font-normal text-muted">
         Provider USD for the last {days} days, grouped by the tag each call carried — the tag the
-        AI cards in Docs and Track print. This window is not the month-to-date figure above, so
-        the two are not expected to match. Track tags its calls with the issue’s own identifier,
-        so an issue key here is a row like any other.
+        AI cards in Docs and Track print. Questions asked in Chat are tagged{' '}
+        <span className="font-figure">chat</span>. This window is not the month-to-date figure
+        above, so the two are not expected to match. Track tags its calls with the issue’s own
+        identifier, so an issue key here is a row like any other.
       </div>
 
       {q.isLoading ? (
@@ -87,6 +88,8 @@ export function FeatureSpendCard({ days }: { days: 7 | 30 }) {
             {view.rows.map((r) => (
               <Row
                 key={r.feature}
+                data-testid="feature-spend-row"
+                data-feature={r.feature}
                 label={r.feature}
                 hint={`${r.requests} request${r.requests === 1 ? '' : 's'}`}
               >
@@ -94,7 +97,9 @@ export function FeatureSpendCard({ days }: { days: 7 | 30 }) {
                     reserves numerals for exact µ counts off ledger rows. Four decimals because
                     one AI call rounds to $0.00 at two, and a card whose every row read $0.00
                     would say the features are free. */}
-                <span className="font-figure text-body text-muted">≈ ${r.costUSD.toFixed(4)}</span>
+                <span data-testid="feature-spend-usd" className="font-figure text-body text-muted">
+                  ≈ ${r.costUSD.toFixed(4)}
+                </span>
               </Row>
             ))}
           </div>

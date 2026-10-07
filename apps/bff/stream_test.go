@@ -64,6 +64,7 @@ type streamUpstream struct {
 	gotConversation string
 	gotBudget       string
 	gotReportCharge string // B28.362 — X-Talyvor-Report-Charge as Lens received it
+	gotFeature      string // B28.106 — X-Talyvor-Feature as Lens received it
 	refuse          string
 	answerHeaders   map[string]string // set on the proxied answer, as Lens does on a cache serve
 	// replayUnlessBypassed sets answerHeaders only on a request without X-Talyvor-Cache: bypass, as
@@ -119,6 +120,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotConversation = r.Header.Get("X-Talyvor-Conversation-ID")
 			u.gotBudget = r.Header.Get("X-Talyvor-Conversation-Budget-ULXC")
 			u.gotReportCharge = r.Header.Get("X-Talyvor-Report-Charge")
+			u.gotFeature = r.Header.Get("X-Talyvor-Feature")
 			if u.refuse != "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusPaymentRequired)
@@ -1166,6 +1168,36 @@ func TestStream_TheAskForTheChargeReachesLensAndItsFrameReachesTheChat(t *testin
 			}
 			if got := strings.Contains(string(body), chargeFrame); got != (tc.wantUp == "true") {
 				t.Fatalf("the chat received %q: the charge frame there is %v, want %v", body, got, tc.wantUp == "true")
+			}
+		})
+	}
+}
+
+// B28.106 — Chat's spend is tagged "chat" in Lens's Spend by feature: every request on the stream route reaches Lens
+// with X-Talyvor-Feature: chat, and a tag the page sent itself is not the one Lens receives.
+func TestStream_ChatSpendIsTaggedChat(t *testing.T) {
+	for _, sent := range []string{"", "docs-ai-ask"} {
+		t.Run(fmt.Sprintf("page sent %q", sent), func(t *testing.T) {
+			up := newStreamUpstream(t)
+			up.noBlock = true
+			a, sess := streamApp(t, up)
+			ts := httptest.NewServer(a)
+			defer ts.Close()
+			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+			req.AddCookie(sess)
+			req.Header.Set("Origin", "https://app.talyvor.com")
+			req.Header.Set("Content-Type", "application/json")
+			if sent != "" {
+				req.Header.Set("X-Talyvor-Feature", sent)
+			}
+			resp, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatalf("do: %v", err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if up.proxyCalls != 1 || up.gotFeature != "chat" {
+				t.Fatalf("Lens was asked %d times with X-Talyvor-Feature %q, want once with %q", up.proxyCalls, up.gotFeature, "chat")
 			}
 		})
 	}

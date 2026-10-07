@@ -1607,6 +1607,83 @@ export function chatChargedFooter(seed: number): Scenario {
   }
 }
 
+/** B28.106 — Spend by feature's `chat` row on /spend (its 7-day window), or undefined while it lists none; screenshots when named. */
+async function chatSpendRow(ctx: ScenarioCtx, shots?: { wide: string; narrow: string }): Promise<{ requests: number; usd: number; text: string } | undefined> {
+  const page = await ctx.app.tab('/spend')
+  try {
+    await page.locator('[data-testid="lens-by-feature"], [data-testid="feature-spend-empty"]').first().waitFor({ timeout: ACTION_TIMEOUT_MS })
+    const row = page.locator('[data-testid="feature-spend-row"][data-feature="chat"]')
+    let found: { requests: number; usd: number; text: string } | undefined
+    if ((await row.count()) > 0) {
+      const text = (await row.first().innerText()).replace(/\s+/g, ' ').trim()
+      const requests = Number(/(\d+) requests?/.exec(text)?.[1] ?? NaN)
+      const usd = Number((await row.first().getByTestId('feature-spend-usd').innerText()).replace(/[≈$\s,]/g, ''))
+      found = { requests, usd, text }
+    }
+    if (shots !== undefined) {
+      await page.getByTestId('lens-by-feature').scrollIntoViewIfNeeded()
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.screenshot({ path: shots.wide })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.getByTestId('lens-by-feature').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: shots.narrow })
+    }
+    return found
+  } finally {
+    await page.close()
+  }
+}
+
+/**
+ * B28.106 — Chat's spend is tagged "chat": a question asked afresh in Chat, and Spend by feature on /spend then lists
+ * `chat` with one request more and the answer's charge more — the one spend row Lens wrote for it, in dollars.
+ */
+export function chatFeatureSpend(seed: number): Scenario {
+  return {
+    id: 'chat-feature-spend',
+    owner: 'talyvor-suite',
+    title: 'Spend by feature lists chat, up by the one request and the charge of a question asked in Chat',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const before = (await chatSpendRow(ctx)) ?? { requests: 0, usd: 0, text: 'no chat row' }
+      await app.newChat()
+      const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+      const t = await ask(ctx, `Name the smallest planet in one word. (${freshWord(seed * 10 + 3, 1 + Math.floor(Math.random() * 999_999))})`)
+      const noPrice = priced(t)
+      if (noPrice !== undefined) return { pass: false, detail: noPrice }
+      if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
+      // The spend row and the request's tag are written as the answer is charged; room for them to land.
+      let fresh: LedgerRow[] = []
+      let after: { requests: number; usd: number; text: string } | undefined
+      for (let tries = 0; tries < 10; tries++) {
+        if (tries > 0) await app.page.waitForTimeout(1_000)
+        fresh = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
+        after = await chatSpendRow(ctx)
+        if (fresh.length > 0 && after !== undefined && after.requests > before.requests) break
+      }
+      ctx.evidence.push({ note: `Spend by feature before [${before.text}], after [${after?.text ?? 'no chat row'}]; the spend rows written for the answer`,
+        ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+      if (fresh.length !== 1) return { pass: false, detail: `the answer [${t.footerText}] wrote ${fresh.length} spend rows, not one` }
+      if (after === undefined) return { pass: false, detail: `Spend by feature lists no chat row after a question asked in Chat (it was [${before.text}])` }
+      if (after.requests !== before.requests + 1) {
+        return { pass: false, detail: `Spend by feature's chat row went from ${before.requests} to ${after.requests} requests for one question: [${after.text}]` }
+      }
+      // The card shows dollars to four places, so each reading is within half a unit of the fourth.
+      const rowUSD = (-fresh[0].amount_ulxc / 1e6) * env.usdPerLXC
+      const rose = after.usd - before.usd
+      if (Math.abs(rose - rowUSD) > 0.0001 + 1e-9) {
+        return { pass: false, detail: `chat rose by $${rose.toFixed(4)} [${after.text}]; the answer's spend row is ${-fresh[0].amount_ulxc} µLXC, $${rowUSD.toFixed(6)}` }
+      }
+      await mkdir(env.outDir, { recursive: true })
+      const wide = join(env.outDir, `chat-feature-spend-1440px-user${app.user.index}.png`)
+      const narrow = join(env.outDir, `chat-feature-spend-390px-user${app.user.index}.png`)
+      await chatSpendRow(ctx, { wide, narrow })
+      ctx.evidence.push({ note: `Spend by feature at 1440px: ${wide}; at 390px: ${narrow}` })
+      return { pass: true, detail: `Spend by feature lists chat [${after.text}]: one request more, and the answer's spend row of ${-fresh[0].amount_ulxc} µLXC ($${rowUSD.toFixed(6)})` }
+    },
+  }
+}
+
 /** An LXC figure as Chat prints it ("149.99838 LXC", "1,204.5 LXC"), in µLXC. */
 function lxcFigure(text: string): number | undefined {
   const n = Number(text.replace(/LXC|,|\s/g, ''))
@@ -2785,7 +2862,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.101 — and a chat's running total, after a reload, equal to the prices under its answers.
     // B28.362 — and the figure under an answer, what Lens charged: its spend row.
     // B28.104 — and the meter under the box, dropped by that charge: Lens's allowance and balance.
-    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i), chatMeter(i)); break
+    // B28.106 — and Spend by feature listing chat, up by that question's request and charge.
+    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i), chatMeter(i), chatFeatureSpend(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
     // B29.6 — sign-in and sign-up in the brand, signed out.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break

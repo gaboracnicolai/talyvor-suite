@@ -133,6 +133,8 @@ interface Workspace {
   guardrails: Record<string, unknown> & { enable_injection: boolean; enable_pii: boolean }
   budgets: Budget[]
   usage: { total: number; hits: number; pooled: number; converted: number }
+  /** B28.106 — each charged request's feature tag (X-Talyvor-Feature) and provider USD: Lens's token_events, as Spend by feature groups them. */
+  tagged: { feature: string; cost_usd: number; at: number }[]
   plan?: { id: string; cancel: boolean; byok?: boolean }
   /** B35.7 — the plan the testers created it on (talyvor-lens B35.1), read after a subscription. */
   syntheticPlan?: string
@@ -142,7 +144,7 @@ interface Workspace {
 
 function newWorkspace(id: string, token: string): Workspace {
   return {
-    id, token, created_at: new Date().toISOString(), balance: 0, ledger: [], answers: new Map(), keys: [], documents: new Map(),
+    id, token, created_at: new Date().toISOString(), balance: 0, ledger: [], answers: new Map(), keys: [], documents: new Map(), tagged: [],
     settings: { tare_policy: 'disabled', distill_policy: 'always', compression_policy: 'disabled', logging_policy: 'full',
       cache_poolable: true, distill_poolable: false, cost_optimize_routing: false },
     guardrails: { ...GUARDRAILS },
@@ -185,6 +187,11 @@ function book(ws: Workspace, amount: number, type: string, description: string, 
   ws.ledger.unshift({ id: randomBytes(8).toString('hex'), workspace_id: ws.id, amount_ulxc: -fee, balance_after_ulxc: ws.balance,
     type: 'platform_fee', description: `Platform fee ${bps / 100}%`, metadata: { platform_fee_bps: bps, spend_ulxc: -amount }, created_at: at })
   return fee
+}
+
+/** B28.106 — a charged request's tag as Lens records it; STUB_BREAK=feature drops the header, as an untagged caller does. */
+function tag(ws: Workspace, req: IncomingMessage, usd: number): void {
+  ws.tagged.push({ feature: BREAK === 'feature' ? '' : String(req.headers['x-talyvor-feature'] ?? ''), cost_usd: usd, at: Date.now() })
 }
 
 /** B32.12 — the plan a workspace's gates are read under: a chat plan takes Free's. */
@@ -420,6 +427,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     const outTok = tokens(args) + 8
     const toolCharge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
     book(ws, -toolCharge, 'spend', `${model.id} tool call`)
+    tag(ws, req, (inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6)
     ws.usage.total++
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
     // talyvor-lens B28.102 — what the request was charged, before the terminator, when asked (apps/web chatStream.ts CHARGE_FRAME).
@@ -508,6 +516,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
       headers['X-Talyvor-Pool-List-ULXC'] = String(list)
       headers['X-Talyvor-Pool-Saved-ULXC'] = String(list - charge)
       fee = book(ws, -charge, 'spend', 'pooled answer')
+      tag(ws, req, (charge / 1e6) * USD_PER_LXC)
       // The contributor's royalty, held (Lens poolroyalty: minted between two synthetic workspaces since B25.2).
       const owner = workspaces.get(shared.owner)
       if (owner !== undefined && BREAK !== 'royalty') {
@@ -522,6 +531,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     const outTok = tokens(answer)
     charge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
     fee = book(ws, -charge, 'spend', `${model.id} answer`)
+    tag(ws, req, (inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6)
     charged = BREAK === 'charge' ? charge + 1 : charge
     if (keep) ws.answers.set(key, answer)
     if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
@@ -721,8 +731,19 @@ createServer(async (req, res) => {
     if (p === '/v1/catalog/discovered') return json(res, 200, [])
     if (ABSENT.has(p) || p.startsWith('/v1/bonds/')) return json(res, 404, { error: 'not found' })
     if (p === '/v1/markets/simulated/quotes') return json(res, 200, QUOTES)
-    // Spend by feature: Lens's Go slice, null while nothing is attributed to a feature. The stub attributes nothing.
-    if (p === '/v1/api/spend/by-feature') return json(res, 200, null)
+    // Spend by feature: Lens's Go slice over the window (`ORDER BY cost_usd DESC`), null while nothing was spent in it.
+    // B28.106 — grouped by each request's X-Talyvor-Feature, the untagged as "".
+    if (p === '/v1/api/spend/by-feature') {
+      const since = Date.now() - Number(url.searchParams.get('days') ?? 30) * 86_400e3
+      const by = new Map<string, { feature: string; cost_usd: number; requests: number }>()
+      for (const e of ws.tagged.filter((x) => x.at >= since)) {
+        const row = by.get(e.feature) ?? { feature: e.feature, cost_usd: 0, requests: 0 }
+        row.cost_usd += e.cost_usd
+        row.requests++
+        by.set(e.feature, row)
+      }
+      return json(res, 200, by.size === 0 ? null : [...by.values()].sort((a, b) => b.cost_usd - a.cost_usd))
+    }
     if (p === '/v1/api/usage') {
       const u = ws.usage
       return json(res, 200, { period_days: Number(url.searchParams.get('days') ?? 30), models: [], cache: { total_requests: u.total,
