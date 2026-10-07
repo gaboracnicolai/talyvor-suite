@@ -26,6 +26,8 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--explore-minutes` | `E2E_EXPLORE_MINUTES` | 30 | how long each explorer may use the app |
 | `--explorer-model` | `E2E_EXPLORER_MODEL` | claude-haiku-4-5 | the model choosing each explorer's next move |
 | `--lens-src` | `E2E_LENS_SRC` | `<out>/lens-src` | a checkout of talyvor-lens whose routes the coverage map lists; `none` lists none. Not given, the run keeps its own there, cloned from `E2E_LENS_REPO` and brought up to Lens's main each run; one you name is left as it is |
+| `--track-src` | `E2E_TRACK_SRC` | `<out>/track-src` | a checkout of talyvor-track whose routes the coverage map lists (B34.9); `none` lists none. Kept up to Track's main from `E2E_TRACK_REPO` the way `--lens-src` is |
+| `--docs-src` | `E2E_DOCS_SRC` | `<out>/docs-src` | the same for talyvor-docs, from `E2E_DOCS_REPO` |
 | `--testers-md` | `E2E_TESTERS_MD` | `~/talyvor-queue/TESTERS.md` | where the run's short summary goes; `none` writes none |
 | `--edge-repo` | `E2E_EDGE_REPO` | `gaboracnicolai/edge-infra` | the repo whose nightly workflows the report's Talyvor Edge section reads with `gh`; `none` reads none |
 | `--headed` | | off | show the browsers |
@@ -120,10 +122,21 @@ happens**: each screen a tester's browser opens, each BFF request with its statu
 made it, each call the harness makes to Lens, and each page error — all filed under the scenario running. A
 Lens route the app reaches through the BFF is counted through the BFF route that leads to it.
 
+**Track and Docs too (B34.9)**: every route talyvor-track and talyvor-docs register — their `cmd/<name>`
+router and the handlers it mounts under `/v1` — from `--track-src` and `--docs-src`, kept up to main like
+`--lens-src`. Neither is reachable but through the BFF, so each is counted through the BFF routes that send it
+a request, read from the BFF's own Go: every `forwardProduct` call and `http.NewRequest` to Track's or Docs'
+base URL, in the handler and in every method it calls, with the path it builds and the method it sends (a
+request with a method of its own — GET lists issues, POST creates one — only when the BFF route is called with
+that method). A route no BFF route sends a request to **cannot be tested yet**, and why: production serves
+Track and Docs only to the BFF. That reason is given only while `deploy/track-docs.compose.yaml` publishes
+both on 127.0.0.1 alone and `deploy/Caddyfile` proxies only the BFF, and while every call the BFF makes to
+them was read; otherwise those routes read **not covered** and the map says why.
+
 Each entry ends in one state: **covered** (the scenarios that reached it, ×users), **explorers only** (nothing
 with an oracle checked it), **cannot be tested yet** (and why — an operator screen, Lens's admin key, the
-identity provider's sign-in, a webhook signed by Stripe or the card issuer, the BFF's provisioning secret), or
-**not covered**.
+identity provider's sign-in, a webhook signed by Stripe or the card issuer, the BFF's provisioning secret, a
+Track or Docs route the app never sends a request to), or **not covered**.
 
 **The report is written per feature** — a feature is a screen's title, or what a scenario names — each with
 what works (with the evidence), what is broken (with the evidence and its build item), the errors the browsers

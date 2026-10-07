@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { type Inventory, Recorder, buildMap, inventory, leastCovered, lensRoutesFromGo, refreshLensCheckout } from '../src/coverage.ts'
+import { type Inventory, Recorder, behindBFF, bffUpstreams, buildMap, inventory, leastCovered, lensRoutesFromGo, productRoutesFrom,
+  refreshLensCheckout } from '../src/coverage.ts'
 import { type ReportedRun, renderRun, writeTesters } from '../src/report.ts'
 import { customerReads } from '../src/tour.ts'
 
@@ -44,6 +45,63 @@ describe('the inventory is read from the code', () => {
   })
 })
 
+describe('B34.9 — Track and Docs on the map', () => {
+  it('reads their routes from their Go source: each r.Route\'s prefix, /v1 for what a handler mounts, a router of its own as registered', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'track-src-'))
+    const put = async (file: string, go: string) => {
+      await mkdir(dirname(join(src, file)), { recursive: true })
+      await writeFile(join(src, file), go)
+    }
+    await put('cmd/track/main.go', `
+      r.Get("/healthz", h)
+      r.Route("/v1", func(r chi.Router) {
+        r.Get("/ws", hub.ServeWS)
+        issues.Mount(r) // r.Get("/v1/commented", h) is not a route
+        r.Group(func(r chi.Router) { member.NewHandler(s).MountService(r) })
+      })`)
+    await put('internal/issue/handler.go', [
+      'func (h *Handler) Mount(r chi.Router) {',
+      '\tr.Route("/workspaces/{wsID}/issues", func(r chi.Router) {',
+      '\t\tr.Post("/", h.Create)',
+      '\t\tr.With(h.gate).Get("/{id}", h.Get)',
+      '\t})',
+      '\tr.Get("/service/members", h.Members)',
+      '}',
+      'func (c *client) members(ctx context.Context) { c.get(ctx, "/v1/elsewhere"); c.Get(ctx, "/v1/elsewhere") }',
+    ].join('\n'))
+    await put('internal/issue/handler_test.go', 'r.Get("/test-only", h)')
+    await put('internal/customdomain/handler.go', 'func PublicHandler() http.Handler { r := chi.NewRouter(); r.Get("/{slug}", h); return r }')
+    expect((await productRoutesFrom(src, 'track')).map((e) => `${e.kind} ${e.method} ${e.path}`)).toEqual([
+      'track GET /healthz', 'track GET /v1/ws', 'track GET /{slug}',
+      'track POST /v1/workspaces/{wsID}/issues', 'track GET /v1/workspaces/{wsID}/issues/{id}', 'track GET /v1/service/members',
+    ])
+  })
+
+  it('reads what each BFF route sends to Track and Docs from the BFF\'s own calls, and every such call is read', async () => {
+    const { routes, unread } = await bffUpstreams(join(REPO, 'apps/bff'))
+    expect(unread).toEqual([])
+    const sends = (path: string) => routes.find((r) => r.entry.path === path)?.upstreams.map((u) => `${u.product} ${u.method} ${u.path}`)
+    expect(sends('/api/track/boards')).toEqual(expect.arrayContaining(['track GET /v1/workspaces/{}/issue-boards', 'track POST /v1/workspaces/{}/issue-boards']))
+    // A helper's parameter bound by its caller (trackWorkspaceProxy("/members")), and a call in a method the handler calls.
+    expect(sends('/api/members')).toEqual(expect.arrayContaining(['track GET /v1/workspaces/{}/members', 'track POST /v1/workspaces/{}/members',
+      'docs POST /v1/service/workspaces/{}/member-sync']))
+    expect(sends('/api/docs/pages/{pageID}/summarize')).toContain('docs POST /v1/workspaces/{}/ai/transform')
+    expect(sends('/api/docs/spaces/{spaceID}/pages/{pageID}/pin')).toContain('docs SAME /v1/spaces/{}/pages/{}/pin')
+    expect(sends('/api/public/boards/{token}')).toEqual(['track GET /v1/public/issue-boards/{}'])
+    expect(sends('/api/lxc/balance')).toEqual([])
+  })
+
+  it('gives a route no BFF route sends to its reason only while the deploy files serve Track and Docs to the BFF alone', async () => {
+    expect((await behindBFF(REPO)).why).toBe('served only to the BFF (deploy/ publishes 127.0.0.1:3000:3000, 127.0.0.1:4000:4000), ' +
+      'and no BFF route sends this request; one that did would make it testable')
+    const open = await mkdtemp(join(tmpdir(), 'deploy-'))
+    await mkdir(join(open, 'deploy'))
+    await writeFile(join(open, 'deploy/track-docs.compose.yaml'), 'services:\n  track:\n    ports:\n      - "3000:3000" # anyone\n')
+    await writeFile(join(open, 'deploy/Caddyfile'), 'app.talyvor.com {\n\treverse_proxy host.docker.internal:8787\n}\n')
+    expect(await behindBFF(open)).toEqual({ not: 'deploy/track-docs.compose.yaml publishes 3000:3000 beyond 127.0.0.1' })
+  })
+})
+
 describe('the run keeps its own checkout of Lens', () => {
   it('clones Lens\'s main the first time and brings it up to main on the next run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'lens-src-'))
@@ -78,6 +136,10 @@ const INV: Inventory = {
     { kind: 'bff', path: '/api/agents/{id}/fund', method: 'ANY', feature: '', names: [] },
     { kind: 'bff', path: '/api/', method: 'ANY', feature: '', names: [] },
     { kind: 'bff', path: '/api/admin/workspaces', method: 'ANY', feature: '', names: [] },
+    { kind: 'bff', path: '/api/track/issues', method: 'ANY', feature: '', names: [], upstreams: [
+      { product: 'track', method: 'GET', path: '/v1/workspaces/{}/issues' }, { product: 'track', method: 'POST', path: '/v1/workspaces/{}/issues' }] },
+    { kind: 'bff', path: '/api/track/issues/search', method: 'ANY', feature: '', names: [], upstreams: [
+      { product: 'track', method: 'GET', path: '/v1/workspaces/{}/issues/semantic-search' }] },
   ],
   lens: [
     { kind: 'lens', path: '/v1/workspaces/{wsID}/lxc/balance', method: 'GET', feature: '' },
@@ -87,6 +149,15 @@ const INV: Inventory = {
     { kind: 'lens', path: '/v1/workspaces/{wsID}/earnings', method: 'GET', feature: '' },
     { kind: 'lens', path: '/v1/workspaces/{wsID}/budgets/{id}', method: 'GET', feature: '' },
   ],
+  track: [
+    { kind: 'track', path: '/v1/workspaces/{wsID}/issues', method: 'GET', feature: '' },
+    { kind: 'track', path: '/v1/workspaces/{wsID}/issues', method: 'POST', feature: '' },
+    { kind: 'track', path: '/v1/workspaces/{wsID}/issues/semantic-search', method: 'GET', feature: '' },
+    { kind: 'track', path: '/v1/workspaces/{wsID}/issues/{id}', method: 'GET', feature: '' },
+  ],
+  docs: [{ kind: 'docs', path: '/v1/workspaces/{wsID}/spaces', method: 'GET', feature: '' }],
+  productsBehindBFF: 'served only to the BFF',
+  unreadCalls: [],
 }
 
 function recorded(): Recorder {
@@ -99,6 +170,7 @@ function recorded(): Recorder {
   rec.hit({ scenario: 'agent-open-fund', user: 3 }, { kind: 'bff', method: 'POST', path: '/api/agents/a1/fund', status: 502, ms: 4000, from: '/agents' })
   rec.hit({ scenario: 'explorer', user: 0 }, { kind: 'screen', method: 'GET', path: '/track/issues/abc', status: 200 })
   rec.hit({ scenario: 'known-answer', user: 1 }, { kind: 'lens', method: 'POST', path: '/v1/proxy/anthropic/v1/messages', status: 200, ms: 900 })
+  rec.hit({ scenario: 'track-issues', user: 4 }, { kind: 'bff', method: 'GET', path: '/api/track/issues', status: 200, ms: 300 })
   rec.pageError({ scenario: 'every-screen', user: 1 }, '/agents', 'TypeError: x is undefined')
   return rec
 }
@@ -120,6 +192,21 @@ describe('the coverage map', () => {
     })
     expect(map.lens[1].through).toEqual(['POST /api/agents/{id}/fund'])
     expect(map.errors).toEqual([{ feature: 'Agent Wallets', where: '/agents', message: 'TypeError: x is undefined', count: 1, scenarios: ['every-screen'] }])
+  })
+
+  it('counts a Track or Docs route through the BFF route that sends it a request, called with that request\'s method', () => {
+    const map = buildMap(INV, recorded())
+    expect(map.track.map((r) => [`${r.method} ${r.path}`, r.state, r.through.join(), r.why])).toEqual([
+      ['GET /v1/workspaces/{wsID}/issues', 'covered', 'GET /api/track/issues', undefined],
+      // POST /api/track/issues sends it, and no scenario posted there.
+      ['POST /v1/workspaces/{wsID}/issues', 'not covered', '', undefined],
+      ['GET /v1/workspaces/{wsID}/issues/semantic-search', 'not covered', '', undefined],
+      // The search is the literal route, not the issue {id}: nothing sends this one.
+      ['GET /v1/workspaces/{wsID}/issues/{id}', 'cannot be tested yet', '', 'served only to the BFF'],
+    ])
+    expect(map.track[0].by).toEqual({ 'track-issues': 1 })
+    expect(map.docs[0].state).toBe('cannot be tested yet')
+    expect(buildMap({ ...INV, productsBehindBFF: undefined }, recorded()).docs[0].state).toBe('not covered')
   })
 
   it('sends the explorers to the least covered feature first, never to one that cannot be tested', () => {
@@ -166,6 +253,9 @@ describe('the report, per feature, ending with the map', () => {
     expect(md.indexOf('### Coverage map')).toBeGreaterThan(md.indexOf('### Every verdict'))
     expect(md).toContain('#### Screens — 1 of 4 covered, 1 explorers only, 1 cannot be tested yet, 1 not covered')
     expect(md).toContain('| `GET /v1/workspaces/{wsID}/lxc/balance` | covered | every-screen ×2 | GET /api/lxc/balance |')
+    expect(md).toContain('#### Track routes — 1 of 4 covered, 1 cannot be tested yet, 2 not covered')
+    expect(md).toContain('| `GET /v1/workspaces/{wsID}/issues` | covered | track-issues ×1 | GET /api/track/issues |')
+    expect(md).toContain('#### Docs routes — 0 of 1 covered, 1 cannot be tested yet')
   })
 })
 
@@ -179,6 +269,7 @@ describe('TESTERS.md', () => {
     expect(md.match(/^# Testers/gm)).toHaveLength(1)
     expect(md.indexOf('## 2026-09-30T02:00:00.000Z')).toBeLessThan(md.indexOf('## 2026-09-29T02:00:00.000Z'))
     expect(md).toContain('- **Coverage**: screens 1 of 4 covered, 1 explorers only, 1 cannot be tested yet, 1 not covered; BFF routes')
+    expect(md).toContain('; Track routes 1 of 4 covered, 1 cannot be tested yet, 2 not covered; Docs routes 0 of 1 covered, 1 cannot be tested yet.')
     expect(md).toContain('- **Works**: 2 checks passed across 1 scenario(s).')
     expect(md).toContain('- **Broken**: `agent-open-fund` (1 of 1, B17.30); 1 errored.')
     expect(md).toContain('- **New findings**: build items B17.30; 1 explorer lead(s) on Agent Wallets.')

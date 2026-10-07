@@ -242,24 +242,45 @@ const byText = (r: Row): string => {
 const answersText = (r: Row): string => Object.entries(r.answers).sort().map(([s, n]) => `${s === '0' ? 'none' : s} ×${n}`).join(', ')
 const stateText = (r: Row): string => (r.why !== undefined ? `${r.state}: ${r.why}` : r.state)
 
-/** B25.5 (1) — every screen, BFF route and Lens route, with its state. */
+/** B34.9 — Lens's, Track's and Docs' rows, each with why it is not listed when it is not. */
+const services = (map: CoverageMap): { name: string; rows: Row[]; missing?: string }[] => [
+  { name: 'Lens', rows: map.lens, missing: map.lensMissing },
+  { name: 'Track', rows: map.track, missing: map.trackMissing },
+  { name: 'Docs', rows: map.docs, missing: map.docsMissing },
+]
+
+/** "Lens routes 193 of 403 covered, …; Track routes …; Docs routes …". */
+const servicesLine = (map: CoverageMap): string =>
+  services(map).map((s) => `${s.name} routes ${s.missing !== undefined ? `not listed (${s.missing})` : tallyLine(s.rows)}`).join('; ')
+
+/** B25.5 (1) — every screen, BFF route and Lens, Track and Docs route, with its state. */
 export function renderMap(map: CoverageMap): string[] {
   const lines = ['', '### Coverage map', '',
-    'Every screen the web app mounts, every route the BFF registers and every route Lens registers, read from the code at the',
-    'time of the run. **covered**: a scenario with an oracle reached it (×users). **explorers only**: only an explorer did, so',
-    'nothing checked it. **cannot be tested yet**: with why. **not covered**: nothing reached it. A Lens route reached through',
-    'the app is counted through the BFF route that leads to it (the Through column); one the BFF reaches by a path it builds',
-    'another way is not linked, so Lens coverage can read low.', '',
+    'Every screen the web app mounts, every route the BFF registers and every route Lens, Track and Docs register, read from',
+    'the code at the time of the run. **covered**: a scenario with an oracle reached it (×users). **explorers only**: only an',
+    'explorer did, so nothing checked it. **cannot be tested yet**: with why. **not covered**: nothing reached it. A Lens route',
+    'reached through the app is counted through the BFF route that leads to it (the Through column); one the BFF reaches by a',
+    'path it builds another way is not linked, so Lens coverage can read low. A Track or Docs route is counted through the BFF',
+    'routes that send a request to it, read from the BFF\'s own calls to Track and Docs.', '',
     `#### Screens — ${tallyLine(map.screens)}`, '',
     '| Screen | Feature | State | Covered by | Opens in |', '|---|---|---|---|---|',
     ...map.screens.map((r) => `| \`${r.path}\` | ${cell(r.feature)} | ${cell(stateText(r))} | ${cell(byText(r))} | ${timingText(r)} |`),
     '', `#### BFF routes — ${tallyLine(map.bff)}`, '',
     '| Route | State | Covered by | Called from | Answers | Time |', '|---|---|---|---|---|---|',
     ...map.bff.map((r) => `| \`${r.method} ${r.path}\` | ${cell(stateText(r))} | ${cell(byText(r))} | ${cell(r.from.join(', '))} | ${answersText(r)} | ${timingText(r)} |`),
-    '', `#### Lens routes — ${map.lensMissing !== undefined ? `NOT LISTED: ${map.lensMissing}` : tallyLine(map.lens)}`, '']
-  if (map.lens.length > 0) {
-    lines.push('| Route | State | Covered by | Through | Answers | Time |', '|---|---|---|---|---|---|',
-      ...map.lens.map((r) => `| \`${r.method} ${r.path}\` | ${cell(stateText(r))} | ${cell(byText(r))} | ${cell(r.through.join(', '))} | ${answersText(r)} | ${timingText(r)} |`))
+  ]
+  for (const s of services(map)) {
+    lines.push('', `#### ${s.name} routes — ${s.missing !== undefined ? `NOT LISTED: ${s.missing}` : tallyLine(s.rows)}`, '')
+    if (s.name !== 'Lens' && s.rows.some((r) => r.state === 'not covered')) {
+      // Why a route no BFF route sends a request to has no reason here: the map says it rather than guess.
+      if (map.productsNotBehind !== undefined) lines.push(`Not given a reason when no BFF route sends a request to it: ${cell(map.productsNotBehind)}.`, '')
+      for (const c of map.unreadCalls) lines.push(`- A call the BFF makes to Track or Docs whose path could not be read: \`${c}\``)
+      if (map.unreadCalls.length > 0) lines.push('')
+    }
+    if (s.rows.length > 0) {
+      lines.push('| Route | State | Covered by | Through | Answers | Time |', '|---|---|---|---|---|---|',
+        ...s.rows.map((r) => `| \`${r.method} ${r.path}\` | ${cell(stateText(r))} | ${cell(byText(r))} | ${cell(r.through.join(', '))} | ${answersText(r)} | ${timingText(r)} |`))
+    }
   }
   return lines
 }
@@ -347,8 +368,7 @@ export function renderRun(run: ReportedRun): string {
     ...(run.stopped_by === undefined ? [] : [`**STOPPED EARLY** — ${run.stopped_by}. What ran before that is below; what had not started was skipped.`, '']),
     ...((run.incidents ?? []).length === 0 ? [] : ['**Incidents** (the run went on):', '', ...(run.incidents ?? []).map((i) => `- ${cell(i)}`), '']),
     ...(map === undefined ? [] : [
-      `Coverage: screens ${tallyLine(map.screens)}; BFF routes ${tallyLine(map.bff)}; Lens routes ` +
-        `${map.lensMissing !== undefined ? `not listed (${map.lensMissing})` : tallyLine(map.lens)}. The map is at the end.`, '']),
+      `Coverage: screens ${tallyLine(map.screens)}; BFF routes ${tallyLine(map.bff)}; ${servicesLine(map)}. The map is at the end.`, '']),
     '| Scenario | Pass | Fail | Error | Skip | What it checks |',
     '|---|---:|---:|---:|---:|---|',
   ]
@@ -435,8 +455,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
   return [
     `## ${run.started_at} — ${run.users} users on ${run.app}`,
     '',
-    `- **Coverage**: ${map === undefined ? 'no map' : `screens ${tallyLine(map.screens)}; BFF routes ${tallyLine(map.bff)}; Lens routes ` +
-      `${map.lensMissing !== undefined ? `not listed (${map.lensMissing})` : tallyLine(map.lens)}`}.`,
+    `- **Coverage**: ${map === undefined ? 'no map' : `screens ${tallyLine(map.screens)}; BFF routes ${tallyLine(map.bff)}; ${servicesLine(map)}`}.`,
     `- **Tested**: ${testedText(run)}.`,
     `- **Works**: ${c.PASS} checks passed across ${passing.length} scenario(s).`,
     `- **Broken**: ${failing.length === 0 ? 'nothing failed' : failing.map(([id, os]) =>
