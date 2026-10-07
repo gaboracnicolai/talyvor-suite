@@ -46,6 +46,7 @@ import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from
 import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
 import { webhookReplayed, webhookUnsigned } from './webhooks.ts'
 import { agentRulesUnbypassable } from './rules.ts'
+import { poolIsolation } from './pool.ts'
 
 export interface Evidence {
   note?: string
@@ -3416,6 +3417,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B28.282 — marketplace abuse, once a run, on a workspace of its own: a listing carrying a secret is refused, and a
   // seller's use of their own listing earns them nothing.
   if (i === 3) list.push(marketAbuse(i))
+  // B28.283 — the pool, once a run, on a workspace of its own and a reader it makes: a question asked while not sharing
+  // cannot be told from one nobody asked, personal data is never served to the reader, and a question turned round or
+  // denied is not served the contributor's answer.
+  if (i === 5) list.push(poolIsolation())
   return list
 }
 

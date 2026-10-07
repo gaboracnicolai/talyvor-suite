@@ -307,7 +307,7 @@ export function settingsConfigBudgets(): Scenario {
  * PUT `path` with `body`, then GET /v1/workspaces/{ws} until `holds` reads true of it (each replica reloads the
  * workspace within 30 s): undefined once it does, else what is wrong.
  */
-async function setSwitch(ctx: ScenarioCtx, path: string, body: Record<string, unknown>, holds: (w: WorkspaceRead) => boolean): Promise<string | undefined> {
+export async function setSwitch(ctx: ScenarioCtx, path: string, body: Record<string, unknown>, holds: (w: WorkspaceRead) => boolean): Promise<string | undefined> {
   const put = await call(ctx, 'PUT', `/v1/workspaces/{ws}${path}`, body)
   const back = await within(() => workspaceRead(ctx), holds, SWITCH_WAIT_MS)
   const shown = JSON.stringify(Object.fromEntries(Object.keys(body).map((f) => [f, (back as unknown as Record<string, unknown>)[f]])))

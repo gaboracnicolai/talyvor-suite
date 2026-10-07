@@ -45,6 +45,9 @@
 //   webhook-oversized — an event is read whole however big, so one past Lens's 1 MiB cap is taken (B28.280)
 //   webhook-replay — an event delivered again, or its session under a new event, is credited again (B28.280)
 //   rules-stream — a streamed request on an agent's key skips the agent's rules: its hours, models, providers and limits (B28.281)
+//   pool-unshared — an answer goes into the pool whatever its workspace's sharing switch says (B28.283)
+//   pool-tells  — a question another workspace has asked is answered afresh, but says so in a pool header (B28.283)
+//   pool-negation — the pool also serves a question asked with the same words in another order, or with a "not" (B28.283)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -194,6 +197,15 @@ const byToken = new Map<string, Workspace>()
 const byKey = new Map<string, Workspace>()
 /** Single-turn questions any synthetic workspace has had answered: the synthetic pool. */
 const pool = new Map<string, { owner: string; answer: string }>()
+/** STUB_BREAK=pool-negation (B28.283) — a pooled answer to the same words as `said` in any order, "not" aside, as a similarity match blind to direction and negation serves. */
+function looseMatch(model: string, said: string): { owner: string; answer: string } | undefined {
+  const words = (t: string) => t.toLowerCase().split(/\W+/).filter((w) => w !== '' && w !== 'not').sort().join(' ')
+  for (const [k, v] of pool) {
+    const [m, msgs] = JSON.parse(k) as [string, [string, string][]]
+    if (m === model && msgs.length === 1 && words(msgs[0][1]) === words(said)) return v
+  }
+  return undefined
+}
 /** Open checkouts on the stand-in for Stripe: session → the workspace and the plan it is for. */
 const checkouts = new Map<string, { ws: string; plan: string }>()
 /** B34.5 — each answer's X-Talyvor-Request-ID, and what it answered: Chat's Wrong answer names it (Lens POST /v1/feedback). */
@@ -332,6 +344,8 @@ function think(messages: Msg[]): string {
   }
   if ((m = /What is (\d+) \+ (\d+)\?/.exec(q))) return String(Number(m[1]) + Number(m[2]))
   if ((m = /What is (\d+) times (\d+)\?/.exec(q))) return String(Number(m[1]) * Number(m[2]))
+  if ((m = /what is (\d+) minus (\d+)\?/i.exec(q))) return String(Number(m[1]) - Number(m[2]))
+  if ((m = /^Is (\d+)( not)? greater than (\d+)\?/.exec(q))) return (Number(m[1]) > Number(m[3])) !== (m[2] !== undefined) ? 'Yes' : 'No'
   if (/^Let x = \d+/.test(q)) return 'OK'
   if ((m = /What is x \+ (\d+)\?/.exec(q))) return String(Number(/Let x = (\d+)/.exec(all)?.[1] ?? NaN) + Number(m[1]))
   if (/^Multiply that by 2/.test(q)) {
@@ -524,7 +538,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   // talyvor-lens B28.102 — what a model's answer was charged, said in the stream; STUB_BREAK=charge says a µLXC more.
   let charged: number | undefined
   const own = personal || tooled ? undefined : ws.answers.get(key)
-  const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) : undefined
+  const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) ?? (broke('pool-negation') ? looseMatch(model.id, said) : undefined) : undefined
+  if (broke('pool-tells') && [...workspaces.values()].some((w) => w.id !== ws.id && w.answers.has(key))) headers['X-Talyvor-Pool-Seen'] = 'elsewhere'
   const inTok = tokens(messages.map(text).join(' ')) + 8
   // B28.358 — what an answer costs at list price, which a replay saves whole and a pooled serve in part.
   const listULXC = (out: string) => Math.ceil(((inTok * model.input_per_1m + tokens(out) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
@@ -573,7 +588,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     charged = BREAK === 'charge' ? charge + 1 : charge
     if (retryKey !== undefined) retries.set(retryKey, answer)
     if (keep) ws.answers.set(key, answer)
-    if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
+    if (keep && messages.length === 1 && !personal && (ws.settings.cache_poolable || broke('pool-unshared'))) pool.set(key, { owner: ws.id, answer })
   }
   const spend = () => {
     if (agentCall !== undefined) bank.spent(agentCall.agent, charge, model.id, fee)
