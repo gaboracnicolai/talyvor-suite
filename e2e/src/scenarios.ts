@@ -41,6 +41,7 @@ import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
 import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
+import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
 
 export interface Evidence {
   note?: string
@@ -2973,6 +2974,12 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 2) list.push(settingsConfigBudgets(), settingsOperatorOnly())
   if (i === 4) list.push(settingsSwitches(), settingsGuardrails())
   if (i === 6) list.push(settingsTareDistill(), settingsStoredAnswers(), settingsPrompts())
+  // B34.8 — evals, outputs and attribution, nodes, PoVI, LENS and credits bought, once a run, each on a workspace of its
+  // own: what Lens runs is checked on what it stores, and what it has switched off refuses and moves nothing.
+  if (i === 1) list.push(evals(), lensTokens())
+  if (i === 3) list.push(outputsAttribution(), nodes())
+  if (i === 5) list.push(povi())
+  if (i === 8) list.push(creditsTopUp(i))
   return list
 }
 

@@ -505,8 +505,11 @@ export class BillingPlanCard {
 async function payWithTestCard(page: Page, email: string): Promise<void> {
   const card = page.locator('#cardNumber')
   const cardChoice = page.locator('[data-testid="card-accordion-item-button"]')
-  await card.or(cardChoice).first().waitFor({ state: 'visible', timeout: CHECKOUT_TIMEOUT_MS })
-  if (!(await card.isVisible())) await cardChoice.click()
+  // B34.8 — a one-off payment lists its methods as rows, and the row's button is a hidden overlay over "Card": the row
+  // is what shows, and a click on it lands on the overlay.
+  const cardRow = page.locator('#payment-method-label-card')
+  await card.or(cardChoice).or(cardRow).first().waitFor({ state: 'visible', timeout: CHECKOUT_TIMEOUT_MS })
+  if (!(await card.isVisible())) await ((await cardChoice.isVisible()) ? cardChoice.click() : cardRow.click({ force: true }))
   const fillIfShown = async (l: Locator, v: string) => {
     if ((await l.isVisible()) && (await l.isEditable()) && (await l.inputValue()) === '') await l.fill(v)
   }

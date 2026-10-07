@@ -21,7 +21,7 @@ const SWITCH_WAIT_MS = 35_000
 const CHARGE_WAIT_MS = 15_000
 
 /** One request on the workspace's own token: its status, Lens's sentence when it refused, and the body parsed. */
-async function call<T>(ctx: ScenarioCtx, method: string, path: string, body?: unknown): Promise<{ status: number; error: string; value?: T; text: string }> {
+export async function call<T>(ctx: ScenarioCtx, method: string, path: string, body?: unknown): Promise<{ status: number; error: string; value?: T; text: string }> {
   const r = await ctx.env.lens.as(ctx.app.user.token, method, path.replace('{ws}', ctx.app.user.workspaceID), body)
   let value: T | undefined
   try {
@@ -32,8 +32,8 @@ async function call<T>(ctx: ScenarioCtx, method: string, path: string, body?: un
   return { status: r.status, error: r.status < 300 ? '' : refusalOf(r.text), value, text: r.text }
 }
 
-const ok = (s: number): boolean => s >= 200 && s < 300
-const said = (r: { status: number; error: string; text: string }): string => `${r.status}${ok(r.status) ? ` ${r.text.slice(0, 160)}` : ` "${r.error}"`}`
+export const ok = (s: number): boolean => s >= 200 && s < 300
+export const said = (r: { status: number; error: string; text: string }): string => `${r.status}${ok(r.status) ? ` ${r.text.slice(0, 160)}` : ` "${r.error}"`}`
 
 /** The workspace as Lens reads it back (GET /v1/workspaces/{ws}): every switch on it. */
 export interface WorkspaceRead {
