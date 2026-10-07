@@ -32,7 +32,8 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // B32.53 — and a private room, on a Team workspace of its own (Free opens no private room).
     // B28.279 — and the ledger under concurrency, each on a Team workspace nothing else moves money in.
     // B28.280 — and Stripe's webhooks, each on a workspace whose ledger nothing else writes.
-    expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['byok-addon:free', 'credits-top-up:free', 'evals:free', 'gateway-auth:free', 'gateway-keys:free',
+    // B28.281 — and an agent's rules, on a Team workspace nothing else moves money in.
+    expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['agent-rules-unbypassable:team', 'byok-addon:free', 'credits-top-up:free', 'evals:free', 'gateway-auth:free', 'gateway-keys:free',
       'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'nodes:free', 'outputs-attribution:free',
       'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'povi:free', 'rooms-private:team', 'seats-free:free', 'seats-team:free',
       'settings-config-budgets:free', 'settings-guardrails:free', 'settings-operator-only:free', 'settings-prompts:free', 'settings-stored-answers:free',

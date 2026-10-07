@@ -44,6 +44,7 @@
 //   webhook-stale — a signed event is taken however long ago it was signed (B28.280)
 //   webhook-oversized — an event is read whole however big, so one past Lens's 1 MiB cap is taken (B28.280)
 //   webhook-replay — an event delivered again, or its session under a new event, is credited again (B28.280)
+//   rules-stream — a streamed request on an agent's key skips the agent's rules: its hours, models, providers and limits (B28.281)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -437,9 +438,10 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   }
   const personal = ws.guardrails.enable_pii && BREAK !== 'pii' && PERSONAL.test(said)
   // An agent's key: its rules judge the request's worst case before anything is answered (B19.2).
-  if (agentCall !== undefined) {
+  // STUB_BREAK=rules-stream (B28.281) — a streamed request on an agent's key skips its rules, as a copy of the proxy that forgot them would.
+  if (agentCall !== undefined && !(broke('rules-stream') && body.stream === true)) {
     const worst = Math.ceil((((tokens(messages.map(text).join(' ')) + 8) * model.input_per_1m + (body.max_tokens ?? 4096) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
-    const refused = bank.admit(agentCall.agent, worst, model.id, said)
+    const refused = bank.admit(agentCall.agent, worst, model.id, said, provider)
     if (refused !== undefined) return json(res, refused.status, { error: refused.error })
   }
   if (BREAK !== 'budget' && ws.budgets.some((b) => b.enforcement === 'hard_block' && b.spent_usd >= b.limit_usd)) {
@@ -792,6 +794,7 @@ createServer(async (req, res) => {
     if (proxied !== null) return await proxy(req, res, proxied[1], proxied[2])
 
     if (await bank.agentPay(req, res, bearer, p)) return
+    if (await bank.agentUse(req, res, bearer, p)) return
     if (await bank.moderatorRoute(req, res, bearer, p)) return
     if (p.startsWith('/stub-connect/')) {
       res.writeHead(200, { 'Content-Type': 'text/html' })
