@@ -20,7 +20,8 @@ import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap
 import { type CodeReport, codeSkipped, runCode } from './code.ts'
 import { type EdgeReport, readEdge } from './edge.ts'
 import { type ExplorerSummary, type Finding, Notebook, explore } from './explore.ts'
-import { fileCodeItems, fileEdgeItems, fileItems } from './filing.ts'
+import { fileCodeItems, fileEdgeItems, fileHostileItems, fileItems } from './filing.ts'
+import { type HostileReport, type Repo, runHostile } from './hostile.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
 import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
 import { networkDrop } from './oracles.ts'
@@ -96,6 +97,8 @@ export interface RunResult {
   edge?: EdgeReport
   /** B34.10 — the CLI built from talyvor-code's main, run on a synthetic agent's key, and its extension's and plugin's CI (code.ts). */
   code?: CodeReport
+  /** B28.289 — the hostile pull requests made against each repo's main, and whether CI stops each (hostile.ts). */
+  hostile?: HostileReport
   /** B34.2 — what was tested: the harness, Lens's main at lens-src, and production's versions at the start. */
   versions?: Versions
   /** B34.2 — production's versions read again at the end, to show a deploy that landed during the run. */
@@ -614,6 +617,17 @@ async function main(): Promise<number> {
       console.error(`e2e: could not read Talyvor Edge's nightly runs: ${describe(e)}`)
     }
   }
+  // B28.289 — the hostile pull requests, each against its repo's main, whatever the scenarios did. A checkout that
+  // cannot be brought up to main is not used: its verdict would be about old code.
+  if (cfg.hostilePRs) {
+    const behind: Partial<Record<Repo, string>> = {}
+    for (const [repo, src, clone, name] of [['talyvor-lens', cfg.lensSrc, cfg.lensRepo, 'Lens'], ['talyvor-track', cfg.trackSrc, cfg.trackRepo, 'Track'],
+      ['talyvor-docs', cfg.docsSrc, cfg.docsRepo, 'Docs']] as const) {
+      if (src !== 'none' && clone !== undefined) behind[repo] = await refreshLensCheckout(src, clone, name)
+    }
+    result.hostile = await runHostile({ 'talyvor-suite': REPO, 'talyvor-lens': cfg.lensSrc, 'talyvor-track': cfg.trackSrc, 'talyvor-docs': cfg.docsSrc }, behind)
+    console.log(`hostile pull requests: ${result.hostile.prs.map((v) => `${v.id} ${v.state}`).join(', ')}`)
+  }
   const attempt = async (what: string, write: () => Promise<void>): Promise<void> => {
     try {
       await write()
@@ -675,6 +689,16 @@ async function main(): Promise<number> {
       if (f === undefined) return
       for (const x of f.filed) newItems.push(x.id)
       console.log(`talyvor code build item: ${f.filed.map((x) => `${x.id} (${x.scenario})`).join(', ') || 'none new'}` +
+        (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
+    })
+  }
+  const hostile = result.hostile
+  if (cfg.buildMd !== 'none' && hostile !== undefined) {
+    await attempt(`the hostile pull requests' build items to ${cfg.buildMd}`, async () => {
+      const f = await fileHostileItems(cfg.buildMd, hostile, shown)
+      if (f === undefined) return
+      for (const x of f.filed) newItems.push(x.id)
+      console.log(`hostile pull request build items: ${f.filed.map((x) => `${x.id} (${x.scenario})`).join(', ') || 'none new'}` +
         (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
     })
   }

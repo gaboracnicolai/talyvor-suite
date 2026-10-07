@@ -33,6 +33,7 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--code-repo` | `E2E_CODE_REPO` | `gaboracnicolai/talyvor-code` | the repo whose CLI the run builds from main and runs on an agent's key, and whose extension's and plugin's CI the report reads with `gh` (B34.10); `none` does neither |
 | `--code-src` | `E2E_CODE_SRC` | `<out>/code-src` | the checkout the CLI is built from; not given, the run keeps its own there, brought up to main each run the way `--lens-src` is |
 | `--upstream-port` | `E2E_UPSTREAM_PORT` | 0 | B28.287 — the port the run's synthetic upstream listens on, for a Lens started with `LENS_VLLM_BASE_URL=http://<this machine>:<port>`; 0 (production, whose vLLM traffic goes nowhere the run can see) leaves `keys-not-forwarded` a SKIP |
+| `--hostile-prs` | `E2E_HOSTILE_PRS` | on | B28.289 — the hostile pull requests made against each repo's main after the scenarios; `none` makes none |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -90,6 +91,25 @@ gets a **Talyvor Code** section with each command's verdict, what it said and wh
 for talyvor-code carrying `e2e-scenario: talyvor-code-ask`, under the same once-only rule as a scenario; a night whose
 CLI could not be run (no Go, no checkout, the run stopped) says so and files nothing. TESTERS.md gets the section in one
 line.
+
+## Hostile pull requests (B28.289)
+
+After the scenarios, the run writes the pull requests an attacker or a careless change would open and checks CI would
+refuse each one (`src/hostile.ts`). Each is made in a copy of its repo's main: the suite from the run's own checkout,
+Lens, Track and Docs from `--lens-src`, `--track-src` and `--docs-src`, brought up to main first.
+
+| Pull request | Repo | The guard that must stop it |
+|---|---|---|
+| `postinstall-suite` — the web app gains a dependency whose postinstall runs code, lockfile updated | talyvor-suite | `pnpm install --frozen-lockfile`: `allowBuilds` in pnpm-workspace.yaml refuses it with `ERR_PNPM_IGNORED_BUILDS`, and the postinstall must not have run |
+| `admin-gate-lens` — `requireAdmin` comes off `POST /v1/admin/lxc/grant`, the route that mints LXC; the admin-route classification tests stay green | talyvor-lens | `TestEveryAdminRegistrationReachesAnAuthorizationDecision` (in `go test ./...`), naming the route |
+| `compose-secret-lens`, `-track`, `-docs` — a compose secret that compose refused to start without gets a default | each | `scripts/check-compose-secrets.sh`, naming the variable |
+
+A pull request is **caught** only when its guard passes on main as it is (a guard already red proves nothing), goes red on
+the change naming what it caught, and the repo's workflow still runs it on every pull request. One CI would let through is
+**NOT CAUGHT** and files one build item for its repo, `e2e-scenario: hostile-pr-<id>`, under the same once-only rule as a
+scenario. One whose change no longer applies to main is **STALE** and files one for the testers' harness, since it has
+stopped testing anything. A missing checkout or tool is **NOT RUN** and files nothing. The report gets a **Hostile pull
+requests** section and TESTERS.md one line. The self-test FAILs unless `postinstall-suite` is caught.
 
 ## Every night, and the explorers (B17.5)
 

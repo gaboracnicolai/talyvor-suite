@@ -15,6 +15,7 @@
 import { appendFile, readFile } from 'node:fs/promises'
 import { ASK_MARKER, type CodeReport } from './code.ts'
 import { type EdgeReport, edgeMarker, failedNow } from './edge.ts'
+import { type HostileReport, hostileMarker } from './hostile.ts'
 import { networkDrop } from './oracles.ts'
 import type { ReportedRun } from './report.ts'
 import { scenarioOwners } from './scenarios.ts'
@@ -296,5 +297,54 @@ export async function fileCodeItems(path: string, code: CodeReport, reportFile: 
   const f = codeItemsFor(buildMd, code, reportFile)
   if (f.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + f.append)
   code.item = f.filed[0]?.id ?? f.covered[0]?.by
+  return f
+}
+
+// B28.289 — a hostile pull request CI would let through files one item for its repo, once; one that no longer applies to
+// main files one for the testers' harness, which has stopped testing that guard.
+
+/** The items a night's hostile pull requests call for, against BUILD.md as it stands. Pure. */
+export function hostileItemsFor(buildMd: string, hostile: HostileReport, reportFile: string): EdgeFiling {
+  const covered = coveredScenarios(buildMd)
+  const out: EdgeFiling = { append: '', filed: [], covered: [] }
+  let n = nextB17(buildMd)
+  for (const v of hostile.prs.filter((x) => x.state === 'not caught' || x.state === 'stale')) {
+    const marker = hostileMarker(v)
+    const by = covered.get(marker)
+    if (by !== undefined) {
+      out.covered.push({ scenario: marker, by })
+      continue
+    }
+    const id = `B17.${n++}`
+    const stale = v.state === 'stale'
+    out.append += [
+      '',
+      stale ? `## ${id} — the testers' hostile pull request \`${v.id}\` no longer applies to ${v.repo}'s main`
+        : `## ${id} — the testers found it: CI lets through a pull request that ${v.what.split(';')[0]}`,
+      `repo: ${stale ? NO_OWNER : v.repo} · deps: none · status: OPEN`,
+      `Filed by the e2e run of ${hostile.read_at.slice(0, 10)} (${reportFile}): the hostile pull request \`${v.id}\` ${v.what}, made against ` +
+        `${v.repo}'s main${v.commit === undefined ? '' : ` at ${v.commit}`}. The guard that must stop it: ${v.guard}. ${v.detail}.`,
+      `e2e-scenario: ${marker}`,
+      stale ? `DONE = the nightly's \`${v.id}\` applies to ${v.repo}'s main again and its guard goes red on it.`
+        : `DONE = the nightly's hostile pull request \`${v.id}\` goes red in ${v.repo}'s CI naming the guard that caught it.`,
+      '',
+    ].join('\n')
+    out.filed.push({ id, scenario: marker })
+  }
+  return out
+}
+
+/** Appends the night's hostile pull request items to BUILD.md at `path` and notes each verdict's item. A missing BUILD.md files nothing. */
+export async function fileHostileItems(path: string, hostile: HostileReport, reportFile: string): Promise<EdgeFiling | undefined> {
+  let buildMd: string
+  try {
+    buildMd = await readFile(path, 'utf8')
+  } catch {
+    return undefined
+  }
+  const f = hostileItemsFor(buildMd, hostile, reportFile)
+  if (f.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + f.append)
+  const item = new Map([...f.filed, ...f.covered.map((c) => ({ id: c.by, scenario: c.scenario }))].map((x) => [x.scenario, x.id]))
+  for (const v of hostile.prs) v.item = item.get(hostileMarker(v))
   return f
 }

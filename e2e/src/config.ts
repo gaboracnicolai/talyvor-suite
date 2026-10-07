@@ -66,6 +66,8 @@ export interface RunConfig {
   /** B34.10 — the checkout the CLI is built from; codeClone is where the run clones it from, undefined when codeSrc was given. */
   codeSrc: string
   codeClone: string | undefined
+  /** B28.289 — the hostile pull requests made against each repo's main after the scenarios (hostile.ts); 'none' makes none. */
+  hostilePRs: boolean
   headed: boolean
 }
 
@@ -150,6 +152,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     codeRepo,
     codeSrc: pick('code-src', 'E2E_CODE_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/code-src`,
     codeClone: pick('code-src', 'E2E_CODE_SRC') !== undefined ? undefined : `https://github.com/${codeRepo}.git`,
+    hostilePRs: pick('hostile-prs', 'E2E_HOSTILE_PRS') !== 'none',
     headed: flags.get('headed') === 'true',
   }
 }
