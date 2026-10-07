@@ -118,6 +118,11 @@ function deepNote(fails: Outcome[]): string[] {
     (fails.every((f) => f.deep !== undefined) ? ": nothing else that night FAILED it, so it slipped through the nightly's own run." : '.')]
 }
 
+/** B28.294 — a FAIL the light pass between the nightly runs found says so. */
+function lightNote(run: ReportedRun): string[] {
+  return run.light === true ? [`The light pass of ${run.started_at} (B28.294), between the nightly runs, caught it.`] : []
+}
+
 /** The items a run's FAILs call for, against BUILD.md as it stands. Pure: nothing is written. */
 export function itemsFor(buildMd: string, run: ReportedRun, reportFile: string, owners: Map<string, string> = scenarioOwners()): Filing {
   const covered = coveredScenarios(buildMd)
@@ -168,6 +173,7 @@ export function itemsFor(buildMd: string, run: ReportedRun, reportFile: string, 
             (shown.length > 0 ? ` Evidence: ${shown.join('; ')}` : '')
         }),
         ...deepNote(c.scenarios.flatMap((s) => s.fails)),
+        ...lightNote(run),
         `${LENS} gives the refusal and is where it is looked for first; the cause may be in how a screen or the testers reached Lens.`,
         ...c.scenarios.map(({ scenario: s }) => `e2e-scenario: ${s}`),
         `DONE = none of these scenarios FAILs with this refusal in the next production run.`,
@@ -188,6 +194,7 @@ export function itemsFor(buildMd: string, run: ReportedRun, reportFile: string, 
         `synthetic user(s). First, user ${first.user} (${first.workspace}): ${oneLine(first.detail)}`,
       ...(shown.length > 0 ? [`Evidence: ${shown.join('; ')}`] : []),
       ...deepNote(fails),
+      ...lightNote(run),
       `${repo} is where it is looked for first; the defect may sit in another repo on the path.`,
       `e2e-scenario: ${scenario}`,
       `DONE = the \`${scenario}\` scenario PASSes for every user in the next production run.`,
