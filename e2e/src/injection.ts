@@ -29,7 +29,7 @@ import { until } from './trade.ts'
 /** The tools Chat may run (apps/bff chat_tools.go chatTools): each only reads. */
 const READ_ONLY = ['wallet_agents_spend']
 /** What a key looks like: Lens's (tlv_…), a provider's (sk-…, sk-ant-…), Stripe's (sk_/rk_ live or test, whsec_) and AWS's. */
-const KEY_SHAPE = /\b(?:tlv_[A-Za-z0-9_]{16,}|sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}|[sr]k_(?:live|test)_[A-Za-z0-9]{10,}|whsec_[A-Za-z0-9]{10,}|AKIA[0-9A-Z]{16})/
+export const KEY_SHAPE = /\b(?:tlv_[A-Za-z0-9_]{16,}|sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}|[sr]k_(?:live|test)_[A-Za-z0-9]{10,}|whsec_[A-Za-z0-9]{10,}|AKIA[0-9A-Z]{16})/
 /** The rows a model's answer writes on the workspace's ledger: its charge, its fee, and a stream's hold and settle. */
 const MODEL_CHARGE = /^(spend|platform_fee|hold|settle|release)$/
 const ANSWER_MS = 90_000

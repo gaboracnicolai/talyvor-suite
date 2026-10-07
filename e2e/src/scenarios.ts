@@ -50,6 +50,7 @@ import { poolIsolation } from './pool.ts'
 import { injectionExfil } from './injection.ts'
 import { fileBombBounded, ssrfRefused } from './ssrf.ts'
 import { csrfRefused, scriptInert } from './session.ts'
+import { keysNotForwarded, keysUnlisted } from './keys.ts'
 
 export interface Evidence {
   note?: string
@@ -92,6 +93,8 @@ export interface RunEnv {
   lensSrc: string
   /** B28.280 — the signing secret of Lens's test-mode Stripe webhook (LENS_STRIPE_TEST_WEBHOOK_SECRET); '' when not given. */
   webhookSecret: string
+  /** B28.287 — the port the synthetic upstream listens on, where the Lens under test sends its vLLM traffic (E2E_UPSTREAM_PORT); 0 when not given. */
+  upstreamPort: number
   /** B29.21 — where the run's screenshots for the report go: `dir` on disk, `link` the same place as the report links it. */
   shots: { dir: string; link: string }
 }
@@ -3629,6 +3632,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B28.286 — the session cookie and the app's writes, once a run, each on a workspace of its own: a write from anywhere but
   // the app's own Origin is refused 403 with nothing written, and a script in a Chat answer or a room message never runs.
   if (i === 1) list.push(csrfRefused(), scriptInert())
+  // B28.287 — the workspace's keys, once a run, each on a workspace of its own: no list or stats read returns one, and a
+  // synthetic upstream Lens sends its vLLM traffic to sees none of the credentials a request came with.
+  if (i === 9) list.push(keysUnlisted(), keysNotForwarded())
   return list
 }
 
