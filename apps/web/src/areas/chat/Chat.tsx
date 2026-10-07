@@ -47,6 +47,7 @@ import {
 } from './history'
 import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
 import { type Project, type Projects, editProject, loadProjects, newProject, saveProjects } from './projects'
+import { instructionsFor, loadCustomInstructions } from './customInstructions'
 import { ProjectHome, ProjectLine, ProjectsRail } from './ProjectViews'
 import { recordDeleted, stampChanged } from './historySync'
 import { Markdown } from './Markdown'
@@ -267,6 +268,9 @@ export function Chat() {
   const [projects, setProjects] = useState<Projects>({ list: [], error: null })
   const [projectId, setProjectId] = useState('')
   const project = projects.list.find((p) => p.id === projectId)
+  // B28.115 — the person's custom instructions (/chat/instructions), sent with every question, before the project's.
+  const [custom, setCustom] = useState('')
+  const told = instructionsFor(custom, project?.instructions)
 
   // The rail: hidden on a wide screen by choice (remembered per browser), a drawer on a narrow one.
   const [railHidden, setRailHidden] = useState(readRailHidden)
@@ -340,6 +344,9 @@ export function Chat() {
   useEffect(() => {
     if (scope !== null) setProjects(loadProjects(scope))
   }, [scope])
+  useEffect(() => {
+    if (scope !== null) setCustom(loadCustomInstructions(scope).text)
+  }, [scope])
 
   // ⚠ READS STORAGE, NOT STATE. It runs after an await inside run(), where `history` from the
   // closure is a render old; merging into that would drop a rename made while it streamed.
@@ -389,7 +396,7 @@ export function Chat() {
     (modelId === AUTO_MODEL_ID ? picker.auto : models.find((m) => m.id === modelId)) ?? picker.defaultModel
   // B28.99 — what sending the draft will cost, as a range, while it is typed.
   const asking = draft.trim()
-  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [], project?.instructions)
+  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [], told)
   const estimate =
     selected !== undefined && !pending && asking !== '' && !answeredHere(asking)
       ? withLowEnd(preview(selected), selected.auto && preview(selected.auto.cheapest))
@@ -412,9 +419,9 @@ export function Chat() {
       const payer = paidBy
       // B28.361 — and so is the budget: every request the question takes carries it, with the conversation's id.
       const cap = budget
-      // B28.109 — and the project's instructions, as they read when the question was asked.
+      // B28.109 — and the project's instructions, as they read when the question was asked; B28.115 — after the
+      // person's own.
       const inProject = project?.id
-      const told = project?.instructions ?? ''
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       const carry = was === undefined ? {} : keptVersions(was, turn.length)
       // B28.113 — continued, the screen and the saved thread end on the answer, not on what Continue asked.
@@ -607,7 +614,7 @@ export function Chat() {
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, project, qc, selected, store],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, qc, selected, store, told],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -634,12 +641,12 @@ export function Chat() {
   const refuseOverBudget = useCallback(
     (turns: ChatMessage[], question: string, docs: ChatAttachment[], using: ChatModel | undefined = selected): boolean => {
       if (using === undefined) return false
-      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? [], project?.instructions), usdPerLXC)
+      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? [], told), usdPerLXC)
       if (over === undefined) return false
       setFailure({ text: budgetRefusal(over), remedy: { label: 'Start a new chat', action: 'new_chat' } })
       return true
     },
-    [budget, chatTools.data, messages, project, selected, usdPerLXC],
+    [budget, chatTools.data, messages, selected, told, usdPerLXC],
   )
 
   const send = useCallback(
@@ -1010,7 +1017,7 @@ export function Chat() {
                 onOpenChat={open}
               />
             ) : messages.length === 0 ? (
-              <Greeting disabled={pending} onAsk={(prompt) => send(prompt)} />
+              <Greeting disabled={pending} custom={custom} onAsk={(prompt) => send(prompt)} />
             ) : (
               <ol className="space-y-8 py-6">
                 {messages.map((m, i) => (
@@ -1469,6 +1476,10 @@ function ChatRail({
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/compare">
           Compare models
         </Link>
+        {/* B28.115 — what to tell the model in every chat. */}
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/instructions">
+          Custom instructions
+        </Link>
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/help">
           How to use Talyvor Chat
         </Link>
@@ -1668,10 +1679,20 @@ function EditQuestion({
   )
 }
 
-function Greeting({ disabled, onAsk }: { disabled: boolean; onAsk: (prompt: string) => void }) {
+function Greeting({ disabled, custom, onAsk }: { disabled: boolean; custom: string; onAsk: (prompt: string) => void }) {
   return (
     <div className="flex flex-1 flex-col justify-center py-10">
       <h2 className="text-title text-ink">What can I help with?</h2>
+      {/* B28.115 — a new chat says what it is sent with, and where that is changed. */}
+      {custom.trim() !== '' ? (
+        <p className="mt-2 text-caption text-muted" data-testid="custom-instructions-line">
+          Sent with your custom instructions ·{' '}
+          <Link className={`text-ink ${inlineLink}`} to="/chat/instructions">
+            Edit
+          </Link>
+          <span className="mt-1 line-clamp-2 text-ink">{custom.trim()}</span>
+        </p>
+      ) : null}
       <ul className="mt-6 grid gap-2 wide:grid-cols-2" aria-label="Example questions">
         {EXAMPLE_PROMPTS.map((p) => (
           <li key={p}>

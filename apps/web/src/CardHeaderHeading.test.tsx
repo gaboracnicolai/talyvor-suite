@@ -129,6 +129,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/chat/help': 0,
   // B28.369 — three answer columns built from sections under <h2>s, no cards.
   '/chat/compare': 0,
+  // B28.115 — one form in a bordered box, no Card.
+  '/chat/instructions': 0,
   // B32.53 — the rooms directory: rooms are list cards under Region headings, no Card.
   '/rooms': 0,
   // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. Royalties is

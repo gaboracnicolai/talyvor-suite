@@ -133,6 +133,7 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/chat/help': 'How to use Talyvor Chat',
   // B28.369 — compare models side by side.
   '/chat/compare': 'Compare models',
+  '/chat/instructions': 'Custom instructions',
   '/rooms/*': 'Rooms',
   // B28.10 — Earnings became Royalties, under Statements; /earnings redirects to it.
   '/statements/royalties': 'Royalties',

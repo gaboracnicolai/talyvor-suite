@@ -3356,6 +3356,100 @@ export function spendsWithoutFee(rows: readonly LedgerRow[], bps: number): Ledge
   })
 }
 
+/** B28.115 — custom instructions are written once on /chat/instructions; two new chats started after each send them to
+ *  the model with their first question: Anthropic's `system` field, or a system message first everywhere else. The
+ *  answers are made up in the browser, so they cost nothing, and the instructions and the chats are taken out after. */
+export function chatCustomInstructions(seed: number): Scenario {
+  const tag = `${seed}-${Date.now().toString(36)}`
+  const instructions = `Answer in French. End every answer with the word heron${tag}.`
+  const questions = [`What is a wallet? ${tag}`, `And a card? ${tag}`]
+  return {
+    id: 'chat-custom-instructions',
+    owner: 'talyvor-suite',
+    title: '“answer in French”, saved as custom instructions, is sent with the first question of every new chat',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const page = await app.context.newPage()
+      let saved: { key: string; prior: string | null } | null = null
+      try {
+        await page.goto(new URL('/chat', app.page.url()).toString())
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        saved = await page.evaluate(() => {
+          const key = Object.keys(localStorage).find((k) => k.startsWith('talyvor.chat.v1:'))?.replace('talyvor.chat.v1:', 'talyvor.chat.instructions.v1:')
+          return key === undefined ? null : { key, prior: localStorage.getItem(key) }
+        })
+        await page.getByRole('link', { name: 'Custom instructions' }).first().click()
+        await page.getByRole('textbox', { name: 'Custom instructions' }).fill(instructions)
+        await page.getByRole('button', { name: 'Save instructions' }).click()
+        const said = (await page.getByRole('status').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+        if (!said.startsWith('Saved.')) return { pass: false, detail: `saving the custom instructions said "${said.slice(0, 120)}"` }
+        if (saved === null) {
+          saved = await page.evaluate(() => {
+            const key = Object.keys(localStorage).find((k) => k.startsWith('talyvor.chat.instructions.v1:'))
+            return key === undefined ? null : { key, prior: null }
+          })
+        }
+
+        const carriedIn: string[] = []
+        for (const [n, question] of questions.entries()) {
+          await page.goto(new URL('/chat', app.page.url()).toString())
+          await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+          // Reopening /chat lands on the latest conversation once it has read this browser's storage — the line over a
+          // new chat, or that conversation's turns. On a conversation, New chat starts one of its own.
+          await page.locator('[data-testid="custom-instructions-line"], [data-testid="turn-user"]').first()
+            .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+          if ((await page.locator('[data-testid="turn-user"]').count()) > 0) {
+            await page.getByRole('button', { name: 'New chat' }).first().click()
+            await page.locator('[data-testid="turn-user"]').first().waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS })
+          }
+          const line = (await page.getByTestId('custom-instructions-line').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+          const trigger = page.locator('button[aria-label^="Model: "]').first()
+          const shownModel = ((await trigger.getAttribute('aria-label')) ?? '').replace(/^Model: /, '')
+          const provider = env.catalog.find((m) => m.display_name === shownModel)?.provider ?? 'anthropic'
+          let body = ''
+          await page.route('**/api/ai/stream/**', async (route) => {
+            body = route.request().postData() ?? ''
+            await route.fulfill({ status: 200, contentType: 'text/event-stream', body: madeUpAnswer(provider, `D’accord, heron${tag}.`, false) })
+          }, { times: 1 })
+          await page.locator('#chat-message').fill(question)
+          await page.locator('#chat-message').press('Enter')
+          await page.locator('[data-testid="turn-assistant"]').filter({ hasText: `heron${tag}` }).first()
+            .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+
+          let sent: { system?: unknown; messages?: Array<{ role?: string; content?: unknown }> } = {}
+          try {
+            sent = JSON.parse(body) as typeof sent
+          } catch {
+            return { pass: false, detail: `new chat ${n + 1}'s question to ${provider} was ${body === '' ? 'never sent' : 'not JSON'}` }
+          }
+          const first = sent.messages?.[0]
+          const carried = provider === 'anthropic' || provider === 'bedrock'
+            ? sent.system === instructions
+            : first?.role === 'system' && first.content === instructions
+          ctx.evidence.push({ note: `new chat ${n + 1}, ${provider}: system=${JSON.stringify(sent.system ?? null)}, first message ${JSON.stringify(first ?? null).slice(0, 160)}; over it "${line.slice(0, 160)}"` })
+          if (!carried) return { pass: false, detail: `new chat ${n + 1}'s first question went to ${provider} without the custom instructions` }
+          if (!line.includes(instructions)) return { pass: false, detail: `new chat ${n + 1} did not say it is sent with the custom instructions: "${line.slice(0, 160)}"` }
+          carriedIn.push(provider)
+        }
+        return { pass: true, detail: `two new chats each sent the custom instructions with their first question (${carriedIn.join(', ')}), and said so` }
+      } finally {
+        // Out of this browser again: the instructions as they were, and the chats they were sent with.
+        await page.evaluate(({ restore, tag }) => {
+          if (restore !== null) {
+            if (restore.prior === null) localStorage.removeItem(restore.key)
+            else localStorage.setItem(restore.key, restore.prior)
+          }
+          for (const key of Object.keys(localStorage).filter((k) => k.startsWith('talyvor.chat.v1:'))) {
+            const convs = JSON.parse(localStorage.getItem(key) ?? '[]') as Array<{ title?: string }>
+            localStorage.setItem(key, JSON.stringify(convs.filter((c) => !(c.title ?? '').includes(tag))))
+          }
+        }, { restore: saved, tag }).catch(() => undefined)
+        await page.close().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /**
  * Which scenarios user `i` runs. Everyone runs the two known-answer questions; one in ten of the users
  * also runs each of the others, so 100 users cover the catalog ten times over; user 0 prices every
@@ -3372,7 +3466,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
     // B28.108 — and a word from an old answer finding its conversation among 500.
     // B28.109 — and a new chat in a project, sent with the project's instructions.
-    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i), chatProjectInstructions(i)); break
+    // B28.115 — and custom instructions, sent with the first question of two new chats.
+    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i), chatProjectInstructions(i), chatCustomInstructions(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     // B32.53 — and a private room opened on /rooms/new: Lens's, in Chat's rail and the directory, 404 to another company.
     case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i)); break
