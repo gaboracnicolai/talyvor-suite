@@ -5,13 +5,15 @@
 // and stored-answers switches; FX and currency conversion. Each is reached here from the screen a person uses, and
 // each oracle is what Lens, Track or Docs stored, read back afterwards — never the status the screen was given.
 
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Page } from 'playwright'
 import type { AppUser } from './app.ts'
 import type { Answered, LensClient, SyntheticUser } from './lens.ts'
 import { refusalOf } from './lens.ts'
 import { agentIn, bookOf, card, fail, openAgent, usdShown, withBank } from './bank.ts'
 import { bff } from './routes.ts'
-import { RUN_SALT } from './oracles.ts'
+import { RUN_SALT, freshWord } from './oracles.ts'
 import { CannotTest, eventually, metered } from './scenarios.ts'
 import { DocsPage, FeaturesScreen, TrackScreen, payCheckout, subscribeWithTestCard } from './screens.ts'
 import type { Scenario } from './scenarios.ts'
@@ -755,23 +757,36 @@ export function wrongAnswerStored(seed: number): Scenario {
  * ledger has moved by nothing.
  */
 export function chatToolGuard(): Scenario {
-  const READ_ONLY = ['wallet_agents_spend']
+  const READ_ONLY = ['wallet_agents_spend', 'get_spend_summary', 'get_cache_stats']
+  // B28.374 — Track's and Docs' own tools, which read; and the one that changes something, offered as such and run only
+  // on the person's yes (chat-file-bug).
+  const PRODUCT_READS = ['search_issues', 'list_issues', 'get_issue', 'search_docs', 'get_page']
+  const ON_A_YES = ['create_issue']
   return {
     id: 'chat-tool-guard',
     owner: 'talyvor-suite',
-    title: "Chat's tools: only Lens's read-only wallet tools are offered; one that moves money is refused, and a read Lens lacks says so; nothing moved",
+    title: "Chat's tools: only read-only ones are offered, and filing a Track issue only on a yes; one that moves money is refused, and a read Lens lacks says so; nothing moved",
     run: async (ctx) => {
       const { app, env } = ctx
       const failures: string[] = []
       const page = app.page
       const before = await env.lens.ledger(app.user)
-      const listed = await readFrom<{ tools: { name: string }[] }>(page, '/api/chat/tools')
+      const listed = await readFrom<{ tools: { name: string; writes?: boolean }[] }>(page, '/api/chat/tools')
       if (typeof listed === 'string') return fail(listed)
       const names = listed.tools.map((t) => t.name)
       const lensTools = await env.lens.act<{ result?: { tools?: { name: string }[] } }>(app.user, 'POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
       const lensNames = lensTools.ok ? (lensTools.value.result?.tools ?? []).map((t) => t.name) : []
       ctx.evidence.push({ note: `Chat is offered ${names.join(', ') || 'no tool'}; Lens's MCP lists ${lensTools.ok ? lensNames.length : `refused ${lensTools.status}`} tool(s)` })
-      for (const n of names) if (!READ_ONLY.includes(n)) failures.push(`Chat is offered ${n}, which is not a read-only wallet tool`)
+      for (const t of listed.tools) {
+        if (ON_A_YES.includes(t.name)) {
+          if (t.writes !== true) failures.push(`Chat is offered ${t.name} without saying it changes something, so it would run without the person's yes`)
+        } else if (!READ_ONLY.includes(t.name) && !PRODUCT_READS.includes(t.name)) failures.push(`Chat is offered ${t.name}, which is not a read-only tool`)
+      }
+      if (names.includes('create_issue')) {
+        const unasked = await from(page, 'POST', '/api/chat/tools/call', { name: 'create_issue', arguments: { title: 'should never be filed' } })
+        ctx.evidence.push({ note: `create_issue without the person's yes: ${unasked.status} ${unasked.text.slice(0, 200)}` })
+        if (unasked.status !== 409) failures.push(`create_issue without the person's yes answered ${unasked.status} ${refusalOf(unasked.text)}, not refused`)
+      }
       for (const n of READ_ONLY) if (lensNames.includes(n) !== names.includes(n)) failures.push(`Lens ${lensNames.includes(n) ? 'offers' : 'does not offer'} ${n}, and Chat ${names.includes(n) ? 'is' : 'is not'} offered it`)
 
       const send = await from(page, 'POST', '/api/chat/tools/call', { name: 'wallet_send', arguments: { to: '@nobody', amount_ulxc: 1_000_000, memo: 'should never move' } })
@@ -793,6 +808,99 @@ export function chatToolGuard(): Scenario {
       return failures.length === 0
         ? { pass: true, detail: `offered ${names.join(', ') || 'no tool'}, as Lens lists them; wallet_send refused; wallet_agents_spend ${spend.status === 200 ? 'answered' : `refused (${spend.status})`}; nothing moved` }
         : fail(failures.join('; '))
+    },
+  }
+}
+
+/**
+ * B28.374 — Talyvor's own tools in Chat: "file this as a bug" files a Track issue. Told about a bug and asked to file
+ * it, the model drafts a Track issue; Chat asks first, and on File it the issue is filed. The answer links it, Track
+ * holds it — read back through /api/track/issues as the Track screen reads it — with the bug's own words, and the link
+ * opens it in Track.
+ */
+export function chatFileBug(seed: number): Scenario {
+  return {
+    id: 'chat-file-bug',
+    owner: 'talyvor-suite',
+    items: ['B28.121', 'B28.374'],
+    title: '"file this as a bug" in Chat files a Track issue, once the person says yes, and the answer links it',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const word = freshWord(seed * 10 + 7, 1 + Math.floor(Math.random() * 999_999))
+      const before = await readFrom<{ id: string }[]>(page, '/api/track/issues?limit=100')
+      if (typeof before === 'string') return fail(`Track could not be read before filing: ${before}`)
+      await app.newChat()
+      // The card comes up while the answer waits for it; File it is pressed as soon as it does.
+      const card = page.getByTestId('tool-confirm')
+      let drafted: string | undefined
+      const asking = [1440, 390].map((w) => join(env.outDir, `chat-file-bug-asks-${w}px-user${app.user.index}.png`))
+      const pressed = card.waitFor({ state: 'visible', timeout: 120_000 }).then(async () => {
+        drafted = (await card.getByTestId('tool-confirm-title').innerText().catch(() => '')).trim()
+        const was = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+          await page.setViewportSize({ width, height })
+          await card.scrollIntoViewIfNeeded()
+          await page.screenshot({ path: asking[i] })
+        }
+        if (was !== null) await page.setViewportSize(was)
+        await card.getByRole('button', { name: 'File it' }).click()
+      }).catch(() => undefined)
+      const t = await app.ask(`The CSV export of the ${word} report on Spend downloads an empty file. File this as a bug.`)
+      ctx.evidence.push({ question: t.question, answer: t.answer.slice(0, 500), footer: t.footerText, error: t.error })
+      if (t.error !== undefined) return fail(`refused: ${t.error}`)
+      if (drafted === undefined) {
+        void pressed
+        return fail(`Chat never asked to file anything: the model did not call Track's create_issue, or it was not offered (answer "${t.answer.slice(0, 160)}")`)
+      }
+      ctx.evidence.push({ note: `the card asked to file "${drafted}"; at 1440px: ${asking[0]}; at 390px: ${asking[1]}` })
+      const turn = page.locator('[data-testid="turn-assistant"]').last()
+      const link = turn.getByTestId('turn-filed-issue').first()
+      if (!(await link.isVisible().catch(() => false))) return fail(`File it was pressed, and the answer links no issue: "${t.answer.slice(0, 200)}"`)
+      const href = (await link.getAttribute('href')) ?? ''
+      const id = decodeURIComponent(/^\/track\/issues\/([^/?#]+)$/.exec(href)?.[1] ?? '')
+      const shown = (await link.innerText()).trim()
+      ctx.evidence.push({ note: `the answer links ${JSON.stringify(shown)} → ${href}` })
+      if (id === '') return fail(`the filed issue links to ${JSON.stringify(href)}, not to an issue in Track`)
+
+      const viewport = page.viewportSize()
+      await mkdir(env.outDir, { recursive: true })
+      const wide = join(env.outDir, `chat-file-bug-1440px-user${app.user.index}.png`)
+      const narrow = join(env.outDir, `chat-file-bug-390px-user${app.user.index}.png`)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await link.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: wide })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await link.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: narrow })
+      if (viewport !== null) await page.setViewportSize(viewport)
+      ctx.evidence.push({ note: `the filed issue at 1440px: ${wide}; at 390px: ${narrow}` })
+
+      // Track's own record of it, read as the Track screen reads it.
+      const after = await readFrom<{ id: string; identifier: string; title: string; description?: string }[]>(page, '/api/track/issues?limit=100')
+      if (typeof after === 'string') return fail(`Track could not be read after filing: ${after}`)
+      const issue = after.find((i) => i.id === id)
+      if (issue === undefined || before.some((i) => i.id === id)) {
+        return fail(`the answer links ${shown}, and Track's issues hold ${issue === undefined ? 'no issue with that id' : 'it from before this question'} (${after.length} issue(s))`)
+      }
+      const words = `${issue.title} ${issue.description ?? ''}`
+      ctx.evidence.push({ note: `Track holds ${issue.identifier}: ${JSON.stringify(words.slice(0, 300))}` })
+      if (!words.toLowerCase().includes(word)) return fail(`Track holds ${issue.identifier}, but neither its title nor its description names the ${word} report: ${JSON.stringify(words.slice(0, 200))}`)
+      if (!shown.includes(issue.identifier)) return fail(`the answer links ${JSON.stringify(shown)}, and Track filed it as ${issue.identifier}`)
+
+      // The link's own address, in a tab of its own: the conversation stays open for the questions after this one.
+      const tab = await page.context().newPage()
+      let opened = false
+      try {
+        await tab.goto(new URL(href, page.url()).toString())
+        opened = await tab.getByText(issue.title, { exact: false }).first().waitFor({ state: 'visible', timeout: 15_000 }).then(() => true, () => false)
+        ctx.evidence.push({ note: `the link opened ${tab.url()}${opened ? ', showing the issue' : ', without the issue on it'}` })
+      } finally {
+        await tab.close().catch(() => undefined)
+      }
+      if (!opened) return fail(`the link to ${issue.identifier} opened ${href} without the issue's title on it`)
+      return { pass: true, detail: `asked first, then filed as ${issue.identifier} ("${issue.title.slice(0, 80)}") in Track, linked under the answer, and the link opens it` }
     },
   }
 }

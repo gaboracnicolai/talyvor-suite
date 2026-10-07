@@ -649,6 +649,11 @@ export const LENS_BODIES: LensBody[] = [
  */
 export const NON_LENS_ANON_SITES = [
   {
+    file: 'chat_tools.go',
+    what:
+      'withoutArguments (B28.374) re-marshals a Lens, Track or Docs MCP tool’s inputSchema after deleting the arguments the BFF sets from the session (workspace_id, team_id) — a RESPONSE projection for GET /api/chat/tools, so it sends no key set and is exempt rather than uncovered. The JSON-RPC body chat_tools.go does send is the lensMCPBody row, built once in mcpRequest for all three products.',
+  },
+  {
     file: 'track_projects.go',
     what:
       'trackProjects (B4.2) marshals trackProjectCreateBody for talyvor-track’s project Create — team_id, name, identifier and description, four of model.Project’s json tags, chosen here so the browser cannot set status, priority or dates. A Track key set, not a lens one. ASKED BY THE `TrackProject` MIRROR ENTRY: it pins model.Project’s whole json-tag set, and Track’s project Create decodes into model.Project.',

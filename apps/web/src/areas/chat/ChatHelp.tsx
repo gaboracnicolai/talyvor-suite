@@ -194,6 +194,19 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    heading: 'Track and Docs in Chat',
+    body: (
+      <>
+        <p>
+          Chat can look things up in your own Track and Docs while it answers: search your issues and pages and read
+          them. Say “file this as a bug” and it drafts a Track issue from the conversation, then asks you first: the
+          card shows the title and description, and nothing is filed until you press File it. Under the answer, Filed
+          in Track links the issue, and a line says which of Talyvor’s tools the answer used.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'The canvas',
     body: (
       <>

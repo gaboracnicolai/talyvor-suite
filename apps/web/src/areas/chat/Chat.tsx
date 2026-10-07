@@ -17,6 +17,7 @@ import {
   type Refusal,
   type SpendLine,
   type TareSaved,
+  type ToolConfirm,
   askChat,
   fetchChatTools,
   fetchModels,
@@ -76,6 +77,7 @@ import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
 import { Sources, WebSearchToggle } from './WebSearch'
 import { CodeRuns, RunCodeToggle } from './RunCode'
+import { FiledIssues, ToolConfirmCard, ToolsUsed } from './TalyvorTools'
 import { Canvas, OpenInCanvas } from './Canvas'
 import { artifactHtml, artifactTitle, htmlArtifacts, withArtifactEdit } from './artifacts'
 import { useRevealedText } from './reveal'
@@ -242,6 +244,8 @@ export function Chat() {
   // B28.373 — Run code: on, the model may run code in Lens's sandbox for every question until it is turned off.
   const [runCode, setRunCode] = useState(false)
   const [failure, setFailure] = useState<Refusal | null>(null)
+  // B28.374 — a call the model wants to make that changes something (file a Track issue), waiting for the person's yes.
+  const [confirming, setConfirming] = useState<{ ask: ToolConfirm; answer: (yes: boolean) => void } | null>(null)
   const [unreadable, setUnreadable] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
   // B28.350 — each /agent command typed here: a card that launches the agent, kept while the page is open.
@@ -499,6 +503,8 @@ export function Chat() {
       let usedPrompt: ChatMessage['prompt']
       let citations: ChatMessage['citations']
       let codeRuns: ChatMessage['code_runs']
+      let toolsUsed: ChatMessage['tools_used']
+      let filed: ChatMessage['filed']
       let failed = false
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
       const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
@@ -527,7 +533,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, citations: pages, codeRuns: ran }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, citations: pages, codeRuns: ran, toolsUsed: usedTools, filed: filedIssues }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -636,6 +642,17 @@ export function Chat() {
                 return next
               })
             }
+            // B28.374 — the Talyvor tools the answer used, and the Track issues it filed, under the answer.
+            if (usedTools !== undefined || filedIssues !== undefined) {
+              toolsUsed = usedTools
+              filed = filedIssues
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, tools_used: usedTools, filed: filedIssues }
+                return next
+              })
+            }
             // B28.81 — an answer that finished having said nothing, or stopped at the length limit, says so
             // rather than looking like a whole answer.
             incomplete = answer.trim() === '' ? 'blank' : cutOff(finish) ? 'cut_off' : undefined
@@ -662,6 +679,16 @@ export function Chat() {
             setPending(false)
             setFailure({ text: message, remedy })
           },
+          // B28.374 — filing a Track issue waits for the person's yes; Stop is a no.
+          onConfirm: (ask) =>
+            new Promise<boolean>((resolve) => {
+              const answer = (yes: boolean) => {
+                setConfirming(null)
+                resolve(yes)
+              }
+              controller.signal.addEventListener('abort', () => answer(false), { once: true })
+              setConfirming({ ask, answer })
+            }),
         },
         controller.signal,
         fresh,
@@ -681,7 +708,7 @@ export function Chat() {
         if (!failed && !controller.signal.aborted) setFailure({ text: 'Nothing more came back. The answer is as it was.' })
         return
       }
-      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...carry }
+      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...(toolsUsed !== undefined ? { tools_used: toolsUsed } : {}), ...(filed !== undefined ? { filed } : {}), ...carry }
       store((list) =>
         upsertConversation(
           list,
@@ -1281,6 +1308,8 @@ export function Chat() {
 
             {/* B28.355 — another agent asking one of yours for credits, and escrow waiting on delivery: answered here. */}
             <MoneyCards />
+
+            {confirming !== null ? <ToolConfirmCard ask={confirming.ask} onAnswer={confirming.answer} /> : null}
 
             {failure !== null ? (
               <p className="mb-4 text-body text-ink" role="alert">
@@ -1976,6 +2005,8 @@ function Reply({
       {message.spend !== undefined && message.spend.length > 0 && !answering && !shown.revealing ? <StatementLines lines={message.spend} /> : null}
       {message.citations !== undefined && message.incomplete !== 'blank' && !answering && !shown.revealing ? <Sources citations={message.citations} /> : null}
       {message.code_runs !== undefined && message.code_runs.length > 0 && message.incomplete !== 'blank' && !answering && !shown.revealing ? <CodeRuns runs={message.code_runs} /> : null}
+      {message.filed !== undefined && message.filed.length > 0 && !answering && !shown.revealing ? <FiledIssues issues={message.filed} /> : null}
+      {message.tools_used !== undefined && message.tools_used.length > 0 && !answering && !shown.revealing ? <ToolsUsed names={message.tools_used} /> : null}
       {message.content !== '' && message.incomplete !== 'blank' && !answering && !shown.revealing ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {message.incomplete === 'cut_off' ? (

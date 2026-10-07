@@ -9,7 +9,8 @@ import { PROMPT_RESOLVED_HEADER, promptReference } from './promptLibrary'
 //   GET  /api/models                      the deployment's catalog (Lens /v1/catalog/models)
 //   GET  /api/ai/providers                the providers Lens holds no key for (B18.58)
 //   POST /api/ai/stream/{provider}/{path} the flushing SSE relay built in step 3
-//   GET  /api/chat/tools, POST /api/chat/tools/call   B28.349: Lens's read-only wallet MCP tools (askChat)
+//   GET  /api/chat/tools, POST /api/chat/tools/call   B28.349: Lens's read-only wallet MCP tools (askChat);
+//                                                     B28.374: and Track's and Docs' own, filing an issue only on a yes
 //
 // ⚠ THE BROWSER NEVER HOLDS A WORKSPACE KEY. The relay mints and leases a {proxy}-scoped Lens
 // SESSION key server-side (apps/bff/stream.go). That is step 4's whole purpose and it is why this
@@ -135,6 +136,11 @@ export interface ChatMessage {
   /** B28.120 — on an answer: its HTML artifacts as edited in the canvas, by their place among its HTML blocks
    *  (artifacts.ts); one never edited is not here. Screen-side only. */
   artifact_edits?: Record<number, string>
+  /** B28.374 — on an answer: the Talyvor tools it used (Track, Docs and Lens's own), by name, once each, in the order
+   *  it first used them. Screen-side only. */
+  tools_used?: string[]
+  /** B28.374 — on an answer: the Track issues it filed, each linked to the issue. Screen-side only. */
+  filed?: FiledIssue[]
 }
 
 /** B28.370 — the named prompt an answer was asked with, and whether Lens's answer said it used it. */
@@ -190,11 +196,16 @@ export interface ConversationTag {
   run_code?: boolean
 }
 
-/** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
+/** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read.
+ *  B28.374 — and Track's and Docs' own: `product` says whose it is, and `writes` that it changes something, so it
+ *  runs only once the person says yes to that call (StreamHandlers.onConfirm). Only name, description and schema
+ *  reach the model. */
 export interface ChatTool {
   name: string
   description: string
   input_schema: unknown
+  product?: string
+  writes?: boolean
 }
 
 /** B28.349 — one tool call the model made: its id in the answer, the tool, and its arguments as JSON text. */
@@ -212,6 +223,44 @@ export interface ToolResult {
 
 /** B28.349 — the tool spend questions are answered with: Lens's wallet_agents_spend (talyvor-lens B28.83). */
 export const SPEND_TOOL = 'wallet_agents_spend'
+
+/** B28.374 — the tool "file this as a bug" is filed with: Track's create_issue. */
+export const ISSUE_TOOL = 'create_issue'
+
+/** B28.374 — a Track issue an answer filed: Track's id for it, its key (ENG-42) and its title. */
+export interface FiledIssue {
+  id: string
+  identifier: string
+  title: string
+}
+
+/** B28.374 — the issue in what create_issue answered, as Track writes it: {"id", "identifier", "title", …}. */
+export function filedIssue(text: string): FiledIssue | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (!isObject(parsed) || typeof parsed.id !== 'string' || parsed.id === '' || typeof parsed.identifier !== 'string') return undefined
+  return { id: parsed.id, identifier: parsed.identifier, title: typeof parsed.title === 'string' ? parsed.title : '' }
+}
+
+/** B28.374 — where a filed issue is: Track with that issue open. */
+export function filedIssueHref(i: Pick<FiledIssue, 'id'>): string {
+  return `/track/issues/${encodeURIComponent(i.id)}`
+}
+
+/** B28.374 — a call the model wants to make with a tool that changes something, for the person to say yes or no to. */
+export interface ToolConfirm {
+  tool: ChatTool
+  call: ToolCall
+  /** The call's arguments, as the model sent them; empty when they were not a JSON object. */
+  args: Record<string, unknown>
+}
+
+/** B28.374 — what the model is told when the person said no to a call. */
+export const DECLINED_TOOL_TEXT = 'The person said no in Chat, so this was not done.'
 
 /** B28.349 — one statement line a spend answer was read from: which agent, which entry, how much. */
 export interface SpendLine {
@@ -241,8 +290,9 @@ export async function fetchChatTools(): Promise<ChatTool[]> {
     : []
 }
 
-/** B28.349 — runs one tool call through the BFF. Every failure is a result the model is told, never a throw. */
-export async function callChatTool(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
+/** B28.349 — runs one tool call through the BFF. Every failure is a result the model is told, never a throw.
+ *  B28.374 — `confirmed` once the person said yes to a call that changes something; the BFF runs none without it. */
+export async function callChatTool(call: ToolCall, signal?: AbortSignal, confirmed = false): Promise<ToolResult> {
   let args: unknown
   try {
     args = call.args.trim() === '' ? {} : JSON.parse(call.args)
@@ -254,7 +304,7 @@ export async function callChatTool(call: ToolCall, signal?: AbortSignal): Promis
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ name: call.name, arguments: args }),
+      body: JSON.stringify({ name: call.name, arguments: args, ...(confirmed ? { confirmed: true } : {}) }),
       signal,
     })
     const body = (await res.json().catch(() => ({}))) as { text?: unknown; is_error?: unknown; error?: unknown }
@@ -638,9 +688,16 @@ export interface StreamHandlers {
     citations?: Citation[]
     /** B28.373 — the code the model ran in Lens's sandbox, in order; for askChat, every request's. */
     codeRuns?: CodeRun[]
+    /** B28.374 — askChat: the Talyvor tools the answer used, once each, in the order it first used them. */
+    toolsUsed?: string[]
+    /** B28.374 — askChat: the Track issues the answer filed. */
+    filed?: FiledIssue[]
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
+  /** B28.374 — askChat: the model wants to make a call that changes something; resolves true once the person said yes.
+   *  Without it, every such call is declined. */
+  onConfirm?: (ask: ToolConfirm) => Promise<boolean>
 }
 
 /**
@@ -847,6 +904,9 @@ export async function askChat(
   let citations: Citation[] | undefined
   // B28.373 — the code the model ran, over every request the question took.
   const codeRuns: CodeRun[] = []
+  // B28.374 — the Talyvor tools it used and the issues it filed, over every request the question took.
+  const used: string[] = []
+  const filed: FiledIssue[] = []
   const spend: SpendLine[] = []
   for (let round = 1; ; round++) {
     let said = ''
@@ -887,13 +947,41 @@ export async function askChat(
     billed = billed === null || billed === done.paidBy ? done.paidBy : undefined
     const calls = done.toolCalls ?? []
     if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
-      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, citations, codeRuns, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
+      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, citations, codeRuns, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}), ...(used.length > 0 ? { toolsUsed: used } : {}), ...(filed.length > 0 ? { filed } : {}) })
       return
     }
-    const results = await Promise.all(calls.map((c) => callChatTool(c, signal)))
+    // B28.374 — a call that changes something is put to the person first, one at a time; a no is the model's answer.
+    const yes: boolean[] = []
+    for (const c of calls) {
+      const tool = offered.find((t) => t.name === c.name)
+      if (tool?.writes !== true) {
+        yes.push(false)
+        continue
+      }
+      let args: Record<string, unknown> = {}
+      try {
+        const parsed: unknown = c.args.trim() === '' ? {} : JSON.parse(c.args)
+        if (isObject(parsed) && !Array.isArray(parsed)) args = parsed
+      } catch {
+        // Shown with no fields; the call itself says the arguments were not JSON.
+      }
+      yes.push(handlers.onConfirm === undefined ? false : await handlers.onConfirm({ tool, call: c, args }))
+      if (signal?.aborted) return
+    }
+    const results = await Promise.all(
+      calls.map((c, i) =>
+        offered.find((t) => t.name === c.name)?.writes === true && !yes[i]
+          ? Promise.resolve<ToolResult>({ text: DECLINED_TOOL_TEXT, is_error: true })
+          : callChatTool(c, signal, yes[i]),
+      ),
+    )
     if (signal?.aborted) return
     calls.forEach((c, i) => {
-      if (c.name !== SPEND_TOOL || results[i].is_error) return
+      if (results[i].is_error) return
+      if (!used.includes(c.name)) used.push(c.name)
+      const issue = c.name === ISSUE_TOOL ? filedIssue(results[i].text) : undefined
+      if (issue !== undefined && !filed.some((f) => f.id === issue.id)) filed.push(issue)
+      if (c.name !== SPEND_TOOL) return
       for (const l of spendLines(results[i].text)) {
         if (!spend.some((s) => s.agent_id === l.agent_id && s.entry_id === l.entry_id)) spend.push(l)
       }
