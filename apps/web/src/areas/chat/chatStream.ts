@@ -47,6 +47,8 @@ export interface Extraction {
   charged_ulxc?: number
   /** B28.372 — the web pages Lens searched and gave the model, when this frame is Lens's CITATIONS_FRAME. */
   citations?: Citation[]
+  /** B28.373 — code the model ran in Lens's sandbox and what it printed, when this frame is Lens's CODE_RUN_FRAME. */
+  codeRuns?: CodeRun[]
 }
 
 /**
@@ -95,6 +97,40 @@ function citationsOf(v: unknown): Citation[] | undefined {
     out.push({ n: c.n, url: c.url, ...(typeof c.title === 'string' && c.title.trim() !== '' ? { title: c.title.trim() } : {}) })
   }
   return out.sort((a, b) => a.n - b.n)
+}
+
+/**
+ * B28.373 — the frame Lens adds to a stream for each piece of code the model ran in Lens's sandbox while answering
+ * (talyvor-lens B28.119), when the request asked with `X-Talyvor-Run-Code: on` (chatApi.ts RUN_CODE_HEADER). One frame
+ * per run, in the order they ran, on either writer, anywhere before the terminator — as soon as the run is back is best:
+ *
+ *     event: talyvor.code_run
+ *     data: {"type":"talyvor.code_run","language":"python","code":"print(1)","stdout":"1\n","stderr":"","exit_code":0}
+ *
+ * `language` names what ran, `code` is what ran, word for word, `stdout` and `stderr` what it printed (either may be
+ * left out when empty), `exit_code` how it ended, and `timed_out: true` when the sandbox stopped it for taking too long.
+ * Chat shows each under the answer, the code and what it printed, as text.
+ */
+export const CODE_RUN_FRAME = 'talyvor.code_run'
+
+/** B28.373 — one piece of code the model ran in Lens's sandbox, and what came of it. */
+export interface CodeRun {
+  language: string
+  code: string
+  stdout: string
+  stderr: string
+  exit_code: number
+  timed_out?: boolean
+}
+
+/** B28.373 — the run in a CODE_RUN_FRAME; undefined when the frame is not that shape. */
+function codeRunOf(o: Record<string, unknown>): CodeRun | undefined {
+  const { language, code, stdout, stderr, exit_code: exit, timed_out: timedOut } = o
+  if (typeof language !== 'string' || language.trim() === '' || typeof code !== 'string') return undefined
+  if (typeof exit !== 'number' || !Number.isSafeInteger(exit)) return undefined
+  if ((stdout !== undefined && typeof stdout !== 'string') || (stderr !== undefined && typeof stderr !== 'string')) return undefined
+  if (timedOut !== undefined && typeof timedOut !== 'boolean') return undefined
+  return { language: language.trim(), code, stdout: stdout ?? '', stderr: stderr ?? '', exit_code: exit, ...(timedOut === true ? { timed_out: true } : {}) }
 }
 
 /** B28.81 — the stop reasons that mean the model ran out of room, not out of answer. */
@@ -206,6 +242,7 @@ export function extractDeltas(frame: string): Extraction {
   let finish: string | undefined
   let charged: number | undefined
   let citations: Citation[] | undefined
+  const codeRuns: CodeRun[] = []
   const toolCalls: ToolCallPiece[] = []
 
   for (const payload of dataLines(frame)) {
@@ -253,6 +290,13 @@ export function extractDeltas(frame: string): Extraction {
       if (type === CITATIONS_FRAME) {
         const got = citationsOf(obj.citations)
         if (got !== undefined) citations = got
+        else unrecognised += 1
+        continue
+      }
+      // B28.373 — Lens's own frame, on either writer: a piece of code the model ran. A frame of another shape is counted.
+      if (type === CODE_RUN_FRAME) {
+        const run = codeRunOf(obj)
+        if (run !== undefined) codeRuns.push(run)
         else unrecognised += 1
         continue
       }
@@ -350,5 +394,6 @@ export function extractDeltas(frame: string): Extraction {
   if (toolCalls.length > 0) out.toolCalls = toolCalls
   if (charged !== undefined) out.charged_ulxc = charged
   if (citations !== undefined) out.citations = citations
+  if (codeRuns.length > 0) out.codeRuns = codeRuns
   return out
 }

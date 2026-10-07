@@ -91,7 +91,9 @@ export function ModelPicker({
   return (
     // ⚠ NOT `relative`: the panel is positioned against the whole composer (Chat.tsx's form), so it
     // is as wide as the message box allows rather than as narrow as this trigger.
-    <div ref={rootRef} className="min-w-0">
+    // B28.373 — the cap is on this box, which shrinks with the composer's row, so on a phone the name truncates rather
+    // than running under Send.
+    <div ref={rootRef} className="min-w-0 max-w-60">
       <button
         ref={triggerRef}
         type="button"
@@ -104,7 +106,7 @@ export function ModelPicker({
         onClick={() => (open ? close() : setOpen(true))}
         // B29.10 — in the eyebrow style: spaced caps in IBM Plex Mono, in the label colour.
         className={cn(
-          'inline-flex h-8 max-w-60 items-center gap-1.5 rounded-control px-2 font-figure text-eyebrow uppercase text-label',
+          'inline-flex h-8 max-w-full items-center gap-1.5 rounded-control px-2 font-figure text-eyebrow uppercase text-label',
           'transition-colors duration-200 hover:text-ink disabled:opacity-50',
           focusRing,
         )}

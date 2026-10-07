@@ -75,6 +75,7 @@ import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
 import { Sources, WebSearchToggle } from './WebSearch'
+import { CodeRuns, RunCodeToggle } from './RunCode'
 import { useRevealedText } from './reveal'
 import { cutOff } from './chatStream'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatCharged, formatCostRange, formatUsdPer1M, pricedAnswer } from './price'
@@ -236,6 +237,8 @@ export function Chat() {
   const [pending, setPending] = useState(false)
   // B28.372 — Search the web: on, every question goes with it until it is turned off.
   const [webSearch, setWebSearch] = useState(false)
+  // B28.373 — Run code: on, the model may run code in Lens's sandbox for every question until it is turned off.
+  const [runCode, setRunCode] = useState(false)
   const [failure, setFailure] = useState<Refusal | null>(null)
   const [unreadable, setUnreadable] = useState(0)
   const abortRef = useRef<AbortController | null>(null)
@@ -457,6 +460,8 @@ export function Chat() {
       const named = promptName
       // B28.372 — and whether it is answered from a web search.
       const searching = webSearch
+      // B28.373 — and whether the model may run code to answer it.
+      const running = runCode
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       const carry = was === undefined ? {} : keptVersions(was, turn.length)
       // B28.113 — continued, the screen and the saved thread end on the answer, not on what Continue asked.
@@ -487,6 +492,7 @@ export function Chat() {
       let auto: boolean | undefined
       let usedPrompt: ChatMessage['prompt']
       let citations: ChatMessage['citations']
+      let codeRuns: ChatMessage['code_runs']
       let failed = false
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
       const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
@@ -515,7 +521,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, citations: pages }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, citations: pages, codeRuns: ran }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -614,6 +620,16 @@ export function Chat() {
                 return next
               })
             }
+            // B28.373 — asked with Run code on: the code the model ran in Lens's sandbox, and what it printed, under the answer.
+            if (running && ran !== undefined && ran.length > 0) {
+              codeRuns = ran
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, code_runs: ran }
+                return next
+              })
+            }
             // B28.81 — an answer that finished having said nothing, or stopped at the length limit, says so
             // rather than looking like a whole answer.
             incomplete = answer.trim() === '' ? 'blank' : cutOff(finish) ? 'cut_off' : undefined
@@ -645,7 +661,7 @@ export function Chat() {
         fresh,
         tools,
         payer,
-        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}) },
+        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}), ...(running ? { run_code: true } : {}) },
       )
       // B28.112 — asked again and nothing came back (stopped, refused, blank): the answer it had is shown and kept.
       if (was !== undefined && carry.versions !== undefined && answer.trim() === '') {
@@ -659,7 +675,7 @@ export function Chat() {
         if (!failed && !controller.signal.aborted) setFailure({ text: 'Nothing more came back. The answer is as it was.' })
         return
       }
-      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...carry }
+      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...carry }
       store((list) =>
         upsertConversation(
           list,
@@ -674,7 +690,7 @@ export function Chat() {
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -1278,6 +1294,8 @@ export function Chat() {
               onSelectModel={setModelId}
               webSearch={webSearch}
               onWebSearch={setWebSearch}
+              runCode={runCode}
+              onRunCode={setRunCode}
             />
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
               {/* B28.354 — which wallet pays for this conversation. */}
@@ -1900,6 +1918,7 @@ function Reply({
       )}
       {message.spend !== undefined && message.spend.length > 0 && !answering && !shown.revealing ? <StatementLines lines={message.spend} /> : null}
       {message.citations !== undefined && message.incomplete !== 'blank' && !answering && !shown.revealing ? <Sources citations={message.citations} /> : null}
+      {message.code_runs !== undefined && message.code_runs.length > 0 && message.incomplete !== 'blank' && !answering && !shown.revealing ? <CodeRuns runs={message.code_runs} /> : null}
       {message.content !== '' && message.incomplete !== 'blank' && !answering && !shown.revealing ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {message.incomplete === 'cut_off' ? (
@@ -2049,6 +2068,8 @@ function Composer({
   onSelectModel,
   webSearch,
   onWebSearch,
+  runCode,
+  onRunCode,
 }: {
   attachments: ChatAttachment[]
   onAttach: (files: File[]) => void
@@ -2069,6 +2090,9 @@ function Composer({
   /** B28.372 — Search the web is on. */
   webSearch: boolean
   onWebSearch: (on: boolean) => void
+  /** B28.373 — Run code is on. */
+  runCode: boolean
+  onRunCode: (on: boolean) => void
 }) {
   const boxRef = useRef<HTMLTextAreaElement | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
@@ -2176,6 +2200,7 @@ function Composer({
           Attach
         </button>
         <WebSearchToggle on={webSearch} onChange={onWebSearch} disabled={pending || selected === undefined} />
+        <RunCodeToggle on={runCode} onChange={onRunCode} disabled={pending || selected === undefined} />
         <ModelPicker catalog={picker} selected={selected} onSelect={onSelectModel} disabled={pending} />
         <div className="flex-1" />
         {pending ? (

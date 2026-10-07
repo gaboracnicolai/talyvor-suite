@@ -312,6 +312,10 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			if strings.EqualFold(strings.TrimSpace(r.Header.Get(webSearchHeader)), "on") {
 				up.Header.Set(webSearchHeader, "on")
 			}
+			// B28.373 — Run code is on for this question. Only the one value is forwarded.
+			if strings.EqualFold(strings.TrimSpace(r.Header.Get(runCodeHeader)), "on") {
+				up.Header.Set(runCodeHeader, "on")
+			}
 			return a.streamClient.Do(up)
 		}
 
@@ -420,6 +424,11 @@ const reportChargeHeader = "X-Talyvor-Report-Charge"
 // model (B28.372; the frame is apps/web chatStream.ts CITATIONS_FRAME, talyvor-lens B28.118). It too passes through
 // relayFlushing untouched.
 const webSearchHeader = "X-Talyvor-Web-Search"
+
+// runCodeHeader lets the model run code in Lens's sandbox while it answers, and asks Lens to add a frame for each run:
+// the code and what it printed (B28.373; the frame is apps/web chatStream.ts CODE_RUN_FRAME, talyvor-lens B28.119). It
+// too passes through relayFlushing untouched.
+const runCodeHeader = "X-Talyvor-Run-Code"
 
 // featureHeader is the tag Lens groups spend by (token_events.feature, /v1/api/spend/by-feature), and chatFeature
 // Chat's tag on it (B28.106). The cheaper-model hint asks Lens for the same cohort (routing.go).
