@@ -42,11 +42,14 @@ export function previewCost(
   docs: readonly ChatAttachment[],
   model: Pick<ChatModel, 'provider' | 'input_per_1m' | 'output_per_1m'>,
   tools: readonly ChatTool[],
+  /** B28.109 — the project's instructions, sent with every question in it. */
+  instructions = '',
 ): CostRange | undefined {
   if (!Number.isFinite(model.input_per_1m) || !Number.isFinite(model.output_per_1m)) return undefined
   // The same turns requestBody() sends: an answer that said nothing is left out.
   const said = turns.filter((t) => t.role !== 'assistant' || t.content.trim() !== '')
-  const textBytes = said.reduce((n, t) => n + bytes(t.content), 0) + bytes(question)
+  const told = instructions.trim()
+  const textBytes = said.reduce((n, t) => n + bytes(t.content), 0) + bytes(question) + bytes(told)
   const docBytes = [...said.flatMap((t) => t.attachments ?? []), ...docs]
     .filter((d) => d.file_id !== undefined)
     .reduce((n, d) => n + d.size, 0)
@@ -57,7 +60,7 @@ export function previewCost(
   const inputHigh =
     Math.ceil((textBytes + toolBytes + docBytes) / LEAST_BYTES_PER_TOKEN) +
     FRAMING_TOKENS +
-    PER_MESSAGE_TOKENS * (said.length + 1) +
+    PER_MESSAGE_TOKENS * (said.length + 1 + (told === '' ? 0 : 1)) +
     (offered.length === 0 ? 0 : TOOL_FRAMING_TOKENS)
 
   const usd = (input: number, output: number) => (input * model.input_per_1m + output * model.output_per_1m) / 1_000_000

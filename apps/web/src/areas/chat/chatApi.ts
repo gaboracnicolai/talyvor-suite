@@ -149,6 +149,8 @@ export const REPORT_CHARGE_HEADER = 'X-Talyvor-Report-Charge'
 export interface ConversationTag {
   id: string
   budget_ulxc?: number
+  /** B28.109 — the instructions of the project the conversation is in, sent to the model with every request. */
+  instructions?: string
 }
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
@@ -474,7 +476,7 @@ export const CHAT_MAX_TOKENS = 4096
  * Bedrock serves Anthropic's models and Lens fills in 1024 when it is absent, which cuts long
  * answers short, so it is sent there too.
  */
-function requestBody(provider: string, model: string, turns: ChatMessage[], tools: ChatTool[] = [], exchange: unknown[] = []): unknown {
+function requestBody(provider: string, model: string, turns: ChatMessage[], tools: ChatTool[] = [], exchange: unknown[] = [], instructions = ''): unknown {
   // ⚠ ONLY role AND content GO UPSTREAM. A turn carries its cost for the screen, and Anthropic
   // refuses a message with a field it does not know.
   // B28.78 — and never an answer that said nothing. A stopped, failed or blank answer stays in the
@@ -511,10 +513,13 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
       : provider === 'anthropic'
         ? { tools: tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })) }
         : { tools: tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })) }
+  // B28.109 — a project's instructions: Anthropic's own `system` field (Bedrock serves Anthropic's models), and a
+  // system message first everywhere else. None, and the body is exactly what it was before projects.
+  const told = instructions.trim()
   if (provider === 'anthropic' || provider === 'bedrock') {
-    return { model, max_tokens: CHAT_MAX_TOKENS, stream: true, messages, ...offered }
+    return { model, max_tokens: CHAT_MAX_TOKENS, stream: true, ...(told !== '' ? { system: told } : {}), messages, ...offered }
   }
-  return { model, stream: true, messages, ...offered }
+  return { model, stream: true, messages: told !== '' ? [{ role: 'system', content: told }, ...messages] : messages, ...offered }
 }
 
 /** B28.349 — a tool call's arguments as the object Anthropic's tool_use block carries. */
@@ -639,7 +644,7 @@ export async function streamChat(
       ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),
       [REPORT_CHARGE_HEADER]: 'true',
     },
-    body: JSON.stringify(requestBody(provider, model, messages, tools, exchange)),
+    body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions)),
     signal,
   }
 

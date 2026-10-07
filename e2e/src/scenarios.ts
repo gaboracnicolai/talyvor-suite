@@ -724,6 +724,78 @@ export function searchAmong500(seed: number): Scenario {
   }
 }
 
+/** B28.109 — a project is made in Chat's rail and given instructions; a new chat started in it sends them to the model
+ *  with its first question: Anthropic's `system` field, or a system message first everywhere else. The answer is made up
+ *  in the browser, so it costs nothing, and the project and its chat are taken out of this browser after. */
+export function chatProjectInstructions(seed: number): Scenario {
+  const tag = `${seed}-${Date.now().toString(36)}`
+  const name = `e2e project ${tag}`
+  const instructions = `Answer in one sentence and end it with the word heron${tag}.`
+  const question = `What is a project for? ${tag}`
+  return {
+    id: 'chat-project-instructions',
+    owner: 'talyvor-suite',
+    title: 'a new chat in a project is sent with the project’s instructions',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const page = await app.context.newPage()
+      try {
+        await page.goto(new URL('/chat', app.page.url()).toString())
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        await page.getByRole('button', { name: 'New project' }).click()
+        await page.getByRole('textbox', { name: 'Project name' }).fill(name)
+        await page.getByRole('button', { name: 'Create project' }).click()
+        await page.getByRole('textbox', { name: 'Instructions' }).fill(instructions)
+        await page.getByRole('button', { name: 'Save instructions' }).click()
+        const shown = (await page.getByTestId('project-instructions').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+        if (shown !== instructions) return { pass: false, detail: `the project's page showed "${shown.slice(0, 120)}" after its instructions were saved` }
+
+        const trigger = page.locator('button[aria-label^="Model: "]').first()
+        const shownModel = ((await trigger.getAttribute('aria-label')) ?? '').replace(/^Model: /, '')
+        const provider = env.catalog.find((m) => m.display_name === shownModel)?.provider ?? 'anthropic'
+        let body = ''
+        await page.route('**/api/ai/stream/**', async (route) => {
+          body = route.request().postData() ?? ''
+          await route.fulfill({ status: 200, contentType: 'text/event-stream', body: madeUpAnswer(provider, `Noted, heron${tag}.`, false) })
+        }, { times: 1 })
+        await page.locator('#chat-message').fill(question)
+        await page.locator('#chat-message').press('Enter')
+        await page.locator('[data-testid="turn-assistant"]').filter({ hasText: `heron${tag}` }).first()
+          .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        const line = (await page.getByTestId('conversation-project').innerText().catch(() => '')).trim()
+
+        let sent: { system?: unknown; messages?: Array<{ role?: string; content?: unknown }> } = {}
+        try {
+          sent = JSON.parse(body) as typeof sent
+        } catch {
+          return { pass: false, detail: `the question's request to ${provider} was ${body === '' ? 'never sent' : 'not JSON'}` }
+        }
+        const first = sent.messages?.[0]
+        const carried = provider === 'anthropic' || provider === 'bedrock'
+          ? sent.system === instructions
+          : first?.role === 'system' && first.content === instructions
+        ctx.evidence.push({ note: `${provider}: system=${JSON.stringify(sent.system ?? null)}, first message ${JSON.stringify(first ?? null).slice(0, 160)}; over the chat "${line}"` })
+        if (!carried) return { pass: false, detail: `the first question in a new chat in "${name}" went to ${provider} without the project's instructions` }
+        if (!line.startsWith(`In ${name}`)) return { pass: false, detail: `the chat did not say it is in the project: "${line}"` }
+        return { pass: true, detail: `a new chat in a project sent its instructions to ${provider} with the first question, and says it is in the project` }
+      } finally {
+        // Out of this browser again: the project, and the chat started in it.
+        await page.evaluate((projectName) => {
+          for (const key of Object.keys(localStorage).filter((k) => k.startsWith('talyvor.chat.projects.v1:'))) {
+            const list = JSON.parse(localStorage.getItem(key) ?? '[]') as Array<{ id?: string; name?: string }>
+            const gone = new Set(list.filter((p) => p.name === projectName).map((p) => p.id))
+            localStorage.setItem(key, JSON.stringify(list.filter((p) => !gone.has(p.id))))
+            const chats = key.replace('talyvor.chat.projects.v1:', 'talyvor.chat.v1:')
+            const convs = JSON.parse(localStorage.getItem(chats) ?? '[]') as Array<{ project_id?: string }>
+            localStorage.setItem(chats, JSON.stringify(convs.filter((c) => c.project_id === undefined || !gone.has(c.project_id))))
+          }
+        }, name).catch(() => undefined)
+        await page.close().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /** B28.266 — Royalties (the old /earnings address), Members, Setup and API keys, each opened cold in a tab of
  *  its own as a person opens a bookmark: at the load event each already shows its heading, and once its
  *  reads answer none is left on "Loading…". Then on API keys a key is created: its name field is empty
@@ -3040,7 +3112,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 1: list.push(repeatInNewChat(i), chatSavingsPanel(i)); break
     // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
     // B28.108 — and a word from an old answer finding its conversation among 500.
-    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i)); break
+    // B28.109 — and a new chat in a project, sent with the project's instructions.
+    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i), chatProjectInstructions(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     // B32.53 — and a private room opened on /rooms/new: Lens's, in Chat's rail and the directory, 404 to another company.
     case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i)); break

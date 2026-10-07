@@ -36,6 +36,8 @@ import {
   upsertConversation,
 } from './history'
 import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
+import { type Project, type Projects, editProject, loadProjects, newProject, saveProjects } from './projects'
+import { ProjectHome, ProjectLine, ProjectsRail } from './ProjectViews'
 import { recordDeleted, stampChanged } from './historySync'
 import { Markdown } from './Markdown'
 import { AlertNotices } from './AlertNotices'
@@ -249,6 +251,10 @@ export function Chat() {
   const [storageRefused, setStorageRefused] = useState(false)
   // B28.108 — kept here, not in the rail, so a search survives the narrow drawer closing on the conversation it opened.
   const [search, setSearch] = useState('')
+  // B28.109 — the projects kept in this browser, and the one the open or new chat is in; '' is none.
+  const [projects, setProjects] = useState<Projects>({ list: [], error: null })
+  const [projectId, setProjectId] = useState('')
+  const project = projects.list.find((p) => p.id === projectId)
 
   // The rail: hidden on a wide screen by choice (remembered per browser), a drawer on a narrow one.
   const [railHidden, setRailHidden] = useState(readRailHidden)
@@ -273,8 +279,10 @@ export function Chat() {
     return () => document.removeEventListener('keydown', onKey)
   }, [toggleRail])
 
-  const open = useCallback((c: Conversation | undefined) => {
+  // B28.109 — a new chat (no conversation) starts in `inProject` when given: that project's page.
+  const open = useCallback((c: Conversation | undefined, inProject = '') => {
     setActiveId(c?.id ?? null)
+    setProjectId(c?.project_id ?? inProject)
     setMessages(c?.messages ?? [])
     if (c !== undefined) setModelId(c.model_id)
     setPaidBy(c?.paid_by ?? '')
@@ -315,6 +323,10 @@ export function Chat() {
     open(read.list[0])
   }, [scope, open])
 
+  useEffect(() => {
+    if (scope !== null) setProjects(loadProjects(scope))
+  }, [scope])
+
   // ⚠ READS STORAGE, NOT STATE. It runs after an await inside run(), where `history` from the
   // closure is a render old; merging into that would drop a rename made while it streamed.
   const write = useCallback((update: (list: Conversation[]) => Conversation[]) => {
@@ -327,6 +339,14 @@ export function Chat() {
     const next = update(loadConversations(owner).list)
     setStorageRefused(!saveConversations(owner, next))
     setHistory({ list: next, error: null })
+  }, [])
+  // B28.109 — like `write`, from storage; a project is only made once who is signed in is known.
+  const writeProjects = useCallback((update: (list: Project[]) => Project[]) => {
+    const owner = scopeRef.current
+    if (owner === null) return
+    const next = update(loadProjects(owner).list)
+    setStorageRefused(!saveProjects(owner, next))
+    setProjects({ list: next, error: null })
   }, [])
   // B28.365 — with sync on, each change is merged into the sealed copy shortly after; the copy's own merges are written
   // with `write`, so they are not changes to sync back.
@@ -355,7 +375,7 @@ export function Chat() {
     (modelId === AUTO_MODEL_ID ? picker.auto : models.find((m) => m.id === modelId)) ?? picker.defaultModel
   // B28.99 — what sending the draft will cost, as a range, while it is typed.
   const asking = draft.trim()
-  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [])
+  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [], project?.instructions)
   const estimate =
     selected !== undefined && !pending && asking !== '' && !answeredHere(asking)
       ? withLowEnd(preview(selected), selected.auto && preview(selected.auto.cheapest))
@@ -374,11 +394,14 @@ export function Chat() {
       const payer = paidBy
       // B28.361 — and so is the budget: every request the question takes carries it, with the conversation's id.
       const cap = budget
+      // B28.109 — and the project's instructions, as they read when the question was asked.
+      const inProject = project?.id
+      const told = project?.instructions ?? ''
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer.
-      store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap))
+      store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject))
       setMessages([...turn, { role: 'assistant', content: '' }])
       setPending(true)
       setFailure(null)
@@ -525,7 +548,7 @@ export function Chat() {
         fresh,
         tools,
         payer,
-        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}) },
+        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}) },
       )
       store((list) =>
         upsertConversation(
@@ -536,10 +559,11 @@ export function Chat() {
           Date.now(),
           payer,
           cap,
+          inProject,
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, qc, selected, store],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, qc, selected, store],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -566,12 +590,12 @@ export function Chat() {
   const refuseOverBudget = useCallback(
     (turns: ChatMessage[], question: string, docs: ChatAttachment[], using: ChatModel | undefined = selected): boolean => {
       if (using === undefined) return false
-      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? []), usdPerLXC)
+      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? [], project?.instructions), usdPerLXC)
       if (over === undefined) return false
       setFailure({ text: budgetRefusal(over), remedy: { label: 'Start a new chat', action: 'new_chat' } })
       return true
     },
-    [budget, chatTools.data, messages, selected, usdPerLXC],
+    [budget, chatTools.data, messages, project, selected, usdPerLXC],
   )
 
   const send = useCallback(
@@ -739,6 +763,19 @@ export function Chat() {
       onSearch={setSearch}
       onNew={() => open(undefined)}
       onOpen={open}
+      projectsRail={
+        <ProjectsRail
+          projects={projects}
+          current={activeId === null && project !== undefined ? project.id : null}
+          disabled={pending}
+          onCreate={(name) => {
+            const made = newProject(name, Date.now())
+            writeProjects((list) => editProject([...list, made], made.id, made.name, '', made.created_at))
+            open(undefined, made.id)
+          }}
+          onOpen={(p) => open(undefined, p.id)}
+        />
+      }
     />
   )
 
@@ -840,9 +877,12 @@ export function Chat() {
                   // B28.365 — remembered, so a synced copy that still holds it does not bring it back.
                   if (scope !== null) recordDeleted(scope, active.id, Date.now())
                   store((list) => list.filter((c) => c.id !== active.id))
-                  open(undefined)
+                  open(undefined, project?.id)
                 }}
               />
+            ) : null}
+            {active !== undefined && project !== undefined && renaming === null && !confirmingDelete ? (
+              <ProjectLine project={project} onOpen={() => open(undefined, project.id)} />
             ) : null}
           </div>
           {!statementBeside ? (
@@ -869,6 +909,22 @@ export function Chat() {
               </div>
             ) : models.length === 0 ? (
               <NoStreamableModels total={catalog.data?.length ?? 0} unconfigured={picker.unconfigured} />
+            ) : messages.length === 0 && project !== undefined ? (
+              // B28.109 — a new chat in a project starts on the project's page.
+              <ProjectHome
+                key={project.id}
+                project={project}
+                history={history}
+                disabled={pending}
+                onSave={(name, instructions) => writeProjects((list) => editProject(list, project.id, name, instructions, Date.now()))}
+                onDelete={() => {
+                  // Its chats stay, in no project: they are the person's conversations, not the project's.
+                  store((list) => list.map((c) => (c.project_id === project.id ? withoutProject(c) : c)))
+                  writeProjects((list) => list.filter((p) => p.id !== project.id))
+                  open(undefined)
+                }}
+                onOpenChat={open}
+              />
             ) : messages.length === 0 ? (
               <Greeting disabled={pending} onAsk={(prompt) => send(prompt)} />
             ) : (
@@ -1130,6 +1186,12 @@ function writeRailHidden(hidden: boolean): void {
   }
 }
 
+/** B28.109 — a conversation taken out of a deleted project. */
+function withoutProject(c: Conversation): Conversation {
+  const { project_id: _gone, ...rest } = c
+  return rest
+}
+
 /** A panel with its left column marked — the sidebar, shown or hidden. */
 function SidebarGlyph() {
   return (
@@ -1152,6 +1214,7 @@ function ChatRail({
   onSearch,
   onNew,
   onOpen,
+  projectsRail,
 }: {
   history: History
   activeId: string | null
@@ -1164,6 +1227,8 @@ function ChatRail({
   onSearch: (search: string) => void
   onNew: () => void
   onOpen: (c: Conversation) => void
+  /** B28.109 — the rail's projects, over the conversations. */
+  projectsRail: React.ReactNode
 }) {
   // B28.108 — every saved question and answer is searched as the person types; the deferred query
   // keeps the box answering keys while hundreds of conversations are read.
@@ -1193,6 +1258,7 @@ function ChatRail({
         />
       ) : null}
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+        {signedIn ? projectsRail : null}
         {!signedIn ? (
           <p className="px-2 text-caption text-muted">
             {readingIdentity
