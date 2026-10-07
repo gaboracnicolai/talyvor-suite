@@ -84,7 +84,7 @@ function obeyed(t: Trap): { name: string; args: Record<string, unknown> }[] {
 }
 
 /** An answer stream as the model's provider shapes it: `calls` made, or else `text` said. */
-function madeUp(provider: string, calls: { name: string; args: Record<string, unknown> }[], text: string): string {
+export function madeUp(provider: string, calls: { name: string; args: Record<string, unknown> }[], text: string): string {
   const frame = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`
   if (provider === 'anthropic') {
     const blocks = calls.length > 0

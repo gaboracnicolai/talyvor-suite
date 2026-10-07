@@ -49,6 +49,7 @@ import { agentRulesUnbypassable } from './rules.ts'
 import { poolIsolation } from './pool.ts'
 import { injectionExfil } from './injection.ts'
 import { fileBombBounded, ssrfRefused } from './ssrf.ts'
+import { csrfRefused, scriptInert } from './session.ts'
 
 export interface Evidence {
   note?: string
@@ -3547,6 +3548,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // workspace of its own: the metadata address, loopback and private addresses given as a node or the audit webhook are
   // refused or never reached, and a zip bomb or an oversized document is refused or capped with Lens still up.
   if (i === 8) list.push(ssrfRefused(), fileBombBounded())
+  // B28.286 — the session cookie and the app's writes, once a run, each on a workspace of its own: a write from anywhere but
+  // the app's own Origin is refused 403 with nothing written, and a script in a Chat answer or a room message never runs.
+  if (i === 1) list.push(csrfRefused(), scriptInert())
   return list
 }
 
