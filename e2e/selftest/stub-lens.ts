@@ -40,6 +40,10 @@
 //                 is never billed to it (B28.279)
 //   move-replay, move-race — a fund or withdraw sent again under its key posts again; one landing beside another
 //                 answers and posts nothing (B28.279, stub-bank.ts)
+//   webhook-unsigned — Stripe's webhooks credit an event whatever its signature, or with none (B28.280)
+//   webhook-stale — a signed event is taken however long ago it was signed (B28.280)
+//   webhook-oversized — an event is read whole however big, so one past Lens's 1 MiB cap is taken (B28.280)
+//   webhook-replay — an event delivered again, or its session under a new event, is credited again (B28.280)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -57,7 +61,7 @@
 // lens-shapes.json by test/stubLens.test.ts. A route this stub does not know is a 404 it logs as
 // "stub lens: no such route", which the self-test names — never a `{}` that a screen then throws on.
 
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
@@ -73,6 +77,20 @@ const broke = (name: string): boolean => BREAK.split(',').includes(name)
 const ROI_REPORT = readFileSync(new URL('./roi-report.html', import.meta.url), 'utf8')
 const USD_PER_LXC = 0.1
 const GRANT_ULXC = 1_000_000_000
+/**
+ * B28.280 — the signing secrets of Stripe's two webhooks: the test-mode one the self-test gives the harness too
+ * (LENS_STRIPE_TEST_WEBHOOK_SECRET), and a live one nobody is given.
+ */
+const WEBHOOK_SECRETS: Record<string, string> = {
+  '/v1/billing/webhook/test': process.env.STUB_WEBHOOK_SECRET ?? 'whsec_selftest',
+  '/v1/billing/webhook': `whsec_${randomBytes(24).toString('hex')}`,
+}
+/** talyvor-lens internal/billing: maxWebhookBody, and stripe-go's DefaultTolerance for a signature's age. */
+const WEBHOOK_BODY_CAP = 1 << 20
+const WEBHOOK_TOLERANCE_S = 300
+/** Lens's claims on a top-up: each event once (lxc_purchases.stripe_event_id), and each session credited once. */
+const webhookEvents = new Set<string>()
+const creditedSessions = new Set<string>()
 /** Where Stripe sends the browser back to: the app's /billing/success (LENS_BILLING_SUCCESS_URL). */
 const APP_URL = process.env.STUB_APP_URL ?? 'http://localhost:8797'
 /** What each plan costs a month, in cents, and the allowance a period grants (LENS_SUBSCRIPTION_ALLOWANCE_ULXC). */
@@ -673,6 +691,41 @@ const SETTINGS: Record<string, keyof Settings> = {
   '/cache-poolable': 'cache_poolable',
 }
 
+/**
+ * B28.280 — Lens's Stripe webhook (internal/billing HandleWebhook), reduced to a top-up: no more of the body than its cap
+ * is read, the Stripe-Signature must be the secret's over that and no older than Stripe allows, and a paid session credits
+ * its workspace once — an event delivered again, or the session under another event, is acknowledged and credits nothing.
+ */
+async function stripeWebhook(req: IncomingMessage, res: ServerResponse, secret: string): Promise<void> {
+  const whole = await readBytes(req)
+  const raw = (broke('webhook-oversized') ? whole : whole.subarray(0, WEBHOOK_BODY_CAP)).toString('utf8')
+  const parts = String(req.headers['stripe-signature'] ?? '').split(',').map((kv) => kv.split('=') as [string, string])
+  const t = Number(parts.find(([k]) => k === 't')?.[1])
+  const want = createHmac('sha256', secret).update(`${t}.${raw}`).digest()
+  const signed = parts.some(([k, v]) => k === 'v1' && /^[0-9a-f]+$/.test(v ?? '') && v.length === want.length * 2 && timingSafeEqual(Buffer.from(v, 'hex'), want))
+  const fresh = broke('webhook-stale') || Math.abs(Date.now() / 1000 - t) <= WEBHOOK_TOLERANCE_S
+  if (!broke('webhook-unsigned') && (!signed || !fresh)) return void res.writeHead(400, { 'Content-Type': 'text/plain' }).end('invalid signature\n')
+  let event: { id?: string; type?: string; data?: { object?: { id?: string; mode?: string; payment_status?: string; amount_total?: number; currency?: string; metadata?: Record<string, string> } } }
+  try {
+    event = JSON.parse(raw)
+  } catch {
+    return void res.writeHead(400, { 'Content-Type': 'text/plain' }).end('invalid signature\n')
+  }
+  const sess = event.data?.object ?? {}
+  const paying = event.type === 'checkout.session.async_payment_succeeded' || (event.type === 'checkout.session.completed' && sess.payment_status === 'paid')
+  const ws = workspaces.get(sess.metadata?.workspace_id ?? '')
+  const cents = sess.amount_total ?? 0
+  const ulxc = cents * Math.round(0.01 / USD_PER_LXC * 1e6)
+  if (!paying || sess.mode !== 'payment' || ws === undefined || sess.currency !== 'usd' || cents < 1_000 || cents > 1_000_000 || String(ulxc) !== sess.metadata?.lxc_amount) {
+    return void res.writeHead(200).end()
+  }
+  const again = webhookEvents.has(event.id ?? '') || creditedSessions.has(sess.id ?? '')
+  webhookEvents.add(event.id ?? '')
+  creditedSessions.add(sess.id ?? '')
+  if (!again || broke('webhook-replay')) book(ws, ulxc, 'purchase', 'stripe top-up', { usd_cents: cents, stripe_event_id: event.id, stripe_session_id: sess.id, funding: 'test' })
+  res.writeHead(200).end()
+}
+
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', BASE)
   const p = url.pathname
@@ -715,6 +768,7 @@ createServer(async (req, res) => {
       return json(res, 201, { created: out.length, plan, workspaces: out })
     }
     if (p === '/v1/economy/conversion-rate') return json(res, 200, { lens_per_lxc: 1, rate: 1, usd_per_lxc: USD_PER_LXC })
+    if (WEBHOOK_SECRETS[p] !== undefined && req.method === 'POST') return await stripeWebhook(req, res, WEBHOOK_SECRETS[p])
     // B32.14 — the price card's three public reads, as Lens states them with no credential: the plans, what each company
     // plan unlocks, and every fee (lens.env.example's defaults).
     if (p === '/v1/billing/plans') {

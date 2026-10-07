@@ -1188,6 +1188,19 @@ export class LensClient {
   }
 
   /**
+   * B28.280 — an event posted to one of Lens's Stripe webhooks as Stripe posts it: no credential, the body as it is, under
+   * `signature` as its Stripe-Signature header ('' sends none). Status 0, and why, when Lens hung up before it answered.
+   */
+  async webhook(path: string, body: string, signature: string): Promise<{ status: number; text: string }> {
+    try {
+      const res = await this.send('POST', path, { headers: { 'Content-Type': 'application/json', ...(signature === '' ? {} : { 'Stripe-Signature': signature }) }, body })
+      return { status: res.status, text: (await res.text()).slice(0, 300) }
+    } catch (e) {
+      return { status: 0, text: describe(e) }
+    }
+  }
+
+  /**
    * B34.6 — the first event a server-sent stream sends, on `credential`, within `ms`; the stream is closed after it. Status
    * 0 when not even its headers came in time, and no event when they did and nothing followed; an answer that is no
    * stream is its body.
