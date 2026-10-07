@@ -30,6 +30,7 @@
 //   seats-allows — a plan's seat refusal names no plan that would allow the member (B32.71)
 //   savings     — a replay does not say what it saved, as Lens before B28.95 (B28.358)
 //   charge      — the stream says a model's answer was charged a µLXC more than its spend row (B28.362)
+//   auto        — an "auto" answer is charged at the model Lens chose, but the stream names a dearer one (B28.363)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -361,7 +362,12 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const raw = await read(req)
   if (!CONFIGURED.has(provider)) return json(res, 503, { error: `provider ${provider} not configured` })
   const body = JSON.parse(raw || '{}') as { model?: string; stream?: boolean; max_tokens?: number; messages?: Msg[]; tools?: { name?: string; function?: { name?: string } }[] }
-  const model = CATALOG.find((c) => c.id === body.model)
+  // talyvor-lens B28.103 — model "auto" is served by the provider's cheapest chat model, and the stream names it.
+  const auto = body.model === 'auto'
+  const model = auto
+    ? CATALOG.filter((c) => c.provider === provider && c.output_per_1m > 0).sort((a, b) => a.input_per_1m + a.output_per_1m - b.input_per_1m - b.output_per_1m)[0]
+    : CATALOG.find((c) => c.id === body.model)
+  const named = !auto ? {} : { model: BREAK === 'auto' ? 'claude-sonnet-5' : model?.id }
   if (model === undefined || (provider === 'anthropic') !== (path === 'v1/messages')) return json(res, 400, { error: 'bad request' })
   const messages = body.messages ?? []
   // B28.78 — Anthropic refuses a conversation holding an answer that said nothing, as a stopped one does.
@@ -526,7 +532,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     if (charged !== undefined && req.headers['x-talyvor-report-charge'] === 'true') send('talyvor.charge', { type: 'talyvor.charge', charged_ulxc: charged })
   }
   if (provider === 'anthropic') {
-    send('message_start', { type: 'message_start', message: { usage: { input_tokens: shownIn, output_tokens: 0 } } })
+    send('message_start', { type: 'message_start', message: { ...named, usage: { input_tokens: shownIn, output_tokens: 0 } } })
     for (const p of pieces) {
       send('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: p } })
       await new Promise((r) => setTimeout(r, 30))
@@ -536,10 +542,10 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     send('message_stop', { type: 'message_stop' })
   } else {
     for (const p of pieces) {
-      res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: p } }] })}\n\n`)
+      res.write(`data: ${JSON.stringify({ ...named, choices: [{ index: 0, delta: { content: p } }] })}\n\n`)
       await new Promise((r) => setTimeout(r, 30))
     }
-    res.write(`data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: shownIn, completion_tokens: outTok } })}\n\n`)
+    res.write(`data: ${JSON.stringify({ ...named, choices: [], usage: { prompt_tokens: shownIn, completion_tokens: outTok } })}\n\n`)
     sayCharged()
     res.write('data: [DONE]\n\n')
   }

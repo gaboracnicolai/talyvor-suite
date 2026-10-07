@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { Input, cn, focusRing } from '@talyvor/ui'
 
-import type { ChatModel, PickerCatalog } from './chatApi'
+import { AUTO_MODEL_NAME, type ChatModel, type PickerCatalog } from './chatApi'
 import { formatUsdPer1M } from './price'
 
 // B10.4 — every priced model in Lens's catalog, grouped by provider, newest first, with a search box,
@@ -11,6 +11,7 @@ import { formatUsdPer1M } from './price'
 // The listbox pattern: focus stays in the search box, arrow keys move the active option
 // (aria-activedescendant), Enter picks it, Escape closes. Models whose stream this client cannot
 // read are listed but not selectable, with the reason once per provider.
+// B28.363 — Auto (cheapest good) is the first option: the model is chosen for each question.
 
 export function ModelPicker({
   catalog,
@@ -43,7 +44,12 @@ export function ModelPicker({
         .filter((g) => g.models.length > 0),
     [catalog.groups, q],
   )
-  const choosable = useMemo(() => groups.filter((g) => g.streamable).flatMap((g) => g.models), [groups])
+  // B28.363 — Auto is listed while the search names it, as "auto", "cheapest" or "good".
+  const auto = catalog.auto !== undefined && (q === '' || `${AUTO_MODEL_NAME} cheapest good`.toLowerCase().includes(q)) ? catalog.auto : undefined
+  const choosable = useMemo(
+    () => [...(auto !== undefined ? [auto] : []), ...groups.filter((g) => g.streamable).flatMap((g) => g.models)],
+    [auto, groups],
+  )
 
   // Outside a click, the panel closes.
   useEffect(() => {
@@ -143,6 +149,28 @@ export function ModelPicker({
             />
           </div>
           <div id={listId} role="listbox" aria-label="Models" className="min-h-0 flex-1 overflow-y-auto py-1">
+            {auto?.auto !== undefined ? (
+              <div
+                id={`${listId}-${auto.id}`}
+                role="option"
+                aria-selected={auto.id === selected?.id}
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setActive(auto.id)}
+                onClick={() => pick(auto.id)}
+                className={cn('cursor-pointer px-3 py-1.5 text-body text-ink', auto.id === active ? 'bg-canvas' : undefined)}
+              >
+                <span className="flex items-baseline justify-between gap-3">
+                  <span className="truncate">
+                    {auto.display_name}
+                    {auto.id === selected?.id ? <span className="sr-only"> (selected)</span> : null}
+                  </span>
+                  <span className="shrink-0 font-figure text-caption text-faint">
+                    {formatUsdPer1M(auto.auto.cheapest.input_per_1m)} / {formatUsdPer1M(auto.auto.cheapest.output_per_1m)} or more
+                  </span>
+                </span>
+                <span className="block text-caption text-muted">The cheapest model that answers each question well.</span>
+              </div>
+            ) : null}
             {/* The panel opens only over a loaded catalog, so an empty list here is the search's. */}
             {groups.length > 0 ? (
               groups.map((g) => (
@@ -183,9 +211,9 @@ export function ModelPicker({
                   })}
                 </div>
               ))
-            ) : (
+            ) : auto === undefined ? (
               <p className="px-3 py-2 text-caption text-muted">No model matches &ldquo;{query}&rdquo;.</p>
-            )}
+            ) : null}
           </div>
           <p className="border-t border-rule px-3 py-2 text-caption text-faint">
             Price per 1M tokens, in / out.

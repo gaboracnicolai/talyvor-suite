@@ -13,6 +13,12 @@ describe('parseFooter reads every line the Chat screen writes under an answer', 
       kind: 'priced', figure: 0.000592, unit: 'LXC', model: 'Claude Haiku 4.5', inputTokens: 14, outputTokens: 9, requests: 2, chargedULXC: 592,
     })
   })
+  it('an answer asked of Auto names the model Lens chose (B28.363)', () => {
+    expect(parseFooter('0.000024 LXC charged · GPT-6 Luna, chosen by Auto · 12 in / 3 out tokens')).toEqual({
+      kind: 'priced', figure: 0.000024, unit: 'LXC', model: 'GPT-6 Luna', inputTokens: 12, outputTokens: 3, chargedULXC: 24, auto: true,
+    })
+    expect(parseFooter('≈ 0.000024 LXC · GPT-6 Luna, chosen by Auto · 12 in / 3 out tokens')).toMatchObject({ model: 'GPT-6 Luna', auto: true })
+  })
   it('a replay, a shared answer, no price, and anything else', () => {
     expect(parseFooter('from your earlier answer · 0 LXC')).toEqual({ kind: 'cache' })
     expect(parseFooter('shared answer · 30% off · ≈ 0.0004 LXC')).toEqual({ kind: 'pool', discountPct: 30, figure: 0.0004 })

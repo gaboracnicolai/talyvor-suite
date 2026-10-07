@@ -23,15 +23,17 @@ export type Footer =
       requests?: number
       /** B28.362 — the footer states what Lens charged ("0.00135 LXC charged · …"), in µLXC, not an estimate. */
       chargedULXC?: number
+      /** B28.363 — asked of Auto, the footer names the model Lens chose ("GPT-6 Luna, chosen by Auto"); `model` is its name. */
+      auto?: true
     }
   | { kind: 'cache' }
   | { kind: 'pool'; discountPct: number; figure: number }
   | { kind: 'unpriced' }
   | { kind: 'unreadable'; text: string }
 
-const PRICED = /^≈ (\$?)([\d,.]+)( LXC)? · (.+) · ([\d,]+) in \/ ([\d,]+) out tokens(?: · (\d+) requests)?$/
+const PRICED = /^≈ (\$?)([\d,.]+)( LXC)? · (.+?)(, chosen by Auto)? · ([\d,]+) in \/ ([\d,]+) out tokens(?: · (\d+) requests)?$/
 const POOL = /^shared answer · (\d+)% off · ≈ ([\d,.]+) LXC$/
-const CHARGED = /^([\d,.]+) LXC charged · (.+) · ([\d,]+) in \/ ([\d,]+) out tokens(?: · (\d+) requests)?$/
+const CHARGED = /^([\d,.]+) LXC charged · (.+?)(, chosen by Auto)? · ([\d,]+) in \/ ([\d,]+) out tokens(?: · (\d+) requests)?$/
 
 export function parseFooter(raw: string): Footer {
   const text = raw.replace(/\s+/g, ' ').trim()
@@ -46,10 +48,11 @@ export function parseFooter(raw: string): Footer {
       figure: num(c[1]),
       unit: 'LXC',
       model: c[2],
-      inputTokens: num(c[3]),
-      outputTokens: num(c[4]),
-      ...(c[5] !== undefined ? { requests: Number(c[5]) } : {}),
+      inputTokens: num(c[4]),
+      outputTokens: num(c[5]),
+      ...(c[6] !== undefined ? { requests: Number(c[6]) } : {}),
       chargedULXC: Math.round(num(c[1]) * 1e6),
+      ...(c[3] !== undefined ? { auto: true as const } : {}),
     }
   }
   const p = PRICED.exec(text)
@@ -59,10 +62,11 @@ export function parseFooter(raw: string): Footer {
       figure: num(p[2]),
       unit: p[3] === ' LXC' ? 'LXC' : 'USD',
       model: p[4],
-      inputTokens: num(p[5]),
-      outputTokens: num(p[6]),
+      inputTokens: num(p[6]),
+      outputTokens: num(p[7]),
       // B28.349 — an answer that called a tool first was more than one request, each charged.
-      ...(p[7] !== undefined ? { requests: Number(p[7]) } : {}),
+      ...(p[8] !== undefined ? { requests: Number(p[8]) } : {}),
+      ...(p[5] !== undefined ? { auto: true as const } : {}),
     }
   }
   return { kind: 'unreadable', text }
