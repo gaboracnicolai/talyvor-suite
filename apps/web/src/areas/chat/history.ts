@@ -120,6 +120,58 @@ export function everyTurn(messages: readonly ChatMessage[]): ChatMessage[] {
   return messages.flatMap((m) => [m, ...(m.versions ?? []).flatMap(everyTurn)])
 }
 
+/** B28.113 — what Continue asks the model after the answer it cut off. Every provider is asked the same way: a thread
+ *  that ends on the answer itself is read as a prefill by some models and refused by others. */
+export const CONTINUE_PROMPT =
+  'Your answer above was cut off at the length limit. Continue it from exactly where it stops: do not repeat any of it, ' +
+  'do not introduce or sum it up, and if it stops inside a list or a code block, carry on inside it.'
+
+/** B28.113 — where a cut-off answer is continued from: up to its last space or line break, so a word the limit cut in two
+ *  is written again whole rather than joined to a guess. An answer with no break in it is kept whole. */
+export function continueFrom(answer: string): string {
+  const cut = /\s\S*$/.exec(answer)
+  const from = cut === null ? answer : answer.slice(0, cut.index + 1)
+  return from.trim() === '' ? answer : from
+}
+
+/** B28.113 — an answer continued from `from` with `more`: after a break, the break `more` opens with is dropped. */
+export function joinContinued(from: string, more: string): string {
+  return /\s$/.test(from) ? from + more.replace(/^\s+/, '') : from + more
+}
+
+/** B28.113 — the thread Continue sends: the cut-off answer last, to where it is continued from, then CONTINUE_PROMPT. */
+export function continuation(messages: readonly ChatMessage[]): ChatMessage[] {
+  const answer = messages[messages.length - 1]
+  if (answer?.role !== 'assistant') return [...messages]
+  return [
+    ...messages.slice(0, -1),
+    { role: 'assistant', content: continueFrom(answer.content).trimEnd() },
+    { role: 'user', content: CONTINUE_PROMPT },
+  ]
+}
+
+/** B28.113 — a cut-off answer and what Continue wrote after it, as one answer: the text joined, and both requests in its
+ *  price, its charge and its count, since each was paid for. A figure one of them lacks is not known for the whole.
+ *  Whether it is still cut off is the continuation's to say. */
+export function continuedAnswer(head: ChatMessage, more: ChatMessage): ChatMessage {
+  const a = head.cost
+  const b = more.cost
+  return {
+    ...head,
+    content: joinContinued(continueFrom(head.content), more.content),
+    cost:
+      a === undefined || b === undefined
+        ? undefined
+        : { model: b.model, input_tokens: a.input_tokens + b.input_tokens, output_tokens: a.output_tokens + b.output_tokens, usd: a.usd + b.usd },
+    charged_ulxc: head.charged_ulxc === undefined || more.charged_ulxc === undefined ? undefined : head.charged_ulxc + more.charged_ulxc,
+    requests: (head.requests ?? 1) + (more.requests ?? 1),
+    incomplete: more.incomplete,
+    spend: head.spend === undefined && more.spend === undefined ? undefined : [...(head.spend ?? []), ...(more.spend ?? [])],
+    payer: more.payer ?? head.payer,
+    auto: head.auto || more.auto ? true : undefined,
+  }
+}
+
 export function newConversationId(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()

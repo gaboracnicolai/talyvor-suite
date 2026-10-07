@@ -27,8 +27,13 @@ import {
   uploadDocument,
 } from './chatApi'
 import {
+  CONTINUE_PROMPT,
   type Conversation,
   type History,
+  continuation,
+  continueFrom,
+  continuedAnswer,
+  joinContinued,
   keptVersions,
   loadConversations,
   newConversationId,
@@ -394,9 +399,11 @@ export function Chat() {
 
   /** Streams an answer to `turn`, whose last message is the question; B28.364 — asked of `using` when given.
    *  B28.112 — `was` is the thread when the question is asked again: the answer it had, with every version of it, stays
-   *  as the new answer's earlier versions, and if no new answer comes the thread is put back as it was. */
+   *  as the new answer's earlier versions, and if no new answer comes the thread is put back as it was.
+   *  B28.113 — `head` is the cut-off answer `turn` asks the model to continue (continuation()): what comes back is added
+   *  to it, and if nothing does, it stays as it was. */
   const run = useCallback(
-    async (turn: ChatMessage[], fresh = false, using?: ChatModel, was?: ChatMessage[]) => {
+    async (turn: ChatMessage[], fresh = false, using?: ChatModel, was?: ChatMessage[], head?: ChatMessage) => {
       const target = using ?? selected
       if (target === undefined || pending) return
       const id = activeId ?? newConversationId()
@@ -410,11 +417,14 @@ export function Chat() {
       const told = project?.instructions ?? ''
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       const carry = was === undefined ? {} : keptVersions(was, turn.length)
+      // B28.113 — continued, the screen and the saved thread end on the answer, not on what Continue asked.
+      const thread = head === undefined ? turn : turn.slice(0, -2)
+      const start = head === undefined ? '' : continueFrom(head.content)
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer. B28.112 — asked again, nothing is lost: the thread stays as it was until the new version comes.
-      if (carry.versions === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject))
-      setMessages([...turn, { role: 'assistant', content: '', ...carry }])
+      if (carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject))
+      setMessages([...thread, head === undefined ? { role: 'assistant', content: '', ...carry } : { role: 'assistant', content: start, versions: head.versions, version: head.version }])
       setPending(true)
       setFailure(null)
       setUnreadable(0)
@@ -456,7 +466,7 @@ export function Chat() {
               const next = [...prev]
               const last = next[next.length - 1]
               if (last !== undefined && last.role === 'assistant') {
-                next[next.length - 1] = { ...last, content: last.content + chunk }
+                next[next.length - 1] = { ...last, content: joinContinued(start, answer) }
               }
               return next
             })
@@ -549,6 +559,13 @@ export function Chat() {
                 return next
               })
             }
+            // B28.113 — what Continue wrote, added to the answer it continues: one answer, both requests counted.
+            if (head !== undefined && answer.trim() !== '') {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1]
+                return last?.role === 'assistant' ? [...prev.slice(0, -1), continuedAnswer(head, { ...last, content: answer, incomplete })] : prev
+              })
+            }
             setPending(false)
             setUnreadable(unrecognised)
           },
@@ -570,12 +587,19 @@ export function Chat() {
         if (!failed && !controller.signal.aborted) setFailure({ text: 'No new version came back. The answer is as it was.' })
         return
       }
+      // B28.113 — continued and nothing came back: the answer is shown as it was, still cut off.
+      if (head !== undefined && answer.trim() === '') {
+        setMessages([...thread, head])
+        if (!failed && !controller.signal.aborted) setFailure({ text: 'Nothing more came back. The answer is as it was.' })
+        return
+      }
+      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...carry }
       store((list) =>
         upsertConversation(
           list,
           id,
           model,
-          [...sentTurn, { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...carry }],
+          head === undefined ? [...sentTurn, answered] : [...thread, continuedAnswer(head, answered)],
           Date.now(),
           payer,
           cap,
@@ -721,6 +745,15 @@ export function Chat() {
     const asked = messages[lastUser]
     if (refuseOverBudget(messages.slice(0, lastUser), asked.content, asked.attachments ?? [])) return
     void run(messages.slice(0, lastUser + 1), true, undefined, messages)
+  }, [messages, refuseOverBudget, run])
+
+  // B28.113 — Continue: the model is asked to go on from where it cut the last answer off, and what it writes is added to
+  // that answer. Asked afresh, so Lens never serves an earlier continuation in its place.
+  const continueAnswer = useCallback(() => {
+    const head = messages[messages.length - 1]
+    if (head?.role !== 'assistant' || head.incomplete !== 'cut_off') return
+    if (refuseOverBudget(messages, CONTINUE_PROMPT, [])) return
+    void run(continuation(messages), true, undefined, undefined, head)
   }, [messages, refuseOverBudget, run])
 
   // B28.364 — the cheaper-model hint's one click: the last question asked again of that model, which the conversation
@@ -1018,6 +1051,7 @@ export function Chat() {
                         answering={pending && i === messages.length - 1}
                         canRegenerate={!pending && i === messages.length - 1}
                         onRegenerate={regenerate}
+                        onContinue={!pending && i === messages.length - 1 && m.incomplete === 'cut_off' ? continueAnswer : undefined}
                         onVersion={pending ? undefined : (to) => switchVersion(i, to)}
                         onMarkWrong={m.request_id !== undefined ? () => markWrong(m.request_id!) : undefined}
                         onReveal={i === messages.length - 1 ? follow : undefined}
@@ -1662,6 +1696,7 @@ function Reply({
   answering,
   canRegenerate,
   onRegenerate,
+  onContinue,
   onVersion,
   onMarkWrong,
   onReveal,
@@ -1672,6 +1707,8 @@ function Reply({
   answering: boolean
   canRegenerate: boolean
   onRegenerate: () => void
+  /** B28.113 — asks the model to go on with this answer, which it cut off; absent when it cannot be continued. */
+  onContinue?: () => void
   /** B28.112 — shows another version of this answer, by its place from 0; absent while an answer is being written. */
   onVersion?: (to: number) => void
   /** B23.12 — marks the answer wrong; absent when Lens gave no id to name it by. */
@@ -1716,10 +1753,14 @@ function Reply({
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {message.incomplete === 'cut_off' ? (
             // B28.81 — the model stopped at its length limit: the answer ends mid-way, and says so.
-            <p className="mb-1 w-full text-caption text-muted" data-testid="turn-cut-off">
-              <span className="mr-1 rounded-control border border-rule px-1.5 py-0.5 text-ink">Cut off</span>{' '}
-              The model reached its length limit before it finished this answer.
-            </p>
+            // B28.113 — and Continue asks the model to go on from there.
+            <div className="mb-1 flex w-full flex-wrap items-center gap-x-3 gap-y-2">
+              <p className="text-caption text-muted" data-testid="turn-cut-off">
+                <span className="mr-1 rounded-control border border-rule px-1.5 py-0.5 text-ink">Cut off</span>{' '}
+                The model reached its length limit before it finished this answer.
+              </p>
+              {onContinue !== undefined ? <Button onClick={onContinue}>Continue</Button> : null}
+            </div>
           ) : null}
           {message.versions !== undefined && message.versions.length > 0 && onVersion !== undefined ? (
             <Versions at={message.version ?? message.versions.length} of={message.versions.length + 1} onShow={onVersion} />

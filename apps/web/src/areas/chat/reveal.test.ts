@@ -52,4 +52,17 @@ describe('useRevealedText', () => {
     expect(live.result.current.text.length).toBeLessThan(answer.length)
     expect(answer.startsWith(live.result.current.text)).toBe(true)
   })
+
+  it('B28.113 — an answer continued keeps the text it already showed, and paces only what is added', async () => {
+    const start = 'The first part of an answer, cut off '
+    const whole = start + 'in the middle of a sentence, and then it goes on for a good while longer.'
+    const hook = renderHook(({ text, live }) => useRevealedText(text, live), { initialProps: { text: start + 'mi', live: false } })
+    hook.rerender({ text: start, live: true })
+    expect(hook.result.current.text).toBe(start)
+    hook.rerender({ text: whole, live: false })
+    await act(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+    expect(hook.result.current.revealing).toBe(true)
+    expect(hook.result.current.text.startsWith(start)).toBe(true)
+    expect(hook.result.current.text.length).toBeLessThan(whole.length)
+  })
 })

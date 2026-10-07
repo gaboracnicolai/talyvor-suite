@@ -484,6 +484,39 @@ export class AppUser {
   }
 
   /**
+   * B28.368 — asks `question` with its request's max_tokens set to `max` in place of Chat's, so the model stops at its
+   * length limit, which no model does on demand. The request otherwise goes to the app server as Chat made it.
+   */
+  async askWithMaxTokens(question: string, max: number): Promise<Turn> {
+    const stream = '**/api/ai/stream/**'
+    await this.page.route(stream, async (route) => {
+      const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, unknown>
+      await route.continue({ postData: JSON.stringify({ ...body, max_tokens: max }) })
+    }, { times: 1 })
+    try {
+      return await this.ask(question)
+    } finally {
+      await this.page.unroute(stream).catch(() => undefined)
+    }
+  }
+
+  /**
+   * B28.368 — presses Continue under the last answer, which the model cut off, and reads the answer once what it added is
+   * in. Its footer then counts both requests; the first was booked when its answer was read, so it is taken back out.
+   */
+  async continueAnswer(question: string): Promise<Turn> {
+    const hold = this.reserve(0)
+    const last = this.page.locator('[data-testid="turn-assistant"]').last()
+    const cost = last.locator('[data-testid="turn-cost"]')
+    const before = new ChargeBook()
+    bookAnswer(before, this.user.workspaceID, (await cost.innerText()).trim(), this.catalog, this.usdPerLXC)
+    const earlier = before.of(this.user.workspaceID)
+    await cost.evaluate((el) => el.setAttribute('data-e2e-old', '1'))
+    await last.getByRole('button', { name: 'Continue' }).click()
+    return this.finish(question, last, hold, () => this.book.add(this.user.workspaceID, -earlier.ulxc, 0, -earlier.count))
+  }
+
+  /**
    * B28.366 — presses Edit on the `nth` question (from 0), puts `question` in its place and sends it: the thread is asked
    * again from that turn, and the turns after it are dropped. Reads the new answer, the `nth` answer in the thread.
    */
@@ -517,7 +550,8 @@ export class AppUser {
     return this.cap.reserve(listPriceUSD(m, worstIn, CHAT_MAX_OUTPUT_TOKENS))
   }
 
-  private async finish(question: string, turn: Locator, hold: Hold): Promise<Turn> {
+  /** `rebooked`, B28.368 — called once the answer's footer is booked, for a footer that counts a request booked before. */
+  private async finish(question: string, turn: Locator, hold: Hold, rebooked?: () => void): Promise<Turn> {
     const footer = turn.locator('[data-testid="turn-cost"]:not([data-e2e-old])')
     // The Chat screen's own failure line sits beside the turns (Chat.tsx); nothing else on the page.
     const alert = this.page.locator('ol ~ p[role="alert"]')
@@ -556,6 +590,7 @@ export class AppUser {
     }), (text) => {
       const booked = bookAnswer(this.book, this.user.workspaceID, text, this.catalog, this.usdPerLXC)
       this.cap.settle(hold, booked.costUSD)
+      rebooked?.()
       return booked
     })
     this.conversationChars += question.length + read.answer.length
