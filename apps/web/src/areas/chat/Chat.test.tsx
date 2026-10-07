@@ -638,6 +638,40 @@ describe('conversation history', () => {
     expect(loadConversations('user-a').list[0]?.title).toBe('Geography')
   })
 
+  it('B28.108 — a word from an old answer finds its conversation among 500, and opens it', async () => {
+    const convs: Conversation[] = Array.from({ length: 500 }, (_, i) => ({
+      id: `c${i}`,
+      title: `Question ${i}`,
+      renamed: false,
+      model_id: 'gpt-4o',
+      created_at: i + 1,
+      updated_at: i + 1,
+      messages: [
+        { role: 'user', content: `Question ${i}` },
+        { role: 'assistant', content: i === 0 ? 'The ferry to the island leaves at dawn from Pier 9.' : `An answer about topic ${i}.` },
+      ],
+    }))
+    window.localStorage.setItem(historyKey('user-a'), JSON.stringify(convs))
+    mockChat()
+    renderChat()
+    // The oldest of the 500 is last in the list; its title does not hold the word, only its answer does.
+    const box = await screen.findByRole('searchbox', { name: 'Search conversations' })
+    fireEvent.change(box, { target: { value: 'FERRY' } })
+    const found = await screen.findByRole('list', { name: 'Conversations found' })
+    expect(within(found).getAllByRole('button').map((b) => b.querySelector('span')?.textContent)).toEqual(['Question 0'])
+    expect(found.previousElementSibling?.textContent).toBe('1 of 500 conversations')
+    expect(within(found).getByTestId('search-excerpt').textContent).toBe('The ferry to the island leaves at dawn from Pier 9.')
+    expect(found.querySelector('mark')?.textContent).toBe('ferry')
+
+    fireEvent.click(within(found).getByRole('button'))
+    await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('The ferry to the island'))
+
+    // Every word must be there; a word that is nowhere says so rather than showing an empty list.
+    fireEvent.change(box, { target: { value: 'ferry submarine' } })
+    expect(await screen.findByText('No conversation mentions “ferry submarine”.')).toBeTruthy()
+    expect(screen.queryByRole('list', { name: 'Conversations found' })).toBeNull()
+  })
+
   it('deletes only after a confirm, and only the one asked for', async () => {
     seed('user-a', { id: 'a', title: 'Older', updated_at: 1 }, { id: 'b', title: 'Newer', updated_at: 2 })
     mockChat()

@@ -656,6 +656,69 @@ export function sentBeforeIdentity(seed: number): Scenario {
   }
 }
 
+/** B28.108 — 500 conversations in this browser; a word only the oldest one's answer holds is typed into Search
+ *  conversations, and that conversation, alone, is found and opens on it. The 500 are written into this browser's
+ *  history beside the person's own and taken out again after, so this asks no model and costs nothing. */
+export function searchAmong500(seed: number): Scenario {
+  const word = `kestrel${seed}x${Date.now().toString(36)}`
+  return {
+    id: 'search-among-500',
+    owner: 'talyvor-suite',
+    title: 'a word from an old answer finds its conversation among 500',
+    run: async (ctx) => {
+      const page = await ctx.app.context.newPage()
+      let restore: { key: string; prior: string | null } | null = null
+      try {
+        await page.goto(new URL('/chat', ctx.app.page.url()).toString())
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        // Chat keeps history under who /auth/me says is signed in (apps/web Chat.tsx's scope).
+        restore = await page.evaluate(async (w) => {
+          const me = (await (await fetch('/auth/me')).json()) as { mode?: string; workspace_id?: string; user?: { sub?: string } }
+          const scope = me.user?.sub ?? me.workspace_id ?? (me.mode === 'disabled' ? 'local' : null)
+          if (scope === null) return null
+          const key = `talyvor.chat.v1:${scope}`
+          const prior = localStorage.getItem(key)
+          // Older than anything the person made, so the conversation Chat reopens is still theirs.
+          const seeded = Array.from({ length: 500 }, (_, n) => ({
+            id: `e2e-search-${n}`, title: `Seeded question ${n}`, renamed: false, model_id: 'e2e', created_at: n + 1, updated_at: n + 1,
+            messages: [
+              { role: 'user', content: `Seeded question ${n}` },
+              { role: 'assistant', content: n === 0 ? `The ${w} nests on the north cliff every spring.` : `Seeded answer ${n} about something else.` },
+            ],
+          }))
+          localStorage.setItem(key, JSON.stringify([...(JSON.parse(prior ?? '[]') as unknown[]), ...seeded]))
+          return { key, prior }
+        }, word)
+        if (restore === null) return { pass: false, detail: '/auth/me named nobody, so Chat keeps no history to search' }
+        await page.reload()
+        const box = page.getByRole('searchbox', { name: 'Search conversations' })
+        await box.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        await box.fill(word.toUpperCase())
+        const found = page.getByRole('list', { name: 'Conversations found' })
+        await found.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        const titles = await found.locator('li > button > span:first-child').allInnerTexts().catch(() => [] as string[])
+        const rows = await found.getByRole('button').count()
+        const said = (await page.getByRole('status').filter({ hasText: /of \d+ conversations?|No conversation mentions/ }).first().innerText().catch(() => '')).trim()
+        const excerpt = (await found.getByTestId('search-excerpt').first().innerText().catch(() => '')).trim()
+        ctx.evidence.push({ note: `searched "${word.toUpperCase()}": ${rows} found [${titles.join(', ')}]; "${said}"; excerpt "${excerpt}"` })
+        if (rows !== 1) return { pass: false, detail: `the word only one answer among 500 holds found ${rows} conversations ("${said}")` }
+        if (!excerpt.includes(word)) return { pass: false, detail: `the one found does not show where the word is: "${excerpt}"` }
+        await found.getByRole('button').first().click()
+        const opened = await page.locator('[data-testid="turn-assistant"]').filter({ hasText: word }).first()
+          .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!opened) return { pass: false, detail: 'choosing the conversation found did not open it on its answer' }
+        return { pass: true, detail: `one of 500 found by a word from its answer ("${said}") and opened on it` }
+      } finally {
+        if (restore !== null) {
+          await page.evaluate(({ key, prior }) => (prior === null ? localStorage.removeItem(key) : localStorage.setItem(key, prior)), restore)
+            .catch(() => undefined)
+        }
+        await page.close().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /** B28.266 — Royalties (the old /earnings address), Members, Setup and API keys, each opened cold in a tab of
  *  its own as a person opens a bookmark: at the load event each already shows its heading, and once its
  *  reads answer none is left on "Loading…". Then on API keys a key is created: its name field is empty
@@ -2971,7 +3034,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.358 — then a repeat in a new chat, and Saved in this chat totals what its answer's headers said it saved.
     case 1: list.push(repeatInNewChat(i), chatSavingsPanel(i)); break
     // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
-    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i)); break
+    // B28.108 — and a word from an old answer finding its conversation among 500.
+    case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i), searchAmong500(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
     // B32.53 — and a private room opened on /rooms/new: Lens's, in Chat's rail and the directory, 404 to another company.
     case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i)); break
