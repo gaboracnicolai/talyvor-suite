@@ -1,5 +1,5 @@
 import { ApiError, readableList } from '../../lib/api'
-import { type ToolCallPiece, type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
+import { type Citation, type ToolCallPiece, type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
 import type { AnswerCost, AnswerSource } from './price'
 import { PROMPT_RESOLVED_HEADER, promptReference } from './promptLibrary'
 
@@ -126,6 +126,9 @@ export interface ChatMessage {
   version?: number
   /** B28.370 — on an answer in a chat that uses a named prompt: which, and whether Lens said it swapped it in. */
   prompt?: AnswerPrompt
+  /** B28.372 — on an answer asked with Search the web on: the pages Lens searched and gave the model, by the number the
+   *  answer cites each with (chatStream.ts CITATIONS_FRAME); empty when none came back. Screen-side only. */
+  citations?: Citation[]
 }
 
 /** B28.370 — the named prompt an answer was asked with, and whether Lens's answer said it used it. */
@@ -159,6 +162,10 @@ export const CONVERSATION_BUDGET_HEADER = 'X-Talyvor-Conversation-Budget-ULXC'
 /** B28.362 — asks Lens to say in the stream what it charged for the answer (chatStream.ts CHARGE_FRAME). */
 export const REPORT_CHARGE_HEADER = 'X-Talyvor-Report-Charge'
 
+/** B28.372 — `on` asks Lens to search the web before the model answers, and to say in the stream which pages it gave the
+ *  model (chatStream.ts CITATIONS_FRAME; talyvor-lens B28.118). */
+export const WEB_SEARCH_HEADER = 'X-Talyvor-Web-Search'
+
 /** B28.361 — which conversation a request is part of, and its budget in µLXC when it has one. */
 export interface ConversationTag {
   id: string
@@ -167,6 +174,8 @@ export interface ConversationTag {
   instructions?: string
   /** B28.370 — the named prompt from the library the conversation uses, sent by name for Lens to swap in. */
   prompt?: string
+  /** B28.372 — Search the web is on for this question: Lens searches first and the answer cites the pages. */
+  web_search?: boolean
 }
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read. */
@@ -613,6 +622,8 @@ export interface StreamHandlers {
     chargedULXC?: number
     /** B28.370 — Lens said it swapped the conversation's named prompt in (X-Talyvor-Prompt-Resolved: true). */
     promptResolved?: boolean
+    /** B28.372 — the pages Lens searched and gave the model, when it said; for askChat, the last request's that said. */
+    citations?: Citation[]
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
@@ -666,6 +677,7 @@ export async function streamChat(
       ...(conversation !== undefined ? { [CONVERSATION_HEADER]: conversation.id } : {}),
       ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),
       [REPORT_CHARGE_HEADER]: 'true',
+      ...(conversation?.web_search === true ? { [WEB_SEARCH_HEADER]: 'on' } : {}),
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions, conversation?.prompt)),
     signal,
@@ -716,6 +728,7 @@ export async function streamChat(
   let served: string | undefined
   let finish: string | undefined
   let charged: number | undefined
+  let citations: Citation[] | undefined
   // B28.349 — the tool calls arriving in pieces, by their index in the answer.
   const pieces = new Map<number, ToolCall>()
   const gather = (p: ToolCallPiece) => {
@@ -741,6 +754,7 @@ export async function streamChat(
         served = got.model ?? served
         finish = got.finish ?? finish
         charged = got.charged_ulxc ?? charged
+        citations = got.citations ?? citations
         if (got.error !== undefined) {
           handlers.onError(got.error)
           return
@@ -748,7 +762,7 @@ export async function streamChat(
         for (const d of got.deltas) handlers.onDelta(d.text)
         for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations })
           return
         }
       }
@@ -763,7 +777,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations })
 }
 
 /** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */
@@ -812,6 +826,8 @@ export async function askChat(
   let charged: number | undefined = 0
   let unrecognised = 0
   let written = false
+  // B28.372 — the pages Lens last said it searched, over every request the question took.
+  let citations: Citation[] | undefined
   const spend: SpendLine[] = []
   for (let round = 1; ; round++) {
     let said = ''
@@ -847,10 +863,11 @@ export async function askChat(
     tare = addTare(tare, done.tare)
     charged = charged === undefined || done.chargedULXC === undefined ? undefined : charged + done.chargedULXC
     unrecognised += done.unrecognised
+    citations = done.citations ?? citations
     billed = billed === null || billed === done.paidBy ? done.paidBy : undefined
     const calls = done.toolCalls ?? []
     if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
-      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
+      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, citations, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}) })
       return
     }
     const results = await Promise.all(calls.map((c) => callChatTool(c, signal)))

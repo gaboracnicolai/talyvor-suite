@@ -64,6 +64,7 @@ type streamUpstream struct {
 	gotConversation string
 	gotBudget       string
 	gotReportCharge string // B28.362 — X-Talyvor-Report-Charge as Lens received it
+	gotWebSearch    string // B28.372 — X-Talyvor-Web-Search as Lens received it
 	gotFeature      string // B28.106 — X-Talyvor-Feature as Lens received it
 	refuse          string
 	answerHeaders   map[string]string // set on the proxied answer, as Lens does on a cache serve
@@ -120,6 +121,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotConversation = r.Header.Get("X-Talyvor-Conversation-ID")
 			u.gotBudget = r.Header.Get("X-Talyvor-Conversation-Budget-ULXC")
 			u.gotReportCharge = r.Header.Get("X-Talyvor-Report-Charge")
+			u.gotWebSearch = r.Header.Get("X-Talyvor-Web-Search")
 			u.gotFeature = r.Header.Get("X-Talyvor-Feature")
 			if u.refuse != "" {
 				w.Header().Set("Content-Type", "application/json")
@@ -146,6 +148,9 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			if u.noBlock {
 				if u.gotReportCharge == "true" {
 					_, _ = io.WriteString(w, chargeFrame) // as Lens does when asked what it charged
+				}
+				if u.gotWebSearch == "on" {
+					_, _ = io.WriteString(w, citationsFrame) // as Lens does when asked to search the web
 				}
 				_, _ = io.WriteString(w, "data: two\n\n")
 				if fl != nil {
@@ -1168,6 +1173,49 @@ func TestStream_TheAskForTheChargeReachesLensAndItsFrameReachesTheChat(t *testin
 			}
 			if got := strings.Contains(string(body), chargeFrame); got != (tc.wantUp == "true") {
 				t.Fatalf("the chat received %q: the charge frame there is %v, want %v", body, got, tc.wantUp == "true")
+			}
+		})
+	}
+}
+
+// citationsFrame is the frame Lens adds to name the pages it searched and gave the model (apps/web chatStream.ts
+// CITATIONS_FRAME).
+const citationsFrame = "event: talyvor.citations\ndata: {\"type\":\"talyvor.citations\",\"citations\":[{\"n\":1,\"url\":\"https://news.example/a\"},{\"n\":2,\"url\":\"https://news.example/b\"}]}\n\n"
+
+// B28.372 — Chat's Search the web reaches Lens (only the one value), and the frame naming the pages Lens searched
+// reaches the chat as Lens wrote it.
+func TestStream_SearchTheWebReachesLensAndItsSourcesReachTheChat(t *testing.T) {
+	for _, tc := range []struct {
+		name, sent, wantUp string
+	}{
+		{"on", "on", "on"},
+		{"off", "", ""},
+		{"any other value is not forwarded", "everything", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newStreamUpstream(t)
+			up.noBlock = true
+			a, sess := streamApp(t, up)
+			ts := httptest.NewServer(a)
+			defer ts.Close()
+			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+			req.AddCookie(sess)
+			req.Header.Set("Origin", "https://app.talyvor.com")
+			req.Header.Set("Content-Type", "application/json")
+			if tc.sent != "" {
+				req.Header.Set("X-Talyvor-Web-Search", tc.sent)
+			}
+			resp, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatalf("do: %v", err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if up.gotWebSearch != tc.wantUp {
+				t.Fatalf("Lens received X-Talyvor-Web-Search %q, want %q", up.gotWebSearch, tc.wantUp)
+			}
+			if got := strings.Contains(string(body), citationsFrame); got != (tc.wantUp == "on") {
+				t.Fatalf("the chat received %q: the sources frame there is %v, want %v", body, got, tc.wantUp == "on")
 			}
 		})
 	}

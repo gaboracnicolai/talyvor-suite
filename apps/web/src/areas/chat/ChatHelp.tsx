@@ -169,6 +169,18 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    heading: 'Searching the web',
+    body: (
+      <>
+        <p>
+          Search the web sits beside Attach. While it is on, each question is answered from a search of the web, and
+          the pages the answer used are listed under it as its sources, numbered as the answer cites them. Each opens
+          in a new tab. It stays on for every question until you turn it off.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'What an answer costs',
     body: (
       <>

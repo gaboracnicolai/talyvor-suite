@@ -58,6 +58,7 @@
 //   key-listed  — the workspace's list of API keys shows each key whole (B28.287)
 //   ratelimit-open — the rate limiter lets every request through, as Lens's does when Redis errors and it fails open (B28.288)
 //   retry-after — a request the rate limiter refuses is answered 429 without Retry-After (B28.288)
+//   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -334,6 +335,12 @@ function shrink(v: unknown): unknown {
 
 /** B28.368 — what Chat's Continue asks after an answer cut off at the length limit (apps/web history.ts CONTINUE_PROMPT). */
 const CONTINUE = /^Your answer above was cut off at the length limit\./
+
+/** talyvor-lens B28.118 — what a web search "finds": two news pages, served by this stub at their paths. */
+const WEB_PAGES = [
+  { path: '/web/news/rates', title: 'Central bank holds rates' },
+  { path: '/web/news/markets', title: 'Markets close higher' },
+]
 
 /** The stand-in model: arithmetic, capitals, and the harness's own fixed prompts. */
 function think(messages: Msg[]): string {
@@ -633,6 +640,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   let answer: string
   let charge = 0
   let fee = 0
+  // talyvor-lens B28.118 — Chat's Search the web (X-Talyvor-Web-Search: on): two pages "found", which this stub serves.
+  const searched = req.headers['x-talyvor-web-search'] === 'on' && !broke('web-search')
   // talyvor-lens B28.102 — what a model's answer was charged, said in the stream; STUB_BREAK=charge says a µLXC more.
   let charged: number | undefined
   // B28.368 — the answer stopped at max_tokens, as a model's does.
@@ -681,6 +690,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     }
   } else {
     answer = think(messages)
+    // talyvor-lens B28.118 — searched first, the answer cites the pages it was given.
+    if (searched) answer += ' [1] [2]'
     if (body.max_tokens !== undefined && tokens(answer) > body.max_tokens) {
       answer = answer.slice(0, body.max_tokens * 4)
       cut = true
@@ -718,6 +729,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   res.writeHead(200, { 'Content-Type': 'text/event-stream', ...headers })
   const pieces = answer.match(/.{1,12}/gs) ?? ['']
   const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  // talyvor-lens B28.118 — the pages it searched, first, on either writer (apps/web chatStream.ts CITATIONS_FRAME).
+  if (searched) send('talyvor.citations', { type: 'talyvor.citations', citations: WEB_PAGES.map((p, i) => ({ n: i + 1, url: `${BASE}${p.path}`, title: p.title })) })
   const sayCharged = () => {
     if (charged !== undefined && req.headers['x-talyvor-report-charge'] === 'true') send('talyvor.charge', { type: 'talyvor.charge', charged_ulxc: charged })
   }
@@ -855,6 +868,12 @@ createServer(async (req, res) => {
   try {
     // B28.285 — Lens's /healthz: how long it has been up, which the testers read to tell a restart.
     if (p === '/healthz') return json(res, 200, { status: 'healthy', uptime_seconds: Math.floor(process.uptime()), version: 'stub' })
+    // talyvor-lens B28.118 — the web pages a search "finds", so a cited link opens.
+    const page = WEB_PAGES.find((w) => w.path === p)
+    if (page !== undefined) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      return void res.end(`<!doctype html><title>${page.title}</title><h1>${page.title}</h1>`)
+    }
     if (p === '/.well-known/openid-configuration') {
       return json(res, 200, { issuer: BASE, authorization_endpoint: `${BASE}/authorize`, token_endpoint: `${BASE}/token`,
         jwks_uri: `${BASE}/jwks`, id_token_signing_alg_values_supported: ['RS256'] })

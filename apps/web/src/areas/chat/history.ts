@@ -171,6 +171,7 @@ export function continuedAnswer(head: ChatMessage, more: ChatMessage): ChatMessa
     spend: head.spend === undefined && more.spend === undefined ? undefined : [...(head.spend ?? []), ...(more.spend ?? [])],
     payer: more.payer ?? head.payer,
     auto: head.auto || more.auto ? true : undefined,
+    citations: head.citations ?? more.citations,
   }
 }
 

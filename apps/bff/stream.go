@@ -308,6 +308,10 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			if strings.EqualFold(strings.TrimSpace(r.Header.Get(reportChargeHeader)), "true") {
 				up.Header.Set(reportChargeHeader, "true")
 			}
+			// B28.372 — Search the web is on for this question. Only the one value is forwarded.
+			if strings.EqualFold(strings.TrimSpace(r.Header.Get(webSearchHeader)), "on") {
+				up.Header.Set(webSearchHeader, "on")
+			}
 			return a.streamClient.Do(up)
 		}
 
@@ -411,6 +415,11 @@ const (
 // reportChargeHeader asks Lens to add, before the stream's terminator, a frame saying what it charged for the answer
 // (B28.362; the frame is apps/web chatStream.ts CHARGE_FRAME). The frame passes through relayFlushing untouched.
 const reportChargeHeader = "X-Talyvor-Report-Charge"
+
+// webSearchHeader asks Lens to search the web before the model answers and to add a frame naming the pages it gave the
+// model (B28.372; the frame is apps/web chatStream.ts CITATIONS_FRAME, talyvor-lens B28.118). It too passes through
+// relayFlushing untouched.
+const webSearchHeader = "X-Talyvor-Web-Search"
 
 // featureHeader is the tag Lens groups spend by (token_events.feature, /v1/api/spend/by-feature), and chatFeature
 // Chat's tag on it (B28.106). The cheaper-model hint asks Lens for the same cohort (routing.go).
