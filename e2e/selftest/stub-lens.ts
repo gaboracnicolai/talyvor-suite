@@ -133,6 +133,8 @@ interface Workspace {
   guardrails: Record<string, unknown> & { enable_injection: boolean; enable_pii: boolean }
   budgets: Budget[]
   usage: { total: number; hits: number; pooled: number; converted: number }
+  /** B28.365 — the person's chat history, sealed in their browser: talyvor-lens B28.107's one versioned copy per workspace. */
+  history?: { version: number; salt: string; iv: string; ciphertext: string; updated_at: string }
   /** B28.106 — each charged request's feature tag (X-Talyvor-Feature) and provider USD: Lens's token_events, as Spend by feature groups them. */
   tagged: { feature: string; cost_usd: number; at: number }[]
   plan?: { id: string; cancel: boolean; byok?: boolean }
@@ -860,6 +862,26 @@ createServer(async (req, res) => {
         return json(res, 200, { month_start: start.toISOString(), saved_usd: 0, list_usd: usd, charged_usd: usd, requests: n, unmeasured_requests: 0 })
       }
       if (rest === '/deletion-requests') return json(res, 200, { requests: [] })
+      // B28.365 — the sealed chat history as talyvor-lens B28.107 keeps it: the strings as they arrive, the stored version + 1 on
+      // a PUT over the stored version, 409 over any other, version 0 while none is stored. STUB_BREAK=sync answers a PUT and keeps nothing.
+      if (rest === '/chat-history') {
+        const h = ws.history ?? { version: 0, salt: '', iv: '', ciphertext: '', updated_at: null }
+        if (req.method === 'GET') return json(res, 200, h)
+        if (req.method === 'DELETE') {
+          ws.history = undefined
+          return json(res, 200, { deleted: true })
+        }
+        if (req.method === 'PUT') {
+          const b = JSON.parse((await read(req)) || '{}') as { base_version?: unknown; salt?: unknown; iv?: unknown; ciphertext?: unknown }
+          if (typeof b.base_version !== 'number' || [b.salt, b.iv, b.ciphertext].some((x) => typeof x !== 'string' || x === '')) {
+            return json(res, 400, { error: 'base_version, salt, iv and ciphertext required' })
+          }
+          if (b.base_version !== h.version) return json(res, 409, { error: 'another device stored a newer copy of this history', version: h.version })
+          const next = { version: h.version + 1, salt: b.salt as string, iv: b.iv as string, ciphertext: b.ciphertext as string, updated_at: new Date().toISOString() }
+          if (!BREAK.split(',').includes('sync')) ws.history = next
+          return json(res, 200, { version: next.version, updated_at: next.updated_at })
+        }
+      }
       // Pattern mining is off on production (LENS_PATTERN_MINING_ENABLED): an opt-in either way is refused.
       if (rest === '/pattern-mining/opt-in' && req.method !== 'GET') return json(res, 503, { error: 'pattern mining is not enabled on this deployment' })
       if (rest === '/pattern-mining/opt-in') return json(res, 200, { enabled: false, opted_in: false })

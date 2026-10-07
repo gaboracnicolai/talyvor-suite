@@ -1684,6 +1684,139 @@ export function chatFeatureSpend(seed: number): Scenario {
   }
 }
 
+/** B28.365 — a question asked in `page`'s open conversation and answered in the browser for nothing, as sent-before-identity does. */
+async function madeUpTurn(page: Page, env: RunEnv, question: string): Promise<void> {
+  const shownModel = ((await page.locator('button[aria-label^="Model: "]').first().getAttribute('aria-label')) ?? '').replace(/^Model: /, '')
+  const provider = env.catalog.find((m) => m.display_name === shownModel)?.provider ?? 'anthropic'
+  await page.route('**/api/ai/stream/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/event-stream', body: madeUpAnswer(provider, 'Noted.', false) }), { times: 1 })
+  await page.locator('#chat-message').fill(question)
+  await page.locator('#chat-message').press('Enter')
+  await page.getByRole('list', { name: 'Saved conversations' }).getByRole('button', { name: question }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+  await page.getByRole('button', { name: 'Send' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+}
+
+/** B28.365 — Chat's sync panel under the conversations: "on" or "off" once it has finished whatever it was doing. */
+async function syncPanel(page: Page): Promise<{ state: string; text: string }> {
+  const panel = page.getByTestId('history-sync').first()
+  await panel.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+  await page.waitForFunction(() => !/syncing…|Turning on…/.test(document.querySelector('[data-testid="history-sync"]')?.textContent ?? ''), undefined, { timeout: ACTION_TIMEOUT_MS })
+  return { state: (await panel.getAttribute('data-sync')) ?? '', text: (await panel.innerText()).replace(/\s+/g, ' ').trim() }
+}
+
+async function turnOnHistorySync(page: Page, passphrase: string): Promise<{ state: string; text: string }> {
+  await page.getByRole('button', { name: 'Sync across devices' }).click()
+  await page.getByLabel('Sync passphrase').fill(passphrase)
+  await page.getByRole('button', { name: 'Turn on sync' }).click()
+  await page.locator('[data-testid="history-sync"][data-sync="on"], [data-testid="history-sync"] [role="alert"]').first()
+    .waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+  return syncPanel(page)
+}
+
+/**
+ * B28.365 — history synced across devices, encrypted, when the person turns it on (talyvor-lens B28.107 keeps the copy).
+ * A chat made on the laptop with sync on is in the phone's list once the phone turns sync on with the same passphrase, and
+ * not before; Lens holds a copy in which its words cannot be found. Off, it stays local: the laptop stops syncing, makes
+ * another chat, and neither Lens's copy nor the phone ever sees it. Answers are made up in the browser, so this costs nothing.
+ */
+export function chatHistorySync(seed: number): Scenario {
+  return {
+    id: 'chat-history-sync',
+    owner: 'talyvor-suite',
+    title: 'a chat made on one device appears on another once both sync with one passphrase; off, it stays local',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const stamp = `${seed}-${Date.now().toString(36)}`
+      const synced = `Synced across devices ${stamp}`
+      const local = `Kept on this device ${stamp}`
+      const passphrase = `e2e passphrase ${stamp}`
+      const laptop = app.page
+      const listed = (page: Page, q: string) => page.getByRole('list', { name: 'Saved conversations' }).getByRole('button', { name: q })
+
+      await app.newChat()
+      await madeUpTurn(laptop, env, synced)
+      const on = await turnOnHistorySync(laptop, passphrase)
+      ctx.evidence.push({ note: `the laptop turned sync on: [${on.text}]` })
+      if (/not available on this deployment/.test(on.text)) throw new CannotTest('Lens has no /chat-history yet (talyvor-lens B28.107)')
+      if (on.state !== 'on') return { pass: false, detail: `turning sync on left it off: [${on.text}]` }
+      const stored = await env.lens.chatHistory(app.user)
+      const plain = Buffer.from(stored.ciphertext, 'base64').toString('latin1')
+      ctx.evidence.push({ note: `Lens's copy: version ${stored.version}, salt ${stored.salt}, ${stored.ciphertext.length} characters of ciphertext` })
+      if (stored.version < 1 || stored.ciphertext === '') return { pass: false, detail: `sync is on and Lens holds no copy (version ${stored.version})` }
+      if ([stored.salt, stored.iv, stored.ciphertext, plain].some((x) => x.includes(stamp))) {
+        return { pass: false, detail: `the question's words are readable in the copy Lens holds (version ${stored.version})` }
+      }
+
+      const phone = await env.signInUser(app.user.index)
+      try {
+        const phoneSync: string[] = []
+        phone.page.on('request', (r) => {
+          if (new URL(r.url()).pathname === '/api/chat/history-sync') phoneSync.push(r.method())
+        })
+        const off = await syncPanel(phone.page)
+        const seenOff = await listed(phone.page, synced).isVisible()
+        ctx.evidence.push({ note: `the phone before turning sync on: [${off.text}]; the chat listed=${seenOff}; sync calls ${phoneSync.length}` })
+        if (off.state !== 'off' || seenOff) return { pass: false, detail: `a device that never turned sync on ${seenOff ? 'lists the laptop\'s chat' : `shows sync ${off.state}`}` }
+        if (phoneSync.length > 0) return { pass: false, detail: `a device with sync off called /api/chat/history-sync ${phoneSync.length} times` }
+
+        const phoneOn = await turnOnHistorySync(phone.page, passphrase)
+        const appeared = await listed(phone.page, synced).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        ctx.evidence.push({ note: `the phone turned sync on: [${phoneOn.text}]; the laptop's chat listed=${appeared}` })
+        if (!appeared) return { pass: false, detail: `the phone turned sync on with the laptop's passphrase and does not list its chat: [${phoneOn.text}]` }
+        await listed(phone.page, synced).click()
+        await phone.page.locator('[data-testid="turn-user"]').filter({ hasText: synced }).first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+
+        await mkdir(env.outDir, { recursive: true })
+        const wide = join(env.outDir, `chat-history-sync-1440px-user${app.user.index}.png`)
+        const narrow = join(env.outDir, `chat-history-sync-390px-user${app.user.index}.png`)
+        await phone.page.setViewportSize({ width: 1440, height: 900 })
+        // The open conversation's mark fades in over 200 ms.
+        await phone.page.waitForTimeout(400)
+        await phone.page.screenshot({ path: wide })
+        await phone.page.setViewportSize({ width: 390, height: 844 })
+        await phone.page.getByRole('button', { name: 'Conversations' }).click()
+        await phone.page.getByTestId('history-sync').last().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        await phone.page.waitForTimeout(400)
+        await phone.page.screenshot({ path: narrow })
+        await phone.page.keyboard.press('Escape')
+        await phone.page.setViewportSize({ width: 1440, height: 900 })
+        ctx.evidence.push({ note: `the phone's list with sync on at 1440px: ${wide}; at 390px: ${narrow}` })
+
+        // Off, it stays local.
+        await laptop.getByRole('button', { name: 'Stop syncing here' }).click()
+        const stopped = await syncPanel(laptop)
+        const before = await env.lens.chatHistory(app.user)
+        const laptopSync: string[] = []
+        const watchLaptop = (r: Request) => {
+          if (new URL(r.url()).pathname === '/api/chat/history-sync') laptopSync.push(r.method())
+        }
+        laptop.on('request', watchLaptop)
+        try {
+          await app.newChat()
+          await madeUpTurn(laptop, env, local)
+          // Longer than the wait after a change before a sync starts.
+          await laptop.waitForTimeout(2_500)
+        } finally {
+          laptop.off('request', watchLaptop)
+        }
+        const after = await env.lens.chatHistory(app.user)
+        await phone.page.getByRole('button', { name: 'Sync now' }).click()
+        const phoneNow = await syncPanel(phone.page)
+        const leaked = await listed(phone.page, local).isVisible()
+        ctx.evidence.push({ note: `the laptop stopped syncing [${stopped.text}] and made another chat: sync calls ${laptopSync.length}; Lens's copy version ${before.version} → ${after.version}; the phone after Sync now [${phoneNow.text}] lists it=${leaked}` })
+        if (stopped.state !== 'off') return { pass: false, detail: `"Stop syncing here" left sync ${stopped.state}: [${stopped.text}]` }
+        if (laptopSync.length > 0 || after.version !== before.version) {
+          return { pass: false, detail: `with sync off the laptop called sync ${laptopSync.length} times and Lens's copy went from version ${before.version} to ${after.version}` }
+        }
+        if (leaked) return { pass: false, detail: 'a chat made with sync off on the laptop is listed on the phone' }
+        return { pass: true, detail: `the laptop's chat is on the phone once it synced with the same passphrase (Lens's copy v${stored.version}, its words not in it); with sync off the laptop's next chat stayed on the laptop` }
+      } finally {
+        await phone.close()
+      }
+    },
+  }
+}
+
 /** An LXC figure as Chat prints it ("149.99838 LXC", "1,204.5 LXC"), in µLXC. */
 function lxcFigure(text: string): number | undefined {
   const n = Number(text.replace(/LXC|,|\s/g, ''))
@@ -2863,7 +2996,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.362 — and the figure under an answer, what Lens charged: its spend row.
     // B28.104 — and the meter under the box, dropped by that charge: Lens's allowance and balance.
     // B28.106 — and Spend by feature listing chat, up by that question's request and charge.
-    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i), chatMeter(i), chatFeatureSpend(i)); break
+    // B28.365 — and the history synced to another device of the same person's, encrypted, and kept local while off.
+    case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i), chatMeter(i), chatFeatureSpend(i), chatHistorySync(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
     // B29.6 — sign-in and sign-up in the brand, signed out.
     case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
