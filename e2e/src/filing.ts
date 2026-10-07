@@ -13,6 +13,7 @@
 // its numbers are taken out — they are one cause, and one item, carrying each scenario's marker.
 
 import { appendFile, readFile } from 'node:fs/promises'
+import { ASK_MARKER, type CodeReport } from './code.ts'
 import { type EdgeReport, edgeMarker, failedNow } from './edge.ts'
 import { networkDrop } from './oracles.ts'
 import type { ReportedRun } from './report.ts'
@@ -253,5 +254,47 @@ export async function fileEdgeItems(path: string, edge: EdgeReport, reportFile: 
   if (f.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + f.append)
   const item = new Map([...f.filed, ...f.covered.map((c) => ({ id: c.by, scenario: c.scenario }))].map((x) => [x.scenario, x.id]))
   for (const w of edge.workflows.filter(failedNow)) w.item = item.get(edgeMarker(w))
+  return f
+}
+
+// B34.10 — Talyvor Code: a broken `ask` files one item for talyvor-code, once.
+
+/** The item a night's broken `ask` calls for, against BUILD.md as it stands. Pure. */
+export function codeItemsFor(buildMd: string, code: CodeReport, reportFile: string): EdgeFiling {
+  const out: EdgeFiling = { append: '', filed: [], covered: [] }
+  const ask = code.calls.find((c) => c.command === 'ask')
+  if (ask?.state !== 'failed') return out
+  const by = coveredScenarios(buildMd).get(ASK_MARKER)
+  if (by !== undefined) {
+    out.covered.push({ scenario: ASK_MARKER, by })
+    return out
+  }
+  const id = `B17.${nextB17(buildMd)}`
+  out.append = [
+    '',
+    `## ${id} — the testers found it: Talyvor Code's \`ask\` is broken on main`,
+    'repo: talyvor-code · deps: none · status: OPEN',
+    `Filed by the e2e run of ${code.read_at.slice(0, 10)} (${reportFile}): talyvor-code's main${code.commit === undefined ? '' : ` at ${code.commit}`}, ` +
+      `built and run as \`talyvor-code ask --file calc.go\` on the testers' fixture repository, on synthetic agent ${code.agent ?? '(none)'}'s own key ` +
+      `in workspace ${code.workspace ?? '(none)'}: ${ask.detail}.`,
+    `e2e-scenario: ${ASK_MARKER}`,
+    "DONE = the next nightly's `ask` answers with the number only the fixture's file holds, as one charge on the agent's statement and none on the workspace.",
+    '',
+  ].join('\n')
+  out.filed.push({ id, scenario: ASK_MARKER })
+  return out
+}
+
+/** Appends a broken `ask`'s item to BUILD.md at `path` and notes it on the section. A missing BUILD.md files nothing. */
+export async function fileCodeItems(path: string, code: CodeReport, reportFile: string): Promise<EdgeFiling | undefined> {
+  let buildMd: string
+  try {
+    buildMd = await readFile(path, 'utf8')
+  } catch {
+    return undefined
+  }
+  const f = codeItemsFor(buildMd, code, reportFile)
+  if (f.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + f.append)
+  code.item = f.filed[0]?.id ?? f.covered[0]?.by
   return f
 }

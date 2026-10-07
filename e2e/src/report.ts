@@ -9,6 +9,7 @@
 
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { type CodeReport, codeLine, renderCode } from './code.ts'
 import { type CoverageMap, type Row, tallyLine } from './coverage.ts'
 import { type EdgeReport, edgeLine, renderEdge } from './edge.ts'
 import type { ExplorerSummary, Finding } from './explore.ts'
@@ -65,6 +66,8 @@ export interface ReportedRun {
   production_after?: Pick<Versions, 'app' | 'lens'>
   /** B34.3 — edge-infra's nightly workflows on main, Kind E2E's phases and the self-host claims (edge.ts). */
   edge?: EdgeReport
+  /** B34.10 — the CLI built from talyvor-code's main, run on a synthetic agent's key, and its extension's and plugin's CI (code.ts). */
+  code?: CodeReport
 }
 
 type Outcome = ReportedRun['outcomes'][number]
@@ -377,7 +380,7 @@ export function renderRun(run: ReportedRun): string {
     for (const o of os) n[o.status]++
     lines.push(`| \`${id}\` | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${cell(os[0].title)} |`)
   }
-  lines.push(...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge))
+  lines.push(...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code))
 
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
@@ -467,6 +470,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
     ...(run.incidents ?? []).map((i) => `- **Incident**: ${i}.`),
     ...environmentLine(run),
     ...edgeLine(run.edge),
+    ...codeLine(run.code),
     `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
       `${run.stopped_by === undefined ? '' : ', spent before it stopped'}.`,
     `- **Report**: ${report}`,

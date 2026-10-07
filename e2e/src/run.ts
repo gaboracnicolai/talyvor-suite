@@ -17,9 +17,10 @@ import { AppUser, ChargeBook } from './app.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
 import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap, cannotTest, inventory, leastCovered, refreshLensCheckout } from './coverage.ts'
+import { type CodeReport, codeSkipped, runCode } from './code.ts'
 import { type EdgeReport, readEdge } from './edge.ts'
 import { type ExplorerSummary, type Finding, Notebook, explore } from './explore.ts'
-import { fileEdgeItems, fileItems } from './filing.ts'
+import { fileCodeItems, fileEdgeItems, fileItems } from './filing.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
 import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
 import { networkDrop } from './oracles.ts'
@@ -93,6 +94,8 @@ export interface RunResult {
   second_attempts: Outcome[]
   /** B34.3 — edge-infra's nightly workflows on main, Kind E2E's phases and the self-host claims (edge.ts). */
   edge?: EdgeReport
+  /** B34.10 — the CLI built from talyvor-code's main, run on a synthetic agent's key, and its extension's and plugin's CI (code.ts). */
+  code?: CodeReport
   /** B34.2 — what was tested: the harness, Lens's main at lens-src, and production's versions at the start. */
   versions?: Versions
   /** B34.2 — production's versions read again at the end, to show a deploy that landed during the run. */
@@ -237,6 +240,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
   let screens: Matcher | undefined
   let users: SyntheticUser[] = []
   let stoppedAtCap: boolean | undefined
+  let code: CodeReport | undefined
   let stoppedBy: string | undefined
   let stage = 'reading what there is to test'
   // Once the run has stopped, nothing still in flight is waited for.
@@ -496,6 +500,14 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     })
     stoppedAtCap = cap.reached
 
+    // B34.10 — TALYVOR CODE: the CLI from main on a synthetic agent's own key, before the explorers spend what is left.
+    if (cfg.codeRepo !== 'none') {
+      stage = 'running Talyvor Code'
+      code = await runCode({ lens: lens.tagged({ scenario: 'talyvor-code', user: -1 }), cap, usdPerLXC, outDir: cfg.outDir,
+        src: cfg.codeSrc, cloneURL: cfg.codeClone, repo: cfg.codeRepo, skip: notRun() })
+      console.log(`talyvor code: ${code.calls.map((c) => `${c.command} ${c.state}: ${c.detail}`).join('; ')}`)
+    }
+
     // B17.5 — THE EXPLORERS, after the scenarios, under the same cap: whatever the scenarios left.
     if (cfg.explorers > 0 && !cap.reached && stoppedBy === undefined) {
       stage = 'creating the explorers'
@@ -546,6 +558,8 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     clearInterval(sampler)
   }
   if (stoppedBy !== undefined) console.log(`STOPPED: ${stoppedBy}`)
+  // B34.10 — a run that stopped before Talyvor Code still reports its CI.
+  if (cfg.codeRepo !== 'none' && code === undefined) code = await codeSkipped(cfg.codeRepo, `not run: ${stoppedBy ?? 'the run stopped before it'}`)
   const after = versions === undefined ? undefined : await productionVersions(cfg.appURL, cfg.lensURL)
 
   outcomes.sort((a, b) => a.user - b.user)
@@ -573,6 +587,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     memory,
     second_attempts: secondAttempts.sort((a, b) => a.user - b.user),
     ...(versions === undefined ? {} : { versions, production_after: after }),
+    ...(code === undefined ? {} : { code }),
   }
 }
 
@@ -648,6 +663,16 @@ async function main(): Promise<number> {
       if (f === undefined) return
       for (const x of f.filed) newItems.push(x.id)
       console.log(`talyvor edge build items: ${f.filed.map((x) => `${x.id} (${x.scenario})`).join(', ') || 'none new'}` +
+        (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
+    })
+  }
+  const code = result.code
+  if (cfg.buildMd !== 'none' && code !== undefined) {
+    await attempt(`Talyvor Code's build item to ${cfg.buildMd}`, async () => {
+      const f = await fileCodeItems(cfg.buildMd, code, shown)
+      if (f === undefined) return
+      for (const x of f.filed) newItems.push(x.id)
+      console.log(`talyvor code build item: ${f.filed.map((x) => `${x.id} (${x.scenario})`).join(', ') || 'none new'}` +
         (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
     })
   }

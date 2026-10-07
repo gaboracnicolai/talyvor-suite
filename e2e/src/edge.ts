@@ -70,7 +70,7 @@ interface Run { id: number; status: string; conclusion: string | null; created_a
 /** Runs gh with these arguments and answers what it printed. */
 export type Gh = (args: string[]) => Promise<string>
 
-const ghCLI: Gh = async (args) =>
+export const ghCLI: Gh = async (args) =>
   (await promisify(execFile)('gh', args, { maxBuffer: 256 * 1024 * 1024, timeout: 180_000 })).stdout
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g')

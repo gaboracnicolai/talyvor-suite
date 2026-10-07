@@ -59,7 +59,7 @@ if [ "${E2E_FAULTS:-}" = 1 ]; then
     --app "http://localhost:$bff_port" --lens "http://127.0.0.1:$stub_port" \
     --users "${E2E_USERS:-10}" --concurrency "${E2E_CONCURRENCY:-5}" --cap-usd "${E2E_CAP_USD:-1}" \
     --out "$out" --report-dir "$out" --build-md "$tmp/BUILD.md" --testers-md "$out/TESTERS.md" \
-    --lens-src none --track-src none --docs-src none --explorers 2 --explore-minutes 1 >"$tmp/run.log" 2>&1 &
+    --lens-src none --track-src none --docs-src none --code-repo none --explorers 2 --explore-minutes 1 >"$tmp/run.log" 2>&1 &
   run=$!
   count() { grep -cE "$1" "$tmp/run.log" || true; }
   until_count() { # until_count <what> <pattern> <n>
@@ -72,7 +72,7 @@ if [ "${E2E_FAULTS:-}" = 1 ]; then
   }
   until_count verdicts '^(PASS|FAIL|ERROR|SKIP) ' 3
   passed=$(count '^PASS ')
-  pkill -9 -P $run # the run's browser: the only process the run starts (--lens-src, --track-src and --docs-src none clone nothing)
+  pkill -9 -P $run # the run's browser: the only process the run starts (--lens-src, --track-src and --docs-src none clone nothing; --code-repo none builds nothing)
   echo "selftest: killed the run's browser after $passed passes"
   # Every scenario in the dead browser errors, so a new PASS is a user's on the browser that replaced it.
   until_count 'passes on a new browser' '^PASS ' $((passed + 1))
