@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chatModels, expectedFigure, freshWord, judgeVerdict, listPriceUSD, namesWord, parseFooter, seeded, statesNumber } from '../src/oracles.ts'
+import { chatModels, expectedCheaper, expectedFigure, freshWord, judgeVerdict, listPriceUSD, namesWord, parseFooter, seeded, statesNumber } from '../src/oracles.ts'
 
 describe('parseFooter reads every line the Chat screen writes under an answer', () => {
   it('a priced answer, in LXC or dollars', () => {
@@ -44,6 +44,22 @@ describe('chatModels', () => {
       { id: 'gpt-3.5-turbo', output_per_1m: 1.5, deprecated: true },
     ]
     expect(chatModels(catalog).map((m) => m.id)).toEqual(['gpt-4o'])
+  })
+})
+
+describe('the cheaper-model hint oracle (B28.364)', () => {
+  it("is Lens's recommended model only when it is offered on the provider, another model, and cheaper for the tokens", () => {
+    const sonnet = { id: 'claude-sonnet-5', provider: 'anthropic', display_name: 'Claude Sonnet 5', input_per_1m: 3, output_per_1m: 15 }
+    const haiku = { id: 'claude-haiku-4-5', provider: 'anthropic', display_name: 'Claude Haiku 4.5', input_per_1m: 1, output_per_1m: 5 }
+    const luna = { id: 'gpt-6-luna', provider: 'openai', display_name: 'GPT-6 Luna', input_per_1m: 0.1, output_per_1m: 0.4 }
+    const catalog = [sonnet, haiku, luna]
+    const rec = (model: string, basis = 'quality_per_dollar', provider = 'anthropic') => ({ model, provider, basis })
+    expect(expectedCheaper(rec('claude-haiku-4-5'), sonnet, 12, 3, catalog)).toBe(haiku)
+    expect(expectedCheaper(rec('claude-haiku-4-5-20251001', 'quality'), sonnet, 12, 3, catalog)).toBe(haiku)
+    expect(expectedCheaper(rec('claude-haiku-4-5', 'none'), sonnet, 12, 3, catalog)).toBeUndefined()
+    expect(expectedCheaper(rec('claude-sonnet-5'), haiku, 12, 3, catalog)).toBeUndefined()
+    expect(expectedCheaper(rec('claude-haiku-4-5'), haiku, 12, 3, catalog)).toBeUndefined()
+    expect(expectedCheaper(rec('gpt-6-luna'), sonnet, 12, 3, catalog)).toBeUndefined()
   })
 })
 

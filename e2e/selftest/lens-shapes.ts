@@ -45,6 +45,7 @@ export const READS: readonly string[] = [
   '/v1/workspaces/{wsID}/lxc/balance',
   '/v1/workspaces/{wsID}/lxc/history?limit=20&offset=0',
   '/v1/workspaces/{wsID}/billing/allowance',
+  '/v1/workspaces/{wsID}/routing/recommendation?provider=openai&input_range=small',
   '/v1/workspaces/{wsID}/billing/subscription',
   '/v1/workspaces/{wsID}/budgets',
   '/v1/workspaces/{wsID}/earnings',

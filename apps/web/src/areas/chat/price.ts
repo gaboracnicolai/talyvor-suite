@@ -132,7 +132,7 @@ interface PricedModel {
  * starts with a digit and the LONGEST matching id wins — gpt-4o-mini also starts with "gpt-4o", and
  * B15.3b is Lens routing gpt-4o → gpt-4o-mini while the footer still said GPT-4o.
  */
-function catalogModelFor<M extends PricedModel>(servedBy: string, catalog: readonly M[]): M | undefined {
+export function catalogModelFor<M extends PricedModel>(servedBy: string, catalog: readonly M[]): M | undefined {
   let found: M | undefined
   for (const m of catalog) {
     const variant = servedBy.startsWith(`${m.id}-`) && /\d/.test(servedBy.charAt(m.id.length + 1))

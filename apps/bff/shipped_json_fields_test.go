@@ -95,6 +95,7 @@ var decodedFromUpstream = map[string]string{
 	"lensWorkspaceRecord":    "Lens's GET /v1/workspaces/{id} reply, decoded in lensWorkspace() (B17.2)",
 	"passkeyAssertion":       "an approval's passkey assertion, decoded wholesale from the browser's approve/deny body and relayed to Lens as it came (B19.10)",
 	"pricedPlan":             "Lens's public GET /v1/billing/plans reply, decoded in readPlans() and served on /api/pricing (B28.5)",
+	"routingRecommendation":  "Lens's GET /v1/workspaces/{id}/routing/recommendation reply, decoded in handleRoutingRecommendation() and served on /api/routing/recommendation (B28.364)",
 	"planCard":               "Lens's public GET /v1/billing/plans reply, decoded in readPlans() and served on /api/pricing (B32.14)",
 	"companyPlan":            "one company plan's price in Lens's public GET /v1/billing/plans reply, served on /api/pricing (B32.14)",
 	"planGates":              "Lens's public GET /v1/public/plan-gates reply, decoded in readPlanGates() and served on /api/pricing (B32.14)",

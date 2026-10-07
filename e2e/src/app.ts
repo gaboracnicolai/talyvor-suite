@@ -483,6 +483,19 @@ export class AppUser {
     return this.finish(question, this.page.locator('[data-testid="turn-assistant"]').last(), hold)
   }
 
+  /**
+   * B28.364 — presses "Re-ask with <model>" under the last answer: the question is asked afresh of that model, which the
+   * conversation then keeps. Reads the new answer.
+   */
+  async reaskWith(question: string, displayName: string): Promise<Turn> {
+    this.modelName = displayName
+    const hold = this.reserve(0)
+    const last = this.page.locator('[data-testid="turn-assistant"]').last()
+    await last.locator('[data-testid="turn-cost"]').evaluate((el) => el.setAttribute('data-e2e-old', '1'))
+    await last.getByRole('button', { name: `Re-ask with ${displayName}` }).click()
+    return this.finish(question, this.page.locator('[data-testid="turn-assistant"]').last(), hold)
+  }
+
   private reserve(extraChars: number): Hold {
     const m = this.model()
     const worstIn = worstInputTokens(this.conversationChars + extraChars)
