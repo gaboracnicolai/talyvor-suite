@@ -21,6 +21,18 @@
 //   PUT  /v1/rooms/{id}/contributions/{c}/vote   {value: 1 or -1}, the latest counting
 //
 // STUB_BREAK=room-stream answers the event stream with nothing — so a message posted elsewhere never reaches the screen.
+//
+// B32.55 — and room settings (Lens B32.28, B32.29, B32.32, B32.35), for the room's owner or an editor:
+//
+//   PATCH  /v1/rooms/{id}/members/{ws}          {role | may_spend | remove}; a viewer is never given may_spend
+//   GET    /v1/rooms/{id}/invites               {invites}, never a token; POST {max_uses, expires_at} makes a link,
+//   DELETE /v1/rooms/{id}/invites/{iid}         its token in that answer only; DELETE revokes it
+//   GET    /v1/room-invites/{token}             what a live link opens; 404 once revoked, expired or used up
+//   POST   /v1/room-invites/{token}/join        {terms_version}: joined through the link, which counts the use
+//   GET    /v1/rooms/{id}/prizes                {prizes}; POST {title, criteria, amount_usd_micros, deadline}, the owner's,
+//                                               refused 403 above what the budget has left less the open prizes
+//   GET    /v1/workspaces/{ws}/agents/{wallet}/rules   the room wallet's rules; PUT refuses a monthly limit above the
+//                                               owner's plan's room_budget_max_usd (or none) 402 naming rooms_plan_limits
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -37,10 +49,23 @@ const NEXT: Record<string, string> = { free: 'team', team: 'business' }
 
 interface Terms { version: number; split_rule: string; remix_share_bps: number; default_price_usd_micros: number; spend_policy: string; created_at: string }
 
+interface Invite { id: string; token: string; max_uses: number; uses: number; expires_at: string; revoked_at?: string; created_by_workspace_id: string; created_at: string }
+interface Prize { id: string; room_id: string; poster_workspace_id: string; title: string; criteria: string; amount_usd_micros: number; deadline: string; status: string; created_at: string }
+
 interface Room {
   id: string; owner_workspace_id: string; title: string; topic: string; description: string; visibility: string; status: string
-  terms: Terms; members: { workspace_id: string; role: string; terms_version: number; joined_at: string }[]
+  terms: Terms; members: { workspace_id: string; role: string; may_spend?: boolean; terms_version: number; joined_at: string }[]
   created_at: string; last_activity_at: string
+  /** B32.55 — the owner's plan when it opened the room, its invites and prizes, and its wallet's rules. */
+  plan: string; invites: Invite[]; prizes: Prize[]; walletRules: Record<string, unknown>
+}
+
+/** One LXC is ten cents at the peg: µLXC to µUSD. */
+const ULXC_PER_USD = 10_000_000
+const walletID = (r: Room) => 'ag_room_' + r.id.slice(5, 13)
+const budgetMax = (r: Room) => {
+  const usd = (LIMITS[r.plan] ?? LIMITS.free).room_budget_max_usd
+  return usd < 0 ? -1 : usd * ULXC_PER_USD
 }
 
 const rooms = new Map<string, Room>()
@@ -159,15 +184,15 @@ const view = (r: Room) => ({
 })
 
 const member = (r: Room, m: Room['members'][number]) => ({
-  workspace_id: m.workspace_id, role: m.role, may_spend: m.role === 'owner', terms_version: m.terms_version,
+  workspace_id: m.workspace_id, role: m.role, may_spend: m.role === 'owner' || m.may_spend === true, terms_version: m.terms_version,
   terms_current: m.terms_version === r.terms.version, joined_at: m.joined_at,
 })
 
 const detail = (r: Room, ws: string) => {
   const me = r.members.find((m) => m.workspace_id === ws)
   const wallet = me === undefined ? undefined : {
-    agent_id: 'ag_room_' + r.id.slice(5, 13), name: `Room: ${r.title}`, balance_ulxc: 0, monthly_limit_ulxc: 0, spent_this_month_ulxc: 0,
-    max_per_request_ulxc: 0, approval_above_ulxc: 0, budget_max_ulxc: -1, spend_policy: r.terms.spend_policy, may_spend: me.role === 'owner',
+    agent_id: walletID(r), name: `Room: ${r.title}`, balance_ulxc: 0, monthly_limit_ulxc: Number(r.walletRules.monthly_limit_ulxc ?? 0), spent_this_month_ulxc: 0,
+    max_per_request_ulxc: 0, approval_above_ulxc: 0, budget_max_ulxc: budgetMax(r), spend_policy: r.terms.spend_policy, may_spend: me.role === 'owner',
     ...(me.role === 'owner' ? {} : { why_not: 'only the room’s owner spends its budget' }),
   }
   return { ...view(r), terms: r.terms, members: r.members.map((m) => member(r, m)), agents: [], me: me === undefined ? null : member(r, me), ...(wallet ? { wallet } : {}) }
@@ -212,13 +237,16 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
       terms: { version: 1, split_rule: String(t.split_rule || 'owner_decides'), remix_share_bps: Number(t.remix_share_bps ?? 0),
         default_price_usd_micros: Number(t.default_price_usd_micros ?? 0), spend_policy: String(t.spend_policy || 'owner_only'), created_at: now },
       members: BREAK === 'rooms' ? [] : [{ workspace_id: ws, role: 'owner', terms_version: 1, joined_at: now }],
-      created_at: now, last_activity_at: now,
+      created_at: now, last_activity_at: now, plan: LIMITS[plan] === undefined ? 'free' : plan, invites: [], prizes: [],
+      walletRules: { max_per_request_ulxc: 0, daily_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0, allowed_models: null,
+        allowed_providers: null, active_from: '', active_until: '', timezone: '' },
     }
     rooms.set(r.id, r)
     json(res, 201, detail(r, ws))
     return true
   }
-  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions)/.exec(p)
+  if (await settingsOutsideRoom(req, res, p, ws)) return true
+  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions|members|invites|prizes)/.exec(p)
   if (one === null) return false
   const r = rooms.get(decodeURIComponent(one[1]))
   if (r === undefined || (r.visibility === 'private' && !r.members.some((m) => m.workspace_id === ws))) {
@@ -226,6 +254,7 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
     return true
   }
   if (await roomScreen(req, res, p, url, ws, r)) return true
+  if (await roomSettings(req, res, p, ws, r)) return true
   if (one[2] === undefined && req.method === 'GET') return json(res, 200, detail(r, ws)), true
   if (one[2] === '/join' && req.method === 'POST') {
     const d = await body(req)
@@ -239,6 +268,114 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
     r.members.push(m)
     json(res, 201, member(r, m))
     return true
+  }
+  return false
+}
+
+const inviteView = (r: Room, i: Invite, token = false) => ({
+  id: i.id, room_id: r.id, kind: 'link', ...(token ? { token: i.token } : {}), max_uses: i.max_uses, uses: i.uses, expires_at: i.expires_at,
+  ...(i.revoked_at ? { revoked_at: i.revoked_at } : {}), live: inviteLive(i), created_by_workspace_id: i.created_by_workspace_id, created_at: i.created_at,
+})
+const inviteLive = (i: Invite) => !i.revoked_at && Date.parse(i.expires_at) > Date.now() && i.uses < i.max_uses
+
+/** B32.55 — what an invite link opens and joining through it, and the room wallet's rules; false when `p` is neither. */
+async function settingsOutsideRoom(req: IncomingMessage, res: ServerResponse, p: string, ws: string): Promise<boolean> {
+  const link = /^\/v1\/room-invites\/([^/]+)(\/join)?$/.exec(p)
+  if (link !== null) {
+    const token = decodeURIComponent(link[1])
+    const r = [...rooms.values()].find((x) => x.invites.some((i) => i.token === token && inviteLive(i)))
+    const i = r?.invites.find((x) => x.token === token)
+    if (r === undefined || i === undefined) return json(res, 404, { error: 'rooms: not found: no such invite' }), true
+    if (link[2] === undefined && req.method === 'GET') {
+      return json(res, 200, { room: view(r), terms: r.terms, expires_at: i.expires_at, uses_left: i.max_uses - i.uses }), true
+    }
+    if (link[2] === '/join' && req.method === 'POST') {
+      const d = await body(req)
+      if (d.terms_version !== r.terms.version) return json(res, 409, { error: `rooms: conflict: the room's terms are at version ${r.terms.version}` }), true
+      const was = r.members.find((m) => m.workspace_id === ws)
+      if (was !== undefined) return json(res, 200, { room_id: r.id, member: member(r, was) }), true
+      const m = { workspace_id: ws, role: 'member', terms_version: r.terms.version, joined_at: new Date().toISOString() }
+      r.members.push(m)
+      i.uses++
+      return json(res, 201, { room_id: r.id, member: member(r, m) }), true
+    }
+    return false
+  }
+  const rules = /^\/v1\/workspaces\/([^/]+)\/agents\/(ag_room_[^/]+)\/rules$/.exec(p)
+  if (rules === null || rules[1] !== ws) return false
+  const r = [...rooms.values()].find((x) => walletID(x) === rules[2] && x.owner_workspace_id === ws)
+  if (r === undefined) return json(res, 404, { error: 'economy: agent not found' }), true
+  if (req.method === 'GET') return json(res, 200, r.walletRules), true
+  if (req.method !== 'PUT') return false
+  const d = await body(req)
+  const monthly = Number(d.monthly_limit_ulxc ?? 0)
+  const max = budgetMax(r)
+  if (max >= 0 && (monthly <= 0 || monthly > max)) {
+    const usd = max / ULXC_PER_USD
+    const allows = NEXT[r.plan] ?? ''
+    const what = monthly <= 0 ? "a room's budget is its wallet's monthly limit, and it has none" : `a monthly limit of ${monthly / 1_000_000} LXC is above the room's budget`
+    return json(res, 402, { error: `${what}: rooms_plan_limits (LENS_ROOMS_PLAN_LIMITS): your ${r.plan} plan allows a room a budget of at most $${usd} (${max / 1_000_000} LXC) a month${allows ? ` — the ${allows} plan allows $${LIMITS[allows].room_budget_max_usd}` : ''}`,
+      setting: 'rooms_plan_limits', plan: r.plan, limit: 'room_budget_max_usd', max: usd, allows }), true
+  }
+  r.walletRules = { ...r.walletRules, ...d }
+  return json(res, 200, r.walletRules), true
+}
+
+/** B32.55 — a room's members, invites and prizes as its owner or an editor changes them; false when `p` is not one. */
+async function roomSettings(req: IncomingMessage, res: ServerResponse, p: string, ws: string, r: Room): Promise<boolean> {
+  const sub = /^\/v1\/rooms\/[^/]+\/(members|invites|prizes)(?:\/([^/]+))?$/.exec(p)
+  if (sub === null) return false
+  const [, what, which] = sub
+  const role = r.members.find((m) => m.workspace_id === ws)?.role ?? ''
+  const manager = role === 'owner' || role === 'editor'
+  if (what === 'prizes' && which === undefined && req.method === 'GET') return json(res, 200, { prizes: r.prizes }), true
+  if (!manager) return json(res, 403, { error: 'rooms: not allowed: only the room’s owner or an editor does this' }), true
+  if (what === 'members' && which !== undefined && req.method === 'PATCH') {
+    const m = r.members.find((x) => x.workspace_id === decodeURIComponent(which))
+    if (m === undefined) return json(res, 404, { error: 'rooms: not found: no such member' }), true
+    if (m.role === 'owner') return json(res, 400, { error: "rooms: invalid request: the owner's membership does not change" }), true
+    const d = await body(req)
+    if (d.remove === true) {
+      r.members = r.members.filter((x) => x !== m)
+      return json(res, 200, member(r, m)), true
+    }
+    if (typeof d.role === 'string') m.role = d.role
+    if (typeof d.may_spend === 'boolean') {
+      if (d.may_spend && m.role === 'viewer') return json(res, 400, { error: 'rooms: invalid request: a viewer cannot be given may_spend' }), true
+      m.may_spend = d.may_spend
+    }
+    return json(res, 200, member(r, m)), true
+  }
+  if (what === 'invites' && which === undefined && req.method === 'GET') return json(res, 200, { invites: [...r.invites].reverse().map((i) => inviteView(r, i)) }), true
+  if (what === 'invites' && which === undefined && req.method === 'POST') {
+    if (r.visibility !== 'private') return json(res, 400, { error: 'rooms: invalid request: anyone may join a public room; invites are for private rooms' }), true
+    const d = await body(req)
+    const max = Number(d.max_uses ?? 0)
+    if (!(max >= 1) || typeof d.expires_at !== 'string' || !(Date.parse(d.expires_at) > Date.now())) {
+      return json(res, 400, { error: 'rooms: invalid request: a link invite needs max_uses (at least 1) and an expires_at in the future' }), true
+    }
+    const i: Invite = { id: 'rinv_' + randomBytes(12).toString('hex'), token: 'rinvtok_' + randomBytes(24).toString('base64url'), max_uses: max, uses: 0,
+      expires_at: d.expires_at, created_by_workspace_id: ws, created_at: new Date().toISOString() }
+    r.invites.push(i)
+    return json(res, 201, inviteView(r, i, true)), true
+  }
+  if (what === 'invites' && which !== undefined && req.method === 'DELETE') {
+    const i = r.invites.find((x) => x.id === decodeURIComponent(which))
+    if (i === undefined) return json(res, 404, { error: 'rooms: not found: no such invite' }), true
+    i.revoked_at ??= new Date().toISOString()
+    return json(res, 200, inviteView(r, i)), true
+  }
+  if (what === 'prizes' && which === undefined && req.method === 'POST') {
+    if (role !== 'owner') return json(res, 403, { error: 'rooms: not allowed: only the room’s owner posts a prize' }), true
+    const d = await body(req)
+    const amount = Number(d.amount_usd_micros ?? 0)
+    if (String(d.title ?? '').trim() === '' || !(amount > 0)) return json(res, 400, { error: 'rooms: invalid request: a prize needs a title and an amount' }), true
+    const left = Number(r.walletRules.monthly_limit_ulxc ?? 0) / 10 - r.prizes.filter((x) => x.status === 'open').reduce((n, x) => n + x.amount_usd_micros, 0)
+    if (amount > left) return json(res, 403, { error: `rooms: a prize of $${amount / 1e6} is above what the room's budget has left this month ($${Math.max(0, left) / 1e6})` }), true
+    const z: Prize = { id: 'rprz_' + randomBytes(12).toString('hex'), room_id: r.id, poster_workspace_id: ws, title: String(d.title).trim(), criteria: String(d.criteria ?? ''),
+      amount_usd_micros: amount, deadline: String(d.deadline ?? ''), status: 'open', created_at: new Date().toISOString() }
+    r.prizes.unshift(z)
+    return json(res, 201, z), true
   }
   return false
 }

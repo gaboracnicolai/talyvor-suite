@@ -462,8 +462,28 @@ export interface LensContribution {
 /** B32.53 — GET /v1/rooms/{id}: the room, its terms and its members, and the caller's membership (null: not a member). */
 export interface LensRoomDetail extends LensRoom {
   terms: { version: number; split_rule: string; remix_share_bps: number; default_price_usd_micros: number; spend_policy: string }
-  members: { workspace_id: string; role: string }[] | null
+  members: { workspace_id: string; role: string; may_spend: boolean }[] | null
   me: { workspace_id: string; role: string } | null
+  /** B32.32 — the room's wallet: an agent of the owner's whose monthly limit is the room's budget; -1 is unlimited. */
+  wallet?: { agent_id: string; name: string; monthly_limit_ulxc: number; budget_max_ulxc: number }
+}
+
+/** B32.55 — Lens rooms.Invite as the room's owner reads it: never a link's token. */
+export interface LensRoomInvite {
+  id: string
+  kind: string
+  max_uses: number
+  uses: number
+  live: boolean
+  revoked_at?: string
+}
+
+/** B32.55 — Lens rooms.Prize. */
+export interface LensRoomPrize {
+  id: string
+  title: string
+  amount_usd_micros: number
+  status: string
 }
 
 /** B28.364 — Lens's routing.Recommendation, as GET …/routing/recommendation answers it. */
@@ -978,6 +998,28 @@ export class LensClient {
       contributions: LensContribution[] | null
     }
     return body.contributions ?? []
+  }
+
+  /** B32.55 — a room's invites as its owner reads them (GET /v1/rooms/{id}/invites). */
+  async roomInvites(user: SyntheticUser, id: string): Promise<LensRoomInvite[]> {
+    const body = (await this.call('GET', `/v1/rooms/${encodeURIComponent(id)}/invites`, this.bearer(user.token))) as { invites: LensRoomInvite[] | null }
+    return body.invites ?? []
+  }
+
+  /** B32.55 — joins a room through an invite link as this user's workspace (POST /v1/room-invites/{token}/join), as its holder would. */
+  async joinRoomByInvite(user: SyntheticUser, token: string, termsVersion: number): Promise<Answered<unknown>> {
+    const res = await this.send('POST', `/v1/room-invites/${encodeURIComponent(token)}/join`, {
+      headers: { ...this.bearer(user.token), Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terms_version: termsVersion }),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B32.55 — a room's prizes, open, awarded and closed (GET /v1/rooms/{id}/prizes). */
+  async roomPrizes(user: SyntheticUser, id: string): Promise<LensRoomPrize[]> {
+    const body = (await this.call('GET', `/v1/rooms/${encodeURIComponent(id)}/prizes`, this.bearer(user.token))) as { prizes: LensRoomPrize[] | null }
+    return body.prizes ?? []
   }
 
   /** B34.1 — retires an agent as the workspace's owner: its balance swept back to the workspace, its keys revoked. */

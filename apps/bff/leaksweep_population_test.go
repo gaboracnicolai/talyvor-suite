@@ -438,9 +438,15 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// a vote (PUT …/vote) and a run (POST /api/rooms/{id}/runs). Each relays Lens's answer and holds nothing; the
 	// contributions and their tallies are read back through GET /api/rooms/{id}/contributions, and a run's message
 	// through GET /api/rooms/{id}/messages, which the sweep reaches.
-	if len(methodOnly) > 91 {
+	//
+	// THE NINETY-SECOND TO NINETY-SIXTH ARE B32.55'S ROOM SETTINGS: a member's change (PATCH /api/rooms/{id}/members/{ws}),
+	// the terms (PUT /api/rooms/{id}/terms), an invite's revoke (DELETE /api/rooms/{id}/invites/{iid}), a prize's award
+	// (POST /api/rooms/{id}/prizes/{pid}/award) and a join through a link (POST /api/room-invites/{token}/join). Each
+	// relays Lens's answer and holds nothing; the members and terms are read back through GET /api/rooms/{id}, the
+	// invites through GET /api/rooms/{id}/invites and the prizes through GET /api/rooms/{id}/prizes, which the sweep reaches.
+	if len(methodOnly) > 96 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 91 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 96 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

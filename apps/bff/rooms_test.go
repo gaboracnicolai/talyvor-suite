@@ -150,3 +150,58 @@ func TestRoomEventsStreamAndRoomWritesRelay(t *testing.T) {
 		t.Fatalf("Lens received\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// B32.55 — room settings reach Lens on the room, member, invite and prize the screen named, with its body and no other
+// key: a member given may_spend, an invite link made and revoked, a prize awarded, and a join through a link.
+func TestRoomSettingsRelayToLens(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == provisionPath {
+			serveFakeProvision(w, r)
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		got = append(got, r.Method+" "+r.URL.RequestURI()+" "+string(raw))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	t.Cleanup(srv.Close)
+	a := newApp(config{addr: "127.0.0.1:0", lensBaseURL: srv.URL, provisionSecret: testProvisionSecret, webDist: t.TempDir(), authMode: authModeDisabled}, nil)
+
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPatch, "/api/rooms/room_1/members/ws_2", `{"may_spend":true}`},
+		{http.MethodPost, "/api/rooms/room_1/invites", `{"max_uses":5,"expires_at":"2026-10-14T00:00:00Z"}`},
+		{http.MethodDelete, "/api/rooms/room_1/invites/rinv_1", ""},
+		{http.MethodPost, "/api/rooms/room_1/prizes/rprz_1/award", `{"contribution_id":"c_1"}`},
+		{http.MethodPost, "/api/room-invites/rinvtok_abc/join", `{"terms_version":1}`},
+	} {
+		if rec := doJSON(a, c.method, c.path, c.body); rec.Code != http.StatusOK {
+			t.Fatalf("%s %s = %d %s", c.method, c.path, rec.Code, rec.Body.String())
+		}
+	}
+	// A body naming what Lens binds from elsewhere — the workspace a member change is for, the prize's winner — is
+	// refused before Lens is asked.
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPatch, "/api/rooms/room_1/members/ws_2", `{"may_spend":true,"workspace_id":"ws_3"}`},
+		{http.MethodPost, "/api/rooms/room_1/prizes/rprz_1/award", `{"contribution_id":"c_1","winner_workspace_id":"ws_3"}`},
+	} {
+		if rec := doJSON(a, c.method, c.path, c.body); rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s %s with %s = %d, want 400 before Lens is asked", c.method, c.path, c.body, rec.Code)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		`PATCH /v1/rooms/room_1/members/ws_2 {"may_spend":true}`,
+		`POST /v1/rooms/room_1/invites {"max_uses":5,"expires_at":"2026-10-14T00:00:00Z"}`,
+		`DELETE /v1/rooms/room_1/invites/rinv_1 `,
+		`POST /v1/rooms/room_1/prizes/rprz_1/award {"contribution_id":"c_1"}`,
+		`POST /v1/room-invites/rinvtok_abc/join {"terms_version":1}`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("Lens received\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
