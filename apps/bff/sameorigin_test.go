@@ -235,6 +235,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/x1/rules/boosts", body: `{"rule":"daily_limit_ulxc","value":2,"until":"2026-10-06T18:00:00Z"}`},
 		{method: http.MethodDelete, path: "/api/agents/x1/rules/boosts/x1"},
 		{method: http.MethodPost, path: "/api/chat/tools/call", body: `{"name":"wallet_agents_spend","arguments":{}}`},
+		{method: http.MethodPut, path: "/api/chat/history-sync", body: `{"base_version":0,"salt":"s","iv":"i","ciphertext":"c"}`},
+		{method: http.MethodDelete, path: "/api/chat/history-sync"},
 		// B22.10 — money between owners.
 		{method: http.MethodPut, path: "/api/agents/x1/handle", body: `{"handle":"acme"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/send", body: `{"to":"@bea","amount_ulxc":1,"memo":""}`},

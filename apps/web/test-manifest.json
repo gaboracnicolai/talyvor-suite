@@ -19,6 +19,7 @@
   "src/areas/chat/ConversationBudget.test.tsx": 2,
   "src/areas/chat/estimate.test.ts": 3,
   "src/areas/chat/ForecastQuestion.test.tsx": 3,
+  "src/areas/chat/historySync.test.ts": 3,
   "src/areas/chat/LaunchAgent.test.tsx": 2,
   "src/areas/chat/LiveStatement.test.tsx": 2,
   "src/areas/chat/MoneyCards.test.tsx": 3,

@@ -25,6 +25,8 @@ export interface Conversation {
   budget_ulxc?: number
   created_at: number
   updated_at: number
+  /** B28.365 — when this browser last saved a change to it (a rename too, which leaves updated_at); syncs merge by it. */
+  changed_at?: number
   messages: ChatMessage[]
 }
 

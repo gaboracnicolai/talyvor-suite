@@ -425,6 +425,14 @@ export interface LensRoom {
 }
 
 /** B32.53 — GET /v1/rooms: the open public rooms, and the rooms the caller's workspace is in. */
+/** B28.365 — GET /v1/workspaces/{ws}/chat-history: what the browser sealed, as Lens keeps it. */
+export interface SealedHistory {
+  version: number
+  salt: string
+  iv: string
+  ciphertext: string
+}
+
 export interface LensRooms {
   rooms: LensRoom[] | null
   joined: LensRoom[] | null
@@ -873,6 +881,11 @@ export class LensClient {
   /** The plan Lens holds the workspace to, its gates, and the agents it has now. */
   async workspacePlan(user: SyntheticUser): Promise<WorkspacePlan> {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/plan`, this.bearer(user.token))) as WorkspacePlan
+  }
+
+  /** B28.365 — the chat history Lens keeps for this user's workspace (talyvor-lens B28.107): the sealed copy, version 0 while none. */
+  async chatHistory(user: SyntheticUser): Promise<SealedHistory> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/chat-history`, this.bearer(user.token))) as SealedHistory
   }
 
   /** B32.53 — the rooms as Lens lists them to this user (GET /v1/rooms): the open public ones, and the ones it is in. */

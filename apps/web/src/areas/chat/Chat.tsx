@@ -34,6 +34,8 @@ import {
   saveConversations,
   upsertConversation,
 } from './history'
+import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
+import { recordDeleted, stampChanged } from './historySync'
 import { Markdown } from './Markdown'
 import { AlertNotices } from './AlertNotices'
 import { ApprovalCards } from './ApprovalCards'
@@ -312,7 +314,7 @@ export function Chat() {
 
   // ⚠ READS STORAGE, NOT STATE. It runs after an await inside run(), where `history` from the
   // closure is a render old; merging into that would drop a rename made while it streamed.
-  const store = useCallback((update: (list: Conversation[]) => Conversation[]) => {
+  const write = useCallback((update: (list: Conversation[]) => Conversation[]) => {
     const owner = scopeRef.current
     if (owner === null) {
       unsavedRef.current = update(unsavedRef.current)
@@ -323,6 +325,18 @@ export function Chat() {
     setStorageRefused(!saveConversations(owner, next))
     setHistory({ list: next, error: null })
   }, [])
+  // B28.365 — with sync on, each change is merged into the sealed copy shortly after; the copy's own merges are written
+  // with `write`, so they are not changes to sync back.
+  const sync = useHistorySync(scope, write)
+  const syncSoon = useRef(sync.soon)
+  syncSoon.current = sync.soon
+  const store = useCallback(
+    (update: (list: Conversation[]) => Conversation[]) => {
+      write((list) => stampChanged(list, update(list), Date.now()))
+      syncSoon.current()
+    },
+    [write],
+  )
 
   // ⚠ ABORT ON UNMOUNT. r.Context() in the BFF is the browser's connection, and cancelling it
   // cancels the upstream — which is what stops Lens generating, and being billed for, tokens
@@ -717,6 +731,7 @@ export function Chat() {
       signedIn={scope !== null}
       readingIdentity={me.isPending}
       storageRefused={storageRefused}
+      sync={sync}
       onNew={() => open(undefined)}
       onOpen={open}
     />
@@ -817,6 +832,8 @@ export function Chat() {
                 }}
                 onDeleteCancel={() => setConfirmingDelete(false)}
                 onDeleteConfirm={() => {
+                  // B28.365 — remembered, so a synced copy that still holds it does not bring it back.
+                  if (scope !== null) recordDeleted(scope, active.id, Date.now())
                   store((list) => list.filter((c) => c.id !== active.id))
                   open(undefined)
                 }}
@@ -1125,6 +1142,7 @@ function ChatRail({
   signedIn,
   readingIdentity,
   storageRefused,
+  sync,
   onNew,
   onOpen,
 }: {
@@ -1134,6 +1152,7 @@ function ChatRail({
   signedIn: boolean
   readingIdentity: boolean
   storageRefused: boolean
+  sync: HistorySync
   onNew: () => void
   onOpen: (c: Conversation) => void
 }) {
@@ -1184,8 +1203,9 @@ function ChatRail({
             This browser refused to save the latest change, so it will be gone after a reload.
           </p>
         ) : null}
-        {/* B32.53 — the private conversations are this browser's; a room's are stored by Talyvor, so each says where. */}
-        <p className="mt-1 px-2 text-caption text-faint">Kept in this browser only.</p>
+        {/* B32.53 — the private conversations are this browser's; a room's are stored by Talyvor, so each says where.
+            B28.365 — unless the person syncs them, sealed in this browser first. */}
+        {signedIn ? <HistorySyncPanel sync={sync} /> : <p className="mt-1 px-2 text-caption text-faint">Kept in this browser only.</p>}
         <RoomsRail />
       </div>
       <div className="mt-2 space-y-1 border-t border-rule px-2 pt-3">
