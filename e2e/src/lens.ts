@@ -1230,6 +1230,20 @@ export class LensClient {
   }
 
   /**
+   * B28.285 — a file sent as it is on `credential`, answered within `timeoutMs`: its status, how long it took and what Lens
+   * said. Status 0, and why, when Lens hung up or had not answered in time.
+   */
+  async upload(credential: string, path: string, body: Uint8Array<ArrayBuffer>, contentType: string, timeoutMs: number): Promise<{ status: number; ms: number; text: string }> {
+    const t0 = Date.now()
+    try {
+      const res = await this.send('POST', path, { headers: { Accept: 'application/json', ...this.bearer(credential), 'Content-Type': contentType }, body, signal: AbortSignal.timeout(timeoutMs) })
+      return { status: res.status, ms: Date.now() - t0, text: await res.text() }
+    } catch (e) {
+      return { status: 0, ms: Date.now() - t0, text: describe(e) }
+    }
+  }
+
+  /**
    * B28.280 — an event posted to one of Lens's Stripe webhooks as Stripe posts it: no credential, the body as it is, under
    * `signature` as its Stripe-Signature header ('' sends none). Status 0, and why, when Lens hung up before it answered.
    */

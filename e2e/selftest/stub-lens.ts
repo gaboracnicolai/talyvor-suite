@@ -50,6 +50,9 @@
 //   pool-negation — the pool also serves a question asked with the same words in another order, or with a "not" (B28.283)
 //   tool-fetch  — a tool fetches an address its arguments name, as one following a webhook or a callback would (B28.284)
 //   tool-key    — a tool's answer carries the key it was called with (B28.284)
+//   ssrf        — a compute node and the audit webhook are dialled wherever they point, the metadata address answering (B28.285)
+//   zip-bomb    — a .docx's document is unpacked however large it gets (B28.285)
+//   doc-size    — a document of any size is taken for conversion (B28.285)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -71,12 +74,14 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
+import { DOC_CAP, auditWebhook, docxDocument, nodesAvailable, nodesRoute } from './stub-guards.ts'
 import { roomsRoute } from './stub-rooms.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
 const KEY = process.env.LENS_SYNTHETIC_KEY ?? 'selftest-key'
 const BREAK = process.env.STUB_BREAK ?? ''
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 /** B28.279 — its defects may be planted together, comma-separated, as stub-bank.ts's are. */
 const broke = (name: string): boolean => BREAK.split(',').includes(name)
 // B29.29 — the executive ROI report as Lens's own renderer (internal/roi RenderHTML, talyvor-lens 1d936fd) wrote it.
@@ -750,6 +755,8 @@ createServer(async (req, res) => {
   const p = url.pathname
   const bearer = (req.headers.authorization ?? '').replace(/^Bearer /, '')
   try {
+    // B28.285 — Lens's /healthz: how long it has been up, which the testers read to tell a restart.
+    if (p === '/healthz') return json(res, 200, { status: 'healthy', uptime_seconds: Math.floor(process.uptime()), version: 'stub' })
     if (p === '/.well-known/openid-configuration') {
       return json(res, 200, { issuer: BASE, authorization_endpoint: `${BASE}/authorize`, token_endpoint: `${BASE}/token`,
         jwks_uri: `${BASE}/jwks`, id_token_signing_alg_values_supported: ['RS256'] })
@@ -835,6 +842,9 @@ createServer(async (req, res) => {
       if (broke('tool-key')) answer.result?.content?.push({ type: 'text', text: `called with ${bearer}` })
       return json(res, 200, answer)
     }
+    // B28.285 — the nodes Lens offers for a model, and the audit export sent to a webhook (stub-guards.ts).
+    if (p === '/v1/nodes/available') return json(res, 200, nodesAvailable(url.searchParams.get('model') ?? ''))
+    if (p === '/v1/audit/webhook' && req.method === 'POST') return json(res, ...auditWebhook(await read(req), broke('ssrf')))
     if (bank.publicRoute(res, p, url, ws.id)) return
     if (await bank.publicWrite(req, res, p, ws.id)) return
     // B32.53 — rooms: Chat's rail, the directory, a new room and a room's first screen (stub-rooms.ts).
@@ -892,6 +902,11 @@ createServer(async (req, res) => {
       const rest = scoped[2] ?? ''
       if (rest === '') return json(res, 200, view())
       if (await bank.workspaceRoute(req, res, ws, rest, url)) return
+      // B28.285 — compute nodes, verified only when Lens's guarded probe reaches them (stub-guards.ts).
+      if (rest === '/nodes' || rest.startsWith('/nodes/')) {
+        const answer = nodesRoute(req.method ?? 'GET', rest, ws.id, req.method === 'POST' ? await read(req) : '', broke('ssrf'))
+        if (answer !== undefined) return json(res, ...answer)
+      }
       const setting = SETTINGS[rest]
       if (setting !== undefined && req.method === 'PUT') {
         const v = (JSON.parse((await read(req)) || '{}') as Record<string, unknown>)[setting]
@@ -1050,7 +1065,18 @@ createServer(async (req, res) => {
       }
       if (rest === '/distill/preview' && req.method === 'POST') {
         const mediaType = String(req.headers['content-type'] ?? '')
-        let raw = await read(req)
+        // B28.285 — a document past the cap is refused, and a .docx's document is unpacked no further than it (stub-guards.ts).
+        const bytes = await readBytes(req)
+        if (bytes.length > DOC_CAP && !broke('doc-size')) return json(res, 413, { error: 'document exceeds the size limit' })
+        if (mediaType === DOCX) {
+          const xml = docxDocument(bytes, broke('zip-bomb') ? Infinity : DOC_CAP)
+          if (xml === undefined) return json(res, 422, { error: 'conversion failed: distill: conversion failed' })
+          if (xml === 'too large') return json(res, 422, { error: 'conversion failed: distill: input exceeds size limit' })
+          const markdown = xml.subarray(0, 1 << 20).toString().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+          return json(res, 200, { markdown, format: 'docx', needs_vision: false, tier: 'free', savings: { input_bytes: bytes.length, output_bytes: xml.length,
+            input_tokens_raw: tokens(xml.subarray(0, 1 << 20).toString()), input_tokens_distilled: tokens(markdown), tokens_saved: 0 } })
+        }
+        let raw = bytes.toString()
         if (BREAK === 'conversion') raw = raw.replace(/<p[^>]*>[\s\S]*?<\/p>/gi, '')
         const markdown = toMarkdown(raw, mediaType)
         const [tin, tout] = [tokens(raw), tokens(markdown)]
