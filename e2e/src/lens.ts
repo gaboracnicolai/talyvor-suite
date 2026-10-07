@@ -1029,6 +1029,12 @@ export class LensClient {
     return { status: res.status, headers: res.headers, text: await res.text() }
   }
 
+  /** B34.7 — `body` sent as it is, as `contentType` (a document Lens converts), on `credential`: status and body, never thrown. */
+  async raw(credential: string, method: string, path: string, body: string, contentType: string): Promise<{ status: number; text: string }> {
+    const res = await this.send(method, path, { headers: { Accept: 'application/json', ...this.bearer(credential), 'Content-Type': contentType }, body })
+    return { status: res.status, text: await res.text() }
+  }
+
   /**
    * B34.6 — the first event a server-sent stream sends, on `credential`, within `ms`; the stream is closed after it. Status
    * 0 when not even its headers came in time, and no event when they did and nothing followed; an answer that is no

@@ -38,6 +38,7 @@ import { b30Capabilities } from './clearances.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
 import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
+import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 
 export interface Evidence {
   note?: string
@@ -2862,6 +2863,11 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 3) list.push(gatewayProviders())
   if (i === 5) list.push(gatewayKeys())
   if (i === 7) list.push(gatewayMCP(), gatewayAuth(), gatewaySessions())
+  // B34.7 — every Lens setting and workspace-data route, once a run, each on a workspace of its own: set, read back, seen
+  // on the next request and set back; what only the operator may change refuses, and what this deployment does not run.
+  if (i === 2) list.push(settingsConfigBudgets(), settingsOperatorOnly())
+  if (i === 4) list.push(settingsSwitches(), settingsGuardrails())
+  if (i === 6) list.push(settingsTareDistill(), settingsStoredAnswers(), settingsPrompts())
   return list
 }
 

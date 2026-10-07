@@ -23,7 +23,7 @@ const SSE_WAIT_MS = 15_000
 const FEATURE = 'Lens API'
 
 type Shape = 'openai' | 'anthropic'
-interface Route { route: string; provider: string; shape: Shape }
+export interface Route { route: string; provider: string; shape: Shape }
 
 /** Every way a model is asked through Lens: the provider it reaches and the API it speaks. */
 export const GATEWAY_ROUTES: readonly Route[] = [
@@ -57,7 +57,7 @@ export function catalogULXC(m: Pick<CatalogModel, 'input_per_1m' | 'output_per_1
   return Math.floor((num + den - 1) / den)
 }
 
-const rowsText = (rows: readonly LedgerRow[]): string => rows.map((r) => `${r.type} ${r.amount_ulxc} µLXC`).join(', ')
+export const rowsText = (rows: readonly LedgerRow[]): string => rows.map((r) => `${r.type} ${r.amount_ulxc} µLXC`).join(', ')
 
 /**
  * One served request's rows: one spend row at the catalog price, its platform fee beside it at the plan's rate, and any
@@ -88,8 +88,16 @@ export function refusedVerdict(status: number, error: string, fresh: readonly Le
 
 // ─── asking ──────────────────────────────────────────────────────────────────
 
-interface Asked {
+export interface Asked {
   status: number
+  /** Lens's answer headers: what it says it did (X-Talyvor-…). */
+  headers: Headers
+  /** What was asked. */
+  question: string
+  /** Served from an earlier answer (the workspace's cache or the pool), so the model was not asked. */
+  replayed: boolean
+  /** The answer's text, when it was served. */
+  text: string
   /** Lens's sentence, when it refused. */
   error: string
   /** The provider's token counts, when it was served. */
@@ -107,55 +115,88 @@ function usageOf(text: string): Asked['usage'] {
   }
 }
 
+/** The text of a served answer, in either API's shape. */
+export function answerText(body: string): string {
+  try {
+    const b = JSON.parse(body) as { content?: { text?: string }[]; choices?: { message?: { content?: string } }[] }
+    return b.content?.map((c) => c.text ?? '').join('') ?? b.choices?.map((c) => c.message?.content ?? '').join('') ?? ''
+  } catch {
+    return ''
+  }
+}
+
 let asks = 0
+
+/** A question no earlier request asked, so neither the workspace's cache nor the pool can answer it. */
+export function freshQuestion(): string {
+  const n = ++asks
+  return `What is ${1000 + ((RUN_SALT + n * 7919) % 9000)} + ${1000 + n}? Reply with the number only. (${RUN_SALT}-${Date.now().toString(36)}-${n})`
+}
+
+/**
+ * B34.7 — what a settings scenario changes about one ask: the question (an exact repeat of an earlier one, or one that
+ * carries a word a guardrail blocks), and whether an answer served from an earlier one is an answer to judge rather
+ * than a harness error.
+ */
+export interface AskOpts {
+  question?: string
+  replay?: boolean
+  /** The user message's content in place of the question (a document block beside it, or the question as JSON). */
+  content?: unknown
+  /** A system prompt, as the route's API carries one. */
+  system?: string
+}
 
 /**
  * One question on `r` with `credential`, its worst case held against the run's cap first, and the rows the ledger gained:
- * for a served one, read until its spend and fee are there and any hold is released; for a refused one, a moment later.
- * What it spent is booked for the ledger read-back. The question is this run's own, so neither the workspace's cache nor
- * the pool can answer it.
+ * for a served one, read until its spend and fee are there and any hold is released; for a refused or replayed one, a
+ * moment later. What it spent is booked for the ledger read-back. Unless `opts` names one, the question is this run's
+ * own, so neither the workspace's cache nor the pool can answer it.
  */
-async function ask(ctx: ScenarioCtx, credential: string, r: Route, model: string, note: string, headers: Record<string, string> = {}): Promise<Asked> {
+export async function ask(ctx: ScenarioCtx, credential: string, r: Route, model: string, note: string, headers: Record<string, string> = {}, opts: AskOpts = {}): Promise<Asked> {
   const { env, app } = ctx
   const priced = env.catalog.find((m) => m.id === model)
-  const n = ++asks
-  const question = `What is ${1000 + ((RUN_SALT + n * 7919) % 9000)} + ${1000 + n}? Reply with the number only. (${RUN_SALT}-${Date.now().toString(36)}-${n})`
+  const question = opts.question ?? freshQuestion()
   const before = new Set((await env.lens.ledger(app.user)).map((x) => x.id))
-  const hold = env.cap.reserve(priced === undefined ? 0 : listPriceUSD(priced, worstInputTokens(question.length), MAX_TOKENS))
+  const hold = env.cap.reserve(priced === undefined ? 0 : listPriceUSD(priced, worstInputTokens((opts.content === undefined ? question : JSON.stringify(opts.content)).length + (opts.system ?? '').length), MAX_TOKENS))
   let res: { status: number; headers: Headers; text: string }
   try {
     res = await env.lens.as(credential, 'POST', `${r.route}${r.shape === 'anthropic' ? '/v1/messages' : '/v1/chat/completions'}`,
-      { model, max_tokens: MAX_TOKENS, messages: [{ role: 'user', content: question }] },
+      { model, max_tokens: MAX_TOKENS, ...(opts.system !== undefined && r.shape === 'anthropic' ? { system: opts.system } : {}),
+        messages: [...(opts.system !== undefined && r.shape === 'openai' ? [{ role: 'system', content: opts.system }] : []), { role: 'user', content: opts.content ?? question }] },
       { ...(r.shape === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {}), ...headers })
   } catch (e) {
     env.cap.settle(hold, undefined)
     throw e
   }
   const usage = res.status === 200 ? usageOf(res.text) : undefined
+  const replayed = res.headers.get('X-Talyvor-Cache-Replay') === 'true' || res.headers.has('X-Talyvor-Pool-Charged-ULXC')
   const settled = (rows: LedgerRow[]) => rows.some((x) => x.type === 'spend') && rows.some((x) => x.type === 'platform_fee') &&
     rows.filter((x) => x.type !== 'spend' && x.type !== 'platform_fee').reduce((s, x) => s + x.amount_ulxc, 0) === 0
   const read = async () => (await env.lens.ledger(app.user)).filter((x) => !before.has(x.id))
-  if (res.status !== 200) await new Promise((w) => setTimeout(w, REFUSED_WAIT_MS))
-  const fresh = res.status === 200 ? await within(read, settled, CHARGE_WAIT_MS) : await read()
+  // An answer from the pool is charged its discounted price, on a spend row and its fee like any other.
+  const charged = res.status === 200 && (!replayed || res.headers.has('X-Talyvor-Pool-Charged-ULXC'))
+  if (!charged) await new Promise((w) => setTimeout(w, REFUSED_WAIT_MS))
+  const fresh = charged ? await within(read, settled, CHARGE_WAIT_MS) : await read()
   const spent = fresh.filter((x) => x.type === 'spend').reduce((s, x) => s - x.amount_ulxc, 0)
   // Served and not charged, it still cost the provider its price.
-  env.cap.settle(hold, spent > 0 ? (spent / 1e6) * env.usdPerLXC : res.status !== 200 ? 0 : priced !== undefined && usage !== undefined ? listPriceUSD(priced, usage.input, usage.output) : undefined)
+  env.cap.settle(hold, spent > 0 ? (spent / 1e6) * env.usdPerLXC : !charged ? 0 : priced !== undefined && usage !== undefined ? listPriceUSD(priced, usage.input, usage.output) : undefined)
   for (const x of fresh) if (x.type === 'spend') env.book.add(app.user.workspaceID, -x.amount_ulxc)
   const error = res.status === 200 ? '' : refusalOf(res.text)
   ctx.evidence.push({
-    note: `${note}: ${r.route} ${model}, ${res.status}${usage === undefined ? '' : ` (${usage.input} in / ${usage.output} out tokens)`}`,
+    note: `${note}: ${r.route} ${model}, ${res.status}${replayed ? ', from an earlier answer' : ''}${usage === undefined ? '' : ` (${usage.input} in / ${usage.output} out tokens)`}`,
     question,
     error: error === '' ? undefined : error,
     ledger: fresh.map((x) => ({ type: x.type, amount_ulxc: x.amount_ulxc, created_at: x.created_at })),
   })
-  if (res.headers.get('X-Talyvor-Cache-Replay') === 'true' || res.headers.has('X-Talyvor-Pool-Charged-ULXC')) {
+  if (replayed && opts.replay !== true) {
     throw new Error(`Lens answered "${question}" from an earlier answer, which is charged otherwise: there is no catalog price to judge`)
   }
-  return { status: res.status, error, usage, fresh }
+  return { status: res.status, headers: res.headers, question, replayed, text: res.status === 200 ? answerText(res.text) : '', error, usage, fresh }
 }
 
 /** `a`, served, judged at the catalog price of `model`; undefined when right, else what is wrong. */
-async function servedRight(ctx: ScenarioCtx, a: Asked, model: CatalogModel, who: string): Promise<string | undefined> {
+export async function servedRight(ctx: ScenarioCtx, a: Asked, model: CatalogModel, who: string): Promise<string | undefined> {
   if (a.status !== 200) return `${who} was refused: ${a.status} ${a.error}`
   if (a.usage === undefined) return `${who} was served with no token counts`
   const v = servedVerdict(a.fresh, catalogULXC(model, a.usage.input, a.usage.output, ctx.env.usdPerLXC), (await platformFeeOf(ctx)).bps)
@@ -163,7 +204,7 @@ async function servedRight(ctx: ScenarioCtx, a: Asked, model: CatalogModel, who:
 }
 
 /** The route and model the judge is asked on: the provider the harness relies on to serve. */
-function judgeRoute(ctx: ScenarioCtx): { route: Route; model: CatalogModel } {
+export function judgeRoute(ctx: ScenarioCtx): { route: Route; model: CatalogModel } {
   const model = ctx.env.catalog.find((m) => m.id === ctx.env.judgeModel)
   if (model === undefined) throw new Error(`the catalog has no model ${ctx.env.judgeModel}`)
   const route = GATEWAY_ROUTES.find((r) => r.route === `/v1/proxy/${ctx.env.judgeProvider}`)
@@ -172,7 +213,7 @@ function judgeRoute(ctx: ScenarioCtx): { route: Route; model: CatalogModel } {
 }
 
 /** A key of the workspace's own that may call the proxy (POST /v1/workspaces/{ws}/api-keys), or why not. */
-async function proxyKey(ctx: ScenarioCtx, name: string): Promise<{ key: string; id: string; prefix: string } | string> {
+export async function proxyKey(ctx: ScenarioCtx, name: string): Promise<{ key: string; id: string; prefix: string } | string> {
   const made = await ctx.env.lens.act<{ key: string; id: string; prefix: string }>(ctx.app.user, 'POST', '/v1/workspaces/{ws}/api-keys', { name, scopes: ['proxy'] })
   ctx.evidence.push({ note: `a key of the workspace's own, "${name}": ${made.ok ? `${made.status}, ${made.value.prefix}…` : `refused ${made.status}: ${made.error}`}` })
   if (!made.ok) return `creating a key of the workspace's own was refused: ${made.status} ${made.error}`
@@ -180,7 +221,7 @@ async function proxyKey(ctx: ScenarioCtx, name: string): Promise<{ key: string; 
   return made.value
 }
 
-const verdictOf = (wrong: readonly string[], right: string): Verdict => wrong.length > 0 ? fail(wrong.join('; ')) : { pass: true, detail: right }
+export const verdictOf = (wrong: readonly string[], right: string): Verdict => wrong.length > 0 ? fail(wrong.join('; ')) : { pass: true, detail: right }
 
 // ─── the scenarios ───────────────────────────────────────────────────────────
 
