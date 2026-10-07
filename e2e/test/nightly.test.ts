@@ -58,3 +58,25 @@ it('holds a night whose checkout has moved off main: a TESTERS.md entry, no scen
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// B28.294 — the light pass, the entry point a cron runs every few hours, never starts on top of another run in the checkout.
+it('starts no light pass while another run in the checkout is going', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'e2e-light-'))
+  try {
+    mkdirSync(join(dir, 'scripts'))
+    mkdirSync(join(dir, 'e2e/out'), { recursive: true })
+    cpSync(join(REPO, 'scripts/e2e-nightly.sh'), join(dir, 'scripts/e2e-nightly.sh'))
+    // The nightly's marker: this test's own pid, alive, and when its run started.
+    writeFileSync(join(dir, 'e2e/out/nightly-running'), `${process.pid} 2026-10-08T01:00:00Z\n`)
+    writeFileSync(join(dir, 'e2e.env'), 'LENS_SYNTHETIC_KEY=k\n')
+    const r = spawnSync('bash', [join(dir, 'scripts/e2e-nightly.sh'), '--light'],
+      { env: { ...process.env, E2E_ENV_FILE: join(dir, 'e2e.env') }, encoding: 'utf8', timeout: 60_000 })
+
+    expect(r.status).toBe(0)
+    const log = readFileSync(join(dir, 'e2e/out/nightly.log'), 'utf8')
+    expect(log).toContain('light pass not started: a run started 2026-10-08T01:00:00Z is still going')
+    expect(log).not.toMatch(/light pass starting|run finished/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -17,6 +17,7 @@ import { AppUser, ChargeBook } from './app.ts'
 import { type B28Report, b28Report } from './b28.ts'
 import { CapReached, SpendCap } from './budget.ts'
 import { type RunConfig, parseConfig } from './config.ts'
+import { type DayBudget, dayBudget, leftOf } from './day.ts'
 import { deepJourneys, roundOf } from './deep.ts'
 import { type CoverageMap, type Inventory, Matcher, Recorder, type Tag, buildMap, cannotTest, inventory, leastCovered, refreshLensCheckout } from './coverage.ts'
 import { type CodeReport, codeSkipped, runCode } from './code.ts'
@@ -25,6 +26,7 @@ import { type ExplorerSummary, type Finding, Notebook, explore } from './explore
 import { fileB28Items, fileCodeItems, fileEdgeItems, fileHostileItems, fileItems } from './filing.ts'
 import { type HostileReport, type Repo, runHostile } from './hostile.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
+import { lightJourneys } from './light.ts'
 import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
 import { networkDrop } from './oracles.ts'
 import { cast, seat, seatKey } from './plans.ts'
@@ -107,6 +109,10 @@ export interface RunResult {
   b28?: B28Report
   /** B28.292 — the rounds of the weekly deep red-team pass this run was to play; absent on a night without one. */
   deep_rounds?: number
+  /** B28.294 — this run was the light pass between the nightly runs (light.ts). */
+  light?: true
+  /** B28.294 — the day's one cap and what the day's earlier runs had spent of it; the run's own cap_usd is what they left. */
+  day?: DayBudget
   /** B34.2 — what was tested: the harness, Lens's main at lens-src, and production's versions at the start. */
   versions?: Versions
   /** B34.2 — production's versions read again at the end, to show a deploy that landed during the run. */
@@ -309,7 +315,9 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     // B35.7 — each user on the largest plan its scenarios need, and each plan gate's own workspace on exactly its plan.
     stage = 'creating the synthetic users'
     // B28.292 — on the weekly night, the deep pass's attackers and counterparties after them, created fresh with them.
-    const journeys = [...Array.from({ length: cfg.users }, (_, i) => journeyFor(i, cfg.users, STREAMABLE)), ...deepJourneys(cfg.users, cfg.deepRounds)]
+    // B28.294 — the light pass plays its own few journeys instead.
+    const journeys = cfg.light ? lightJourneys()
+      : [...Array.from({ length: cfg.users }, (_, i) => journeyFor(i, cfg.users, STREAMABLE)), ...deepJourneys(cfg.users, cfg.deepRounds)]
     const seated = await seat(lens, cast(journeys))
     users = seated.users
     const onPlan = (plan: string) => users.filter((u) => u.plan === plan).length
@@ -642,6 +650,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
     cap_usd: cfg.capUSD,
     spent_usd: Number(cap.spentUSD.toFixed(6)),
     ...(cfg.deepRounds > 0 ? { deep_rounds: cfg.deepRounds } : {}),
+    ...(cfg.light ? { light: true as const } : {}),
     stopped_at_cap: stoppedAtCap ?? cap.reached,
     ...(stoppedBy === undefined ? {} : { stopped_by: stoppedBy }),
     incidents,
@@ -666,9 +675,23 @@ async function main(): Promise<number> {
     console.error(`e2e: ${e instanceof Error ? e.message : String(e)}`)
     return 2
   }
+  // B28.294 — under the day's one cap, the run has what the day's earlier runs left of it; none left, nothing runs.
+  let day: DayBudget | undefined
+  if (cfg.dayCapUSD !== undefined) {
+    day = await dayBudget(cfg.dayCapUSD, cfg.outDir, cfg.nightlyAt, new Date())
+    const left = leftOf(day)
+    console.log(`the day's cap: $${day.cap_usd.toFixed(2)} since ${day.since}; $${day.spent_before_usd.toFixed(2)} spent by ${day.runs_before} earlier run(s), ` +
+      `$${left.toFixed(2)} left`)
+    if (left <= 0) {
+      console.log(`nothing was run: the day's cap is spent until ${cfg.nightlyAt}`)
+      return 0
+    }
+    cfg = { ...cfg, capUSD: Math.min(cfg.capUSD, left) }
+  }
   // B26.18 — run() answers whatever happens, and each thing written below is tried on its own, so one that
   // cannot be written does not cost the others.
   const result = await run(cfg)
+  if (day !== undefined) result.day = day
   const c = result.counts
   // B34.3 — Talyvor Edge: edge-infra's nightly workflows on main, read whatever the scenarios did.
   if (cfg.edgeRepo !== 'none') {
@@ -691,7 +714,7 @@ async function main(): Promise<number> {
     console.log(`hostile pull requests: ${result.hostile.prs.map((v) => `${v.id} ${v.state}`).join(', ')}`)
   }
   // B28.293 — every DONE B28 feature in the queue, the scenarios that name it and their verdicts this run.
-  if (cfg.buildMd !== 'none') {
+  if (cfg.buildMd !== 'none' && !cfg.light) {
     try {
       result.b28 = b28Report(await readFile(cfg.buildMd, 'utf8'), scenarioItems(), result.outcomes)
       const f = result.b28.features

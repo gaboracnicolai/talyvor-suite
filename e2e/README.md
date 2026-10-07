@@ -35,6 +35,9 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--upstream-port` | `E2E_UPSTREAM_PORT` | 0 | B28.287 — the port the run's synthetic upstream listens on, for a Lens started with `LENS_VLLM_BASE_URL=http://<this machine>:<port>`; 0 (production, whose vLLM traffic goes nowhere the run can see) leaves `keys-not-forwarded` a SKIP |
 | `--hostile-prs` | `E2E_HOSTILE_PRS` | on | B28.289 — the hostile pull requests made against each repo's main after the scenarios; `none` makes none |
 | `--deep-rounds` | `E2E_DEEP_ROUNDS` | 0 | B28.292 — rounds of the weekly deep red-team pass after the scenarios, under the same cap; the nightly sets it on `E2E_DEEP_DAY` only (default 3 rounds) |
+| `--light` | `E2E_LIGHT=1` | off | B28.294 — the light pass: its own six users and the core money and auth paths, nothing else (below) |
+| `--day-cap-usd` | `E2E_DAY_CAP_USD` | — | B28.294 — the day's one cap, US$: the run spends only what the runs in `--out` since `E2E_NIGHTLY_AT` left of it, and nothing when none is left; the nightly script sets it to `E2E_CAP_USD` |
+| | `E2E_NIGHTLY_AT` | 03:00 | B28.294 — when the testers' day starts (this machine's clock): the nightly's hour |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -132,6 +135,38 @@ verdict in every round, and its item) and TESTERS.md one line. By hand: `E2E_DEE
 Self-test: `E2E_DEEP_ROUNDS=1 STUB_BREAK=ratelimit-open-later` — the limiter fails open only after the first workspace that
 bursts it — PASSes the night's `rate-limits-hold` and FAILs round 1's, which is filed.
 
+## The light pass between the nightly runs (B28.294)
+
+Every few hours, between the nights, a cron runs `scripts/e2e-nightly.sh --light` (the cron is Nicolai's to set; the
+script is the entry point). Like a night, it brings the checkout to main's head first, and a checkout held behind main
+runs nothing. Then it runs the harness with `--light` (`src/light.ts`): six fresh synthetic users at once, playing the core
+money and auth paths in a few minutes:
+
+| User | Plays |
+|---|---|
+| 0 | `known-answer`, `capital` (a priced answer), then `spending-limit` (refused past it, no spend row) |
+| 1 | `agent-limit`, `wallet-send-refund` and `cross-company-test-money`, with user 5 as the other company |
+| 2 | `api-key-revoke`, then `session-sign-out` |
+| 3 | `csrf-refused`, `script-inert`, `keys-unlisted`, `webhook-unsigned`, each on a workspace of its own |
+| 4 | `ledger-moves-at-once`, `ledger-call-once`, `agent-rules-unbypassable`, each on a workspace of its own |
+| 5 | nothing: the other company |
+
+Then every user's ledger is read back. No explorers, deep pass, hostile pull requests, Talyvor Code or Talyvor Edge, and
+no B28 features section. Every scenario is one the nightly plays, so a FAIL is **filed like the nightly's**, under its
+scenario's `e2e-scenario:` marker, and its item says the light pass caught it. The report's section is headed
+**Light pass**, and TESTERS.md gets an entry for it.
+
+**One cap for the day.** The nightly script sets `E2E_DAY_CAP_USD` to `E2E_CAP_USD`, for the night and the light passes
+both. A run may spend only what is left of it in the testers' day, which runs from `E2E_NIGHTLY_AT` to the next. What
+was spent before is read from the `run-*.json` results in `--out` that started since then. The night opens each day with
+all of it. Each light pass has what the night and the passes before it left, and when nothing is left it runs nothing
+and exits 0. The report and TESTERS.md give the day's cap beside the pass's own. A light pass never starts while another
+run in the checkout is going (it logs that and exits 0), and the night waits for a light pass to finish.
+
+Self-test: `E2E_LIGHT=1 E2E_DAY_CAP_USD=1 STUB_BREAK=send-one-side`, with a `run-*.json` in `E2E_OUT` that spent $0.60,
+runs 21 verdicts in under a minute under the $0.40 left. It FAILs `wallet-send-refund` and `cross-company-test-money`,
+and files both. Without the defect all 21 PASS. With `E2E_DAY_CAP_USD=0.6` it runs nothing.
+
 ## Every B28 feature with its own test (B28.293)
 
 **A scenario names the build items whose feature it exercises end to end**: `items: ['B28.24', 'B28.300']` beside its
@@ -155,6 +190,7 @@ BLOCKED e2e item whose `deps:` name the feature holds it instead. TESTERS.md get
 scripts/e2e-nightly.sh --install    # launchd starts it at login and again if it stops; each night at E2E_NIGHTLY_AT (default 03:00)
 scripts/e2e-nightly.sh --status     # whether it runs, its pid, the last run and the next
 scripts/e2e-nightly.sh --now        # one run now, exiting with the run's status
+scripts/e2e-nightly.sh --light      # B28.294: the light pass now, under what is left of the day's cap — what a cron runs every few hours
 ```
 
 `--install` writes `~/Library/LaunchAgents/com.talyvor.e2e-nightly.plist` with this shell's `PATH`,

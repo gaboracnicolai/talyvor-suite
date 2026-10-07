@@ -8,6 +8,8 @@
 #   E2E_UPSTREAM_PORT=10287 pnpm --filter @talyvor/e2e selftest   # B28.287: the stub Lens sends its vLLM traffic to
 #                                                         # the run's synthetic upstream on that port, so
 #                                                         # keys-not-forwarded runs rather than SKIPs
+#   E2E_LIGHT=1 pnpm --filter @talyvor/e2e selftest       # B28.294: the light pass, its own six users; with
+#                                                         # E2E_DAY_CAP_USD it has what the runs in E2E_OUT left of it
 #   E2E_FAULTS=1 pnpm --filter @talyvor/e2e selftest      # B26.18: the run's browser is killed mid-run, then
 #                                                         # Lens; the report and summary must still be written
 #                                                         # and name both
@@ -109,10 +111,12 @@ LENS_SYNTHETIC_KEY=$key LENS_MODERATOR_KEY=$moderator LENS_STRIPE_TEST_WEBHOOK_S
   --out "${E2E_OUT:-$here/../out}" --report-dir "${E2E_REPORT_DIR:-${E2E_OUT:-$here/../out}}" \
   --build-md "${E2E_BUILD_MD:-$tmp/BUILD.md}" --testers-md "${E2E_TESTERS_MD:-$tmp/TESTERS.md}" \
   ${E2E_LENS_SRC:+--lens-src "$E2E_LENS_SRC"} ${E2E_TRACK_SRC:+--track-src "$E2E_TRACK_SRC"} ${E2E_DOCS_SRC:+--docs-src "$E2E_DOCS_SRC"} \
+  ${E2E_LIGHT:+--light} ${E2E_DAY_CAP_USD:+--day-cap-usd "$E2E_DAY_CAP_USD"} \
   --explorers "${E2E_EXPLORERS:-2}" --explore-minutes "${E2E_EXPLORE_MINUTES:-1}" || code=$?
 # B28.289 — the suite's own hostile pull request, a dependency whose postinstall runs code, must be caught for real.
+# B28.294 — the light pass makes none.
 results=$(ls -t "${E2E_OUT:-$here/../out}"/run-*.json | head -1)
-if ! node -e 'const v = (JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hostile?.prs ?? []).find((p) => p.id === "postinstall-suite")
+if [ -z "${E2E_LIGHT:-}" ] && ! node -e 'const v = (JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hostile?.prs ?? []).find((p) => p.id === "postinstall-suite")
 if (v?.state !== "caught") { console.log(JSON.stringify(v)); process.exit(1) }' "$results"; then
   echo "selftest: FAILED — CI would not stop the hostile pull request postinstall-suite (B28.289)"
   code=1

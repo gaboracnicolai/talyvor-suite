@@ -15,6 +15,7 @@ import { type CoverageMap, type Row, tallyLine } from './coverage.ts'
 import { type EdgeReport, edgeLine, renderEdge } from './edge.ts'
 import { type HostileReport, hostileLine, renderHostile } from './hostile.ts'
 import type { ExplorerSummary, Finding } from './explore.ts'
+import type { DayBudget } from './day.ts'
 import type { MemorySample } from './memory.ts'
 import type { Evidence } from './scenarios.ts'
 import { type Versions, versionsLine } from './versions.ts'
@@ -78,7 +79,18 @@ export interface ReportedRun {
   b28?: B28Report
   /** B28.292 — the rounds of the weekly deep red-team pass the run was to play; absent on a night without one. */
   deep_rounds?: number
+  /** B28.294 — the run was the light pass between the nightly runs (light.ts). */
+  light?: true
+  /** B28.294 — the day's one cap and what the day's earlier runs had spent of it (run.ts). */
+  day?: DayBudget
 }
+
+/** B28.294 — the day's one cap, after the run's own: what the day's earlier runs had spent of it. */
+const dayText = (run: ReportedRun): string => run.day === undefined ? ''
+  : `, what was left of the day's $${run.day.cap_usd.toFixed(2)} cap after $${run.day.spent_before_usd.toFixed(2)} spent by ${run.day.runs_before} earlier run(s) since ${run.day.since}`
+
+/** B28.294 — what a run is called: the light pass is named. */
+const runName = (run: ReportedRun): string => (run.light === true ? 'Light pass' : 'Run')
 
 type Outcome = ReportedRun['outcomes'][number]
 
@@ -400,14 +412,14 @@ export function renderRun(run: ReportedRun): string {
   const c = run.counts
   const map = run.coverage
   const lines = [
-    `## Run started ${run.started_at}`,
+    `## ${runName(run)} started ${run.started_at}`,
     '',
     `${c.PASS} passed, ${c.FAIL} failed, ${c.ERROR} errored, ${c.SKIP} skipped — ${run.users} synthetic users on ${run.app} ` +
       `(Lens ${run.lens}), model ${run.model}.`,
     '',
     `Tested: ${testedText(run)}.`,
     '',
-    `Cost: about $${run.spent_usd.toFixed(4)} of a $${run.cap_usd.toFixed(2)} cap` +
+    `Cost: about $${run.spent_usd.toFixed(4)} of a $${run.cap_usd.toFixed(2)} cap${dayText(run)}` +
       (run.stopped_at_cap ? ' — STOPPED AT THE CAP; everything after it was skipped.' : '.') +
       ` Finished ${run.finished_at}.`,
     '',
@@ -500,7 +512,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
   const passing = [...byScenario(run.outcomes)].filter(([, os]) => os.some((o) => o.status === 'PASS'))
   const findings = run.findings ?? []
   return [
-    `## ${run.started_at} — ${run.users} users on ${run.app}`,
+    `## ${run.started_at} — ${run.light === true ? 'light pass, ' : ''}${run.users} users on ${run.app}`,
     '',
     `- **Coverage**: ${map === undefined ? 'no map' : `screens ${tallyLine(map.screens)}; BFF routes ${tallyLine(map.bff)}; ${servicesLine(map)}`}.`,
     `- **Tested**: ${testedText(run)}.`,
@@ -518,7 +530,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
     ...codeLine(run.code),
     ...hostileLine(run.hostile),
     ...b28Line(run.b28),
-    `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
+    `- **Cost**: $${run.spent_usd.toFixed(2)} of the $${run.cap_usd.toFixed(2)} cap${dayText(run)}${run.stopped_at_cap ? ' — stopped at the cap' : ''}` +
       `${run.stopped_by === undefined ? '' : ', spent before it stopped'}.`,
     `- **Report**: ${report}`,
     '',
