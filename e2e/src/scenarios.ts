@@ -42,6 +42,7 @@ import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
 import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
 import { roomsPrivate } from './rooms.ts'
+import { roomsModeration } from './roomsModeration.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
 import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
@@ -3992,6 +3993,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B32.90 — the marketplace's search, collections and trending, once a run, on workspaces of its own: searched by
   // capability and price it finds only what matches, a collection lists its listings in order, and a featured one is first.
   if (i === 5) list.push(marketDiscovery())
+  // B32.91 — room safety, once a run, on a public room of its own: reports hide it until the operator keeps it, a ban
+  // refuses a post, and a closed room refuses a message and a run on its wallet, whose statement gains no line.
+  if (i === 3) list.push(roomsModeration())
   return list
 }
 

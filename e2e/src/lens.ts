@@ -472,6 +472,8 @@ export interface LensRoomDetail extends LensRoom {
   terms: { version: number; split_rule: string; remix_share_bps: number; default_price_usd_micros: number; spend_policy: string }
   members: { workspace_id: string; role: string; may_spend: boolean }[] | null
   me: { workspace_id: string; role: string } | null
+  /** B32.52 — a public room reported by LENS_ROOM_REPORTS_HIDE workspaces, off the public list until the operator reviews it. */
+  under_review?: boolean
   /** B32.32 — the room's wallet: an agent of the owner's whose monthly limit is the room's budget; -1 is unlimited. */
   wallet?: { agent_id: string; name: string; monthly_limit_ulxc: number; budget_max_ulxc: number }
 }
@@ -484,6 +486,22 @@ export interface LensRoomInvite {
   uses: number
   live: boolean
   revoked_at?: string
+}
+
+/** B32.91 — Lens operatoraudit.Entry: who did what to which target. */
+export interface OperatorAuditEntry {
+  id: number
+  actor: string
+  action: string
+  target: string
+  detail: string
+}
+
+/** B32.91 — Lens rooms.Moderated: the room after the operator's action, the reports it resolved and its operator_audit row. */
+export interface RoomModerated {
+  room: LensRoom
+  resolved_reports: number
+  audit: OperatorAuditEntry
 }
 
 /** B32.55 — Lens rooms.Prize. */
@@ -1404,6 +1422,30 @@ export class LensClient {
     })
     const raw = await res.text()
     return res.ok ? { ok: true, status: res.status, value: raw === '' ? null : JSON.parse(raw) } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B32.91 — the operator's room queue (Lens B32.52): every room with an open report, and how many workspaces' reports hide one. */
+  async roomReportQueue(): Promise<Answered<{ rooms: unknown[] | null; hide_at: number; setting: string }>> {
+    return this.asModerator('GET', '/v1/admin/rooms/reports')
+  }
+
+  /** B32.91 — the operator keeps, locks, unlocks or closes a room; Lens answers the room and the operator_audit row it wrote. */
+  async moderateRoom(roomID: string, action: 'keep' | 'lock' | 'unlock' | 'close', reason = ''): Promise<Answered<RoomModerated>> {
+    return this.asModerator('POST', `/v1/admin/rooms/${encodeURIComponent(roomID)}/moderate`, { action, reason })
+  }
+
+  /** B32.91 — the operator audit log for one target, newest first, as the moderator key reads it (Lens may refuse it the read). */
+  async operatorAudit(target: string): Promise<Answered<{ entries: OperatorAuditEntry[] | null }>> {
+    return this.asModerator('GET', `/v1/admin/operator-audit?target=${encodeURIComponent(target)}`)
+  }
+
+  private async asModerator<T>(method: string, path: string, body?: unknown): Promise<Answered<T>> {
+    const res = await this.send(method, path, {
+      headers: { ...this.moderator(), Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: (raw === '' ? null : JSON.parse(raw)) as T } : { ok: false, status: res.status, error: refusalOf(raw) }
   }
 
   /** A moderator key must name the person it acts for; every use is recorded under that name. */
