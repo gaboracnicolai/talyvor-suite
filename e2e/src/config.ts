@@ -2,6 +2,7 @@
 // may spend. Flags win over the environment; nothing here has a production default that spends money
 // without the operator key being set.
 
+import { CODE_REPO } from './code.ts'
 import { EDGE_REPO } from './edge.ts'
 
 export interface RunConfig {
@@ -47,6 +48,14 @@ export interface RunConfig {
   testersMd: string
   /** B34.3 — the repo whose nightly workflows on main the report's Talyvor Edge section reads with gh; 'none' reads none. */
   edgeRepo: string
+  /**
+   * B34.10 — the repo whose CLI agent the run builds from main and runs on a synthetic agent's key, and whose
+   * extension's and plugin's CI on main the report reads with gh; 'none' does neither.
+   */
+  codeRepo: string
+  /** B34.10 — the checkout the CLI is built from; codeClone is where the run clones it from, undefined when codeSrc was given. */
+  codeSrc: string
+  codeClone: string | undefined
   headed: boolean
 }
 
@@ -97,6 +106,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     syntheticKey === '' ? 'LENS_SYNTHETIC_KEY in the environment' : '',
   ].filter((m) => m !== '')
   if (missing.length > 0) throw new Error(`missing ${missing.join(', ')}`)
+  const codeRepo = pick('code-repo', 'E2E_CODE_REPO') ?? CODE_REPO
 
   return {
     appURL,
@@ -125,6 +135,9 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     docsRepo: pick('docs-src', 'E2E_DOCS_SRC') !== undefined ? undefined : env.E2E_DOCS_REPO ?? DEFAULTS.docsRepo,
     testersMd: pick('testers-md', 'E2E_TESTERS_MD') ?? `${env.HOME ?? ''}/talyvor-queue/TESTERS.md`,
     edgeRepo: pick('edge-repo', 'E2E_EDGE_REPO') ?? EDGE_REPO,
+    codeRepo,
+    codeSrc: pick('code-src', 'E2E_CODE_SRC') ?? `${pick('out', 'E2E_OUT') ?? DEFAULTS.outDir}/code-src`,
+    codeClone: pick('code-src', 'E2E_CODE_SRC') !== undefined ? undefined : `https://github.com/${codeRepo}.git`,
     headed: flags.get('headed') === 'true',
   }
 }

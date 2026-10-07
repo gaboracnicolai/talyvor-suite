@@ -30,6 +30,8 @@ LENS_SYNTHETIC_KEY=… pnpm --filter @talyvor/e2e run \
 | `--docs-src` | `E2E_DOCS_SRC` | `<out>/docs-src` | the same for talyvor-docs, from `E2E_DOCS_REPO` |
 | `--testers-md` | `E2E_TESTERS_MD` | `~/talyvor-queue/TESTERS.md` | where the run's short summary goes; `none` writes none |
 | `--edge-repo` | `E2E_EDGE_REPO` | `gaboracnicolai/edge-infra` | the repo whose nightly workflows the report's Talyvor Edge section reads with `gh`; `none` reads none |
+| `--code-repo` | `E2E_CODE_REPO` | `gaboracnicolai/talyvor-code` | the repo whose CLI the run builds from main and runs on an agent's key, and whose extension's and plugin's CI the report reads with `gh` (B34.10); `none` does neither |
+| `--code-src` | `E2E_CODE_SRC` | `<out>/code-src` | the checkout the CLI is built from; not given, the run keeps its own there, brought up to main each run the way `--lens-src` is |
 | `--headed` | | off | show the browsers |
 
 A run needs `LENS_SYNTHETIC_KEY` set to the same value in `lens.env` and in the BFF's env file. Without
@@ -72,6 +74,21 @@ in the run** when main has it and the run's commit did not; and each row of `doc
 of the phases it names. A run older than 36 hours is **STALE**, never green. A failed phase or workflow files one item
 for edge-infra carrying `e2e-scenario: edge-<workflow>-<phase>` (or `-<failed job>` when there is no phase), under the
 same once-only rule as a scenario. TESTERS.md gets the section in one line.
+
+## Talyvor Code in the report (B34.10)
+
+After the scenarios, before the explorers, the run brings `<out>/code-src` up to talyvor-code's main and builds its CLI
+(`go build ./cmd/agent`, so the Mac needs Go on the PATH launchd gives the nightly). On a synthetic workspace of its own
+it makes an agent in Agent Wallets, issues it a key and funds it with 2 LXC, reserved against the cap. Then, in a fixture
+repository written fresh each night (`calc.go`, whose `Magic()` returns a number new that night), it runs
+`talyvor-code ask --file calc.go` and `talyvor-code review --output json calc.go` on that key with `claude-haiku-4-5`.
+Each call must be one charge on the agent's statement (a spend line, or a stream's hold and the settle that closes it)
+and none on the workspace: its unallocated balance must not move. `ask` must answer with that night's number. The report
+gets a **Talyvor Code** section with each command's verdict, what it said and what it charged, and the `extension` and
+`jetbrains` jobs of the latest completed CI run on talyvor-code's main, read with `gh`. A broken `ask` files one item
+for talyvor-code carrying `e2e-scenario: talyvor-code-ask`, under the same once-only rule as a scenario; a night whose
+CLI could not be run (no Go, no checkout, the run stopped) says so and files nothing. TESTERS.md gets the section in one
+line.
 
 ## Every night, and the explorers (B17.5)
 
