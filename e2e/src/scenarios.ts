@@ -52,6 +52,7 @@ import { fileBombBounded, ssrfRefused } from './ssrf.ts'
 import { csrfRefused, scriptInert } from './session.ts'
 import { keysNotForwarded, keysUnlisted } from './keys.ts'
 import { rateLimitsHold } from './ratelimit.ts'
+import { marketDiscovery } from './discovery.ts'
 
 export interface Evidence {
   note?: string
@@ -3800,6 +3801,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B28.288 — Lens's rate limiter, once a run, on a workspace of its own: a burst of reads at once on one token is refused
   // past the limit, each refusal saying when to come back, and the next read once that has passed is served.
   if (i === 7) list.push(rateLimitsHold())
+  // B32.90 — the marketplace's search, collections and trending, once a run, on workspaces of its own: searched by
+  // capability and price it finds only what matches, a collection lists its listings in order, and a featured one is first.
+  if (i === 5) list.push(marketDiscovery())
   return list
 }
 

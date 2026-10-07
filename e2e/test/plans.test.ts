@@ -40,7 +40,7 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // B28.287 — and the keys no read may return and the credentials no upstream may receive.
     // B28.288 — and a burst Lens's rate limiter must refuse.
     expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['agent-rules-unbypassable:team', 'byok-addon:free', 'credits-top-up:free', 'csrf-refused:free', 'evals:free', 'file-bomb-bounded:free', 'gateway-auth:free', 'gateway-keys:free',
-      'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'injection-exfil:free', 'keys-not-forwarded:free', 'keys-unlisted:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'market-abuse:free', 'nodes:free', 'outputs-attribution:free',
+      'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'injection-exfil:free', 'keys-not-forwarded:free', 'keys-unlisted:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'market-abuse:free', 'market-discovery:free', 'nodes:free', 'outputs-attribution:free',
       'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'pool-isolation:free', 'povi:free', 'rate-limits-hold:free', 'rooms-private:team', 'script-inert:team', 'seats-free:free', 'seats-team:free',
       'settings-config-budgets:free', 'settings-guardrails:free', 'settings-operator-only:free', 'settings-prompts:free', 'settings-stored-answers:free',
       'settings-switches:free', 'settings-tare-distill:free', 'ssrf-refused:free', 'webhook-replayed:free', 'webhook-unsigned:free'])

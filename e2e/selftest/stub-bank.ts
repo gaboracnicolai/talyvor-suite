@@ -121,7 +121,11 @@ interface Listing {
   artifact: Record<string, unknown>; changelog: string
   /** B34.4 — every version's artifact, how it is sold, and whether others may build on it */
   artifacts?: Record<number, Record<string, unknown>>; offers?: StubOffer[]; remix_policy?: string; remix_share_bps?: number
+  /** B32.90 — what it can do, from MARKET_CAPABILITIES in their order */
+  capabilities?: string[]
 }
+/** B32.90 — Lens market.Collection: a curator's list of listings, in its order; the operator features one. */
+interface StubCollection { id: string; workspace_id: string; title: string; description: string; public: boolean; featured: boolean; featured_at?: string; listing_ids: string[]; created_at: string; updated_at: string }
 /** B34.4 — Lens market.Offer, a listing's licence remix grant and lineage edge, a licence, and a simulated portfolio. */
 interface StubOffer { id: string; kind: string; licence: string; price_usd_micros: number; period_days?: number; included_uses?: number; created_at: string }
 interface Grant { ws: string; listing_id: string; version: number; share_bps: number; accepted_at: string }
@@ -228,6 +232,8 @@ const modelCaps = (caps: Record<string, number>): Record<string, number> =>
 const ULXC_PER_USD_MICRO = 10
 const USD_MICROS_PER_PENNY = 12_700
 const id = (prefix: string): string => prefix + randomBytes(8).toString('hex')
+/** B32.90 — Lens's controlled list of what a listing can do (market_capabilities, migration 0219), in its order. */
+const MARKET_CAPABILITIES = ['summarize', 'extract', 'translate', 'classify', 'code-review', 'sql', 'legal', 'finance', 'write', 'research', 'data-analysis', 'customer-support']
 
 export class Bank {
   private readonly d: BankDeps
@@ -243,6 +249,7 @@ export class Bank {
   /** B28.279 — each agent's moves in flight, for move-race. */
   private readonly moving = new Map<string, number>()
   private readonly listings = new Map<string, Listing>()
+  private readonly collections = new Map<string, StubCollection>()
   private readonly uses: Use[] = []
   private nextPosting = 1
   private readonly transfers: Transfer[] = []
@@ -598,6 +605,7 @@ export class Bank {
   /** GET /v1/marketplace/listings[/{id}]: the public catalog, as anyone signed in reads it. */
   publicRoute(res: ServerResponse, path: string, url: URL, viewer: string): boolean {
     const { json } = this.d
+    if (this.discoveryRoute(res, path, url, viewer)) return true
     if (path === '/v1/marketplace/listings') {
       const kind = url.searchParams.get('kind') ?? ''
       json(res, 200, { listings: [...this.listings.values()].filter((l) => l.visibility === 'public' && this.visible(l, viewer) && (kind === '' || l.kind === kind))
@@ -627,6 +635,69 @@ export class Bank {
     if (l === undefined || !this.visible(l, viewer)) json(res, 404, { error: 'market: no such listing' })
     else json(res, 200, this.listingOut(l, viewer))
     return true
+  }
+
+  /**
+   * B32.90 — Lens's discovery reads (B32.50): search the approved public listings by capability, kind and the most one use
+   * is billed, newest or by price (nobody buys here, so trending is everyone's 0), the controlled list, and the public
+   * collections, the featured first. STUB_BREAK=search-price ignores max_price_per_use, search-capability the capability,
+   * featured-last lists the featured collections after the others.
+   */
+  private discoveryRoute(res: ServerResponse, path: string, url: URL, viewer: string): boolean {
+    const { json } = this.d
+    const q = url.searchParams
+    if (path === '/v1/marketplace/capabilities') return json(res, 200, { capabilities: MARKET_CAPABILITIES.map((slug) => ({ slug, label: slug })) }), true
+    if (path === '/v1/marketplace/search') {
+      const sort = q.get('sort') || (q.get('q') ? 'relevance' : 'trending')
+      const cap = q.get('capability') ?? ''
+      const max = q.get('max_price_per_use')
+      if (cap !== '' && !MARKET_CAPABILITIES.includes(cap)) return json(res, 400, { error: `market: invalid listing: "${cap}" is not a capability` }), true
+      const page = Number(q.get('page') || 1)
+      const hits = [...this.listings.values()]
+        .filter((l) => l.visibility === 'public' && l.review_status === 'approved' && ((q.get('kind') ?? '') === '' || l.kind === q.get('kind')))
+        .filter((l) => cap === '' || this.broken('search-capability') || (l.capabilities ?? []).includes(cap))
+        .map((l) => ({ l, price: this.perUse(l) }))
+        .filter(({ price }) => max === null || this.broken('search-price') || (price !== null && price <= Number(max)))
+        .sort((a, b) => sort === 'price' ? (a.price ?? Infinity) - (b.price ?? Infinity) : b.l.created_at.localeCompare(a.l.created_at))
+      const at = hits.slice((page - 1) * 50, page * 50).map(({ l, price }) => {
+        const { artifact: _a, changelog: _c, ...rest } = l
+        return { ...rest, capabilities: l.capabilities ?? [], offers: l.offers ?? [], price_per_use_usd_micros: price, distinct_buyers_7d: 0, trending_score: 0 }
+      })
+      return json(res, 200, { listings: at, sort, page, page_size: 50, total: hits.length, has_more: page * 50 < hits.length }), true
+    }
+    if (path === '/v1/marketplace/collections') {
+      const featured = this.broken('featured-last') ? -1 : 1
+      const list = [...this.collections.values()].filter((c) => c.public)
+        .sort((a, b) => featured * (Number(b.featured) - Number(a.featured)) || (b.featured_at ?? '').localeCompare(a.featured_at ?? '') || b.updated_at.localeCompare(a.updated_at))
+      return json(res, 200, { collections: list.map((c) => this.collectionOut(c, false)) }), true
+    }
+    const m = /^\/v1\/marketplace\/collections\/([^/]+)$/.exec(path)
+    if (m === null) return false
+    const c = this.collections.get(m[1])
+    if (c === undefined || (!c.public && c.workspace_id !== viewer)) return json(res, 404, { error: 'market: not found: no such collection' }), true
+    return json(res, 200, this.collectionOut(c, true)), true
+  }
+
+  /** B32.90 — what one use of `l` is billed in µUSD (Lens market.Discover): 0 with no offers, its commercial per-use offer, else null. */
+  private perUse(l: Listing): number | null {
+    if ((l.offers ?? []).length === 0) return 0
+    return l.offers?.find((o) => o.kind === 'per_use' && o.licence === 'commercial')?.price_usd_micros ?? null
+  }
+
+  /** B32.90 — a collection as Lens reads it: the listings anyone may see counted, and listed in its order on a read of it alone. */
+  private collectionOut(c: StubCollection, withListings: boolean): object {
+    const shown = c.listing_ids.map((x) => this.listings.get(x)).filter((l): l is Listing => l !== undefined && l.visibility === 'public' && l.review_status === 'approved')
+    const { listing_ids: _ids, ...rest } = c
+    return { ...rest, listing_count: shown.length, ...(withListings ? { listings: shown.map((l) => { const { artifact: _a, changelog: _c, ...out } = l; return out }) } : {}) }
+  }
+
+  /** B32.90 — `caps` on the controlled list, in its order; or Lens's refusal. */
+  private checkCapabilities(caps: unknown): string[] | string {
+    if (caps === undefined || caps === null) return []
+    if (!Array.isArray(caps)) return 'body must be {capabilities: [...]}'
+    const bad = caps.find((c) => !MARKET_CAPABILITIES.includes(c))
+    if (bad !== undefined) return `market: invalid listing: "${String(bad)}" is not a capability; the capabilities are ${MARKET_CAPABILITIES.join(', ')}`
+    return MARKET_CAPABILITIES.filter((c) => caps.includes(c))
   }
 
   // ─── B25.4: money between owners, and what the moderators and a seller's Stripe account do ───
@@ -812,6 +883,15 @@ export class Bank {
       return json(res, 200, { listings: [...this.listings.values()].filter((l) => l.review_status === 'held' || (l.review_status !== 'taken_down' && open(l).length > 0))
         .map((l) => ({ listing: this.listingOut(l, l.workspace_id), open_reports: open(l).length, report_reasons: [...new Set(open(l).map((r) => r.reason))],
           report_details: open(l).map((r) => r.details) })) }), true
+    }
+    const f = /^\/v1\/admin\/marketplace\/collections\/([^/]+)\/feature$/.exec(path)
+    if (f !== null && req.method === 'POST') {
+      const c = this.collections.get(f[1])
+      if (c === undefined) return json(res, 404, { error: 'market: not found: no such collection' }), true
+      const { featured = true } = await this.body<{ featured?: boolean }>(req)
+      if (featured && !c.public) return json(res, 400, { error: 'market: invalid listing: only a public collection may be featured' }), true
+      Object.assign(c, { featured, featured_at: featured ? new Date().toISOString() : undefined })
+      return json(res, 200, this.collectionOut(c, false)), true
     }
     const m = /^\/v1\/admin\/marketplace\/listings\/([^/]+)\/(approve|takedown)$/.exec(path)
     if (m === null || req.method !== 'POST') return this.d.miss(req, res, path), true
@@ -1449,7 +1529,9 @@ export class Bank {
         return json(res, 422, { error: `market: the listing cannot be published: it contains a secret (${secret[0]}) — remove it and publish again`,
           scan: { secrets: [secret[0]], injection_risk: 0, refused: `it contains a secret (${secret[0]}) — remove it and publish again` } }), true
       }
-      const l: Listing = { id: id('lst_'), workspace_id: ws.id, kind: b.kind ?? 'prompt', title: b.title, description: b.description ?? '',
+      const caps = this.checkCapabilities(b.capabilities)
+      if (typeof caps === 'string') return json(res, 400, { error: caps }), true
+      const l: Listing = { id: id('lst_'), workspace_id: ws.id, kind: b.kind ?? 'prompt', title: b.title, description: b.description ?? '', capabilities: caps,
         price_per_use_ulxc: b.price_per_use_ulxc ?? 0, visibility: b.visibility ?? 'public', latest_version: 1, created_at: now, updated_at: now,
         review_status: READS_AS_INJECTION.test(`${b.title} ${b.description ?? ''} ${JSON.stringify(b.artifact)}`) ? 'held' : 'approved',
         artifact: b.artifact, changelog: b.changelog ?? '' }
@@ -1464,11 +1546,37 @@ export class Bank {
       return json(res, 200, { listings: [...this.listings.values()].filter((l) => l.workspace_id === ws.id).map((l) => this.listingOut(l, ws.id)) }), true
     }
     // B34.4 — a listing's owner gives it a version, its offers and its remix terms; anyone may remix one that allows it.
-    if ((m = /^\/marketplace\/listings\/([^/]+)\/(versions|offers|remix-terms|remix|licences)$/.exec(rest)) !== null) {
+    // B32.90 — the collections a workspace curates: made, replaced and deleted; a collection lists public, approved listings.
+    if ((m = /^\/marketplace\/collections(?:\/([^/]+))?$/.exec(rest)) !== null) {
+      const c = m[1] === undefined ? undefined : this.collections.get(m[1])
+      if (m[1] !== undefined && c?.workspace_id !== ws.id) return json(res, 404, { error: 'market: not found: no such collection' }), true
+      if (method === 'GET' && c === undefined) return json(res, 200, { collections: [...this.collections.values()].filter((x) => x.workspace_id === ws.id).map((x) => this.collectionOut(x, false)) }), true
+      if (method === 'DELETE' && c !== undefined) return this.collections.delete(c.id), json(res, 200, { id: c.id, deleted: true }), true
+      if ((method === 'POST' && c === undefined) || (method === 'PUT' && c !== undefined)) {
+        const b = await this.body<{ title?: string; description?: string; public?: boolean; listing_ids?: string[] }>(req)
+        const ids = b.listing_ids ?? []
+        if ((b.title ?? '').trim() === '') return json(res, 400, { error: 'market: invalid listing: a collection needs a title of at most 120 characters' }), true
+        const unfit = ids.find((x) => { const l = this.listings.get(x); return l === undefined || l.visibility !== 'public' || l.review_status !== 'approved' })
+        if (unfit !== undefined) return json(res, 400, { error: `market: invalid listing: listing ${unfit} is not a public listing anyone may find` }), true
+        const at: StubCollection = c ?? { id: id('col_'), workspace_id: ws.id, title: '', description: '', public: false, featured: false, listing_ids: [], created_at: now, updated_at: now }
+        Object.assign(at, { title: b.title, description: b.description ?? '', public: b.public === true, listing_ids: ids, updated_at: now })
+        if (!at.public) Object.assign(at, { featured: false, featured_at: undefined })
+        this.collections.set(at.id, at)
+        return json(res, c === undefined ? 201 : 200, this.collectionOut(at, true)), true
+      }
+      return this.d.miss(req, res, `/v1/workspaces/${ws.id}${rest}`), true
+    }
+    if ((m = /^\/marketplace\/listings\/([^/]+)\/(versions|offers|remix-terms|remix|licences|capabilities)$/.exec(rest)) !== null) {
       const l = this.listings.get(m[1])
       const own = l !== undefined && l.workspace_id === ws.id
       if (l === undefined || !this.visible(l, ws.id)) return json(res, 404, { error: 'market: no such listing' }), true
-      if (['versions', 'offers', 'remix-terms'].includes(m[2]) && !own) return json(res, 404, { error: 'market: no such listing' }), true
+      if (['versions', 'offers', 'remix-terms', 'capabilities'].includes(m[2]) && !own) return json(res, 404, { error: 'market: no such listing' }), true
+      if (m[2] === 'capabilities' && method === 'PUT') {
+        const caps = this.checkCapabilities((await this.body<{ capabilities?: unknown }>(req)).capabilities ?? null)
+        if (typeof caps === 'string') return json(res, 400, { error: caps }), true
+        l.capabilities = caps
+        return json(res, 200, { capabilities: caps }), true
+      }
       if (m[2] === 'versions' && method === 'POST') {
         const b = await this.body<{ artifact?: Record<string, unknown>; changelog?: string }>(req)
         if (b.artifact === undefined) return json(res, 400, { error: 'body must be {artifact, changelog, parents}' }), true

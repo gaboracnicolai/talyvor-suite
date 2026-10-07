@@ -1215,10 +1215,11 @@ export class LensClient {
    * B25.8 — the workspace publishes a public prompt listing with its own token, as another company's software would.
    * B17.34 — sent again through a restart under one Idempotency-Key, so Lens publishes it once.
    */
-  async publishListing(user: SyntheticUser, l: { title: string; template: string; priceULXC: number; model: string },
+  async publishListing(user: SyntheticUser, l: { title: string; template: string; priceULXC: number; model: string; capabilities?: string[] },
     restartMs = PUBLISH_RESTART_MS): Promise<Answered<Listing>> {
     return this.answerThroughRestart('POST', `/v1/workspaces/${user.workspaceID}/marketplace/listings`, user.token, { kind: 'prompt', title: l.title, description: '',
-      price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '' }, restartMs)
+      price_per_use_ulxc: l.priceULXC, visibility: 'public', artifact: { template: l.template, model: l.model }, changelog: '',
+      ...(l.capabilities === undefined ? {} : { capabilities: l.capabilities }) }, restartMs)
   }
 
   /**
@@ -1385,6 +1386,16 @@ export class LensClient {
     const res = await this.send('POST', `/v1/admin/marketplace/listings/${listingID}/${action}`, {
       headers: { ...this.moderator(), 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(action === 'takedown' ? { reason } : {}),
+    })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: raw === '' ? null : JSON.parse(raw) } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  /** B32.90 — the operator features a public collection, or no longer (Lens B32.50): featured ones are listed first. */
+  async featureCollection(collectionID: string, featured: boolean): Promise<Answered<unknown>> {
+    const res = await this.send('POST', `/v1/admin/marketplace/collections/${collectionID}/feature`, {
+      headers: { ...this.moderator(), 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ featured }),
     })
     const raw = await res.text()
     return res.ok ? { ok: true, status: res.status, value: raw === '' ? null : JSON.parse(raw) } : { ok: false, status: res.status, error: refusalOf(raw) }
