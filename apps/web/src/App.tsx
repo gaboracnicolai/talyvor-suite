@@ -45,6 +45,7 @@ import { Plans } from './areas/lens/Plans'
 import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { Chat } from './areas/chat/Chat'
 import { ChatHelp } from './areas/chat/ChatHelp'
+import { CompareModels } from './areas/chat/CompareModels'
 import { RoomsArea } from './areas/rooms/Rooms'
 import { TrackArea } from './areas/track/TrackArea'
 import { PublicBoard } from './areas/board/PublicBoard'
@@ -218,6 +219,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/chat', title: 'Chat', element: <Chat /> },
   // B10.3 — the chat carries no instructions; they live here, linked from its rail.
   { path: '/chat/help', title: 'How to use Talyvor Chat', element: <ChatHelp /> },
+  // B28.369 — one question to three models at once, side by side, each answer priced. Linked from Chat's rail.
+  { path: '/chat/compare', title: 'Compare models', element: <CompareModels /> },
   // B32.53 — rooms: open chats other workspaces join, the directory and a new room. Chat's rail lists them too.
   { path: '/rooms/*', title: 'Rooms', element: <RoomsArea /> },
   // THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect targets already default to

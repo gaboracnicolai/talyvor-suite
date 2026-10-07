@@ -1465,6 +1465,10 @@ function ChatRail({
         <RoomsRail />
       </div>
       <div className="mt-2 space-y-1 border-t border-rule px-2 pt-3">
+        {/* B28.369 — one question to three models, side by side. */}
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/compare">
+          Compare models
+        </Link>
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/help">
           How to use Talyvor Chat
         </Link>
