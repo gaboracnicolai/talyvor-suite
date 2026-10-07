@@ -3760,6 +3760,81 @@ export function chatRunCode(seed: number): Scenario {
 }
 
 /**
+ * B28.120 — the canvas. An answer that writes a page in an ```html block opens it in the canvas, drawn as a page whose
+ * scripts run and cannot reach the console; an edit made to its HTML there is drawn, and after a reload the answer opens
+ * it as edited. The answer is made up in the browser, so this costs nothing.
+ */
+export function chatCanvas(seed: number): Scenario {
+  return {
+    id: 'chat-canvas',
+    owner: 'talyvor-suite',
+    title: 'an HTML answer opens in the canvas drawn as a page, and an edit to it is still there after a reload',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const stamp = `${seed}-${Date.now().toString(36)}`
+      const written = 'Written by the answer'
+      const edit = `Edited ${stamp}`
+      // Its script says whether the page could read the console's document; sandboxed with no origin, it cannot.
+      const html = `<!doctype html>\n<html><head><title>Canvas ${stamp}</title></head><body><h1 id="said">${written}</h1><p id="reach">no script ran</p>` +
+        `<script>var r = 'refused'; try { r = parent.document.title === undefined ? 'refused' : 'reached' } catch (e) {} document.getElementById('reach').textContent = r</script></body></html>`
+      const provider = env.catalog.find((m) => m.display_name === app.modelNameInUse)?.provider ?? 'anthropic'
+      await app.newChat()
+      const turn = await app.askAnswered(`Make me a page, ${stamp}`, madeUpAnswer(provider, 'Here it is:\n\n```html\n' + html + '\n```', false))
+      const open = turn.getByRole('button', { name: 'Open in canvas' })
+      if (!(await open.isVisible())) return { pass: false, detail: 'the answer\'s HTML block has no Open in canvas' }
+      await open.click()
+      const canvas = page.getByTestId('canvas')
+      await canvas.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const drawn = page.frameLocator('[data-testid="canvas-preview"]')
+      const heading = async () => (await drawn.locator('#said').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+      const first = await heading()
+      const reach = (await drawn.locator('#reach').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+      ctx.evidence.push({ note: `opened in the canvas: the page's heading read "${first}", its script said "${reach}"` })
+      if (first !== written) return { pass: false, detail: `the canvas did not draw the answer's page: its heading read "${first}"` }
+      if (reach !== 'refused') return { pass: false, detail: `the page's script ${reach === 'reached' ? 'read the console\'s document' : `did not run ("${reach}")`}` }
+
+      await canvas.getByRole('button', { name: 'Code' }).click()
+      await canvas.getByLabel('HTML').fill(html.replace(written, edit))
+      await canvas.getByTestId('canvas-saved').filter({ hasText: 'saved in this browser' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      await canvas.getByRole('button', { name: 'Preview' }).click()
+      const after = await heading()
+      ctx.evidence.push({ note: `edited in the canvas: the page's heading read "${after}"` })
+      if (after !== edit) return { pass: false, detail: `the edit was not drawn: the page's heading read "${after}"` }
+
+      const viewport = page.viewportSize()
+      await mkdir(env.outDir, { recursive: true })
+      const wide = join(env.outDir, `chat-canvas-1440px-user${app.user.index}.png`)
+      const narrow = join(env.outDir, `chat-canvas-390px-user${app.user.index}.png`)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.getByTestId('canvas').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      // Preview's mark fades in over 200 ms.
+      await page.waitForTimeout(400)
+      await page.screenshot({ path: wide })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.getByTestId('canvas').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      await page.waitForTimeout(400)
+      await page.screenshot({ path: narrow })
+      if (viewport !== null) await page.setViewportSize(viewport)
+      ctx.evidence.push({ note: `the canvas at 1440px: ${wide}; at 390px: ${narrow}` })
+
+      await page.reload()
+      await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const again = page.locator('[data-testid="turn-assistant"]').getByRole('button', { name: 'Open in canvas · edited' }).last()
+      const reopened = await again.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+      if (!reopened) return { pass: false, detail: 'after a reload the answer does not say its page was edited' }
+      await again.click()
+      const kept = await heading()
+      await page.getByTestId('canvas').getByRole('button', { name: 'Close canvas' }).click().catch(() => undefined)
+      ctx.evidence.push({ note: `after a reload, opened again: the page's heading read "${kept}"` })
+      return kept === edit
+        ? { pass: true, detail: 'the answer\'s page was drawn in the canvas, its script kept out of the console, and the edit drawn and kept after a reload' }
+        : { pass: false, detail: `after a reload the canvas drew "${kept}", not the edit "${edit}"` }
+    },
+  }
+}
+
+/**
  * Which scenarios user `i` runs. Everyone runs the two known-answer questions; one in ten of the users
  * also runs each of the others, so 100 users cover the catalog ten times over; user 0 prices every
  * model. A user runs at most one scenario from each catalog, v1 first. The ledger read-back runs for everyone after all journeys (checkLedger).
@@ -3795,7 +3870,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.110 — and a chat pinned, still the first in the rail after a reload.
     // B28.366 — and a follow-up edited and sent again, the thread re-run from it.
     // B28.367 — and an answer regenerated, both versions still there after a reload.
-    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i), answerVersionsSurviveReload(i)); break
+    // B28.120 — and a page an answer wrote, opened in the canvas, edited, and still edited after a reload.
+    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i), answerVersionsSurviveReload(i), chatCanvas(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
     // B28.368 — and an answer cut off at a tiny max_tokens, which Continue carries on.

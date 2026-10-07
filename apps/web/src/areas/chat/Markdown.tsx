@@ -278,12 +278,20 @@ function figures(text: string, key: string): ReactNode[] {
   return out
 }
 
-function CodeBlock({ lang, code }: { lang: string; code: string }) {
+/** B28.120 — a code block written in HTML: an artifact, which the canvas draws as a page. */
+export function isHtmlLang(lang: string): boolean {
+  return /^html?$/i.test(lang)
+}
+
+function CodeBlock({ lang, code, action }: { lang: string; code: string; action?: ReactNode }) {
   return (
     <div className="overflow-hidden rounded-card border border-rule bg-raised">
       <div className="flex items-center justify-between border-b border-rule pl-3 pr-1">
         <span className="font-figure text-eyebrow uppercase text-label">{lang === '' ? 'code' : lang}</span>
-        <CopyButton text={code} label="Copy code" />
+        <div className="flex items-center">
+          {action}
+          <CopyButton text={code} label="Copy code" />
+        </div>
       </div>
       <pre className="overflow-x-auto px-3 py-3 font-mono text-body text-ink">
         <code>{code}</code>
@@ -304,7 +312,9 @@ const ALIGN_CLASS: Record<Exclude<Align, null>, string> = {
   right: 'text-right',
 }
 
-function renderBlocks(blocks: Block[], key: string, tight = false): ReactNode[] {
+/** `htmlAction`, at the top level only, is drawn on each HTML block, given its place among them (artifacts.ts). */
+function renderBlocks(blocks: Block[], key: string, tight = false, htmlAction?: (n: number) => ReactNode): ReactNode[] {
+  let html = 0
   return blocks.map((b, i) => {
     const k = `${key}.${i}`
     switch (b.kind) {
@@ -325,7 +335,7 @@ function renderBlocks(blocks: Block[], key: string, tight = false): ReactNode[] 
           <p key={k}>{renderInline(b.text, k)}</p>
         )
       case 'code':
-        return <CodeBlock key={k} lang={b.lang} code={b.code} />
+        return <CodeBlock key={k} lang={b.lang} code={b.code} action={htmlAction !== undefined && isHtmlLang(b.lang) ? htmlAction(html++) : undefined} />
       case 'rule':
         return <hr key={k} className="border-rule" />
       case 'quote':
@@ -388,11 +398,12 @@ function renderBlocks(blocks: Block[], key: string, tight = false): ReactNode[] 
   })
 }
 
-/** A chat reply, rendered from Markdown: Space Grotesk at 15/24, code and numbers in IBM Plex Mono (B29.10). */
-export function Markdown({ source }: { source: string }) {
+/** A chat reply, rendered from Markdown: Space Grotesk at 15/24, code and numbers in IBM Plex Mono (B29.10).
+ *  B28.120 — `htmlAction` is drawn in the bar of each HTML block: the canvas's Open. */
+export function Markdown({ source, htmlAction }: { source: string; htmlAction?: (n: number) => ReactNode }) {
   return (
     <div className="space-y-3 font-sans text-reading text-ink" data-testid="turn-reply">
-      {renderBlocks(parseBlocks(source), 'md')}
+      {renderBlocks(parseBlocks(source), 'md', false, htmlAction)}
     </div>
   )
 }

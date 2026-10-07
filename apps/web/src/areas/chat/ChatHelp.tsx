@@ -194,6 +194,23 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    heading: 'The canvas',
+    body: (
+      <>
+        <p>
+          When an answer writes a web page as HTML, Open in canvas sits on its code block. The canvas opens beside the
+          conversation and shows the page as it looks: Preview draws it, Code is its HTML to change. A change is drawn
+          as you type and saved with the conversation, in this browser, so it is still there when you come back.
+          Restore the original puts back what the answer wrote.
+        </p>
+        <p>
+          The page runs on its own: its scripts work, but it cannot read this console, what it keeps in your browser,
+          or your sign-in.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'What an answer costs',
     body: (
       <>
