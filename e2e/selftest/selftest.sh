@@ -5,6 +5,9 @@
 #
 #   pnpm --filter @talyvor/e2e selftest                   # 10 users
 #   E2E_USERS=30 STUB_BREAK=price pnpm --filter @talyvor/e2e selftest   # a planted defect must FAIL
+#   E2E_UPSTREAM_PORT=10287 pnpm --filter @talyvor/e2e selftest   # B28.287: the stub Lens sends its vLLM traffic to
+#                                                         # the run's synthetic upstream on that port, so
+#                                                         # keys-not-forwarded runs rather than SKIPs
 #   E2E_FAULTS=1 pnpm --filter @talyvor/e2e selftest      # B26.18: the run's browser is killed mid-run, then
 #                                                         # Lens; the report and summary must still be written
 #                                                         # and name both
@@ -34,7 +37,7 @@ tmp=$(mktemp -d)
 (cd "$root/apps/bff" && go build -o "$tmp/bff" .)
 [ -f "$root/apps/web/dist/index.html" ] || pnpm --dir "$root" --filter @talyvor/web build
 
-STUB_PORT=$stub_port STUB_APP_URL="http://localhost:$bff_port" LENS_SYNTHETIC_KEY=$key STUB_MODERATOR_KEY=$moderator STUB_WEBHOOK_SECRET=$webhook_secret node --experimental-strip-types --no-warnings "$here/stub-lens.ts" >"$tmp/stub.log" 2>&1 &
+STUB_PORT=$stub_port STUB_APP_URL="http://localhost:$bff_port" LENS_VLLM_BASE_URL=${E2E_UPSTREAM_PORT:+http://127.0.0.1:$E2E_UPSTREAM_PORT} LENS_SYNTHETIC_KEY=$key STUB_MODERATOR_KEY=$moderator STUB_WEBHOOK_SECRET=$webhook_secret node --experimental-strip-types --no-warnings "$here/stub-lens.ts" >"$tmp/stub.log" 2>&1 &
 stub=$!
 TRACK_PORT=$track_port DOCS_PORT=$docs_port GATEWAY_SECRET=$gateway LENS_URL="http://127.0.0.1:$stub_port" LENS_SYNTHETIC_KEY=$key node --experimental-strip-types --no-warnings "$here/stub-products.ts" &
 products=$!

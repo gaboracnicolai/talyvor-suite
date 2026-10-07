@@ -53,6 +53,9 @@
 //   ssrf        — a compute node and the audit webhook are dialled wherever they point, the metadata address answering (B28.285)
 //   zip-bomb    — a .docx's document is unpacked however large it gets (B28.285)
 //   doc-size    — a document of any size is taken for conversion (B28.285)
+//   key-forward — a plain request's X-Talyvor-Key and X-API-Key go on to the vLLM upstream (B28.287)
+//   key-forward-stream — a streamed request goes on to the vLLM upstream with every header it came with, its key too (B28.287)
+//   key-listed  — the workspace's list of API keys shows each key whole (B28.287)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -431,12 +434,43 @@ const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runMo
   } })
 setInterval(() => bank.tick(), 2000)
 
+/**
+ * B28.287 — Lens's vLLM provider, served when LENS_VLLM_BASE_URL names one: the request goes on with every header a key is
+ * read from taken off (talyvor-lens auth.StripCredentialHeaders: Authorization, X-Talyvor-Key, X-API-Key) and
+ * Proxy-Authorization — which Lens's list lacks, so Lens sends it on as it came (FOUND.md) — on both copies of the proxy,
+ * and its answer comes back as the upstream gave it.
+ */
+const VLLM = process.env.LENS_VLLM_BASE_URL ?? ''
+const CREDENTIAL_HEADERS = ['authorization', 'x-talyvor-key', 'x-api-key', 'proxy-authorization']
+/** What fetch sets itself, or refuses to be given. */
+const HOP_HEADERS = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive', 'upgrade', 'expect', 'accept-encoding'])
+
+async function vllm(req: IncomingMessage, res: ServerResponse, path: string, raw: string): Promise<void> {
+  const stream = (JSON.parse(raw || '{}') as { stream?: boolean }).stream === true
+  const kept = stream ? (broke('key-forward-stream') ? CREDENTIAL_HEADERS : []) : broke('key-forward') ? ['x-talyvor-key', 'x-api-key'] : []
+  const headers: Record<string, string> = {}
+  for (const [k, v] of Object.entries(req.headers)) {
+    if (v !== undefined && !HOP_HEADERS.has(k) && (!CREDENTIAL_HEADERS.includes(k) || kept.includes(k))) headers[k] = Array.isArray(v) ? v.join(', ') : v
+  }
+  try {
+    const up = await fetch(`${VLLM.replace(/\/+$/, '')}/${path}`, { method: 'POST', headers, body: raw })
+    res.writeHead(up.status, { 'Content-Type': up.headers.get('content-type') ?? 'application/json' })
+    res.end(Buffer.from(await up.arrayBuffer()))
+  } catch (e) {
+    json(res, 502, { error: `vLLM upstream unreachable: ${e instanceof Error ? e.message : String(e)}` })
+  }
+}
+
 async function proxy(req: IncomingMessage, res: ServerResponse, provider: string, path: string): Promise<void> {
-  const credential = (req.headers.authorization ?? '').replace(/^Bearer /, '')
+  // talyvor-lens auth extractCredential: Authorization's bearer, else X-Talyvor-Key, else X-API-Key.
+  const header = (name: string) => String(req.headers[name] ?? '')
+  const credential = header('authorization').replace(/^Bearer /, '') || header('x-talyvor-key') || header('x-api-key')
   const agentCall = bank.agentOfKey(credential)
-  const ws = byKey.get(credential) ?? (agentCall === undefined ? undefined : workspaces.get(agentCall.ws.id))
+  // A workspace's token is served as its keys are (talyvor-lens: a JWT on the proxy, B34.6's gateway-auth).
+  const ws = byKey.get(credential) ?? byToken.get(credential) ?? (agentCall === undefined ? undefined : workspaces.get(agentCall.ws.id))
   if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
   const raw = await read(req)
+  if (provider === 'vllm' && VLLM !== '') return vllm(req, res, path, raw)
   if (!CONFIGURED.has(provider)) return json(res, 503, { error: `provider ${provider} not configured` })
   const body = JSON.parse(raw || '{}') as { model?: string; stream?: boolean; max_tokens?: number; messages?: Msg[]; tools?: { name?: string; function?: { name?: string } }[] }
   // talyvor-lens B28.103 — model "auto" is served by the provider's cheapest chat model, and the stream names it.
@@ -943,7 +977,8 @@ createServer(async (req, res) => {
         return json(res, 201, { key, id: k.id, prefix: k.key_prefix, name, scopes, warning: 'Store this key securely. It will not be shown again.' })
       }
       // Lens lists the keys as a Go slice: null when there are none.
-      if (rest === '/api-keys') return json(res, 200, ws.keys.length === 0 ? null : ws.keys.map(({ key: _k, ...k }) => k))
+      // STUB_BREAK=key-listed (B28.287) — each key shown whole.
+      if (rest === '/api-keys') return json(res, 200, ws.keys.length === 0 ? null : ws.keys.map(({ key, ...k }) => (broke('key-listed') ? { ...k, key } : k)))
       const apiKey = /^\/api-keys\/([^/]+)$/.exec(rest)
       if (apiKey !== null && req.method === 'DELETE') {
         const k = ws.keys.find((x) => x.id === apiKey[1])

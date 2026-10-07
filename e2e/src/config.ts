@@ -19,6 +19,11 @@ export interface RunConfig {
    * boots with, so the testers can sign an event as Stripe does and send it again; '' leaves webhook-replayed a SKIP
    */
   webhookSecret: string
+  /**
+   * B28.287 — the port the synthetic upstream listens on, where the Lens under test sends its vLLM traffic
+   * (LENS_VLLM_BASE_URL); 0 leaves keys-not-forwarded a SKIP
+   */
+  upstreamPort: number
   users: number
   /** How many users drive a browser at the same moment. */
   concurrency: number
@@ -119,6 +124,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     syntheticKey,
     moderatorKey: env.LENS_MODERATOR_KEY ?? '',
     webhookSecret: env.LENS_STRIPE_TEST_WEBHOOK_SECRET ?? '',
+    upstreamPort: Math.floor(num('upstream-port', 'E2E_UPSTREAM_PORT', 0, true)),
     users: Math.floor(num('users', 'E2E_USERS', DEFAULTS.users)),
     concurrency: Math.floor(num('concurrency', 'E2E_CONCURRENCY', DEFAULTS.concurrency)),
     capUSD: num('cap-usd', 'E2E_CAP_USD', DEFAULTS.capUSD),
