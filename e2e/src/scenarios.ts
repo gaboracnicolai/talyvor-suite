@@ -43,6 +43,7 @@ import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions
 import { roomsPrivate } from './rooms.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
+import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
 
 export interface Evidence {
   note?: string
@@ -3261,6 +3262,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 3) list.push(outputsAttribution(), nodes())
   if (i === 5) list.push(povi())
   if (i === 8) list.push(creditsTopUp(i))
+  // B28.279 — the ledger under concurrency, once a run, each on a workspace of its own: moves sent at once and keys sent
+  // again leave the agent holding exactly what landed, and a request retried under one key and a stream hung up on are
+  // each billed once.
+  if (i === 2) list.push(ledgerMovesAtOnce(), ledgerCallOnce())
   return list
 }
 

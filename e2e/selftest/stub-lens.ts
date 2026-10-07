@@ -35,6 +35,11 @@
 //   cheaper     — a question asked afresh of a provider's cheapest chat model, as Chat's "Re-ask with" asks it, is
 //                 answered, named and charged by the provider's dearest (B28.364)
 //   rooms       — a room is opened without its owner as a member, so it is in nobody's rooms (B32.53, stub-rooms.ts)
+//   call-replay — an agent's byte-identical retry under one Idempotency-Key is charged again (B28.279)
+//   hangup-unbilled — an agent's streamed answer is spent from it only once the stream ends, so one it hangs up on
+//                 is never billed to it (B28.279)
+//   move-replay, move-race — a fund or withdraw sent again under its key posts again; one landing beside another
+//                 answers and posts nothing (B28.279, stub-bank.ts)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -52,7 +57,7 @@
 // lens-shapes.json by test/stubLens.test.ts. A route this stub does not know is a 404 it logs as
 // "stub lens: no such route", which the self-test names — never a `{}` that a screen then throws on.
 
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
@@ -62,6 +67,8 @@ const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
 const KEY = process.env.LENS_SYNTHETIC_KEY ?? 'selftest-key'
 const BREAK = process.env.STUB_BREAK ?? ''
+/** B28.279 — its defects may be planted together, comma-separated, as stub-bank.ts's are. */
+const broke = (name: string): boolean => BREAK.split(',').includes(name)
 // B29.29 — the executive ROI report as Lens's own renderer (internal/roi RenderHTML, talyvor-lens 1d936fd) wrote it.
 const ROI_REPORT = readFileSync(new URL('./roi-report.html', import.meta.url), 'utf8')
 const USD_PER_LXC = 0.1
@@ -172,6 +179,8 @@ const pool = new Map<string, { owner: string; answer: string }>()
 const checkouts = new Map<string, { ws: string; plan: string }>()
 /** B34.5 — each answer's X-Talyvor-Request-ID, and what it answered: Chat's Wrong answer names it (Lens POST /v1/feedback). */
 const answered = new Map<string, { ws: string; key: string }>()
+/** talyvor-lens B19.2 — each agent request sent with an Idempotency-Key, by that key and the request: its answer. */
+const retries = new Map<string, string>()
 
 function book(ws: Workspace, amount: number, type: string, description: string, tags: object = {}): number {
   if (type === 'spend') for (const b of ws.budgets) b.spent_usd += (-amount / 1e6) * USD_PER_LXC
@@ -499,7 +508,14 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const inTok = tokens(messages.map(text).join(' ')) + 8
   // B28.358 — what an answer costs at list price, which a replay saves whole and a pooled serve in part.
   const listULXC = (out: string) => Math.ceil(((inTok * model.input_per_1m + tokens(out) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
-  if (!bypass && own !== undefined) {
+  // talyvor-lens B19.2 — an agent's byte-identical retry under one Idempotency-Key (same key, model and prompt) is
+  // answered and charged once; STUB_BREAK=call-replay charges every copy.
+  const idem = agentCall === undefined ? '' : String(req.headers['idempotency-key'] ?? '')
+  const retryKey = idem === '' || broke('call-replay') ? undefined : createHash('sha256').update([credential, idem, model.id, said].join('\0')).digest('hex')
+  const retried = retryKey === undefined ? undefined : retries.get(retryKey)
+  if (retried !== undefined) {
+    answer = retried
+  } else if (!bypass && own !== undefined) {
     answer = own
     headers['X-Talyvor-Cache-Replay'] = 'true'
     // talyvor-lens B28.95 — and says what the replay saved.
@@ -535,10 +551,20 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     fee = book(ws, -charge, 'spend', `${model.id} answer`)
     tag(ws, req, (inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6)
     charged = BREAK === 'charge' ? charge + 1 : charge
+    if (retryKey !== undefined) retries.set(retryKey, answer)
     if (keep) ws.answers.set(key, answer)
     if (keep && messages.length === 1 && !personal && ws.settings.cache_poolable) pool.set(key, { owner: ws.id, answer })
   }
-  if (agentCall !== undefined) bank.spent(agentCall.agent, charge, model.id, fee)
+  const spend = () => {
+    if (agentCall !== undefined) bank.spent(agentCall.agent, charge, model.id, fee)
+  }
+  // STUB_BREAK=hangup-unbilled — spent from the agent only when the stream ends, and not at all if it hung up first.
+  const spendAtEnd = broke('hangup-unbilled') && body.stream === true
+  if (!spendAtEnd) spend()
+  let hungUp = false
+  res.on('close', () => {
+    hungUp = !res.writableFinished
+  })
   const outTok = tokens(answer)
   const shownIn = BREAK === 'price' ? inTok * 2 : inTok
 
@@ -574,6 +600,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     sayCharged()
     res.write('data: [DONE]\n\n')
   }
+  if (spendAtEnd && !hungUp) spend()
   res.end()
 }
 

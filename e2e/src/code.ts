@@ -118,7 +118,7 @@ export function chargeOf(before: AgentLine[], after: AgentLine[]): { charged: nu
 }
 
 /** A charge is complete once its spend is there, or its hold has been settled or released. */
-const complete = (before: AgentLine[], after: AgentLine[]): boolean => {
+export const complete = (before: AgentLine[], after: AgentLine[]): boolean => {
   const seen = new Set(before.map((l) => l.entry_id))
   const fresh = after.filter((l) => !seen.has(l.entry_id))
   return fresh.some((l) => l.kind === 'spend') || (fresh.some((l) => l.kind === 'hold') && fresh.some((l) => l.kind === 'settle' || l.kind === 'release'))

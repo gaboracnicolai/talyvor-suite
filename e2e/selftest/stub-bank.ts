@@ -42,6 +42,11 @@
 // B28.360 adds freezing an agent's card (POST …/card/freeze and …/card/unfreeze, for Lens's B28.97): a purchase on a
 // frozen card is declined and nothing leaves the agent. Its defect:
 //   freeze-ignored      — a frozen card answers frozen, and a purchase on it is still approved
+//
+// B28.279 adds what Lens B17.26 does with a fund or withdraw's Idempotency-Key: it is the entry's ref, and a move whose
+// key already posted answers the agent's balance and posts nothing. Its defects:
+//   move-replay         — a move sent again under its key posts again
+//   move-race           — a withdrawal that lands while another move of the same agent is in flight answers 200 and posts nothing
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -230,6 +235,8 @@ export class Bank {
   private readonly allPaused = new Map<string, { at: string; reason: string }>()
   /** B28.26 — when each agent's admitted requests were held, as Lens counts its holds for the per-minute rule. */
   private readonly asked = new Map<string, number[]>()
+  /** B28.279 — each agent's moves in flight, for move-race. */
+  private readonly moving = new Map<string, number>()
   private readonly listings = new Map<string, Listing>()
   private readonly uses: Use[] = []
   private nextPosting = 1
@@ -1291,12 +1298,30 @@ export class Bank {
         return json(res, 201, { agent_id: a.id, key, id: keyID, prefix: key.slice(0, 12), warning: 'Store this key securely. It will not be shown again.' }), true
       }
       if ((action === '/fund' || action === '/withdraw') && method === 'POST') {
-        const { amount_ulxc: n = 0 } = await this.body<{ amount_ulxc?: number }>(req)
+        const kind = action.slice(1)
+        const key = String(req.headers['idempotency-key'] ?? '')
+        this.moving.set(a.id, (this.moving.get(a.id) ?? 0) + 1)
+        let crowded = false
+        let n = 0
+        try {
+          n = (await this.body<{ amount_ulxc?: number }>(req)).amount_ulxc ?? 0
+          // move-race: slow enough to overlap the next move, as a read-modify-write without the agent's lock is.
+          if (this.broken('move-race')) await new Promise((r) => setTimeout(r, 25))
+          crowded = (this.moving.get(a.id) ?? 0) > 1
+        } finally {
+          this.moving.set(a.id, (this.moving.get(a.id) ?? 1) - 1)
+        }
         if (!(n > 0)) return json(res, 400, { error: 'body must be {"amount_ulxc": <positive µLXC>}' }), true
+        // Lens B17.26: the key is the entry's ref; a key already posted is a retry of a move that landed.
+        if (key !== '' && !this.broken('move-replay') && this.postings.some((p) => p.account === `agent:${a.id}` && p.kind === kind && p.ref === key)) {
+          return json(res, 200, { agent_id: a.id, balance_ulxc: this.balance(`agent:${a.id}`) }), true
+        }
         const have = action === '/fund' ? ws.balance - ((this.book(ws) as { allocated_ulxc: number }).allocated_ulxc) : this.balance(`agent:${a.id}`)
         if (n > have) return json(res, 409, { error: `economy: there are only ${lxc(have)} LXC to move` }), true
         const sign = action === '/fund' ? 1 : -1
-        this.post(ws.id, action.slice(1), [['workspace', -sign * n, `agent:${a.id}`], [`agent:${a.id}`, sign * n, 'workspace']])
+        if (!(kind === 'withdraw' && crowded && this.broken('move-race'))) {
+          this.post(ws.id, kind, [['workspace', -sign * n, `agent:${a.id}`], [`agent:${a.id}`, sign * n, 'workspace']], key === '' ? undefined : key)
+        }
         return json(res, 200, { agent_id: a.id, balance_ulxc: this.balance(`agent:${a.id}`) }), true
       }
       if (action === '/rules' && method === 'GET') return json(res, 200, a.rules), true

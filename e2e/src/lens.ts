@@ -715,11 +715,12 @@ export class LensClient {
 
   /**
    * B17.6 — one question on an agent's own key, as the agent sends it: the reply, or Lens's refusal
-   * (its status and sentence) — a refusal is what the bank scenarios look for, so it is not thrown.
+   * (its status and sentence) — a refusal is what the bank scenarios look for, so it is not thrown. B28.279 — `headers`
+   * go with it: an Idempotency-Key its retry repeats.
    */
-  async askAsAgent(key: string, provider: string, model: string, prompt: string, maxTokens: number): Promise<Answered<JudgeReply>> {
+  async askAsAgent(key: string, provider: string, model: string, prompt: string, maxTokens: number, headers: Record<string, string> = {}): Promise<Answered<JudgeReply>> {
     const res = await this.send('POST', `/v1/proxy/${provider}/v1/messages`, {
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' },
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', ...headers },
       body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] }),
     })
     const raw = await res.text()
@@ -735,6 +736,46 @@ export class LensClient {
         replayed: res.headers.get('X-Talyvor-Cache-Replay') === 'true',
         pooledULXC: res.headers.has('X-Talyvor-Pool-Charged-ULXC') ? Number(res.headers.get('X-Talyvor-Pool-Charged-ULXC')) : undefined,
       },
+    }
+  }
+
+  /**
+   * B28.279 — one question on an agent's own key, streamed, and hung up on the moment its answer starts to arrive: the
+   * first words served, or Lens's refusal. `whole` when the stream ended before the agent could hang up on it.
+   */
+  async hangUpAsAgent(key: string, provider: string, model: string, prompt: string, maxTokens: number): Promise<Answered<{ said: string; whole: boolean }>> {
+    const stop = new AbortController()
+    try {
+      const res = await this.send('POST', `/v1/proxy/${provider}/v1/messages`, {
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01', Accept: 'text/event-stream' },
+        body: JSON.stringify({ model, max_tokens: maxTokens, stream: true, messages: [{ role: 'user', content: prompt }] }),
+        signal: stop.signal,
+      })
+      if (!res.ok || res.body === null) return { ok: false, status: res.status, error: refusalOf(await res.text()) }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffered = ''
+      for (;;) {
+        const chunk = await reader.read()
+        if (chunk.done) return { ok: true, status: res.status, value: { said: '', whole: true } }
+        buffered += decoder.decode(chunk.value, { stream: true })
+        const events = buffered.split('\n\n')
+        buffered = events.pop() ?? ''
+        for (const ev of events) {
+          const data = /^data: (.*)$/m.exec(ev)?.[1]
+          if (data === undefined) continue
+          let e: { type?: string; delta?: { text?: string } }
+          try {
+            e = JSON.parse(data) as typeof e
+          } catch {
+            continue
+          }
+          if (e.type === 'message_stop') return { ok: true, status: res.status, value: { said: '', whole: true } }
+          if (e.type === 'content_block_delta' && (e.delta?.text ?? '') !== '') return { ok: true, status: res.status, value: { said: e.delta?.text ?? '', whole: false } }
+        }
+      }
+    } finally {
+      stop.abort()
     }
   }
 
