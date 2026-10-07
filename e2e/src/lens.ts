@@ -75,6 +75,9 @@ export interface AgentTransfer {
   refund_of?: string
   loan_id?: string
   created_at: string
+  /** B28.290: the class of what it moved (GREEN between one owner's agents, AMBER or RED otherwise), and how much of it was test money */
+  class?: string
+  test_funded_ulxc?: number
   /** B28.299: the refund that gave it back */
   refunded_by?: string
   /** B28.299: the reading agent received it and may still give it back */
@@ -152,6 +155,8 @@ export interface CashOut {
   partner: string
   status: 'held' | 'submitted' | 'paid' | 'failed'
   detail?: string
+  /** B28.290: how much of it was test money */
+  test_funded_ulxc?: number
 }
 
 /** B25.4 — Lens economy.AgentCard (B19.24): an agent's Stripe Issuing card. */
