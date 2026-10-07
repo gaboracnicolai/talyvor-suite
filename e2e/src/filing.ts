@@ -13,6 +13,7 @@
 // its numbers are taken out — they are one cause, and one item, carrying each scenario's marker.
 
 import { appendFile, readFile } from 'node:fs/promises'
+import { type B28Report, untestedMarker } from './b28.ts'
 import { ASK_MARKER, type CodeReport } from './code.ts'
 import { type EdgeReport, edgeMarker, failedNow } from './edge.ts'
 import { type HostileReport, hostileMarker } from './hostile.ts'
@@ -356,5 +357,52 @@ export async function fileHostileItems(path: string, hostile: HostileReport, rep
   if (f.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + f.append)
   const item = new Map([...f.filed, ...f.covered.map((c) => ({ id: c.by, scenario: c.scenario }))].map((x) => [x.scenario, x.id]))
   for (const v of hostile.prs) v.item = item.get(hostileMarker(v))
+  return f
+}
+
+// B28.293 — a DONE B28 feature no scenario names files one item for the testers' harness, once.
+
+/** The items a night's untested B28 features call for, against BUILD.md as it stands. Pure. */
+export function b28ItemsFor(buildMd: string, b28: B28Report, reportFile: string): EdgeFiling {
+  const covered = coveredScenarios(buildMd)
+  const out: EdgeFiling = { append: '', filed: [], covered: [] }
+  let n = nextB17(buildMd)
+  for (const f of b28.features.filter((x) => x.state === 'no scenario')) {
+    const marker = untestedMarker(f)
+    const by = covered.get(marker)
+    if (by !== undefined) {
+      out.covered.push({ scenario: marker, by })
+      continue
+    }
+    const id = `B17.${n++}`
+    out.append += [
+      '',
+      `## ${id} — the testers have no scenario for ${f.id} — ${f.title}`,
+      `repo: ${NO_OWNER} · deps: ${f.id} · status: OPEN`,
+      `Filed by the e2e run of ${b28.read_at.slice(0, 10)} (${reportFile}): ${f.id} (${f.repo}) is DONE, and no scenario names it in its \`items\`, ` +
+        'so neither the nightly testers nor the red team would see it break or go away (B28.293).',
+      `e2e-scenario: ${marker}`,
+      `DONE = a scenario in e2e/src exercises ${f.id} end to end as a person or an agent uses it — asserting the ledger row where money moves — ` +
+        `names it in its \`items\`, and FAILs with the feature taken away (its stub broken in the self-test); or, if no scenario can reach it, ` +
+        'NO_SCENARIO in e2e/src/b28.ts gives the true reason.',
+      '',
+    ].join('\n')
+    out.filed.push({ id, scenario: marker })
+  }
+  return out
+}
+
+/** Appends the night's untested B28 features' items to BUILD.md at `path` and notes each on its feature. A missing BUILD.md files nothing. */
+export async function fileB28Items(path: string, b28: B28Report, reportFile: string): Promise<EdgeFiling | undefined> {
+  let buildMd: string
+  try {
+    buildMd = await readFile(path, 'utf8')
+  } catch {
+    return undefined
+  }
+  const f = b28ItemsFor(buildMd, b28, reportFile)
+  if (f.append !== '') await appendFile(path, (buildMd.endsWith('\n') ? '' : '\n') + f.append)
+  const item = new Map([...f.filed, ...f.covered.map((c) => ({ id: c.by, scenario: c.scenario }))].map((x) => [x.scenario, x.id]))
+  for (const x of b28.features.filter((y) => y.state === 'no scenario')) x.item = item.get(untestedMarker(x))
   return f
 }

@@ -124,6 +124,8 @@ export interface Scenario {
   id: string
   title: string
   owner: Owner
+  /** B28.293 — the build items whose feature it exercises end to end: the report's B28 section lists each DONE one with it (b28.ts). */
+  items?: readonly string[]
   /** B25.5 — the feature it is reported under when it opens no screen of its own; otherwise the screens it opened. */
   feature?: string
   /** B34.1 — the most agents of its own workspace it opens: the runner first makes room for them on the plan (room.ts). */
@@ -290,6 +292,7 @@ export function chatSavingsPanel(seed: number): Scenario {
   return {
     id: 'chat-savings',
     owner: 'talyvor-suite',
+    items: ['B28.95', 'B28.358'],
     title: 'Saved in this chat: each total equals what Lens said on the conversation’s answers, a repeat’s saving included',
     run: async (ctx) => {
       const { page } = ctx.app
@@ -464,6 +467,7 @@ export function stoppedThenAnswers(seed: number): Scenario {
   return {
     id: 'stopped-then-answers',
     owner: 'talyvor-suite',
+    items: ['B28.78'],
     title: 'after an answer is stopped, the next question in the same chat still answers',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -503,6 +507,7 @@ export function blankThenRetry(seed: number): Scenario {
   return {
     id: 'blank-retry-cut-off',
     owner: 'talyvor-suite',
+    items: ['B28.81'],
     title: 'a blank answer offers Retry, which asks the model; an answer stopped at the length limit is marked cut off',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -545,6 +550,7 @@ export function refusalsReadAsThemselves(seed: number): Scenario {
   return {
     id: 'refusal-reasons',
     owner: 'talyvor-suite',
+    items: ['B28.82', 'B28.348'],
     title: 'each of Lens’s refusals — cap, budget, allowance, session limit, guardrail, overloaded, rate limit — shows its own text and remedy',
     run: async (ctx) => {
       const { app } = ctx
@@ -613,6 +619,7 @@ export function sentBeforeIdentity(seed: number): Scenario {
   return {
     id: 'sent-before-identity',
     owner: 'talyvor-suite',
+    items: ['B28.275'],
     title: 'a message sent before the browser knows who is signed in is still there after a reload',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -680,6 +687,7 @@ export function searchAmong500(seed: number): Scenario {
   return {
     id: 'search-among-500',
     owner: 'talyvor-suite',
+    items: ['B28.108'],
     title: 'a word from an old answer finds its conversation among 500',
     run: async (ctx) => {
       const page = await ctx.app.context.newPage()
@@ -746,6 +754,7 @@ export function chatProjectInstructions(seed: number): Scenario {
   return {
     id: 'chat-project-instructions',
     owner: 'talyvor-suite',
+    items: ['B28.109'],
     title: 'a new chat in a project is sent with the project’s instructions',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -819,6 +828,7 @@ export function editResendRerunsThread(seed: number): Scenario {
   return {
     id: 'chat-edit-resend',
     owner: 'talyvor-suite',
+    items: ['B28.111', 'B28.366'],
     title: 'a question edited and sent again re-runs the thread from that turn',
     run: async (ctx) => {
       await ctx.app.newChat()
@@ -851,6 +861,7 @@ export function answerVersionsSurviveReload(seed: number): Scenario {
   return {
     id: 'chat-answer-versions',
     owner: 'talyvor-suite',
+    items: ['B28.112', 'B28.367'],
     title: 'Regenerate keeps the earlier answer as a version, and both survive a reload',
     run: async (ctx) => {
       const { page } = ctx.app
@@ -896,6 +907,7 @@ export function continueCutOff(seed: number): Scenario {
   return {
     id: 'chat-continue-cut-off',
     owner: 'talyvor-suite',
+    items: ['B28.113', 'B28.368'],
     title: 'an answer cut off at a tiny max_tokens goes on when Continue is pressed',
     run: async (ctx) => {
       await ctx.app.newChat()
@@ -930,6 +942,7 @@ export function compareModels(seed: number, streamable: readonly string[]): Scen
   return {
     id: 'chat-compare-models',
     owner: 'talyvor-suite',
+    items: ['B28.114', 'B28.369'],
     title: 'three models answer one question side by side, each column streamed and priced at its spend row',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -1006,6 +1019,7 @@ export function pinnedSurvivesReload(seed: number): Scenario {
   return {
     id: 'chat-pinned-survives-reload',
     owner: 'talyvor-suite',
+    items: ['B28.110'],
     title: 'a pinned chat survives a reload at the top',
     run: async (ctx) => {
       const page = await ctx.app.context.newPage()
@@ -1068,6 +1082,7 @@ export function consoleScreensDraw(seed: number): Scenario {
   return {
     id: 'console-screens-draw',
     owner: 'talyvor-suite',
+    items: ['B28.266'],
     title: 'Royalties, Members, Setup and API keys draw their heading at once and their data after',
     run: async (ctx) => {
       const failed: string[] = []
@@ -1129,6 +1144,7 @@ export function socialPreview(): Scenario {
   return {
     id: 'social-preview',
     owner: 'talyvor-suite',
+    items: ['B28.1'],
     title: 'the front door carries its title, description and social preview image',
     run: async (ctx) => {
       const page = await ctx.app.tab('/marketing')
@@ -1289,6 +1305,7 @@ export function walletHero(): Scenario {
   return {
     id: 'wallet-hero',
     owner: 'talyvor-suite',
+    items: ['B28.2'],
     title: 'the front door leads with a wallet for every agent, not pooling',
     run: async (ctx) => {
       const page = await ctx.app.tab('/marketing')
@@ -1463,6 +1480,7 @@ export function walletDocs(): Scenario {
   return {
     id: 'wallet-docs',
     owner: 'talyvor-suite',
+    items: ['B28.15'],
     title: 'the documentation opens on an agent wallet and lists the wallet routes first',
     run: async (ctx) => {
       const page = await ctx.app.tab('/documentation')
@@ -1495,6 +1513,7 @@ export function honestPages(): Scenario {
   return {
     id: 'honest-pages',
     owner: 'talyvor-suite',
+    items: ['B28.3', 'B28.16'],
     title: 'pricing, privacy and terms make no claim the product does not keep',
     run: async (ctx) => {
       const missing: string[] = []
@@ -1537,6 +1556,7 @@ export function legalPagesWhole(): Scenario {
   return {
     id: 'legal-pages-whole',
     owner: 'talyvor-suite',
+    items: ['B28.274'],
     title: 'privacy and terms are dated, list every section, and end where they say they end',
     run: async (ctx) => {
       const wrong: string[] = []
@@ -1576,6 +1596,7 @@ export function pricingTruth(): Scenario {
   return {
     id: 'pricing-truth',
     owner: 'talyvor-suite',
+    items: ['B28.4'],
     title: 'pricing lists every company plan, every plan for individuals, BYOK and the marketplace bill once, at the prices /plans sells',
     run: async (ctx) => {
       const money = /\$[\d,]+(?:\.\d\d)?/
@@ -1803,6 +1824,7 @@ export function costPreview(seed: number): Scenario {
   return {
     id: 'cost-preview',
     owner: 'talyvor-suite',
+    items: ['B28.99'],
     title: 'the price range shown before sending holds the price under each of 20 answers',
     run: async (ctx) => {
       const { page } = ctx.app
@@ -1840,6 +1862,7 @@ export function chatBudget(seed: number): Scenario {
   return {
     id: 'chat-budget',
     owner: 'talyvor-suite',
+    items: ['B28.100', 'B28.361'],
     title: 'a question that could take a chat past its budget is refused before the model: no request, no spend row',
     run: async (ctx) => {
       const { app } = ctx
@@ -1908,6 +1931,7 @@ export function chatTotalAfterReload(seed: number): Scenario {
   return {
     id: 'chat-total',
     owner: 'talyvor-suite',
+    items: ['B28.101'],
     title: 'a chat’s running total, after a reload, equals the prices under its answers added up',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -1970,6 +1994,7 @@ export function chatChargedFooter(seed: number): Scenario {
   return {
     id: 'chat-charged',
     owner: 'talyvor-lens',
+    items: ['B28.102', 'B28.362'],
     title: 'the figure under an answer is what Lens charged for it: the amount of its spend row',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -2045,6 +2070,7 @@ export function chatFeatureSpend(seed: number): Scenario {
   return {
     id: 'chat-feature-spend',
     owner: 'talyvor-suite',
+    items: ['B28.106'],
     title: 'Spend by feature lists chat, up by the one request and the charge of a question asked in Chat',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -2126,6 +2152,7 @@ export function chatHistorySync(seed: number): Scenario {
   return {
     id: 'chat-history-sync',
     owner: 'talyvor-suite',
+    items: ['B28.107', 'B28.365'],
     title: 'a chat made on one device appears on another once both sync with one passphrase; off, it stays local',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -2244,6 +2271,7 @@ export function chatMeter(seed: number): Scenario {
   return {
     id: 'chat-meter',
     owner: 'talyvor-suite',
+    items: ['B28.104'],
     title: 'the meter under the box drops by what an answer was charged: Lens’s allowance and balance, and the answer’s ledger rows',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -2301,6 +2329,7 @@ export function chatAutoModel(seed: number): Scenario {
   return {
     id: 'chat-auto',
     owner: 'talyvor-lens',
+    items: ['B28.103', 'B28.363'],
     title: 'Auto (cheapest good): the answer names the model Lens chose, and its spend row is that model’s price',
     run: async (ctx) => {
       // The user's own model again afterwards: the scenarios after this one ask it.
@@ -2370,6 +2399,7 @@ export function chatCheaperHint(seed: number, streamable: readonly string[]): Sc
   return {
     id: 'chat-cheaper',
     owner: 'talyvor-lens',
+    items: ['B28.105', 'B28.364'],
     title: 'the cheaper-model hint is Lens’s recommendation, and the re-ask is answered and charged by that model',
     run: async (ctx) => {
       // The user's own model again afterwards: the scenarios after this one ask it.
@@ -2901,6 +2931,7 @@ export function docsAI(seed: number): Scenario {
   return {
     id: 'docs-ai',
     owner: 'talyvor-docs',
+    items: ['B28.273'],
     title: 'Docs: a page written in the app is summarised, translated and cited by Ask, and its facts survive each',
     run: async (ctx) => {
       const doc = await DocsPage.write(ctx.app, `Tester ${seed}`, title, text)
@@ -3040,6 +3071,7 @@ export function trackEnter(seed: number): Scenario {
   return {
     id: 'track-enter',
     owner: 'talyvor-suite',
+    items: ['B28.272'],
     title: 'Track: a title typed and Enter pressed files the issue, lists it once and empties the field',
     run: async (ctx) => {
       const track = await TrackScreen.open(ctx.app)
@@ -3068,6 +3100,7 @@ export function plansIncludedUsage(): Scenario {
   return {
     id: 'plans-included-usage',
     owner: 'talyvor-suite',
+    items: ['B28.5', 'B28.439'],
     title: 'each plan card shows the LXC of usage it includes this month, as Lens states it',
     run: async (ctx) => {
       const stated = await ctx.env.lens.plans()
@@ -3133,6 +3166,7 @@ export function planOnTestCard(seed: number): Scenario {
   return {
     id: 'plan-test-card',
     owner: 'talyvor-lens',
+    items: ['B28.276'],
     title: 'subscribes to Plus with Stripe test card 4242, and Lens grants the period’s allowance',
     run: async (ctx) => {
       const { env, app } = ctx
@@ -3176,6 +3210,7 @@ export function planCancelResume(): Scenario {
   return {
     id: 'plan-cancel-resume',
     owner: 'talyvor-lens',
+    items: ['B28.276'],
     title: 'cancels the plan on Billing, sees the day it ends, resumes it — and Lens agrees each time',
     run: async (ctx) => {
       const { env, app } = ctx
@@ -3243,6 +3278,7 @@ export function pooledServePaysRoyalty(seed: number, partners: readonly number[]
   return {
     id: 'pooled-royalty',
     owner: 'talyvor-lens',
+    items: ['B28.276'],
     title: 'an answer served from the pool to another test user pays its contributor a royalty',
     run: async (ctx) => {
       const { env, app } = ctx
@@ -3370,6 +3406,7 @@ export function chatCustomInstructions(seed: number): Scenario {
   return {
     id: 'chat-custom-instructions',
     owner: 'talyvor-suite',
+    items: ['B28.115'],
     title: '“answer in French”, saved as custom instructions, is sent with the first question of every new chat',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -3469,6 +3506,7 @@ export function chatPromptLibrary(seed: number): Scenario {
   return {
     id: 'chat-prompt-library',
     owner: 'talyvor-suite',
+    items: ['B28.116', 'B28.370'],
     title: 'a prompt saved in the library, used in a new chat by name: Lens swaps it in and says so, and the answer says it was used',
     run: async (ctx) => {
       const { app } = ctx
@@ -3530,6 +3568,7 @@ export function chatMemory(seed: number): Scenario {
   return {
     id: 'chat-memory',
     owner: 'talyvor-suite',
+    items: ['B28.117', 'B28.371'],
     title: '“remember that my studio is called …” is sent with the next new chat, and once deleted on Memory it is not',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -3647,6 +3686,7 @@ export function chatWebSearch(seed: number): Scenario {
   return {
     id: 'chat-web-search',
     owner: 'talyvor-lens',
+    items: ['B28.118', 'B28.372'],
     title: 'with Search the web on, a news answer cites at least two pages, and each of them opens',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -3710,6 +3750,7 @@ export function chatRunCode(seed: number): Scenario {
   return {
     id: 'chat-run-code',
     owner: 'talyvor-lens',
+    items: ['B28.119', 'B28.373'],
     title: 'with Run code on, "the 100th prime" returns 541, worked out by code the model ran in the sandbox',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -3768,6 +3809,7 @@ export function chatCanvas(seed: number): Scenario {
   return {
     id: 'chat-canvas',
     owner: 'talyvor-suite',
+    items: ['B28.120'],
     title: 'an HTML answer opens in the canvas drawn as a page, and an edit to it is still there after a reload',
     run: async (ctx) => {
       const { app, env } = ctx
@@ -4136,6 +4178,13 @@ export function journeyFor(i: number, users: number, streamable: readonly string
 
 /** B35.9 — the ledger read-back runs after every journey (run.ts) and is no Scenario of one: what it checks is Lens's ledger. */
 export const LEDGER_READBACK = { id: 'ledger-matches-answers', owner: 'talyvor-lens' } as const satisfies Pick<Scenario, 'id' | 'owner'>
+
+/** B28.293 — the build items each scenario a run can have names, by id, for every one that names any. */
+export function scenarioItems(users = 500): Map<string, readonly string[]> {
+  const items = new Map<string, readonly string[]>()
+  for (let i = 0; i < users; i++) for (const s of journeyFor(i, users, [])) if ((s.items ?? []).length > 0) items.set(s.id, s.items ?? [])
+  return items
+}
 
 /** B35.9 — the owner of every scenario a run can have, by id: the journeys of the nightly's 500 users reach them all. */
 export function scenarioOwners(users = 500): Map<string, Owner> {
