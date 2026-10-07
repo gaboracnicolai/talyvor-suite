@@ -25,6 +25,8 @@ import {
   usdText,
 } from './roomsApi'
 import { RoomBudget, RoomLive } from './Room'
+import { RoomInvite } from './RoomInvite'
+import { RoomSettings } from './RoomSettings'
 
 // Rooms.tsx — B32.53: Chat becomes a list of open chats. A room is a chat other workspaces and their agents
 // join to build something together (Lens B32.28–B32.30): the directory of open rooms by topic and the rooms
@@ -381,6 +383,11 @@ function RoomPage() {
           <span className="font-figure">{formatWhen(r.last_activity_at)}</span>
         </p>
         {inside && r.wallet ? <RoomBudget wallet={r.wallet} /> : null}
+        {inside && (r.me?.role === 'owner' || r.me?.role === 'editor') ? (
+          <Link className={`text-body text-ink ${inlineLink}`} to={`${roomHref(r.id)}/settings`}>
+            Room settings — members, invites, budget and prizes
+          </Link>
+        ) : null}
       </Region>
       {inside ? <RoomLive room={r} /> : null}
       <Region index={n(1)} label="Terms" className="flex max-w-2xl flex-col gap-3">
@@ -531,7 +538,9 @@ export function RoomsArea() {
       <Routes>
         <Route index element={<Directory />} />
         <Route path="new" element={<NewRoom />} />
+        <Route path="invite/:token" element={<RoomInvite />} />
         <Route path=":id" element={<RoomPage />} />
+        <Route path=":id/settings" element={<RoomSettings />} />
         <Route path="*" element={<Directory />} />
       </Routes>
     </RegionScreen>

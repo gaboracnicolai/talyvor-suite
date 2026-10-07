@@ -446,6 +446,15 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/rooms/{id}/contributions/{cid}/fork", a.requireTenant(a.handleRoomFork))
 	a.mux.HandleFunc("/api/rooms/{id}/contributions/{cid}/vote", a.requireTenant(a.handleRoomVote))
 	a.mux.HandleFunc("/api/rooms/{id}/runs", a.requireTenant(a.handleRoomRun))
+	// B32.55 — room settings: members and roles, terms, invite links and prizes. See rooms.go.
+	a.mux.HandleFunc("/api/rooms/{id}/members/{ws}", a.requireTenant(a.handleRoomMember))
+	a.mux.HandleFunc("/api/rooms/{id}/terms", a.requireTenant(a.handleRoomTerms))
+	a.mux.HandleFunc("/api/rooms/{id}/invites", a.requireTenant(a.handleRoomInvites))
+	a.mux.HandleFunc("/api/rooms/{id}/invites/{iid}", a.requireTenant(a.handleRoomInvite))
+	a.mux.HandleFunc("/api/rooms/{id}/prizes", a.requireTenant(a.handleRoomPrizes))
+	a.mux.HandleFunc("/api/rooms/{id}/prizes/{pid}/award", a.requireTenant(a.handleRoomPrizeAward))
+	a.mux.HandleFunc("/api/room-invites/{token}", a.requireTenant(a.handleRoomInvitePreview))
+	a.mux.HandleFunc("/api/room-invites/{token}/join", a.requireTenant(a.handleRoomInviteJoin))
 	// B11.3 — the Try-it pages: Tare and document conversion run on the person's input through Lens's
 	// previews, with no model call and no charge. See tryit.go.
 	a.mux.HandleFunc("/api/features/tare/preview", a.requireTenant(a.handleTryTare))

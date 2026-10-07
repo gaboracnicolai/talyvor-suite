@@ -330,6 +330,60 @@ export async function followRoom(id: string, after: number, onEvent: (e: RoomEve
   }
 }
 
+/** Lens rooms.Invite (B32.29): a link, or a workspace the owner named. The token is in the answer that made it, only. */
+export interface Invite {
+  id: string
+  room_id: string
+  kind: 'link' | 'named'
+  workspace_id?: string
+  token?: string
+  max_uses: number
+  uses: number
+  expires_at?: string
+  revoked_at?: string
+  live: boolean
+  created_by_workspace_id: string
+  created_at: string
+}
+
+/** Lens rooms.InvitePreview — what a live invite link opens. */
+export interface InvitePreview {
+  room: Room
+  terms: Terms
+  expires_at: string
+  uses_left: number
+}
+
+/** Lens rooms.Prize (B32.35): posted by the owner, awarded to a contribution, or closed at its deadline unawarded. */
+export interface Prize {
+  id: string
+  room_id: string
+  poster_workspace_id: string
+  title: string
+  criteria: string
+  amount_usd_micros: number
+  deadline: string
+  status: 'open' | 'awarded' | 'closed'
+  contribution_id?: string
+  winner_workspace_id?: string
+  awarded_at?: string
+  closed_at?: string
+  created_at: string
+}
+
+/** PATCH /api/rooms/{id}/members/{ws}: one change at a time — a role, may_spend, or removing the member. */
+export type MemberChange = { role: 'editor' | 'member' | 'viewer' } | { may_spend: boolean } | { remove: true }
+
+/** The roles the owner or an editor can give; a room has one owner, the workspace that opened it. */
+export const ROLES: readonly ['editor' | 'member' | 'viewer', string][] = [
+  ['editor', 'Editor'],
+  ['member', 'Member'],
+  ['viewer', 'Viewer'],
+]
+
+/** Where an invite link's token is opened, on this site. */
+export const inviteHref = (token: string) => `/rooms/invite/${encodeURIComponent(token)}`
+
 export const roomsApi = {
   list: (topic = '') =>
     getJSON<RoomsList>(`/api/rooms${topic ? `?topic=${e(topic)}` : ''}`, { rooms: 'list', joined: 'list', invited: 'list' }),
@@ -351,6 +405,25 @@ export const roomsApi = {
   decide: (id: string, cid: string, status: 'accepted' | 'rejected') =>
     post<Contribution>(`/api/rooms/${e(id)}/contributions/${e(cid)}`, { status }, 'PATCH'),
   run: (id: string, req: RunRequest) => post<RunResult>(`/api/rooms/${e(id)}/runs`, req),
+  // B32.55 — room settings.
+  changeMember: (id: string, ws: string, change: MemberChange) =>
+    post<Member>(`/api/rooms/${e(id)}/members/${e(ws)}`, change, 'PATCH'),
+  setTerms: (id: string, terms: RoomDraft['terms']) => post<Terms>(`/api/rooms/${e(id)}/terms`, terms, 'PUT'),
+  invites: async (id: string) =>
+    (await getJSON<{ invites: Invite[] | null }>(`/api/rooms/${e(id)}/invites`, { invites: 'list' })).invites ?? [],
+  createInvite: (id: string, maxUses: number, expiresAt: string) =>
+    post<Invite>(`/api/rooms/${e(id)}/invites`, { max_uses: maxUses, expires_at: expiresAt }),
+  revokeInvite: (id: string, iid: string) => post<Invite>(`/api/rooms/${e(id)}/invites/${e(iid)}`, {}, 'DELETE'),
+  prizes: async (id: string) =>
+    (await getJSON<{ prizes: Prize[] | null }>(`/api/rooms/${e(id)}/prizes`, { prizes: 'list' })).prizes ?? [],
+  postPrize: (id: string, draft: { title: string; criteria: string; amount_usd_micros: number; deadline: string }) =>
+    post<Prize>(`/api/rooms/${e(id)}/prizes`, draft),
+  awardPrize: (id: string, pid: string, contributionID: string) =>
+    post<{ prize: Prize }>(`/api/rooms/${e(id)}/prizes/${e(pid)}/award`, { contribution_id: contributionID }),
+  previewInvite: (token: string) =>
+    getJSON<InvitePreview>(`/api/room-invites/${e(token)}`, { room: 'object', terms: 'object', uses_left: 'number' }),
+  joinByInvite: (token: string, termsVersion: number) =>
+    post<{ room_id: string; member: Member }>(`/api/room-invites/${e(token)}/join`, { terms_version: termsVersion }),
 }
 
 /**

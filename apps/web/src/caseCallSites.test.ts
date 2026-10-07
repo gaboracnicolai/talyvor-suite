@@ -412,16 +412,17 @@ const PINS: Record<string, Pin> = {
   // labels, and the Rooms heading in Chat's rail.
   // 86 → 94 at B32.54: the room screen's eyebrows — the budget, a run's and a contribution's message tags, a run's Cost,
   // a contribution card's kind, Accepted and Not taken marks, and the run panel's Who pays.
+  // 94 → 95 at B32.55: room settings' "Its approvals" eyebrow over the room wallet's approvals.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 94,
+    states: 95,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 94,
+    states: 95,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

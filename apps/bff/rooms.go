@@ -346,3 +346,180 @@ func (a *app) handleRoomRun(w http.ResponseWriter, r *http.Request, t tenant) {
 	a.marketRelay(w, r.WithContext(ctx), marketUseClient, t.token, http.MethodPost, path, body,
 		"Paid listings cannot be used on this deployment yet: it has no marketplace bill to put them on.")
 }
+
+// B32.55 — room settings. Lens's members, terms, invites and prizes (B32.28, B32.29, B32.35), relayed the same way, on
+// the session's workspace token:
+//
+//	PATCH  /api/rooms/{id}/members/{ws}           {role, may_spend, remove}: the owner or an editor changes a member
+//	PUT    /api/rooms/{id}/terms                  {split_rule, remix_share_bps, default_price_usd_micros, spend_policy}:
+//	                                              the owner sets the room's next terms version
+//	GET    /api/rooms/{id}/invites                the room's invites, never a link's token
+//	POST   /api/rooms/{id}/invites                {max_uses, expires_at}: an invite link, its token shown this once
+//	DELETE /api/rooms/{id}/invites/{iid}          revokes it; the link then answers 404
+//	GET    /api/rooms/{id}/prizes                 the room's prizes: open, awarded and closed
+//	POST   /api/rooms/{id}/prizes                 {title, criteria, amount_usd_micros, deadline}: the owner posts one
+//	POST   /api/rooms/{id}/prizes/{pid}/award     {contribution_id}: the owner awards it, a purchase on the owner's bill
+//	GET    /api/room-invites/{token}              what a live invite link opens: the room, its terms, what is left of it
+//	POST   /api/room-invites/{token}/join         {terms_version}: join through the link, accepting the terms
+//
+// The room wallet's budget and rules are Agent Wallets' own routes (/api/agents/{id}/rules) on the wallet's agent, and
+// its approvals reach the owner's /api/agents/approvals. Lens decides who may do each — the owner, or an editor for
+// members and invites — and a refusal reaches the screen with Lens's sentence.
+
+var (
+	roomMemberKeys = map[string][]string{"role": nil, "may_spend": nil, "remove": nil}
+	roomTermsKeys  = map[string][]string{"split_rule": nil, "remix_share_bps": nil, "default_price_usd_micros": nil, "spend_policy": nil}
+	roomInviteKeys = map[string][]string{"max_uses": nil, "expires_at": nil}
+	roomPrizeKeys  = map[string][]string{"title": nil, "criteria": nil, "amount_usd_micros": nil, "deadline": nil}
+	roomAwardKeys  = map[string][]string{"contribution_id": nil}
+)
+
+// roomSub is Lens's path for /v1/rooms/{id}/<kind>/{<param>}<rest>, from the request's {id} and its <param>.
+func roomSub(w http.ResponseWriter, r *http.Request, kind, param, what, rest string) (string, bool) {
+	path, ok := roomPath(w, r, "/"+kind, false)
+	if !ok {
+		return "", false
+	}
+	sub, ok := pathID(w, what, r.PathValue(param))
+	if !ok {
+		return "", false
+	}
+	return path + "/" + url.PathEscape(sub) + rest, true
+}
+
+// handleRoomMember — PATCH /api/rooms/{id}/members/{ws}.
+func (a *app) handleRoomMember(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPatch {
+		methodNotAllowed(w, http.MethodPatch)
+		return
+	}
+	path, ok := roomSub(w, r, "members", "ws", "workspace id", "")
+	if !ok {
+		return
+	}
+	body, ok := roomBody(w, r, 1<<10, roomMemberKeys)
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPatch, path, body, "")
+}
+
+// handleRoomTerms — PUT /api/rooms/{id}/terms.
+func (a *app) handleRoomTerms(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPut {
+		methodNotAllowed(w, http.MethodPut)
+		return
+	}
+	path, ok := roomPath(w, r, "/terms", false)
+	if !ok {
+		return
+	}
+	body, ok := roomBody(w, r, 4<<10, roomTermsKeys)
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPut, path, body, "")
+}
+
+// handleRoomInvites — GET the room's invites; POST makes an invite link.
+func (a *app) handleRoomInvites(w http.ResponseWriter, r *http.Request, t tenant) {
+	path, ok := roomPath(w, r, "/invites", false)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+	case http.MethodPost:
+		body, ok := roomBody(w, r, 1<<10, roomInviteKeys)
+		if !ok {
+			return
+		}
+		a.marketRelay(w, r, a.client, t.token, http.MethodPost, path, body, "")
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+	}
+}
+
+// handleRoomInvite — DELETE /api/rooms/{id}/invites/{iid} revokes an invite.
+func (a *app) handleRoomInvite(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodDelete {
+		methodNotAllowed(w, http.MethodDelete)
+		return
+	}
+	path, ok := roomSub(w, r, "invites", "iid", "invite id", "")
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodDelete, path, nil, "")
+}
+
+// handleRoomPrizes — GET the room's prizes; POST posts one.
+func (a *app) handleRoomPrizes(w http.ResponseWriter, r *http.Request, t tenant) {
+	path, ok := roomPath(w, r, "/prizes", false)
+	if !ok {
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+	case http.MethodPost:
+		body, ok := roomBody(w, r, 64<<10, roomPrizeKeys)
+		if !ok {
+			return
+		}
+		a.marketRelay(w, r, a.client, t.token, http.MethodPost, path, body, "")
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
+	}
+}
+
+// handleRoomPrizeAward — POST /api/rooms/{id}/prizes/{pid}/award {contribution_id}: a purchase of the winning
+// contribution on the owner's marketplace bill, so it says so when this deployment has no bill to put it on.
+func (a *app) handleRoomPrizeAward(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	path, ok := roomSub(w, r, "prizes", "pid", "prize id", "/award")
+	if !ok {
+		return
+	}
+	body, ok := roomBody(w, r, 1<<10, roomAwardKeys)
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, path, body,
+		"Prizes cannot be awarded on this deployment yet: it has no marketplace bill to put them on.")
+}
+
+// handleRoomInvitePreview — GET /api/room-invites/{token}: what a live link opens; 404 once it is revoked, expired or
+// used up.
+func (a *app) handleRoomInvitePreview(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	token, ok := pathID(w, "invite", r.PathValue("token"))
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, "/v1/room-invites/"+url.PathEscape(token), nil, "")
+}
+
+// handleRoomInviteJoin — POST /api/room-invites/{token}/join {terms_version}.
+func (a *app) handleRoomInviteJoin(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	token, ok := pathID(w, "invite", r.PathValue("token"))
+	if !ok {
+		return
+	}
+	body, ok := roomBody(w, r, 4<<10, roomJoinKeys)
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, "/v1/room-invites/"+url.PathEscape(token)+"/join", body, "")
+}

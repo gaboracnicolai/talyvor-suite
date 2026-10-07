@@ -9,11 +9,15 @@
 // message posted to Lens from elsewhere appears on the open screen without a reload (the event stream through
 // apps/bff/rooms.go), and a contribution is proposed, forked and voted on. Lens's own reads are the oracle: both
 // messages are the room's, the fork's original is the contribution it forked, and the vote is the tally.
+//
+// B32.55 — and the room's settings (roomSettings.ts): an invite link made, joined through and revoked, a member given
+// may_spend, the room's budget refused above the plan's maximum and set within it, and a prize posted.
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Locator, Page } from 'playwright'
 import { ACTION_TIMEOUT_MS, fail } from './bank.ts'
+import { roomSettingsChecks } from './roomSettings.ts'
 import type { Scenario, ScenarioCtx } from './scenarios.ts'
 
 /** Where a room's text is kept, as its first screen says it (apps/web/src/areas/rooms/roomsApi.ts STORED_NOTICE). */
@@ -42,7 +46,7 @@ export function roomsPrivate(seed: number): Scenario {
   return {
     id: 'rooms-private',
     owner: 'talyvor-suite',
-    title: 'a private room opened on /rooms/new is the workspace’s on Lens, in Chat’s rail and the directory, and 404 to another company; its screen posts, streams, proposes, forks and votes',
+    title: 'a private room opened on /rooms/new is the workspace’s on Lens, in Chat’s rail and the directory, and 404 to another company; its screen posts, streams, proposes, forks and votes; its settings invite, give may_spend, refuse a budget past the plan and post a prize',
     plan: 'team',
     own: true,
     run: async (ctx) => {
@@ -148,6 +152,9 @@ export function roomsPrivate(seed: number): Scenario {
         await shoot(ctx, page, 'room', 1440, 900, `the room screen at 1440: "${title}"`)
         await shoot(ctx, page, 'room', 390, 844, `the room screen at 390: "${title}"`)
         await page.setViewportSize(viewport)
+        const settings = await roomSettingsChecks(ctx, page, origin, id, title, (name, w, h, note) => shoot(ctx, page, name, w, h, note))
+        if (settings) return settings
+        await page.setViewportSize(viewport)
         await page.goto(`${origin}/rooms`)
         if (!(await shown(page.getByRole('list', { name: 'Your rooms' }).getByRole('link', { name: title, exact: true })))) {
           return fail('the directory does not show the room under Your rooms')
@@ -159,7 +166,7 @@ export function roomsPrivate(seed: number): Scenario {
         const rail = page.getByRole('complementary', { name: 'Conversations' }).getByRole('list', { name: 'Your rooms' })
         if (!(await shown(rail.getByRole('link', { name: title, exact: true })))) return fail('Chat’s rail does not show the room under Rooms')
         await shoot(ctx, page, 'chat-rooms', 1440, 900, 'Chat with the room in its rail at 1440')
-        return { pass: true, detail: `private room ${id} is ${user.workspaceID}'s on Lens, absent from the public list, 404 to another company, and shown in the directory and Chat's rail; its screen posted, streamed a message from elsewhere, proposed, forked and voted` }
+        return { pass: true, detail: `private room ${id} is ${user.workspaceID}'s on Lens, absent from the public list, 404 to another company, and shown in the directory and Chat's rail; its screen posted, streamed a message from elsewhere, proposed, forked and voted; its settings made, revoked and joined through an invite link, gave may_spend, refused a budget past the plan and posted a prize` }
       } finally {
         await page.setViewportSize(viewport)
       }

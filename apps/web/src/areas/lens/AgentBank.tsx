@@ -1172,7 +1172,8 @@ function PayeesPicker({ agent, agents, payees, onChange }: { agent: Agent; agent
   )
 }
 
-function Rules({ agent, agents }: { agent: Agent; agents: Agent[] }) {
+/** An agent's rules: in words, the editor, a boost and their history. B32.55 — a room's settings edit its wallet's with it. */
+export function Rules({ agent, agents }: { agent: Agent; agents: Agent[] }) {
   const qc = useQueryClient()
   const rules = useQuery({ queryKey: rulesKey(agent.id), queryFn: () => agentBankApi.rules(agent.id) })
   // B28.31 — the form is filled once from the rules it opened with, so a rollback starts it again from the rules
@@ -2106,12 +2107,15 @@ export function Approvals({
   held,
   onSent,
   primary = false,
+  agentId,
 }: {
   nameOf: (id: string) => string
   held: Record<string, HeldPayment>
   onSent: (approvalID: string) => void
   /** B29.9 — Approve is the teal action on Approvals; on Agent Wallets that is Fund. */
   primary?: boolean
+  /** B32.55 — only this agent's approvals: a room's settings show its wallet's. */
+  agentId?: string
 }) {
   const qc = useQueryClient()
   const list = useQuery({ queryKey: APPROVALS_KEY, queryFn: agentBankApi.approvals })
@@ -2152,7 +2156,7 @@ export function Approvals({
         qc.invalidateQueries({ queryKey: ['agent-statement'] }),
       ]),
   })
-  const all = list.data?.approvals ?? []
+  const all = (list.data?.approvals ?? []).filter((a) => agentId === undefined || a.agent_id === agentId)
   const pending = all.filter((a) => a.status === 'pending')
   const decided = all.filter((a) => a.status !== 'pending').slice(0, 5)
   const what = (a: AgentApproval) =>
