@@ -160,7 +160,7 @@ async function asked(ctx: ScenarioCtx, key: string, prompt: string, headers: Rec
  * What one request left behind, from the agent's statement and the workspace's ledger as they were before it: one charge
  * on the statement and one spend row on the ledger debiting the same, or what is wrong.
  */
-async function billedOnce(ctx: ScenarioCtx, agentID: string, lines0: AgentLine[], rows0: Set<string>, what: string): Promise<number | string> {
+export async function billedOnce(ctx: ScenarioCtx, agentID: string, lines0: AgentLine[], rows0: Set<string>, what: string): Promise<number | string> {
   const { lens } = ctx.env
   const user = ctx.app.user
   await within(() => lens.agentLines(user, agentID), (ls) => complete(lines0, ls), CHARGED_WITHIN_MS)

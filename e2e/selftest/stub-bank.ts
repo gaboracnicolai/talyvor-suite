@@ -316,14 +316,29 @@ export class Bank {
    * (429 for the requests-a-minute rule, checked after the models, B28.26);
    * a request above the approval amount files an approval, and an approved one goes through once.
    */
-  judge(agent: Agent, amount: number, req: { model?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }): { status: number; error: string } | undefined {
+  judge(agent: Agent, amount: number, req: { model?: string; provider?: string; listing?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }): { status: number; error: string } | undefined {
     const rule = (s: string) => ({ status: 403, error: `the agent's spending rules refuse this request: ${s}` })
     const all = this.allPaused.get(agent.ws)
     if (all !== undefined) return rule(`every agent in this workspace is paused (${all.reason || "paused by the workspace's owner"}) — the workspace's owner can resume them`)
     if (agent.paused_at !== undefined) return rule(`the agent is paused (${agent.paused_reason || "paused by the workspace's owner"}) — the workspace's owner can resume it`)
     const r = this.rulesInForce(agent)
     const what = req.payment ? 'payment' : 'request'
+    // B28.281 — the agent's hours, read in its timezone; a window whose end is before its start crosses midnight.
+    if (r.active_from && r.active_until) {
+      const [h, min] = new Intl.DateTimeFormat('en-GB', { timeZone: r.timezone || 'UTC', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        .format(new Date()).split(':').map(Number)
+      const at = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5))
+      const m = h * 60 + min
+      const from = at(r.active_from)
+      const until = at(r.active_until)
+      const inside = from <= until ? from <= m && m < until : m >= from || m < until
+      if (!inside) return rule(`the agent may spend only between ${r.active_from} and ${r.active_until} (${r.timezone || 'UTC'})`)
+    }
     if (r.allowed_models.length > 0 && !req.payment && !r.allowed_models.includes(req.model ?? '')) return rule(`the agent may not use the model "${req.model}"`)
+    if (r.allowed_providers.length > 0 && !req.payment && !r.allowed_providers.includes(req.provider ?? '')) return rule(`the agent may not use the provider "${req.provider}"`)
+    if (r.allowed_listings.length > 0 && req.listing !== undefined && !r.allowed_listings.includes(req.listing)) {
+      return rule(`the agent may not use the marketplace listing "${req.listing}"`)
+    }
     if (req.payment && req.payee !== undefined) {
       // B28.27 — a payee is named by its own id or its company's, as Lens's payeeIDs reads it.
       const ids = [req.payee.id, req.payee.ws]
@@ -387,8 +402,8 @@ export class Bank {
   }
 
   /** An agent's proxied request, judged at its worst case before the model; undefined lets it through. */
-  admit(agent: Agent, worst: number, model: string, prompt: string): { status: number; error: string } | undefined {
-    const refused = this.judge(agent, worst, { model, fingerprint: createHash('sha256').update(`${agent.id}\0${model}\0${prompt}`).digest('hex') })
+  admit(agent: Agent, worst: number, model: string, prompt: string, provider: string): { status: number; error: string } | undefined {
+    const refused = this.judge(agent, worst, { model, provider, fingerprint: createHash('sha256').update(`${agent.id}\0${model}\0${prompt}`).digest('hex') })
     if (refused !== undefined) return refused
     if (worst > this.balance(`agent:${agent.id}`)) return { status: 402, error: 'agent LXC sub-budget exceeded or insufficient balance' }
     this.asked.set(agent.id, [...(this.asked.get(agent.id) ?? []), Date.now()])
@@ -537,6 +552,24 @@ export class Bank {
     const b = await this.body<{ to_agent_id?: string; amount_ulxc?: number; memo?: string }>(req)
     this.pay(res, who.ws, who.agent, b.to_agent_id ?? '', b.amount_ulxc ?? 0, b.memo ?? '')
     return true
+  }
+
+  /**
+   * B28.281 — a marketplace use on an agent's own key, judged by its rules first as Lens's JudgeAgentPurchase judges it (a
+   * payment naming the listing), then run as its workspace's use.
+   */
+  async agentUse(req: IncomingMessage, res: ServerResponse, key: string, path: string): Promise<boolean> {
+    const m = /^\/v1\/workspaces\/([^/]+)(\/marketplace\/listings\/([^/]+)\/use)$/.exec(path)
+    const who = this.agentOfKey(key)
+    if (m === null || who === undefined || req.method !== 'POST') return false
+    if (who.ws.id !== m[1]) return this.d.json(res, 403, { error: "an agent's key may use listings only for its own workspace" }), true
+    const l = this.listings.get(m[3])
+    if (l !== undefined) {
+      const price = l.workspace_id === who.ws.id ? 0 : l.price_per_use_ulxc
+      const refused = this.judge(who.agent, price, { payment: true, listing: l.id, fingerprint: `market\0${who.agent.id}\0${l.id}\0${price}` })
+      if (refused !== undefined) return this.d.json(res, refused.status, { error: refused.error }), true
+    }
+    return this.workspaceRoute(req, res, who.ws, m[2], new URL(path, this.d.base))
   }
 
   /** B34.4 — a simulated portfolio as Lens answers it: its cash after its filled orders, and what they bought. */

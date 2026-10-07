@@ -45,6 +45,7 @@ import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settin
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
 import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
 import { webhookReplayed, webhookUnsigned } from './webhooks.ts'
+import { agentRulesUnbypassable } from './rules.ts'
 
 export interface Evidence {
   note?: string
@@ -3272,6 +3273,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B28.280 — Stripe's webhooks, once a run, each on a workspace of its own: an unsigned or forged event credits nothing,
   // and a signed one sent again credits once.
   if (i === 2) list.push(webhookUnsigned(), webhookReplayed())
+  // B28.281 — an agent's rules, once a run, on a workspace of its own: each thing they forbid its own key is refused with
+  // nothing posted, on both of Lens's proxy paths, and the key cannot loosen them.
+  if (i === 6) list.push(agentRulesUnbypassable())
   return list
 }
 
