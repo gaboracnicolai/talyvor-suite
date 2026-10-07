@@ -120,3 +120,54 @@ export function upsertConversation(
   }
   return [next, ...list.filter((c) => c.id !== id)]
 }
+
+/** B28.108 — one conversation a search found, and the words around where it was found. */
+export interface SearchHit {
+  conversation: Conversation
+  /** The turn the first word was found in, cut to a line; null when only the title shows it. */
+  excerpt: { before: string; match: string; after: string } | null
+}
+
+const EXCERPT_BEFORE = 30
+const EXCERPT_AFTER = 70
+
+/**
+ * B28.108 — the conversations that contain every word of the query, in the title or in any question
+ * or answer, in the list's own order (newest first). Case is ignored. It reads the list this browser
+ * already holds, so nothing leaves the browser to search it.
+ */
+export function searchConversations(list: Conversation[], query: string): SearchHit[] {
+  const words = query.toLowerCase().split(/\s+/).filter((w) => w !== '')
+  if (words.length === 0) return []
+  const hits: SearchHit[] = []
+  for (const c of list) {
+    const turns = c.messages.map((m) => m.content.replace(/\s+/g, ' '))
+    const lowered = turns.map((t) => t.toLowerCase())
+    const title = c.title.toLowerCase()
+    if (!words.every((w) => title.includes(w) || lowered.some((t) => t.includes(w)))) continue
+    hits.push({ conversation: c, excerpt: excerptOf(turns, lowered, words, c.title) })
+  }
+  return hits
+}
+
+/** The first turn holding any of the words, earliest word first, with a little either side. A turn that is the
+ *  title word for word is passed over: the title above the excerpt already shows it. */
+function excerptOf(turns: string[], lowered: string[], words: string[], title: string): SearchHit['excerpt'] {
+  for (const w of words) {
+    for (const [i, turn] of turns.entries()) {
+      const low = lowered[i] ?? ''
+      const at = low.indexOf(w)
+      if (at < 0 || turn.trim() === title) continue
+      // Lower-casing can change a string's length (İ → i̇); then the lowered text is what is shown.
+      const text = turn.length === low.length ? turn : low
+      const from = Math.max(0, at - EXCERPT_BEFORE)
+      const to = Math.min(text.length, at + w.length + EXCERPT_AFTER)
+      return {
+        before: (from > 0 ? '…' : '') + text.slice(from, at).trimStart(),
+        match: text.slice(at, at + w.length),
+        after: text.slice(at + w.length, to).trimEnd() + (to < text.length ? '…' : ''),
+      }
+    }
+  }
+  return null
+}

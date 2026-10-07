@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Button, Input, cn, focusRing, inlineLink } from '@talyvor/ui'
@@ -32,6 +32,7 @@ import {
   loadConversations,
   newConversationId,
   saveConversations,
+  searchConversations,
   upsertConversation,
 } from './history'
 import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
@@ -246,6 +247,8 @@ export function Chat() {
   const [renaming, setRenaming] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [storageRefused, setStorageRefused] = useState(false)
+  // B28.108 — kept here, not in the rail, so a search survives the narrow drawer closing on the conversation it opened.
+  const [search, setSearch] = useState('')
 
   // The rail: hidden on a wide screen by choice (remembered per browser), a drawer on a narrow one.
   const [railHidden, setRailHidden] = useState(readRailHidden)
@@ -732,6 +735,8 @@ export function Chat() {
       readingIdentity={me.isPending}
       storageRefused={storageRefused}
       sync={sync}
+      search={search}
+      onSearch={setSearch}
       onNew={() => open(undefined)}
       onOpen={open}
     />
@@ -1143,6 +1148,8 @@ function ChatRail({
   readingIdentity,
   storageRefused,
   sync,
+  search,
+  onSearch,
   onNew,
   onOpen,
 }: {
@@ -1153,14 +1160,38 @@ function ChatRail({
   readingIdentity: boolean
   storageRefused: boolean
   sync: HistorySync
+  search: string
+  onSearch: (search: string) => void
   onNew: () => void
   onOpen: (c: Conversation) => void
 }) {
+  // B28.108 — every saved question and answer is searched as the person types; the deferred query
+  // keeps the box answering keys while hundreds of conversations are read.
+  const query = useDeferredValue(search.trim())
+  const found = useMemo(() => (query === '' ? null : searchConversations(history.list, query)), [history.list, query])
+  const searchable = signedIn && history.error === null && history.list.length > 0
   return (
     <div className="flex h-full min-h-0 flex-col p-2">
       <Button className="w-full justify-start" onClick={onNew} disabled={pending || activeId === null}>
         New chat
       </Button>
+      {searchable ? (
+        <Input
+          type="search"
+          className="mt-3"
+          aria-label="Search conversations"
+          placeholder="Search conversations"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          onKeyDown={(e) => {
+            // Escape empties the box first; only an empty box lets it close the drawer.
+            if (e.key === 'Escape' && search !== '') {
+              e.stopPropagation()
+              onSearch('')
+            }
+          }}
+        />
+      ) : null}
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
         {!signedIn ? (
           <p className="px-2 text-caption text-muted">
@@ -1174,7 +1205,7 @@ function ChatRail({
           </p>
         ) : history.list.length === 0 ? (
           <p className="px-2 text-caption text-muted">No conversations yet.</p>
-        ) : (
+        ) : found === null ? (
           <ul className="space-y-1" aria-label="Saved conversations">
             {history.list.map((c) => (
               <li key={c.id}>
@@ -1197,6 +1228,50 @@ function ChatRail({
               </li>
             ))}
           </ul>
+        ) : (
+          // B28.108 — what a search found: each conversation's name, and the words around where it was found.
+          <>
+            <p className="px-2 pb-1 text-caption text-muted" role="status">
+              {found.length === 0 ? (
+                <>No conversation mentions “{query}”.</>
+              ) : (
+                <>
+                  <span className="font-figure">{found.length}</span> of <span className="font-figure">{history.list.length}</span>{' '}
+                  {history.list.length === 1 ? 'conversation' : 'conversations'}
+                </>
+              )}
+            </p>
+            {found.length > 0 ? (
+              <ul className="space-y-1" aria-label="Conversations found">
+                {found.map(({ conversation: c, excerpt }) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      className={cn(
+                        'block w-full rounded-control px-2 py-2 text-left text-body',
+                        'transition-colors duration-200 hover:bg-surface',
+                        'disabled:cursor-not-allowed disabled:opacity-50',
+                        c.id === activeId ? 'bg-accent-tint text-accent-strong hover:bg-accent-tint' : 'text-ink',
+                        focusRing,
+                      )}
+                      aria-current={c.id === activeId ? 'true' : undefined}
+                      disabled={pending}
+                      onClick={() => onOpen(c)}
+                    >
+                      <span className="block truncate">{c.title}</span>
+                      {excerpt !== null ? (
+                        <span className="mt-0.5 line-clamp-2 text-caption text-muted" data-testid="search-excerpt">
+                          {excerpt.before}
+                          <mark className="bg-accent-tint px-0.5 text-ink">{excerpt.match}</mark>
+                          {excerpt.after}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
         )}
         {storageRefused ? (
           <p className="mt-2 px-2 text-caption text-ink" role="alert">
