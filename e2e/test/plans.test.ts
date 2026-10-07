@@ -29,9 +29,10 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     expect(c.plans[9]).toBe('business')
     // B34.6 — and every way into Lens's gateway, each on a workspace nothing else touches; B34.7 — and every Lens setting;
     // B34.8 — and evals, outputs and attribution, nodes, PoVI, LENS and credits bought.
+    // B32.53 — and a private room, on a Team workspace of its own (Free opens no private room).
     expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['byok-addon:free', 'credits-top-up:free', 'evals:free', 'gateway-auth:free', 'gateway-keys:free',
       'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'lens-tokens:free', 'nodes:free', 'outputs-attribution:free',
-      'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'povi:free', 'seats-free:free', 'seats-team:free',
+      'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'povi:free', 'rooms-private:team', 'seats-free:free', 'seats-team:free',
       'settings-config-budgets:free', 'settings-guardrails:free', 'settings-operator-only:free', 'settings-prompts:free', 'settings-stored-answers:free',
       'settings-switches:free', 'settings-tare-distill:free'])
   })

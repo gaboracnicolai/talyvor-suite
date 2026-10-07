@@ -40,6 +40,7 @@ import { b30Capabilities } from './clearances.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
 import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
+import { roomsPrivate } from './rooms.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
 
@@ -2762,7 +2763,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
     case 2: list.push(oneDigitTrap(i), sentBeforeIdentity(i)); break
     // B28.266 — then Royalties, Members, Setup and API keys opened cold, and a key created and revoked.
-    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i)); break
+    // B32.53 — and a private room opened on /rooms/new: Lens's, in Chat's rail and the directory, 404 to another company.
+    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i)); break
     // B28.363 — and a question asked of Auto (cheapest good): the answer names the model Lens chose, charged at its price.
     case 4:
       if (i + 5 < users) list.push(acrossAccounts(i, i + 5))

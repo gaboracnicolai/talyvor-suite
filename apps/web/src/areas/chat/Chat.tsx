@@ -61,6 +61,7 @@ import { type CostRange, previewCost } from './estimate'
 import { formatWhen } from '../lens/format'
 import { Lxc, pegQuery } from '../lens/money'
 import { Card } from '../lens/walletBrand'
+import { RoomsRail } from '../rooms/Rooms'
 
 // THE CHAT SCREEN — W4.6.1 step 6. The first surface that puts Model 2 in front of a person.
 //
@@ -98,7 +99,7 @@ import { Card } from '../lens/walletBrand'
 //
 // ── B10.3: THE LAYOUT PEOPLE ALREADY KNOW ────────────────────────────────────
 //
-// A collapsible rail (New chat, conversations newest first, the how-to link), one centred reading
+// A collapsible rail (New chat, conversations newest first, B32.53's rooms, the how-to link), one centred reading
 // column, and a composer pinned to the bottom with the model picker inside it. Replies render as
 // Markdown. Explanations live on /chat/help (./ChatHelp.tsx), not on this screen; what stays here
 // is what a reader needs at the moment of reading — a price, a failure, where history is kept.
@@ -1183,12 +1184,14 @@ function ChatRail({
             This browser refused to save the latest change, so it will be gone after a reload.
           </p>
         ) : null}
+        {/* B32.53 — the private conversations are this browser's; a room's are stored by Talyvor, so each says where. */}
+        <p className="mt-1 px-2 text-caption text-faint">Kept in this browser only.</p>
+        <RoomsRail />
       </div>
       <div className="mt-2 space-y-1 border-t border-rule px-2 pt-3">
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/help">
           How to use Talyvor Chat
         </Link>
-        <p className="text-caption text-faint">Kept in this browser only.</p>
       </div>
     </div>
   )

@@ -22,6 +22,7 @@ const source = (rel: string) => readFileSync(resolve(SRC, rel), 'utf8')
 /** Each console route that hands the rest of the path to an area router, and that router's file. */
 const AREA_ROUTERS: Record<string, string> = {
   '/marketplace/*': 'areas/marketplace/Marketplace.tsx',
+  '/rooms/*': 'areas/rooms/Rooms.tsx',
   '/track/*': 'areas/track/TrackArea.tsx',
   '/docs/*': 'areas/docs/DocsArea.tsx',
 }

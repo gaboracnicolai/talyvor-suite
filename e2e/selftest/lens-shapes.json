@@ -568,6 +568,67 @@
    "shape": {
     "listings": []
    }
+  },
+  "/v1/rooms": {
+   "status": 200,
+   "shape": {
+    "rooms": [
+     {
+      "id": "string",
+      "owner_workspace_id": "string",
+      "title": "string",
+      "topic": "string",
+      "description": "string",
+      "visibility": "string",
+      "status": "string",
+      "terms_version": "number",
+      "member_count": "number",
+      "created_at": "string",
+      "last_activity_at": "string"
+     }
+    ],
+    "joined": [
+     {
+      "id": "string",
+      "owner_workspace_id": "string",
+      "title": "string",
+      "topic": "string",
+      "description": "string",
+      "visibility": "string",
+      "status": "string",
+      "terms_version": "number",
+      "member_count": "number",
+      "created_at": "string",
+      "last_activity_at": "string"
+     }
+    ],
+    "invited": [
+     {
+      "id": "string",
+      "owner_workspace_id": "string",
+      "title": "string",
+      "topic": "string",
+      "description": "string",
+      "visibility": "string",
+      "status": "string",
+      "terms_version": "number",
+      "member_count": "number",
+      "created_at": "string",
+      "last_activity_at": "string"
+     }
+    ],
+    "limits": {
+     "plan": "string",
+     "limit_as": "string",
+     "public_rooms": "number",
+     "private_rooms": "number",
+     "members_per_room": "number",
+     "agents_per_room": "number",
+     "room_budget_max_usd": "number",
+     "public_rooms_open": "number",
+     "private_rooms_open": "number"
+    }
+   }
   }
  }
 }

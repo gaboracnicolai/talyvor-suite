@@ -31,6 +31,7 @@ export const READS: readonly string[] = [
   '/v1/bonds',
   '/v1/markets/simulated/quotes',
   '/v1/marketplace/listings',
+  '/v1/rooms',
   '/v1/wallets/capabilities',
   '/v1/wallets/{agentID}',
   '/v1/workspaces/{wsID}',

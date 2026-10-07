@@ -34,6 +34,7 @@
 //   meter       — the balance read lags the ledger by 30 seconds, so Chat's meter does not drop by the charge (B28.104)
 //   cheaper     — a question asked afresh of a provider's cheapest chat model, as Chat's "Re-ask with" asks it, is
 //                 answered, named and charged by the provider's dearest (B28.364)
+//   rooms       — a room is opened without its owner as a member, so it is in nobody's rooms (B32.53, stub-rooms.ts)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -55,6 +56,7 @@ import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
+import { roomsRoute } from './stub-rooms.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -714,6 +716,8 @@ createServer(async (req, res) => {
     if (p === '/mcp' && req.method === 'POST') return json(res, 200, bank.mcp(ws.id, JSON.parse((await read(req)) || '{}')))
     if (bank.publicRoute(res, p, url, ws.id)) return
     if (await bank.publicWrite(req, res, p, ws.id)) return
+    // B32.53 — rooms: Chat's rail, the directory, a new room and a room's first screen (stub-rooms.ts).
+    if (await roomsRoute(req, res, p, url, ws.id, ws.plan?.id ?? ws.syntheticPlan ?? 'free')) return
     if (p === '/v1/catalog/discovered') return json(res, 200, [])
     if (ABSENT.has(p) || p.startsWith('/v1/bonds/')) return json(res, 404, { error: 'not found' })
     if (p === '/v1/markets/simulated/quotes') return json(res, 200, QUOTES)
