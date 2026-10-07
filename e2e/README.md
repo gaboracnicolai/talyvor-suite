@@ -346,6 +346,27 @@ though a scenario had reached them.
 | `plan-change` | 7, on a workspace of its own | Plus bought with the test card; Switch to Pro and Move to Pro on Plans: Lens's subscription is on Pro, and its allowance is Pro's price with Plus's included usage moved toward Pro's by the share of the period left (Lens B18.14), as Lens's plans read states both; the subscription is cancelled after |
 | `provider-keys` | 8 | an OpenAI key added on Settings is the one Lens holds (its last four) and gone once removed there; where Lens holds no provider keys (production today) Settings says so and one sent anyway is refused, nothing stored |
 
+## B34.7 — every Lens setting and workspace-data route has a tester
+
+The workspace's config and budgets, its switches and both previews, stored answers and deletion requests, provider
+keys, guardrails, prompts, a catalog model, an issue's anomaly read and answer feedback, which the 6 Oct map read "not
+covered", are reached by a scenario (`src/settings.ts`), once a run, each on a workspace of its own with that
+workspace's own key or token. Each sets a thing, reads it back from Lens, sees it change what Lens does or records for
+the next request, and sets it back; a served request is still one spend row at the catalog price. What only Lens's
+operator may change (a workspace, injection patterns, fallback chains, local endpoints) is checked to refuse the
+workspace and change nothing; batches (Lens refuses the lane until a batch is billed for what it used) and provider
+keys (production holds no sealing key) are checked to refuse and move nothing.
+
+| Scenario | Who | Oracle |
+|---|---|---|
+| `settings-config-budgets` | 2, on a workspace of its own | `rate_limit_rpm` 1 reads back: the next request served, the one after refused 429 naming it with nothing charged, served again once set back; a hard-blocking team budget made, read, listed and in `budgets/status` refuses a request naming the team (402, nothing charged) while one naming no team is served, lets it through once PATCH raises it, and is 404 once deleted; a request naming an issue is what `anomalies/issue/{id}` says it cost |
+| `settings-operator-only` | 2, on a workspace of its own | POST /v1/workspaces, an injection pattern, a fallback chain, a local endpoint added, checked and deleted: each 401 "admin credentials required", the chains and endpoints unchanged and the pattern not taken for an injection; batch submit and status, and provider keys put and deleted, refused with nothing on the ledger; a catalog model reads back at its catalog price and an unknown one is 404 |
+| `settings-switches` | 4, on a workspace of its own | logging none is stated on the next request (`X-Talyvor-Logging`) and an exact repeat is charged again, then the old policy again; the retired rewriter refuses 410 naming Tare; cost-optimised routing charges the model it says it used; distill pooling reads back; with `cache_poolable` off another workspace asking the same question is asked afresh, back on it is served from the pool at the price `X-Talyvor-Pool-Charged-ULXC` states |
+| `settings-guardrails` | 4, on a workspace of its own | a word blocked by PUT /v1/guardrails/policy, and by POST then PATCH …/guardrails, reads back, is caught by POST /v1/guardrails/check and is redacted from the next request (`X-Talyvor-Guardrail-Redacted`), served at the catalog price; DELETE reads back the default and the word passes |
+| `settings-tare-distill` | 6, on a workspace of its own | Tare reduces forty same-shaped rows (`X-Talyvor-Tare: applied`) and records the saving against the work item named; disabled it does not; the Tare model shortens prose in the preview only when on; the rows' preview keeps every field name; a memo attached as an HTML document is converted (`X-Talyvor-Distill: applied`) and counted in `distill/usage`, disabled it is not and nothing stays held; the conversion preview gives the memo's heading and code |
+| `settings-stored-answers` | 6, on a workspace of its own | an answer is stored and its exact repeat served free; marked `negative` with POST /v1/feedback it is removed and the next repeat is charged; deleting everything stored (scope all, the workspace's name) zeroes the counts and the next repeat is charged; a deletion request is filed once and listed as requested |
+| `settings-prompts` | 6, on a workspace of its own | a prompt made, read and listed is used by a request whose system prompt names it (`X-Talyvor-Prompt-Resolved`) and the model follows it; a second version, the history and the diff, and the next request follows it; rolled back, the next follows the first |
+
 ## B25.8 — the slow money, brought due inside the run
 
 Lens (B25.7) brings a test workspace's slow money due now, with the synthetic key: a loan's next instalment,
