@@ -515,6 +515,24 @@ export class Bank {
     return this.balance(`agent:${agentID}`)
   }
 
+  /**
+   * B32.86 — a run in a room (Lens B32.33): one use of a room's contribution on its buyer's bill — the room's owner, the
+   * room's wallet its agent, or the member paying itself with no agent. The buyer's own listing is charged own.
+   */
+  roomUse(u: { listing_id: string; seller: string; buyer: string; agent_id: string; price_ulxc: number }): Use {
+    const own = u.seller === u.buyer
+    const use: Use = { id: id('use_'), ...u, price_ulxc: own ? 0 : u.price_ulxc, charge: own ? 'own' : u.price_ulxc > 0 ? 'billed' : 'free',
+      used_at: new Date().toISOString(), payee_agent_id: '', memo: '' }
+    this.uses.push(use)
+    return use
+  }
+
+  /** B32.86 — what an agent's billed uses cost this month, as its monthly limit counts them. */
+  agentBilledThisMonth(agentID: string): number {
+    const month = new Date().toISOString().slice(0, 7)
+    return this.uses.filter((u) => u.agent_id === agentID && u.charge === 'billed' && u.used_at.startsWith(month)).reduce((s, u) => s + u.price_ulxc, 0)
+  }
+
   private statement(ws: string, agentID: string | undefined, url: URL): object | string {
     const day = (s: string | null, dflt: Date): Date | undefined => {
       if (s === null || s === '') return dflt

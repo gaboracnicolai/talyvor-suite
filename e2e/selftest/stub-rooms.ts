@@ -93,6 +93,18 @@
 //
 // STUB_BREAK=room-budget-saved answers a monthly limit above the plan's 402, and saves it anyway — a defect room-wallet
 // must FAIL on.
+//
+// B32.86 — and runs in a room (Lens B32.33), as room-runs makes them:
+//
+//   POST   /v1/rooms/{id}/runs   {target, variables, pay}: paid room — by the owner, or a member given may_spend — a
+//                                contribution's use is on the owner's bill with the room's wallet its agent, judged against
+//                                the wallet's monthly limit (403 naming it past it); paid self it is on the member's bill;
+//                                either way the room gets a run message whose refs name the use, the charge and the payer
+//   POST   /v1/rooms/{id}/ask    {question, model, pay}: the room's AI answers, and the room gets a run message carrying
+//                                the question and the answer
+//
+// STUB_BREAK=room-run-limit refuses a run past the wallet's monthly limit with 403, and bills it anyway — a defect
+// room-runs must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -145,9 +157,17 @@ const budgetMax = (r: Room) => {
 
 const rooms = new Map<string, Room>()
 
-/** B32.85 — where a room's wallet is opened and what it holds: the stub's Bank, as stub-lens.ts sets it. */
-interface RoomWallets { open(ws: string, agentID: string, name: string): void; balance(agentID: string): number }
-let wallets: RoomWallets = { open: () => undefined, balance: () => 0 }
+/** B32.86 — a run's use as the stub's Bank records it on its buyer's bill. */
+interface RoomUse { id: string; listing_id: string; charge: string; price_ulxc: number; agent_id: string; used_at: string }
+/**
+ * B32.85 — where a room's wallet is opened and what it holds: the stub's Bank, as stub-lens.ts sets it. B32.86 — and a
+ * run's use on its buyer's bill, and what the wallet's billed uses cost this month.
+ */
+interface RoomWallets {
+  open(ws: string, agentID: string, name: string): void; balance(agentID: string): number
+  use(u: { listing_id: string; seller: string; buyer: string; agent_id: string; price_ulxc: number }): RoomUse; billed(agentID: string): number
+}
+let wallets: RoomWallets = { open: () => undefined, balance: () => 0, use: () => { throw new Error('stub rooms: no Bank to bill a run on') }, billed: () => 0 }
 export function setRoomWallets(w: RoomWallets): void {
   wallets = w
 }
@@ -441,7 +461,7 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
     return true
   }
   if (await settingsOutsideRoom(req, res, p, ws)) return true
-  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions|members|invites|prizes|reports|runs|terms)/.exec(p)
+  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions|members|invites|prizes|reports|runs|ask|terms)/.exec(p)
   if (one === null) return false
   const r = rooms.get(decodeURIComponent(one[1]))
   if (r === undefined || (r.visibility === 'private' && !r.members.some((m) => m.workspace_id === ws))) {
@@ -449,6 +469,7 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
     return true
   }
   if (await roomSafety(req, res, p, ws, r)) return true
+  if (await roomAsk(req, res, p, ws, r)) return true
   if (await roomScreen(req, res, p, url, ws, r)) return true
   if (await roomSettings(req, res, p, ws, r)) return true
   if (one[2] === undefined && req.method === 'GET') return json(res, 200, detail(r, ws)), true
@@ -615,25 +636,95 @@ async function roomSafety(req: IncomingMessage, res: ServerResponse, p: string, 
     return json(res, 201, { id: x.id, room_id: r.id, ...(messageID ? { message_id: messageID } : {}), reason: x.reason, details: x.details, created_at: x.created_at }), true
   }
   if (p !== `/v1/rooms/${r.id}/runs` || req.method !== 'POST') return false
-  if (!r.members.some((m) => m.workspace_id === ws)) return json(res, 403, { error: 'rooms: not allowed: join the room to run things in it' }), true
+  const me = r.members.find((m) => m.workspace_id === ws)
+  if (me === undefined) return json(res, 403, { error: 'rooms: not allowed: join the room to run things in it' }), true
   // STUB_BREAK=room-close: a closed room's run is refused, and its wallet is spent anyway — only the statement shows it.
   const closed = r.status === 'closed'
   if (closed && BREAK !== 'room-close') return json(res, 409, closedRoom), true
   const d = await body(req)
   const target = (contributions.get(r.id) ?? []).find((c) => c.id === String(d.target ?? ''))
   if (target === undefined) return json(res, 404, { error: 'market: not found: no such listing' }), true
+  const pay = payOf(d)
+  if (pay === undefined) return json(res, 400, { error: noPayer }), true
+  const why = pay === 'room' && !closed ? whyNotSpend(r, me) : ''
+  if (why !== '') return json(res, 403, { error: `rooms: not allowed: ${why}` }), true
   const given = (d.variables ?? {}) as Record<string, unknown>
   const missing = [...target.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((v) => v[1]).filter((v) => !(v in given))
   if (missing.length > 0 && BREAK !== 'room-run-variables') {
     return json(res, 400, { error: `market: invalid listing: the prompt needs the variables ${missing.join(', ')}` }), true
   }
-  const at = new Date().toISOString()
-  const cost = 1_000
-  const balance = r.walletLines.reduce((n, l) => n + l.amount_ulxc, 0) - cost
-  r.walletLines.push({ entry_id: 'je_' + randomBytes(8).toString('hex'), kind: 'agent_spend', amount_ulxc: -cost, counterparty: 'models', ref: target.listing_id, balance_after_ulxc: balance, at })
-  if (closed) return json(res, 409, closedRoom), true
-  const m = post(r.id, ws, `ran “${target.title}”, paid by the room`, 'run', { run: 'use', listing_id: target.listing_id, pay: d.pay ?? 'room' })
-  return json(res, 200, { use: { id: 'use_' + randomBytes(8).toString('hex'), listing_id: target.listing_id, charge: cost }, pay: d.pay ?? 'room', message: m }), true
+  if (closed) return spendWallet(r, target.listing_id), json(res, 409, closedRoom), true
+  // B32.86 — paid room the owner buys it with the room's wallet as its agent, judged against the wallet's monthly limit.
+  const buyer = pay === 'room' ? r.owner_workspace_id : ws
+  const agent = pay === 'room' ? walletID(r) : ''
+  const bought = { listing_id: target.listing_id, seller: target.author_workspace_id, buyer, agent_id: agent, price_ulxc: target.price * 10 }
+  const charge = buyer === target.author_workspace_id ? 0 : bought.price_ulxc
+  const over = pay === 'room' ? pastMonthly(r, charge, `use of “${target.title}”`) : undefined
+  if (over !== undefined) {
+    if (BREAK === 'room-run-limit') wallets.use(bought)
+    return json(res, 403, { error: over }), true
+  }
+  if (pay === 'room') spendWallet(r, target.listing_id)
+  const u = wallets.use(bought)
+  const output = `${target.template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, v: string) => String(given[v] ?? ''))} — answered.`
+  const price = u.price_ulxc / 10
+  const cost = u.charge === 'billed' ? `$${(price / 1e6).toFixed(2)} on the marketplace bill` : "no charge: the payer's own listing"
+  const m = post(r.id, ws, `ran a ${target.kind} “${target.title}” ${paidBy(pay)} — ${cost}\n\n${output}`, 'run', { run: 'use', use_id: u.id, listing_id: u.listing_id,
+    version: target.version, charge: u.charge, price_usd_micros: price, pay, payer_workspace_id: buyer, contribution_id: target.id, ...(agent === '' ? {} : { wallet_agent_id: agent }) })
+  return json(res, 200, { use: { id: u.id, listing_id: u.listing_id, version: target.version, kind: target.kind, model: String(d.model || target.artifact.model || ''),
+    charge: u.charge, price_ulxc: u.price_ulxc, output, used_at: u.used_at, ...(agent === '' ? {} : { agent_id: agent }) }, pay, payer_workspace_id: buyer, message: m }), true
+}
+
+/** B32.86 — a member's question to the room's AI, which reads the room's latest messages; false when `p` is not one. */
+async function roomAsk(req: IncomingMessage, res: ServerResponse, p: string, ws: string, r: Room): Promise<boolean> {
+  if (p !== `/v1/rooms/${r.id}/ask` || req.method !== 'POST') return false
+  const me = r.members.find((m) => m.workspace_id === ws)
+  if (me === undefined) return json(res, 403, { error: 'rooms: not allowed: join the room to run things in it' }), true
+  if (r.status === 'closed') return json(res, 409, closedRoom), true
+  const d = await body(req)
+  const question = String(d.question ?? '').trim()
+  const model = String(d.model ?? '').trim()
+  if (question === '') return json(res, 400, { error: 'rooms: invalid request: ask a question' }), true
+  if (model === '') return json(res, 400, { error: 'rooms: invalid request: name the model to ask ("model")' }), true
+  const secret = secretIn(r, question)
+  if (secret !== undefined) return json(res, 422, secret), true
+  const pay = payOf(d)
+  if (pay === undefined) return json(res, 400, { error: noPayer }), true
+  const why = pay === 'room' ? whyNotSpend(r, me) : ''
+  if (why !== '') return json(res, 403, { error: `rooms: not allowed: ${why}` }), true
+  const over = pay === 'room' ? pastMonthly(r, MODEL_CALL_ULXC, 'request') : undefined
+  if (over !== undefined) return json(res, 403, { error: over }), true
+  if (pay === 'room') spendWallet(r, `ask:${model}`)
+  const latest = (messages.get(r.id) ?? []).filter((m) => m.deleted_at === undefined).slice(-CONTEXT_MESSAGES)
+  const answer = latest.length === 0 ? 'Nothing has been said in this room yet.'
+    : `This room has ${latest.length} recent message(s); the latest says: ${latest[latest.length - 1].body.split('\n')[0]}`
+  const buyer = pay === 'room' ? r.owner_workspace_id : ws
+  const m = post(r.id, ws, `asked the room's AI ${paidBy(pay)}: ${question}\n\n${answer}`, 'run',
+    { run: 'ask', model, pay, payer_workspace_id: buyer, ...(pay === 'room' ? { wallet_agent_id: walletID(r) } : {}) })
+  return json(res, 200, { answer, pay, payer_workspace_id: buyer, message: m }), true
+}
+
+/** LENS_ROOM_CONTEXT_MESSAGES's default, and what one model call on the room's wallet costs the stub. */
+const CONTEXT_MESSAGES = 30
+const MODEL_CALL_ULXC = 1_000
+const noPayer = 'rooms: invalid request: say who pays: "pay" is "room", the room\'s budget, or "self"'
+const payOf = (d: Record<string, unknown>): 'room' | 'self' | undefined => d.pay === 'room' || d.pay === 'self' ? d.pay : undefined
+const paidBy = (pay: string) => pay === 'room' ? "on the room's budget" : 'on their own account'
+
+/** A model call made with the room wallet's key: a line on its statement. */
+function spendWallet(r: Room, ref: string): void {
+  const balance = r.walletLines.reduce((n, l) => n + l.amount_ulxc, 0) - MODEL_CALL_ULXC
+  r.walletLines.push({ entry_id: 'je_' + randomBytes(8).toString('hex'), kind: 'agent_spend', amount_ulxc: -MODEL_CALL_ULXC, counterparty: 'models', ref,
+    balance_after_ulxc: balance, at: new Date().toISOString() })
+}
+
+/** Lens's refusal of `amount` µLXC more on the room's wallet past its monthly limit (economy enforceAgentRules); undefined within it. */
+function pastMonthly(r: Room, amount: number, what: string): string | undefined {
+  const monthly = Number(r.walletRules.monthly_limit_ulxc ?? 0)
+  const spent = wallets.billed(walletID(r)) - r.walletLines.reduce((n, l) => n + Math.min(l.amount_ulxc, 0), 0)
+  if (monthly <= 0 || spent + amount <= monthly) return undefined
+  const lxc = (u: number) => String(u / 1_000_000)
+  return `economy: the agent's spending rules refuse this request: the agent has spent ${lxc(spent)} LXC of its monthly limit of ${lxc(monthly)} LXC, and this ${what} would cost up to ${lxc(amount)} LXC`
 }
 
 /** B32.91 — the operator's room routes behind the moderator key naming its operator; false when `p` is not one. */

@@ -48,6 +48,7 @@ import { roomInviteLimits } from './roomInvites.ts'
 import { roomMessages } from './roomMessages.ts'
 import { roomContributions } from './roomContributions.ts'
 import { roomWallet } from './roomWallet.ts'
+import { roomRuns } from './roomRuns.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
@@ -4329,6 +4330,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // two postings; a budget past Free's room_budget_max_usd is 402 naming rooms_plan_limits and saves no rules, one within
   // it is saved; a member reads may_spend false, naming may_spend, until the owner gives it may_spend.
   if (i === 0) list.push(roomWallet(i))
+  // B32.86 — runs in a room, once a run, on a Free workspace of its own: a member given may_spend runs a contribution on
+  // the room's budget, billed to the owner with the room's wallet as its agent; again past the wallet's monthly limit it
+  // is 403 and bills nothing; on its own account it is billed to itself; and the room's AI answers on the room's budget.
+  if (i === 9) list.push(roomRuns(i))
   return list
 }
 
