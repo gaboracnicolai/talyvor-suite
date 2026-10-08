@@ -56,6 +56,7 @@ import { TrackArea } from './areas/track/TrackArea'
 import { PublicBoard } from './areas/board/PublicBoard'
 import { SharedChat } from './areas/share/SharedChat'
 import { DocsArea } from './areas/docs/DocsArea'
+import { OperatorTax } from './areas/lens/OperatorTax'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
@@ -267,6 +268,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/docs/*', title: 'Docs', element: <DocsArea /> },
   // B18.25 — every workspace's spend, held LENS and last activity; the BFF answers only OPERATOR_SUBS.
   { path: '/operator', title: 'Operator', element: <OperatorWorkspaces /> },
+  // B32.63 — tax rates, registrations, each quarter's tax and the platform report.
+  { path: '/operator/tax', title: 'Tax', element: <OperatorTax /> },
 ]
 
 // Built once: matchRoutes only needs the paths, and rebuilding this per render would allocate
@@ -480,6 +483,7 @@ function Sidebar() {
       {me.data?.operator ? (
         <Group label="Operator" {...fold.group('Operator')}>
           {item('/operator', 'Workspaces', 'server')}
+          {item('/operator/tax', 'Tax', 'receipt')}
         </Group>
       ) : null}
       {/* The first "Operator" group held one item, /admin, and went with it: an operator

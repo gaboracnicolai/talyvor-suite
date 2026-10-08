@@ -240,6 +240,27 @@ const BY_PATH: Record<string, unknown> = {
       { id: 1, actor: 'ops@example.com sub=110248495', action: 'marketplace.listing.takedown', target: 'listing:lst_leak', detail: 'exposes a live key', occurred_at: '2026-09-28T10:00:00Z', recorded_at: '2026-09-28T10:00:00Z' },
     ],
   },
+  // B32.63 — the Tax page: two rates, a GB registration, a quarter's GB tax and one platform report run.
+  '/api/admin/tax/status': { stripe_live: false, tax_partner: 'test' },
+  '/api/admin/tax/rates': {
+    rates: [
+      { jurisdiction: 'GB', tax_code: 'digital_service', rate_bps: 2000, valid_from: '2026-01-01T00:00:00Z', source: 'HMRC' },
+      { jurisdiction: 'DE', tax_code: 'digital_service', rate_bps: 1900, valid_from: '2026-01-01T00:00:00Z', source: 'BZSt' },
+    ],
+  },
+  '/api/admin/tax/registrations': {
+    registrations: [{ jurisdiction: 'GB', scheme: 'GB VAT', number: 'GB123456789', effective_from: '2026-01-01T00:00:00Z' }],
+  },
+  '/api/admin/tax/return': {
+    jurisdiction: 'GB', quarter: '2026Q3', funding: 'live', currency: 'USD',
+    lines: [
+      { jurisdiction: 'GB', treatment: 'standard', rate_bps: 2000, sales: 9, taxable_usd_micros: 90_000_000, tax_usd_micros: 18_000_000, refunds: 0, refunded_taxable_usd_micros: 0, refunded_tax_usd_micros: 0, net_taxable_usd_micros: 90_000_000, net_tax_usd_micros: 18_000_000 },
+    ],
+    taxable_usd_micros: 90_000_000, tax_usd_micros: 18_000_000, journal_tax_usd_micros: 18_000_000,
+  },
+  '/api/admin/platform-reports': {
+    runs: [{ id: 'pr_1', year: 2026, funding: 'test', format: 'csv', generated_at: '2026-09-28T10:00:00Z', operator: 'ops@example.com sub=110248495', rows: 2, sha256: 'ab'.repeat(32) }],
+  },
   '/api/agents': {
     workspace_balance_ulxc: 100_000_000,
     allocated_ulxc: 12_500_000,

@@ -229,6 +229,10 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/admin/marketplace/listings/x1/approve", body: `{}`},
 		{method: http.MethodPost, path: "/api/admin/marketplace/listings/x1/takedown", body: `{"reason":"r"}`},
 		{method: http.MethodPost, path: "/api/admin/marketplace/parked-uses/x1/retry"},
+		// B32.63 — the Tax page's three writes.
+		{method: http.MethodPost, path: "/api/admin/tax/rates/import", body: `{"csv":"x"}`},
+		{method: http.MethodPost, path: "/api/admin/tax/registrations", body: `{"jurisdiction":"GB"}`},
+		{method: http.MethodPost, path: "/api/admin/platform-reports", body: `{"year":2026}`},
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/claim", body: `{}`},

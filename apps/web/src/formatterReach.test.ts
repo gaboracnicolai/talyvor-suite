@@ -373,6 +373,7 @@ describe('an exported formatter nobody calls', () => {
     expect(declared).toContain(LIVE_FLOOR)
     expect(importers.get(LIVE_FLOOR) ?? []).toEqual([
       'apps/web/src/areas/lens/BillingReturn.tsx',
+      'apps/web/src/areas/lens/OperatorTax.tsx',
       'apps/web/src/areas/lens/Overview.tsx',
       'apps/web/src/areas/lens/TopUp.tsx',
       'apps/web/src/areas/lens/WalletHoldings.tsx',

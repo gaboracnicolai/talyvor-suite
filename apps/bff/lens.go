@@ -269,6 +269,13 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B27.29 — the operator trail: every action above, who took it and when (operator_audit.go).
 	a.mux.HandleFunc("/api/admin/operator-audit", onlyMethod(http.MethodGet, a.requireOperator(a.handleOperatorAudit)))
 	a.mux.HandleFunc("/api/admin/operator-audit/export", onlyMethod(http.MethodGet, a.requireOperator(a.handleOperatorAuditExport)))
+	// B32.63 — the Tax page: rates, registrations, a quarter's tax and the platform report (operator_tax.go).
+	a.mux.HandleFunc("/api/admin/tax/status", onlyMethod(http.MethodGet, a.requireOperator(a.handleTaxStatus)))
+	a.mux.HandleFunc("/api/admin/tax/rates", onlyMethod(http.MethodGet, a.requireOperator(a.handleTaxRates)))
+	a.mux.HandleFunc("/api/admin/tax/rates/import", onlyMethod(http.MethodPost, a.requireOperator(a.handleTaxRatesImport)))
+	a.mux.HandleFunc("/api/admin/tax/registrations", onlyGetOrPost(a.requireOperator(a.handleTaxRegistrations)))
+	a.mux.HandleFunc("/api/admin/tax/return", onlyMethod(http.MethodGet, a.requireOperator(a.handleTaxReturn)))
+	a.mux.HandleFunc("/api/admin/platform-reports", onlyGetOrPost(a.requireOperator(a.handlePlatformReports)))
 
 	// W4.6.1 step 3 — STREAMING inference to the browser. Its own handler rather than `forward`
 	// because forward is GET-only, sets Accept: application/json, io.Copy's without a Flush, and

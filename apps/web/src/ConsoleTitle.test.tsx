@@ -126,6 +126,7 @@ const PINNED: Readonly<Record<string, string>> = {
   '/spend': 'Spend & routing',
   '/members': 'Members',
   '/operator': 'Operator',
+  '/operator/tax': 'Tax',
   '/settings': 'Settings',
   '/features': 'Features',
   '/features/try/tare': 'Try Tare',

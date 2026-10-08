@@ -732,6 +732,39 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: "type Prompt struct {",
     subject: "lensPromptCreateBody",
   },
+  // B32.63 — the operator loads a tax rates file (Lens B32.101 adds the route).
+  {
+    route: "POST /v1/admin/tax/rates/import",
+    file: "apps/bff/operator_tax.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleTaxRatesImport(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/tax_admin_handler.go",
+    upstreamAnchor: "func newTaxRatesImportHandler(store taxAdmin) http.Handler {",
+    subject: "lensTaxRatesImportBody",
+  },
+  // B32.63 — the operator records one of Talyvor's tax registrations (Lens B32.101 adds the route).
+  {
+    route: "POST /v1/admin/tax/registrations",
+    file: "apps/bff/operator_tax.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleTaxRegistrationAdd(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/tax_admin_handler.go",
+    upstreamAnchor: "func newTaxRegistrationAddHandler(store taxAdmin) http.Handler {",
+    subject: "lensTaxRegistrationBody",
+  },
+  // B32.63 — the operator runs the year's platform report (Lens B32.44).
+  {
+    route: "POST /v1/admin/platform-reports",
+    file: "apps/bff/operator_tax.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handlePlatformReportRun(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/platform_report_handler.go",
+    upstreamAnchor: "func newPlatformReportExportHandler(g *platformreport.Generator) http.Handler {",
+    subject: "lensPlatformReportBody",
+  },
 ];
 
 /**

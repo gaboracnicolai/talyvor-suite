@@ -29,6 +29,9 @@ const ACTIONS: Record<string, string> = {
   'marketplace.listing.approve': 'Approved a listing',
   'marketplace.listing.takedown': 'Took down a listing',
   'marketplace.parked_use.retry': 'Retried a parked use',
+  'tax.rates.import': 'Loaded tax rates',
+  'tax.registration.add': 'Added a tax registration',
+  'platform_report.export': 'Ran the platform report',
 }
 
 interface Filters {
