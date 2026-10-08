@@ -450,8 +450,13 @@ export interface TaxProfileAnswer {
 export interface MarketReceipt {
   id: string
   number: string
+  /** B32.94 — its place in its year's run, and the year: number is TEST-<year>-<sequence, six digits> in the test series */
+  sequence: number
+  year: number
   series: string
   invoice_id: string
+  /** B32.94 — Talyvor as the supplier: vat_number "" until LENS_SUPPLIER_VAT_NUMBER is set */
+  supplier: { legal_name: string; address: string; vat_number: string }
   buyer: { country?: string; business: boolean; vat_number?: string }
   lines: { use_id: string; net_usd_micros: number; rate_bps: number; tax_usd_micros: number; treatment?: string; jurisdiction?: string; note?: string }[] | null
   net_usd_micros: number
@@ -461,6 +466,7 @@ export interface MarketReceipt {
   reverse_charge: boolean
   notes: string[] | null
   preview: boolean
+  preview_reason?: string
 }
 
 /** B32.66 — a seller's tax details as Lens shows them (sellertax.Details, B32.41): masked, what is missing, and the payout hold. */

@@ -143,7 +143,7 @@ export function marketBillTax(seed: number): Scenario {
 }
 
 /** The seller publishes the listing with its one per_use offer, approved if the review holds it: its id, or why not. */
-async function publish(ctx: ScenarioCtx, seller: SyntheticUser, title: string): Promise<{ id: string } | string> {
+export async function publish(ctx: ScenarioCtx, seller: SyntheticUser, title: string): Promise<{ id: string } | string> {
   const { env } = ctx
   const offers: MarketOffer[] = [{ kind: 'per_use', licence: 'commercial', price_usd_micros: PRICE_USD_MICROS }]
   const pub = await env.lens.act<Listing>(seller, 'POST', '/v1/workspaces/{ws}/marketplace/listings', { kind: 'prompt', title, description: '', visibility: 'public',
