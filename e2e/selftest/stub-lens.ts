@@ -46,6 +46,7 @@
 //   webhook-replay — an event delivered again, or its session under a new event, is credited again (B28.280)
 //   rules-stream — a streamed request on an agent's key skips the agent's rules: its hours, models, providers and limits (B28.281)
 //   pool-unshared — an answer goes into the pool whatever its workspace's sharing switch says (B28.283)
+//   share-revoke — a shared chat's link turned off leaves the list, and its copy is still read by anyone holding it (B28.127)
 //   pool-tells  — a question another workspace has asked is answered afresh, but says so in a pool header (B28.283)
 //   pool-negation — the pool also serves a question asked with the same words in another order, or with a "not" (B28.283)
 //   tool-fetch  — a tool fetches an address its arguments name, as one following a webhook or a callback would (B28.284)
@@ -238,6 +239,15 @@ function looseMatch(model: string, said: string): { owner: string; answer: strin
 const checkouts = new Map<string, { ws: string; plan: string }>()
 /** B34.5 — each answer's X-Talyvor-Request-ID, and what it answered: Chat's Wrong answer names it (Lens POST /v1/feedback). */
 const answered = new Map<string, { ws: string; key: string }>()
+
+/** B28.127 — chats shared as links, by token: the copy talyvor-lens keeps until the link is turned off (apps/bff/chat_shares.go). */
+interface ChatShare {
+  id: string; token: string; ws: string; conversation_id: string; title: string
+  messages: { role: string; content: string }[]; created_at: string
+  /** STUB_BREAK=share-revoke — turned off: gone from the list, still served to a stranger. */
+  off?: true
+}
+const chatShares = new Map<string, ChatShare>()
 /** talyvor-lens B19.2 — each agent request sent with an Idempotency-Key, by that key and the request: its answer. */
 const retries = new Map<string, string>()
 
@@ -1107,6 +1117,13 @@ createServer(async (req, res) => {
         platform_fee_bps: { ...PLATFORM_FEE_BPS, enterprise: 100 }, fx_margin_bps: { free: 0, team: 50, business: 25, enterprise: 15 },
         intl_payment_fee_minor: { GBP: 500, EUR: 600, USD: 700 }, merchant_fee_bps: 75, merchant_a2a_fee_bps: 100 })
     }
+    // B28.127 — a shared chat, read with no credential: its title, turns and when it was shared, or 404.
+    const sharedChat = /^\/v1\/public\/chat-shares\/([A-Za-z0-9_-]+)$/.exec(p)
+    if (sharedChat !== null && req.method === 'GET') {
+      const sh = chatShares.get(sharedChat[1])
+      if (sh === undefined) return json(res, 404, { error: 'not found' })
+      return json(res, 200, { title: sh.title, messages: sh.messages, created_at: sh.created_at })
+    }
     const paying = /^\/stub-checkout\/(\w+)$/.exec(p)
     if (paying !== null) return await stripeCheckout(req, res, paying[1])
     const proxied = /^\/v1\/proxy\/([a-z]+)\/(.+)$/.exec(p)
@@ -1335,6 +1352,32 @@ createServer(async (req, res) => {
           if (!BREAK.split(',').includes('sync')) ws.history = next
           return json(res, 200, { version: next.version, updated_at: next.updated_at })
         }
+      }
+      // B28.127 — the workspace's shared chats as talyvor-lens keeps them: listed newest first, one made with a token from
+      // crypto/rand, and one turned off by deleting its copy. STUB_BREAK=share-revoke takes it off the list and keeps serving the copy.
+      if (rest === '/chat-shares' && req.method === 'GET') {
+        const live = [...chatShares.values()].filter((sh) => sh.ws === ws.id && sh.off !== true).reverse()
+        return json(res, 200, live.map(({ id, token, conversation_id, title, created_at }) => ({ id, token, conversation_id, title, created_at })))
+      }
+      if (rest === '/chat-shares' && req.method === 'POST') {
+        const b = JSON.parse((await read(req)) || '{}') as { conversation_id?: unknown; title?: unknown; messages?: unknown }
+        if (typeof b.conversation_id !== 'string' || typeof b.title !== 'string' || !Array.isArray(b.messages) || b.messages.length === 0) {
+          return json(res, 400, { error: 'conversation_id, title and messages required' })
+        }
+        const sh: ChatShare = { id: randomBytes(8).toString('hex'), token: randomBytes(24).toString('base64url'), ws: ws.id,
+          conversation_id: b.conversation_id, title: b.title, messages: b.messages as ChatShare['messages'], created_at: new Date().toISOString() }
+        chatShares.set(sh.token, sh)
+        const { id, token, conversation_id, title, created_at } = sh
+        return json(res, 201, { id, token, conversation_id, title, created_at })
+      }
+      const unshare = /^\/chat-shares\/([^/]+)$/.exec(rest)
+      if (unshare !== null && req.method === 'DELETE') {
+        const sh = [...chatShares.values()].find((x) => x.id === unshare[1] && x.ws === ws.id && x.off !== true)
+        if (sh === undefined) return json(res, 404, { error: 'no such shared chat' })
+        if (BREAK.split(',').includes('share-revoke')) sh.off = true
+        else chatShares.delete(sh.token)
+        res.writeHead(204)
+        return void res.end()
       }
       // Pattern mining is off on production (LENS_PATTERN_MINING_ENABLED): an opt-in either way is refused.
       if (rest === '/pattern-mining/opt-in' && req.method !== 'GET') return json(res, 503, { error: 'pattern mining is not enabled on this deployment' })

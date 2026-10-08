@@ -1110,6 +1110,89 @@ export function chatDocsPage(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.127 — a revocable share link. A question asked afresh in a new chat, then Share and Create link beside the chat's
+ * name: a stranger with no session opens the link and reads the question and its answer (HTTP 200), and the person's
+ * Turn off link takes it away — the stranger's next visit to the same link is answered 404 at the door, the page says the
+ * chat is not there, and the read behind it is 404 too.
+ */
+export function chatShareLink(seed: number): Scenario {
+  return {
+    id: 'chat-share-link',
+    owner: 'talyvor-suite',
+    items: ['B28.127'],
+    title: 'a chat shared as a link is read signed out, and returns 404 once the link is turned off',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const browser = app.context.browser()
+      if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
+      const word = freshWord(seed * 10 + 7, 1 + Math.floor(Math.random() * 999_999))
+      if (new URL(page.url()).pathname !== '/chat') await app.openChat()
+      await app.newChat()
+      const t = await app.ask(`Reply with the word ${word} and nothing else.`)
+      ctx.evidence.push({ question: t.question, answer: t.answer.slice(0, 200), footer: t.footerText, error: t.error })
+      if (t.error !== undefined) return fail(`refused: ${t.error}`)
+      const stranger = await browser.newContext()
+      try {
+        await page.getByRole('button', { name: 'Share', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+        const panel = page.getByRole('region', { name: 'Share this chat' })
+        await panel.getByRole('button', { name: 'Create link' }).or(panel.getByRole('alert')).first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        if (await panel.getByRole('alert').isVisible()) return fail(`Share says: ${(await panel.getByRole('alert').innerText()).trim()}`)
+        await panel.getByRole('button', { name: 'Create link' }).click()
+        const box = panel.getByRole('textbox', { name: 'Link to this chat' })
+        if (!(await box.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false))) {
+          return fail(`Create link showed no link: ${(await panel.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)}`)
+        }
+        const link = await box.inputValue()
+        const token = /\/share\/([A-Za-z0-9_-]+)$/.exec(link)?.[1]
+        if (token === undefined) return fail(`the link ${JSON.stringify(link)} is not an address under /share/`)
+        ctx.evidence.push({ note: `Create link gave ${link}` })
+        await mkdir(env.outDir, { recursive: true })
+        const shots: string[] = []
+        const was = page.viewportSize()
+        for (const [width, height] of [[1440, 900], [390, 844]]) {
+          await page.setViewportSize({ width, height })
+          await panel.scrollIntoViewIfNeeded()
+          const file = join(env.outDir, `chat-share-link-panel-${width}px-user${app.user.index}.png`)
+          await page.screenshot({ path: file })
+          shots.push(file)
+        }
+        if (was !== null) await page.setViewportSize(was)
+
+        const reader = await stranger.newPage()
+        const first = await reader.goto(link)
+        const opened = await reader.getByTestId('shared-turn-assistant').first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        const read = (await reader.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ')
+        for (const [width, height] of [[1440, 900], [390, 844]]) {
+          await reader.setViewportSize({ width, height })
+          const file = join(env.outDir, `chat-share-link-page-${width}px-user${app.user.index}.png`)
+          await reader.screenshot({ path: file, fullPage: true })
+          shots.push(file)
+        }
+        ctx.evidence.push({ note: `signed out, ${link} answered ${first?.status()}: "${read.slice(0, 200)}"; screenshots ${shots.join(', ')}` })
+        if (first?.status() !== 200 || !opened) return fail(`a stranger opening the live link got ${first?.status()} and ${opened ? 'the chat' : 'no answer on the page'}`)
+        if (!read.includes(word)) return fail(`the shared page does not hold the question's word ${word}: "${read.slice(0, 200)}"`)
+
+        await panel.getByRole('button', { name: 'Turn off link' }).click({ timeout: ACTION_TIMEOUT_MS })
+        const off = await panel.getByRole('status').filter({ hasText: 'The link is off.' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!off) return fail(`Turn off link did not say the link is off: ${(await panel.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)}`)
+        const again = await reader.goto(link)
+        const gone = await reader.getByRole('heading', { level: 1, name: 'This chat isn’t available' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        const api = await reader.evaluate(async (tk) => (await fetch(`/api/public/chats/${tk}`, { headers: { Accept: 'application/json' } })).status, token)
+        ctx.evidence.push({ note: `after Turn off link: ${link} answered ${again?.status()}, /api/public/chats/… ${api}; the page ${gone ? 'says the chat is not there' : 'does not say so'}` })
+        if (again?.status() !== 404) return fail(`the turned-off link answered ${again?.status()}, not 404`)
+        if (api !== 404) return fail(`the turned-off link's chat is still read: /api/public/chats/… answered ${api}`)
+        if (!gone) return fail('the turned-off link answered 404, and the page does not say the chat is not there')
+        return { pass: true, detail: `a stranger read the shared chat (its answer holds ${word}) at 200; after Turn off link the same link answered 404` }
+      } finally {
+        await stranger.close()
+        await app.newChat().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /** B28.376 — how long Track is given to add an answer's cost to an issue: its syncer reads Lens every 15 minutes. */
 const TRACK_SYNC_MS = 16 * 60_000
 

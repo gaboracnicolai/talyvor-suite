@@ -244,6 +244,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/chat/connectors/call", body: `{"url":"https://mcp.example.com/mcp","name":"t","arguments":{}}`},
 		{method: http.MethodPut, path: "/api/chat/history-sync", body: `{"base_version":0,"salt":"s","iv":"i","ciphertext":"c"}`},
 		{method: http.MethodDelete, path: "/api/chat/history-sync"},
+		{method: http.MethodPost, path: "/api/chat/shares", body: `{"conversation_id":"c1","title":"t","messages":[{"role":"user","content":"q"}]}`}, // B28.127
+		{method: http.MethodDelete, path: "/api/chat/shares/x1"},                                                                                     // B28.127
 		// B22.10 — money between owners.
 		{method: http.MethodPut, path: "/api/agents/x1/handle", body: `{"handle":"acme"}`},
 		{method: http.MethodPost, path: "/api/agents/x1/send", body: `{"to":"@bea","amount_ulxc":1,"memo":""}`},

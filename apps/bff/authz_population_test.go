@@ -114,6 +114,11 @@ var publicReadRoutes = map[string]string{
 	"/api/public/boards/{token}": "B27.30 — the read-only issue board a workspace owner published as a " +
 		"link; a stranger opens it signed out. The token is the credential, checked for shape before " +
 		"any dial, and Track is called with no gateway secret — track_boards_test.go owns both",
+	"/api/public/chats/{token}": "B28.127 — a chat its person shared as a link; a stranger reads it " +
+		"signed out. The token is the credential, checked for shape before any dial, and Lens is " +
+		"called with no credential — chat_shares_test.go owns both",
+	"/share/{token}": "B28.127 — the page a shared chat's link opens, signed out: the SPA shell, " +
+		"answered 404 once Lens no longer holds the link — chat_shares_test.go owns both",
 	"/": "the SPA shell. It has to load before anyone can sign in; spa_fallback_test.go owns " +
 		"what it serves and spa_cache_test.go how it is cached. 404 in tests — no bundle is built",
 }
