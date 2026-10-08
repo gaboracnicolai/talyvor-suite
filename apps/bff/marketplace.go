@@ -17,9 +17,11 @@ import (
 // evaluations and pipelines (B20.1) and using one, paid per use, with the seller's earnings (B20.2):
 //
 //	GET  /api/marketplace/listings?kind=           the public catalog, optionally one kind
-//	POST /api/marketplace/listings                 {kind, title, description, price_per_use_ulxc, visibility, artifact, changelog}
+//	POST /api/marketplace/listings                 {kind, title, description, price_per_use_ulxc, visibility, artifact, changelog,
+//	                                               remix_policy, remix_share_bps, parents: [{listing_id, version}]} (B32.58: remix terms and parents)
 //	GET  /api/marketplace/listings/{id}?currency=  a listing and its versions (artifacts for its owner only); B32.57: its offers priced in currency
 //	GET  /api/marketplace/listings/{id}/trust      B32.57: its trust panel — verified publisher, reviews, eval score, claims and its originals
+//	POST /api/marketplace/listings/{id}/remix      B32.58: {version} accept its remix licence and open its artifact to build on
 //	POST /api/marketplace/listings/{id}/use        {version, model, input, variables}
 //	GET  /api/marketplace/mine                     this workspace's own listings, whatever their visibility
 //	GET  /api/marketplace/earnings                 the seller's pending, payable, in holdback and available
@@ -126,6 +128,9 @@ func (a *app) handleMarketListings(w http.ResponseWriter, r *http.Request, t ten
 			Visibility      string          `json:"visibility"`
 			Artifact        json.RawMessage `json:"artifact"`
 			Changelog       string          `json:"changelog"`
+			RemixPolicy     string          `json:"remix_policy"`
+			RemixShareBPS   int             `json:"remix_share_bps"`
+			Parents         []marketParent  `json:"parents"`
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, 320<<10)).Decode(&in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
@@ -136,12 +141,47 @@ func (a *app) handleMarketListings(w http.ResponseWriter, r *http.Request, t ten
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a listing needs its artifact"})
 			return
 		}
-		// UPSTREAM-BINDS-ONLY lensMarketPublishBody: none
+		// Offers beyond the price per use are set on the listing once it exists, and capabilities are chosen there too.
+		// UPSTREAM-BINDS-ONLY lensMarketPublishBody: capabilities, offers
 		body, _ := json.Marshal(in)
 		a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/marketplace/listings"), body, "")
 	default:
 		methodNotAllowed(w, http.MethodGet+", "+http.MethodPost)
 	}
+}
+
+// marketParent is Lens's market.ParentRef (B32.24): a listing version a new listing builds on. Lens refuses a parent
+// the publisher may not see, one that allows no remixes, someone else's whose remix licence it has not accepted, and a
+// cycle — each with its sentence.
+type marketParent struct {
+	ListingID string `json:"listing_id"`
+	Version   int    `json:"version"`
+}
+
+// handleMarketRemix — POST /api/marketplace/listings/{id}/remix {version} (B32.58, Lens B32.25): this workspace
+// accepts the remix licence of a version of someone else's free or royalty listing (0: its latest) — one grant per
+// workspace and version, the share locked — and gets its artifact to build on. Lens refuses a listing whose remix
+// policy is none, and anyone but the workspace's owner or an admin, with its sentence.
+func (a *app) handleMarketRemix(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	id, ok := pathID(w, "listing id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	var in struct {
+		Version int `json:"version"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4<<10)).Decode(&in); err != nil || in.Version < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name the version to remix, or 0 for its latest"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensMarketRemixBody: none
+	body, _ := json.Marshal(in)
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost,
+		lensWorkspacePath(t, "/marketplace/listings/"+url.PathEscape(id)+"/remix"), body, "")
 }
 
 // displayCurrency is the one shape Lens reads ?currency= in: a three-letter ISO 4217 code.

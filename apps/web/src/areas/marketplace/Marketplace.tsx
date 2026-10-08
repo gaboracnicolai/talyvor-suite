@@ -4,6 +4,7 @@ import {
   Link,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
@@ -20,14 +21,24 @@ import {
 import { Region, RegionScreen } from "../../components/Region";
 import { formatULXC } from "../lens/agentBankApi";
 import { formatUSD, formatWhen } from "../lens/format";
+import { parseShare } from "../rooms/roomsApi";
 import { Licences } from "./Licences";
 import { ListingPage } from "./ListingPage";
+import {
+  type ParentChoice,
+  type PublishPrefill,
+  ParentsPicker,
+  SimilarHold,
+} from "./Remix";
 import { ReviewQueue } from "./Review";
 import { SellerStatementsCard } from "./SellerStatements";
 import { SellerTaxCard, SellerTaxNotice } from "./SellerTax";
 import {
   type BillLine,
+  type Listing,
   type ListingKind,
+  type RemixPolicy,
+  type SimilarListing,
   KINDS,
   MarketError,
   marketApi,
@@ -218,21 +229,72 @@ export function artifactOf(
     : { [ARTIFACT[kind].field]: value };
 }
 
+/** The inverse of artifactOf: an artifact as the seller writes it, for Publish opened on a remix (B32.58). */
+export function bodyOf(
+  kind: ListingKind,
+  artifact: Record<string, unknown>,
+): string {
+  const value = artifact[ARTIFACT[kind].field];
+  const text = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
+  if (Array.isArray(value))
+    return value
+      .map((line) => {
+        if (kind !== "evaluation" || typeof line !== "object" || !line)
+          return text(line);
+        const c = line as { input?: unknown; expected?: unknown };
+        return `${text(c.input ?? "")} => ${text(c.expected ?? "")}`;
+      })
+      .join("\n");
+  return typeof value === "string" ? value : "";
+}
+
+const REMIX_POLICIES: readonly [RemixPolicy, string][] = [
+  ["none", "Nobody may remix it"],
+  ["free", "Anyone may remix it, free"],
+  ["royalty", "Anyone may remix it, for a share of each sale"],
+];
+
 function Publish() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  // B32.58 — Remix this, or declaring a held listing's original, opens Publish filled in (Remix.tsx).
+  const prefill = (useLocation().state as { prefill?: PublishPrefill } | null)
+    ?.prefill;
   const { runnable } = useRunnableModels();
-  const [kind, setKind] = useState<ListingKind>("prompt");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [visibility, setVisibility] = useState<Visibility>("public");
-  const [body, setBody] = useState("");
-  const [model, setModel] = useState("");
+  const [kind, setKind] = useState<ListingKind>(prefill?.kind ?? "prompt");
+  const [title, setTitle] = useState(prefill?.title ?? "");
+  const [description, setDescription] = useState(prefill?.description ?? "");
+  const [price, setPrice] = useState(() =>
+    prefill?.price_per_use_ulxc ? formatULXC(prefill.price_per_use_ulxc) : "",
+  );
+  const [visibility, setVisibility] = useState<Visibility>(
+    prefill?.visibility ?? "public",
+  );
+  const [body, setBody] = useState(() =>
+    prefill ? bodyOf(prefill.kind, prefill.artifact) : "",
+  );
+  const [model, setModel] = useState(() =>
+    typeof prefill?.artifact.model === "string" ? prefill.artifact.model : "",
+  );
   const [changelog, setChangelog] = useState("");
+  const [remixPolicy, setRemixPolicy] = useState<RemixPolicy>(
+    prefill?.remix_policy ?? "none",
+  );
+  const [share, setShare] = useState(() =>
+    prefill?.remix_share_bps ? String(prefill.remix_share_bps / 100) : "",
+  );
+  const [parents, setParents] = useState<ParentChoice[]>(
+    prefill?.parents ?? [],
+  );
+  // B32.46 — a publish Lens held as a near-copy of a listing it does not declare: shown here, with the way on.
+  const [held, setHeld] = useState<{
+    listing: Listing;
+    similar: SimilarListing;
+  } | null>(null);
   const micros = parsePrice(price);
+  const shareBPS = remixPolicy === "royalty" ? parseShare(share) : 0;
   const publish = useMutation({
-    mutationFn: () =>
+    mutationFn: (ps: ParentChoice[]) =>
       marketApi.publish({
         kind,
         title: title.trim(),
@@ -241,15 +303,34 @@ function Publish() {
         visibility,
         artifact: artifactOf(kind, body, model),
         changelog: changelog.trim(),
+        remix_policy: remixPolicy,
+        remix_share_bps: shareBPS ?? 0,
+        parents: ps.map(({ listing_id, version }) => ({ listing_id, version })),
       }),
     onSuccess: (l) => {
       void qc.invalidateQueries({ queryKey: MINE_KEY });
       void qc.invalidateQueries({ queryKey: CATALOG_KEY });
+      const similar = l.versions?.[0]?.scan?.similar;
+      if (l.review_status === "held" && similar) {
+        setHeld({ listing: l, similar });
+        return;
+      }
       navigate(`/marketplace/listings/${encodeURIComponent(l.id)}`);
     },
   });
+  const declare = (p: ParentChoice) => {
+    const next = [...parents.filter((x) => x.listing_id !== p.listing_id), p];
+    setParents(next);
+    setHeld(null);
+    publish.mutate(next);
+  };
   const vars = kind === "prompt" ? variablesIn(body) : [];
-  const ready = title.trim() !== "" && body.trim() !== "" && micros !== null;
+  const ready =
+    title.trim() !== "" &&
+    body.trim() !== "" &&
+    micros !== null &&
+    shareBPS !== null &&
+    (remixPolicy !== "royalty" || shareBPS > 0);
   const kindLabelID = useId();
   return (
     <Region
@@ -270,7 +351,7 @@ function Publish() {
           className="flex flex-col gap-4 p-gutter"
           onSubmit={(e) => {
             e.preventDefault();
-            if (ready && !publish.isPending) publish.mutate();
+            if (ready && !publish.isPending) publish.mutate(parents);
           }}
         >
           <div className="flex flex-col gap-1.5">
@@ -360,6 +441,9 @@ function Publish() {
                 onChange={(e) => setModel(e.target.value)}
               >
                 <option value="">The buyer chooses</option>
+                {model && !runnable.some((m) => m.id === model) ? (
+                  <option value={model}>{model}</option>
+                ) : null}
                 {runnable.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.display_name}
@@ -381,6 +465,47 @@ function Publish() {
               A price is an amount of LXC, like 0.5 — or empty for free.
             </Note>
           ) : null}
+          <div className="flex flex-wrap items-end gap-3 border-t border-rule pt-4">
+            <label className="text-caption text-muted">
+              Remixes
+              <select
+                className={selectClass}
+                value={remixPolicy}
+                onChange={(e) => setRemixPolicy(e.target.value as RemixPolicy)}
+              >
+                {REMIX_POLICIES.map(([v, label]) => (
+                  <option key={v} value={v}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {remixPolicy === "royalty" ? (
+              <label className="text-caption text-muted">
+                Your share of each remix’s sales, in percent
+                <Input
+                  className="mt-1 block w-32 font-figure"
+                  inputMode="decimal"
+                  placeholder="10"
+                  value={share}
+                  onChange={(e) => setShare(e.target.value)}
+                />
+              </label>
+            ) : null}
+          </div>
+          {remixPolicy === "royalty" ? (
+            shareBPS === null || shareBPS === 0 ? (
+              <Note ok={false}>
+                A share is a percentage above 0 and up to 100, like 12.5.
+              </Note>
+            ) : (
+              <p className="text-caption text-muted">
+                Each remix pays you this share of its sales, locked when its
+                seller accepts your remix licence.
+              </p>
+            )
+          ) : null}
+          <ParentsPicker parents={parents} onChange={setParents} />
           <div className="flex flex-col gap-1.5 border-t border-rule pt-4">
             <span className="font-figure text-eyebrow uppercase text-label">
               How it shows in the marketplace
@@ -415,6 +540,21 @@ function Publish() {
           </div>
           {publish.isError ? (
             <Note ok={false}>{refusalText(publish.error)}</Note>
+          ) : null}
+          {held ? (
+            <div className="flex flex-col gap-2">
+              <SimilarHold
+                similar={held.similar}
+                action="Accept and publish again"
+                onDeclare={declare}
+              />
+              <Link
+                className={`text-caption text-ink ${inlineLink}`}
+                to={`/marketplace/listings/${encodeURIComponent(held.listing.id)}`}
+              >
+                See the held listing
+              </Link>
+            </div>
           ) : null}
         </form>
       </Card>

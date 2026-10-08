@@ -425,16 +425,17 @@ const PINS: Record<string, Pin> = {
   // 110 → 111 at B28.127: the Shared chat eyebrow over a chat opened from its share link.
   // 111 → 113 at B32.60: the Self-billed invoice eyebrow on a weekly statement, and the From / To eyebrow over each side.
   // 113 → 115 at B32.63: the Tax page's field eyebrow and its tables' header row.
+  // 115 → 116 at B32.58: the Builds on eyebrow over the parents picker on Publish.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 115,
+    states: 116,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 115,
+    states: 116,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {
