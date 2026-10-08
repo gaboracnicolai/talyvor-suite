@@ -4,6 +4,7 @@ import { Button, focusRing, inlineLink } from '@talyvor/ui'
 import { ApiError } from '../../lib/api'
 import { formatWhen } from '../lens/format'
 import { CopyButton } from './CopyButton'
+import { exportConversations } from './ExportImport'
 import type { Conversation } from './history'
 
 // B28.127 — a chat shared as a link. Share, beside the open conversation's name, hands Lens a copy of its questions
@@ -151,6 +152,17 @@ export function SharePanel({ conversation, onClose }: { conversation: Conversati
           The link wasn’t turned off — it still works. Try again.
         </p>
       ) : null}
+
+      {/* B28.128 — or the chat as a file, whole, for the person alone: nothing of it is sent anywhere. */}
+      <div className="flex flex-col items-start gap-2 border-t border-rule pt-3">
+        <p className="max-w-prose text-caption text-muted">
+          Or download this chat as a file, every question and answer with what it cost, to keep or to import into Chat in
+          another browser with Import under your conversations. The file is not sent anywhere.
+        </p>
+        <Button disabled={!asked} onClick={() => exportConversations([conversation])}>
+          Download this chat
+        </Button>
+      </div>
 
       {others.length > 0 ? (
         <div className="flex flex-col gap-2 border-t border-rule pt-3">

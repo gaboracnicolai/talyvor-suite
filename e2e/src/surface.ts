@@ -1193,6 +1193,113 @@ export function chatShareLink(seed: number): Scenario {
   }
 }
 
+/**
+ * B28.128 — a chat exported from one browser and imported into another keeps its turns and their costs. Two questions
+ * asked afresh in a new chat, then Share → Download this chat; a second, fresh browser signed in as the same person,
+ * whose list does not hold the chat, takes the file with Import under its conversations. The chat it then opens shows
+ * the same questions, the same answers, the same price under each answer and the same running total, and importing it
+ * asked no model anything.
+ */
+export function chatExportImport(seed: number): Scenario {
+  return {
+    id: 'chat-export-import',
+    owner: 'talyvor-suite',
+    items: ['B28.128'],
+    title: 'a chat exported from one browser and imported into another keeps its turns and their costs',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const attempt = 1 + Math.floor(Math.random() * 999_999)
+      const words = [freshWord(seed * 10 + 8, attempt), freshWord(seed * 10 + 9, attempt)]
+      if (new URL(page.url()).pathname !== '/chat') await app.openChat()
+      await app.newChat()
+      const answers: string[] = []
+      for (const w of words) {
+        const t = await app.ask(`Reply with the word ${w} and nothing else.`)
+        ctx.evidence.push({ question: t.question, answer: t.answer.slice(0, 200), footer: t.footerText, error: t.error })
+        if (t.error !== undefined) return fail(`refused: ${t.error}`)
+        answers.push(t.answer.trim())
+      }
+      const squash = (t: string) => t.replace(/\s+/g, ' ').trim()
+      const read = async (p: Page) => ({
+        questions: (await p.locator('[data-testid="turn-user"]').allInnerTexts()).map(squash),
+        answers: (await p.locator('[data-testid="turn-assistant"]').allInnerTexts()).map(squash),
+        costs: (await p.locator('[data-testid="turn-cost"]').allInnerTexts()).map(squash),
+        total: squash(await p.getByTestId('chat-total').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')),
+      })
+      const before = await read(page)
+      ctx.evidence.push({ note: `exported: ${JSON.stringify(before.costs)}; total "${before.total}"` })
+      if (before.costs.length !== 2 || before.total === '') return fail(`the chat shows ${before.costs.length} prices and the total "${before.total}" before it is exported`)
+
+      await page.getByRole('button', { name: 'Share', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+      const panel = page.getByRole('region', { name: 'Share this chat' })
+      await mkdir(env.outDir, { recursive: true })
+      const was = page.viewportSize()
+      for (const [width, height] of [[1440, 900], [390, 844]]) {
+        await page.setViewportSize({ width, height })
+        await panel.getByRole('button', { name: 'Download this chat' }).scrollIntoViewIfNeeded()
+        await page.screenshot({ path: join(env.outDir, `chat-export-import-download-${width}px-user${app.user.index}.png`) })
+      }
+      if (was !== null) await page.setViewportSize(was)
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: ACTION_TIMEOUT_MS }),
+        panel.getByRole('button', { name: 'Download this chat' }).click({ timeout: ACTION_TIMEOUT_MS }),
+      ])
+      const file = await download.path()
+      ctx.evidence.push({ note: `Download this chat saved ${download.suggestedFilename()}` })
+      await panel.getByRole('button', { name: 'Done' }).click()
+
+      const phone = await env.signInUser(app.user.index)
+      try {
+        await phone.openChat()
+        const listed = phone.page.getByRole('list', { name: 'Saved conversations' }).getByRole('button', { name: words[0] })
+        if (await listed.isVisible()) throw new CannotTest('the second browser already lists the chat, so an import cannot be told from it')
+        const asked: string[] = []
+        phone.page.on('request', (r) => {
+          if (new URL(r.url()).pathname.startsWith('/api/ai/') && r.method() !== 'GET') asked.push(`${r.method()} ${new URL(r.url()).pathname}`)
+        })
+        const [chooser] = await Promise.all([
+          phone.page.waitForEvent('filechooser', { timeout: ACTION_TIMEOUT_MS }),
+          phone.page.getByTestId('history-transfer').getByRole('button', { name: 'Import', exact: true }).click({ timeout: ACTION_TIMEOUT_MS }),
+        ])
+        await chooser.setFiles(file)
+        const said = phone.page.getByTestId('history-transfer').getByRole('status').or(phone.page.getByTestId('history-transfer').getByRole('alert'))
+        await said.first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        const sentence = squash(await said.first().innerText())
+        if (sentence !== 'Imported 1 conversation.') return fail(`Import says "${sentence}"`)
+        await listed.click({ timeout: ACTION_TIMEOUT_MS })
+        await phone.page.locator('[data-testid="turn-cost"]').nth(before.costs.length - 1).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        const after = await read(phone.page)
+        ctx.evidence.push({ note: `imported: "${sentence}"; ${JSON.stringify(after.costs)}; total "${after.total}"; requests to a model while importing: ${asked.length}` })
+
+        const wide = join(env.outDir, `chat-export-import-1440px-user${app.user.index}.png`)
+        const narrow = join(env.outDir, `chat-export-import-390px-user${app.user.index}.png`)
+        await phone.page.setViewportSize({ width: 1440, height: 900 })
+        await phone.page.waitForTimeout(400)
+        await phone.page.screenshot({ path: wide })
+        await phone.page.setViewportSize({ width: 390, height: 844 })
+        await phone.page.getByRole('button', { name: 'Conversations' }).click()
+        await phone.page.getByTestId('history-transfer').last().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        await phone.page.waitForTimeout(400)
+        await phone.page.screenshot({ path: narrow })
+        await phone.page.keyboard.press('Escape')
+        ctx.evidence.push({ note: `the imported chat at 1440px: ${wide}; the list with Import at 390px: ${narrow}` })
+
+        if (JSON.stringify(after.questions) !== JSON.stringify(before.questions)) return fail(`the questions were ${JSON.stringify(before.questions)} and imported are ${JSON.stringify(after.questions)}`)
+        const lost = answers.filter((a) => !after.answers.some((t) => t.includes(squash(a))))
+        if (lost.length > 0) return fail(`the imported chat lacks the answers ${JSON.stringify(lost)}`)
+        if (JSON.stringify(after.costs) !== JSON.stringify(before.costs)) return fail(`the prices were ${JSON.stringify(before.costs)} and imported are ${JSON.stringify(after.costs)}`)
+        if (after.total !== before.total) return fail(`the running total was "${before.total}" and imported is "${after.total}"`)
+        if (asked.length > 0) return fail(`importing asked a model: ${asked.join(', ')}`)
+        return { pass: true, detail: `imported into a second browser, the chat holds both turns, the prices ${JSON.stringify(after.costs)} and "${after.total}", as exported` }
+      } finally {
+        await phone.close()
+        await app.newChat().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /** B28.376 — how long Track is given to add an answer's cost to an issue: its syncer reads Lens every 15 minutes. */
 const TRACK_SYNC_MS = 16 * 60_000
 

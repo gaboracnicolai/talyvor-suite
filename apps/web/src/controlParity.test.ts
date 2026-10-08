@@ -243,6 +243,8 @@ const NOT_A_TEXT_FIELD: Record<string, string> = {
     'the component itself — it IS the contract, and holding the definition to its own derived requirements is circular',
   'apps/web/src/areas/chat/FilePicker.tsx':
     'an sr-only <input type="file"> the chat composer\'s Attach button opens; it is never seen or typed into, so no text-field affordance applies',
+  'apps/web/src/areas/chat/ExportImport.tsx':
+    'B28.128 — an sr-only <input type="file"> the rail\'s Import button opens; it is never seen or typed into, so no text-field affordance applies',
 }
 
 function parityGaps(files: SourceFile[]): string[] {
