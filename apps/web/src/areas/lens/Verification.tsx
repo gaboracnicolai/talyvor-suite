@@ -293,16 +293,19 @@ function CheckList() {
                   <span className="font-figure">{c.level}</span> · {SUBJECT[c.subject] ?? c.subject}
                   {c.verified_name ? ` · ${c.verified_name}` : ''}
                 </span>
-                <span className="flex flex-wrap items-center gap-2">
-                  <Pill status={s.pill}>{s.text}</Pill>
-                  {c.test ? <Pill status="held">Test — counts for test money only</Pill> : null}
-                </span>
+                <Pill status={s.pill}>{s.text}</Pill>
               </div>
               <p className="text-caption text-muted">
                 Checked by {c.method === 'test' ? 'the Test provider' : c.method} ·{' '}
                 <span className="font-figure">{formatWhen(c.checked_at)}</span>
                 {c.country ? ` · ${c.country}` : ''}
               </p>
+              {c.test ? (
+                <p className="flex items-center gap-1.5 text-caption text-ink">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-pill bg-held" aria-hidden="true" />
+                  Test — counts for test money only
+                </p>
+              ) : null}
               <p className="text-caption text-muted">
                 Evidence reference <span className="break-all font-figure text-ink">{c.evidence_ref}</span>
               </p>
