@@ -18,7 +18,7 @@ import type { Agent, BillLine, Listing, Loan, MarketEarnings, MarketJournal, Mar
 import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, card, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
 import { keptOf, percent } from './fees.ts'
-import { RUN_SALT, listPriceUSD, seeded, statesNumber } from './oracles.ts'
+import { RUN_SALT, freshWord, listPriceUSD, seeded, statesNumber } from './oracles.ts'
 import { otherCompanyOnTeam } from './room.ts'
 import { CannotTest, type Scenario, type ScenarioCtx } from './scenarios.ts'
 
@@ -1652,6 +1652,179 @@ export function marketAgentCommitment(seed: number): Scenario {
       return { pass: true, detail: `${capped.name} rented at ${lx(rentULXC)} and was refused ${lx(enterprisePrice * ULXC_PER_USD_MICRO)} naming max_commitment_ulxc and a ` +
         `subscription naming may_subscribe; ${approver.name}'s rent went through once on approval ${approval}, and its next filed ${again.body.approval_id}; ` +
         'the bill holds the two rents and the buyer the two licences' }
+    },
+  }
+}
+
+/** B32.81 — one MCP tool call as Lens answers it: the tool's JSON text, or its refusal (isError) and why. */
+interface ToolAnswer {
+  status: number
+  ok: boolean
+  refused: boolean
+  text: string
+}
+
+/**
+ * B32.81 — an agent shopping the marketplace over MCP with its own key (Lens B32.23): it searches, reads a listing's offers,
+ * rents within its commitment and is refused a rent above it, uses the rented listing under its licence and a second one at
+ * no more than its max price, and is refused that use once the seller raises the price above it. The seller is a workspace
+ * the scenario makes; the buyer is the scenario's own workspace, so its bill and its licences hold these listings' alone.
+ */
+export function marketAgentMCP(seed: number): Scenario {
+  const perUse = 50_000
+  const raised = 100_000
+  const rentPrice = 1_500_000
+  const enterprisePrice = 2_500_000
+  const maxCommitment = 20_000_000
+  const days = 30
+  const fund = 2_000_000
+  const rentULXC = rentPrice * ULXC_PER_USD_MICRO
+  const useULXC = perUse * ULXC_PER_USD_MICRO
+  return {
+    id: 'market-agent-mcp',
+    owner: 'talyvor-lens',
+    own: true,
+    agents: 1,
+    feature: 'Marketplace',
+    title: `an agent with its own key, over MCP, finds a listing (market_search), reads its offers (market_listing), rents it at ${rentPrice} µUSD within ` +
+      `its ${maxCommitment} µLXC commitment and is refused the ${enterprisePrice} µUSD enterprise rent naming max_commitment_ulxc (market_license); its use ` +
+      `of the rented listing is licensed, and a second listing's at ${perUse} µUSD with max_price_usd_micros ${perUse} is billed, then refused naming it once ` +
+      `the seller asks ${raised}; the bill holds the rent and the one billed use, and the buyer the one licence`,
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const r = seeded(seed * 61 + 17)
+      const sums = Array.from({ length: 3 }, () => [100 + Math.floor(r() * 900), 100 + Math.floor(r() * 900)] as const)
+      const template = 'What is {{a}} + {{b}}? Reply with the number only.'
+      const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+      if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
+      const [seller] = await env.lens.createUsers(1)
+
+      // The seller publishes; held for review, a moderator approves it, as a buyer may then find it.
+      const publish = async (title: string, offers: MarketOffer[]): Promise<string | { error: string }> => {
+        const pub = await env.lens.act<Listing>(seller, 'POST', '/v1/workspaces/{ws}/marketplace/listings', { kind: 'prompt', title, description: '', visibility: 'public',
+          artifact: { template, model: model.id }, changelog: '', offers })
+        ctx.evidence.push({ note: `the seller publishes "${title}" with ${offers.map((o) => `a ${o.licence} ${o.kind}`).join(', ')}`, answer: JSON.stringify(pub) })
+        if (!pub.ok) return { error: `publishing "${title}" was refused: ${pub.status} ${pub.error}` }
+        if (pub.value.review_status !== 'approved') {
+          // B32.46 — a listing like another night's is held for review, hidden from the buyer; a person approves it.
+          if (!env.lens.canModerate) throw new CannotTest(`the listing was ${pub.value.review_status}, and approving it needs a moderator key: LENS_MODERATOR_KEY, from \`lens moderator-keys create\``)
+          const ok = await env.lens.moderate(pub.value.id, 'approve')
+          if (!ok.ok) return { error: `approving the held listing ${pub.value.id}: ${ok.status} ${ok.error}` }
+        }
+        return pub.value.id
+      }
+      const word = freshWord(seed * 37 + 11)
+      const shopTitle = `Errand ${word} ${seed}`
+      const shop = await publish(shopTitle, [{ kind: 'per_use', licence: 'commercial', price_usd_micros: perUse },
+        { kind: 'rent', licence: 'commercial', price_usd_micros: rentPrice, period_days: days },
+        { kind: 'rent', licence: 'enterprise', price_usd_micros: enterprisePrice, period_days: days, seats: 5 }])
+      if (typeof shop !== 'string') return fail(shop.error)
+      const metered = await publish(`Metered ${seed}-${RUN_SALT}`, [{ kind: 'per_use', licence: 'commercial', price_usd_micros: perUse }])
+      if (typeof metered !== 'string') return fail(metered.error)
+
+      // The buyer's agent, its key, its commitment, and money for the model calls its uses run.
+      const agent = await env.lens.createAgent(app.user, `Shopper ${RUN_SALT}`)
+      const k = await env.lens.act<{ key: string }>(app.user, 'POST', `/v1/workspaces/{ws}/agents/${agent.id}/keys`, { name: 'market-agent-mcp' })
+      if (!k.ok) return fail(`issuing ${agent.name} a key was refused: ${k.status} ${k.error}`)
+      const rules = await env.lens.act<Record<string, unknown>>(app.user, 'PUT', `/v1/workspaces/{ws}/agents/${agent.id}/rules`, { max_commitment_ulxc: maxCommitment })
+      ctx.evidence.push({ note: `${agent.name}'s rules`, answer: JSON.stringify(rules) })
+      if (!rules.ok || rules.value.max_commitment_ulxc !== maxCommitment) {
+        return fail(`${agent.name}'s rules should save max_commitment_ulxc ${maxCommitment}; Lens answered ${rules.status} ${rules.ok ? JSON.stringify(rules.value) : rules.error}`)
+      }
+      await env.lens.fundAgent(app.user, agent.id, fund)
+
+      // One JSON-RPC tools/call on POST /mcp with the agent's own key.
+      let rpc = 0
+      const tool = async (name: string, args: Record<string, unknown>): Promise<ToolAnswer> => {
+        const got = await env.lens.as(k.value.key, 'POST', '/mcp', { jsonrpc: '2.0', id: ++rpc, method: 'tools/call', params: { name, arguments: args } })
+        ctx.evidence.push({ note: `${agent.name} calls ${name} ${JSON.stringify(args)}`, answer: `${got.status} ${got.text.slice(0, 400)}` })
+        let body: { result?: { content?: { text?: string }[]; isError?: boolean }; error?: { message?: string } } = {}
+        try {
+          body = JSON.parse(got.text) as typeof body
+        } catch {
+          // not JSON: the status and the text say what happened
+        }
+        const refused = body.result?.isError === true
+        return { status: got.status, ok: got.status === 200 && body.result !== undefined && !refused, refused, text: body.result?.content?.[0]?.text ?? body.error?.message ?? got.text.slice(0, 300) }
+      }
+      const valueOf = <T>(t: ToolAnswer): T | undefined => {
+        try {
+          return JSON.parse(t.text) as T
+        } catch {
+          return undefined
+        }
+      }
+      // market_use, held against the cap and booked for the ledger read-back as a use on Lens's HTTP route is.
+      const runUse = async (listing: string, [a, b]: readonly [number, number], max?: number): Promise<ToolAnswer> => {
+        const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
+        const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
+        let t: ToolAnswer
+        try {
+          t = await tool('market_use', { listing_id: listing, variables: { a: String(a), b: String(b) }, ...(max === undefined ? {} : { max_price_usd_micros: max }) })
+        } catch (e) {
+          env.cap.settle(hold, undefined)
+          throw e
+        }
+        const charged = (await spendRows(ctx)).filter((x) => !rows0.has(x.id))
+        env.cap.settle(hold, t.ok ? (charged.reduce((s, x) => s - x.amount_ulxc, 0) / 1e6) * env.usdPerLXC : undefined)
+        for (const x of charged) env.book.add(app.user.workspaceID, -x.amount_ulxc)
+        return t
+      }
+      type UseAnswer = { id: string; charge: string; price_ulxc: number; output?: string }
+
+      // Found, read, rented within the commitment, refused above it.
+      const found = await tool('market_search', { text: word })
+      const hits = valueOf<{ listings: Listing[] | null }>(found)?.listings ?? []
+      if (!found.ok || !hits.some((l) => l.id === shop)) return fail(`market_search for "${word}" should find "${shopTitle}" (${shop}); Lens answered ${found.status} ${found.text}`)
+      const read = await tool('market_listing', { listing_id: shop })
+      const offers = valueOf<{ offers: MarketOffer[] | null }>(read)?.offers ?? []
+      const rent = offers.find((o) => o.kind === 'rent' && o.licence === 'commercial')?.id
+      const enterprise = offers.find((o) => o.kind === 'rent' && o.licence === 'enterprise')?.id
+      if (!read.ok || rent === undefined || enterprise === undefined) return fail(`market_listing should give "${shopTitle}"'s commercial and enterprise rents; Lens answered ${read.status} ${read.text}`)
+      const rented = await tool('market_license', { listing_id: shop, offer_id: rent, idempotency_key: randomUUID() })
+      const lic = valueOf<MarketLicence>(rented)
+      if (!rented.ok || lic === undefined || lic.agent_id !== agent.id || lic.price_ulxc !== rentULXC || lic.kind !== 'rent' || lic.licence !== 'commercial') {
+        return fail(`market_license on the ${rentPrice} µUSD commercial rent, within ${agent.name}'s ${maxCommitment} µLXC commitment, should answer its licence; Lens answered ${rented.status} ${rented.text}`)
+      }
+      const over = await tool('market_license', { listing_id: shop, offer_id: enterprise, idempotency_key: randomUUID() })
+      if (!over.refused || !over.text.includes('max_commitment_ulxc')) {
+        return fail(`market_license on the ${enterprisePrice} µUSD enterprise rent, above ${agent.name}'s ${maxCommitment} µLXC commitment, should be isError naming max_commitment_ulxc; Lens answered ${over.status} ${over.text}`)
+      }
+
+      // Used under the licence; the second listing used at its price, then refused above the agent's max price.
+      const licensed = await runUse(shop, sums[0])
+      const lu = valueOf<UseAnswer>(licensed)
+      if (!licensed.ok || lu === undefined) return fail(`${agent.name}'s market_use of the rented listing was refused: ${licensed.status} ${licensed.text}`)
+      if (lu.charge !== 'licensed') return fail(`the rent covers ${agent.name}'s use of "${shopTitle}", so market_use should answer charge "licensed"; it answered ${licensed.text.slice(0, 300)}`)
+      if (!statesNumber(lu.output ?? '', sums[0][0] + sums[0][1])) return fail(`the listing answered ${agent.name} wrong: expected ${sums[0][0] + sums[0][1]}, got "${lu.output}"`)
+      const billed = await runUse(metered, sums[1], perUse)
+      const bu = valueOf<UseAnswer>(billed)
+      if (!billed.ok || bu === undefined || bu.charge !== 'billed' || bu.price_ulxc !== useULXC) {
+        return fail(`market_use of a ${perUse} µUSD listing with max_price_usd_micros ${perUse} should answer charge "billed" at ${useULXC} µLXC; Lens answered ${billed.status} ${billed.text}`)
+      }
+      const raise = await env.lens.act(seller, 'PUT', `/v1/workspaces/{ws}/marketplace/listings/${metered}/offers`, { offers: [{ kind: 'per_use', licence: 'commercial', price_usd_micros: raised }] })
+      ctx.evidence.push({ note: `the seller raises the second listing's per-use offer to ${raised} µUSD`, answer: JSON.stringify(raise) })
+      if (!raise.ok) return fail(`the seller raising the per-use offer to ${raised} µUSD was refused: ${raise.status} ${raise.error}`)
+      const priced = await runUse(metered, sums[2], perUse)
+      if (!priced.refused || !priced.text.includes('max_price_usd_micros')) {
+        return fail(`market_use of a listing now at ${raised} µUSD with max_price_usd_micros ${perUse} should be isError naming max_price_usd_micros; Lens answered ${priced.status} ${priced.text}`)
+      }
+
+      // The bill and the licences: the rent and the one billed use; the one licence.
+      const lines = ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === shop || l.listing_id === metered)
+      ctx.evidence.push({ note: "the two listings' lines on the buyer's bill", answer: JSON.stringify(lines) })
+      const want = [[lic.use_id, shop, rentULXC], [bu.id, metered, useULXC]] as const
+      if (lines.length !== 2 || !want.every(([u, l, p]) => lines.some((x) => x.use_id === u && x.listing_id === l && x.price_ulxc === p && x.agent_id === agent.id))) {
+        return fail(`the buyer's bill should hold exactly ${agent.name}'s ${rentULXC} µLXC rent and its one ${useULXC} µLXC use — nothing for the refused rent, the licensed use or the use above its max price; it has ${JSON.stringify(lines)}`)
+      }
+      const held = await env.lens.act<{ licences: MarketLicence[] | null }>(app.user, 'GET', '/v1/workspaces/{ws}/marketplace/licences')
+      ctx.evidence.push({ note: "the buyer's licences", answer: JSON.stringify(held) })
+      if (!held.ok) return fail(`reading the buyer's licences: ${held.status} ${held.error}`)
+      const mine = (held.value.licences ?? []).filter((x) => x.listing_id === shop || x.listing_id === metered)
+      if (mine.length !== 1 || mine[0].id !== lic.id) return fail(`the buyer should hold one licence, ${agent.name}'s rent ${lic.id}, and nothing from the refused one; it holds ${JSON.stringify(mine)}`)
+      return { pass: true, detail: `${agent.name} found "${shopTitle}" over MCP, rented it (${lic.id}, ${rentULXC} µLXC) and was refused the enterprise rent naming ` +
+        `max_commitment_ulxc; its use under the rent was licensed, the second listing's billed ${useULXC} µLXC and then refused naming max_price_usd_micros at ` +
+        `${raised} µUSD; the bill holds the two lines and the buyer the one licence` }
     },
   }
 }

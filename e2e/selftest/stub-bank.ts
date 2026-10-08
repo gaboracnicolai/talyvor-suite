@@ -86,6 +86,7 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { Readable } from 'node:stream'
 
 export interface BankWorkspace {
   id: string
@@ -651,6 +652,57 @@ export class Bank {
       if (refused !== undefined) return this.d.json(res, refused.status, { error: refused.error }), true
     }
     return this.workspaceRoute(req, res, who.ws, m[2], new URL(path, this.d.base), who.agent)
+  }
+
+  /**
+   * B32.81 — Lens's market_* tools on an agent's own key (talyvor-lens B32.23 internal/mcp/market_tools.go): search, a
+   * listing's offers, a licence and a use, each run as the marketplace's route runs on that key, so its rules judge it;
+   * a refusal is a tool result marked isError that says why.
+   */
+  async agentMCP(req: IncomingMessage, res: ServerResponse, key: string, path: string): Promise<boolean> {
+    const who = this.agentOfKey(key)
+    if (path !== '/mcp' || req.method !== 'POST' || who === undefined) return false
+    const rpc = await this.body<{ id?: unknown; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } }>(req)
+    const name = rpc.method === 'tools/call' ? rpc.params?.name ?? '' : ''
+    const a = rpc.params?.arguments ?? {}
+    const reply = (result: object) => this.d.json(res, 200, { jsonrpc: '2.0', id: rpc.id ?? null, result })
+    const text = (body: unknown) => reply({ content: [{ type: 'text', text: JSON.stringify(body) }] })
+    // A marketplace route on the agent's key, run in-process: its status and its JSON answer.
+    const route = async (method: string, rest: string, body?: object, headers: Record<string, string> = {}): Promise<{ status: number; body: { error?: string } }> => {
+      const fake = Object.assign(Readable.from(body === undefined ? [] : [JSON.stringify(body)]), { method, headers }) as unknown as IncomingMessage
+      const out = { status: 0, text: '' }
+      const sink = { writeHead: (s: number) => { out.status = s; return sink }, setHeader: () => sink, end: (t?: string) => { out.text = t ?? '' } } as unknown as ServerResponse
+      const p = `/v1/workspaces/${who.ws.id}${rest}`
+      if (!(method === 'POST' ? await this.agentUse(fake, sink, key, p) : await this.workspaceRoute(fake, sink, who.ws, rest, new URL(p, this.d.base), who.agent))) {
+        return { status: 404, body: { error: 'market: no such route' } }
+      }
+      return { status: out.status, body: JSON.parse(out.text || '{}') as { error?: string } }
+    }
+    const answer = (r: { status: number; body: { error?: string } }) =>
+      r.status < 300 ? text(r.body) : reply({ content: [{ type: 'text', text: r.body.error ?? `refused: ${r.status}` }], isError: true })
+    const listing = String(a.listing_id ?? '')
+    switch (name) {
+      case 'market_search': {
+        const words = String(a.text ?? '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w !== '')
+        const max = typeof a.max_price_usd_micros === 'number' ? a.max_price_usd_micros : undefined
+        const found = [...this.listings.values()].filter((l) => l.visibility === 'public' && l.review_status === 'approved' &&
+          words.every((w) => `${l.title} ${l.description}`.toLowerCase().includes(w)) && (a.kind === undefined || l.kind === a.kind) &&
+          (a.licence === undefined || (l.offers ?? []).some((o) => o.licence === a.licence)) && (max === undefined || ((this.perUse(l) ?? Infinity) <= max)))
+        return text({ listings: found.map((l) => { const { artifact: _a, changelog: _c, ...rest } = l; return { ...rest, offers: l.offers ?? [] } }) }), true
+      }
+      case 'market_listing': {
+        const l = this.listings.get(listing)
+        if (l === undefined || !this.visible(l, who.ws.id)) return reply({ content: [{ type: 'text', text: 'market: no such listing' }], isError: true }), true
+        return text({ ...this.listingOut(l, who.ws.id), offers: l.offers ?? [] }), true
+      }
+      case 'market_license':
+        return answer(await route('POST', `/marketplace/listings/${listing}/licences`, { offer_id: a.offer_id, version: a.version },
+          { 'idempotency-key': String(a.idempotency_key ?? '') })), true
+      case 'market_use':
+        return answer(await route('POST', `/marketplace/listings/${listing}/use`, { variables: a.variables, model: a.model, input: a.input,
+          max_price_usd_micros: a.max_price_usd_micros })), true
+    }
+    return this.d.json(res, 200, { jsonrpc: '2.0', id: rpc.id ?? null, error: { code: -32601, message: `unknown tool: ${name || rpc.method}` } }), true
   }
 
   /** B34.4 — a simulated portfolio as Lens answers it: its cash after its filled orders, and what they bought. */
@@ -1804,14 +1856,12 @@ export class Bank {
       const l = this.listings.get(m[1])
       if (l === undefined || !this.visible(l, ws.id)) return json(res, 404, { error: 'market: no such listing' }), true
       if (l.review_status === 'taken_down') return json(res, 403, { error: 'market: the listing was taken down' }), true
-      const b = await this.body<{ model?: string; variables?: Record<string, string> }>(req)
+      const b = await this.body<{ model?: string; variables?: Record<string, string>; max_price_usd_micros?: number }>(req)
       const template = String(l.artifact.template ?? '')
       const missing = [...template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((x) => x[1]).filter((v) => !(b.variables?.[v] ?? '').trim())
       if (missing.length > 0) return json(res, 400, { error: `market: the prompt needs ${missing.map((v) => `{{${v}}}`).join(', ')}` }), true
       const model = b.model || String(l.artifact.model ?? '')
       if (model === '') return json(res, 400, { error: 'market: this listing names no model, so the use must' }), true
-      const ran = this.d.runModel(ws, model, template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, v: string) => b.variables?.[v] ?? ''))
-      if ('error' in ran) return json(res, 400, { error: ran.error }), true
       const covered = l.workspace_id === ws.id ? undefined : this.coveringLicence(ws.id, l.id, agent, now)
       let charge = l.workspace_id === ws.id && !this.broken('self-use-billed') ? 'own' : covered !== undefined ? 'licensed' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
       // B32.79 — a billed use is a trial while the buyer has one of the listing's trial uses left.
@@ -1822,6 +1872,15 @@ export class Bank {
       const stored = trial && this.broken('trial-billed') ? 'billed' : charge
       const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: agent?.id ?? '', price_ulxc: stored === 'billed' ? l.price_per_use_ulxc : 0,
         charge: stored, used_at: now, payee_agent_id: '', memo: '', licence_id: covered?.id, trial_ulxc: trial ? l.price_per_use_ulxc : undefined }
+      // B32.81 — the most this use may cost (Lens B32.23): above it, nothing runs and nothing is charged.
+      // STUB_BREAK=max-price-ignored runs it anyway; max-price-kept refuses it but bills it.
+      const cost = charge === 'billed' ? l.price_per_use_ulxc / ULXC_PER_USD_MICRO : 0
+      if (b.max_price_usd_micros !== undefined && cost > b.max_price_usd_micros && !this.broken('max-price-ignored')) {
+        if (this.broken('max-price-kept')) this.uses.push(use)
+        return json(res, 409, { error: `market: this use costs more than its max_price_usd_micros: it costs ${cost} µUSD now, above your ${b.max_price_usd_micros} — nothing ran and nothing was charged` }), true
+      }
+      const ran = this.d.runModel(ws, model, template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, v: string) => b.variables?.[v] ?? ''))
+      if ('error' in ran) return json(res, 400, { error: ran.error }), true
       this.uses.push(use)
       const told = trial ? { trial: true, trial_uses_left: Math.max(given - had - 1, 0), would_have_cost_usd_micros: l.price_per_use_ulxc / ULXC_PER_USD_MICRO } : {}
       return json(res, 200, { id: use.id, listing_id: l.id, version: 1, kind: l.kind, model, charge, price_ulxc: charge === 'billed' ? use.price_ulxc : 0, output: ran.answer, used_at: now, ...told }), true
