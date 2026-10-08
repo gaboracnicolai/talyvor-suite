@@ -118,6 +118,15 @@
 //
 // STUB_BREAK=room-prize-closed-billed answers the award of a prize closed at its deadline 409, and bills it anyway — a
 // defect room-prizes must FAIL on.
+//
+// B32.88 — and an agent in a room over MCP (Lens B32.36), as room-agent-mcp calls the room_* tools on its own key
+// (roomAgentTool, from stub-bank.ts's /mcp): room_join as its owner's member, room_messages, room_post (the message
+// carries the agent's id and name), room_propose, room_vote and room_run — paid self it is its owner's use with the agent
+// as its agent, judged by the agent's own rules; paid room only for an owner given may_spend. Every call is logged,
+// refused ones too, and an agent makes at most LENS_ROOM_MESSAGES_PER_MINUTE of them a minute.
+//
+// STUB_BREAK=room-agent-over-billed refuses a run above the agent's limit per request, and bills it anyway; and
+// STUB_BREAK=room-agent-unlogged logs no refused call — defects room-agent-mcp must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -151,6 +160,8 @@ interface Room {
   reports: Report[]; banned: string[]; walletLines: { entry_id: string; kind: string; amount_ulxc: number; counterparty: string; ref: string; balance_after_ulxc: number; at: string }[]
   /** B32.85 — its wallet's rules as each save left them, newest first. */
   walletVersions: { version: number; rules: Record<string, unknown>; changed_by: string; change: string; created_at: string }[]
+  /** B32.88 — the members' agents in it, as room_join brought them. */
+  agents?: { agent_id: string; name: string; workspace_id: string; joined_at: string }[]
 }
 
 interface Report { id: string; ws: string; message_id?: string; reason: string; details: string; created_at: string; resolution?: string }
@@ -195,6 +206,8 @@ interface Msg {
   id: string; cursor: number; room_id: string; author_workspace_id: string; kind: string; body: string; refs: Record<string, unknown>; created_at: string
   /** B32.83 — its edit and its tombstone. */
   edited_at?: string; deleted_at?: string; deleted_by_workspace_id?: string
+  /** B32.88 — an agent's: the agent that wrote it, and its name. */
+  author_agent_id?: string; author_agent_name?: string
 }
 
 /** LENS_ROOM_MESSAGES_PER_MINUTE's default, and Lens's aws_access_key pattern (internal/market/scan.go). */
@@ -219,9 +232,10 @@ const events = new Map<string, { cursor: number; kind: string; ref: string; at: 
 const contributions = new Map<string, Contribution[]>()
 let cursor = 0
 
-function post(roomID: string, ws: string, body: string, kind = 'text', refs: Record<string, unknown> = {}): Msg {
+function post(roomID: string, ws: string, body: string, kind = 'text', refs: Record<string, unknown> = {}, agent?: RoomAgent): Msg {
   const at = new Date().toISOString()
-  const m: Msg = { id: 'msg_' + randomBytes(8).toString('hex'), cursor: ++cursor, room_id: roomID, author_workspace_id: ws, kind, body, refs, created_at: at }
+  const m: Msg = { id: 'msg_' + randomBytes(8).toString('hex'), cursor: ++cursor, room_id: roomID, author_workspace_id: ws, kind, body, refs, created_at: at,
+    ...(agent === undefined ? {} : { author_agent_id: agent.id, author_agent_name: agent.name }) }
   messages.set(roomID, [...(messages.get(roomID) ?? []), m])
   happened(roomID, 'message.posted', m)
   return m
@@ -426,7 +440,7 @@ const detail = (r: Room, ws: string) => {
     max_per_request_ulxc: 0, approval_above_ulxc: 0, budget_max_ulxc: budgetMax(r), spend_policy: r.terms.spend_policy, may_spend: whyNot === '',
     ...(whyNot === '' ? {} : { why_not: whyNot }),
   }
-  return { ...view(r), terms: r.terms, members: r.members.map((m) => member(r, m)), agents: [], me: me === undefined ? null : member(r, me), ...(wallet ? { wallet } : {}),
+  return { ...view(r), terms: r.terms, members: r.members.map((m) => member(r, m)), agents: r.agents ?? [], me: me === undefined ? null : member(r, me), ...(wallet ? { wallet } : {}),
     ...(underReview(r) ? { under_review: true } : {}) }
 }
 
@@ -710,28 +724,42 @@ async function roomSafety(req: IncomingMessage, res: ServerResponse, p: string, 
   // STUB_BREAK=room-close: a closed room's run is refused, and its wallet is spent anyway — only the statement shows it.
   const closed = r.status === 'closed'
   if (closed && BREAK !== 'room-close') return json(res, 409, closedRoom), true
-  const d = await body(req)
+  const [status, out] = runIn(r, me, ws, await body(req), closed)
+  return json(res, status, out), true
+}
+
+/**
+ * B32.86 — a run in room `r` by `ws`, its member `me`, as Lens's rooms.Run answers it: its status and body. B32.88 — by
+ * `by`'s agent, a run it pays itself is its owner's use with the agent as its agent, judged first by the agent's rules.
+ */
+function runIn(r: Room, me: Room['members'][number], ws: string, d: Record<string, unknown>, closed: boolean, by?: { agent: RoomAgent; judge: Judge }): [number, unknown] {
   const target = (contributions.get(r.id) ?? []).find((c) => c.id === String(d.target ?? ''))
-  if (target === undefined) return json(res, 404, { error: 'market: not found: no such listing' }), true
+  if (target === undefined) return [404, { error: 'market: not found: no such listing' }]
   const pay = payOf(d)
-  if (pay === undefined) return json(res, 400, { error: noPayer }), true
+  if (pay === undefined) return [400, { error: noPayer }]
   const why = pay === 'room' && !closed ? whyNotSpend(r, me) : ''
-  if (why !== '') return json(res, 403, { error: `rooms: not allowed: ${why}` }), true
+  if (why !== '') return [403, { error: `rooms: not allowed: ${why}` }]
   const given = (d.variables ?? {}) as Record<string, unknown>
   const missing = [...target.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((v) => v[1]).filter((v) => !(v in given))
   if (missing.length > 0 && BREAK !== 'room-run-variables') {
-    return json(res, 400, { error: `market: invalid listing: the prompt needs the variables ${missing.join(', ')}` }), true
+    return [400, { error: `market: invalid listing: the prompt needs the variables ${missing.join(', ')}` }]
   }
-  if (closed) return spendWallet(r, target.listing_id), json(res, 409, closedRoom), true
+  if (closed) return spendWallet(r, target.listing_id), [409, closedRoom]
   // B32.86 — paid room the owner buys it with the room's wallet as its agent, judged against the wallet's monthly limit.
   const buyer = pay === 'room' ? r.owner_workspace_id : ws
-  const agent = pay === 'room' ? walletID(r) : ''
+  const agent = pay === 'room' ? walletID(r) : by?.agent.id ?? ''
   const bought = { listing_id: target.listing_id, seller: target.author_workspace_id, buyer, agent_id: agent, price_ulxc: target.price * 10 }
   const charge = buyer === target.author_workspace_id ? 0 : bought.price_ulxc
   const over = pay === 'room' ? pastMonthly(r, charge, `use of “${target.title}”`) : undefined
   if (over !== undefined) {
     if (BREAK === 'room-run-limit') wallets.use(bought)
-    return json(res, 403, { error: over }), true
+    return [403, { error: over }]
+  }
+  // B32.88 — paid self by an agent, its own rules judge the price first.
+  const refused = pay === 'self' && by !== undefined ? by.judge(charge, target.listing_id) : undefined
+  if (refused !== undefined) {
+    if (BREAK === 'room-agent-over-billed') wallets.use(bought)
+    return [403, { error: refused }]
   }
   if (pay === 'room') spendWallet(r, target.listing_id)
   const u = wallets.use(bought)
@@ -739,9 +767,89 @@ async function roomSafety(req: IncomingMessage, res: ServerResponse, p: string, 
   const price = u.price_ulxc / 10
   const cost = u.charge === 'billed' ? `$${(price / 1e6).toFixed(2)} on the marketplace bill` : "no charge: the payer's own listing"
   const m = post(r.id, ws, `ran a ${target.kind} “${target.title}” ${paidBy(pay)} — ${cost}\n\n${output}`, 'run', { run: 'use', use_id: u.id, listing_id: u.listing_id,
-    version: target.version, charge: u.charge, price_usd_micros: price, pay, payer_workspace_id: buyer, contribution_id: target.id, ...(agent === '' ? {} : { wallet_agent_id: agent }) })
-  return json(res, 200, { use: { id: u.id, listing_id: u.listing_id, version: target.version, kind: target.kind, model: String(d.model || target.artifact.model || ''),
-    charge: u.charge, price_ulxc: u.price_ulxc, output, used_at: u.used_at, ...(agent === '' ? {} : { agent_id: agent }) }, pay, payer_workspace_id: buyer, message: m }), true
+    version: target.version, charge: u.charge, price_usd_micros: price, pay, payer_workspace_id: buyer, contribution_id: target.id, ...(pay === 'room' ? { wallet_agent_id: agent } : {}) }, by?.agent)
+  return [200, { use: { id: u.id, listing_id: u.listing_id, version: target.version, kind: target.kind, model: String(d.model || target.artifact.model || ''),
+    charge: u.charge, price_ulxc: u.price_ulxc, output, used_at: u.used_at, ...(agent === '' ? {} : { agent_id: agent }) }, pay, payer_workspace_id: buyer, message: m }]
+}
+
+/** B32.88 — an agent acting in a room, and the judge of a price by its rules: undefined, or the refusal's sentence. */
+export interface RoomAgent { id: string; name: string }
+export type Judge = (amountULXC: number, listing: string) => string | undefined
+/** B32.88 — each agent's room calls, as agent_tool_calls logs them: refused ones too. */
+const agentCalls: { agent: string; tool: string; refused: boolean; at: number }[] = []
+
+/**
+ * B32.88 — one of Lens's room_* tools called on `agent`'s own key, for its workspace `ws` (talyvor-lens B32.36,
+ * internal/mcp/room_tools.go): the result, or the refusal an isError carries. Logged either way; past
+ * LENS_ROOM_MESSAGES_PER_MINUTE calls in the last minute, refused before it runs.
+ */
+export function roomAgentTool(name: string, a: Record<string, unknown>, ws: string, agent: RoomAgent, judge: Judge): { ok: true; body: unknown } | { ok: false; error: string } {
+  const now = Date.now()
+  const recent = agentCalls.filter((c) => c.agent === agent.id && c.tool.startsWith('room_') && c.at > now - 60_000)
+  const out = recent.length >= PER_MINUTE
+    ? { ok: false as const, error: `an agent makes at most ${PER_MINUTE} room calls a minute (LENS_ROOM_MESSAGES_PER_MINUTE); try again in ${Math.max(Math.round((recent[0].at + 60_000 - now) / 1000), 1)}s` }
+    : agentTool(name, a, ws, agent, judge)
+  if (out.ok || BREAK !== 'room-agent-unlogged') agentCalls.push({ agent: agent.id, tool: name, refused: !out.ok, at: now })
+  return out
+}
+
+function agentTool(name: string, a: Record<string, unknown>, ws: string, agent: RoomAgent, judge: Judge): { ok: true; body: unknown } | { ok: false; error: string } {
+  const no = (error: string) => ({ ok: false as const, error })
+  const yes = (body: unknown) => ({ ok: true as const, body })
+  const r = rooms.get(String(a.room_id ?? ''))
+  if (r === undefined || (r.visibility === 'private' && !r.members.some((m) => m.workspace_id === ws))) return no('rooms: not found: no such room')
+  const me = r.members.find((m) => m.workspace_id === ws)
+  if (name === 'room_join') {
+    if (me === undefined) return no("rooms: not allowed: an agent joins a room only as its owner's member: join the room first")
+    const was = (r.agents ?? []).find((x) => x.agent_id === agent.id)
+    if (was !== undefined) return yes(was)
+    const joined = { agent_id: agent.id, name: agent.name, workspace_id: ws, joined_at: new Date().toISOString() }
+    r.agents = [...(r.agents ?? []), joined]
+    return yes(joined)
+  }
+  if (name === 'room_messages') {
+    const limit = Math.min(Number(a.limit) > 0 ? Number(a.limit) : 50, 200)
+    return yes({ messages: (messages.get(r.id) ?? []).slice(-limit), more: false, events_cursor: cursor })
+  }
+  if (me === undefined || !(r.agents ?? []).some((x) => x.agent_id === agent.id && x.workspace_id === ws)) {
+    return no('rooms: not allowed: this agent is not in the room: join it with room_join first')
+  }
+  if (r.status === 'closed') return no(closedRoom.error)
+  const list = contributions.get(r.id) ?? []
+  switch (name) {
+    case 'room_post': {
+      const text = String(a.body ?? '')
+      if (text.trim() === '') return no('rooms: invalid request: a message needs a body')
+      const secret = secretIn(r, text)
+      return secret !== undefined ? no(secret.error) : yes(post(r.id, ws, text, 'text', {}, agent))
+    }
+    case 'room_propose': {
+      const title = String(a.title ?? '').trim()
+      if (title === '') return no('rooms: invalid request: a contribution needs a title')
+      const id = 'rc_' + randomBytes(8).toString('hex')
+      const kind = String(a.kind ?? 'prompt')
+      const artifact = (a.artifact ?? {}) as Record<string, unknown>
+      const m = post(r.id, ws, `proposed a ${kind} “${title}”`, 'contribution', { contribution_id: id }, agent)
+      const c: Contribution = { id, room_id: r.id, listing_id: 'lst_' + randomBytes(8).toString('hex'), version: 1, kind, title, author_workspace_id: ws, status: 'proposed',
+        message_id: m.id, votes: new Map(), created_at: m.created_at, template: String(artifact.template ?? ''), artifact,
+        price: typeof a.price_usd_micros === 'number' ? a.price_usd_micros : r.terms.default_price_usd_micros }
+      contributions.set(r.id, [c, ...list])
+      return yes(contributionView(c, ws))
+    }
+    case 'room_vote': {
+      const c = list.find((x) => x.id === String(a.contribution_id ?? ''))
+      if (c === undefined) return no('rooms: not found: no such contribution in this room')
+      const v = Number(a.vote)
+      if (v !== 1 && v !== -1) return no('rooms: invalid request: a vote is 1 or -1')
+      c.votes.set(ws, v)
+      return yes(contributionView(c, ws))
+    }
+    case 'room_run': {
+      const [status, out] = runIn(r, me, ws, a, false, { agent, judge })
+      return status < 300 ? yes(out) : no((out as { error: string }).error)
+    }
+  }
+  return no(`unknown room tool: ${name}`)
 }
 
 /** B32.86 — a member's question to the room's AI, which reads the room's latest messages; false when `p` is not one. */

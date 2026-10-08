@@ -93,6 +93,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { HOLD_REASON, TaxDesk } from './stub-tax.ts'
+import type { Judge, RoomAgent } from './stub-rooms.ts'
 
 export interface BankWorkspace {
   id: string
@@ -331,6 +332,8 @@ const MARKET_CAPABILITIES = ['summarize', 'extract', 'translate', 'classify', 'c
 
 export class Bank {
   private readonly d: BankDeps
+  /** B32.88 — the rooms' room_* tools on an agent's key (stub-rooms.ts roomAgentTool), as stub-lens.ts sets them. */
+  roomTool?: (name: string, args: Record<string, unknown>, ws: string, agent: RoomAgent, judge: Judge) => { ok: true; body: unknown } | { ok: false; error: string }
   private readonly agents = new Map<string, Agent>()
   private readonly keys = new Map<string, Agent>()
   /** B28.359 — each agent key's id, to its key: Lens revokes an agent's key on the workspace's key route. */
@@ -763,6 +766,12 @@ export class Bank {
     }
     const answer = (r: { status: number; body: { error?: string } }) =>
       r.status < 300 ? text(r.body) : reply({ content: [{ type: 'text', text: r.body.error ?? `refused: ${r.status}` }], isError: true })
+    // B32.88 — the room_* tools, on the agent's key as its owner's member; a price it pays itself judged by its rules.
+    if (name.startsWith('room_') && this.roomTool !== undefined) {
+      const out = this.roomTool(name, a, who.ws.id, { id: who.agent.id, name: who.agent.name }, (amount, listing) =>
+        this.judge(who.agent, amount, { payment: true, listing, fingerprint: `room\0${who.agent.id}\0${listing}\0${amount}` })?.error)
+      return (out.ok ? text(out.body) : reply({ content: [{ type: 'text', text: out.error }], isError: true })), true
+    }
     const listing = String(a.listing_id ?? '')
     switch (name) {
       case 'market_search': {
