@@ -106,6 +106,7 @@ var decodedFromUpstream = map[string]string{
 	"planGate":               "one plan's gates in Lens's public GET /v1/public/plan-gates reply, served on /api/pricing (B32.14)",
 	"publicFees":             "Lens's public GET /v1/public/fees reply, decoded in readFees() and served on /api/pricing (B32.14)",
 	"simulatedPayee":         "a simulated payment's payee, decoded from the browser's rules/simulate body and relayed to Lens as it came (B28.30)",
+	"sellerTIN":              "one of a seller's TINs, decoded from the browser's seller-tax PUT body and relayed to Lens as it came (B32.60)",
 	"taskKey":                "Lens's POST …/agents/{id}/keys reply, decoded in issueTaskKey() and held only for the task (B28.359)",
 }
 

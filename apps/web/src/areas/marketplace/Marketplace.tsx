@@ -23,6 +23,8 @@ import { formatUSD, formatWhen } from "../lens/format";
 import { Licences } from "./Licences";
 import { ListingPage } from "./ListingPage";
 import { ReviewQueue } from "./Review";
+import { SellerStatementsCard } from "./SellerStatements";
+import { SellerTaxCard, SellerTaxNotice } from "./SellerTax";
 import {
   type BillLine,
   type ListingKind,
@@ -663,15 +665,15 @@ export function PayoutsCard({
       <Row
         label="Next payout"
         hint={
-          p.paid_this_month
-            ? "You were paid this month; the next payout is next month."
+          p.paid_this_week
+            ? "You were paid this week; the next payout is next week."
             : p.available_usd_micros >= p.minimum_usd_micros
-              ? `${formatUSD(p.quote.gross_usd_micros)} less Stripe’s fees of ${formatUSD(fees)}, at cost. ${acct?.payouts_enabled ? "Paid once a month to your Stripe account." : "Paid once Stripe can pay your account."}`
-              : `Paid once a month, once your available balance reaches ${formatUSD(p.minimum_usd_micros)}.`
+              ? `${formatUSD(p.quote.gross_usd_micros)} less Stripe’s fees of ${formatUSD(fees)}, at cost. ${acct?.payouts_enabled ? "Paid once a week to your Stripe account." : "Paid once Stripe can pay your account."}`
+              : `Paid once a week, once your available balance reaches ${formatUSD(p.minimum_usd_micros)}.`
         }
       >
         <span className="font-figure text-body text-ink">
-          {!p.paid_this_month && p.available_usd_micros >= p.minimum_usd_micros
+          {!p.paid_this_week && p.available_usd_micros >= p.minimum_usd_micros
             ? formatUSD(p.quote.net_usd_micros)
             : "—"}
         </span>
@@ -792,11 +794,26 @@ function Selling() {
           price once their bill is paid; Talyvor keeps 15%. Your own uses, and
           uses by a workspace linked to yours, earn nothing.
         </p>
+        <SellerTaxNotice />
         <EarningsCard />
         <PayoutsCard />
       </Region>
       <Region
         index="01"
+        label="Statements"
+        className="flex max-w-2xl flex-col gap-3"
+      >
+        <SellerStatementsCard />
+      </Region>
+      <Region
+        index="02"
+        label="Tax details"
+        className="flex max-w-2xl flex-col gap-3"
+      >
+        <SellerTaxCard />
+      </Region>
+      <Region
+        index="03"
         label="Your listings"
         fullWidth
         className="flex flex-col gap-3"

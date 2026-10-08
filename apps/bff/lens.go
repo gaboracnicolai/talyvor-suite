@@ -458,6 +458,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/marketplace/listings/{id}/licences", a.requireTenant(a.handleMarketLicense))
 	a.mux.HandleFunc("/api/marketplace/receipts", a.requireTenant(a.handleMarketReceipts))
 	a.mux.HandleFunc("/api/marketplace/receipts/{id}", a.requireTenant(a.handleMarketReceipt))
+	// B32.60 — the seller's tax details and their weekly statements. See marketplace.go.
+	a.mux.HandleFunc("/api/marketplace/seller-tax", a.requireTenant(a.handleMarketSellerTax))
+	a.mux.HandleFunc("/api/marketplace/statements", a.requireTenant(a.handleMarketStatements))
 	// B32.53 — rooms: the open chats Chat lists, opening one and joining one. See rooms.go.
 	a.mux.HandleFunc("/api/rooms", a.requireTenant(a.handleRooms))
 	a.mux.HandleFunc("/api/rooms/{id}", a.requireTenant(a.handleRoom))

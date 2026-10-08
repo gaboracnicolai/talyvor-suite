@@ -32,6 +32,9 @@ import (
 //	POST /api/marketplace/listings/{id}/licences   B32.59: {offer_id, version} + Idempotency-Key: license an offer again (renew)
 //	GET  /api/marketplace/receipts                 B32.59: Talyvor's receipts for this workspace's paid bills
 //	GET  /api/marketplace/receipts/{id}            B32.59: one receipt as its page; ?format=pdf the document
+//	GET  /api/marketplace/seller-tax               B32.60: the seller's tax details, masked, what is missing and any payout hold
+//	PUT  /api/marketplace/seller-tax               B32.60: save them; tins, date_of_birth and account_identifier null keep what is stored
+//	GET  /api/marketplace/statements?period=       B32.60: the weeks the seller was paid in; with a period (2026-W41) that week's statement
 //
 // Reads and publishing go on the session's workspace token, as the Agent Bank's do. A USE does not:
 // Lens runs the listing by calling its own proxy with the caller's credential, and every /v1/proxy/*
@@ -357,6 +360,73 @@ func (a *app) handleMarketReceipt(w http.ResponseWriter, r *http.Request, t tena
 	default:
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Lens could not answer just now"})
 	}
+}
+
+// handleMarketSellerTax — GET /api/marketplace/seller-tax reads the seller's tax details (Lens B32.41): the TINs and the
+// payout account masked to their last four characters, the date of birth masked, what is still missing and any payout
+// hold. PUT saves them; tins, date_of_birth and account_identifier sent as null keep what Lens stores, because they read
+// back masked and the seller is not asked for them again to correct an address. Lens takes the workspace's owner or an
+// admin, checks a VAT number with its tax partner, and says why it refuses.
+func (a *app) handleMarketSellerTax(w http.ResponseWriter, r *http.Request, t tenant) {
+	path := lensWorkspacePath(t, "/marketplace/seller-tax")
+	switch r.Method {
+	case http.MethodGet:
+		a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+	case http.MethodPut:
+		var in struct {
+			SellerType                string       `json:"seller_type"`
+			FirstName                 string       `json:"first_name"`
+			MiddleName                string       `json:"middle_name"`
+			LastName                  string       `json:"last_name"`
+			LegalName                 string       `json:"legal_name"`
+			Address                   string       `json:"address"`
+			Country                   string       `json:"country"`
+			TINs                      *[]sellerTIN `json:"tins"`
+			DateOfBirth               *string      `json:"date_of_birth"`
+			CompanyRegistrationNumber string       `json:"company_registration_number"`
+			VATNumber                 string       `json:"vat_number"`
+			AccountIdentifier         *string      `json:"account_identifier"`
+			AccountHolder             string       `json:"account_holder"`
+			SelfBillingAgreedVersion  string       `json:"self_billing_agreed_version"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&in); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "send the tax details as JSON"})
+			return
+		}
+		// UPSTREAM-BINDS-ONLY lensSellerTaxBody: none
+		body, _ := json.Marshal(in)
+		a.marketRelay(w, r, a.client, t.token, http.MethodPut, path, body, "Tax details cannot be saved here yet.")
+	default:
+		methodNotAllowed(w, http.MethodGet+", "+http.MethodPut)
+	}
+}
+
+// sellerTIN is one taxpayer identification number and the country that issued it, as Lens's sellertax.TIN reads it.
+type sellerTIN struct {
+	Jurisdiction string `json:"jurisdiction"`
+	Number       string `json:"number"`
+}
+
+// statementPeriod is an ISO week, as Lens names a weekly statement: 2026-W41.
+var statementPeriod = regexp.MustCompile(`^\d{4}-W\d{2}$`)
+
+// handleMarketStatements — GET /api/marketplace/statements: the weeks the seller was paid in (Lens B32.42), newest
+// first; ?period=2026-W41 that week's statement — its lines summing to the net paid, the VAT collected from buyers for
+// information, and the self-billed invoice (B32.43) when the seller agreed to self-billing. The owner or an admin only.
+func (a *app) handleMarketStatements(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	path := lensWorkspacePath(t, "/marketplace/statements")
+	if period := r.URL.Query().Get("period"); period != "" {
+		if !statementPeriod.MatchString(period) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "period must be an ISO week, such as 2026-W41"})
+			return
+		}
+		path += "?period=" + period
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
 }
 
 // handleMarketReport — POST /api/marketplace/listings/{id}/reports {reason, details}: this workspace

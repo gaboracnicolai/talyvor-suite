@@ -180,7 +180,11 @@ export interface Payout {
   id: string;
   method: "stripe" | "credits";
   month: string;
+  /** B32.42 — the ISO week it was made in, such as `2026-W41` */
+  period?: string;
   gross_usd_micros: number;
+  /** B32.43 — the VAT on the seller's self-billed invoice, paid on top */
+  vat_usd_micros?: number;
   account_fee_usd_micros: number;
   payout_fee_usd_micros: number;
   net_usd_micros: number;
@@ -200,6 +204,8 @@ export interface Payouts {
   paid_out_usd_micros: number;
   minimum_usd_micros: number;
   paid_this_month: boolean;
+  /** B32.42 — the seller was paid this week, so is next paid next week. */
+  paid_this_week?: boolean;
   /** Paying the available balance out in money now, with Stripe's fees at cost. */
   quote: {
     gross_usd_micros: number;
@@ -208,6 +214,138 @@ export interface Payouts {
     net_usd_micros: number;
   };
   payouts: Payout[] | null;
+}
+
+/** Lens sellertax.TIN — a taxpayer identification number and the country that issued it. Read back masked: `••••4567`. */
+export interface SellerTIN {
+  jurisdiction: string;
+  number: string;
+}
+
+/** Lens sellertax.Details (B32.41) — a seller's tax details as they are shown: the TINs, the date of birth and the
+ *  payout account masked, what is still missing, and where the reminders and any payout hold stand. */
+export interface SellerTax {
+  seller_type: "" | "individual" | "entity";
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  legal_name: string;
+  address: string;
+  country: string;
+  tins: SellerTIN[] | null;
+  /** masked, `••••-••-••`; "" when not given */
+  date_of_birth: string;
+  company_registration_number: string;
+  vat_number: string;
+  vat_valid: boolean;
+  /** why the VAT number is not valid */
+  vat_detail?: string;
+  vat_checked_at?: string;
+  /** masked to its last four characters */
+  account_identifier: string;
+  account_holder: string;
+  self_billing_agreed_version: string;
+  complete: boolean;
+  /** the fields still to give, in the order the form asks for them */
+  missing: string[] | null;
+  completed_at?: string;
+  reminders_sent: number;
+  last_reminded_at?: string;
+  next_reminder_at?: string;
+  withheld_since?: string;
+  /** why payouts are held, in Lens's words */
+  hold?: string;
+  /** false: tax details cannot be saved here yet */
+  accepting: boolean;
+}
+
+/** Lens sellertax.Input — what a save sends. tins, date_of_birth and account_identifier null keep what is stored. */
+export interface SellerTaxInput {
+  seller_type: "individual" | "entity";
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  legal_name: string;
+  address: string;
+  country: string;
+  tins: SellerTIN[] | null;
+  date_of_birth: string | null;
+  company_registration_number: string;
+  vat_number: string;
+  account_identifier: string | null;
+  account_holder: string;
+  self_billing_agreed_version: string;
+}
+
+/** Lens market.StatementSummary (B32.42) — one week the seller was paid in. */
+export interface StatementSummary {
+  period: string;
+  payout_id: string;
+  net_usd_micros: number;
+  paid_at: string | null;
+}
+
+/** Lens market.StatementLine — what one line adds to the net, or (negative) takes from it. */
+export interface StatementLine {
+  kind:
+    | "brought_forward"
+    | "sales"
+    | "talyvor_fee"
+    | "royalties_paid"
+    | "royalties_received"
+    | "refunds"
+    | "credits"
+    | "supply_vat"
+    | "other"
+    | "carried_forward"
+    | "stripe_fees";
+  label: string;
+  amount_usd_micros: number;
+}
+
+/** Lens market.SelfBillParty — one side of a self-billed invoice, as it prints. */
+export interface SelfBillParty {
+  name: string;
+  address: string;
+  country: string;
+  vat_number: string;
+}
+
+/** Lens market.SelfBill (B32.43) — the week's payout as a self-billed invoice from the seller to Talyvor. */
+export interface SelfBill {
+  id: string;
+  number: string;
+  payout_id: string;
+  period: string;
+  issued_at: string;
+  agreement_version: string;
+  supplier: SelfBillParty;
+  customer: SelfBillParty;
+  net_usd_micros: number;
+  vat_usd_micros: number;
+  gross_usd_micros: number;
+  rate_bps: number;
+  jurisdiction: string;
+  treatment: string;
+  note: string;
+  vat_enabled: boolean;
+  preview: boolean;
+}
+
+/** Lens market.Statement (B32.42) — a seller's statement for one ISO week, read from the journal. Its lines sum to
+ *  net_usd_micros, what the week's payout paid. */
+export interface SellerStatement {
+  period: string;
+  from: string;
+  to: string;
+  payout: Payout | null;
+  /** how many of the seller's sales were released to them this week */
+  sales: number;
+  lines: StatementLine[] | null;
+  net_usd_micros: number;
+  /** for information: the VAT Talyvor collected from the buyers of those sales, owed to the tax authorities */
+  vat_collected_usd_micros: number;
+  self_billed_invoice: SelfBill | null;
 }
 
 /** Lens market.BillLine — one paid use on the buyer's bill. Its tax (B32.39) is on top of its price. */
@@ -456,6 +594,23 @@ export const marketApi = {
       { country },
     ),
   takeAsCredits: () => post<Payout>("/api/marketplace/payouts/credits", {}),
+  // B32.60 — the seller's tax details (Lens B32.41) and weekly statements (B32.42–B32.43). The owner or an admin only:
+  // Lens says so to anyone else, and the screen shows its sentence.
+  sellerTax: () => read<SellerTax>("/api/marketplace/seller-tax"),
+  saveSellerTax: (input: SellerTaxInput) =>
+    send<SellerTax>("/api/marketplace/seller-tax", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(input),
+    }),
+  statements: async () =>
+    (
+      await read<{ statements: StatementSummary[] | null }>(
+        "/api/marketplace/statements",
+      )
+    ).statements ?? [],
+  statement: (period: string) =>
+    read<SellerStatement>(`/api/marketplace/statements?period=${e(period)}`),
   // B20.12 — Talyvor's review queue, for operators (apps/bff/market_review.go).
   reviewQueue: async () =>
     (
@@ -520,7 +675,10 @@ export function refusalText(err: unknown): string {
     err.sentence &&
     (err.status < 500 || err.status === 503)
   ) {
-    const s = err.sentence.replace(/^market: (invalid listing: )?/, "");
+    const s = err.sentence.replace(
+      /^(market: (invalid listing: )?|sellertax: (invalid tax details: )?)/,
+      "",
+    );
     return `${s.charAt(0).toUpperCase()}${s.slice(1)}${s.endsWith(".") ? "" : "."}`;
   }
   return "Nothing happened. You can try again.";
