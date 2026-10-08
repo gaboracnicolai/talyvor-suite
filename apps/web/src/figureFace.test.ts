@@ -187,6 +187,9 @@ const FORMATTERS: Record<string, true | string> = {
   // B19.4. An agent's balance, spend, payments and statement lines on /agents, in µLXC with every
   // µLXC shown: each renders inside a font-figure span or cell.
   'apps/web/src/areas/lens/agentBankApi.ts#formatULXC': true,
+  // B32.57. An offer's price in the buyer's currency on the listing page (`£18.55`), from Lens's minor units: it
+  // renders inside a font-figure span.
+  'apps/web/src/areas/marketplace/marketApi.ts#formatDisplay': true,
   // W4.9. The chat screen's catalog LIST RATE, and a figure by the same rule as every other money
   // formatter here: it renders `$2.50`, on the figure face, in the one caption a reader compares
   // between models. ⚠ IT IS DELIBERATELY NOT `formatCost` ABOVE — that formatter's

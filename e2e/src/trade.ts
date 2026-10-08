@@ -1304,7 +1304,7 @@ export function marketRent(seed: number): Scenario {
         env.lens.act<MarketLicence>(app.user, 'POST', `/v1/workspaces/{ws}/marketplace/listings/${listing}/licences`, { offer_id: offer }, { 'Idempotency-Key': key })
       const billFor = async (listing: string) => ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === listing)
       // A use on Lens with `credential` (the person's token, or an agent's key), held against the cap and booked for the ledger
-      // read-back: Lens's answer, or why not. The listing's page cannot show a licensed use yet (FOUND.md, B32.78).
+      // read-back: Lens's answer, or why not.
       const runAs = async (credential: string, who: string, listing: string, [a, b]: readonly [number, number]): Promise<{ id: string; charge: string } | string> => {
         const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
         const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
@@ -1348,7 +1348,25 @@ export function marketRent(seed: number): Scenario {
         return fail(`a rent at ${rentPrice} µUSD, sent twice with one key, should be one line of ${rentPrice * ULXC_PER_USD_MICRO} µLXC on the bill; it has ${JSON.stringify(rentLine)}`)
       }
 
-      for (const sum of sums.slice(0, uses)) {
+      // B32.57 — the first use is made on the listing's page, as a person makes it, and the page says the rent covered it.
+      const [pa, pb] = sums[0]
+      const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
+      const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
+      let onPage
+      try {
+        onPage = await runListing(app, rented.id, { a: String(pa), b: String(pb) })
+      } catch (e) {
+        env.cap.settle(hold, undefined)
+        throw e
+      }
+      const charged = (await spendRows(ctx)).filter((x) => !rows0.has(x.id))
+      env.cap.settle(hold, onPage.error === undefined ? (charged.reduce((t, x) => t - x.amount_ulxc, 0) / 1e6) * env.usdPerLXC : undefined)
+      for (const x of charged) env.book.add(app.user.workspaceID, -x.amount_ulxc)
+      ctx.evidence.push({ note: "the buyer uses it on the listing's page", answer: onPage.shown, error: onPage.error })
+      if (onPage.error !== undefined) return fail(`the buyer's use on the listing's page was refused: ${onPage.error}`)
+      if (!statesNumber(onPage.shown ?? '', pa + pb)) return fail(`the listing answered the buyer's page wrong: expected ${pa + pb}, got "${onPage.shown}"`)
+      if (!(onPage.shown ?? '').includes('Covered by your licence')) return fail(`the listing's page should say the rent covered the use; it showed "${onPage.shown}"`)
+      for (const sum of sums.slice(1, uses)) {
         const u = await runAs(app.user.token, 'the buyer', rented.id, sum)
         if (typeof u === 'string') return fail(u)
       }

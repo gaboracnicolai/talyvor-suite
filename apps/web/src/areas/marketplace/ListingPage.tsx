@@ -1,9 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { CardHeader, Row, inlineLink } from '@talyvor/ui'
 import { Region } from '../../components/Region'
 import { ApiError } from '../../lib/api'
 import { formatWhen } from '../lens/format'
+import { LICENCES_KEY } from './Licences'
+import { ListingOffers } from './ListingOffers'
+import { FamilyTree, TrustPanel } from './ListingTrust'
 import { kindLabel, marketApi } from './marketApi'
 import { Card, Price, readFailure } from './parts'
 import { ReportListing } from './Report'
@@ -12,10 +15,24 @@ import { UseListing } from './UseListing'
 // ListingPage.tsx — B20.3: one listing — what it is, what a use costs, using it, and its versions.
 // Lens shows a version's artifact to the listing's owner and nobody else, which is how this page
 // knows the listing is this workspace's own.
+//
+// B32.57 — and what a buyer needs to choose: its offers and licences, priced in their currency; the licence they hold
+// for it, which covers their uses; its trust panel; and its family tree — the originals it builds on and the remixes
+// that build on it.
 
 export function ListingPage() {
   const { id = '' } = useParams()
-  const listing = useQuery({ queryKey: ['market-listing', id], queryFn: () => marketApi.listing(id) })
+  // The buyer's pick of currency is theirs, not the listing's: it rides the address, so it follows them to the next.
+  const [params, setParams] = useSearchParams()
+  const currency = params.get('currency') ?? ''
+  const setCurrency = (c: string) => setParams(c ? { currency: c } : {}, { replace: true })
+  const listing = useQuery({
+    queryKey: ['market-listing', id, currency],
+    queryFn: () => marketApi.listing(id, currency),
+    placeholderData: (prev) => (prev?.id === id ? prev : undefined),
+  })
+  const trust = useQuery({ queryKey: ['market-trust', id], queryFn: () => marketApi.trust(id) })
+  const licences = useQuery({ queryKey: LICENCES_KEY, queryFn: marketApi.licences })
   if (listing.isError || listing.isPending) {
     const missing = listing.error instanceof ApiError && listing.error.status === 404
     return (
@@ -36,6 +53,7 @@ export function ListingPage() {
   const l = listing.data
   const versions = l.versions ?? []
   const own = versions.some((v) => v.artifact !== undefined)
+  const held = own ? undefined : (licences.data ?? []).find((x) => x.listing_id === l.id && x.status === 'active')
   return (
     <>
       <Region
@@ -66,11 +84,28 @@ export function ListingPage() {
         ) : null}
         {own ? null : <ReportListing key={l.id} listing={l} />}
       </Region>
-      <Region index="01" label="Use it">
-        <UseListing key={l.id} listing={l} own={own} />
+      {(l.offers ?? []).length > 0 ? (
+        <Region index="01" label="Offers">
+          <ListingOffers key={l.id} listing={l} own={own} held={held} currency={currency} onCurrency={setCurrency} />
+        </Region>
+      ) : null}
+      <Region index="02" label="Use it">
+        <UseListing key={l.id} listing={l} own={own} held={held} />
       </Region>
+      <Region index="03" label="Trust">
+        {trust.data ? (
+          <TrustPanel trust={trust.data} />
+        ) : (
+          <p className="text-body text-muted">{trust.isPending ? 'Reading…' : readFailure(trust.error, 'Its trust panel')}</p>
+        )}
+      </Region>
+      {trust.data ? (
+        <Region index="04" label="Family tree">
+          <FamilyTree listing={l} trust={trust.data} own={own} />
+        </Region>
+      ) : null}
       {versions.length > 0 ? (
-        <Region index="02" label="Versions">
+        <Region index="05" label="Versions">
           <Card>
             <CardHeader>Versions</CardHeader>
             {[...versions].reverse().map((v) => (

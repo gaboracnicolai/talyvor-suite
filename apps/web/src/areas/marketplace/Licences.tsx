@@ -47,7 +47,7 @@ const ENDED_WORD: Record<MarketLicence["status"], string> = {
 };
 
 /** `2026-11-08T…` → `8 Nov 2026`, in UTC as Lens counts a licence's period. */
-function day(iso: string): string {
+export function day(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? iso
