@@ -44,8 +44,9 @@ import (
 // approval to approve — because that sentence is the screen's whole answer to "why not?". Lens
 // redacts its own 5xx bodies, so only a 4xx sentence is relayed. Every body sent up is rebuilt from
 // the fields each handler names, so nothing else a browser sends reaches Lens — but one header: the
-// Idempotency-Key a Fund or Take back (B17.26) or a pot's Move in or Move out (B17.33) is retried under
-// through a restart, which Lens reads on those four routes and nowhere else.
+// Idempotency-Key a Fund or Take back (B17.26), a pot's Move in or Move out (B17.33) or a marketplace licence's
+// renewal (B32.59, marketplace.go) is retried under through a restart, which Lens reads on those five routes and
+// nowhere else.
 
 // agentBankRelay sends body (nil for none) to a workspace-scoped Lens agent route and answers what
 // Lens answered: its JSON on success, its status and sentence on a 4xx, a 502 otherwise.

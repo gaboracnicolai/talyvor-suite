@@ -69,6 +69,16 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"month": r.URL.Query().Get("month"), "total_ulxc": 500000, "total_usd_micros": 50000, "lines": []any{}})
 		case r.URL.Path == "/v1/marketplace/listings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"listings": []any{}})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/licences"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"licences": []any{map[string]any{"id": "lic_1", "kind": "subscribe", "auto_renew": true}}})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/licences/lic_1/cancel"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "lic_1", "kind": "subscribe", "auto_renew": false, "status": "active"})
+		case strings.HasSuffix(r.URL.Path, "/listings/lst_1/licences"):
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "lic_2", "key": r.Header.Get("Idempotency-Key")})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/receipts/rcp_1") && r.URL.Query().Get("format") == "html":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, "<!doctype html><title>Receipt TEST-2026-000001</title>")
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -146,6 +156,48 @@ func TestMarketplaceBillReadsTheMonthAsked(t *testing.T) {
 	}
 	if len(f.got) != 1 || !strings.Contains(f.got[0], "/marketplace/bill?month=2026-09 ") || !strings.HasPrefix(f.got[0], "GET /v1/workspaces/") {
 		t.Fatalf("Lens received %q, want one read of the September bill on the session's workspace", f.got)
+	}
+}
+
+// B32.59 — the Licences page reads, cancels and renews on the session's workspace: a renewal reaches Lens with its
+// Idempotency-Key and a rebuilt body; a receipt opens as Lens's page under a sandboxing CSP, and a format Lens does not render is refused.
+func TestMarketplaceLicencesAndReceiptsReachLensOnTheSessionsWorkspace(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	if rec := doJSON(a, http.MethodGet, "/api/marketplace/licences", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"id":"lic_1"`) {
+		t.Fatalf("licences = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/marketplace/licences/lic_1/cancel", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"auto_renew":false`) {
+		t.Fatalf("cancel = %d %s", rec.Code, rec.Body.String())
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/marketplace/listings/lst_1/licences", strings.NewReader(`{"offer_id":"ofr_1","version":2,"auto_renew":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "renew-1")
+	rec := httptest.NewRecorder()
+	a.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"key":"renew-1"`) {
+		t.Fatalf("renew = %d %s, want Lens's 201 with the key forwarded", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(a, http.MethodGet, "/api/marketplace/receipts/rcp_1", "")
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/html") ||
+		!strings.Contains(rec.Header().Get("Content-Security-Policy"), "sandbox") || !strings.Contains(rec.Body.String(), "TEST-2026-000001") {
+		t.Fatalf("receipt = %d %q %q %s, want Lens's page, sandboxed", rec.Code, rec.Header().Get("Content-Type"), rec.Header().Get("Content-Security-Policy"), rec.Body.String())
+	}
+	if rec = doJSON(a, http.MethodGet, "/api/marketplace/receipts/rcp_1?format=xml", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a receipt as xml = %d, want 400", rec.Code)
+	}
+	if len(f.got) != 4 {
+		t.Fatalf("Lens received %d requests, want 4: %q", len(f.got), f.got)
+	}
+	for i, want := range []string{"GET /v1/workspaces/", "POST /v1/workspaces/", "POST /v1/workspaces/", "GET /v1/workspaces/"} {
+		if !strings.HasPrefix(f.got[i], want) {
+			t.Fatalf("Lens received %q, want it on the session's workspace", f.got[i])
+		}
+	}
+	if !strings.HasSuffix(f.got[2], ` {"offer_id":"ofr_1","version":2}`) {
+		t.Fatalf("the renewal reached Lens as %q, want only the offer and the version", f.got[2])
+	}
+	if !strings.Contains(f.got[3], "/marketplace/receipts/rcp_1?format=html ") {
+		t.Fatalf("the receipt reached Lens as %q, want its page", f.got[3])
 	}
 }
 

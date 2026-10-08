@@ -27,6 +27,11 @@ import (
 //	GET  /api/marketplace/payouts                  B20.6: the seller's Stripe account, balance, next payout and payouts
 //	POST /api/marketplace/payouts/connect          B20.6: {country} a link to Stripe's onboarding (B35.10: Lens is sent the session's email too)
 //	POST /api/marketplace/payouts/credits          B20.6: take the available balance as Talyvor credits
+//	GET  /api/marketplace/licences                 B32.59: the licences this workspace holds or held
+//	POST /api/marketplace/licences/{id}/cancel     B32.59: stop a licence renewing; it runs to its end
+//	POST /api/marketplace/listings/{id}/licences   B32.59: {offer_id, version} + Idempotency-Key: license an offer again (renew)
+//	GET  /api/marketplace/receipts                 B32.59: Talyvor's receipts for this workspace's paid bills
+//	GET  /api/marketplace/receipts/{id}            B32.59: one receipt as its page; ?format=pdf the document
 //
 // Reads and publishing go on the session's workspace token, as the Agent Bank's do. A USE does not:
 // Lens runs the listing by calling its own proxy with the caller's credential, and every /v1/proxy/*
@@ -231,6 +236,127 @@ func (a *app) handleMarketBill(w http.ResponseWriter, r *http.Request, t tenant)
 		path += "?month=" + month
 	}
 	a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+}
+
+// handleMarketLicences — GET /api/marketplace/licences (B32.59, Lens B32.19–B32.20): every licence this workspace
+// holds or held — its end, whether it renews, the version it pins and what its rents have paid towards owning it.
+func (a *app) handleMarketLicences(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, lensWorkspacePath(t, "/marketplace/licences"), nil, "")
+}
+
+// handleMarketLicenceCancel — POST /api/marketplace/licences/{id}/cancel: the licence stops renewing and stays
+// active to its end (Lens B32.20); nothing is charged for a period after it.
+func (a *app) handleMarketLicenceCancel(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	id, ok := pathID(w, "licence id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost, lensWorkspacePath(t, "/marketplace/licences/"+url.PathEscape(id)+"/cancel"), nil, "")
+}
+
+// handleMarketLicense — POST /api/marketplace/listings/{id}/licences {offer_id, version}: this workspace licenses one of
+// a listing's offers again — the Licences page's Renew of a rental or subscription that ended (Lens B32.19). Its price
+// goes on this month's marketplace bill. agentBankRelay forwards the screen's Idempotency-Key, which Lens requires, so
+// a retried click never rents twice; without one Lens refuses with its sentence.
+func (a *app) handleMarketLicense(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	id, ok := pathID(w, "listing id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	var in struct {
+		OfferID string `json:"offer_id"`
+		Version int    `json:"version"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&in); err != nil || in.OfferID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name the offer to license"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensMarketLicenceBody: auto_renew
+	body, _ := json.Marshal(in)
+	a.agentBankRelay(w, r, t, http.MethodPost, "/marketplace/listings/"+url.PathEscape(id)+"/licences", body)
+}
+
+// handleMarketReceipts — GET /api/marketplace/receipts (B32.59, Lens B32.40): Talyvor's receipt for each of this
+// workspace's paid marketplace bills, newest first. Lens answers its owner or an admin only, and says so otherwise.
+func (a *app) handleMarketReceipts(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, lensWorkspacePath(t, "/marketplace/receipts"), nil, "")
+}
+
+// receiptTypes are what a receipt may be fetched as, and the one Content-Type each answers in.
+var receiptTypes = map[string]string{"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
+
+// handleMarketReceipt — GET /api/marketplace/receipts/{id}: one receipt as Lens renders it — its page, or with
+// ?format=pdf its A4 document — for the bill's Receipt link. Lens's bytes are relayed under this route's own
+// Content-Type and a sandboxing CSP, so nothing in them can run on the app's origin.
+func (a *app) handleMarketReceipt(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	id, ok := pathID(w, "receipt id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "html"
+	}
+	contentType, ok := receiptTypes[format]
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "format must be html or pdf"})
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet,
+		a.cfg.lensBaseURL+lensWorkspacePath(t, "/marketplace/receipts/"+url.PathEscape(id))+"?format="+format, nil)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "lens upstream request"})
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+t.token) // server-side only
+	resp, err := a.client.Do(req)
+	if err != nil {
+		log.Printf("bff: marketplace receipt: %v", err)
+		writeUpstreamFailure(w, "lens", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if format == "pdf" {
+			w.Header().Set("Content-Disposition", `inline; filename="talyvor-receipt.pdf"`)
+		}
+		_, _ = w.Write(raw)
+	case resp.StatusCode >= 400 && resp.StatusCode < 500:
+		var refusal struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(raw, &refusal) != nil || refusal.Error == "" {
+			refusal.Error = "Lens refused this"
+		}
+		writeJSON(w, resp.StatusCode, map[string]string{"error": refusal.Error})
+	default:
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Lens could not answer just now"})
+	}
 }
 
 // handleMarketReport — POST /api/marketplace/listings/{id}/reports {reason, details}: this workspace

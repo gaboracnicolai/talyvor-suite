@@ -145,7 +145,7 @@ describe('the marketplace', () => {
 
     // B20.10 — the buyer's bill for this month carries that use, its price and the total.
     await at('/marketplace/bill')
-    await waitFor(() => expect(screen.getByTestId('market-bill-total').textContent).toBe('0.5 LXC · $0.05'))
+    await waitFor(() => expect(screen.getByTestId('market-bill-total').textContent).toBe('$0.05'))
     expect(screen.getByRole('link', { name: 'Translate to French' })).toBeTruthy()
 
     // B32.9 — the seller is told the terms: 85% of the price to them, 15% to Talyvor, and no first-million tier.

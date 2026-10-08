@@ -271,6 +271,9 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/agents/x1/card", body: `{"first_name":"a","last_name":"b","line1":"c","city":"d","postal_code":"e"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/connect", body: `{"country":"GB"}`},
 		{method: http.MethodPost, path: "/api/marketplace/payouts/credits", body: `{}`},
+		// B32.59 — a licence's cancel and its renewal.
+		{method: http.MethodPost, path: "/api/marketplace/licences/x1/cancel", body: `{}`},
+		{method: http.MethodPost, path: "/api/marketplace/listings/x1/licences", body: `{"offer_id":"x1"}`},
 		// B32.53 — opening a room and joining one.
 		{method: http.MethodPost, path: "/api/rooms", body: `{"title":"t","visibility":"public"}`},
 		{method: http.MethodPost, path: "/api/rooms/x1/join", body: `{"terms_version":1}`},
