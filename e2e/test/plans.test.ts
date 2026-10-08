@@ -57,6 +57,7 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // B32.89 — and the trust panel, counting only paying buyers not linked to the seller.
     // B32.92 — and a buyer's tax profile, a valid VAT number making a business and a never-issued one a consumer.
     // B32.95 — and a seller's tax details, saved and read back masked, kept when a save leaves them out.
+    // B32.96 — and a seller's weekly statement, its lines summing to its net before and after the payout run pays it.
     // B30.117 — and verification levels, reached in order, a Test pass counting for test money only.
     // B30.116 — and the Verification screen, L1 then L2 reached from its forms.
     // B30.118 — and an agent's Know Your Agent credential, revoked by a rule change and by a pause.
@@ -65,7 +66,7 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // B32.94 — and two buyers' paid bills, each receipted in turn as its bill, the DE business's reverse charged.
     expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['agent-rules-unbypassable:team', 'buyer-tax-profile:free', 'byok-addon:free', 'credits-top-up:free', 'csrf-refused:free', 'evals:free', 'file-bomb-bounded:free', 'gateway-auth:free', 'gateway-keys:free',
       'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'injection-exfil:free', 'keys-not-forwarded:free', 'keys-unlisted:free', 'kya-credential:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'lineage:free', 'market-abuse:free', 'market-agent-commitment:free', 'market-agent-mcp:free', 'market-bill-tax:free', 'market-discovery:free', 'market-journal:free', 'market-offers:free', 'market-receipts:free', 'market-rent:free', 'market-trial:free', 'market-trust:free', 'nodes:free', 'outputs-attribution:free',
-      'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'pool-isolation:free', 'povi:free', 'rate-limits-hold:free', 'room-agent-mcp:free', 'room-contributions:free', 'room-decide-run:team', 'room-invite-limits:free', 'room-invite-screen:team', 'room-messages:team', 'room-prizes:free', 'room-runs:free', 'room-wallet:free', 'rooms-moderation:free', 'rooms-private:team', 'script-inert:team', 'seats-free:free', 'seats-team:free', 'seller-tax-details:free',
+      'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'pool-isolation:free', 'povi:free', 'rate-limits-hold:free', 'room-agent-mcp:free', 'room-contributions:free', 'room-decide-run:team', 'room-invite-limits:free', 'room-invite-screen:team', 'room-messages:team', 'room-prizes:free', 'room-runs:free', 'room-wallet:free', 'rooms-moderation:free', 'rooms-private:team', 'script-inert:team', 'seats-free:free', 'seats-team:free', 'seller-tax-details:free', 'seller-week-statement:free',
       'settings-config-budgets:free', 'settings-guardrails:free', 'settings-operator-only:free', 'settings-prompts:free', 'settings-stored-answers:free',
       'settings-switches:free', 'settings-tare-distill:free', 'ssrf-refused:free', 'tax-and-payouts:free', 'verification-levels:free', 'verification-screen:free', 'webhook-replayed:free', 'webhook-unsigned:free'])
   })

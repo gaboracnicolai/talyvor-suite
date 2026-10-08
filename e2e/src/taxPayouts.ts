@@ -65,7 +65,7 @@ const BUYERS: readonly Buyer[] = [
 ]
 
 /** A seller's complete tax details, as an individual in GB (Lens sellertax.Input). */
-const SELLER_DETAILS = {
+export const SELLER_DETAILS = {
   seller_type: 'individual', first_name: 'Nightly', last_name: 'Seller', address: '2 Test Street, London', country: 'GB',
   tins: [{ jurisdiction: 'GB', number: '1234567890' }], date_of_birth: '1985-04-12', account_identifier: 'GB33BUKB20201555555555', account_holder: 'Nightly Seller',
 }
