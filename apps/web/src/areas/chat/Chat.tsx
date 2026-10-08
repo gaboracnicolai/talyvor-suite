@@ -23,8 +23,10 @@ import {
   fetchModels,
   fetchUnconfiguredProviders,
   filedIssueHref,
+  isImage,
   markAnswerWrong,
   pickerCatalog,
+  readsImages,
   statementLineHref,
   uploadDocument,
 } from './chatApi'
@@ -172,6 +174,45 @@ export const ATTACHABLE: Record<string, string> = {
  * own 4 MiB bound no longer limits it.
  */
 export const ATTACH_LIMIT_BYTES = 25 << 20
+
+/**
+ * B28.379 — the images a question can carry to a model that reads them: the four kinds Anthropic and OpenAI both take.
+ * An image goes inside the question rather than to Lens's document store. Keyed by extension for the file chooser;
+ * its first bytes decide its type (sniffImage), since a .jpg is often a PNG.
+ */
+export const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+}
+
+/**
+ * B28.379 — 3 MB per image: the largest whose encoding, a third larger, still fits the 4 MB chat request
+ * (STREAM_REQUEST_MAX_BYTES) with the words around it.
+ */
+export const IMAGE_LIMIT_BYTES = 3_000_000
+
+/** B28.379 — the image type a file's first bytes say it is, or undefined when they are not one of IMAGE_TYPES. */
+export function sniffImage(head: Uint8Array): string | undefined {
+  const at = (i: number, ...b: number[]) => b.every((x, j) => head[i + j] === x)
+  if (at(0, 0x89, 0x50, 0x4e, 0x47)) return 'image/png'
+  if (at(0, 0xff, 0xd8, 0xff)) return 'image/jpeg'
+  if (at(0, 0x47, 0x49, 0x46, 0x38)) return 'image/gif'
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp'
+  return undefined
+}
+
+/** B28.379 — a file's bytes, base64. */
+function readBase64(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''))
+    r.onerror = () => reject(r.error ?? new Error(`${f.name} is unreadable`))
+    r.readAsDataURL(f)
+  })
+}
 
 function formatSize(bytes: number): string {
   return bytes < 1_000_000 ? `${Math.max(1, Math.round(bytes / 1000))} KB` : `${(bytes / 1_000_000).toFixed(1)} MB`
@@ -864,6 +905,11 @@ export function Chat() {
         setWaiting(true)
         return
       }
+      // B28.379 — a conversation's images go with every question in it, so a model that cannot read them is not sent one.
+      if (!readsImages(selected) && [...messages.flatMap((m) => m.attachments ?? []), ...attachments].some(isImage)) {
+        setAttachError(`${selected.display_name} can’t read images. Pick a model that can, or start a new chat.`)
+        return
+      }
       // Refused, the question stays in the box: raise the budget and it can be sent.
       if (refuseOverBudget(messages, question, attachments)) return
       setDraft('')
@@ -880,10 +926,32 @@ export function Chat() {
       setAttachError(null)
       for (const f of files) {
         const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
+        // B28.379 — an image is read here and goes inside the question, to a model that reads images.
+        if (IMAGE_TYPES[ext] !== undefined) {
+          if (selected !== undefined && !readsImages(selected)) {
+            const reader = models.find(readsImages)
+            setAttachError(
+              `${selected.display_name} can’t read images${reader === undefined ? '.' : ` — pick one that can, such as ${reader.display_name}.`}`,
+            )
+            continue
+          }
+          if (f.size > IMAGE_LIMIT_BYTES) {
+            setAttachError(`${f.name} is too large: an image can be at most 3 MB.`)
+            continue
+          }
+          const data = await readBase64(f).catch(() => '')
+          const imageType = sniffImage(Uint8Array.from(atob(data.slice(0, 16)), (c) => c.charCodeAt(0)))
+          if (imageType === undefined) {
+            setAttachError(`${f.name} couldn’t be read as a PNG, JPEG, GIF or WebP image.`)
+            continue
+          }
+          setAttachments((prev) => [...prev, { name: f.name, media_type: imageType, size: f.size, data }])
+          continue
+        }
         const mediaType = ATTACHABLE[ext]
         if (mediaType === undefined) {
           setAttachError(
-            `${f.name} can’t be converted. PDF, Word, Excel, PowerPoint, CSV, HTML, JSON, XML, text and Markdown files can.`,
+            `${f.name} can’t be converted. PDF, Word, Excel, PowerPoint, CSV, HTML, JSON, XML, text and Markdown files can, and PNG, JPEG, GIF and WebP images can be sent to a model that reads them.`,
           )
           continue
         }
@@ -907,7 +975,7 @@ export function Chat() {
         }
       }
     },
-    [],
+    [models, selected],
   )
 
   // B28.375 — a Docs page, read as Docs stores it and stored in Lens as a document, so it travels as an attached file does.
@@ -1897,36 +1965,54 @@ function Drawer({
  * them to text before the model read them; without that, the model was sent the original file.
  */
 function SentDocuments({ message, answering }: { message: ChatMessage; answering: boolean }) {
-  const docs = message.attachments ?? []
+  // B28.379 — an image whose bytes are still in hand is shown; after a reload it is a name, like a document from before.
+  const images = (message.attachments ?? []).filter(isImage)
+  const docs = (message.attachments ?? []).filter((a) => !isImage(a))
   const kept = docs.every((d) => d.file_id !== undefined)
   return (
     <div className="mb-2 space-y-1">
-      <ul className="flex flex-wrap gap-2" aria-label="Documents sent">
-        {docs.map((d, i) => (
-          <li key={`${d.name}-${i}`} className="rounded-control border border-rule bg-canvas px-2 py-1 text-caption text-ink">
-            {d.docs_page !== undefined ? (
-              // B28.375 — a Docs page, linked to the page it was read from.
-              <>
-                <span className="font-figure text-eyebrow uppercase text-label">Docs</span>{' '}
-                <Link className={inlineLink} to={pageHref({ spaceId: d.docs_page.space_id, pageId: d.docs_page.page_id })} data-testid="sent-docs-page">
-                  {d.name}
-                </Link>
-              </>
-            ) : d.track_issue !== undefined ? (
-              // B28.376 — a Track issue, linked to the issue; what the conversation's answers cost is added to its AI cost.
-              <span title={`What this conversation’s answers cost is added to ${d.track_issue.identifier}’s AI cost in Track`}>
-                <span className="font-figure text-label">{d.track_issue.identifier}</span>{' '}
-                <Link className={inlineLink} to={filedIssueHref(d.track_issue)} data-testid="sent-track-issue">
-                  {d.name}
-                </Link>
-              </span>
-            ) : (
-              d.name
-            )}{' '}
-            <span className="font-figure text-faint">{formatSize(d.size)}</span>
-          </li>
-        ))}
-      </ul>
+      {images.length > 0 ? (
+        <ul className="flex flex-wrap gap-2" aria-label="Images sent">
+          {images.map((d, i) => (
+            <li key={`${d.name}-${i}`}>
+              <img
+                src={`data:${d.media_type};base64,${d.data}`}
+                alt={d.name}
+                className="max-h-48 max-w-full rounded-control border border-rule"
+                data-testid="sent-image"
+              />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {docs.length > 0 ? (
+        <ul className="flex flex-wrap gap-2" aria-label="Documents sent">
+          {docs.map((d, i) => (
+            <li key={`${d.name}-${i}`} className="rounded-control border border-rule bg-canvas px-2 py-1 text-caption text-ink">
+              {d.docs_page !== undefined ? (
+                // B28.375 — a Docs page, linked to the page it was read from.
+                <>
+                  <span className="font-figure text-eyebrow uppercase text-label">Docs</span>{' '}
+                  <Link className={inlineLink} to={pageHref({ spaceId: d.docs_page.space_id, pageId: d.docs_page.page_id })} data-testid="sent-docs-page">
+                    {d.name}
+                  </Link>
+                </>
+              ) : d.track_issue !== undefined ? (
+                // B28.376 — a Track issue, linked to the issue; what the conversation's answers cost is added to its AI cost.
+                <span title={`What this conversation’s answers cost is added to ${d.track_issue.identifier}’s AI cost in Track`}>
+                  <span className="font-figure text-label">{d.track_issue.identifier}</span>{' '}
+                  <Link className={inlineLink} to={filedIssueHref(d.track_issue)} data-testid="sent-track-issue">
+                    {d.name}
+                  </Link>
+                </span>
+              ) : (
+                d.name
+              )}{' '}
+              <span className="font-figure text-faint">{formatSize(d.size)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <p className="text-caption text-muted" data-testid="documents-status">
         {message.converted === true
           ? 'Converted to text before the model read it.'
@@ -2361,6 +2447,9 @@ function Composer({
             <li key={`${a.name}-${i}`} className="flex items-center gap-1 rounded-control border border-rule bg-canvas py-1 pl-2 pr-1 text-caption text-ink">
               {a.docs_page !== undefined ? <span className="font-figure text-eyebrow uppercase text-label">Docs</span> : null}
               {a.track_issue !== undefined ? <span className="font-figure text-label">{a.track_issue.identifier}</span> : null}
+              {isImage(a) ? (
+                <img src={`data:${a.media_type};base64,${a.data}`} alt="" className="h-8 w-8 rounded-control object-cover" data-testid="attached-image" />
+              ) : null}
               <span className="max-w-48 truncate">{a.name}</span>
               <span className="font-figure text-faint">{formatSize(a.size)}</span>
               <button
@@ -2426,7 +2515,7 @@ function Composer({
       <div className="flex items-center gap-2 px-2 pb-2 pt-1">
         <FilePicker
           ref={fileRef}
-          accept={Object.keys(ATTACHABLE)
+          accept={[...Object.keys(ATTACHABLE), ...Object.keys(IMAGE_TYPES)]
             .map((ext) => `.${ext}`)
             .join(',')}
           onFiles={onAttach}

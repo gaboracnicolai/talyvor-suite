@@ -31,6 +31,16 @@ export interface ChatModel {
   tier?: string
   /** B28.363 — set only on the Auto choice (autoChoice): the cheapest and the dearest model it can be served by. */
   auto?: { cheapest: ChatModel; dearest: ChatModel }
+  /** B28.379 — what the model reads besides text, from Lens's catalog (talyvor-lens internal/catalog Capabilities). */
+  capabilities?: { vision?: boolean }
+}
+
+/**
+ * B28.379 — whether a question to this model may carry an image. Auto may: Lens serves an image to a model of the
+ * provider that reads one (talyvor-lens proxy, modality.CapableModel). Any other model only when the catalog says so.
+ */
+export function readsImages(m: ChatModel): boolean {
+  return m.auto !== undefined || m.capabilities?.vision === true
 }
 
 /**
@@ -78,7 +88,21 @@ export interface ChatAttachment {
   /** B28.376 — set when the document is a Track issue (TrackIssuePicker.tsx): the question shows it linked to the issue,
    *  and every request in the conversation names it to Lens (ISSUE_HEADER), so what the answers cost is the issue's. */
   track_issue?: { id: string; identifier: string }
+  /** B28.379 — on an image: its bytes, base64, sent to the model inside the question. In memory only — history.ts
+   *  keeps the name and size, so a reopened conversation shows the image was there but cannot send it again. */
+  data?: string
 }
+
+/** B28.379 — an image a question carries, its bytes in hand. */
+export function isImage(a: ChatAttachment): a is ChatAttachment & { data: string } {
+  return a.media_type.startsWith('image/') && a.data !== undefined
+}
+
+/**
+ * B28.379 — the most a chat request may be: the BFF relay's bound (apps/bff stream.go streamRequestMaxBytes). Images
+ * travel inside the request, so a conversation's images must fit in it with the words.
+ */
+export const STREAM_REQUEST_MAX_BYTES = 4 << 20
 
 /** B18.24 — what converting a question's documents saved, as Lens measured it (talyvor-lens B18.13):
  *  tokens by the gateway's own count — 0, never a guess, for a binary file — and bytes. */
@@ -601,7 +625,11 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
   const said = turns.filter((t) => t.role !== 'assistant' || t.content.trim() !== '')
   const messages = said.map(({ role, content, attachments }) => {
     const docs = (attachments ?? []).filter((a) => a.file_id !== undefined)
-    if (docs.length === 0) return { role, content }
+    const images = (attachments ?? []).filter(isImage)
+    if (docs.length === 0 && images.length === 0) return { role, content }
+    // B28.379 — an image goes inside the question, in each provider's own shape, which Lens reads to send it to a model
+    // that sees images (talyvor-lens internal/modality Detect): Anthropic's `image` block with a base64 source, ahead of
+    // the words as Anthropic asks, and OpenAI's `image_url` part carrying a data: URL.
     // ⚠ THE TWO SHAPES LENS READS AN UPLOADED DOCUMENT FROM (talyvor-lens B18.13): Anthropic's
     // `document` block with a `file` source and OpenAI's `file` part, each naming the tdoc_ id. Lens
     // replaces each with the document's text before the model sees it — the id means nothing to a
@@ -610,6 +638,7 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
       return {
         role,
         content: [
+          ...images.map((d) => ({ type: 'image', source: { type: 'base64', media_type: d.media_type, data: d.data } })),
           ...docs.map((d) => ({ type: 'document', source: { type: 'file', file_id: d.file_id } })),
           { type: 'text', text: content },
         ],
@@ -617,7 +646,11 @@ function requestBody(provider: string, model: string, turns: ChatMessage[], tool
     }
     return {
       role,
-      content: [{ type: 'text', text: content }, ...docs.map((d) => ({ type: 'file', file: { file_id: d.file_id } }))],
+      content: [
+        { type: 'text', text: content },
+        ...images.map((d) => ({ type: 'image_url', image_url: { url: `data:${d.media_type};base64,${d.data}` } })),
+        ...docs.map((d) => ({ type: 'file', file: { file_id: d.file_id } })),
+      ],
     }
   })
   // B28.349 — the tool calls this question has made so far and what they answered, in the provider's shape.
@@ -785,6 +818,11 @@ export async function streamChat(
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions, conversation?.prompt)),
     signal,
+  }
+  // B28.379 — the relay refuses a larger request with a sentence that names no cause; the images are the cause.
+  if (new Blob([init.body as string]).size > STREAM_REQUEST_MAX_BYTES) {
+    handlers.onError('The images in this conversation are too large to send together — at most 4 MB in all. Start a new chat to ask about another image.')
+    return
   }
 
   let res: Response

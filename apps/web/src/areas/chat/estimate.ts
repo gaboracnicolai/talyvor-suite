@@ -1,4 +1,4 @@
-import { CHAT_MAX_TOKENS, type ChatAttachment, type ChatMessage, type ChatModel, type ChatTool, TOOL_PROVIDERS } from './chatApi'
+import { CHAT_MAX_TOKENS, type ChatAttachment, type ChatMessage, type ChatModel, type ChatTool, isImage, TOOL_PROVIDERS } from './chatApi'
 
 /**
  * B28.99 — what a question will cost, as a range, before it is sent.
@@ -32,6 +32,9 @@ const FRAMING_TOKENS = 64
 const PER_MESSAGE_TOKENS = 8
 /** The instructions a provider adds when tools are offered (Anthropic's tool-use prompt is about 350), at most. */
 const TOOL_FRAMING_TOKENS = 600
+/** B28.379 — an image counts toward the high end only, at the most Anthropic counts one as once it has scaled it to
+ *  fit (about 1,600 tokens). Other providers count an image their own way, which this does not bound. */
+const IMAGE_TOKENS = 1_600
 
 const encoder = new TextEncoder()
 const bytes = (s: string) => encoder.encode(s).length
@@ -53,6 +56,7 @@ export function previewCost(
   const docBytes = [...said.flatMap((t) => t.attachments ?? []), ...docs]
     .filter((d) => d.file_id !== undefined)
     .reduce((n, d) => n + d.size, 0)
+  const images = [...said.flatMap((t) => t.attachments ?? []), ...docs].filter(isImage).length
   const offered = TOOL_PROVIDERS.includes(model.provider) ? tools : []
   const toolBytes = offered.length === 0 ? 0 : bytes(JSON.stringify(offered.map(({ name, description, input_schema }) => ({ name, description, input_schema }))))
 
@@ -61,7 +65,8 @@ export function previewCost(
     Math.ceil((textBytes + toolBytes + docBytes) / LEAST_BYTES_PER_TOKEN) +
     FRAMING_TOKENS +
     PER_MESSAGE_TOKENS * (said.length + 1 + (told === '' ? 0 : 1)) +
-    (offered.length === 0 ? 0 : TOOL_FRAMING_TOKENS)
+    (offered.length === 0 ? 0 : TOOL_FRAMING_TOKENS) +
+    images * IMAGE_TOKENS
 
   const usd = (input: number, output: number) => (input * model.input_per_1m + output * model.output_per_1m) / 1_000_000
   return { low_usd: usd(inputLow, 1), high_usd: usd(inputHigh, CHAT_MAX_TOKENS), answer_tokens: CHAT_MAX_TOKENS }
