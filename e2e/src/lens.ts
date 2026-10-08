@@ -517,7 +517,11 @@ export interface MarketEarnings {
   paid_out_usd_micros?: number
   refunded_usd_micros?: number
   /** B32.15 — and the sale it is a share of, and Talyvor's take of it: gross − share */
-  earnings?: { use_id: string; share_usd_micros: number; payable_at: string; refunded_at?: string; gross_usd_micros?: number; fee_usd_micros?: number }[] | null
+  earnings?: {
+    use_id: string; share_usd_micros: number; payable_at: string; refunded_at?: string; gross_usd_micros?: number; fee_usd_micros?: number
+    /** B32.65 — a sale, or an original's royalty from a remix's sale: its generation, and the original it is paid as (Lens B32.26) */
+    kind?: string; depth?: number; original_listing_id?: string
+  }[] | null
 }
 
 /**

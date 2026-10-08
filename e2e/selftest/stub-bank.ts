@@ -92,6 +92,11 @@
 //
 // B32.89 adds the trust panel (Lens B32.49, stub-trust.ts): a paying buyer's review and the seller's reply, the trust read
 // and market_listing's trust over MCP, and talyvor-lens B32.102's synthetic card link. Its defects are stub-trust.ts's.
+//
+// B32.65 adds a remix's sale paying its originals (Lens B32.26): a cleared use writes one row per payee — the seller's
+// sale, and a royalty for each ancestor up the listing's lineage — and a refund reverses every one (B32.27). Its defects:
+//   lineage-one-generation — the royalty stops at the listing's parents: a grandparent earns nothing
+//   lineage-refund-kept    — refunding a paid bill reverses the seller's row and leaves the originals' royalties
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -218,6 +223,12 @@ function shareOf(u: Use): number {
   const keep = 10_000 - (u.listing_id === '' ? 500 : 1500)
   return Math.floor(gross / 10_000) * keep + Math.floor(((gross % 10_000) * keep) / 10_000)
 }
+
+/** B32.65 — how many generations a sale pays (LENS_LINEAGE_MAX_DEPTH), and the most one node's parents take of it (LENS_LINEAGE_TOTAL_CAP_BPS). */
+const LINEAGE_MAX_DEPTH = 5
+const LINEAGE_TOTAL_CAP_BPS = 5000
+/** B32.65 — one payee's row of a cleared use (Lens market_earnings): the seller's sale, or an original's royalty. */
+interface EarningRow { use: Use; ws: string; kind: 'sale' | 'lineage'; depth: number; original: string; share: number }
 
 interface Payout {
   id: string; ws: string; method: 'credits' | 'stripe'; month: string; gross_usd_micros: number; net_usd_micros: number; credits_ulxc: number; paid_at: string; created_at: string
@@ -1268,9 +1279,56 @@ export class Bank {
 
   /** B32.66 — what the journal holds available to a seller: their released shares less what was paid out. */
   private released(ws: string): number {
-    const held = this.uses.filter((u) => u.seller === ws && u.cleared_at !== undefined && u.released_at === undefined && (u.refunded_at === undefined || u.kept))
-      .reduce((s, u) => s + shareOf(u), 0)
-    return this.earnings(ws).available - held
+    return this.earnings(ws).available - this.held(ws)
+  }
+
+  /** B32.65 — what of `ws`'s rows is still in the journal's holdback: cleared, not released, not reversed. */
+  private held(ws: string): number {
+    return this.rowsFor(ws).filter((r) => r.use.released_at === undefined && !this.reversed(r)).reduce((s, r) => s + r.share, 0)
+  }
+
+  /** B32.65 — `ws`'s rows of every cleared use: its sales and its royalties. */
+  private rowsFor(ws: string): EarningRow[] {
+    return this.uses.filter((u) => u.cleared_at !== undefined).flatMap((u) => this.rowsOf(u)).filter((r) => r.ws === ws)
+  }
+
+  /** B32.65 — whether a refund reversed row `r`: a use refunded reverses every row it wrote, unless a defect keeps it. */
+  private reversed(r: EarningRow): boolean {
+    if (r.use.refunded_at === undefined || r.use.kept === true) return false
+    return r.kind === 'sale' || !this.broken('lineage-refund-kept')
+  }
+
+  /**
+   * B32.65 — the rows a cleared use writes (Lens B32.26): the seller's share flows up the listing's ancestors breadth
+   * first, each parent receiving its edge's share of what its child received, rounded down, and keeping it less what flows
+   * on to its own parents; one node's parents together take at most LENS_LINEAGE_TOTAL_CAP_BPS of what it received, each
+   * scaled down, rounded down, above it; and it stops at LENS_LINEAGE_MAX_DEPTH or at 0 µUSD.
+   */
+  private rowsOf(u: Use): EarningRow[] {
+    const sale: EarningRow = { use: u, ws: u.seller, kind: 'sale', depth: 0, original: '', share: shareOf(u) }
+    const rows = [sale]
+    const deepest = this.broken('lineage-one-generation') ? 1 : LINEAGE_MAX_DEPTH
+    let at = u.listing_id === '' ? [] : [{ row: sale, listing: u.listing_id, received: sale.share }]
+    for (let depth = 1; at.length > 0 && depth <= deepest; depth++) {
+      const next: typeof at = []
+      for (const n of at) {
+        const edges = this.lineage.filter((e) => e.child_listing_id === n.listing && this.listings.has(e.parent_listing_id))
+        let amounts = edges.map((e) => Math.floor((n.received * e.share_bps) / 10_000))
+        const cap = Math.floor((n.received * LINEAGE_TOTAL_CAP_BPS) / 10_000)
+        const total = amounts.reduce((s, x) => s + x, 0)
+        if (total > cap) amounts = amounts.map((x) => Math.floor((x * cap) / total))
+        for (const [k, e] of edges.entries()) {
+          if (amounts[k] <= 0) continue
+          const parent = this.listings.get(e.parent_listing_id) as Listing
+          const row: EarningRow = { use: u, ws: parent.workspace_id, kind: 'lineage', depth, original: parent.id, share: amounts[k] }
+          n.row.share -= amounts[k]
+          rows.push(row)
+          next.push({ row, listing: parent.id, received: amounts[k] })
+        }
+      }
+      at = next
+    }
+    return rows
   }
 
   /**
@@ -1328,12 +1386,13 @@ export class Bank {
    * B25.7 pays a test bill a holdback ago), less what a refund reversed and what was paid out.
    */
   private earnings(ws: string): { lifetime: number; refunded: number; available: number; paid: number } {
-    const cleared = this.uses.filter((u) => u.seller === ws && u.cleared_at !== undefined)
-    const share = (us: Use[]) => us.reduce((s, u) => s + shareOf(u), 0)
-    const reversed = cleared.filter((u) => u.refunded_at !== undefined && !u.kept)
+    // B32.65 — a seller's sales and an original's royalties alike; only a sale counts its gross.
+    const rows = this.rowsFor(ws)
+    const share = (rs: EarningRow[]) => rs.reduce((s, r) => s + r.share, 0)
+    const reversed = rows.filter((r) => this.reversed(r))
     const paid = this.payouts.filter((p) => p.ws === ws).reduce((s, p) => s + p.gross_usd_micros, 0)
-    return { lifetime: cleared.reduce((s, u) => s + u.price_ulxc / ULXC_PER_USD_MICRO, 0), refunded: share(reversed),
-      available: Math.max(share(cleared) - share(reversed) - paid, 0), paid }
+    return { lifetime: rows.filter((r) => r.kind === 'sale').reduce((s, r) => s + r.use.price_ulxc / ULXC_PER_USD_MICRO, 0), refunded: share(reversed),
+      available: Math.max(share(rows) - share(reversed) - paid, 0), paid }
   }
 
   /** Whether `viewer` may see listing `l`: held and taken-down listings are their owner's alone. */
@@ -2081,19 +2140,21 @@ export class Bank {
     if (rest === '/marketplace/earnings') {
       const pending = this.uses.filter((u) => u.seller === ws.id && u.charge === 'billed' && u.cleared_at === undefined && u.refunded_at === undefined)
       const e = this.earnings(ws.id)
-      const earnings = this.uses.filter((u) => u.seller === ws.id && u.cleared_at !== undefined).map((u) => ({ use_id: u.id, listing_id: u.listing_id,
-        gross_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, share_usd_micros: shareOf(u), fee_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO - shareOf(u),
+      // B32.65 — one row per payee: the sale with its gross and Talyvor's fee, a royalty with its generation and original.
+      const earnings = this.rowsFor(ws.id).map(({ use: u, kind, depth, original, share }) => ({ use_id: u.id, listing_id: u.listing_id, kind,
+        ...(kind === 'lineage' ? { depth, original_listing_id: original } : {}),
+        gross_usd_micros: kind === 'sale' ? u.price_ulxc / ULXC_PER_USD_MICRO : 0, share_usd_micros: share,
+        fee_usd_micros: kind === 'sale' ? u.price_ulxc / ULXC_PER_USD_MICRO - shareOf(u) : 0,
         invoice_id: u.invoice, cleared_at: u.cleared_at,
-        payable_at: u.cleared_at, refunded_at: u.kept ? undefined : u.refunded_at, payee_agent_id: u.payee_agent_id || undefined }))
+        payable_at: u.cleared_at, refunded_at: this.reversed({ use: u, ws: ws.id, kind, depth, original, share }) ? u.refunded_at : undefined, payee_agent_id: u.payee_agent_id || undefined }))
       return json(res, 200, { pending_uses: pending.length, pending_usd_micros: pending.reduce((s, u) => s + shareOf(u), 0), payable_usd_micros: e.available, in_holdback_usd_micros: 0,
         available_usd_micros: e.available, paid_out_usd_micros: e.paid, owed_usd_micros: 0, lifetime_gross_usd_micros: e.lifetime, refunded_usd_micros: e.refunded, earnings }), true
     }
     if (rest === '/marketplace/journal') {
       // What the seller is owed: a paid use's share in holdback until tick() releases it, then available less what was paid out.
       const e = this.earnings(ws.id)
-      const held = this.uses.filter((u) => u.seller === ws.id && u.cleared_at !== undefined && u.released_at === undefined && (u.refunded_at === undefined || u.kept))
-        .reduce((s, u) => s + shareOf(u), 0)
-      const released = this.uses.some((u) => u.seller === ws.id && u.released_at !== undefined)
+      const held = this.held(ws.id)
+      const released = this.rowsFor(ws.id).some((r) => r.use.released_at !== undefined)
       return json(res, 200, { holdback_usd_micros: held, available_usd_micros: e.available - held - (released && this.broken('journal-off') ? 1 : 0),
         due_for_release_usd_micros: held, reconciled: !this.broken('journal-unreconciled') }), true
     }
