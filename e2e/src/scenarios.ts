@@ -50,6 +50,7 @@ import { roomContributions } from './roomContributions.ts'
 import { roomWallet } from './roomWallet.ts'
 import { roomRuns } from './roomRuns.ts'
 import { roomPrizes } from './roomPrizes.ts'
+import { taxAndPayouts } from './taxPayouts.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
@@ -4411,6 +4412,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // nowhere; one awarded is one billed prize use on the owner's bill by the room's wallet and a perpetual commercial
   // licence, cleared to the author at Lens's take once paid; one past its deadline closes unawarded and bills nothing.
   if (i === 7) list.push(roomPrizes(i))
+  // B32.66 — tax and payouts, once a run, on workspaces of its own: a GB consumer, a DE business and a US buyer each rent one
+  // listing and each line, receipt and the seller's week carries its tax; the seller, withheld from the payout run without
+  // tax details, completes them and is paid on the next run with a statement equal to its journal postings.
+  if (i === 3) list.push(taxAndPayouts(i))
   return list
 }
 
