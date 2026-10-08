@@ -422,6 +422,18 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: "type LicenceRequest struct {",
     subject: "lensMarketLicenceBody",
   },
+  // B32.58 — Remix this, and declaring a held copy's original as a parent: the remix licence accepted.
+  {
+    route: "POST /v1/workspaces/{wsID}/marketplace/listings/{listingID}/remix",
+    file: "apps/bff/marketplace.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleMarketRemix(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/market_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/workspaces/{wsID}/marketplace/listings/{listingID}/remix", marketOwnerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensMarketRemixBody",
+  },
   // B32.60 — a seller saves their tax details.
   {
     route: "PUT /v1/workspaces/{wsID}/marketplace/seller-tax",

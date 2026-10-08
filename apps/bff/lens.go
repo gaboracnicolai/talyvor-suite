@@ -453,6 +453,7 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/marketplace/listings/{id}", a.requireTenant(a.handleMarketListing))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}/use", a.requireTenant(a.handleMarketUse))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}/trust", a.requireTenant(a.handleMarketTrust))    // B32.57
+	a.mux.HandleFunc("/api/marketplace/listings/{id}/remix", a.requireTenant(a.handleMarketRemix))    // B32.58
 	a.mux.HandleFunc("/api/marketplace/listings/{id}/reports", a.requireTenant(a.handleMarketReport)) // B20.11
 	a.mux.HandleFunc("/api/marketplace/mine", a.requireTenant(a.handleMarketMine))
 	a.mux.HandleFunc("/api/marketplace/earnings", a.requireTenant(a.handleMarketEarnings))

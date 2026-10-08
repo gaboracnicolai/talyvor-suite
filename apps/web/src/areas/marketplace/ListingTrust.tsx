@@ -1,24 +1,20 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button, CardHeader, Pill, Row, inlineLink } from '@talyvor/ui'
 import { day } from './Licences'
 import type { Ancestor, Listing, ListingTrust } from './marketApi'
 import { Card } from './parts'
+import { AcceptRemix, percent, remixPrefill } from './Remix'
 
 // ListingTrust.tsx — B32.57: what a buyer reads before paying, from Lens's one trust read (B32.49). The trust panel:
 // whether the publisher is verified (payouts enabled and no IP claim upheld against its listings in a year — and if
 // not, why not), the reviews of buyers who paid and are not linked to the seller, the eval score of the version a buyer
 // would run, and the IP claims against it. The family tree: the originals it builds on with the share of each sale
 // each one is given, how many remixes build on it, and — when its seller allows it — Remix this, with the terms a
-// remix is made under.
+// remix is made under. B32.58: accepting them opens Publish on its artifact, with it as the parent (Remix.tsx).
 
 function Figure({ children }: { children: React.ReactNode }) {
   return <span className="font-figure">{children}</span>
-}
-
-/** 1000 basis points → `10%`; 1250 → `12.5%`. */
-export function percent(bps: number): string {
-  return `${Number((bps / 100).toFixed(2))}%`
 }
 
 export function TrustPanel({ trust }: { trust: ListingTrust }) {
@@ -119,6 +115,7 @@ function Original({ a }: { a: Ancestor }) {
 
 export function FamilyTree({ listing, trust, own }: { listing: Listing; trust: ListingTrust; own: boolean }) {
   const [terms, setTerms] = useState(false)
+  const navigate = useNavigate()
   const originals = trust.originals ?? []
   const policy = listing.remix_policy ?? 'none'
   const remixable = !own && (policy === 'free' || policy === 'royalty')
@@ -164,16 +161,11 @@ export function FamilyTree({ listing, trust, own }: { listing: Listing; trust: L
             </Button>
           </span>
           {terms ? (
-            <p className="text-body text-ink" data-testid="remix-terms">
-              {policy === 'royalty' ? (
-                <>
-                  Its remix licence gives it <Figure>{percent(listing.remix_share_bps ?? 0)}</Figure> of each sale of your
-                  remix, locked at that share when you remix it; you keep the rest.
-                </>
-              ) : (
-                'Its remix licence is free: your remix owes it nothing, and its seller is credited as the original.'
-              )}
-            </p>
+            <AcceptRemix
+              listing={listing}
+              action="Accept the remix licence"
+              onAccepted={(r) => navigate('/marketplace/publish', { state: { prefill: remixPrefill(r) } })}
+            />
           ) : null}
         </div>
       ) : null}

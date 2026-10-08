@@ -77,6 +77,8 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"licences": []any{map[string]any{"id": "lic_1", "kind": "subscribe", "auto_renew": true}}})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/licences/lic_1/cancel"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "lic_1", "kind": "subscribe", "auto_renew": false, "status": "active"})
+		case strings.HasSuffix(r.URL.Path, "/listings/lst_1/remix"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"listing_id": "lst_1", "version": 2, "grant": map[string]any{"share_bps": 1500}, "artifact": map[string]any{"template": "x"}})
 		case strings.HasSuffix(r.URL.Path, "/listings/lst_1/licences"):
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "lic_2", "key": r.Header.Get("Idempotency-Key")})
@@ -128,7 +130,7 @@ func TestMarketplacePublishesOnTheSessionsWorkspaceAndRelaysTheRefusal(t *testin
 	if ws == "" || ws == "ws_other" || publish[1] != "/v1/workspaces/"+ws+"/marketplace/listings" {
 		t.Fatalf("the publish reached %q, want the session's workspace", publish[1])
 	}
-	if want := `{"kind":"prompt","title":"Translate","description":"","price_per_use_ulxc":500000,"visibility":"","artifact":{"template":"sk-live {{text}}"},"changelog":""}`; !strings.HasSuffix(f.got[0], " "+want) {
+	if want := `{"kind":"prompt","title":"Translate","description":"","price_per_use_ulxc":500000,"visibility":"","artifact":{"template":"sk-live {{text}}"},"changelog":"","remix_policy":"","remix_share_bps":0,"parents":null}`; !strings.HasSuffix(f.got[0], " "+want) {
 		t.Fatalf("Lens received %q, want the body %s", f.got[0], want)
 	}
 	if !strings.HasPrefix(f.got[1], "GET /v1/marketplace/listings?kind=prompt ") {
@@ -186,6 +188,22 @@ func TestMarketplaceListingPageReadsItsCurrencyAndTrust(t *testing.T) {
 	if len(f.got) != 2 || !strings.HasPrefix(f.got[0], "GET /v1/marketplace/listings/lst_1?currency=GBP Bearer ") ||
 		!strings.HasPrefix(f.got[1], "GET /v1/marketplace/listings/lst_1/trust Bearer ") {
 		t.Fatalf("Lens received %q, want the listing in GBP and its trust panel", f.got)
+	}
+}
+
+// B32.58 — Remix this accepts the listing's remix licence on the session's own workspace, with only the version, and
+// Lens's grant and artifact reach the screen; a negative version is refused before Lens is asked.
+func TestMarketplaceRemixAcceptsTheLicenceOnTheSessionsWorkspace(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	if rec := doJSON(a, http.MethodPost, "/api/marketplace/listings/lst_1/remix", `{"version":2,"extra":1}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"share_bps":1500`) {
+		t.Fatalf("remix = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/marketplace/listings/lst_1/remix", `{"version":-1}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a negative version = %d, want 400", rec.Code)
+	}
+	if len(f.got) != 1 || !strings.HasPrefix(f.got[0], "POST /v1/workspaces/") || !strings.Contains(f.got[0], "/marketplace/listings/lst_1/remix Bearer ") ||
+		!strings.HasSuffix(f.got[0], ` {"version":2}`) {
+		t.Fatalf("Lens received %q, want one remix on the session's workspace with only the version", f.got)
 	}
 }
 

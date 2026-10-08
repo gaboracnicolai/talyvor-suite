@@ -40,6 +40,34 @@ export interface ListingNeeds {
   cases?: number;
 }
 
+/** Lens market.Similar (B32.46) — the listing a version is nearest to that it may not copy without declaring it. */
+export interface SimilarListing {
+  listing_id: string;
+  title: string;
+  /** 0 to 1 */
+  score: number;
+  /** it allows remixes: remix it and declare it as a parent to publish without a review */
+  remixable: boolean;
+}
+
+/** Lens market.Scan — what a version's publish scan found; B32.46 adds the listing it is nearest to. */
+export interface ListingScan {
+  held?: string;
+  similar?: SimilarListing;
+}
+
+/** Lens market.ParentRef (B32.24) — a listing version a new one builds on. */
+export interface ParentRef {
+  listing_id: string;
+  version: number;
+}
+
+/** Lens market.Parent — one edge of the family tree, with the share locked when it was declared. */
+export interface ListingParent extends ParentRef {
+  share_bps: number;
+  source: string;
+}
+
 /** Lens market.Version. `artifact` is present only for the listing's owner. */
 export interface ListingVersion {
   version: number;
@@ -48,6 +76,8 @@ export interface ListingVersion {
   created_at: string;
   needs?: ListingNeeds;
   artifact?: Record<string, unknown>;
+  scan?: ListingScan;
+  parents?: ListingParent[] | null;
 }
 
 /** Lens market.Listing. */
@@ -135,6 +165,25 @@ export interface ListingDraft {
   visibility: "public" | "unlisted" | "private";
   artifact: Record<string, unknown>;
   changelog: string;
+  /** B32.24 — whether others may build on it, and a royalty's share of each remix's sales */
+  remix_policy: RemixPolicy;
+  remix_share_bps: number;
+  /** B32.24 — the listing versions it builds on; someone else's needs its remix licence accepted first (B32.25) */
+  parents: ParentRef[];
+}
+
+export type RemixPolicy = "none" | "free" | "royalty";
+
+/** Lens market.Remix (B32.25) — a listing version opened to build on, and the remix licence it was opened under. */
+export interface RemixOpened {
+  listing_id: string;
+  version: number;
+  kind: ListingKind;
+  title: string;
+  licence: string;
+  /** absent for the listing's own workspace, which needs none */
+  grant?: { listing_id: string; version: number; share_bps: number; accepted_at: string };
+  artifact: Record<string, unknown>;
 }
 
 /** Lens market.UseRequest. */
@@ -672,6 +721,9 @@ export const marketApi = {
     ).receipts ?? [],
   publish: (draft: ListingDraft) =>
     post<Listing>("/api/marketplace/listings", draft),
+  /** B32.58 — accepts a listing's remix licence for a version (0: its latest) and opens its artifact to build on. */
+  remix: (id: string, version = 0) =>
+    post<RemixOpened>(`/api/marketplace/listings/${e(id)}/remix`, { version }),
   use: (id: string, req: UseRequest) =>
     post<ListingUse>(`/api/marketplace/listings/${e(id)}/use`, req),
   report: (id: string, reason: string, details: string) =>

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { CardHeader, Row, inlineLink } from '@talyvor/ui'
 import { Region } from '../../components/Region'
 import { ApiError } from '../../lib/api'
@@ -9,6 +9,7 @@ import { ListingOffers } from './ListingOffers'
 import { FamilyTree, TrustPanel } from './ListingTrust'
 import { kindLabel, marketApi } from './marketApi'
 import { Card, Price, readFailure } from './parts'
+import { SimilarHold, republishPrefill } from './Remix'
 import { ReportListing } from './Report'
 import { UseListing } from './UseListing'
 
@@ -19,9 +20,13 @@ import { UseListing } from './UseListing'
 // B32.57 — and what a buyer needs to choose: its offers and licences, priced in their currency; the licence they hold
 // for it, which covers their uses; its trust panel; and its family tree — the originals it builds on and the remixes
 // that build on it.
+//
+// B32.58 — and to its seller, a version Lens held as a near-copy: the listing it is nearest to and how similar, with
+// Declare it as a parent, which opens Publish on everything it was published with and that original as its parent.
 
 export function ListingPage() {
   const { id = '' } = useParams()
+  const navigate = useNavigate()
   // The buyer's pick of currency is theirs, not the listing's: it rides the address, so it follows them to the next.
   const [params, setParams] = useSearchParams()
   const currency = params.get('currency') ?? ''
@@ -54,6 +59,9 @@ export function ListingPage() {
   const versions = l.versions ?? []
   const own = versions.some((v) => v.artifact !== undefined)
   const held = own ? undefined : (licences.data ?? []).find((x) => x.listing_id === l.id && x.status === 'active')
+  const latest = versions.find((v) => v.version === l.latest_version)
+  const similar = own && l.review_status === 'held' ? latest?.scan?.similar : undefined
+  const titles = Object.fromEntries((trust.data?.originals ?? []).flatMap((a) => (a.title ? [[a.listing_id, a.title]] : [])))
   return (
     <>
       <Region
@@ -73,7 +81,15 @@ export function ListingPage() {
         </p>
         {l.description ? <p className="whitespace-pre-wrap text-body text-ink">{l.description}</p> : null}
         {/* B20.11 — only the seller sees a listing that is not approved, so only the seller reads why. */}
-        {l.review_status === 'held' ? (
+        {similar && latest ? (
+          <SimilarHold
+            similar={similar}
+            action="Accept and open Publish"
+            onDeclare={(p) =>
+              navigate('/marketplace/publish', { state: { prefill: republishPrefill(l, latest, titles, p) } })
+            }
+          />
+        ) : l.review_status === 'held' ? (
           <p role="status" className="border-l-2 border-l-held pl-2 text-body text-ink" data-testid="listing-review">
             Held for review{l.review_reason ? `: ${l.review_reason}` : ''}. Only you can see it until Talyvor approves it.
           </p>

@@ -107,6 +107,7 @@ var decodedFromUpstream = map[string]string{
 	"publicFees":             "Lens's public GET /v1/public/fees reply, decoded in readFees() and served on /api/pricing (B32.14)",
 	"simulatedPayee":         "a simulated payment's payee, decoded from the browser's rules/simulate body and relayed to Lens as it came (B28.30)",
 	"sellerTIN":              "one of a seller's TINs, decoded from the browser's seller-tax PUT body and relayed to Lens as it came (B32.60)",
+	"marketParent":           "a listing version a new listing builds on, decoded from the browser's publish body and relayed to Lens as it came (B32.58)",
 	"taskKey":                "Lens's POST …/agents/{id}/keys reply, decoded in issueTaskKey() and held only for the task (B28.359)",
 }
 
