@@ -76,6 +76,13 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 		case strings.HasSuffix(r.URL.Path, "/listings/lst_1/licences"):
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "lic_2", "key": r.Header.Get("Idempotency-Key")})
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/marketplace/seller-tax"):
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "sellertax: seller tax details cannot be stored here yet: LENS_PROVIDER_SECRET_KEK is not set"})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/seller-tax"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"seller_type": "individual", "tins": []any{map[string]any{"jurisdiction": "GB", "number": "••••4567"}}, "complete": true})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/statements"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"period": r.URL.Query().Get("period"), "net_usd_micros": 34000000})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/receipts/rcp_1") && r.URL.Query().Get("format") == "html":
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = io.WriteString(w, "<!doctype html><title>Receipt TEST-2026-000001</title>")
@@ -198,6 +205,41 @@ func TestMarketplaceLicencesAndReceiptsReachLensOnTheSessionsWorkspace(t *testin
 	}
 	if !strings.Contains(f.got[3], "/marketplace/receipts/rcp_1?format=html ") {
 		t.Fatalf("the receipt reached Lens as %q, want its page", f.got[3])
+	}
+}
+
+// B32.60 — the seller's tax details and statements are read on the session's workspace; a save reaches Lens rebuilt
+// from the fields a seller gives, the masked TIN left out as null so Lens keeps it, and Lens's no-custody 503 reaches
+// the screen as a sentence that does not name Lens's configuration; a period that is not an ISO week is refused here.
+func TestMarketplaceSellerTaxAndStatementsReachLensOnTheSessionsWorkspace(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	if rec := doJSON(a, http.MethodGet, "/api/marketplace/seller-tax", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "••••4567") {
+		t.Fatalf("seller-tax = %d %s", rec.Code, rec.Body.String())
+	}
+	rec := doJSON(a, http.MethodPut, "/api/marketplace/seller-tax", `{"seller_type":"individual","first_name":"Ada","country":"GB","workspace_id":"ws_other","account_identifier":"GB33BUKB20201555555555"}`)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "Tax details cannot be saved here yet.") || strings.Contains(rec.Body.String(), "KEK") {
+		t.Fatalf("save = %d %s, want the 503 in the screen's words", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodGet, "/api/marketplace/statements?period=2026-W41", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"period":"2026-W41"`) {
+		t.Fatalf("statement = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodGet, "/api/marketplace/statements?period=2026-10", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a month as a period = %d, want 400", rec.Code)
+	}
+	if len(f.got) != 3 {
+		t.Fatalf("Lens received %d requests, want 3: %q", len(f.got), f.got)
+	}
+	for i, want := range []string{"GET /v1/workspaces/", "PUT /v1/workspaces/", "GET /v1/workspaces/"} {
+		if !strings.HasPrefix(f.got[i], want) {
+			t.Fatalf("Lens received %q, want it on the session's workspace", f.got[i])
+		}
+	}
+	if strings.Contains(f.got[1], "ws_other") || !strings.Contains(f.got[1], `"tins":null`) || !strings.Contains(f.got[1], `"date_of_birth":null`) ||
+		!strings.Contains(f.got[1], `"account_identifier":"GB33BUKB20201555555555"`) {
+		t.Fatalf("the save reached Lens as %q, want only the seller's fields, the TINs and date of birth kept", f.got[1])
+	}
+	if !strings.Contains(f.got[2], "/marketplace/statements?period=2026-W41 ") {
+		t.Fatalf("the statement reached Lens as %q, want its week", f.got[2])
 	}
 }
 

@@ -422,6 +422,17 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: "type LicenceRequest struct {",
     subject: "lensMarketLicenceBody",
   },
+  // B32.60 — a seller saves their tax details.
+  {
+    route: "PUT /v1/workspaces/{wsID}/marketplace/seller-tax",
+    file: "apps/bff/marketplace.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleMarketSellerTax(",
+    anchor: "var in struct {",
+    upstreamFile: "internal/sellertax/sellertax.go",
+    upstreamAnchor: "type Input struct {",
+    subject: "lensSellerTaxBody",
+  },
   // B20.12 — the operator takes a listing down, with a reason.
   {
     route: "POST /v1/admin/marketplace/listings/{listingID}/takedown",

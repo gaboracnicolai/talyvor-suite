@@ -107,10 +107,12 @@ export function Terms() {
         </p>
         <p className="mt-3 text-reading text-muted">
           Only a workspace&rsquo;s owner or an admin can publish. A seller earns 85% of every use,
-          rental and purchase whose bill was paid; Talyvor keeps 15%. Earnings are held for 14 days for refunds, then paid once a month to a
+          rental and purchase whose bill was paid; Talyvor keeps 15%. Earnings are held for 14 days for refunds, then paid once a week to a
           Stripe account the seller connects, less Stripe&rsquo;s fees at cost — or taken at once as
-          Talyvor credits, with no fees and no minimum. A refund after the seller was paid is
-          recovered from their next earnings.
+          Talyvor credits, with no fees and no minimum. Each weekly payout has a statement of its sales,
+          fees, royalties and refunds. A seller gives Talyvor their tax details before they are paid;
+          payouts to a seller whose details are still incomplete after three requests are held until
+          they are complete. A refund after the seller was paid is recovered from their next earnings.
         </p>
         <LawyerReview compact>
           The licence a buyer receives to a listing, and who is liable for what a listing does, are
