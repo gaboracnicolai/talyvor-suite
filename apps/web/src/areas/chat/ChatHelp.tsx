@@ -158,6 +158,11 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
           page&rsquo;s name links back to it in Docs.
         </p>
         <p>
+          The issue button beside it (Track issue) lists your workspace&rsquo;s Track issues. The issue you pick goes with your
+          question, so the answer can work from it, and from then on what every answer in the conversation costs is added to
+          that issue&rsquo;s AI cost in Track. Under the question, the issue links back to it in Track.
+        </p>
+        <p>
           Lens converts an attached document to plain text before the model reads it, so the model is
           billed for the words rather than the file. The question then says &ldquo;Converted to text
           before the model read it,&rdquo; and the answer says what the conversion saved. Whether conversion runs is a workspace setting in{' '}

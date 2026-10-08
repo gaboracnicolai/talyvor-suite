@@ -219,6 +219,13 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid conversation"})
 			return
 		}
+		// B28.376 — the Track issue the conversation is about, by its identifier: Lens keeps it with the request's spend and
+		// Track adds that spend to the issue's AI cost. Only an identifier's shape goes on.
+		issue := strings.TrimSpace(r.Header.Get(issueHeader))
+		if issue != "" && !issueIdentifierPattern.MatchString(issue) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid issue"})
+			return
+		}
 		budget := strings.TrimSpace(r.Header.Get(conversationBudgetHeader))
 		if budget != "" {
 			n, err := strconv.ParseInt(budget, 10, 64)
@@ -302,6 +309,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			}
 			if budget != "" {
 				up.Header.Set(conversationBudgetHeader, budget)
+			}
+			if issue != "" {
+				up.Header.Set(issueHeader, issue)
 			}
 			// B28.362 — Chat asks Lens to say in the stream what it charged for the answer (talyvor-lens B28.102).
 			// Only the one value is forwarded: Lens adds its frame only for a reader that asked for it.
@@ -429,6 +439,15 @@ const webSearchHeader = "X-Talyvor-Web-Search"
 // the code and what it printed (B28.373; the frame is apps/web chatStream.ts CODE_RUN_FRAME, talyvor-lens B28.119). It
 // too passes through relayFlushing untouched.
 const runCodeHeader = "X-Talyvor-Run-Code"
+
+// issueHeader names the Track issue a Chat request is for (B28.376): the issue attached last in the conversation, by its
+// identifier (ENG-42). Lens keeps it with the request's spend and returns it as issue_id on /v1/api/spend/by-request,
+// where Track's syncer adds the request's cost to that issue's AI cost (talyvor-track RecordRequestSpendAttributed).
+const issueHeader = "X-Talyvor-Issue"
+
+// issueIdentifierPattern is the shape of a Track identifier the BFF passes on: a team's key, '-', the issue's number, in
+// letters, digits, '-' and '_', at most 64.
+var issueIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // featureHeader is the tag Lens groups spend by (token_events.feature, /v1/api/spend/by-feature), and chatFeature
 // Chat's tag on it (B28.106). The cheaper-model hint asks Lens for the same cohort (routing.go).

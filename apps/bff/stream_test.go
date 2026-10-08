@@ -67,6 +67,7 @@ type streamUpstream struct {
 	gotWebSearch    string // B28.372 — X-Talyvor-Web-Search as Lens received it
 	gotRunCode      string // B28.373 — X-Talyvor-Run-Code as Lens received it
 	gotFeature      string // B28.106 — X-Talyvor-Feature as Lens received it
+	gotIssue        string // B28.376 — X-Talyvor-Issue as Lens received it
 	refuse          string
 	answerHeaders   map[string]string // set on the proxied answer, as Lens does on a cache serve
 	// replayUnlessBypassed sets answerHeaders only on a request without X-Talyvor-Cache: bypass, as
@@ -125,6 +126,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotWebSearch = r.Header.Get("X-Talyvor-Web-Search")
 			u.gotRunCode = r.Header.Get("X-Talyvor-Run-Code")
 			u.gotFeature = r.Header.Get("X-Talyvor-Feature")
+			u.gotIssue = r.Header.Get("X-Talyvor-Issue")
 			if u.refuse != "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusPaymentRequired)
@@ -1264,6 +1266,44 @@ func TestStream_RunCodeReachesLensAndWhatItRanReachesTheChat(t *testing.T) {
 			}
 			if got := strings.Contains(string(body), codeRunFrame); got != (tc.wantUp == "on") {
 				t.Fatalf("the chat received %q: the code-run frame there is %v, want %v", body, got, tc.wantUp == "on")
+			}
+		})
+	}
+}
+
+// B28.376 — a conversation with a Track issue attached names it to Lens on every request, so Track adds what the answer
+// cost to the issue's AI cost; a value that is not an identifier is refused before Lens is asked.
+func TestStream_AttachedIssueReachesLens(t *testing.T) {
+	for _, tc := range []struct {
+		name, sent, wantUp    string
+		wantStatus, wantCalls int
+	}{
+		{"an issue", "ENG-42", "ENG-42", http.StatusOK, 1},
+		{"no issue", "", "", http.StatusOK, 1},
+		{"not an identifier", "ENG-42, ENG-43", "", http.StatusBadRequest, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newStreamUpstream(t)
+			up.noBlock = true
+			a, sess := streamApp(t, up)
+			ts := httptest.NewServer(a)
+			defer ts.Close()
+			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+			req.AddCookie(sess)
+			req.Header.Set("Origin", "https://app.talyvor.com")
+			req.Header.Set("Content-Type", "application/json")
+			if tc.sent != "" {
+				req.Header.Set("X-Talyvor-Issue", tc.sent)
+			}
+			resp, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatalf("do: %v", err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != tc.wantStatus || up.proxyCalls != tc.wantCalls || up.gotIssue != tc.wantUp {
+				t.Fatalf("answered %d after asking Lens %d times with X-Talyvor-Issue %q; want %d, %d times, %q",
+					resp.StatusCode, up.proxyCalls, up.gotIssue, tc.wantStatus, tc.wantCalls, tc.wantUp)
 			}
 		})
 	}
