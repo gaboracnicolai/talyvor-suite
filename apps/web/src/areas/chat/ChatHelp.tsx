@@ -153,6 +153,11 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
           question in the conversation can still see it.
         </p>
         <p>
+          The page button beside Attach (Docs page) lists your workspace&rsquo;s Docs spaces and their pages. The page you pick goes with
+          your question as it is saved in Docs, so ask about it and the answer can quote it. Under the question, the
+          page&rsquo;s name links back to it in Docs.
+        </p>
+        <p>
           Lens converts an attached document to plain text before the model reads it, so the model is
           billed for the words rather than the file. The question then says &ldquo;Converted to text
           before the model read it,&rdquo; and the answer says what the conversion saved. Whether conversion runs is a workspace setting in{' '}

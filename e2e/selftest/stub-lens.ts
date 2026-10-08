@@ -63,6 +63,7 @@
 //   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
 //   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
 //   connector   — offered a connector's fingerprint tool, the stand-in model makes a fingerprint up rather than calling it (B28.122)
+//   docs-page   — a Docs page attached in Chat is not read: asked to quote it, the stand-in model says it sees no page (B28.375)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -441,6 +442,12 @@ function think(messages: Msg[]): string {
   }
   if ((m = /capital of ([A-Za-z ]+)\?/.exec(q))) return CAPITALS[m[1].trim().toLowerCase()] ?? 'I do not know.'
   if ((m = /single word: (\w+)/.exec(q))) return m[1]
+  // B28.375 — asked to quote an attached Docs page: its sentence that names the word, as the page says it.
+  if ((m = /Quote the sentence in the attached page that mentions ([\w-]+)/.exec(q))) {
+    const word = m[1]
+    const said = BREAK === 'docs-page' ? undefined : all.split(/\n|(?<=[.!?])\s+/).find((s) => s.includes(word) && !s.includes('Quote the sentence') && !s.trim().startsWith('#'))
+    return said === undefined ? 'I cannot see any page.' : `The page says: "${said.trim()}"`
+  }
   if (/code word in the attached document/.test(q)) return /code word is (\w+)/.exec(all)?.[1] ?? 'I cannot see any document.'
   if ((m = /from 1 to (\d+)/.exec(q))) return Array.from({ length: Number(m[1]) }, (_, i) => i + 1).join(' ')
   return 'I can only do arithmetic and capitals.'

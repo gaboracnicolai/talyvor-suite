@@ -1031,6 +1031,86 @@ export function chatConnectors(seed: number): Scenario {
 }
 
 /**
+ * B28.375 — a Docs page attached as context. A page written in Docs holds a sentence with a fresh word in it; in Chat,
+ * Docs page lists it, and picked, it goes with the question. Asked to quote the sentence that mentions the word, the
+ * answer quotes the page — words the model can only have read there — and under the question the page is named and
+ * linked to itself in Docs.
+ */
+export function chatDocsPage(seed: number): Scenario {
+  return {
+    id: 'chat-docs-page',
+    owner: 'talyvor-suite',
+    items: ['B28.123', 'B28.375'],
+    title: 'a Docs page attached in Chat goes with the question, and the answer quotes it',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const word = freshWord(seed * 10 + 5, 1 + Math.floor(Math.random() * 999_999))
+      // Named for this attempt's word, so a second attempt's space and page are not taken for the first's.
+      const space = `Runbooks ${word}`
+      const title = `Deploy freeze ${word}`
+      const sentence = `Deploys freeze at four on the afternoon of the ${word} review`
+      const doc = await DocsPage.write(app, space, title, `${sentence}. Ask the release lead before then.`)
+      const ids = /\/docs\/spaces\/([^/]+)\/pages\/([^/?#]+)/.exec(doc.page.url())
+      await doc.page.close()
+      if (ids === null) return fail(`the page was written at ${doc.page.url()}, which names no space and page`)
+      const [, spaceID, pageID] = ids
+      try {
+        if (new URL(page.url()).pathname !== '/chat') await app.openChat()
+        await app.newChat()
+        await page.getByRole('button', { name: 'Docs page' }).click()
+        const panel = page.getByRole('dialog', { name: 'Attach a Docs page' })
+        const spaces = panel.getByRole('group', { name: 'Docs spaces' })
+        await panel.getByRole('list', { name: 'Docs pages' }).or(panel.getByRole('alert')).or(spaces).first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        if (await spaces.isVisible()) await spaces.getByRole('button', { name: space, exact: true }).click()
+        await panel.getByRole('textbox', { name: 'Filter pages' }).fill(title)
+        const listed = panel.getByRole('list', { name: 'Docs pages' }).getByRole('button', { name: title, exact: true })
+        if (!(await listed.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false))) {
+          return fail(`Docs page does not list "${title}" in ${space}: "${(await panel.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)}"`)
+        }
+        const was = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const picking = [1440, 390].map((w) => join(env.outDir, `chat-docs-page-picker-${w}px-user${app.user.index}.png`))
+        for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+          await page.setViewportSize({ width, height })
+          await page.screenshot({ path: picking[i] })
+        }
+        if (was !== null) await page.setViewportSize(was)
+        ctx.evidence.push({ note: `Docs page listing "${title}" at 1440px: ${picking[0]}; at 390px: ${picking[1]}` })
+        await listed.click()
+        const chip = page.getByRole('list', { name: 'Attached documents' }).getByText(title, { exact: true })
+        const attached = await chip.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!attached) return fail(`"${title}" was picked, and it is not attached: ${(await page.getByRole('alert').allInnerTexts()).join(' ') || 'nothing said'}`)
+
+        const t = await app.ask(`Quote the sentence in the attached page that mentions ${word}.`)
+        ctx.evidence.push({ question: t.question, answer: t.answer.slice(0, 500), footer: t.footerText, error: t.error, note: `attached the Docs page "${title}"` })
+        if (t.error !== undefined) return fail(`refused: ${t.error}`)
+        const link = page.locator('[data-testid="turn-user"]').last().getByTestId('sent-docs-page')
+        const href = (await link.getAttribute('href').catch(() => null)) ?? ''
+        ctx.evidence.push({ note: `under the question: ${JSON.stringify((await link.innerText().catch(() => '')).trim())} → ${href}` })
+        if (href !== `/docs/spaces/${spaceID}/pages/${pageID}`) return fail(`the question does not link the page it carried: ${JSON.stringify(href)}`)
+        const flat = (x: string) => x.replace(/\s+/g, ' ').toLowerCase()
+        if (!flat(t.answer).includes(flat(sentence))) return fail(`the answer does not quote the page's sentence "${sentence}": "${t.answer.slice(0, 200)}"`)
+
+        const viewport = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const shots = [1440, 390].map((w) => join(env.outDir, `chat-docs-page-${w}px-user${app.user.index}.png`))
+        for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+          await page.setViewportSize({ width, height })
+          await link.scrollIntoViewIfNeeded()
+          await page.screenshot({ path: shots[i] })
+        }
+        if (viewport !== null) await page.setViewportSize(viewport)
+        ctx.evidence.push({ note: `the question with its page, and the answer, at 1440px: ${shots[0]}; at 390px: ${shots[1]}` })
+        return { pass: true, detail: `"${title}" attached from Docs; the answer quotes "${sentence}", and the question links the page` }
+      } finally {
+        await app.newChat().catch(() => undefined)
+      }
+    },
+  }
+}
+
+/**
  * Features' "Routing pattern sharing": switched on, Lens holds the workspace opted in; off again, opted out. Where Lens
  * runs no pattern mining the switch is not offered, and a request to opt in anyway is refused and stores nothing.
  */
