@@ -1155,6 +1155,7 @@ createServer(async (req, res) => {
     if (await bank.agentMCP(req, res, bearer, p)) return
     if (await bank.agentPay(req, res, bearer, p)) return
     if (await bank.agentUse(req, res, bearer, p)) return
+    if (await bank.agentTaxProfile(req, res, bearer, p)) return
     if (await bank.moderatorRoute(req, res, bearer, p)) return
     // B32.91 — the operator's room queue, keep and close, on the same moderator key (stub-rooms.ts).
     if (await roomsModeratorRoute(req, res, p, bearer, process.env.STUB_MODERATOR_KEY ?? '')) return

@@ -6,6 +6,10 @@
 // answers what each use's tax is and keeps what was declared. Its defects:
 //   tax-reverse-charged — a business abroad with a valid VAT number is charged its country's VAT, the reverse charge ignored
 //   receipt-total-off   — a receipt's gross leaves its tax out
+// B32.92 — and buyer-tax-profile's: a tax profile is its workspace owner's alone (an agent key is 403), and its defects:
+//   tax-id-never-issued — a number on the list of numbers never issued is found valid, and makes a business
+//   tax-check-unread    — the profile's read leaves out when its tax id was checked
+//   tax-profile-agent   — an agent key may read and change its workspace's tax profile
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -19,7 +23,10 @@ const NEVER_ISSUED = new Set(['GB999999999', 'DE999999999'])
 const VAT_FORMAT: Record<string, RegExp> = { GB: /^GB\d{9}$/, DE: /^DE\d{9}$/, FR: /^FR[0-9A-Z]{2}\d{9}$/ }
 
 export interface TaxLine { tax_usd_micros: number; tax_rate_bps: number; tax_jurisdiction: string; tax_treatment: string; tax_note: string }
-interface Profile { legal_name: string; address: string; country: string; region: string; postal_code: string; business: boolean; tax_id: string; tax_id_valid: boolean; declared_at: string }
+interface Profile {
+  legal_name: string; address: string; country: string; region: string; postal_code: string; business: boolean; tax_id: string; tax_id_valid: boolean
+  tax_id_checked_at?: string; tax_id_detail: string; declared_at: string
+}
 export interface ReceiptUse { id: string; title: string; net_usd_micros: number }
 interface Receipt {
   id: string; number: string; sequence: number; year: number; series: string; invoice_id: string; buyer_workspace_id: string; issued_at: string; paid_at: string
@@ -92,7 +99,7 @@ export class TaxDesk {
     this.sequence++
     this.receipts.push({ id: `rcpt_${invoice.slice(-12)}`, number: `TEST-${year}-${String(this.sequence).padStart(6, '0')}`, sequence: this.sequence, year, series: 'test',
       invoice_id: invoice, buyer_workspace_id: buyer, issued_at: at, paid_at: at,
-      buyer: { workspace_id: buyer, name: p?.legal_name ?? '', country: p?.country ?? '', business: p?.business ?? false, ...(p?.tax_id_valid ? { vat_number: p.tax_id } : {}) },
+      buyer: { workspace_id: buyer, name: p?.legal_name ?? '', country: p?.country ?? '', business: p !== undefined && p.business && p.tax_id_valid, ...(p?.tax_id_valid ? { vat_number: p.tax_id } : {}) },
       lines, net_usd_micros: net, tax_usd_micros: tax, gross_usd_micros: gross, gross_cents: Math.round(gross / 10_000), stripe_total_cents: null, reverse_charge: reverse,
       notes: [...new Set(lines.filter((l) => l.treatment === 'reverse_charge').map((l) => l.note))], preview: true, preview_reason: 'VAT registration pending' })
   }
@@ -115,23 +122,34 @@ export class TaxDesk {
     return (this.sellers.get(seller)?.withheld_since ?? '') !== ''
   }
 
-  /** The workspace's tax routes: true when `rest` was one of them. */
-  async route(req: IncomingMessage, res: ServerResponse, ws: string, rest: string, now: string): Promise<boolean> {
+  /**
+   * The workspace's tax routes: true when `rest` was one of them. `agent`: the call is on one of its agents' keys, which
+   * Lens refuses the tax profile to — only the workspace's owner or an admin may read or change it.
+   */
+  async route(req: IncomingMessage, res: ServerResponse, ws: string, rest: string, now: string, agent = false): Promise<boolean> {
     const method = req.method ?? 'GET'
     if (rest === '/tax-profile') {
+      if (agent && !this.broken('tax-profile-agent')) {
+        return this.json(res, 403, { error: "only the workspace's owner or an admin may read or change its tax profile" }), true
+      }
       if (method === 'PUT') {
         const b = await this.body<Partial<Profile> & { business?: boolean }>(req)
         const country = String(b.country ?? '').toUpperCase()
         if (!/^[A-Z]{2}$/.test(country)) return this.json(res, 400, { error: `taxprofile: country is two letters, not ${JSON.stringify(b.country ?? '')}` }), true
         const id = String(b.tax_id ?? '').toUpperCase().replace(/\s/g, '')
-        const valid = id !== '' && (VAT_FORMAT[id.slice(0, 2)]?.test(id) ?? false) && !NEVER_ISSUED.has(id)
+        // The Test tax partner's check (talyvor-lens partners.TestTaxPartner.ValidateTaxID): the format, then the list.
+        const detail = id === '' ? '' : !(VAT_FORMAT[id.slice(0, 2)]?.test(id) ?? false) ? `not the format of a ${country} VAT number`
+          : NEVER_ISSUED.has(id) && !this.broken('tax-id-never-issued') ? 'test mode: this number is on the list of numbers no authority issued' : ''
+        // A tax id declares a business; the workspace is one only while the number is valid (Resolve).
         this.profiles.set(ws, { legal_name: String(b.legal_name ?? ''), address: String(b.address ?? ''), country, region: String(b.region ?? ''), postal_code: String(b.postal_code ?? ''),
-          business: valid && (b.business ?? true), tax_id: id, tax_id_valid: valid, declared_at: now })
+          business: b.business ?? id !== '', tax_id: id, tax_id_valid: id !== '' && detail === '', ...(id === '' ? {} : { tax_id_checked_at: now }), tax_id_detail: detail, declared_at: now })
       }
       const p = this.profiles.get(ws)
-      return this.json(res, 200, { profile: p === undefined ? null : { workspace_id: ws, ...p },
+      const shown = p === undefined || method !== 'GET' || !this.broken('tax-check-unread') ? p : { ...p, tax_id_checked_at: undefined }
+      const business = p !== undefined && p.business && p.tax_id_valid
+      return this.json(res, 200, { profile: shown === undefined ? null : { workspace_id: ws, ...shown },
         resolved: p === undefined ? { workspace_id: ws, country: '', known: false, business: false, decided_by: 'unknown', evidence: [], flagged: false }
-          : { workspace_id: ws, country: p.country, known: true, business: p.business, ...(p.tax_id_valid ? { tax_id: p.tax_id } : {}), decided_by: 'declared', evidence: [{ source: 'declared', country: p.country }], flagged: false } }), true
+          : { workspace_id: ws, country: p.country, known: true, business, ...(business ? { tax_id: p.tax_id } : {}), decided_by: 'declared', evidence: [{ source: 'declared', country: p.country }], flagged: false } }), true
     }
     if (rest === '/marketplace/receipts' && method === 'GET') {
       return this.json(res, 200, { receipts: this.receipts.filter((r) => r.buyer_workspace_id === ws)

@@ -418,8 +418,11 @@ export interface MarketBill {
 
 /** B32.66 — a buyer's tax profile as Lens answers GET and PUT …/tax-profile (B32.38): what it declared, and where that resolves. */
 export interface TaxProfileAnswer {
-  profile: { country: string; business: boolean; tax_id?: string; tax_id_valid: boolean } | null
-  resolved: { country: string; business: boolean; decided_by: string } | null
+  /** B32.92 — and when its tax id was checked, and why it is not valid. */
+  profile: { country: string; business: boolean; tax_id?: string; tax_id_valid: boolean; tax_id_checked_at?: string; tax_id_detail?: string } | null
+  resolved: { country: string; known?: boolean; business: boolean; decided_by: string; evidence?: { source: string; country: string }[] } | null
+  /** Why `resolved` is null: Stripe could not be read. */
+  resolve_error?: string
 }
 
 /** B32.66 — Talyvor's receipt for a paid marketplace bill (Lens market.Receipt, B32.40): µUSD. */
