@@ -732,6 +732,15 @@ export class Bank {
     return true
   }
 
+  /** B32.92 — a workspace's tax profile on one of its agents' keys: refused, as Lens refuses all but its owner or an admin (stub-tax.ts). */
+  async agentTaxProfile(req: IncomingMessage, res: ServerResponse, key: string, path: string): Promise<boolean> {
+    const m = /^\/v1\/workspaces\/([^/]+)\/tax-profile$/.exec(path)
+    const who = this.agentOfKey(key)
+    if (m === null || who === undefined) return false
+    if (who.ws.id !== m[1]) return this.d.json(res, 403, { error: 'forbidden' }), true
+    return this.tax.route(req, res, who.ws.id, '/tax-profile', new Date().toISOString(), true)
+  }
+
   /**
    * B28.281 — a marketplace use on an agent's own key, judged by its rules first as Lens's JudgeAgentPurchase judges it (a
    * payment naming the listing), then run as its workspace's use. B32.80: a licence on an agent's key, judged where it is
