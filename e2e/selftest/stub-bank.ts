@@ -31,6 +31,7 @@
 //   secret-published    — B28.282: a listing carrying a secret is published like any other
 //   self-use-billed     — B28.282: a seller's use of their own listing is billed, and earns them its price
 //   b30-capability-gone — fx, one of B30.1's money-and-markets capabilities, is missing from the list (B30.115)
+//   level-needed-wrong  — payments_out is listed as needing L0 for live money, not L2 (B30.117)
 //   cross-company-live  — B28.290: money between two companies is real money: no test money on the transfer, its ledger rows funded live
 //
 // B25.8 adds what Lens (B25.7) brings due for a test workspace with the synthetic key: a loan's instalment
@@ -96,6 +97,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { HOLD_REASON, TaxDesk } from './stub-tax.ts'
+import { VerificationDesk } from './stub-verification.ts'
 import { type Lineage, TrustDesk } from './stub-trust.ts'
 import type { Judge, RoomAgent } from './stub-rooms.ts'
 
@@ -283,20 +285,24 @@ const SECRETS: [string, RegExp][] = [['aws_access_key', /\b(?:AKIA|ASIA)[0-9A-Z]
   ['stripe_key', /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}/], ['talyvor_key', /\btlv_[A-Za-z0-9_-]{20,}/]]
 /** What Lens's publish review holds for a person to judge (market B20.4): text that reads as a prompt injection. */
 const READS_AS_INJECTION = /\b(you are now|pretend (you are|to be)|ignore (all )?(previous|prior) instructions)\b/i
+/** B30.117 — the capabilities whose live money needs other than L2 (Lens economy.Capabilities, B30.4). */
+const LEVEL_NEEDED: Record<string, string> = { rules_approvals_statements_pots: 'L0', company_credit_line: 'L0', loans_between_companies: 'L3', merchant_acceptance: 'L3',
+  b2b_credit: 'L3', seller_advances: 'L3', lending_marketplace: 'L3' }
 /** The capabilities Agent Wallets asks after (Lens economy.Capabilities): each test money only. */
 const CAPABILITIES = [
   ['pay_another_owner', 'Pay another owner'], ['loans_between_companies', 'Loans between companies'], ['escrow', 'Escrow'],
   ['rules_approvals_statements_pots', 'Rules, approvals, statements and pots'], ['cash_out', 'Cash out'], ['company_credit_line', 'Company credit line'],
-].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false }))
+].map(([capability, name]) => ({ capability, name, class: 'AMBER', real_money: false, level_needed: LEVEL_NEEDED[capability] ?? 'L2' }))
 /** B28.360 — an agent's card, RED in Lens (economy.CapabilityAgentCard): the card freeze in Chat says it is test money only. */
-const CARD_CAPABILITY = { capability: 'agent_card', name: 'Cards', class: 'RED', real_money: false }
-/** B30.115 — and the money-and-markets ones B30.1 added, in Lens's classes; `b30-capability-gone` drops fx. */
+const CARD_CAPABILITY = { capability: 'agent_card', name: 'Cards', class: 'RED', real_money: false, level_needed: 'L2' }
+/** B30.115 — and the money-and-markets ones B30.1 added, in Lens's classes; `b30-capability-gone` drops fx. B30.117: each with
+ * the level its live money needs, as LEVEL_NEEDED gives it (else L2); `level-needed-wrong` lists payments_out at L0. */
 const B30_CAPABILITIES = [
   ['currency_accounts', 'RED'], ['account_details', 'RED'], ['payments_in', 'RED'], ['payments_out', 'RED'], ['pay_by_bank', 'AMBER'],
   ['fx', 'RED'], ['stablecoins', 'RED'], ['x402', 'RED'], ['merchant_acceptance', 'RED'], ['b2b_credit', 'AMBER'], ['seller_advances', 'AMBER'],
   ['lending_marketplace', 'AMBER'], ['trade_equities', 'RED'], ['trade_crypto', 'RED'], ['trade_prediction', 'RED'], ['treasury_sweep', 'RED'],
   ['price_lock', 'AMBER'], ['cover', 'RED'], ['payouts_to_people', 'RED'],
-].map(([capability, cls]) => ({ capability, name: capability, class: cls, real_money: false }))
+].map(([capability, cls]) => ({ capability, name: capability, class: cls, real_money: false, level_needed: LEVEL_NEEDED[capability] ?? 'L2' }))
 
 /** B34.4 — Lens's simulated market's quotes (B22.8): the ECB's reference rates, a few of them, fixed. */
 export const SIM_QUOTES = [['EUR', '1.17'], ['GBP', '1.35'], ['JPY', '0.0068']].map(([instrument, price_usd]) => ({ instrument, price_usd, rate_date: '2026-10-02' }))
@@ -375,12 +381,15 @@ export class Bank {
 
   /** B32.66 — buyers' tax profiles, each billed use's tax, receipts and sellers' tax details (stub-tax.ts). */
   private readonly tax: TaxDesk
+  /** B30.117 — the workspace's verification levels (stub-verification.ts). */
+  private readonly verification: VerificationDesk
   /** B32.89 — reviews, the trust read and the synthetic card link (stub-trust.ts). */
   private readonly trustDesk: TrustDesk
 
   constructor(d: BankDeps) {
     this.d = d
     this.tax = new TaxDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
+    this.verification = new VerificationDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
     this.trustDesk = new TrustDesk({ json: d.json, body: (req) => this.body(req), broken: (name) => this.broken(name),
       listing: (id, viewer) => { const l = this.listings.get(id); return l !== undefined && this.visible(l, viewer) ? l : undefined },
       paid: (listing, buyer) => this.uses.some((u) => u.listing_id === listing && u.buyer === buyer && u.charge === 'billed' && u.refunded_at === undefined),
@@ -1236,7 +1245,8 @@ export class Bank {
   async publicWrite(req: IncomingMessage, res: ServerResponse, path: string, viewer: string): Promise<boolean> {
     const { json } = this.d
     if (path === '/v1/wallets/capabilities') {
-      const b30 = this.broken('b30-capability-gone') ? B30_CAPABILITIES.filter((c) => c.capability !== 'fx') : B30_CAPABILITIES
+      const b30 = (this.broken('b30-capability-gone') ? B30_CAPABILITIES.filter((c) => c.capability !== 'fx') : B30_CAPABILITIES)
+        .map((c) => (c.capability === 'payments_out' && this.broken('level-needed-wrong') ? { ...c, level_needed: 'L0' } : c))
       return json(res, 200, { capabilities: [...CAPABILITIES, CARD_CAPABILITY, ...b30] }), true
     }
     let m = /^\/v1\/wallets\/([^/]+)$/.exec(path)
@@ -2106,6 +2116,8 @@ export class Bank {
     }
     // B32.66 — tax profiles, receipts and sellers' tax details (stub-tax.ts); a seller's weekly statements.
     if (await this.tax.route(req, res, ws.id, rest, now)) return true
+    // B30.117 — verification levels (stub-verification.ts).
+    if (await this.verification.route(req, res, ws.id, rest, now)) return true
     // B32.89 — a paying buyer's review of a listing, and its seller's reply (stub-trust.ts).
     if (await this.trustDesk.route(req, res, ws.id, rest, now)) return true
     if (rest === '/marketplace/statements' && method === 'GET') {
