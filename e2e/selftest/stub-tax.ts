@@ -15,6 +15,11 @@
 //   receipt-unissued       — a paid bill gets no receipt
 //   receipt-sequence-stuck — every receipt is numbered the year's first, never the next in turn
 //   receipt-agent          — an agent key may read its workspace's receipts
+// B32.95 — and seller-tax-details': a seller's VAT number checked as a buyer's is, the TINs, date of birth and account
+// read back masked and kept when a save leaves them out, and its defects:
+//   seller-tax-unmasked  — the read returns the TINs as they were given
+//   seller-tax-forgets   — a save that leaves out the TINs, date of birth and account removes them
+//   seller-vat-unchecked — a VAT number never issued counts as given, and the details read complete
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -43,8 +48,8 @@ interface Receipt {
 }
 interface SellerDetails {
   seller_type: string; first_name: string; last_name: string; legal_name: string; address: string; country: string; tins: { jurisdiction: string; number: string }[]
-  date_of_birth: string; account_identifier: string; account_holder: string; vat_number: string; self_billing_agreed_version: string
-  reminders_sent: number; withheld_since?: string; completed_at?: string
+  date_of_birth: string; account_identifier: string; account_holder: string; vat_number: string; vat_valid: boolean; vat_detail: string; vat_checked_at?: string
+  self_billing_agreed_version: string; reminders_sent: number; withheld_since?: string; completed_at?: string
 }
 
 export const HOLD_REASON = 'Your payouts are on hold until your tax details are complete. Your earnings keep clearing and are paid at the next payout after you complete them.'
@@ -190,23 +195,32 @@ export class TaxDesk {
         for (const k of ['seller_type', 'first_name', 'last_name', 'legal_name', 'address', 'country', 'account_holder', 'vat_number', 'self_billing_agreed_version'] as const) {
           if (b[k] !== undefined) d[k] = String(b[k])
         }
-        if (b.tins !== undefined) d.tins = b.tins
-        if (b.date_of_birth !== undefined) d.date_of_birth = b.date_of_birth
-        if (b.account_identifier !== undefined) d.account_identifier = b.account_identifier
+        const forgets = this.broken('seller-tax-forgets')
+        if (b.tins !== undefined || forgets) d.tins = b.tins ?? []
+        if (b.date_of_birth !== undefined || forgets) d.date_of_birth = b.date_of_birth ?? ''
+        if (b.account_identifier !== undefined || forgets) d.account_identifier = b.account_identifier ?? ''
+        // The Test tax partner's check, as a buyer's tax id has it, against the country given with it.
+        const id = d.vat_number.toUpperCase().replace(/\s/g, '')
+        if (id !== '' && d.country === '') return this.json(res, 400, { error: 'sellertax: give your country to check your VAT number against' }), true
+        d.vat_detail = id === '' ? '' : !(VAT_FORMAT[id.slice(0, 2)]?.test(id) ?? false) ? `not the format of a ${d.country} VAT number`
+          : NEVER_ISSUED.has(id) ? 'test mode: this number is on the list of numbers no authority issued' : ''
+        d.vat_number = id
+        d.vat_valid = id !== '' && d.vat_detail === ''
+        d.vat_checked_at = id === '' ? undefined : now
         if (this.missing(d).length === 0) {
           d.completed_at ??= now
           d.withheld_since = undefined
         }
         this.sellers.set(ws, d)
       }
-      return this.json(res, 200, this.sellerOut(ws, this.sellers.get(ws) ?? this.blankSeller())), true
+      return this.json(res, 200, this.sellerOut(ws, this.sellers.get(ws) ?? this.blankSeller(), method === 'GET' && this.broken('seller-tax-unmasked'))), true
     }
     return false
   }
 
   private blankSeller(): SellerDetails {
     return { seller_type: '', first_name: '', last_name: '', legal_name: '', address: '', country: '', tins: [], date_of_birth: '', account_identifier: '', account_holder: '',
-      vat_number: '', self_billing_agreed_version: '', reminders_sent: 0 }
+      vat_number: '', vat_valid: false, vat_detail: '', self_billing_agreed_version: '', reminders_sent: 0 }
   }
 
   /** What a seller has still to give (Lens sellertax's required fields for an individual or an entity). */
@@ -215,16 +229,18 @@ export class TaxDesk {
     const need: [string, boolean][] = d.seller_type === 'individual'
       ? [['first_name', d.first_name !== ''], ['last_name', d.last_name !== ''], ['date_of_birth', d.date_of_birth !== '']]
       : [['legal_name', d.legal_name !== '']]
-    need.push(['address', d.address !== ''], ['country', d.country !== ''], ['tins', d.tins.length > 0], ['account_identifier', d.account_identifier !== ''],
+    need.push(['address', d.address !== ''], ['country', d.country !== ''], ['tins', d.tins.length > 0],
+      ['vat_number', d.vat_number === '' || d.vat_valid || this.broken('seller-vat-unchecked')], ['account_identifier', d.account_identifier !== ''],
       ['account_holder', d.account_holder !== ''])
     return need.filter(([, given]) => !given).map(([field]) => field)
   }
 
-  private sellerOut(ws: string, d: SellerDetails): object {
+  private sellerOut(ws: string, d: SellerDetails, unmasked = false): object {
     const missing = this.missing(d)
     return { workspace_id: ws, seller_type: d.seller_type, first_name: d.first_name, middle_name: '', last_name: d.last_name, legal_name: d.legal_name, address: d.address,
-      country: d.country, tins: d.tins.map((t) => ({ jurisdiction: t.jurisdiction, number: mask(t.number) })), date_of_birth: d.date_of_birth === '' ? '' : '••••-••-••',
-      company_registration_number: '', vat_number: d.vat_number, vat_valid: false, account_identifier: mask(d.account_identifier), account_holder: d.account_holder,
+      country: d.country, tins: d.tins.map((t) => ({ jurisdiction: t.jurisdiction, number: unmasked ? t.number : mask(t.number) })), date_of_birth: d.date_of_birth === '' ? '' : '••••-••-••',
+      company_registration_number: '', vat_number: d.vat_number, vat_valid: d.vat_valid, ...(d.vat_detail === '' ? {} : { vat_detail: d.vat_detail }),
+      ...(d.vat_checked_at === undefined ? {} : { vat_checked_at: d.vat_checked_at }), account_identifier: mask(d.account_identifier), account_holder: d.account_holder,
       self_billing_agreed_version: d.self_billing_agreed_version, complete: missing.length === 0, missing, reminders_sent: d.reminders_sent,
       ...(d.completed_at === undefined ? {} : { completed_at: d.completed_at }),
       ...(d.withheld_since === undefined ? {} : { withheld_since: d.withheld_since, hold: HOLD_REASON }), accepting: true }

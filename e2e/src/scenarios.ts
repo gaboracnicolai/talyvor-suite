@@ -54,6 +54,7 @@ import { roomAgentMCP } from './roomAgentMCP.ts'
 import { taxAndPayouts } from './taxPayouts.ts'
 import { marketTrust } from './marketTrust.ts'
 import { buyerTaxProfile } from './taxProfile.ts'
+import { sellerTaxDetails } from './sellerTax.ts'
 import { marketBillTax } from './billTax.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
@@ -4439,6 +4440,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B32.92 — a buyer's tax profile, once a run, on a workspace of its own: a valid German VAT number makes a DE business and
   // one never issued is kept invalid and leaves a consumer, each read back as saved; "Germany" is 400 and the agent key 403.
   if (i === 6) list.push(buyerTaxProfile())
+  // B32.95 — a seller's tax details, once a run, on a workspace of its own: saved in full they read complete with the TIN and
+  // account masked to their last four and the date of birth masked; saved again without them and with a never-issued VAT
+  // number they are kept masked and only vat_number is missing; no answer carries one as it was given.
+  if (i === 0) list.push(sellerTaxDetails())
   // B30.117 — verification levels, once a run, on a workspace of its own: an identity check before L1 is 409 naming L1;
   // email and phone make L1 and identity L2, each a Test check with its evidence reference and the live level still L0;
   // the record holds both checks; payments_out needs L2 and b2b_credit L3.
