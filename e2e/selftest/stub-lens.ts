@@ -1103,6 +1103,8 @@ createServer(async (req, res) => {
     const proxied = /^\/v1\/proxy\/([a-z]+)\/(.+)$/.exec(p)
     if (proxied !== null) return await proxy(req, res, proxied[1], proxied[2])
 
+    // B32.81 — the market_* MCP tools on an agent's own key.
+    if (await bank.agentMCP(req, res, bearer, p)) return
     if (await bank.agentPay(req, res, bearer, p)) return
     if (await bank.agentUse(req, res, bearer, p)) return
     if (await bank.moderatorRoute(req, res, bearer, p)) return
