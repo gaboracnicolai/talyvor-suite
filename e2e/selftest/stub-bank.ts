@@ -47,6 +47,12 @@
 //   journal-off           — a released share reads one µUSD short on the journal, though it still says it reconciles
 //   journal-unreconciled  — the journal says it does not reconcile
 //
+// B32.76 adds a listing published with its offers, one active per kind and licence and each saying what its licence
+// allows, its price per use following its per_use commercial offer (Lens B32.18). Its defects:
+//   offers-duplicate      — a second commercial rent beside the first is accepted
+//   offer-price-stale     — raising the per_use price leaves the next use billed at the old one
+//   offer-price-backdated — the bill reads every use of a listing at the listing's price now
+//
 // B28.360 adds freezing an agent's card (POST …/card/freeze and …/card/unfreeze, for Lens's B28.97): a purchase on a
 // frozen card is declined and nothing leaves the agent. Its defect:
 //   freeze-ignored      — a frozen card answers frozen, and a purchase on it is still approved
@@ -133,7 +139,7 @@ interface Listing {
 /** B32.90 — Lens market.Collection: a curator's list of listings, in its order; the operator features one. */
 interface StubCollection { id: string; workspace_id: string; title: string; description: string; public: boolean; featured: boolean; featured_at?: string; listing_ids: string[]; created_at: string; updated_at: string }
 /** B34.4 — Lens market.Offer, a listing's licence remix grant and lineage edge, a licence, and a simulated portfolio. */
-interface StubOffer { id: string; kind: string; licence: string; price_usd_micros: number; period_days?: number; included_uses?: number; created_at: string }
+interface StubOffer { id: string; kind: string; licence: string; price_usd_micros: number; period_days?: number; included_uses?: number; terms?: string; created_at: string }
 interface Grant { ws: string; listing_id: string; version: number; share_bps: number; accepted_at: string }
 interface Edge { child_listing_id: string; child_version: number; parent_listing_id: string; parent_version: number; share_bps: number; source: string; created_at: string }
 interface StubLicence {
@@ -238,6 +244,12 @@ const modelCaps = (caps: Record<string, number>): Record<string, number> =>
   Object.fromEntries(Object.entries(caps).filter(([, v]) => v > 0).map(([m, v]) => [modelCapKey(m), v]))
 /** µLXC per µUSD (LXC is pegged at $0.10), and µUSD a penny buys, at the stub's fixed pound. */
 const ULXC_PER_USD_MICRO = 10
+/** B32.76 — what each licence allows (Lens market.LicenceTerms). */
+const LICENCE_TERMS: Record<string, string> = {
+  personal: 'One person. No agent keys, and not inside a product sold to others.',
+  commercial: "The buying workspace's people and agents, inside its own products.",
+  enterprise: "Commercial, for up to the offer's seats of people and all of the workspace's agents.",
+}
 const USD_MICROS_PER_PENNY = 12_700
 const id = (prefix: string): string => prefix + randomBytes(8).toString('hex')
 /** B32.90 — Lens's controlled list of what a listing can do (market_capabilities, migration 0219), in its order. */
@@ -600,6 +612,22 @@ export class Bank {
     const { orders, ...rest } = pf
     return { ...rest, simulated: true, notice: SIM_NOTICE, cash_uusd: pf.starting_cash_uusd + filled.reduce((s, o) => s + o.cash_uusd, 0),
       positions: [...held].map(([instrument, quantity_micros]) => ({ instrument, quantity_micros })), orders }
+  }
+
+  /**
+   * B32.76 — `offers` made the listing's active set, as Lens's ReplaceOffers does: refused (why) unless each is a kind and
+   * licence Lens sells, at a price of 0 or more, and one per kind and licence. Its price per use follows its per_use
+   * commercial offer.
+   */
+  private setOffers(l: Listing, offers: Omit<StubOffer, 'id' | 'created_at'>[], now: string): string | undefined {
+    if (offers.some((o) => !['per_use', 'buy', 'rent', 'subscribe'].includes(o.kind) || LICENCE_TERMS[o.licence] === undefined || !(o.price_usd_micros >= 0))) return 'market: invalid offer'
+    const twice = offers.find((o, i) => offers.findIndex((x) => x.kind === o.kind && x.licence === o.licence) !== i)
+    if (twice !== undefined && !this.broken('offers-duplicate')) return `market: invalid listing: a listing has one active ${twice.licence} ${twice.kind} offer at a time`
+    const stale = this.broken('offer-price-stale') && l.offers !== undefined
+    l.offers = offers.map((o) => ({ ...o, id: id('off_'), terms: LICENCE_TERMS[o.licence], created_at: now }))
+    const perUse = offers.find((o) => o.kind === 'per_use' && o.licence === 'commercial')
+    if (!stale) l.price_per_use_ulxc = (perUse?.price_usd_micros ?? 0) * ULXC_PER_USD_MICRO
+    return undefined
   }
 
   private listingOut(l: Listing, viewer: string): object {
@@ -1557,6 +1585,8 @@ export class Bank {
         price_per_use_ulxc: b.price_per_use_ulxc ?? 0, visibility: b.visibility ?? 'public', latest_version: 1, created_at: now, updated_at: now,
         review_status: READS_AS_INJECTION.test(`${b.title} ${b.description ?? ''} ${JSON.stringify(b.artifact)}`) ? 'held' : 'approved',
         artifact: b.artifact, changelog: b.changelog ?? '' }
+      const priced = (b.offers ?? []).length > 0 ? this.setOffers(l, b.offers ?? [], now) : undefined
+      if (priced !== undefined) return json(res, 400, { error: priced }), true
       this.listings.set(l.id, l)
       for (const { p, l: parent, g } of parents) {
         this.lineage.push({ child_listing_id: l.id, child_version: 1, parent_listing_id: p.listing_id, parent_version: p.version,
@@ -1610,8 +1640,8 @@ export class Bank {
       }
       if (m[2] === 'offers' && method === 'PUT') {
         const { offers = [] } = await this.body<{ offers?: Omit<StubOffer, 'id' | 'created_at'>[] }>(req)
-        if (offers.some((o) => !['per_use', 'buy', 'rent', 'subscribe'].includes(o.kind) || !(o.price_usd_micros >= 0))) return json(res, 400, { error: 'market: invalid offer' }), true
-        l.offers = offers.map((o) => ({ ...o, id: id('off_'), created_at: now }))
+        const refused = this.setOffers(l, offers, now)
+        if (refused !== undefined) return json(res, 400, { error: refused }), true
         return json(res, 200, { offers: l.offers }), true
       }
       if (m[2] === 'remix-terms' && method === 'PUT') {
@@ -1706,7 +1736,8 @@ export class Bank {
       const lines = this.uses.filter((u) => u.buyer === ws.id && u.charge === 'billed' && u.used_at.startsWith(month)).map((u) => ({
         use_id: u.id, listing_id: u.listing_id,
         title: u.listing_id !== '' ? this.listings.get(u.listing_id)?.title ?? '' : `Payment to ${this.agents.get(u.payee_agent_id)?.name ?? ''}`,
-        agent_id: u.agent_id || undefined, price_ulxc: u.price_ulxc, used_at: u.used_at, payee_agent_id: u.payee_agent_id || undefined, memo: u.memo || undefined,
+        agent_id: u.agent_id || undefined, used_at: u.used_at,
+        price_ulxc: this.broken('offer-price-backdated') && u.listing_id !== '' ? this.listings.get(u.listing_id)?.price_per_use_ulxc ?? u.price_ulxc : u.price_ulxc, payee_agent_id: u.payee_agent_id || undefined, memo: u.memo || undefined,
         cleared_at: u.cleared_at, refunded_at: u.refunded_at,
       }))
       const total = lines.filter((l) => l.refunded_at === undefined).reduce((s, l) => s + l.price_ulxc, 0)

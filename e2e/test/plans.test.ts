@@ -41,8 +41,9 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // B28.288 — and a burst Lens's rate limiter must refuse.
     // B28.295 — and the room screens nothing else reached: an invite link's screen, and a contribution decided and run (Team).
     // B32.75 — and a sale's earning released on the journal, bought by a workspace whose bill nothing else adds to.
+    // B32.76 — and a listing's four offers and a price change, bought by a workspace whose bill nothing else adds to.
     expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['agent-rules-unbypassable:team', 'byok-addon:free', 'credits-top-up:free', 'csrf-refused:free', 'evals:free', 'file-bomb-bounded:free', 'gateway-auth:free', 'gateway-keys:free',
-      'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'injection-exfil:free', 'keys-not-forwarded:free', 'keys-unlisted:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'market-abuse:free', 'market-discovery:free', 'market-journal:free', 'nodes:free', 'outputs-attribution:free',
+      'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'injection-exfil:free', 'keys-not-forwarded:free', 'keys-unlisted:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'market-abuse:free', 'market-discovery:free', 'market-journal:free', 'market-offers:free', 'nodes:free', 'outputs-attribution:free',
       'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'pool-isolation:free', 'povi:free', 'rate-limits-hold:free', 'room-decide-run:team', 'room-invite-screen:team', 'rooms-moderation:free', 'rooms-private:team', 'script-inert:team', 'seats-free:free', 'seats-team:free',
       'settings-config-budgets:free', 'settings-guardrails:free', 'settings-operator-only:free', 'settings-prompts:free', 'settings-stored-answers:free',
       'settings-switches:free', 'settings-tare-distill:free', 'ssrf-refused:free', 'webhook-replayed:free', 'webhook-unsigned:free'])

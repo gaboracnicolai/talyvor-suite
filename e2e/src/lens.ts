@@ -179,6 +179,17 @@ export interface Listing {
   review_status: string
 }
 
+/** B32.76 — one way a listing is sold (Lens market.Offer, B32.18), in µUSD, with what its licence allows. */
+export interface MarketOffer {
+  id?: string
+  kind: string
+  licence: string
+  price_usd_micros: number
+  period_days?: number
+  included_uses?: number
+  terms?: string
+}
+
 /** B25.8 — one payout (market.Payout): money through Stripe, or the balance taken as credits. */
 export interface Payout {
   id: string
