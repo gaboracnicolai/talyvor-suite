@@ -44,6 +44,12 @@ export class VerificationDesk {
     return this.json(res, 201, { check: { ...c, level: `L${level}` }, verification: this.record(ws) }), true
   }
 
+  /** B30.118 — the workspace's level and live level, as an agent's credential states its owner's (stub-kya.ts). */
+  levels(ws: string): { level: string; live_level: string } {
+    const { level, live } = this.reached(ws)
+    return { level: `L${level}`, live_level: `L${live}` }
+  }
+
   private reached(ws: string): { level: number; live: number } {
     const passed = new Set((this.checks.get(ws) ?? []).filter((c) => c.status === 'completed').map((c) => c.level))
     let level = 0

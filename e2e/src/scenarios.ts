@@ -58,6 +58,7 @@ import { marketBillTax } from './billTax.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
 import { verificationScreen } from './verificationScreen.ts'
+import { agentCredential } from './kya.ts'
 import { lineage } from './lineage.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
@@ -4456,6 +4457,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // one receipt numbered TEST-<year>-NNNNNN with the bill's lines and totals, as a page and a PDF, refused to its agent key; a DE
   // business's bill paid next is receipted in turn, reverse charged with no VAT and the note.
   if (i === 5) list.push(marketReceipts(i))
+  // B30.118 — Know Your Agent, once a run, on a workspace of its own: the owner's read and the agent's wallet_credential hand over
+  // one credential that verifies with only the published JWKS and states the daily limit; a rule change lists it "rules changed"
+  // on revoked.json and the next states the new limit; pausing the agent lists that one "frozen" and the route is 409.
+  if (i === 9) list.push(agentCredential(i))
   return list
 }
 

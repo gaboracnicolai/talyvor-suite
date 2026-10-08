@@ -107,6 +107,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { HOLD_REASON, TaxDesk } from './stub-tax.ts'
 import { VerificationDesk } from './stub-verification.ts'
+import { type KYAFacts, KYADesk } from './stub-kya.ts'
 import { type Lineage, TrustDesk } from './stub-trust.ts'
 import type { Judge, RoomAgent } from './stub-rooms.ts'
 
@@ -398,6 +399,8 @@ export class Bank {
   private readonly tax: TaxDesk
   /** B30.117 — the workspace's verification levels (stub-verification.ts). */
   private readonly verification: VerificationDesk
+  /** B30.118 — each agent's Know Your Agent credential (stub-kya.ts). */
+  private readonly kya: KYADesk
   /** B32.89 — reviews, the trust read and the synthetic card link (stub-trust.ts). */
   private readonly trustDesk: TrustDesk
 
@@ -405,6 +408,7 @@ export class Bank {
     this.d = d
     this.tax = new TaxDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
     this.verification = new VerificationDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
+    this.kya = new KYADesk(d.json, (req) => this.body(req), (name) => this.broken(name), (ws, agent) => this.kyaFacts(ws, agent))
     this.trustDesk = new TrustDesk({ json: d.json, body: (req) => this.body(req), broken: (name) => this.broken(name),
       listing: (id, viewer) => { const l = this.listings.get(id); return l !== undefined && this.visible(l, viewer) ? l : undefined },
       paid: (listing, buyer) => this.uses.some((u) => u.listing_id === listing && u.buyer === buyer && u.charge === 'billed' && u.refunded_at === undefined),
@@ -567,6 +571,26 @@ export class Bank {
     if (fee > 0) this.post(agent.ws, 'platform_fee', [[`agent:${agent.id}`, -fee, 'spend'], ['spend', fee, `agent:${agent.id}`]], undefined, modelCapKey(model))
     // B28.377 — the spend line's entry: a scheduled prompt's run names the statement line it was charged on.
     return entry
+  }
+
+  /**
+   * B30.118 — what an agent's Know Your Agent credential says now (Lens economy.AgentKYAFacts): its name, its owner's levels,
+   * every capability at test money, and the limits its rules set; standing frozen or archived when it may have none.
+   */
+  private kyaFacts(wsID: string, agentID: string): KYAFacts | undefined {
+    const a = this.agents.get(agentID)
+    if (a === undefined || a.ws !== wsID) return undefined
+    const r = a.rules
+    const limits = Object.fromEntries((['max_per_request_ulxc', 'hourly_limit_ulxc', 'daily_limit_ulxc', 'weekly_limit_ulxc', 'monthly_limit_ulxc',
+      'approval_above_ulxc', 'max_commitment_ulxc', 'requests_per_minute'] as const).map((k): [string, number] => [k, r[k] ?? 0]).filter(([, v]) => v > 0))
+    return { agent: { id: a.id, name: a.name }, owner: { workspace_id: wsID, ...this.verification.levels(wsID) },
+      capabilities: [...CAPABILITIES, CARD_CAPABILITY, ...B30_CAPABILITIES].map((c) => ({ capability: c.capability, money: 'test' })), limits,
+      standing: a.archived_at !== undefined ? 'archived' : a.paused_at !== undefined || this.allPaused.has(wsID) ? 'frozen' : '' }
+  }
+
+  /** B30.118 — the Know Your Agent routes anyone may call: the published keys, the revocation list and verify (stub-kya.ts). */
+  async kyaPublic(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
+    return this.kya.route(req, res, path)
   }
 
   /** B28.377 — one of the workspace's agents, by its id: a scheduled prompt runs as the agent that pays for it. */
@@ -818,6 +842,11 @@ export class Bank {
       const out = this.roomTool(name, a, who.ws.id, { id: who.agent.id, name: who.agent.name }, (amount, listing) =>
         this.judge(who.agent, amount, { payment: true, listing, fingerprint: `room\0${who.agent.id}\0${listing}\0${amount}` })?.error)
       return (out.ok ? text(out.body) : reply({ content: [{ type: 'text', text: out.error }], isError: true })), true
+    }
+    // B30.118 — the agent's Know Your Agent credential; a frozen or archived agent's call is isError saying why.
+    if (name === 'wallet_credential') {
+      const c = this.kya.current(who.ws.id, who.agent.id)
+      return (c.status === 200 ? text(c.body) : reply({ content: [{ type: 'text', text: (c.body as { error: string }).error }], isError: true })), true
     }
     const listing = String(a.listing_id ?? '')
     switch (name) {
@@ -1786,8 +1815,10 @@ export class Bank {
       }
     }
     if (rest === '/agents/pause-all' || rest === '/agents/resume-all') {
-      if (rest === '/agents/pause-all') this.allPaused.set(ws.id, { at: now, reason: (await this.body<{ reason?: string }>(req)).reason ?? '' })
-      else this.allPaused.delete(ws.id)
+      if (rest === '/agents/pause-all') {
+        this.allPaused.set(ws.id, { at: now, reason: (await this.body<{ reason?: string }>(req)).reason ?? '' })
+        for (const a of this.agents.values()) if (a.ws === ws.id) this.kya.revoke(a.id, 'frozen')
+      } else this.allPaused.delete(ws.id)
       return json(res, 200, { all_paused: rest === '/agents/pause-all' }), true
     }
     // B28.31 — Lens B28.307's rules history, newest first, and a rollback that writes a version's rules back whole.
@@ -1863,6 +1894,7 @@ export class Bank {
         const revoked = a.keys
         a.keys = []
         a.archived_at = now
+        this.kya.revoke(a.id, 'archived')
         return json(res, 200, { agent_id: a.id, swept_ulxc: swept, revoked_keys: revoked, archived_at: now }), true
       }
       if (action === '/keys' && method === 'POST') {
@@ -1916,6 +1948,7 @@ export class Bank {
           may_subscribe: r.may_subscribe ?? a.rules.may_subscribe,
           allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [] }
         this.recordRules(a, ws.id, 'set')
+        this.kya.revoke(a.id, 'rules changed')
         return json(res, 200, a.rules), true
       }
       if (action === '/statement' && method === 'GET') {
@@ -1932,10 +1965,15 @@ export class Bank {
         const b = await this.body<{ to_agent_id?: string; amount_ulxc?: number; memo?: string }>(req)
         return this.pay(res, ws, a, b.to_agent_id ?? '', b.amount_ulxc ?? 0, b.memo ?? ''), true
       }
+      if (action === '/credential' && method === 'GET') {
+        const c = this.kya.current(ws.id, a.id)
+        return json(res, c.status, c.body), true
+      }
       if ((action === '/pause' || action === '/resume') && method === 'POST') {
         if (action === '/pause') {
           a.paused_at = now
           a.paused_reason = (await this.body<{ reason?: string }>(req)).reason ?? ''
+          this.kya.revoke(a.id, 'frozen')
         } else {
           a.paused_at = undefined
           a.paused_reason = undefined
