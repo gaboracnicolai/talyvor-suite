@@ -52,6 +52,7 @@ import { roomRuns } from './roomRuns.ts'
 import { roomPrizes } from './roomPrizes.ts'
 import { roomAgentMCP } from './roomAgentMCP.ts'
 import { taxAndPayouts } from './taxPayouts.ts'
+import { marketTrust } from './marketTrust.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
@@ -4421,6 +4422,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // listing and each line, receipt and the seller's week carries its tax; the seller, withheld from the payout run without
   // tax details, completes them and is paid on the next run with a statement equal to its journal postings.
   if (i === 3) list.push(taxAndPayouts(i))
+  // B32.89 — the trust panel, once a run, on workspaces of its own: two buyers who paid for a use review a listing and are
+  // counted, with the seller's reply; a workspace that never paid and one sharing a card with the seller are refused and
+  // never counted, and MCP market_listing's trust equals the read.
+  if (i === 4) list.push(marketTrust(i))
   return list
 }
 

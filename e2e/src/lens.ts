@@ -1605,6 +1605,14 @@ export class LensClient {
     return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/marketplace/payouts/run`)
   }
 
+  /**
+   * B32.89 — one card recorded on two test workspaces, as though both had paid with it, so Lens links them as one owner
+   * (talyvor-lens B32.102): 404 until Lens has it.
+   */
+  async linkCard(user: SyntheticUser, to: SyntheticUser): Promise<Answered<{ workspace_id: string; linked_to: string }>> {
+    return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/card-link`, { workspace_id: to.workspaceID })
+  }
+
   /** That paid bill refunded, as Stripe's charge.refunded refunds it. */
   async refundTestBill(user: SyntheticUser, invoiceID: string): Promise<Answered<{ uses_refunded: number }>> {
     return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/marketplace/bill/${invoiceID}/refund`)

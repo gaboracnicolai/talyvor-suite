@@ -88,11 +88,15 @@
 // for each paid bill, the seller's weekly statements, and the synthetic payout run of talyvor-lens B32.99, which withholds a
 // seller with earnings and no tax details and pays one whose details are complete. Its defect, beside stub-tax.ts's two:
 //   payout-hold-ignored — the payout run pays a seller who gave no tax details
+//
+// B32.89 adds the trust panel (Lens B32.49, stub-trust.ts): a paying buyer's review and the seller's reply, the trust read
+// and market_listing's trust over MCP, and talyvor-lens B32.102's synthetic card link. Its defects are stub-trust.ts's.
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { HOLD_REASON, TaxDesk } from './stub-tax.ts'
+import { type Lineage, TrustDesk } from './stub-trust.ts'
 import type { Judge, RoomAgent } from './stub-rooms.ts'
 
 export interface BankWorkspace {
@@ -371,10 +375,17 @@ export class Bank {
 
   /** B32.66 — buyers' tax profiles, each billed use's tax, receipts and sellers' tax details (stub-tax.ts). */
   private readonly tax: TaxDesk
+  /** B32.89 — reviews, the trust read and the synthetic card link (stub-trust.ts). */
+  private readonly trustDesk: TrustDesk
 
   constructor(d: BankDeps) {
     this.d = d
     this.tax = new TaxDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
+    this.trustDesk = new TrustDesk({ json: d.json, body: (req) => this.body(req), broken: (name) => this.broken(name),
+      listing: (id, viewer) => { const l = this.listings.get(id); return l !== undefined && this.visible(l, viewer) ? l : undefined },
+      paid: (listing, buyer) => this.uses.some((u) => u.listing_id === listing && u.buyer === buyer && u.charge === 'billed' && u.refunded_at === undefined),
+      payoutsEnabled: (ws) => this.accounts.get(ws)?.payouts_enabled === true,
+      lineage: (id) => this.lineageOf(id) })
   }
 
   /** The workspace and agent an agent key belongs to. */
@@ -785,7 +796,8 @@ export class Bank {
       case 'market_listing': {
         const l = this.listings.get(listing)
         if (l === undefined || !this.visible(l, who.ws.id)) return reply({ content: [{ type: 'text', text: 'market: no such listing' }], isError: true }), true
-        return text({ ...this.listingOut(l, who.ws.id), offers: l.offers ?? [] }), true
+        // B32.89 — and its trust panel, as the trust read gives it.
+        return text({ ...this.listingOut(l, who.ws.id), offers: l.offers ?? [], trust: this.trustDesk.trust(who.ws.id, l.id, true) }), true
       }
       case 'market_license':
         return answer(await route('POST', `/marketplace/listings/${listing}/licences`, { offer_id: a.offer_id, version: a.version },
@@ -890,24 +902,30 @@ export class Bank {
     if (ln !== null) {
       const l = this.listings.get(ln[1])
       if (l === undefined || !this.visible(l, viewer)) return json(res, 404, { error: 'market: no such listing' }), true
-      const ancestors: Edge[] = []
-      for (let at = [l.id], depth = 0; at.length > 0 && depth < 5; depth++) {
-        const up = this.lineage.filter((e) => at.includes(e.child_listing_id))
-        ancestors.push(...up)
-        at = up.map((e) => e.parent_listing_id)
-      }
-      const below = (id: string): number => this.lineage.filter((e) => e.parent_listing_id === id).reduce((n, e) => n + 1 + below(e.child_listing_id), 0)
-      json(res, 200, { listing_id: l.id, version: l.latest_version, remix_policy: l.remix_policy ?? 'none', remix_share_bps: l.remix_share_bps ?? 0,
-        ancestors: ancestors.map((e) => ({ listing_id: e.parent_listing_id, version: e.parent_version, child_listing_id: e.child_listing_id, child_version: e.child_version,
-          share_bps: e.share_bps, source: e.source })), descendants: below(l.id), max_depth: 5 })
+      json(res, 200, { listing_id: l.id, version: l.latest_version, remix_policy: l.remix_policy ?? 'none', remix_share_bps: l.remix_share_bps ?? 0, ...this.lineageOf(l.id), max_depth: 5 })
       return true
     }
+    // B32.89 — a listing's trust panel (stub-trust.ts).
+    if (this.trustDesk.publicRoute(res, path, viewer)) return true
     const m = /^\/v1\/marketplace\/listings\/([^/]+)$/.exec(path)
     if (m === null) return false
     const l = this.listings.get(m[1])
     if (l === undefined || !this.visible(l, viewer)) json(res, 404, { error: 'market: no such listing' })
     else json(res, 200, this.listingOut(l, viewer))
     return true
+  }
+
+  /** B34.4 — a listing's ancestors, nearest first, with each edge's share, and how many listings build on it. */
+  private lineageOf(id: string): Lineage {
+    const ancestors: Edge[] = []
+    for (let at = [id], depth = 0; at.length > 0 && depth < 5; depth++) {
+      const up = this.lineage.filter((e) => at.includes(e.child_listing_id))
+      ancestors.push(...up)
+      at = up.map((e) => e.parent_listing_id)
+    }
+    const below = (of: string): number => this.lineage.filter((e) => e.parent_listing_id === of).reduce((n, e) => n + 1 + below(e.child_listing_id), 0)
+    return { ancestors: ancestors.map((e) => ({ listing_id: e.parent_listing_id, version: e.parent_version, child_listing_id: e.child_listing_id, child_version: e.child_version,
+      share_bps: e.share_bps, source: e.source })), descendants: below(id) }
   }
 
   /**
@@ -1127,6 +1145,8 @@ export class Bank {
       }
       return json(res, 200, { invoice_id: invoice, uses_cleared: due.length }), true
     }
+    // B32.89 — one card recorded on two test workspaces (talyvor-lens B32.102); every stub workspace is a test one.
+    if (await this.trustDesk.syntheticRoute(req, res, path, (ws) => this.d.workspace(ws) !== undefined)) return true
     if ((m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/marketplace\/payouts\/run$/.exec(path)) !== null && req.method === 'POST') {
       return json(res, 200, this.payOutWeekly(m[1], now)), true
     }
@@ -2077,6 +2097,8 @@ export class Bank {
     }
     // B32.66 — tax profiles, receipts and sellers' tax details (stub-tax.ts); a seller's weekly statements.
     if (await this.tax.route(req, res, ws.id, rest, now)) return true
+    // B32.89 — a paying buyer's review of a listing, and its seller's reply (stub-trust.ts).
+    if (await this.trustDesk.route(req, res, ws.id, rest, now)) return true
     if (rest === '/marketplace/statements' && method === 'GET') {
       const period = url.searchParams.get('period')
       if (period === null) {
