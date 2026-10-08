@@ -28,7 +28,7 @@ import {
 } from './oracles.ts'
 import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScreen, subscribeWithTestCard, tryConversion, tryTare } from './screens.ts'
 import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatForecastAnswer, chatLiveStatement, chatPaidBy, chatAgentTask, chatCardFreeze, chatStatement, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
-import { chatMoneyRequests, marketAbuse, marketBillRefund, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
+import { chatMoneyRequests, marketAbuse, marketBillRefund, marketJournal, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
 import { apiKeyRevoke, byokAddon, chatConnectors, chatFileBug, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackProject, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
 import { agentApprovalDenied, lxcConvertBonds, marketRemixLicence, walletCardFreeze, walletEscrowLens, walletHandlePause, walletLoansAnswered, walletRequestsAnswered, walletScheduleTopUpPot, walletTradingSim } from './routes.ts'
@@ -4173,6 +4173,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B32.90 — the marketplace's search, collections and trending, once a run, on workspaces of its own: searched by
   // capability and price it finds only what matches, a collection lists its listings in order, and a featured one is first.
   if (i === 5) list.push(marketDiscovery())
+  // B32.75 — a sale's earning released on the seller's journal, once a run, bought by a workspace of its own from a seller it
+  // makes: the bill paid, the share is due or available, Lens's release job empties the holdback, and the journal reconciles.
+  if (i === 5) list.push(marketJournal(i))
   // B32.91 — room safety, once a run, on a public room of its own: reports hide it until the operator keeps it, a ban
   // refuses a post, and a closed room refuses a message and a run on its wallet, whose statement gains no line.
   if (i === 3) list.push(roomsModeration())
