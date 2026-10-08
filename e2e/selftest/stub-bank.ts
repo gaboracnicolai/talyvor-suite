@@ -95,6 +95,13 @@
 //   statement-list-gross — the list of statements gives a paid week's net as its payout's gross
 //   statement-agent     — an agent's key reads its workspace's statements
 //
+// B32.97 adds a self-billing seller's payout issuing their self-billed invoice (Lens B32.43), as production issues it while
+// LENS_SELF_BILLING_VAT is off — under review, no VAT — and the week's statement carrying it with its supply_vat line. Its defects:
+//   self-bill-missing    — a payout to a seller who agreed to self-billing issues no invoice
+//   self-bill-vat-paid   — under review, the invoice charges the GB rate and the payout pays it
+//   self-bill-vat-differs — the payout pays the GB rate while its invoice reads no VAT
+//   self-bill-unagreed   — a seller who never agreed to self-billing is self-billed
+//
 // B32.89 adds the trust panel (Lens B32.49, stub-trust.ts): a paying buyer's review and the seller's reply, the trust read
 // and market_listing's trust over MCP, and talyvor-lens B32.102's synthetic card link. Its defects are stub-trust.ts's.
 //
@@ -247,6 +254,9 @@ interface Payout {
 }
 /** B32.66 — the payout minimum (Lens market.PayoutMinimumUSDMicros), and Stripe's fees in cents (market.PayoutFees). */
 const PAYOUT_MINIMUM_USD_MICROS = 25_000_000
+/** B32.97 — a self-billed invoice (Lens market.SelfBill), and what it says of the seller's VAT while self-billing VAT is off. */
+type SelfBill = { ws: string } & Record<string, unknown> & { vat_usd_micros: number; vat_enabled: boolean }
+const VAT_UNDER_REVIEW = 'VAT on your supply: under review'
 const STRIPE_ACCOUNT_FEE_CENTS = 200
 const STRIPE_PAYOUT_FIXED_CENTS = 25
 const STRIPE_PAYOUT_BPS = 25
@@ -393,6 +403,8 @@ export class Bank {
   private readonly reports: Report[] = []
   private readonly accounts = new Map<string, ConnectAccount>()
   private readonly payouts: Payout[] = []
+  /** B32.97 — the self-billed invoice each payout to a self-billing seller is, by payout id. */
+  private readonly selfBills = new Map<string, SelfBill>()
   private readonly cardAuths: CardAuth[] = []
   // B34.4
   private readonly grants: Grant[] = []
@@ -1392,11 +1404,25 @@ export class Bank {
     if (available < PAYOUT_MINIMUM_USD_MICROS || mine.some((p) => p.period === period)) return { withheld: false, payout: null }
     const grossCents = Math.floor(available / 10_000)
     const accountCents = mine.some((p) => p.month === now.slice(0, 7)) ? 0 : STRIPE_ACCOUNT_FEE_CENTS
-    const netCents = Math.max(Math.floor(((grossCents - accountCents - STRIPE_PAYOUT_FIXED_CENTS) * 10_000) / (10_000 + STRIPE_PAYOUT_BPS)), 0)
-    const p: Payout = { id: id('mpo_'), ws, method: 'stripe', month: now.slice(0, 7), period, gross_usd_micros: grossCents * 10_000, vat_usd_micros: 0,
-      account_fee_usd_micros: accountCents * 10_000, payout_fee_usd_micros: (grossCents - accountCents - netCents) * 10_000, net_usd_micros: netCents * 10_000,
+    // B32.97 — to a seller who agreed to self-billing the payout is also a self-billed invoice, the VAT on it paid on top: none
+    // while self-billing VAT is under review.
+    const biller = this.tax.selfBiller(ws, this.broken('self-bill-unagreed'))
+    const vatPaid = biller !== undefined && (this.broken('self-bill-vat-paid') || this.broken('self-bill-vat-differs'))
+    const vatCents = vatPaid ? Math.floor((grossCents * 2000 + 5_000) / 10_000) : 0
+    const netCents = Math.max(Math.floor(((grossCents + vatCents - accountCents - STRIPE_PAYOUT_FIXED_CENTS) * 10_000) / (10_000 + STRIPE_PAYOUT_BPS)), 0)
+    const p: Payout = { id: id('mpo_'), ws, method: 'stripe', month: now.slice(0, 7), period, gross_usd_micros: grossCents * 10_000, vat_usd_micros: vatCents * 10_000,
+      account_fee_usd_micros: accountCents * 10_000, payout_fee_usd_micros: (grossCents + vatCents - accountCents - netCents) * 10_000, net_usd_micros: netCents * 10_000,
       credits_ulxc: 0, paid_at: now, created_at: now }
     this.payouts.unshift(p)
+    if (biller !== undefined && !this.broken('self-bill-missing')) {
+      const vat = this.broken('self-bill-vat-differs') ? 0 : vatCents * 10_000
+      const n = [...this.selfBills.values()].filter((b) => b.ws === ws).length + 1
+      const { agreement_version, ...supplier } = biller
+      this.selfBills.set(p.id, { ws, id: id('msb_'), number: `TEST-SB-${String(n).padStart(6, '0')}`, payout_id: p.id, period, issued_at: now, agreement_version, supplier,
+        customer: { name: 'TALYVOR LTD', address: '1 Test Street, London', country: 'GB', vat_number: '' }, net_usd_micros: p.gross_usd_micros, vat_usd_micros: vat,
+        gross_usd_micros: p.gross_usd_micros + vat, rate_bps: 0, jurisdiction: supplier.country, treatment: 'under_review', note: VAT_UNDER_REVIEW, partner: '',
+        vat_enabled: false, preview: true })
+    }
     const { ws: _w, ...out } = p
     return { withheld: false, payout: out }
   }
@@ -1422,12 +1448,16 @@ export class Bank {
       ['refunds', 'Refunds and chargebacks', 0], ['credits', 'Taken as Talyvor credits', -credits],
       ['carried_forward', 'Carried forward to next week', -(earlier + kept - paid - credits)], ['stripe_fees', "Stripe's fees, at cost", -fees]] as const
     const payout = this.payouts.find((p) => p.ws === ws && p.method === 'stripe' && p.period === period)
+    // B32.97 — the payout's self-billed invoice, its VAT paid on top of the share: a line of its own, before what is carried forward.
+    const bill = payout === undefined ? undefined : this.selfBills.get(payout.id)
+    const supplyVAT = bill === undefined ? [] : [['supply_vat', bill.vat_enabled ? 'VAT on your supply' : VAT_UNDER_REVIEW, bill.vat_usd_micros] as const]
+    const all = [...lines.slice(0, -2), ...supplyVAT, ...lines.slice(-2)]
     const unsummed = this.broken('statement-unsummed')
     return { period, from, to, payout: payout === undefined ? null : (({ ws: _w, ...p }) => p)(payout), sales: week.length,
-      lines: lines.map(([kind, label, amount_usd_micros]) => ({ kind, label, amount_usd_micros: unsummed && kind === 'stripe_fees' ? 0 : amount_usd_micros })),
-      net_usd_micros: lines.reduce((s, l) => s + l[2], 0),
+      lines: all.map(([kind, label, amount_usd_micros]) => ({ kind, label, amount_usd_micros: unsummed && kind === 'stripe_fees' ? 0 : amount_usd_micros })),
+      net_usd_micros: all.reduce((s, l) => s + l[2], 0),
       vat_collected_usd_micros: this.broken('clear-tax-dropped') ? 0 : week.reduce((s, u) => s + this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO).tax_usd_micros, 0),
-      self_billed_invoice: null }
+      self_billed_invoice: bill === undefined ? null : (({ ws: _w, ...b }) => b)(bill) }
   }
 
   /**

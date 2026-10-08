@@ -534,7 +534,38 @@ export interface WeekStatement {
   lines: { kind: string; label: string; amount_usd_micros: number }[] | null
   net_usd_micros: number
   vat_collected_usd_micros: number
-  self_billed_invoice: unknown
+  /** B32.97 — the week's payout as a self-billed invoice from the seller to Talyvor (Lens B32.43): null without the agreement or a payout */
+  self_billed_invoice: SelfBilledInvoice | null
+}
+
+/** B32.97 — one side of a self-billed invoice, as it prints (Lens market.SelfBillParty). */
+export interface SelfBillParty {
+  name: string
+  address: string
+  country: string
+  vat_number: string
+}
+
+/** B32.97 — a self-billed invoice from a seller to Talyvor for the earnings one payout paid (Lens market.SelfBill, B32.43). µUSD. */
+export interface SelfBilledInvoice {
+  id: string
+  number: string
+  payout_id: string
+  period: string
+  issued_at: string
+  agreement_version: string
+  supplier: SelfBillParty
+  customer: SelfBillParty
+  net_usd_micros: number
+  vat_usd_micros: number
+  gross_usd_micros: number
+  rate_bps: number
+  jurisdiction: string
+  treatment: string
+  note: string
+  partner: string
+  vat_enabled: boolean
+  preview: boolean
 }
 
 /** B32.66 — what the synthetic payout run answers for one test seller (talyvor-lens B32.99). */

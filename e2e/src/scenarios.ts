@@ -56,6 +56,7 @@ import { marketTrust } from './marketTrust.ts'
 import { buyerTaxProfile } from './taxProfile.ts'
 import { sellerTaxDetails } from './sellerTax.ts'
 import { sellerWeekStatement } from './weekStatement.ts'
+import { selfBilledInvoice } from './selfBill.ts'
 import { marketBillTax } from './billTax.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
@@ -4609,6 +4610,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // net of 0 with no payout, week 54 is 400 and the seller's agent key 403; paid by the payout run, the newest week's lines
   // sum to its net, which is the listed net and the payout's, its Stripe fees the payout's.
   if (i === 8) list.push(sellerWeekStatement(i))
+  // B32.97 — a self-billing seller's weekly statement, once a run, on workspaces of its own: paid by the payout run, the
+  // newest week carries its self-billed invoice to TALYVOR LTD, its net the payout's gross and its VAT the payout's, its lines
+  // summing to the payout's net; no VAT while self-billing VAT is under review; a seller without the agreement gets none.
+  if (i === 6) list.push(selfBilledInvoice(i))
   // B30.117 — verification levels, once a run, on a workspace of its own: an identity check before L1 is 409 naming L1;
   // email and phone make L1 and identity L2, each a Test check with its evidence reference and the live level still L0;
   // the record holds both checks; payments_out needs L2 and b2b_credit L3.
