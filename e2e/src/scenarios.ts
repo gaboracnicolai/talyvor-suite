@@ -30,7 +30,7 @@ import { BillingPlanCard, DocsPage, FeaturesScreen, type LoggingPolicy, TrackScr
 import { ACTION_TIMEOUT_MS, agentApproval, agentWalletsEmpty, agentApprovalPush, approvalsBadge, chatApprovalFaceID, chatLaunchAgent, chatAskAbove, chatForecastAnswer, chatLiveStatement, chatPaidBy, chatAgentTask, chatCardFreeze, chatStatement, chatRecentCalls, chatPlainRule, chatWalletAlerts, chatWalletButtons, agentArchive, agentBalanceStored, agentHourlyLimit, agentLimit, agentLimitBoost, agentModelLimit, agentOpenFund, agentPauseAll, agentPayeeDailyCap, agentPayeeLists, agentRequestRate, agentRuleSimulator, agentRulesRollback, agentRuleTemplate, agentSpendQuestion, billingReturnPages, companyPayment, ledgerReadsCorrectly, marketplaceSale, spendPlainWords, spendPlatformFee, statementReconciles, walletCurrency, walletFirstNav, walletHome, walletOnboarding } from './bank.ts'
 import { chatMoneyRequests, marketAbuse, marketBillRefund, marketJournal, marketOffers, marketPayout, marketPayoutConnect, marketReview, marketTakedown, walletCard, walletCardPurchase, walletCashOut, walletEscrow, walletLoan, walletLoanDefault, walletLoanRepay, walletPots, walletGiveBack, walletRecurring, walletRequest, walletSendRefund } from './trade.ts'
 import type { Inventory } from './coverage.ts'
-import { apiKeyRevoke, byokAddon, chatConnectors, chatFileBug, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackProject, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
+import { apiKeyRevoke, byokAddon, chatConnectors, chatDocsPage, chatFileBug, chatToolGuard, docsTools, lensConvert, patternMiningSwitch, planChange, providerKeys, sessionSignOut, trackProject, trackSearchCycleBoard, trackWorkspaceRestore, walletFX, wrongAnswerStored } from './surface.ts'
 import { agentApprovalDenied, lxcConvertBonds, marketRemixLicence, walletCardFreeze, walletEscrowLens, walletHandlePause, walletLoansAnswered, walletRequestsAnswered, walletScheduleTopUpPot, walletTradingSim } from './routes.ts'
 import { appShell, brandPlanes, chatBrand, chatHelpInFull, everyScreen, homeCards, lensReads, marketBrand, screensBrand, walletBrand } from './tour.ts'
 import { sdkWalletQuickstart } from './sdk.ts'
@@ -3903,7 +3903,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.372 — and a news question with Search the web on: its answer cites at least two pages, and each opens.
     // B28.374 — and "file this as a bug": a Track issue filed on a yes, linked under the answer, held by Track.
     // B28.122 — and a connector's test tool called for a fingerprint, the call's cost under the answer a spend row.
-    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i), chatWebSearch(i), chatFileBug(i), chatConnectors(i)); break
+    // B28.375 — and a Docs page attached in Chat, the answer quoting the sentence only the page holds.
+    case 3: list.push(rephraseSameAccount(i), consoleScreensDraw(i), roomsPrivate(i), chatWebSearch(i), chatFileBug(i), chatConnectors(i), chatDocsPage(i)); break
     // B28.363 — and a question asked of Auto (cheapest good): the answer names the model Lens chose, charged at its price.
     case 4:
       if (i + 5 < users) list.push(acrossAccounts(i, i + 5))

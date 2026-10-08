@@ -74,6 +74,8 @@ import { CheaperHint } from './CheaperHint'
 import { ConversationBudget, budgetRefusal, overBudget, spentULXC } from './ConversationBudget'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
+import { DocsPagePicker, attachDocsPage } from './DocsPagePicker'
+import { pageHref } from '../docs/docsNav'
 import { ModelPicker } from './ModelPicker'
 import { Sources, WebSearchToggle } from './WebSearch'
 import { CodeRuns, RunCodeToggle } from './RunCode'
@@ -890,6 +892,23 @@ export function Chat() {
     [],
   )
 
+  // B28.375 — a Docs page, read as Docs stores it and stored in Lens as a document, so it travels as an attached file does.
+  const attachPage = useCallback(async (spaceId: string, pageId: string, title: string) => {
+    setAttachError(null)
+    setUploading((prev) => [...prev, title])
+    try {
+      const a = await attachDocsPage(spaceId, pageId, title)
+      setAttachments((prev) => [...prev, a])
+    } catch (e) {
+      setAttachError(e instanceof Error && e.message !== '' ? e.message : `${title} couldn’t be attached: try again.`)
+    } finally {
+      setUploading((prev) => {
+        const i = prev.indexOf(title)
+        return i < 0 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]
+      })
+    }
+  }, [])
+
   // send() is a new function every render; the waiting question is sent once, when the uploads end.
   const sendRef = useRef(send)
   sendRef.current = send
@@ -1371,6 +1390,7 @@ export function Chat() {
             <Composer
               attachments={attachments}
               onAttach={(files) => void attach(files)}
+              onAttachPage={(spaceId, pageId, title) => void attachPage(spaceId, pageId, title)}
               onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, j) => j !== i))}
               attachError={attachError}
               uploading={uploading}
@@ -1816,7 +1836,18 @@ function SentDocuments({ message, answering }: { message: ChatMessage; answering
       <ul className="flex flex-wrap gap-2" aria-label="Documents sent">
         {docs.map((d, i) => (
           <li key={`${d.name}-${i}`} className="rounded-control border border-rule bg-canvas px-2 py-1 text-caption text-ink">
-            {d.name} <span className="font-figure text-faint">{formatSize(d.size)}</span>
+            {d.docs_page !== undefined ? (
+              // B28.375 — a Docs page, linked to the page it was read from.
+              <>
+                <span className="font-figure text-eyebrow uppercase text-label">Docs</span>{' '}
+                <Link className={inlineLink} to={pageHref({ spaceId: d.docs_page.space_id, pageId: d.docs_page.page_id })} data-testid="sent-docs-page">
+                  {d.name}
+                </Link>
+              </>
+            ) : (
+              d.name
+            )}{' '}
+            <span className="font-figure text-faint">{formatSize(d.size)}</span>
           </li>
         ))}
       </ul>
@@ -2179,6 +2210,7 @@ function StatementLines({ lines }: { lines: SpendLine[] }) {
 function Composer({
   attachments,
   onAttach,
+  onAttachPage,
   onRemoveAttachment,
   attachError,
   uploading,
@@ -2198,6 +2230,8 @@ function Composer({
 }: {
   attachments: ChatAttachment[]
   onAttach: (files: File[]) => void
+  /** B28.375 — a Docs page chosen to go with the question. */
+  onAttachPage: (spaceId: string, pageId: string, title: string) => void
   onRemoveAttachment: (index: number) => void
   attachError: string | null
   /** B18.24 — names of the documents still on their way to Lens. */
@@ -2246,6 +2280,7 @@ function Composer({
         <ul className="flex flex-wrap gap-2 px-3 pt-3" aria-label="Attached documents">
           {attachments.map((a, i) => (
             <li key={`${a.name}-${i}`} className="flex items-center gap-1 rounded-control border border-rule bg-canvas py-1 pl-2 pr-1 text-caption text-ink">
+              {a.docs_page !== undefined ? <span className="font-figure text-eyebrow uppercase text-label">Docs</span> : null}
               <span className="max-w-48 truncate">{a.name}</span>
               <span className="font-figure text-faint">{formatSize(a.size)}</span>
               <button
@@ -2324,6 +2359,7 @@ function Composer({
         >
           Attach
         </button>
+        <DocsPagePicker disabled={pending || selected === undefined} onPick={onAttachPage} />
         <WebSearchToggle on={webSearch} onChange={onWebSearch} disabled={pending || selected === undefined} />
         <RunCodeToggle on={runCode} onChange={onRunCode} disabled={pending || selected === undefined} />
         <ModelPicker catalog={picker} selected={selected} onSelect={onSelectModel} disabled={pending} />

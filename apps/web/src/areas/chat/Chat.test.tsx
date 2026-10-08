@@ -1302,6 +1302,46 @@ describe('attached documents (B10.3)', () => {
     expect(uploaded).not.toHaveBeenCalled()
     expect(posted).not.toHaveBeenCalled()
   })
+
+  it('attaches a Docs page as it is stored: its text goes to Lens as Markdown, the question references it, and links the page (B28.375)', async () => {
+    const { posted, uploaded } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', converts: true })
+    const wire = vi.mocked(globalThis.fetch).getMockImplementation()!
+    const docs: Record<string, unknown> = {
+      '/api/docs/spaces': [{ id: 'sp1', name: 'Handbook' }],
+      '/api/docs/spaces/sp1/pages': [{ id: 'pg1', title: 'Release checklist' }],
+      '/api/docs/spaces/sp1/pages/pg1': { id: 'pg1', title: 'Release checklist', content_text: 'The release team meets in room 42 on Thursday.' },
+    }
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const said = docs[String(input)]
+      return said === undefined ? wire(input, init) : new Response(JSON.stringify(said), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+    renderChat()
+    await chooseModel('GPT-4o')
+    fireEvent.click(screen.getByRole('button', { name: 'Docs page' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Release checklist' }))
+    const chip = await screen.findByRole('list', { name: 'Attached documents' })
+    await waitFor(() => expect(within(chip).getByText('Release checklist')).toBeTruthy())
+    const { url, init: sent } = uploaded.mock.calls[0][0]
+    expect(url).toBe('/api/documents?filename=Release%20checklist.md')
+    expect(new Headers(sent.headers).get('Content-Type')).toBe('text/markdown')
+    // jsdom's File has no text(); its FileReader reads one.
+    const read = await new Promise<unknown>((done) => {
+      const r = new FileReader()
+      r.onload = () => done(r.result)
+      r.readAsText(sent.body as File)
+    })
+    expect(read).toBe('# Release checklist\n\nThe release team meets in room 42 on Thursday.\n')
+
+    await ask('Where does the release team meet? Quote the page.')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
+    expect(message.content).toEqual([
+      { type: 'text', text: 'Where does the release team meet? Quote the page.' },
+      { type: 'file', file: { file_id: 'tdoc_1' } },
+    ])
+    expect((await screen.findByTestId('sent-docs-page')).getAttribute('href')).toBe('/docs/spaces/sp1/pages/pg1')
+    await waitFor(() => expect(loadConversations('user-a').list[0]?.messages[0].attachments?.[0].docs_page).toEqual({ space_id: 'sp1', page_id: 'pg1' }))
+  })
 })
 
 describe('the sidebar hides and comes back (B15.5)', () => {

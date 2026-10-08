@@ -72,6 +72,9 @@ export interface ChatAttachment {
   /** B18.24 — the id Lens stored the document under (POST /api/documents → tdoc_…). A question
    *  references the document by it rather than carrying the file. Absent on a document from before. */
   file_id?: string
+  /** B28.375 — set when the document is a Docs page, read from Docs as it was stored when attached
+   *  (DocsPagePicker.tsx): the question shows it linked to the page. */
+  docs_page?: { space_id: string; page_id: string }
 }
 
 /** B18.24 — what converting a question's documents saved, as Lens measured it (talyvor-lens B18.13):

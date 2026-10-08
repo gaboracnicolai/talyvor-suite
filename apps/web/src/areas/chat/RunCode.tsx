@@ -18,7 +18,7 @@ export function RunCodeToggle({ on, onChange, disabled }: { on: boolean; onChang
       onClick={() => onChange(!on)}
       title="Run code"
       className={cn(
-        'inline-flex h-8 items-center gap-1.5 rounded-control px-2 text-caption transition-colors duration-200 disabled:opacity-50',
+        'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2 text-caption transition-colors duration-200 disabled:opacity-50',
         // On, the accent tint the sidebar's active item sits on; ink on it, since accent text on the tint is under AA in light.
         on ? 'bg-accent-tint text-ink' : 'text-muted hover:text-ink',
         focusRing,
