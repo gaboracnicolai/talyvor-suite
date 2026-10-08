@@ -568,6 +568,48 @@ export interface SelfBilledInvoice {
   preview: boolean
 }
 
+/** B32.98 — one record's figures for a quarter, or the year (Lens platformreport.Quarter). µUSD. */
+export interface PlatformReportQuarter {
+  consideration_usd_micros: number
+  activities: number
+  fees_usd_micros: number
+  taxes_withheld_usd_micros: number
+}
+
+/** B32.98 — one reportable seller's activity of one kind in the year (Lens platformreport.Record), their identification in clear. */
+export interface PlatformReportRecord {
+  workspace_id: string
+  seller_type: string
+  country_of_residence: string
+  tins: { jurisdiction: string; number: string }[] | null
+  details_complete: boolean
+  activity: string
+  quarters: PlatformReportQuarter[]
+  total: PlatformReportQuarter
+}
+
+/** B32.98 — the year's platform-reporting export as JSON (Lens platformreport.Report). */
+export interface PlatformReport {
+  year: number
+  funding: string
+  currency: string
+  generated_at: string
+  records: PlatformReportRecord[] | null
+  unresolved_sellers: string[] | null
+}
+
+/** B32.98 — one export file Lens recorded (Lens platformreport.Run): never its contents. */
+export interface PlatformReportRun {
+  id: string
+  year: number
+  funding: string
+  format: string
+  generated_at: string
+  operator: string
+  rows: number
+  sha256: string
+}
+
 /** B32.66 — what the synthetic payout run answers for one test seller (talyvor-lens B32.99). */
 export interface SyntheticPayoutRun {
   withheld: boolean
@@ -849,20 +891,23 @@ export class LensClient {
   private readonly tag: Tag
   /** B25.4 — a moderator key (lens moderator-keys create): the review queue's approve and take down. */
   private readonly moderatorKey: string
+  /** B32.98 — Lens's global admin key (LENS_API_KEY): the platform-reporting export. */
+  private readonly adminKey: string
 
   constructor(baseURL: string, syntheticKey: string, recorder?: Recorder, tag: Tag = { scenario: 'harness', user: -1 },
-    sessionKeys = new Map<string, Promise<string>>(), moderatorKey = '') {
+    sessionKeys = new Map<string, Promise<string>>(), moderatorKey = '', adminKey = '') {
     this.baseURL = baseURL
     this.key = syntheticKey
     this.recorder = recorder
     this.tag = tag
     this.sessionKeys = sessionKeys
     this.moderatorKey = moderatorKey
+    this.adminKey = adminKey
   }
 
   /** B25.5 — the same client, its calls recorded as `tag`'s for the coverage map. */
   tagged(tag: Tag): LensClient {
-    return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys, this.moderatorKey)
+    return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys, this.moderatorKey, this.adminKey)
   }
 
   /**
@@ -1808,6 +1853,32 @@ export class LensClient {
     })
     const raw = await res.text()
     return res.ok ? { ok: true, status: res.status, value: (raw === '' ? null : JSON.parse(raw)) as T } : { ok: false, status: res.status, error: refusalOf(raw) }
+  }
+
+  get canAdmin(): boolean {
+    return this.adminKey !== ''
+  }
+
+  /**
+   * B32.98 — the year's platform-reporting export (Lens B32.44, POST /v1/admin/platform-reports) on the global admin key, as
+   * JSON: the file's bytes as they came, and the id, sha256 and record count Lens sent with it.
+   */
+  async platformReport(year: number, funding: string, actor: string): Promise<Answered<{ file: Buffer; id: string; sha256: string; rows: string }>> {
+    const res = await this.send('POST', '/v1/admin/platform-reports', {
+      headers: { Authorization: `Bearer ${this.adminKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ year, funding, format: 'json', actor }),
+    })
+    const file = Buffer.from(await res.arrayBuffer())
+    if (!res.ok) return { ok: false, status: res.status, error: refusalOf(file.toString('utf8')) }
+    const h = (name: string): string => res.headers.get(name) ?? ''
+    return { ok: true, status: res.status, value: { file, id: h('X-Platform-Report-Id'), sha256: h('X-Platform-Report-Sha256'), rows: h('X-Platform-Report-Rows') } }
+  }
+
+  /** B32.98 — the export files Lens recorded for `year` (GET /v1/admin/platform-reports?year=), newest first, on the global admin key. */
+  async platformReportRuns(year: number): Promise<Answered<{ runs: PlatformReportRun[] | null }>> {
+    const res = await this.send('GET', `/v1/admin/platform-reports?year=${year}`, { headers: { Authorization: `Bearer ${this.adminKey}`, Accept: 'application/json' } })
+    const raw = await res.text()
+    return res.ok ? { ok: true, status: res.status, value: JSON.parse(raw) as { runs: PlatformReportRun[] | null } } : { ok: false, status: res.status, error: refusalOf(raw) }
   }
 
   /** A moderator key must name the person it acts for; every use is recorded under that name. */

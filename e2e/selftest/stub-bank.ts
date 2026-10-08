@@ -102,6 +102,15 @@
 //   self-bill-vat-differs — the payout pays the GB rate while its invoice reads no VAT
 //   self-bill-unagreed   — a seller who never agreed to self-billing is self-billed
 //
+// B32.98 adds the annual platform-reporting export (Lens B32.44, POST and GET /v1/admin/platform-reports) on the global admin
+// key alone: one record per seller resident in the UK or an EU member state and activity, its consideration what the year's
+// clears credited the seller's holdback less what refunds reversed, no tax withheld, and each file's run recorded with its
+// sha256. Its defects:
+//   report-lists-us            — a seller resident outside the UK and the EU is listed too
+//   report-leaves-gb           — a seller resident in the UK is left out
+//   report-consideration-gross — a sale's consideration is its price before Talyvor's fee, not what the seller was credited
+//   report-sha-unrecorded      — the run is recorded with a sha256 that is not the file's
+//
 // B32.89 adds the trust panel (Lens B32.49, stub-trust.ts): a paying buyer's review and the seller's reply, the trust read
 // and market_listing's trust over MCP, and talyvor-lens B32.102's synthetic card link. Its defects are stub-trust.ts's.
 //
@@ -137,6 +146,8 @@ export interface BankDeps {
   read: (req: IncomingMessage) => Promise<string>
   /** B25.4 — the moderator key the review queue takes, and where the stub serves Stripe's onboarding */
   moderatorKey: string
+  /** B32.98 — the global admin key the platform-reporting export takes */
+  adminKey: string
   base: string
   /** B25.8 — books `ulxc` (negative: a debit) on workspace `ws`'s ledger as a row of `type`, tagged with `metadata` */
   credit: (ws: string, ulxc: number, type: string, description: string, metadata?: object) => void
@@ -368,6 +379,13 @@ const LICENCE_TERMS: Record<string, string> = {
 }
 const USD_MICROS_PER_PENNY = 12_700
 const id = (prefix: string): string => prefix + randomBytes(8).toString('hex')
+/** B32.98 — the EU's member states, whose residents DAC7 covers (Lens platformreport.memberStates). */
+const MEMBER_STATES = new Set(['AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'HU', 'IE', 'IT',
+  'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK'])
+/** B32.98 — one quarter's figures of a platform-report record, or the year's (Lens platformreport.Quarter). */
+interface ReportQuarter { consideration_usd_micros: number; activities: number; fees_usd_micros: number; taxes_withheld_usd_micros: number }
+/** B32.98 — one platform-report file written (Lens platformreport.Run). */
+interface ReportRun { id: string; year: number; funding: string; format: string; generated_at: string; operator: string; rows: number; sha256: string }
 /** B32.90 — Lens's controlled list of what a listing can do (market_capabilities, migration 0219), in its order. */
 const MARKET_CAPABILITIES = ['summarize', 'extract', 'translate', 'classify', 'code-review', 'sql', 'legal', 'finance', 'write', 'research', 'data-analysis', 'customer-support']
 
@@ -403,6 +421,8 @@ export class Bank {
   private readonly reports: Report[] = []
   private readonly accounts = new Map<string, ConnectAccount>()
   private readonly payouts: Payout[] = []
+  /** B32.98 — every platform-report file written, newest first. */
+  private readonly reportRuns: ReportRun[] = []
   /** B32.97 — the self-billed invoice each payout to a self-billing seller is, by payout id. */
   private readonly selfBills = new Map<string, SelfBill>()
   private readonly cardAuths: CardAuth[] = []
@@ -1266,6 +1286,73 @@ export class Bank {
       return json(res, 200, { authorization_id: auth.authorization_id, approved: auth.approved, reason: auth.reason, amount_ulxc: cost }), true
     }
     return false
+  }
+
+  /**
+   * B32.98 — Lens's platform-reporting export (B32.44) and the files it recorded, on the global admin key alone. A test bill is
+   * the stub's only money, so the export of test money is every seller credited by a clear in the year, and of live money none.
+   */
+  async platformReportRoute(req: IncomingMessage, res: ServerResponse, key: string, url: URL): Promise<boolean> {
+    if (url.pathname !== '/v1/admin/platform-reports') return false
+    const { json } = this.d
+    if (this.d.adminKey === '' || key !== this.d.adminKey) return json(res, 401, { error: 'admin credentials required' }), true
+    if (req.method === 'GET') {
+      const year = Number(url.searchParams.get('year') ?? 0)
+      return json(res, 200, { runs: this.reportRuns.filter((r) => year === 0 || r.year === year) }), true
+    }
+    if (req.method !== 'POST') return this.d.miss(req, res, url.pathname), true
+    const { year = 0, funding = 'live', format = 'csv', actor = '' } = await this.body<{ year?: number; funding?: string; format?: string; actor?: string }>(req)
+    if (year < 2020 || year > 2100) return json(res, 400, { error: `platformreport: invalid: year is a year such as 2026, not ${year}` }), true
+    if (funding !== 'live' && funding !== 'test') return json(res, 400, { error: `platformreport: invalid: funding is "live" or "test", not "${funding}"` }), true
+    if (format !== 'json') return json(res, 400, { error: 'stub: the platform report is written as json only' }), true
+    if (actor.trim() === '') return json(res, 400, { error: 'platformreport: invalid: operator is required: who is running the export' }), true
+
+    // What each clear in the year credited each payee's holdback, by quarter and activity; a reversed row takes it back.
+    const figures = new Map<string, { ws: string; activity: string; quarters: ReportQuarter[] }>()
+    for (const u of funding === 'test' ? this.uses : []) {
+      if (u.cleared_at === undefined || new Date(u.cleared_at).getUTCFullYear() !== year) continue
+      const q = Math.floor(new Date(u.cleared_at).getUTCMonth() / 3)
+      const activity = u.payee_agent_id !== '' ? 'agent_payment' : 'digital_listing'
+      for (const r of this.rowsOf(u)) {
+        const k = `${r.ws} ${activity}`
+        const f = figures.get(k) ?? { ws: r.ws, activity, quarters: [0, 1, 2, 3].map(() => ({ consideration_usd_micros: 0, activities: 0, fees_usd_micros: 0, taxes_withheld_usd_micros: 0 })) }
+        figures.set(k, f)
+        const gross = u.price_ulxc / ULXC_PER_USD_MICRO
+        f.quarters[q].activities += 1
+        if (this.reversed(r)) continue
+        f.quarters[q].consideration_usd_micros += r.kind === 'sale' && this.broken('report-consideration-gross') ? gross : r.share
+        if (r.kind === 'sale') f.quarters[q].fees_usd_micros += gross - shareOf(u)
+      }
+    }
+    // Where each seller lives decides whether they are reported; one with no country on file is unresolved.
+    const records: object[] = []
+    const unresolved = new Set<string>()
+    for (const f of [...figures.values()].sort((a, b) => (a.ws + a.activity).localeCompare(b.ws + b.activity))) {
+      const d = this.tax.sellerDetails(f.ws)
+      const country = d?.country ?? ''
+      if (d === undefined || country === '') {
+        unresolved.add(f.ws)
+        continue
+      }
+      const resident = country === 'GB' ? !this.broken('report-leaves-gb') : MEMBER_STATES.has(country)
+      if (!resident && !this.broken('report-lists-us')) continue
+      const total = f.quarters.reduce((t, q) => ({ consideration_usd_micros: t.consideration_usd_micros + q.consideration_usd_micros, activities: t.activities + q.activities,
+        fees_usd_micros: t.fees_usd_micros + q.fees_usd_micros, taxes_withheld_usd_micros: 0 }))
+      records.push({ workspace_id: f.ws, seller_type: d.seller_type, first_name: d.first_name, middle_name: '', last_name: d.last_name, legal_name: d.legal_name,
+        primary_address: d.address, country_of_residence: country, tins: d.tins, date_of_birth: d.date_of_birth, company_registration_number: '', vat_number: d.vat_number,
+        financial_account_identifier: d.account_identifier, financial_account_holder: d.account_holder, details_complete: !this.tax.incomplete(f.ws), activity: f.activity,
+        quarters: f.quarters, total })
+    }
+    const generatedAt = new Date().toISOString().slice(0, 19) + 'Z'
+    const file = Buffer.from(JSON.stringify({ year, funding, currency: 'USD', generated_at: generatedAt, records, unresolved_sellers: [...unresolved].sort() }, null, 2) + '\n')
+    const sha256 = createHash('sha256').update(file).digest('hex')
+    const run: ReportRun = { id: id('rpt_'), year, funding, format, generated_at: generatedAt, operator: actor.trim(), rows: records.length,
+      sha256: this.broken('report-sha-unrecorded') ? createHash('sha256').update(file.subarray(0, -1)).digest('hex') : sha256 }
+    this.reportRuns.unshift(run)
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Platform-Report-Id': run.id, 'X-Platform-Report-Sha256': sha256,
+      'X-Platform-Report-Rows': String(records.length) })
+    res.end(file)
+    return true
   }
 
   /** /v1/admin/marketplace/…: the moderators' queue, behind a moderator key naming its operator (B20.13). */

@@ -565,7 +565,7 @@ const QUOTES = { simulated: true, market_data: 'European Central Bank euro forei
   rate_date: '2026-10-02', quotes: SIM_QUOTES }
 
 const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runModel, json, read, miss,
-  moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', base: BASE,
+  moderatorKey: process.env.STUB_MODERATOR_KEY ?? '', adminKey: process.env.STUB_ADMIN_KEY ?? '', base: BASE,
   credit: (id, ulxc, type, description, metadata) => {
     const ws = workspaces.get(id)
     if (ws !== undefined) book(ws, ulxc, type, description, metadata)
@@ -1167,6 +1167,8 @@ createServer(async (req, res) => {
     if (await bank.agentUse(req, res, bearer, p)) return
     if (await bank.agentTaxProfile(req, res, bearer, p)) return
     if (await bank.moderatorRoute(req, res, bearer, p)) return
+    // B32.98 — the platform-reporting export and its runs, on the global admin key.
+    if (await bank.platformReportRoute(req, res, bearer, url)) return
     // B32.91 — the operator's room queue, keep and close, on the same moderator key (stub-rooms.ts).
     if (await roomsModeratorRoute(req, res, p, bearer, process.env.STUB_MODERATOR_KEY ?? '')) return
     if (p.startsWith('/stub-connect/')) {

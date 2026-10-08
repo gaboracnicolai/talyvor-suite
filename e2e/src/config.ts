@@ -16,6 +16,11 @@ export interface RunConfig {
   /** B25.4 — LENS_MODERATOR_KEY: a moderator key, for the review queue's approve and take down; '' tests neither */
   moderatorKey: string
   /**
+   * B32.98 — LENS_API_KEY: Lens's global admin key, the same value Lens boots with, for the platform-reporting export, which
+   * holds sellers' TINs in clear and no narrower key reaches; '' leaves platform-report a SKIP
+   */
+  adminKey: string
+  /**
    * B28.280 — LENS_STRIPE_TEST_WEBHOOK_SECRET: the signing secret of Lens's test-mode Stripe webhook, the same value Lens
    * boots with, so the testers can sign an event as Stripe does and send it again; '' leaves webhook-replayed a SKIP
    */
@@ -150,6 +155,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     lensURL,
     syntheticKey,
     moderatorKey: env.LENS_MODERATOR_KEY ?? '',
+    adminKey: env.LENS_API_KEY ?? '',
     webhookSecret: env.LENS_STRIPE_TEST_WEBHOOK_SECRET ?? '',
     upstreamPort: Math.floor(num('upstream-port', 'E2E_UPSTREAM_PORT', 0, true)),
     users: light ? LIGHT_USERS : Math.floor(num('users', 'E2E_USERS', DEFAULTS.users)),

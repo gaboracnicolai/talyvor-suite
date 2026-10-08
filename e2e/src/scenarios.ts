@@ -57,6 +57,7 @@ import { buyerTaxProfile } from './taxProfile.ts'
 import { sellerTaxDetails } from './sellerTax.ts'
 import { sellerWeekStatement } from './weekStatement.ts'
 import { selfBilledInvoice } from './selfBill.ts'
+import { platformReport } from './platformReport.ts'
 import { marketBillTax } from './billTax.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
@@ -4701,6 +4702,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // newest week carries its self-billed invoice to TALYVOR LTD, its net the payout's gross and its VAT the payout's, its lines
   // summing to the payout's net; no VAT while self-billing VAT is under review; a seller without the agreement gets none.
   if (i === 6) list.push(selfBilledInvoice(i))
+  // B32.98 — the annual platform-reporting export, once a run, on workspaces of its own, on Lens's global admin key: its sha256
+  // the one Lens recorded, only UK and EU residents listed, the GB seller's consideration what their journal was credited with no
+  // tax withheld, and the US seller left out.
+  if (i === 9) list.push(platformReport(i))
   // B30.117 — verification levels, once a run, on a workspace of its own: an identity check before L1 is 409 naming L1;
   // email and phone make L1 and identity L2, each a Test check with its evidence reference and the live level still L0;
   // the record holds both checks; payments_out needs L2 and b2b_credit L3.
