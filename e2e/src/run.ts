@@ -252,7 +252,7 @@ export async function run(cfg: RunConfig): Promise<RunResult> {
   await sample()
   const sampler = setInterval(() => void sample(), SAMPLE_EVERY_MS)
   const rec = new Recorder()
-  const lens = new LensClient(cfg.lensURL, cfg.syntheticKey, rec, undefined, undefined, cfg.moderatorKey)
+  const lens = new LensClient(cfg.lensURL, cfg.syntheticKey, rec, undefined, undefined, cfg.moderatorKey, cfg.adminKey)
   const cap = new SpendCap(cfg.capUSD)
   const book = new ChargeBook()
   let inv: Inventory | undefined

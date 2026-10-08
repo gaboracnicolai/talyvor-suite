@@ -136,6 +136,11 @@ export class TaxDesk {
     return (this.sellers.get(seller)?.withheld_since ?? '') !== ''
   }
 
+  /** B32.98 — a seller's details as they saved them, the TINs in clear, as the platform report opens them: undefined before they give any. */
+  sellerDetails(seller: string): Readonly<SellerDetails> | undefined {
+    return this.sellers.get(seller)
+  }
+
   /**
    * B32.97 — the seller as their self-billed invoice prints them (Lens market.selfBillFor), with the agreement they saved:
    * undefined when they have not agreed to self-billing — unless `anyway`, as though every seller had.
