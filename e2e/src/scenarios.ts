@@ -2564,6 +2564,34 @@ function memo(seed: number): { file: Attachment; word: string } {
   return { file: { name: `memo-${seed}.html`, mimeType: 'text/html', buffer: Buffer.from(html) }, word }
 }
 
+/**
+ * B28.130 — the memo as a one-page PDF with a text layer, the code word on its second line, built the way talyvor-lens
+ * builds the PDFs its converter is tested on (internal/distill/pdf_test.go buildPDF).
+ */
+export function memoPDF(seed: number): { file: Attachment; word: string } {
+  const word = CODE_WORDS[seed % CODE_WORDS.length]
+  const stream = ['Quarterly memo', `This memo is for tester ${seed}. The code word is ${word}.`]
+    .map((line, i) => `BT /F1 24 Tf 72 ${700 - 30 * i} Td (${line}) Tj ET\n`)
+    .join('')
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ]
+  let pdf = '%PDF-1.4\n'
+  const offsets = objects.map((body, i) => {
+    const at = pdf.length
+    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`
+    return at
+  })
+  const xref = pdf.length
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` + offsets.map((at) => `${String(at).padStart(10, '0')} 00000 n \n`).join('')
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+  return { file: { name: `memo-${seed}.pdf`, mimeType: 'application/pdf', buffer: Buffer.from(pdf, 'latin1') }, word }
+}
+
 /** B28.379 — the digits as 5×7 glyphs, a row to a string. */
 const GLYPHS: Record<string, string[]> = {
   0: ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
@@ -2735,6 +2763,50 @@ export function documentInChat(seed: number): Scenario {
         return namesWord(t.answer, word)
           ? { pass: true, detail: `converted; the answer read "${word}" from it` }
           : { pass: false, detail: `converted, but the answer is not the code word "${word}": ${describe(t)}` }
+      })
+      return typeof out === 'string' ? { pass: false, detail: out } : out
+    },
+  }
+}
+
+/**
+ * B28.130 — a PDF dragged from the desktop onto Chat: the chat says where to drop it, and dropped, it is attached, converted
+ * to text before the model reads it, and the answer comes from it. The overlay and the question are photographed at 1440 and 390.
+ */
+export function pdfDroppedInChat(seed: number): Scenario {
+  const { file, word } = memoPDF(seed)
+  return {
+    id: 'pdf-dropped-in-chat',
+    owner: 'talyvor-suite',
+    items: ['B28.130'],
+    title: 'a PDF dropped on Chat is attached and converted, and the answer comes from it',
+    run: async (ctx) => {
+      const out = await withSwitch(ctx, 'Document conversion', true, async (): Promise<Verdict> => {
+        const { page } = ctx.app
+        const viewport = page.viewportSize()
+        await mkdir(ctx.env.outDir, { recursive: true })
+        const shoot = async (what: string) => {
+          for (const width of [1440, 390]) {
+            const path = join(ctx.env.outDir, `pdf-dropped-in-chat-${what}-${width}px-user${ctx.app.user.index}.png`)
+            await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+            await page.screenshot({ path })
+            ctx.evidence.push({ note: `${what} at ${width}px: ${path}` })
+          }
+          if (viewport !== null) await page.setViewportSize(viewport)
+        }
+        const drop = await ctx.app.dragFiles([file])
+        await shoot('dragging')
+        await drop()
+        const t = record(ctx, await ctx.app.ask(`What is the code word in the attached document? Reply with the word only.`, undefined, [file], true),
+          `dropped ${file.name}`)
+        const status = (await page.locator('[data-testid="turn-user"] [data-testid="documents-status"]').last().innerText()).trim()
+        ctx.evidence.push({ note: `under the question: "${status}"` })
+        await shoot('answered')
+        if (priced(t) !== undefined) return { pass: false, detail: priced(t) as string }
+        if (status !== 'Converted to text before the model read it.') return { pass: false, detail: `the dropped PDF was not converted: "${status}"` }
+        return namesWord(t.answer, word)
+          ? { pass: true, detail: `dropped, converted; the answer read "${word}" from it` }
+          : { pass: false, detail: `dropped and converted, but the answer is not the code word "${word}": ${describe(t)}` }
       })
       return typeof out === 'string' ? { pass: false, detail: out } : out
     },
@@ -4060,8 +4132,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   switch (i % 10) {
     case 0: list.push(featureSwitches(i), tareProseModel(i)); break
     case 1: list.push(injectionBlocked(i)); break
-    // B28.379 — then a PNG showing "42", answered 42.
-    case 2: list.push(documentInChat(i), imageInChat()); break
+    // B28.379 — then a PNG showing "42", answered 42; B28.130 — and a PDF dropped on the chat, converted.
+    case 2: list.push(documentInChat(i), imageInChat(), pdfDroppedInChat(i)); break
     case 3: list.push(spendingLimit(i)); break
     case 4: list.push(tryConversionPage(i)); break
     case 5: list.push(docsAI(i)); break

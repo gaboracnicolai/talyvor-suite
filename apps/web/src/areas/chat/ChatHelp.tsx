@@ -169,7 +169,8 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
         <p>
           Attach sits beside the model picker. PDF, Word, Excel, PowerPoint, CSV, HTML, JSON, XML, text and
           Markdown files can be attached, each up to 25 MB. A document is uploaded once, and every later
-          question in the conversation can still see it.
+          question in the conversation can still see it. Files can also be dragged onto the chat and dropped, and a
+          screenshot or a copied file pasted into the message box is attached the same way.
         </p>
         <p>
           The page button beside Attach (Docs page) lists your workspace&rsquo;s Docs spaces and their pages. The page you pick goes with
