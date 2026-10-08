@@ -216,6 +216,10 @@ export const WEB_SEARCH_HEADER = 'X-Talyvor-Web-Search'
  *  ran and what that printed (chatStream.ts CODE_RUN_FRAME; talyvor-lens B28.119). */
 export const RUN_CODE_HEADER = 'X-Talyvor-Run-Code'
 
+/** B28.131 — `off` on a temporary chat's request: Lens keeps nothing of the answer, in the workspace's cache or the shared
+ *  pool. It goes with `X-Talyvor-Cache: bypass`, so the answer is not served from either. */
+export const CACHE_STORE_HEADER = 'X-Talyvor-Cache-Store'
+
 /** B28.376 — the Track issue a request is for, by its identifier (ENG-42). Lens keeps it with the request's spend, and
  *  Track adds that spend to the issue's AI cost (talyvor-track RecordRequestSpendAttributed; talyvor-lens B28.124). */
 export const ISSUE_HEADER = 'X-Talyvor-Issue'
@@ -244,6 +248,8 @@ export interface ConversationTag {
   web_search?: boolean
   /** B28.373 — Run code is on for this question: the model may run code in Lens's sandbox to answer it. */
   run_code?: boolean
+  /** B28.131 — a temporary chat: its answer is neither served from nor kept in the cache or the shared pool. */
+  temporary?: boolean
 }
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read.
@@ -807,7 +813,8 @@ export async function streamChat(
       'Content-Type': 'application/json',
       // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
       ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
-      ...(fresh ? { 'X-Talyvor-Cache': 'bypass' } : {}),
+      ...(fresh || conversation?.temporary === true ? { 'X-Talyvor-Cache': 'bypass' } : {}),
+      ...(conversation?.temporary === true ? { [CACHE_STORE_HEADER]: 'off' } : {}),
       ...(paidBy !== undefined && paidBy !== '' ? { [PAID_BY_HEADER]: paidBy } : {}),
       ...(conversation !== undefined ? { [CONVERSATION_HEADER]: conversation.id } : {}),
       ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),

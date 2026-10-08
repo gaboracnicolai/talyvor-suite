@@ -63,6 +63,7 @@
 //                 as Lens's does once Redis starts erroring after the night's own run (B28.292: only the deep pass FAILs)
 //   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
 //   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
+//   temporary-kept — a temporary chat's answer (X-Talyvor-Cache-Store: off) is kept to serve again, as any other (B28.131)
 //   connector   — offered a connector's fingerprint tool, the stand-in model makes a fingerprint up rather than calling it (B28.122)
 //   docs-page   — a Docs page attached in Chat is not read: asked to quote it, the stand-in model says it sees no page (B28.375)
 //   issue       — a request's X-Talyvor-Issue is not kept: its spend names no issue, so no Track issue's AI cost rises (B28.376)
@@ -823,7 +824,9 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   }
   // Request logging "none" keeps nothing new. As in Lens (talyvor-lens storeCaches), an answer kept
   // before the switch is still there to replay; the BFF asks such a repeat again (B17.12).
-  const keep = !personal && !tooled && (ws.settings.logging_policy !== 'none' || BREAK === 'logging')
+  // talyvor-lens B28.453 — and a temporary chat's question (X-Talyvor-Cache-Store: off, B28.131) keeps nothing.
+  const temporary = req.headers['x-talyvor-cache-store'] === 'off' && !broke('temporary-kept')
+  const keep = !personal && !tooled && !temporary && (ws.settings.logging_policy !== 'none' || BREAK === 'logging')
   ws.usage.total++
 
   const key = JSON.stringify([model.id, messages.map((m) => [m.role, text(m)])])

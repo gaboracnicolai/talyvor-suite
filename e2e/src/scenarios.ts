@@ -3995,6 +3995,90 @@ export function chatRunCode(seed: number): Scenario {
 }
 
 /**
+ * B28.131 — temporary chat (talyvor-lens B28.453). A question with a word of this run's own is asked in a temporary
+ * chat: the model answers it, and nothing this browser holds names it. Asked again in a chat that is kept, it is asked
+ * afresh — the temporary chat's answer was kept nowhere to serve — and asked once more it is the earlier answer, so the
+ * cache is live and the check before it is not empty. Then, cached, it is asked in a temporary chat again: asked afresh,
+ * never served the earlier answer.
+ */
+export function chatTemporary(seed: number): Scenario {
+  const r = seeded(seed * 13 + 5)
+  const a = 11 + Math.floor(r() * 80)
+  const b = 11 + Math.floor(r() * 80)
+  const word = freshWord(seed * 10 + 7, 1 + Math.floor(Math.random() * 999_999))
+  const q = `What is ${a} times ${b}? ${NUMBER_ONLY} (${word})`
+  return {
+    id: 'chat-temporary',
+    owner: 'talyvor-lens',
+    items: ['B28.131', 'B28.453'],
+    title: 'a temporary chat keeps nothing in the browser, and its answer is neither served from the cache nor kept there to serve again',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      await app.newChat()
+      const toggle = page.getByRole('button', { name: 'Temporary chat' })
+      await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const temporary = async (on: boolean) => {
+        if ((await toggle.getAttribute('aria-pressed')) !== String(on)) await toggle.click()
+      }
+      /** Every entry this browser holds that names the question's word. */
+      const kept = () => page.evaluate((w) => {
+        const found: string[] = []
+        for (const store of [window.localStorage, window.sessionStorage]) {
+          for (let i = 0; i < store.length; i++) {
+            const k = store.key(i) ?? ''
+            if ((store.getItem(k) ?? '').includes(w)) found.push(k)
+          }
+        }
+        return found
+      }, word)
+      try {
+        await temporary(true)
+        const temp = await ask(ctx, q, 'in a temporary chat')
+        if (temp.error !== undefined) return { pass: false, detail: `refused: ${temp.error}` }
+        if (servedNotAsked(temp)) return { pass: false, detail: `in a temporary chat it was served, not asked: ${describe(temp)}` }
+        if (!statesNumber(temp.answer, a * b)) return { pass: false, detail: `in a temporary chat the answer is wrong: ${describe(temp)}` }
+        const inBrowser = await kept()
+        if (inBrowser.length > 0) return { pass: false, detail: `the temporary chat is kept in this browser, under ${inBrowser.join(', ')}` }
+        const viewport = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const wide = join(env.outDir, `chat-temporary-1440px-user${app.user.index}.png`)
+        const narrow = join(env.outDir, `chat-temporary-390px-user${app.user.index}.png`)
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await page.getByTestId('temporary-chat-notice').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: wide })
+        await page.setViewportSize({ width: 390, height: 844 })
+        await page.getByTestId('temporary-chat-notice').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: narrow })
+        if (viewport !== null) await page.setViewportSize(viewport)
+        ctx.evidence.push({ note: `the temporary chat at 1440px: ${wide}; at 390px: ${narrow}` })
+
+        await temporary(false)
+        const again = await ask(ctx, q, 'the same question in a chat that is kept')
+        if (again.error !== undefined) return { pass: false, detail: `refused in a chat that is kept: ${again.error}` }
+        if (servedNotAsked(again)) {
+          return { pass: false, detail: `the temporary chat's answer was kept: the same question in a chat that is kept was served it ${describe(again)} (talyvor-lens B28.453)` }
+        }
+        await app.newChat()
+        const control = await ask(ctx, q, 'asked once more, in another chat that is kept')
+        if (control.footer.kind !== 'cache') {
+          return { pass: false, detail: `asked a third time it was not served from the earlier answer ${describe(control)}, so the cache keeps no answer here and the check before it proves nothing` }
+        }
+
+        await temporary(true)
+        const fresh = await ask(ctx, q, 'cached, then asked in a temporary chat')
+        if (fresh.error !== undefined) return { pass: false, detail: `refused in the second temporary chat: ${fresh.error}` }
+        if (servedNotAsked(fresh)) return { pass: false, detail: `a temporary chat was served the earlier answer: ${describe(fresh)}` }
+        return { pass: true, detail: 'nothing kept in the browser; a kept chat asked it afresh after the temporary one, then was served it; a temporary chat asked it afresh again' }
+      } finally {
+        // Off again, so the questions after this one in the same tab are kept.
+        await temporary(false).catch(() => undefined)
+      }
+    },
+  }
+}
+
+/**
  * B28.120 — the canvas. An answer that writes a page in an ```html block opens it in the canvas, drawn as a page whose
  * scripts run and cannot reach the console; an edit made to its HTML there is drawn, and after a reload the answer opens
  * it as edited. The answer is made up in the browser, so this costs nothing.
@@ -4083,7 +4167,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
       break
     // B28.358 — then a repeat in a new chat, and Saved in this chat totals what its answer's headers said it saved.
     // B28.373 — and "the 100th prime" with Run code on: 541, printed by the code the model ran in the sandbox.
-    case 1: list.push(repeatInNewChat(i), chatSavingsPanel(i), chatRunCode(i)); break
+    // B28.131 — and a temporary chat: nothing of it kept in the browser, its answer neither served from nor kept in the cache.
+    case 1: list.push(repeatInNewChat(i), chatSavingsPanel(i), chatRunCode(i), chatTemporary(i)); break
     // B28.275 — then a question sent before the tab knows who is signed in, still there after a reload.
     // B28.108 — and a word from an old answer finding its conversation among 500.
     // B28.109 — and a new chat in a project, sent with the project's instructions.
