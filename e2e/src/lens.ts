@@ -513,6 +513,25 @@ export interface LensRoomMessage {
   body: string
 }
 
+/** B32.83 — one of a room's events (Lens's rooms.Event), as its event stream's data line carries it. */
+export interface LensRoomEvent {
+  cursor: number
+  kind: string
+  ref: string
+  message?: LensRoomMessage
+}
+
+/** B32.83 — an event as the stream delivered it, and when (Date.now()). */
+export interface RoomEventSeen { event: LensRoomEvent; at: number }
+
+/** B32.83 — an open room event stream: what it has delivered, a wait for one event, and hanging up. */
+export interface RoomEventStream {
+  seen: RoomEventSeen[]
+  /** The first event `match` accepts, waiting up to `timeoutMs` for it; undefined when none came, or the stream ended. */
+  waitFor(match: (e: LensRoomEvent) => boolean, timeoutMs: number): Promise<RoomEventSeen | undefined>
+  close(): void
+}
+
 /** B32.54 — Lens's rooms.Contribution. */
 export interface LensContribution {
   id: string
@@ -1099,6 +1118,74 @@ export class LensClient {
       messages: LensRoomMessage[] | null
     }
     return page.messages ?? []
+  }
+
+  /**
+   * B32.83 — a room's event stream as this user opens it (GET /v1/rooms/{id}/events, from now): each data line as it
+   * arrives, with when it did. Lens's refusal, and the stream not opened, when it does not answer 200.
+   */
+  async roomEvents(user: SyntheticUser, id: string): Promise<Answered<RoomEventStream>> {
+    const stop = new AbortController()
+    const res = await this.send('GET', `/v1/rooms/${encodeURIComponent(id)}/events`, {
+      headers: { ...this.bearer(user.token), Accept: 'text/event-stream' },
+      signal: stop.signal,
+    })
+    if (!res.ok || res.body === null) {
+      const text = await res.text()
+      stop.abort()
+      return { ok: false, status: res.status, error: refusalOf(text) }
+    }
+    const seen: RoomEventSeen[] = []
+    let woke = () => {}
+    let ended = false
+    const reader = res.body.getReader()
+    void (async () => {
+      const decoder = new TextDecoder()
+      let buffered = ''
+      try {
+        for (;;) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          buffered += decoder.decode(chunk.value, { stream: true })
+          const blocks = buffered.split('\n\n')
+          buffered = blocks.pop() ?? ''
+          for (const block of blocks) {
+            const data = /^data: (.*)$/m.exec(block)?.[1]
+            if (data === undefined) continue
+            try {
+              seen.push({ event: JSON.parse(data) as LensRoomEvent, at: Date.now() })
+            } catch {
+              continue
+            }
+            woke()
+          }
+        }
+      } catch {
+        // aborted by close(), or the connection dropped: what arrived stays in seen.
+      } finally {
+        ended = true
+        woke()
+      }
+    })()
+    return {
+      ok: true,
+      status: res.status,
+      value: {
+        seen,
+        waitFor: async (match, timeoutMs) => {
+          const until = Date.now() + timeoutMs
+          for (;;) {
+            const hit = seen.find((s) => match(s.event))
+            if (hit !== undefined || ended || Date.now() >= until) return hit
+            await new Promise<void>((resolve) => {
+              const t = setTimeout(resolve, until - Date.now())
+              woke = () => (clearTimeout(t), resolve())
+            })
+          }
+        },
+        close: () => stop.abort(),
+      },
+    }
   }
 
   /** B32.54 — posts a message to a room as this user's workspace (POST /v1/rooms/{id}/messages), as another tab would. */

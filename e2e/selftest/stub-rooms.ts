@@ -60,6 +60,17 @@
 // STUB_BREAK=room-invite-uses lets a one-use link admit again after its use; room-decide answers Accept and changes
 // nothing; room-run-variables runs a prompt without its variable, on the room's wallet — each a defect room-invite-screen
 // or room-decide-run must FAIL on.
+//
+// B32.83 — and a message's scan, edit, delete and the minute's limit (Lens B32.30):
+//
+//   POST   /v1/rooms/{id}/messages        in a public room a message carrying an AWS access key is 422 naming
+//                                         aws_access_key, and stored nowhere; a member's 21st text message in a minute
+//                                         is 429 naming LENS_ROOM_MESSAGES_PER_MINUTE, with Retry-After
+//   PATCH  /v1/rooms/{id}/messages/{m}    {body}: its author's edit, and a message.edited event
+//   DELETE /v1/rooms/{id}/messages/{m}    its author, or the room's owner or an editor: an empty tombstone, deleted by
+//                                         the caller, and a message.deleted event
+//
+// STUB_BREAK=room-secret stores a public room's message carrying a key — a defect room-messages must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -110,7 +121,20 @@ const budgetMax = (r: Room) => {
 
 const rooms = new Map<string, Room>()
 
-interface Msg { id: string; cursor: number; room_id: string; author_workspace_id: string; kind: string; body: string; refs: Record<string, unknown>; created_at: string }
+interface Msg {
+  id: string; cursor: number; room_id: string; author_workspace_id: string; kind: string; body: string; refs: Record<string, unknown>; created_at: string
+  /** B32.83 — its edit and its tombstone. */
+  edited_at?: string; deleted_at?: string; deleted_by_workspace_id?: string
+}
+
+/** LENS_ROOM_MESSAGES_PER_MINUTE's default, and Lens's aws_access_key pattern (internal/market/scan.go). */
+const PER_MINUTE = 20
+const AWS_KEY = /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/
+/** Lens's 422 for a public room's message carrying a key, or undefined when the message may be posted (B32.83). */
+const secretIn = (r: Room, text: string) => r.visibility !== 'public' || !AWS_KEY.test(text) || BREAK === 'room-secret' ? undefined : {
+  error: 'this room is public and the message contains a secret (aws_access_key) — remove it and send it again',
+  scan: { secrets: ['aws_access_key'], injection_risk: 0 },
+}
 interface Contribution {
   id: string; room_id: string; listing_id: string; version: number; kind: string; title: string; author_workspace_id: string
   forked_from?: string; status: string; message_id: string; votes: Map<string, number>; created_at: string
@@ -127,8 +151,13 @@ function post(roomID: string, ws: string, body: string, kind = 'text', refs: Rec
   const at = new Date().toISOString()
   const m: Msg = { id: 'msg_' + randomBytes(8).toString('hex'), cursor: ++cursor, room_id: roomID, author_workspace_id: ws, kind, body, refs, created_at: at }
   messages.set(roomID, [...(messages.get(roomID) ?? []), m])
-  events.set(roomID, [...(events.get(roomID) ?? []), { cursor: ++cursor, kind: 'message.posted', ref: m.id, at, message: m }])
+  happened(roomID, 'message.posted', m)
   return m
+}
+
+/** One of a room's events, carrying the message as it now reads. */
+function happened(roomID: string, kind: string, m: Msg): void {
+  events.set(roomID, [...(events.get(roomID) ?? []), { cursor: ++cursor, kind, ref: m.id, at: new Date().toISOString(), message: { ...m } }])
 }
 
 const contributionView = (c: Contribution, ws: string) => {
@@ -162,7 +191,7 @@ function stream(req: IncomingMessage, res: ServerResponse, roomID: string, after
 /** The room screen's routes on a room `ws` is in; false when `p` is not one. */
 async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, url: URL, ws: string, r: Room): Promise<boolean> {
   const sub = /^\/v1\/rooms\/[^/]+\/(messages|events|contributions)(?:\/([^/]+)(?:\/(fork|vote))?)?$/.exec(p)
-  if (sub === null || (sub[2] !== undefined && sub[1] !== 'contributions')) return false
+  if (sub === null || (sub[2] !== undefined && sub[1] === 'events') || (sub[3] !== undefined && sub[1] !== 'contributions')) return false
   const [, what, cid, act] = sub
   if (what === 'messages' && req.method === 'GET') {
     return json(res, 200, { messages: messages.get(r.id) ?? [], more: false, events_cursor: cursor }), true
@@ -175,8 +204,44 @@ async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, 
     }
     const text = String((await body(req)).body ?? '')
     if (text.trim() === '') return json(res, 400, { error: 'rooms: invalid request: a message needs a body' }), true
+    const minute = (messages.get(r.id) ?? []).filter((m) => m.author_workspace_id === ws && m.kind === 'text' && Date.parse(m.created_at) > Date.now() - 60_000)
+    if (minute.length >= PER_MINUTE) {
+      const wait = Math.max(Math.round((Date.parse(minute[0].created_at) + 60_000 - Date.now()) / 1000), 1)
+      res.setHeader('Retry-After', String(wait))
+      return json(res, 429, { error: `rooms: a member posts at most ${PER_MINUTE} messages a minute in a room (LENS_ROOM_MESSAGES_PER_MINUTE); try again in ${wait}s`,
+        setting: 'LENS_ROOM_MESSAGES_PER_MINUTE', per_minute: PER_MINUTE }), true
+    }
+    const secret = secretIn(r, text)
+    if (secret !== undefined) return json(res, 422, secret), true
     return json(res, 201, post(r.id, ws, text)), true
   }
+  if (what === 'messages' && cid !== undefined && (req.method === 'PATCH' || req.method === 'DELETE')) {
+    const m = (messages.get(r.id) ?? []).find((x) => x.id === decodeURIComponent(cid))
+    if (m === undefined) return json(res, 404, { error: 'rooms: not found: no such message in this room' }), true
+    const role = r.members.find((x) => x.workspace_id === ws)?.role
+    if (req.method === 'PATCH') {
+      if (m.author_workspace_id !== ws) return json(res, 403, { error: 'rooms: not allowed: only its author edits a message' }), true
+      if (m.deleted_at !== undefined) return json(res, 409, { error: 'rooms: conflict: the message was deleted' }), true
+      const text = String((await body(req)).body ?? '')
+      if (text.trim() === '') return json(res, 400, { error: 'rooms: invalid request: a message needs a body' }), true
+      const secret = secretIn(r, text)
+      if (secret !== undefined) return json(res, 422, secret), true
+      if (text !== m.body) {
+        Object.assign(m, { body: text, edited_at: new Date().toISOString() })
+        happened(r.id, 'message.edited', m)
+      }
+      return json(res, 200, m), true
+    }
+    if (m.author_workspace_id !== ws && role !== 'owner' && role !== 'editor') {
+      return json(res, 403, { error: "rooms: not allowed: only its author, or the room's owner or an editor, deletes a message" }), true
+    }
+    if (m.deleted_at === undefined) {
+      Object.assign(m, { body: '', deleted_at: new Date().toISOString(), deleted_by_workspace_id: ws })
+      happened(r.id, 'message.deleted', m)
+    }
+    return json(res, 200, m), true
+  }
+  if (what === 'messages' && cid !== undefined) return false
   if (what === 'events' && req.method === 'GET') {
     const from = url.searchParams.get('after') ?? String(req.headers['last-event-id'] ?? '')
     stream(req, res, r.id, from === '' ? cursor : Number(from))
