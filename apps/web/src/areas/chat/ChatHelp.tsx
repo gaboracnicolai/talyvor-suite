@@ -336,6 +336,18 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
       </p>
     ),
   },
+  {
+    heading: 'Exporting and importing chats',
+    body: (
+      <p>
+        Export all, under your conversations, downloads every conversation in this browser as one file; Download this
+        chat, under Share, downloads the open one. Every question and answer goes with what it cost. Import, in any
+        browser you are signed in to, adds a file&rsquo;s conversations to that browser&rsquo;s list, where they read and
+        add up as they did. The file goes only where you put it, and a conversation already in the list is replaced only
+        by a copy changed after it.
+      </p>
+    ),
+  },
 ]
 
 export function ChatHelp() {

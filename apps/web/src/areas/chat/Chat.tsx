@@ -49,6 +49,8 @@ import {
 } from './history'
 import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
 import { SharePanel } from './SharePanel'
+import { ExportImport } from './ExportImport'
+import { type Imported, importInto } from './transfer'
 import { type Project, type Projects, editProject, loadProjects, newProject, saveProjects } from './projects'
 import { instructionsFor, loadCustomInstructions } from './customInstructions'
 import { ProjectHome, ProjectLine, ProjectsRail } from './ProjectViews'
@@ -1085,6 +1087,15 @@ export function Chat() {
       onSearch={setSearch}
       onNew={() => open(undefined)}
       onOpen={open}
+      onImport={(incoming) => {
+        // B28.128 — an import is a change like any other: kept, and synced when sync is on.
+        let done: Imported = { list: [], added: 0, updated: 0, already: 0 }
+        store((list) => {
+          done = importInto(list, incoming)
+          return done.list
+        })
+        return done
+      }}
       projectsRail={
         <ProjectsRail
           projects={projects}
@@ -1611,6 +1622,7 @@ function ChatRail({
   onSearch,
   onNew,
   onOpen,
+  onImport,
   projectsRail,
 }: {
   history: History
@@ -1624,6 +1636,8 @@ function ChatRail({
   onSearch: (search: string) => void
   onNew: () => void
   onOpen: (c: Conversation) => void
+  /** B28.128 — puts an export file's conversations in the list, and answers what that did. */
+  onImport: (incoming: Conversation[]) => Imported
   /** B28.109 — the rail's projects, over the conversations. */
   projectsRail: React.ReactNode
 }) {
@@ -1754,6 +1768,8 @@ function ChatRail({
         {/* B32.53 — the private conversations are this browser's; a room's are stored by Talyvor, so each says where.
             B28.365 — unless the person syncs them, sealed in this browser first. */}
         {signedIn ? <HistorySyncPanel sync={sync} /> : <p className="mt-1 px-2 text-caption text-faint">Kept in this browser only.</p>}
+        {/* B28.128 — every conversation here as a file, and a file's conversations brought in. */}
+        {signedIn ? <ExportImport list={history.list} canExport={searchable} onImport={onImport} /> : null}
         <RoomsRail />
       </div>
       <div className="mt-2 space-y-1 border-t border-rule px-2 pt-3">

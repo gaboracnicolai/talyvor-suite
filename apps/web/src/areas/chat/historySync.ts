@@ -156,7 +156,8 @@ export function stampChanged(prev: Conversation[], next: Conversation[], now: nu
   return next.map((c) => (before.get(c.id) === c ? c : { ...c, changed_at: now }))
 }
 
-function editedAt(c: Conversation): number {
+/** When a conversation was last changed: a new turn or, B28.365, any other edit. */
+export function editedAt(c: Conversation): number {
   return Math.max(c.updated_at, c.changed_at ?? 0)
 }
 
