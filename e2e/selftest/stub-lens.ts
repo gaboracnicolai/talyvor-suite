@@ -65,6 +65,8 @@
 //   connector   — offered a connector's fingerprint tool, the stand-in model makes a fingerprint up rather than calling it (B28.122)
 //   docs-page   — a Docs page attached in Chat is not read: asked to quote it, the stand-in model says it sees no page (B28.375)
 //   issue       — a request's X-Talyvor-Issue is not kept: its spend names no issue, so no Track issue's AI cost rises (B28.376)
+//   schedule-early — a scheduled prompt is asked as soon as it is scheduled, not at the time set (B28.377)
+//   schedule-free  — a scheduled prompt is answered with nothing on the paying agent's statement (B28.377)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -539,6 +541,88 @@ const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runMo
     if (ws !== undefined) book(ws, ulxc, type, description, metadata)
   } })
 setInterval(() => bank.tick(), 2000)
+
+/**
+ * B28.377 — talyvor-lens B28.125's prompt schedules (apps/bff/prompt_schedules.go holds the contract): a prompt asked at
+ * its time, then every day or week, on the paying agent's own wallet — judged by its rules as a call on its key is, and
+ * charged to it, so the run names the statement line it was charged on. Lens's minute tick runs them; this stub's
+ * every second, so a self-test waits seconds rather than a minute past the time set.
+ */
+interface PromptRun { ran_at: string; outcome: 'answered' | 'refused'; answer?: string; detail?: string; request_id?: string; charged_ulxc?: number; entry_id?: string }
+interface PromptSchedule {
+  id: string; ws: string; agent_id: string; prompt: string; provider: string; model: string; every: 'once' | 'day' | 'week'
+  next_run_at?: string; active: boolean; created_at: string; runs: PromptRun[]
+}
+const promptSchedules: PromptSchedule[] = []
+const EVERY_MS: Record<string, number> = { once: 0, day: 86_400_000, week: 7 * 86_400_000 }
+const scheduleView = ({ ws: _w, ...s }: PromptSchedule) => s
+
+async function promptScheduleRoute(req: IncomingMessage, res: ServerResponse, ws: Workspace, rest: string): Promise<boolean> {
+  if (rest === '/agents/prompt-schedules' && req.method === 'GET') {
+    return json(res, 200, { schedules: promptSchedules.filter((s) => s.ws === ws.id).reverse().map(scheduleView) }), true
+  }
+  const stop = /^\/agents\/prompt-schedules\/([^/]+)$/.exec(rest)
+  if (stop !== null && req.method === 'DELETE') {
+    const s = promptSchedules.find((x) => x.id === stop[1] && x.ws === ws.id)
+    if (s === undefined) return json(res, 404, { error: 'economy: no such prompt schedule in this workspace' }), true
+    s.active = false
+    s.next_run_at = undefined
+    return json(res, 200, { id: s.id, active: false }), true
+  }
+  const made = /^\/agents\/([^/]+)\/prompt-schedules$/.exec(rest)
+  if (made === null || req.method !== 'POST') return false
+  const b = JSON.parse((await read(req)) || '{}') as { prompt?: string; provider?: string; model?: string; every?: string; first_run_at?: string }
+  if (bank.agentIn(ws.id, made[1]) === undefined) return json(res, 404, { error: 'economy: no such agent' }), true
+  const first = Date.parse(b.first_run_at ?? '')
+  if (!(b.prompt ?? '').trim() || CATALOG.find((c) => c.id === b.model && c.provider === b.provider) === undefined || EVERY_MS[b.every ?? ''] === undefined || Number.isNaN(first)) {
+    return json(res, 400, { error: 'economy: a prompt schedule needs a prompt, a model, once, day or week, and its first time' }), true
+  }
+  const s: PromptSchedule = { id: 'psc_' + randomBytes(8).toString('hex'), ws: ws.id, agent_id: made[1], prompt: (b.prompt ?? '').trim(), provider: b.provider ?? '',
+    model: b.model ?? '', every: b.every as PromptSchedule['every'], next_run_at: new Date(first).toISOString(), active: true, created_at: new Date().toISOString(), runs: [] }
+  promptSchedules.push(s)
+  return json(res, 201, scheduleView(s)), true
+}
+
+/** One run of a schedule that is due: asked as the agent's own call is, and charged to its wallet. */
+function runPromptSchedule(s: PromptSchedule, now: number): void {
+  const ws = workspaces.get(s.ws)
+  const agent = bank.agentIn(s.ws, s.agent_id)
+  const model = CATALOG.find((c) => c.id === s.model)
+  const ran_at = new Date(now).toISOString()
+  if (ws === undefined || agent === undefined || model === undefined) {
+    s.runs.unshift({ ran_at, outcome: 'refused', detail: 'economy: the agent or its model is gone' })
+  } else {
+    const worst = Math.ceil((((tokens(s.prompt) + 8) * model.input_per_1m + 4096 * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
+    const refused = bank.admit(agent, worst, model.id, s.prompt, s.provider)
+    if (refused !== undefined) {
+      s.runs.unshift({ ran_at, outcome: 'refused', detail: refused.error })
+    } else {
+      const answer = think([{ role: 'user', content: s.prompt }])
+      const charge = Math.ceil((((tokens(s.prompt) + 8) * model.input_per_1m + tokens(answer) * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
+      const fee = book(ws, -charge, 'spend', `${model.id} answer (scheduled prompt)`)
+      ws.usage.total++
+      const entry = broke('schedule-free') ? undefined : bank.spent(agent, charge, model.id, fee)
+      s.runs.unshift({ ran_at, outcome: 'answered', answer, request_id: 'req_' + randomBytes(8).toString('hex'),
+        charged_ulxc: broke('schedule-free') ? 0 : charge + fee, ...(entry === undefined ? {} : { entry_id: entry }) })
+    }
+  }
+  const every = EVERY_MS[s.every]
+  if (every === 0) {
+    s.active = false
+    s.next_run_at = undefined
+  } else {
+    s.next_run_at = new Date(Date.parse(s.next_run_at ?? ran_at) + every).toISOString()
+  }
+}
+
+setInterval(() => {
+  const now = Date.now()
+  for (const s of promptSchedules) {
+    // STUB_BREAK=schedule-early — asked the moment it is scheduled, whatever time was set.
+    const due = s.active && s.next_run_at !== undefined && (Date.parse(s.next_run_at) <= now || (broke('schedule-early') && s.runs.length === 0))
+    if (due) runPromptSchedule(s, now)
+  }
+}, 1000)
 
 /**
  * B28.287 — Lens's vLLM provider, served when LENS_VLLM_BASE_URL names one: the request goes on with every header a key is
@@ -1133,6 +1217,8 @@ createServer(async (req, res) => {
       if (scoped[1] !== ws.id) return json(res, 403, { error: 'forbidden' })
       const rest = scoped[2] ?? ''
       if (rest === '') return limited(res, ws.id, bearer) ? undefined : json(res, 200, view())
+      // B28.377 — before the Agent Bank's routes, whose /agents/{id}/… would take prompt-schedules for an agent's id.
+      if (await promptScheduleRoute(req, res, ws, rest)) return
       if (await bank.workspaceRoute(req, res, ws, rest, url)) return
       // B28.285 — compute nodes, verified only when Lens's guarded probe reaches them (stub-guards.ts).
       if (rest === '/nodes' || rest.startsWith('/nodes/')) {

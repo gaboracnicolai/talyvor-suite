@@ -59,6 +59,7 @@ import { LAUNCH_COMMAND, LaunchAgentCard } from './LaunchAgent'
 import { TASK_COMMAND, TaskCard } from './AgentTask'
 import { CardFreezeCard, FREEZE_COMMAND } from './CardFreeze'
 import { STATEMENT_COMMAND, StatementCard } from './StatementCommand'
+import { SCHEDULE_COMMAND, ScheduleCard } from './ScheduledPrompt'
 import { AskAboveCard, RuleCard, isAskAboveCommand, isRuleCommand } from './RuleCommand'
 import { ForecastCard, isRunOutQuestion } from './ForecastQuestion'
 import { isRememberCommand, memoryInstructions, parseRemember, remember } from './memory'
@@ -205,6 +206,7 @@ function answeredHere(question: string): boolean {
   return (
     LAUNCH_COMMAND.test(question) ||
     TASK_COMMAND.test(question) ||
+    SCHEDULE_COMMAND.test(question) ||
     FREEZE_COMMAND.test(question) ||
     STATEMENT_COMMAND.test(question) ||
     isRuleCommand(question) ||
@@ -262,6 +264,8 @@ export function Chat() {
   const [ruleCards, setRuleCards] = useState<{ id: number; command: string }[]>([])
   // B28.359 — each /task typed here: a card that hands the task to an agent, run on its wallet with the model chosen then.
   const [tasks, setTasks] = useState<{ id: number; command: string; model: ChatModel | undefined }[]>([])
+  // B28.377 — each /schedule typed here: a card that schedules the prompt on an agent's wallet, with the model and payer chosen then.
+  const [schedules, setSchedules] = useState<{ id: number; command: string; model: ChatModel | undefined; paidBy: string }[]>([])
   // B28.360 — each /freeze or /unfreeze typed here: a card that freezes or unfreezes the agent's card.
   const [freezes, setFreezes] = useState<{ id: number; command: string }[]>([])
   // B28.98 — each /statement typed here: a card that downloads an agent's statement, or every agent's.
@@ -816,6 +820,11 @@ export function Chat() {
         setTasks((l) => [...l, { id: ++launchSeq.current, command: question, model: selected }])
         return
       }
+      if (SCHEDULE_COMMAND.test(question)) {
+        setDraft('')
+        setSchedules((l) => [...l, { id: ++launchSeq.current, command: question, model: selected, paidBy }])
+        return
+      }
       if (FREEZE_COMMAND.test(question)) {
         setDraft('')
         setFreezes((l) => [...l, { id: ++launchSeq.current, command: question }])
@@ -857,7 +866,7 @@ export function Chat() {
       setAttachError(null)
       void run([...messages, docs.length > 0 ? { role: 'user', content: question, attachments: docs } : { role: 'user', content: question }])
     },
-    [attachments, draft, memory.on, messages, pending, refuseOverBudget, run, selected, updateMemory, uploading],
+    [attachments, draft, memory.on, messages, paidBy, pending, refuseOverBudget, run, selected, updateMemory, uploading],
   )
 
   const attach = useCallback(
@@ -1314,6 +1323,15 @@ export function Chat() {
               </section>
             ) : null}
 
+            {/* B28.377 — /schedule asks a prompt later, or every day or week, on an agent's own wallet, on a card here instead of a question. */}
+            {schedules.length > 0 ? (
+              <section aria-label="Scheduled prompts" className="flex flex-col gap-3 pb-6">
+                {schedules.map((l) => (
+                  <ScheduleCard key={l.id} command={l.command} model={l.model} paidBy={l.paidBy} onClose={() => setSchedules((ls) => ls.filter((x) => x.id !== l.id))} />
+                ))}
+              </section>
+            ) : null}
+
             {/* B28.360 — /freeze and /unfreeze stop or restart purchases on an agent's card, on a card here instead of a question. */}
             {freezes.length > 0 ? (
               <section aria-label="Freezing agents’ cards" className="flex flex-col gap-3 pb-6">
@@ -1742,6 +1760,10 @@ function ChatRail({
         {/* B28.370 — the workspace's named prompts, kept in Lens, to use in any chat. */}
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/prompts">
           Prompt library
+        </Link>
+        {/* B28.377 — prompts asked later on an agent's wallet, and the answers that came while Chat was closed. */}
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/scheduled">
+          Scheduled prompts
         </Link>
         {/* B28.371 — what Chat remembers about the person, on or off, each fact deleted there. */}
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/memory">

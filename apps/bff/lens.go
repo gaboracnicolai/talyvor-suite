@@ -398,6 +398,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/agents/{id}/schedules", a.requireTenant(a.handleAgentSchedule))
 	a.mux.HandleFunc("/api/agents/schedules/{sid}/runs", a.requireTenant(a.handleAgentScheduleRuns))
 	a.mux.HandleFunc("/api/agents/schedules/{sid}/stop", a.requireTenant(a.handleAgentScheduleStop))
+	// B28.377 — prompts scheduled from Chat, asked at their time on an agent's wallet (prompt_schedules.go).
+	a.mux.HandleFunc("/api/agents/prompt-schedules", a.requireTenant(a.handlePromptSchedules))
+	a.mux.HandleFunc("/api/agents/{id}/prompt-schedules", a.requireTenant(a.handlePromptSchedule))
+	a.mux.HandleFunc("/api/agents/prompt-schedules/{sid}/stop", a.requireTenant(a.handlePromptScheduleStop))
 	a.mux.HandleFunc("/api/agents/{id}/topup", a.requireTenant(a.handleAgentTopUp))
 	// B22.10 — money between owners: sending and requesting between any agents, the company credit line,
 	// loans between companies, and each capability's class. See wallet_money.go.

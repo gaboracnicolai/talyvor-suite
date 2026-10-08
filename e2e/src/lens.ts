@@ -61,6 +61,18 @@ export interface Agent {
   keys?: string[]
 }
 
+/** B28.377 — a prompt scheduled from Chat, as talyvor-lens B28.125 lists it (apps/bff/prompt_schedules.go). */
+export interface PromptSchedule {
+  id: string
+  agent_id: string
+  prompt: string
+  model: string
+  every: string
+  next_run_at?: string
+  active: boolean
+  runs: { ran_at: string; outcome: string; answer?: string; detail?: string; request_id?: string; charged_ulxc?: number; entry_id?: string }[] | null
+}
+
 /** B25.4 — Lens economy.AgentTransfer (B22.3): credits moved between two agents, of one owner or two. */
 export interface AgentTransfer {
   id: string
@@ -941,6 +953,12 @@ export class LensClient {
   async agentLines(user: SyntheticUser, agentID: string): Promise<AgentLine[]> {
     const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/${agentID}/statement`, this.bearer(user.token))) as { lines?: AgentLine[] | null }
     return body.lines ?? []
+  }
+
+  /** B28.377 — the workspace's prompt schedules, each with its runs, newest first (talyvor-lens B28.125). */
+  async promptSchedules(user: SyntheticUser): Promise<PromptSchedule[]> {
+    const body = (await this.call('GET', `/v1/workspaces/${user.workspaceID}/agents/prompt-schedules`, this.bearer(user.token))) as { schedules?: PromptSchedule[] | null }
+    return body.schedules ?? []
   }
 
   /** B28.359 — the workspace's API keys, agents' keys among them (a revoked key is gone from the list). */

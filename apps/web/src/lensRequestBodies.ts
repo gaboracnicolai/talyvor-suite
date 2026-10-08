@@ -330,6 +330,18 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'r.Put("/v1/workspaces/{wsID}/agents/{agentID}/topup", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: 'lensAgentTopUpBody',
   },
+  // B28.377 — a prompt scheduled from Chat, asked at its time on the agent's wallet. B28.125 builds the handler in
+  // talyvor-lens beside the payment schedules; until it lands the settle command finds no anchor and fails, as it must.
+  {
+    route: 'POST /v1/workspaces/{wsID}/agents/{agentID}/prompt-schedules',
+    file: 'apps/bff/prompt_schedules.go',
+    kind: 'anon-struct',
+    fn: 'func (a *app) handlePromptSchedule(',
+    anchor: 'var in struct {',
+    upstreamFile: 'cmd/lens/agent_accounts_handler.go',
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/prompt-schedules", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: 'lensPromptScheduleBody',
+  },
   // B20.3 — the marketplace: publishing a listing, and using one.
   {
     route: 'POST /v1/workspaces/{wsID}/marketplace/listings',

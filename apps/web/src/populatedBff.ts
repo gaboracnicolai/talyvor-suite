@@ -247,6 +247,16 @@ const BY_PATH: Record<string, unknown> = {
   '/api/agents/schedules': {
     schedules: [{ id: 'sch_1', from_agent_id: 'agt_research', to_agent_id: 'agt_writer', amount_ulxc: 1_000_000, memo: 'drafts', every: 'week', next_run_at: '2026-10-05T09:00:00Z', active: true, created_at: '2026-09-28T09:00:00Z' }],
   },
+  // B28.377 — a prompt the Researcher asks every morning, with its first answer and what it cost.
+  '/api/agents/prompt-schedules': {
+    schedules: [
+      {
+        id: 'psc_1', agent_id: 'agt_research', prompt: 'Summarise what the agents spent yesterday.', provider: 'anthropic', model: 'claude-haiku-4-5',
+        every: 'day', next_run_at: '2026-10-06T08:00:00Z', active: true, created_at: '2026-10-04T08:00:00Z',
+        runs: [{ ran_at: '2026-10-05T08:00:00Z', outcome: 'answered', answer: 'The agents spent 2.40 LXC yesterday.', request_id: 'req_s1', charged_ulxc: 1_200, entry_id: 'ent_s1' }],
+      },
+    ],
+  },
   '/api/agents/agt_research/topup': { agent_id: 'agt_research', below_ulxc: 5_000_000, to_ulxc: 8_000_000 },
   // B19.24 — the researcher's test-mode card: one purchase approved within its rules, one declined above them.
   '/api/agents/agt_research/card': {

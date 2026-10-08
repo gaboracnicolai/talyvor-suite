@@ -305,6 +305,38 @@ export interface AgentTaskReply {
   key_revoked: boolean
 }
 
+/** B28.377 — one run of a prompt scheduled from Chat (Lens B28.125, apps/bff/prompt_schedules.go): the model's answer,
+ *  asked on the agent's own wallet, or why the agent's rules refused it. */
+export interface PromptScheduleRun {
+  ran_at: string
+  outcome: 'answered' | 'refused'
+  answer?: string
+  /** refused: Lens's sentence */
+  detail?: string
+  request_id?: string
+  /** all the run took from the agent's wallet, its platform fee included */
+  charged_ulxc?: number
+  /** the agent's statement line the answer was charged on */
+  entry_id?: string
+}
+
+/** B28.377 — a prompt scheduled from Chat: asked at first_run_at, then every day or week while it is active, on the
+ *  agent's own wallet. */
+export interface PromptSchedule {
+  id: string
+  agent_id: string
+  prompt: string
+  provider: string
+  model: string
+  every: 'once' | 'day' | 'week'
+  /** absent once it will not run again */
+  next_run_at?: string
+  active: boolean
+  created_at: string
+  /** newest first */
+  runs: PromptScheduleRun[] | null
+}
+
 /** Lens economy.AgentCard (B19.12): an agent's virtual card, Stripe Issuing in test mode. The number stays at Stripe. */
 export interface AgentCard {
   id: string
@@ -497,6 +529,11 @@ export const agentBankApi = {
     send<AgentSchedule>('POST', `/api/agents/${e(id)}/schedules`, body),
   scheduleRuns: (sid: string) => getJSON<{ runs: AgentScheduleRun[] | null }>(`/api/agents/schedules/${e(sid)}/runs`, { runs: 'list' }),
   stopSchedule: (sid: string) => send<{ active: boolean }>('POST', `/api/agents/schedules/${e(sid)}/stop`),
+  // B28.377 — prompts scheduled from Chat, each asked at its time on an agent's wallet.
+  promptSchedules: () => getJSON<{ schedules: PromptSchedule[] | null }>('/api/agents/prompt-schedules', { schedules: 'list' }),
+  schedulePrompt: (id: string, body: { prompt: string; provider: string; model: string; every: PromptSchedule['every']; first_run_at: string }) =>
+    send<PromptSchedule>('POST', `/api/agents/${e(id)}/prompt-schedules`, body),
+  stopPromptSchedule: (sid: string) => send<{ active: boolean }>('POST', `/api/agents/prompt-schedules/${e(sid)}/stop`),
   /** Null when the agent has none (Lens answers 404). */
   topUp: async (id: string): Promise<AgentTopUp | null> => {
     try {

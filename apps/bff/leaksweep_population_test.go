@@ -448,9 +448,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE NINETY-SEVENTH AND NINETY-EIGHTH ARE B28.122'S CONNECTORS, POST only: /api/chat/connectors/tools and
 	// /api/chat/connectors/call. Each relays what the person's own MCP server answered for the connector the body names,
 	// and holds nothing: the connectors are kept in the person's browser, and the BFF stores none of them.
-	if len(methodOnly) > 98 {
+	//
+	// THE NINETY-NINTH AND HUNDREDTH ARE B28.377'S PROMPT SCHEDULES, POST only: /api/agents/{id}/prompt-schedules and
+	// /api/agents/prompt-schedules/{sid}/stop. Each relays Lens's answer — the schedule — and holds nothing; the schedules,
+	// each run's answer and its charge are read back through GET /api/agents/prompt-schedules, which the sweep reaches.
+	if len(methodOnly) > 100 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 98 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 100 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

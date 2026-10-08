@@ -49,6 +49,7 @@ import { CompareModels } from './areas/chat/CompareModels'
 import { ConnectorsPage } from './areas/chat/ConnectorsPage'
 import { InstructionsPage } from './areas/chat/InstructionsPage'
 import { PromptsPage } from './areas/chat/PromptsPage'
+import { ScheduledPage } from './areas/chat/ScheduledPage'
 import { MemoryPage } from './areas/chat/MemoryPage'
 import { RoomsArea } from './areas/rooms/Rooms'
 import { TrackArea } from './areas/track/TrackArea'
@@ -229,6 +230,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/chat/instructions', title: 'Custom instructions', element: <InstructionsPage /> },
   // B28.370 — the prompt library: the workspace's named prompts in Lens, used in any chat by name. Linked from Chat's rail.
   { path: '/chat/prompts', title: 'Prompt library', element: <PromptsPage /> },
+  // B28.377 — prompts scheduled with /schedule, each asked on an agent's wallet, and their answers. Linked from Chat's rail.
+  { path: '/chat/scheduled', title: 'Scheduled prompts', element: <ScheduledPage /> },
   // B28.371 — memory: what Chat remembers about the person, opt-in, every fact listed and deleted. Linked from Chat's rail.
   { path: '/chat/memory', title: 'Memory', element: <MemoryPage /> },
   // B28.122 — connectors: the person's own MCP servers, whose tools Chat offers beside Talyvor's. Linked from Chat's rail.

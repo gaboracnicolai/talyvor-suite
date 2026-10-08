@@ -484,9 +484,17 @@ export class Bank {
 
   /** What a served request cost, posted from the agent to spend, naming its model — beside the workspace's ledger row —
    *  and B32.11's platform fee on it, its own posting. */
-  spent(agent: Agent, charge: number, model: string, fee: number): void {
-    if (charge > 0) this.post(agent.ws, 'spend', [[`agent:${agent.id}`, -charge, 'spend'], ['spend', charge, `agent:${agent.id}`]], undefined, modelCapKey(model))
+  spent(agent: Agent, charge: number, model: string, fee: number): string | undefined {
+    const entry = charge > 0 ? this.post(agent.ws, 'spend', [[`agent:${agent.id}`, -charge, 'spend'], ['spend', charge, `agent:${agent.id}`]], undefined, modelCapKey(model)) : undefined
     if (fee > 0) this.post(agent.ws, 'platform_fee', [[`agent:${agent.id}`, -fee, 'spend'], ['spend', fee, `agent:${agent.id}`]], undefined, modelCapKey(model))
+    // B28.377 — the spend line's entry: a scheduled prompt's run names the statement line it was charged on.
+    return entry
+  }
+
+  /** B28.377 — one of the workspace's agents, by its id: a scheduled prompt runs as the agent that pays for it. */
+  agentIn(wsID: string, agentID: string): Agent | undefined {
+    const a = this.agents.get(agentID)
+    return a?.ws === wsID && a.archived_at === undefined ? a : undefined
   }
 
   /** B32.12 — the workspace's agents a plan counts: every one not archived. */
