@@ -570,7 +570,7 @@ const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runMo
 setInterval(() => bank.tick(), 2000)
 // B32.85 — a room's wallet is an agent of its owner's in the Bank: funded, listed and posted as any agent (stub-rooms.ts).
 setRoomWallets({ open: (ws, agentID, name) => bank.openRoomWallet(ws, agentID, name), balance: (agentID) => bank.agentBalance(agentID),
-  use: (u) => bank.roomUse(u), billed: (agentID) => bank.agentBilledThisMonth(agentID) })
+  use: (u) => bank.roomUse(u), billed: (agentID) => bank.agentBilledThisMonth(agentID), prize: (u) => bank.prizeUse(u) })
 
 /**
  * B28.377 — talyvor-lens B28.125's prompt schedules (apps/bff/prompt_schedules.go holds the contract): a prompt asked at

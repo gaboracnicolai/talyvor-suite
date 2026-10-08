@@ -179,6 +179,8 @@ interface StubLicence {
   included_uses?: number
   /** B32.80 — the agent whose key took it */
   agent_id?: string
+  /** B32.87 — prize: won as a room's prize */
+  source?: string
 }
 interface SimOrder { id: string; portfolio_id: string; instrument: string; side: string; type: string; quantity_micros: number; limit_price_usd?: string; status: string; fill_price_usd?: string; cash_uusd: number; simulated: true; created_at: string }
 interface Portfolio { id: string; agent_id: string; name: string; starting_cash_uusd: number; created_at: string; orders: SimOrder[] }
@@ -525,6 +527,22 @@ export class Bank {
       used_at: new Date().toISOString(), payee_agent_id: '', memo: '' }
     this.uses.push(use)
     return use
+  }
+
+  /**
+   * B32.87 — a room's prize awarded (Lens B32.35): the owner buys the winning contribution at the prize's amount — one
+   * billed use of kind prize on its bill, the room's wallet its agent — and holds a perpetual commercial licence to it.
+   */
+  prizeUse(u: { listing_id: string; version: number; seller: string; buyer: string; agent_id: string; price_ulxc: number; title: string }): { use: Use; licence: { id: string } } {
+    const now = new Date().toISOString()
+    const lic: StubLicence = { id: id('lic_'), ws: u.buyer, listing_id: u.listing_id, title: u.title, offer_id: '', licence: 'commercial', kind: 'prize', source: 'prize',
+      pinned_version: u.version, starts_at: now, ends_at: null, auto_renew: false, status: 'active', use_id: id('use_'), charge: 'billed', price_ulxc: u.price_ulxc,
+      created_at: now, key: '', agent_id: u.agent_id }
+    const use: Use = { id: lic.use_id, listing_id: u.listing_id, seller: u.seller, buyer: u.buyer, agent_id: u.agent_id, price_ulxc: u.price_ulxc, charge: 'billed',
+      used_at: now, payee_agent_id: '', memo: '', licence_id: lic.id }
+    this.uses.push(use)
+    this.licences.unshift(lic)
+    return { use, licence: { ...this.licenceOut(lic), id: lic.id } }
   }
 
   /** B32.86 — what an agent's billed uses cost this month, as its monthly limit counts them. */
@@ -1919,7 +1937,8 @@ export class Bank {
       const pending = this.uses.filter((u) => u.seller === ws.id && u.charge === 'billed' && u.cleared_at === undefined && u.refunded_at === undefined)
       const e = this.earnings(ws.id)
       const earnings = this.uses.filter((u) => u.seller === ws.id && u.cleared_at !== undefined).map((u) => ({ use_id: u.id, listing_id: u.listing_id,
-        gross_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, share_usd_micros: shareOf(u), invoice_id: u.invoice, cleared_at: u.cleared_at,
+        gross_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO, share_usd_micros: shareOf(u), fee_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO - shareOf(u),
+        invoice_id: u.invoice, cleared_at: u.cleared_at,
         payable_at: u.cleared_at, refunded_at: u.kept ? undefined : u.refunded_at, payee_agent_id: u.payee_agent_id || undefined }))
       return json(res, 200, { pending_uses: pending.length, pending_usd_micros: pending.reduce((s, u) => s + shareOf(u), 0), payable_usd_micros: e.available, in_holdback_usd_micros: 0,
         available_usd_micros: e.available, paid_out_usd_micros: e.paid, owed_usd_micros: 0, lifetime_gross_usd_micros: e.lifetime, refunded_usd_micros: e.refunded, earnings }), true

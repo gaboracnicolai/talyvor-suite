@@ -105,6 +105,19 @@
 //
 // STUB_BREAK=room-run-limit refuses a run past the wallet's monthly limit with 403, and bills it anyway — a defect
 // room-runs must FAIL on.
+//
+// B32.87 — and a room's prizes (Lens B32.35), as room-prizes posts, awards and closes them:
+//
+//   POST   /v1/rooms/{id}/prizes                {title, criteria, amount_usd_micros, deadline}: the owner's, refused 403
+//                                               above what the wallet's monthly limit has left less the open prizes;
+//                                               201 with the prize and the prize message the room got
+//   GET    /v1/rooms/{id}/prizes                {prizes}, once those past their deadline are closed, each with its message
+//   POST   /v1/rooms/{id}/prizes/{p}/award      {contribution_id}: the owner buys it at the prize's amount — one billed use
+//                                               on its bill, the room's wallet its agent, and a perpetual commercial
+//                                               licence — and the room is told; a prize closed at its deadline is 409
+//
+// STUB_BREAK=room-prize-closed-billed answers the award of a prize closed at its deadline 409, and bills it anyway — a
+// defect room-prizes must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -122,7 +135,11 @@ const NEXT: Record<string, string> = { free: 'team', team: 'business' }
 interface Terms { version: number; split_rule: string; remix_share_bps: number; default_price_usd_micros: number; spend_policy: string; created_at: string }
 
 interface Invite { id: string; token: string; max_uses: number; uses: number; expires_at: string; revoked_at?: string; created_by_workspace_id: string; created_at: string }
-interface Prize { id: string; room_id: string; poster_workspace_id: string; title: string; criteria: string; amount_usd_micros: number; deadline: string; status: string; created_at: string }
+interface Prize {
+  id: string; room_id: string; poster_workspace_id: string; title: string; criteria: string; amount_usd_micros: number; deadline: string; status: string; created_at: string
+  /** B32.87 — once awarded, what won it and the purchase; once closed, when */
+  contribution_id?: string; winner_workspace_id?: string; use_id?: string; licence_id?: string; awarded_at?: string; closed_at?: string
+}
 
 interface Room {
   id: string; owner_workspace_id: string; title: string; topic: string; description: string; visibility: string; status: string
@@ -161,13 +178,15 @@ const rooms = new Map<string, Room>()
 interface RoomUse { id: string; listing_id: string; charge: string; price_ulxc: number; agent_id: string; used_at: string }
 /**
  * B32.85 — where a room's wallet is opened and what it holds: the stub's Bank, as stub-lens.ts sets it. B32.86 — and a
- * run's use on its buyer's bill, and what the wallet's billed uses cost this month.
+ * run's use on its buyer's bill, and what the wallet's billed uses cost this month. B32.87 — and a prize's purchase.
  */
 interface RoomWallets {
   open(ws: string, agentID: string, name: string): void; balance(agentID: string): number
   use(u: { listing_id: string; seller: string; buyer: string; agent_id: string; price_ulxc: number }): RoomUse; billed(agentID: string): number
+  prize(u: { listing_id: string; version: number; seller: string; buyer: string; agent_id: string; price_ulxc: number; title: string }): { use: RoomUse; licence: { id: string } }
 }
-let wallets: RoomWallets = { open: () => undefined, balance: () => 0, use: () => { throw new Error('stub rooms: no Bank to bill a run on') }, billed: () => 0 }
+const noBank = (): never => { throw new Error('stub rooms: no Bank to bill a run or a prize on') }
+let wallets: RoomWallets = { open: () => undefined, balance: () => 0, use: noBank, billed: () => 0, prize: noBank }
 export function setRoomWallets(w: RoomWallets): void {
   wallets = w
 }
@@ -471,6 +490,7 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
   if (await roomSafety(req, res, p, ws, r)) return true
   if (await roomAsk(req, res, p, ws, r)) return true
   if (await roomScreen(req, res, p, url, ws, r)) return true
+  if (await roomPrizes(req, res, p, ws, r)) return true
   if (await roomSettings(req, res, p, ws, r)) return true
   if (one[2] === undefined && req.method === 'GET') return json(res, 200, detail(r, ws)), true
   if (one[2] === '/join' && req.method === 'POST') {
@@ -548,7 +568,7 @@ async function settingsOutsideRoom(req: IncomingMessage, res: ServerResponse, p:
   return json(res, 200, r.walletRules), true
 }
 
-/** B32.55 — a room's members, invites and prizes as its owner or an editor changes them; false when `p` is not one. */
+/** B32.55 — a room's members and invites as its owner or an editor changes them; false when `p` is not one. */
 async function roomSettings(req: IncomingMessage, res: ServerResponse, p: string, ws: string, r: Room): Promise<boolean> {
   if (p === `/v1/rooms/${r.id}/terms` && req.method === 'PUT') {
     if (!r.members.some((m) => m.workspace_id === ws && m.role === 'owner')) return json(res, 403, { error: 'rooms: not allowed: only the room’s owner changes its terms' }), true
@@ -559,12 +579,11 @@ async function roomSettings(req: IncomingMessage, res: ServerResponse, p: string
     if (owner !== undefined) owner.terms_version = r.terms.version
     return json(res, 200, r.terms), true
   }
-  const sub = /^\/v1\/rooms\/[^/]+\/(members|invites|prizes)(?:\/([^/]+))?$/.exec(p)
+  const sub = /^\/v1\/rooms\/[^/]+\/(members|invites)(?:\/([^/]+))?$/.exec(p)
   if (sub === null) return false
   const [, what, which] = sub
   const role = r.members.find((m) => m.workspace_id === ws)?.role ?? ''
   const manager = role === 'owner' || role === 'editor'
-  if (what === 'prizes' && which === undefined && req.method === 'GET') return json(res, 200, { prizes: r.prizes }), true
   if (!manager) return json(res, 403, { error: 'rooms: not allowed: only the room’s owner or an editor does this' }), true
   if (what === 'members' && which !== undefined && req.method === 'PATCH') {
     const m = r.members.find((x) => x.workspace_id === decodeURIComponent(which))
@@ -606,19 +625,69 @@ async function roomSettings(req: IncomingMessage, res: ServerResponse, p: string
     i.revoked_at ??= new Date().toISOString()
     return json(res, 200, inviteView(r, i)), true
   }
-  if (what === 'prizes' && which === undefined && req.method === 'POST') {
-    if (role !== 'owner') return json(res, 403, { error: 'rooms: not allowed: only the room’s owner posts a prize' }), true
-    const d = await body(req)
+  return false
+}
+
+/** "$50.00" for 50,000,000 µUSD, as Lens's prize messages write an amount. */
+const usd = (micros: number) => `$${(micros / 1e6).toFixed(2)}`
+/** A prize message's refs (Lens rooms.postPrizeMessage): what happened to which prize, and once awarded, its purchase. */
+const prizeRefs = (z: Prize, what: string): Record<string, unknown> => ({ prize: what, prize_id: z.id, amount_usd_micros: z.amount_usd_micros, status: z.status,
+  ...(z.contribution_id === undefined ? {} : { contribution_id: z.contribution_id, winner_workspace_id: z.winner_workspace_id, use_id: z.use_id, licence_id: z.licence_id }) })
+
+/** B32.87 — the room's open prizes past their deadline closed, charging nothing, and the room told of each. */
+function closePrizes(r: Room): void {
+  for (const z of r.prizes) {
+    if (z.status !== 'open' || Date.parse(z.deadline) > Date.now()) continue
+    Object.assign(z, { status: 'closed', closed_at: new Date().toISOString() })
+    post(r.id, z.poster_workspace_id, `the prize “${z.title}” closed at its deadline without a winner: nothing was charged for its ${usd(z.amount_usd_micros)}`, 'prize', prizeRefs(z, 'closed'))
+  }
+}
+
+/** B32.55, B32.87 — a room's prizes: read by its members, posted and awarded by its owner; false when `p` is not one. */
+async function roomPrizes(req: IncomingMessage, res: ServerResponse, p: string, ws: string, r: Room): Promise<boolean> {
+  const m = /^\/v1\/rooms\/[^/]+\/prizes(?:\/([^/]+)\/award)?$/.exec(p)
+  if (m === null) return false
+  closePrizes(r)
+  if (m[1] === undefined && req.method === 'GET') return json(res, 200, { prizes: r.prizes }), true
+  if (req.method !== 'POST') return false
+  if (r.owner_workspace_id !== ws) {
+    return json(res, 403, { error: `rooms: not allowed: only the room's owner ${m[1] === undefined ? 'posts' : 'awards'} a prize: it is bought on the owner's marketplace bill` }), true
+  }
+  const d = await body(req)
+  if (m[1] === undefined) {
     const amount = Number(d.amount_usd_micros ?? 0)
     if (String(d.title ?? '').trim() === '' || !(amount > 0)) return json(res, 400, { error: 'rooms: invalid request: a prize needs a title and an amount' }), true
-    const left = Number(r.walletRules.monthly_limit_ulxc ?? 0) / 10 - r.prizes.filter((x) => x.status === 'open').reduce((n, x) => n + x.amount_usd_micros, 0)
-    if (amount > left) return json(res, 403, { error: `rooms: a prize of $${amount / 1e6} is above what the room's budget has left this month ($${Math.max(0, left) / 1e6})` }), true
+    if (!(Date.parse(String(d.deadline ?? '')) > Date.now())) return json(res, 400, { error: "rooms: invalid request: a prize's deadline is in the future" }), true
+    const monthly = Number(r.walletRules.monthly_limit_ulxc ?? 0)
+    const promised = r.prizes.filter((x) => x.status === 'open').reduce((n, x) => n + x.amount_usd_micros, 0)
+    const left = (monthly - wallets.billed(walletID(r))) / 10 - promised
+    if (monthly > 0 && amount > left) {
+      return json(res, 403, { error: `rooms: over the room's budget: the prize is ${usd(amount)} and the room's budget has ${usd(Math.max(0, left))} left this month` }), true
+    }
     const z: Prize = { id: 'rprz_' + randomBytes(12).toString('hex'), room_id: r.id, poster_workspace_id: ws, title: String(d.title).trim(), criteria: String(d.criteria ?? ''),
       amount_usd_micros: amount, deadline: String(d.deadline ?? ''), status: 'open', created_at: new Date().toISOString() }
     r.prizes.unshift(z)
-    return json(res, 201, z), true
+    const said = post(r.id, ws, `posted a prize of ${usd(amount)}: “${z.title}”`, 'prize', prizeRefs(z, 'posted'))
+    return json(res, 201, { ...z, message: said }), true
   }
-  return false
+  const z = r.prizes.find((x) => x.id === decodeURIComponent(m[1]))
+  if (z === undefined) return json(res, 404, { error: `rooms: not found: the room has no prize ${m[1]}` }), true
+  const c = (contributions.get(r.id) ?? []).find((x) => x.id === String(d.contribution_id ?? '').trim())
+  if (c === undefined) return json(res, 404, { error: `rooms: not found: the room has no contribution ${String(d.contribution_id ?? '')}` }), true
+  const bought = { listing_id: c.listing_id, version: c.version, seller: c.author_workspace_id, buyer: r.owner_workspace_id, agent_id: walletID(r),
+    price_ulxc: z.amount_usd_micros * 10, title: c.title }
+  if (z.status === 'awarded') return json(res, 409, { error: `rooms: conflict: the prize was awarded already, to ${z.contribution_id}` }), true
+  if (z.status === 'closed') {
+    if (BREAK === 'room-prize-closed-billed') wallets.prize(bought)
+    return json(res, 409, { error: 'rooms: conflict: the prize closed at its deadline without a winner, and nothing was charged' }), true
+  }
+  if (c.author_workspace_id === ws) return json(res, 400, { error: "rooms: invalid request: the room's owner cannot win their own prize: award it to another member's contribution" }), true
+  const over = pastMonthly(r, bought.price_ulxc, `prize of ${usd(z.amount_usd_micros)}`)
+  if (over !== undefined) return json(res, 403, { error: over }), true
+  const { use, licence } = wallets.prize(bought)
+  Object.assign(z, { status: 'awarded', contribution_id: c.id, winner_workspace_id: c.author_workspace_id, use_id: use.id, licence_id: licence.id, awarded_at: new Date().toISOString() })
+  const said = post(r.id, ws, `awarded the prize “${z.title}” — ${usd(z.amount_usd_micros)} — to the contribution “${c.title}”, bought on the room's budget`, 'prize', prizeRefs(z, 'awarded'))
+  return json(res, 200, { prize: { ...z, message: said }, licence }), true
 }
 
 /** B32.91 — reports of a room or a message, and a run in it; false when `p` is neither. */

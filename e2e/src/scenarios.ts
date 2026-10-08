@@ -49,6 +49,7 @@ import { roomMessages } from './roomMessages.ts'
 import { roomContributions } from './roomContributions.ts'
 import { roomWallet } from './roomWallet.ts'
 import { roomRuns } from './roomRuns.ts'
+import { roomPrizes } from './roomPrizes.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
@@ -4334,6 +4335,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // the room's budget, billed to the owner with the room's wallet as its agent; again past the wallet's monthly limit it
   // is 403 and bills nothing; on its own account it is billed to itself; and the room's AI answers on the room's budget.
   if (i === 9) list.push(roomRuns(i))
+  // B32.87 — a room's prizes, once a run, on a Free workspace of its own: a prize above the room's budget is 403 and kept
+  // nowhere; one awarded is one billed prize use on the owner's bill by the room's wallet and a perpetual commercial
+  // licence, cleared to the author at Lens's take once paid; one past its deadline closes unawarded and bills nothing.
+  if (i === 7) list.push(roomPrizes(i))
   return list
 }
 

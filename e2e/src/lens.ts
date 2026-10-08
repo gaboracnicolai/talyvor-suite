@@ -224,6 +224,8 @@ export interface MarketLicence {
   use_id: string
   charge: string
   price_ulxc: number
+  /** B32.87 — how it was got: offer, rent_to_own, or prize (won as a room's prize) */
+  source?: string
 }
 
 /** B25.8 — one payout (market.Payout): money through Stripe, or the balance taken as credits. */
@@ -593,6 +595,12 @@ export interface LensRoomPrize {
   title: string
   amount_usd_micros: number
   status: string
+  /** B32.87 — by when it is awarded, and once it is: what won it, its author, the billed prize use and the owner's licence */
+  deadline?: string
+  contribution_id?: string
+  winner_workspace_id?: string
+  use_id?: string
+  licence_id?: string
 }
 
 /** B28.364 — Lens's routing.Recommendation, as GET …/routing/recommendation answers it. */
