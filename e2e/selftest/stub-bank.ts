@@ -60,6 +60,14 @@
 //   licence-use-billed    — a use the licence covers is billed at the per-use price as if there were none
 //   licence-covers-agent  — a personal licence covers an agent key's use too
 //
+// B32.80 adds an agent's licences judged by its rules (Lens B32.22): a licence taken with an agent's key is refused naming
+// max_commitment_ulxc above the most one licence may commit it to, and naming may_subscribe for a subscription it may not
+// take; above its approval amount an approval is filed, and once approved the licence goes through once. Its defects:
+//   commitment-unjudged     — a licence above max_commitment_ulxc goes through
+//   subscribe-unjudged      — a subscription goes through without may_subscribe
+//   licence-refused-kept    — a refused licence answers 403, but the licence and its line on the bill are written anyway
+//   approval-buys-twice     — an approved licence goes through, and the approval stays approved for the next
+//
 // B32.79 adds free trial uses (Lens B32.21): a per_use commercial offer's trial_uses (at most 5) makes each buyer's first
 // uses of its listing trials — charged trial at nothing, answering trial with the trial uses left and what it would have
 // cost, never on the bill and never an earning. Its defects:
@@ -123,6 +131,10 @@ interface Rules {
   active_until: string
   timezone: string
   pause_on_unusual_spend: boolean
+  /** B32.80 — the most one licence may commit it to, the licences it may hold, and whether it may subscribe (Lens B32.22); a save without them keeps them. */
+  max_commitment_ulxc: number
+  allowed_licences: string[]
+  may_subscribe: boolean
 }
 interface Agent {
   id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string; versions?: RulesVersion[]; boosts?: Boost[]
@@ -162,6 +174,8 @@ interface StubLicence {
   id: string; ws: string; listing_id: string; title: string; offer_id: string; licence: string; kind: string; pinned_version: number | null; starts_at: string
   ends_at: string | null; auto_renew: boolean; status: string; use_id: string; charge: string; price_ulxc: number; created_at: string; key: string
   included_uses?: number
+  /** B32.80 — the agent whose key took it */
+  agent_id?: string
 }
 interface SimOrder { id: string; portfolio_id: string; instrument: string; side: string; type: string; quantity_micros: number; limit_price_usd?: string; status: string; fill_price_usd?: string; cash_uusd: number; simulated: true; created_at: string }
 interface Portfolio { id: string; agent_id: string; name: string; starting_cash_uusd: number; created_at: string; orders: SimOrder[] }
@@ -253,7 +267,8 @@ const RULE_TEMPLATES: { id: string; name: string; summary: string; rules: Partia
 ]
 
 const noRules = (): Rules => ({ max_per_request_ulxc: 0, hourly_limit_ulxc: 0, daily_limit_ulxc: 0, weekly_limit_ulxc: 0, monthly_limit_ulxc: 0, model_daily_limits_ulxc: {}, requests_per_minute: 0, approval_above_ulxc: 0,
-  allowed_models: [], allowed_providers: [], allowed_listings: [], allowed_payees: [], blocked_payees: [], payee_daily_limits_ulxc: {}, active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false })
+  allowed_models: [], allowed_providers: [], allowed_listings: [], allowed_payees: [], blocked_payees: [], payee_daily_limits_ulxc: {}, active_from: '', active_until: '', timezone: '', pause_on_unusual_spend: false,
+  max_commitment_ulxc: 0, allowed_licences: [], may_subscribe: false })
 
 const lxc = (ulxc: number): string => String(ulxc / 1e6)
 
@@ -371,7 +386,8 @@ export class Bank {
    * (429 for the requests-a-minute rule, checked after the models, B28.26);
    * a request above the approval amount files an approval, and an approved one goes through once.
    */
-  judge(agent: Agent, amount: number, req: { model?: string; provider?: string; listing?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }): { status: number; error: string } | undefined {
+  judge(agent: Agent, amount: number, req: { model?: string; provider?: string; listing?: string; payment?: boolean; payee?: Agent; memo?: string; fingerprint: string }):
+    { status: number; error: string; approval_id?: string } | undefined {
     const rule = (s: string) => ({ status: 403, error: `the agent's spending rules refuse this request: ${s}` })
     const all = this.allPaused.get(agent.ws)
     if (all !== undefined) return rule(`every agent in this workspace is paused (${all.reason || "paused by the workspace's owner"}) — the workspace's owner can resume them`)
@@ -451,7 +467,8 @@ export class Bank {
         created_at: new Date().toISOString(), fingerprint: req.fingerprint,
         ...(req.payee === undefined ? {} : { payee: { kind: 'agent', id: req.payee.id, name: req.payee.name } }), ...(req.memo ? { memo: req.memo } : {}) }
       this.approvals.unshift(a)
-      return { status: 403, error: `economy: this request would cost up to ${lxc(amount)} LXC, above the agent's approval amount — approval ${a.id} must be approved by the workspace's owner before it is retried` }
+      return { status: 403, error: `economy: this request would cost up to ${lxc(amount)} LXC, above the agent's approval amount — approval ${a.id} must be approved by the workspace's owner before it is retried`,
+        approval_id: a.id }
     }
     return undefined
   }
@@ -611,15 +628,16 @@ export class Bank {
 
   /**
    * B28.281 — a marketplace use on an agent's own key, judged by its rules first as Lens's JudgeAgentPurchase judges it (a
-   * payment naming the listing), then run as its workspace's use.
+   * payment naming the listing), then run as its workspace's use. B32.80: a licence on an agent's key, judged where it is
+   * taken (judgeLicence).
    */
   async agentUse(req: IncomingMessage, res: ServerResponse, key: string, path: string): Promise<boolean> {
-    const m = /^\/v1\/workspaces\/([^/]+)(\/marketplace\/listings\/([^/]+)\/use)$/.exec(path)
+    const m = /^\/v1\/workspaces\/([^/]+)(\/marketplace\/listings\/([^/]+)\/(use|licences))$/.exec(path)
     const who = this.agentOfKey(key)
     if (m === null || who === undefined || req.method !== 'POST') return false
     if (who.ws.id !== m[1]) return this.d.json(res, 403, { error: "an agent's key may use listings only for its own workspace" }), true
     const l = this.listings.get(m[3])
-    if (l !== undefined) {
+    if (l !== undefined && m[4] === 'use') {
       const price = l.workspace_id === who.ws.id ? 0 : l.price_per_use_ulxc
       const refused = this.judge(who.agent, price, { payment: true, listing: l.id, fingerprint: `market\0${who.agent.id}\0${l.id}\0${price}` })
       if (refused !== undefined) return this.d.json(res, refused.status, { error: refused.error }), true
@@ -665,6 +683,30 @@ export class Bank {
     return this.licences.find((x) => x.ws === buyer && x.listing_id === listing && x.status === 'active' && (x.ends_at === null || x.ends_at > now) &&
       (agent === undefined || x.licence !== 'personal' || this.broken('licence-covers-agent')) &&
       (!x.included_uses || this.uses.filter((u) => u.licence_id === x.id).length < x.included_uses))
+  }
+
+  /**
+   * B32.80 — a licence taken with `agent`'s key, judged by its rules as Lens's JudgeAgentPurchase judges it (B32.22): the
+   * licences it may hold, whether it may subscribe, the most one licence may commit it to, then the rest of its rules —
+   * the approval amount among them, whose approval lets this licence through once.
+   */
+  private judgeLicence(agent: Agent, listing: string, o: StubOffer): { status: number; error: string; approval_id?: string } | undefined {
+    const price = o.price_usd_micros * ULXC_PER_USD_MICRO
+    const r = this.rulesInForce(agent)
+    const rule = (s: string) => ({ status: 403, error: `the agent's spending rules refuse this request: ${s}` })
+    if (o.licence === 'personal') return { status: 400, error: 'market: invalid listing: a personal licence is for one person, never an agent key' }
+    if (r.allowed_licences.length > 0 && !r.allowed_licences.includes(o.licence)) {
+      return rule(`the agent may hold only ${r.allowed_licences.join(' and ')} licences (allowed_licences), and this ${o.kind} is ${o.licence}`)
+    }
+    if (o.kind === 'subscribe' && !r.may_subscribe && !this.broken('subscribe-unjudged')) return rule("the agent's rules do not let it subscribe (may_subscribe)")
+    if (r.max_commitment_ulxc > 0 && price > r.max_commitment_ulxc && !this.broken('commitment-unjudged')) {
+      return rule(`this ${o.kind} would commit the agent to ${lxc(price)} LXC; the most one licence may commit it to is ${lxc(r.max_commitment_ulxc)} LXC (max_commitment_ulxc)`)
+    }
+    const fingerprint = `licence\0${agent.id}\0${listing}\0${o.id}\0${price}`
+    const approved = this.approvals.find((a) => a.agent_id === agent.id && a.fingerprint === fingerprint && a.status === 'approved')
+    const refused = this.judge(agent, price, { payment: true, listing, fingerprint })
+    if (approved !== undefined && this.broken('approval-buys-twice')) approved.status = 'approved'
+    return refused
   }
 
   /** B32.78 — a licence as Lens answers it: its uses covered, never the key that bought it. */
@@ -1550,6 +1592,8 @@ export class Bank {
           hourly_limit_ulxc: r.hourly_limit_ulxc ?? a.rules.hourly_limit_ulxc, weekly_limit_ulxc: r.weekly_limit_ulxc ?? a.rules.weekly_limit_ulxc,
           model_daily_limits_ulxc: r.model_daily_limits_ulxc == null ? a.rules.model_daily_limits_ulxc : modelCaps(r.model_daily_limits_ulxc),
           requests_per_minute: r.requests_per_minute ?? a.rules.requests_per_minute,
+          max_commitment_ulxc: r.max_commitment_ulxc ?? a.rules.max_commitment_ulxc, allowed_licences: r.allowed_licences ?? a.rules.allowed_licences,
+          may_subscribe: r.may_subscribe ?? a.rules.may_subscribe,
           allowed_models: r.allowed_models ?? [], allowed_providers: r.allowed_providers ?? [] }
         this.recordRules(a, ws.id, 'set')
         return json(res, 200, a.rules), true
@@ -1721,14 +1765,18 @@ export class Bank {
         const { offer_id = '', version = 0 } = await this.body<{ offer_id?: string; version?: number }>(req)
         const o = (l.offers ?? []).find((x) => x.id === offer_id)
         if (o === undefined || o.kind === 'per_use') return json(res, 400, { error: 'market: invalid listing: that offer is not one a licence is bought on' }), true
-        const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: '', price_ulxc: o.price_usd_micros * ULXC_PER_USD_MICRO,
+        const refused = agent === undefined ? undefined : this.judgeLicence(agent, l.id, o)
+        const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: agent?.id ?? '', price_ulxc: o.price_usd_micros * ULXC_PER_USD_MICRO,
           charge: o.price_usd_micros === 0 ? 'free' : 'billed', used_at: now, payee_agent_id: '', memo: '' }
-        if (!this.broken('licence-unbilled')) this.uses.push(use)
         const days = o.kind === 'buy' ? undefined : o.period_days ?? 30
         const lic: StubLicence = { id: id('lic_'), ws: ws.id, listing_id: l.id, title: l.title, offer_id: o.id, licence: o.licence, kind: o.kind, pinned_version: version || null,
           starts_at: now, ends_at: days === undefined ? null : new Date(Date.now() + days * 86_400e3).toISOString(), auto_renew: o.kind === 'subscribe', status: 'active',
-          use_id: use.id, charge: use.charge, price_ulxc: use.price_ulxc, created_at: now, key, included_uses: o.included_uses }
-        this.licences.unshift(lic)
+          use_id: use.id, charge: use.charge, price_ulxc: use.price_ulxc, created_at: now, key, included_uses: o.included_uses, agent_id: agent?.id }
+        if (refused === undefined || this.broken('licence-refused-kept')) {
+          if (!this.broken('licence-unbilled')) this.uses.push(use)
+          this.licences.unshift(lic)
+        }
+        if (refused !== undefined) return json(res, refused.status, { error: refused.error, ...(refused.approval_id === undefined ? {} : { approval_id: refused.approval_id }) }), true
         return json(res, 201, this.licenceOut(lic)), true
       }
     }

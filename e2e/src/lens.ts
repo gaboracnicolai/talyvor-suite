@@ -189,6 +189,8 @@ export interface MarketOffer {
   included_uses?: number
   /** B32.79 — a per_use offer's free trial uses for each buyer (Lens B32.21) */
   trial_uses?: number
+  /** B32.80 — an enterprise offer's seats, at least 1 (Lens market.Offer) */
+  seats?: number
   terms?: string
 }
 
@@ -197,6 +199,8 @@ export interface MarketLicence {
   id: string
   listing_id: string
   offer_id?: string
+  /** B32.80 — the agent whose key took it; absent for a person's */
+  agent_id?: string
   licence: string
   kind: string
   status: string
