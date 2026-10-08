@@ -396,6 +396,12 @@ export interface BillLine {
   /** B25.4 — credited back: the listing was taken down */
   refunded_at?: string
   payee_agent_id?: string
+  /** B32.66 — its buyer's tax, worked out when it is metered (Lens B32.39, market_tax_lines): µUSD, on the price before tax */
+  tax_usd_micros?: number
+  tax_rate_bps?: number
+  tax_jurisdiction?: string
+  tax_treatment?: string
+  tax_note?: string
 }
 
 /** Lens market.Bill: a buyer's billed uses in one month. */
@@ -403,7 +409,76 @@ export interface MarketBill {
   month: string
   total_ulxc: number
   refunded_ulxc?: number
+  /** B32.66 — the month's net, tax and gross, µUSD (Lens B32.39) */
+  net_usd_micros?: number
+  tax_usd_micros?: number
+  gross_usd_micros?: number
   lines: BillLine[] | null
+}
+
+/** B32.66 — a buyer's tax profile as Lens answers GET and PUT …/tax-profile (B32.38): what it declared, and where that resolves. */
+export interface TaxProfileAnswer {
+  profile: { country: string; business: boolean; tax_id?: string; tax_id_valid: boolean } | null
+  resolved: { country: string; business: boolean; decided_by: string } | null
+}
+
+/** B32.66 — Talyvor's receipt for a paid marketplace bill (Lens market.Receipt, B32.40): µUSD. */
+export interface MarketReceipt {
+  id: string
+  number: string
+  series: string
+  invoice_id: string
+  buyer: { country?: string; business: boolean; vat_number?: string }
+  lines: { use_id: string; net_usd_micros: number; rate_bps: number; tax_usd_micros: number; treatment?: string; jurisdiction?: string; note?: string }[] | null
+  net_usd_micros: number
+  tax_usd_micros: number
+  gross_usd_micros: number
+  gross_cents: number
+  reverse_charge: boolean
+  notes: string[] | null
+  preview: boolean
+}
+
+/** B32.66 — a seller's tax details as Lens shows them (sellertax.Details, B32.41): masked, what is missing, and the payout hold. */
+export interface SellerTax {
+  complete: boolean
+  missing: string[] | null
+  tins: { jurisdiction: string; number: string }[] | null
+  reminders_sent: number
+  withheld_since?: string
+  hold?: string
+  accepting: boolean
+}
+
+/** B32.66 — a weekly payout (market.Payout since B32.42): Stripe's fees taken from its gross. µUSD. */
+export interface WeeklyPayout {
+  id: string
+  method: string
+  period: string
+  gross_usd_micros: number
+  vat_usd_micros: number
+  account_fee_usd_micros: number
+  payout_fee_usd_micros: number
+  net_usd_micros: number
+  paid_at?: string
+}
+
+/** B32.66 — a seller's statement of one ISO week (market.Statement, B32.42): its lines sum to the net its payout paid. */
+export interface WeekStatement {
+  period: string
+  payout: WeeklyPayout | null
+  sales: number
+  lines: { kind: string; label: string; amount_usd_micros: number }[] | null
+  net_usd_micros: number
+  vat_collected_usd_micros: number
+  self_billed_invoice: unknown
+}
+
+/** B32.66 — what the synthetic payout run answers for one test seller (talyvor-lens B32.99). */
+export interface SyntheticPayoutRun {
+  withheld: boolean
+  hold?: string
+  payout: WeeklyPayout | null
 }
 
 /** Lens market.Earnings, in µUSD. */
@@ -1517,6 +1592,14 @@ export class LensClient {
   /** The test buyer's metered, unpaid marketplace uses paid on one bill, their sellers' earnings past the holdback. */
   async payTestBill(user: SyntheticUser): Promise<Answered<PaidTestBill>> {
     return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/marketplace/bill/pay`)
+  }
+
+  /**
+   * B32.66 — the weekly payout run for one test seller now, as on Lens's payout weekday, its tax-details reminders brought
+   * due first, so a seller without them is withheld (talyvor-lens B32.99): 404 until Lens has it.
+   */
+  async syntheticPayoutRun(user: SyntheticUser): Promise<Answered<SyntheticPayoutRun>> {
+    return this.synthetic('POST', `/v1/synthetic/workspaces/${user.workspaceID}/marketplace/payouts/run`)
   }
 
   /** That paid bill refunded, as Stripe's charge.refunded refunds it. */

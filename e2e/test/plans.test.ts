@@ -52,11 +52,12 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // B32.85 — and a room's wallet, funded, its budget refused past Free's maximum, and spent by a member given may_spend.
     // B32.86 — and runs in a room, on the room's budget or the member's own, and the room's AI asked on the room's budget.
     // B32.87 — and a room's prizes, refused over the budget, awarded and cleared, and closed unawarded at the deadline.
+    // B32.66 — and tax on three buyers' rents, their receipts, and a seller withheld from the payout run and then paid.
     expect(c.own.map((o) => `${o.scenario}:${o.plan}`).sort()).toEqual(['agent-rules-unbypassable:team', 'byok-addon:free', 'credits-top-up:free', 'csrf-refused:free', 'evals:free', 'file-bomb-bounded:free', 'gateway-auth:free', 'gateway-keys:free',
       'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'injection-exfil:free', 'keys-not-forwarded:free', 'keys-unlisted:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'market-abuse:free', 'market-agent-commitment:free', 'market-agent-mcp:free', 'market-discovery:free', 'market-journal:free', 'market-offers:free', 'market-rent:free', 'market-trial:free', 'nodes:free', 'outputs-attribution:free',
       'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'pool-isolation:free', 'povi:free', 'rate-limits-hold:free', 'room-contributions:free', 'room-decide-run:team', 'room-invite-limits:free', 'room-invite-screen:team', 'room-messages:team', 'room-prizes:free', 'room-runs:free', 'room-wallet:free', 'rooms-moderation:free', 'rooms-private:team', 'script-inert:team', 'seats-free:free', 'seats-team:free',
       'settings-config-budgets:free', 'settings-guardrails:free', 'settings-operator-only:free', 'settings-prompts:free', 'settings-stored-answers:free',
-      'settings-switches:free', 'settings-tare-distill:free', 'ssrf-refused:free', 'webhook-replayed:free', 'webhook-unsigned:free'])
+      'settings-switches:free', 'settings-tare-distill:free', 'ssrf-refused:free', 'tax-and-payouts:free', 'webhook-replayed:free', 'webhook-unsigned:free'])
   })
 
   it('creates each plan’s workspaces in one call, each user at its index and each gate’s own beside it', async () => {

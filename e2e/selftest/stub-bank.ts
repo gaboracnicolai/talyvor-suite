@@ -83,10 +83,16 @@
 // key already posted answers the agent's balance and posts nothing. Its defects:
 //   move-replay         — a move sent again under its key posts again
 //   move-race           — a withdrawal that lands while another move of the same agent is in flight answers 200 and posts nothing
+//
+// B32.66 adds tax and weekly payouts (Lens B32.39–B32.42, stub-tax.ts): each billed use's tax on the bill, Talyvor's receipt
+// for each paid bill, the seller's weekly statements, and the synthetic payout run of talyvor-lens B32.99, which withholds a
+// seller with earnings and no tax details and pays one whose details are complete. Its defect, beside stub-tax.ts's two:
+//   payout-hold-ignored — the payout run pays a seller who gave no tax details
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
+import { HOLD_REASON, TaxDesk } from './stub-tax.ts'
 
 export interface BankWorkspace {
   id: string
@@ -206,7 +212,32 @@ function shareOf(u: Use): number {
   return Math.floor(gross / 10_000) * keep + Math.floor(((gross % 10_000) * keep) / 10_000)
 }
 
-interface Payout { id: string; ws: string; method: 'credits'; month: string; gross_usd_micros: number; net_usd_micros: number; credits_ulxc: number; paid_at: string; created_at: string }
+interface Payout {
+  id: string; ws: string; method: 'credits' | 'stripe'; month: string; gross_usd_micros: number; net_usd_micros: number; credits_ulxc: number; paid_at: string; created_at: string
+  /** B32.66 — a weekly payout's ISO week, and Stripe's fees taken from it */
+  period?: string; vat_usd_micros?: number; account_fee_usd_micros?: number; payout_fee_usd_micros?: number
+}
+/** B32.66 — the payout minimum (Lens market.PayoutMinimumUSDMicros), and Stripe's fees in cents (market.PayoutFees). */
+const PAYOUT_MINIMUM_USD_MICROS = 25_000_000
+const STRIPE_ACCOUNT_FEE_CENTS = 200
+const STRIPE_PAYOUT_FIXED_CENTS = 25
+const STRIPE_PAYOUT_BPS = 25
+
+/** B32.66 — the ISO week `at` falls in, UTC (2026-W41), and its Monday and the next, as Lens's market.WeekBounds. */
+function isoWeekOf(at: Date): string {
+  const d = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()))
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
+  const year = d.getUTCFullYear()
+  return `${year}-W${String(Math.ceil(((d.getTime() - Date.UTC(year, 0, 1)) / 86_400e3 + 1) / 7)).padStart(2, '0')}`
+}
+function weekBounds(period: string): [string, string] | undefined {
+  const m = /^(\d{4})-W(\d{2})$/.exec(period)
+  if (m === null) return undefined
+  const jan4 = new Date(Date.UTC(Number(m[1]), 0, 4))
+  const from = new Date(jan4.getTime() - ((jan4.getUTCDay() + 6) % 7) * 86_400e3 + (Number(m[2]) - 1) * 7 * 86_400e3)
+  if (Number(m[2]) < 1 || isoWeekOf(from) !== period) return undefined
+  return [from.toISOString(), new Date(from.getTime() + 7 * 86_400e3).toISOString()]
+}
 interface CardAuth {
   id: string; agent_id: string; authorization_id: string; approved: boolean; reason: string; amount_minor: number; currency: string
   merchant_name: string; merchant_category: string; amount_usd_micros: number; amount_ulxc: number; created_at: string
@@ -335,8 +366,12 @@ export class Bank {
   private readonly licences: StubLicence[] = []
   private readonly portfolios: Portfolio[] = []
 
+  /** B32.66 — buyers' tax profiles, each billed use's tax, receipts and sellers' tax details (stub-tax.ts). */
+  private readonly tax: TaxDesk
+
   constructor(d: BankDeps) {
     this.d = d
+    this.tax = new TaxDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
   }
 
   /** The workspace and agent an agent key belongs to. */
@@ -1076,10 +1111,15 @@ export class Bank {
       if (due.length === 0) return json(res, 409, { error: 'the bill holds no metered, unpaid marketplace use (a paid use is metered within a minute)' }), true
       const invoice = id('in_synthetic_')
       for (const u of due) Object.assign(u, { invoice, cleared_at: now })
+      // B32.66 — the paid bill's receipt, in the test series (Lens B32.40).
+      this.tax.issueReceipt(m[1], invoice, due.map((u) => ({ id: u.id, title: this.listings.get(u.listing_id)?.title ?? '', net_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO })), now)
       if (this.broken('trial-earns')) {
         for (const u of this.uses) if (u.buyer === m[1] && u.charge === 'trial' && u.cleared_at === undefined) Object.assign(u, { invoice, cleared_at: now, price_ulxc: u.trial_ulxc })
       }
       return json(res, 200, { invoice_id: invoice, uses_cleared: due.length }), true
+    }
+    if ((m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/marketplace\/payouts\/run$/.exec(path)) !== null && req.method === 'POST') {
+      return json(res, 200, this.payOutWeekly(m[1], now)), true
     }
     if ((m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/marketplace\/bill\/([^/]+)\/refund$/.exec(path)) !== null) {
       const paid = this.uses.filter((u) => u.invoice === m?.[2] && u.buyer === m?.[1])
@@ -1176,6 +1216,63 @@ export class Bank {
     if (!this.broken('report-lost')) this.reports.push(r)
     const { reporter: _r, resolved: _x, ...out } = r
     return json(res, 201, out), true
+  }
+
+  /** B32.66 — what the journal holds available to a seller: their released shares less what was paid out. */
+  private released(ws: string): number {
+    const held = this.uses.filter((u) => u.seller === ws && u.cleared_at !== undefined && u.released_at === undefined && (u.refunded_at === undefined || u.kept))
+      .reduce((s, u) => s + shareOf(u), 0)
+    return this.earnings(ws).available - held
+  }
+
+  /**
+   * B32.66 — the weekly payout run for one test seller now (talyvor-lens B32.99): a seller with earnings and incomplete tax
+   * details is withheld (their reminders brought due); otherwise what the journal holds available is paid, in whole cents,
+   * once an ISO week and once it reaches the minimum, Stripe's account fee on the month's first payout and its payout fee
+   * on every one.
+   */
+  private payOutWeekly(ws: string, now: string): object {
+    const available = this.released(ws)
+    if (available > 0 && this.tax.incomplete(ws) && !this.broken('payout-hold-ignored')) this.tax.withhold(ws, now)
+    if (this.tax.withheld(ws)) return { withheld: true, hold: HOLD_REASON, payout: null }
+    const period = isoWeekOf(new Date(now))
+    const mine = this.payouts.filter((p) => p.ws === ws && p.method === 'stripe')
+    if (available < PAYOUT_MINIMUM_USD_MICROS || mine.some((p) => p.period === period)) return { withheld: false, payout: null }
+    const grossCents = Math.floor(available / 10_000)
+    const accountCents = mine.some((p) => p.month === now.slice(0, 7)) ? 0 : STRIPE_ACCOUNT_FEE_CENTS
+    const netCents = Math.max(Math.floor(((grossCents - accountCents - STRIPE_PAYOUT_FIXED_CENTS) * 10_000) / (10_000 + STRIPE_PAYOUT_BPS)), 0)
+    const p: Payout = { id: id('mpo_'), ws, method: 'stripe', month: now.slice(0, 7), period, gross_usd_micros: grossCents * 10_000, vat_usd_micros: 0,
+      account_fee_usd_micros: accountCents * 10_000, payout_fee_usd_micros: (grossCents - accountCents - netCents) * 10_000, net_usd_micros: netCents * 10_000,
+      credits_ulxc: 0, paid_at: now, created_at: now }
+    this.payouts.unshift(p)
+    const { ws: _w, ...out } = p
+    return { withheld: false, payout: out }
+  }
+
+  /** B32.66 — a seller's statement of one ISO week (Lens market.SellerStatement): its lines sum to its payout's net, 0 without one. */
+  private weekStatement(ws: string, period: string): object | undefined {
+    const bounds = weekBounds(period)
+    if (bounds === undefined) return undefined
+    const [from, to] = bounds
+    const live = (u: Use) => u.seller === ws && u.released_at !== undefined && (u.refunded_at === undefined || u.kept)
+    const earlier = this.uses.filter((u) => live(u) && (u.released_at ?? '') < from).reduce((s, u) => s + shareOf(u), 0) -
+      this.payouts.filter((p) => p.ws === ws && p.created_at < from).reduce((s, p) => s + p.gross_usd_micros, 0)
+    const week = this.uses.filter((u) => live(u) && (u.released_at ?? '') >= from && (u.released_at ?? '') < to)
+    const gross = week.reduce((s, u) => s + u.price_ulxc / ULXC_PER_USD_MICRO, 0)
+    const kept = week.reduce((s, u) => s + shareOf(u), 0)
+    const inWeek = this.payouts.filter((p) => p.ws === ws && p.created_at >= from && p.created_at < to)
+    const credits = inWeek.filter((p) => p.method === 'credits').reduce((s, p) => s + p.gross_usd_micros, 0)
+    const stripe = inWeek.filter((p) => p.method === 'stripe')
+    const paid = stripe.reduce((s, p) => s + p.gross_usd_micros, 0)
+    const fees = stripe.reduce((s, p) => s + (p.account_fee_usd_micros ?? 0) + (p.payout_fee_usd_micros ?? 0), 0)
+    const lines = [['brought_forward', 'Brought forward from earlier weeks', earlier], ['sales', 'Sales', gross], ['talyvor_fee', "Talyvor's fee", -(gross - kept)],
+      ['royalties_paid', 'Royalties paid to the originals your listings build on', 0], ['royalties_received', 'Royalties and split shares received', 0],
+      ['refunds', 'Refunds and chargebacks', 0], ['credits', 'Taken as Talyvor credits', -credits],
+      ['carried_forward', 'Carried forward to next week', -(earlier + kept - paid - credits)], ['stripe_fees', "Stripe's fees, at cost", -fees]] as const
+    const payout = this.payouts.find((p) => p.ws === ws && p.method === 'stripe' && p.period === period)
+    return { period, from, to, payout: payout === undefined ? null : (({ ws: _w, ...p }) => p)(payout), sales: week.length,
+      lines: lines.map(([kind, label, amount_usd_micros]) => ({ kind, label, amount_usd_micros })), net_usd_micros: lines.reduce((s, l) => s + l[2], 0),
+      vat_collected_usd_micros: week.reduce((s, u) => s + this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO).tax_usd_micros, 0), self_billed_invoice: null }
   }
 
   /**
@@ -1960,10 +2057,25 @@ export class Bank {
         agent_id: u.agent_id || undefined, used_at: u.used_at,
         price_ulxc: this.broken('offer-price-backdated') && u.listing_id !== '' ? this.listings.get(u.listing_id)?.price_per_use_ulxc ?? u.price_ulxc : u.price_ulxc, payee_agent_id: u.payee_agent_id || undefined, memo: u.memo || undefined,
         cleared_at: u.cleared_at, refunded_at: u.refunded_at,
+        // B32.66 — its buyer's tax (Lens B32.39), worked out once.
+        ...this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO),
       }))
       const total = lines.filter((l) => l.refunded_at === undefined).reduce((s, l) => s + l.price_ulxc, 0)
       const refunded = lines.filter((l) => l.refunded_at !== undefined).reduce((s, l) => s + l.price_ulxc, 0)
-      return json(res, 200, { month, total_ulxc: total, total_usd_micros: Math.floor(total / 10), refunded_ulxc: refunded, lines }), true
+      const tax = lines.filter((l) => l.refunded_at === undefined).reduce((s, l) => s + l.tax_usd_micros, 0)
+      return json(res, 200, { month, total_ulxc: total, total_usd_micros: Math.floor(total / 10), refunded_ulxc: refunded,
+        net_usd_micros: total / ULXC_PER_USD_MICRO, tax_usd_micros: tax, gross_usd_micros: total / ULXC_PER_USD_MICRO + tax, lines }), true
+    }
+    // B32.66 — tax profiles, receipts and sellers' tax details (stub-tax.ts); a seller's weekly statements.
+    if (await this.tax.route(req, res, ws.id, rest, now)) return true
+    if (rest === '/marketplace/statements' && method === 'GET') {
+      const period = url.searchParams.get('period')
+      if (period === null) {
+        return json(res, 200, { statements: this.payouts.filter((p) => p.ws === ws.id && p.method === 'stripe').sort((a, b) => (b.period ?? '').localeCompare(a.period ?? ''))
+          .map((p) => ({ period: p.period, payout_id: p.id, net_usd_micros: p.net_usd_micros, paid_at: p.paid_at })) }), true
+      }
+      const st = this.weekStatement(ws.id, period)
+      return st === undefined ? json(res, 400, { error: 'market: invalid: period must be an ISO week, such as 2026-W41' }) : json(res, 200, st), true
     }
     if (rest === '/marketplace/payouts' && method === 'GET') {
       const e = this.earnings(ws.id)
