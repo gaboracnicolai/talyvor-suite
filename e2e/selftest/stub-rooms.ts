@@ -82,6 +82,17 @@
 //
 // STUB_BREAK=room-fork-lineage records a fork's edge as a remix at the original's own remix share (0) — a defect
 // room-contributions must FAIL on.
+//
+// B32.85 — and the room's wallet (Lens B32.32), as room-wallet reads it:
+//
+//   POST   /v1/workspaces/{ws}/rooms                    opens the room's wallet in the stub's Bank (setRoomWallets): an
+//                                                       agent of kind room named "Room: <title>", with one key nobody holds
+//   GET    /v1/rooms/{id}                               the wallet's balance, and may_spend: the owner, or under
+//                                                       members_with_spend a member given may_spend; why_not otherwise
+//   GET    /v1/workspaces/{ws}/agents/{wallet}/rules/history   a version for each rules saved, newest first
+//
+// STUB_BREAK=room-budget-saved answers a monthly limit above the plan's 402, and saves it anyway — a defect room-wallet
+// must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -109,6 +120,8 @@ interface Room {
   plan: string; invites: Invite[]; prizes: Prize[]; walletRules: Record<string, unknown>
   /** B32.91 — its reports, the workspaces banned from it, and its wallet's statement lines, newest last. */
   reports: Report[]; banned: string[]; walletLines: { entry_id: string; kind: string; amount_ulxc: number; counterparty: string; ref: string; balance_after_ulxc: number; at: string }[]
+  /** B32.85 — its wallet's rules as each save left them, newest first. */
+  walletVersions: { version: number; rules: Record<string, unknown>; changed_by: string; change: string; created_at: string }[]
 }
 
 interface Report { id: string; ws: string; message_id?: string; reason: string; details: string; created_at: string; resolution?: string }
@@ -131,6 +144,13 @@ const budgetMax = (r: Room) => {
 }
 
 const rooms = new Map<string, Room>()
+
+/** B32.85 — where a room's wallet is opened and what it holds: the stub's Bank, as stub-lens.ts sets it. */
+interface RoomWallets { open(ws: string, agentID: string, name: string): void; balance(agentID: string): number }
+let wallets: RoomWallets = { open: () => undefined, balance: () => 0 }
+export function setRoomWallets(w: RoomWallets): void {
+  wallets = w
+}
 
 interface Msg {
   id: string; cursor: number; room_id: string; author_workspace_id: string; kind: string; body: string; refs: Record<string, unknown>; created_at: string
@@ -350,12 +370,22 @@ const member = (r: Room, m: Room['members'][number]) => ({
   terms_current: m.terms_version === r.terms.version, joined_at: m.joined_at,
 })
 
+/** Lens whyNotSpend (B32.32): why member `me` may not spend the room's budget; '' when it may. */
+const whyNotSpend = (r: Room, me: Room['members'][number]): string => {
+  if (r.status === 'closed') return 'the room is closed, and its budget is spent no more'
+  if (me.role === 'owner') return ''
+  if (r.terms.spend_policy !== 'members_with_spend') return "the room's spend policy is owner_only: only its owner spends the room's budget"
+  if (me.may_spend !== true) return "the room's owner has not given you may_spend: ask its owner or an editor"
+  return ''
+}
+
 const detail = (r: Room, ws: string) => {
   const me = r.members.find((m) => m.workspace_id === ws)
+  const whyNot = me === undefined ? '' : whyNotSpend(r, me)
   const wallet = me === undefined ? undefined : {
-    agent_id: walletID(r), name: `Room: ${r.title}`, balance_ulxc: 0, monthly_limit_ulxc: Number(r.walletRules.monthly_limit_ulxc ?? 0), spent_this_month_ulxc: 0,
-    max_per_request_ulxc: 0, approval_above_ulxc: 0, budget_max_ulxc: budgetMax(r), spend_policy: r.terms.spend_policy, may_spend: me.role === 'owner',
-    ...(me.role === 'owner' ? {} : { why_not: 'only the room’s owner spends its budget' }),
+    agent_id: walletID(r), name: `Room: ${r.title}`, balance_ulxc: wallets.balance(walletID(r)), monthly_limit_ulxc: Number(r.walletRules.monthly_limit_ulxc ?? 0), spent_this_month_ulxc: 0,
+    max_per_request_ulxc: 0, approval_above_ulxc: 0, budget_max_ulxc: budgetMax(r), spend_policy: r.terms.spend_policy, may_spend: whyNot === '',
+    ...(whyNot === '' ? {} : { why_not: whyNot }),
   }
   return { ...view(r), terms: r.terms, members: r.members.map((m) => member(r, m)), agents: [], me: me === undefined ? null : member(r, me), ...(wallet ? { wallet } : {}),
     ...(underReview(r) ? { under_review: true } : {}) }
@@ -403,9 +433,10 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
       created_at: now, last_activity_at: now, plan: LIMITS[plan] === undefined ? 'free' : plan, invites: [], prizes: [],
       walletRules: { max_per_request_ulxc: 0, daily_limit_ulxc: 0, monthly_limit_ulxc: 0, approval_above_ulxc: 0, allowed_models: null,
         allowed_providers: null, active_from: '', active_until: '', timezone: '' },
-      reports: [], banned: [], walletLines: [],
+      reports: [], banned: [], walletLines: [], walletVersions: [],
     }
     rooms.set(r.id, r)
+    wallets.open(ws, walletID(r), `Room: ${title}`)
     json(res, 201, detail(r, ws))
     return true
   }
@@ -468,24 +499,31 @@ async function settingsOutsideRoom(req: IncomingMessage, res: ServerResponse, p:
     }
     return false
   }
-  const rules = /^\/v1\/workspaces\/([^/]+)\/agents\/(ag_room_[^/]+)\/(rules|statement)$/.exec(p)
+  const rules = /^\/v1\/workspaces\/([^/]+)\/agents\/(ag_room_[^/]+)\/(rules|rules\/history|statement)$/.exec(p)
   if (rules === null || rules[1] !== ws) return false
   const r = [...rooms.values()].find((x) => walletID(x) === rules[2] && x.owner_workspace_id === ws)
   if (r === undefined) return json(res, 404, { error: 'economy: agent not found' }), true
   if (rules[3] === 'statement') return req.method === 'GET' ? (json(res, 200, { agent_id: walletID(r), lines: [...r.walletLines].reverse() }), true) : false
+  if (rules[3] === 'rules/history') return req.method === 'GET' ? (json(res, 200, { versions: r.walletVersions }), true) : false
   if (req.method === 'GET') return json(res, 200, r.walletRules), true
   if (req.method !== 'PUT') return false
   const d = await body(req)
   const monthly = Number(d.monthly_limit_ulxc ?? 0)
   const max = budgetMax(r)
+  /** The rules saved, and their version (Lens recordRulesVersion), in the save's own transaction. */
+  const save = () => {
+    r.walletRules = { ...r.walletRules, ...d }
+    r.walletVersions.unshift({ version: r.walletVersions.length + 1, rules: { ...r.walletRules }, changed_by: ws, change: 'set', created_at: new Date().toISOString() })
+  }
   if (max >= 0 && (monthly <= 0 || monthly > max)) {
+    if (BREAK === 'room-budget-saved') save()
     const usd = max / ULXC_PER_USD
     const allows = NEXT[r.plan] ?? ''
     const what = monthly <= 0 ? "a room's budget is its wallet's monthly limit, and it has none" : `a monthly limit of ${monthly / 1_000_000} LXC is above the room's budget`
     return json(res, 402, { error: `${what}: rooms_plan_limits (LENS_ROOMS_PLAN_LIMITS): your ${r.plan} plan allows a room a budget of at most $${usd} (${max / 1_000_000} LXC) a month${allows ? ` — the ${allows} plan allows $${LIMITS[allows].room_budget_max_usd}` : ''}`,
       setting: 'rooms_plan_limits', plan: r.plan, limit: 'room_budget_max_usd', max: usd, allows }), true
   }
-  r.walletRules = { ...r.walletRules, ...d }
+  save()
   return json(res, 200, r.walletRules), true
 }
 
