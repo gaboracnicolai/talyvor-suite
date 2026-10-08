@@ -29,14 +29,14 @@ import { isoWeek, SELLER_DETAILS } from './taxPayouts.ts'
 import { until } from './trade.ts'
 
 /** The rent: $30.00 for 30 days, µUSD — the seller's share is over the $25 payout minimum. */
-const RENT_USD_MICROS = 30_000_000
+export const RENT_USD_MICROS = 30_000_000
 const RENT_DAYS = 30
 /** The listing's per-use offer, beside the rent: no buyer uses it. */
 const PER_USE_USD_MICROS = 100_000
 /** Lens meters a billed use within a minute; the bill cannot be paid before. */
-const METER_WAIT_MS = 90_000
+export const METER_WAIT_MS = 90_000
 /** Lens's release job runs every 5 minutes. */
-const RELEASE_WAIT_MS = 360_000
+export const RELEASE_WAIT_MS = 360_000
 /** A week no year has: ISO years have 52 or 53 weeks. */
 const NO_SUCH_WEEK = '2026-W54'
 
@@ -182,14 +182,14 @@ export function sellerWeekStatement(seed: number): Scenario {
 }
 
 /** One of the seller's marketplace reads on its owner's key, its answer kept as evidence: the answer, or why it cannot be read. */
-async function read<T>(ctx: ScenarioCtx, seller: SyntheticUser, note: string, rest: string): Promise<T | string> {
+export async function read<T>(ctx: ScenarioCtx, seller: SyntheticUser, note: string, rest: string): Promise<T | string> {
   const got: Answered<T> = await ctx.env.lens.act<T>(seller, 'GET', `/v1/workspaces/{ws}${rest}`)
   ctx.evidence.push({ note, answer: got.ok ? JSON.stringify(got.value) : said(got) })
   return got.ok ? got.value : `reading ${note}: ${said(got)}`
 }
 
 /** The seller publishes the listing with its per-use and rent offers, approved if the review holds it: its id and the rent's offer id. */
-async function publishRent(ctx: ScenarioCtx, seller: SyntheticUser, title: string): Promise<{ id: string; rent: string } | string> {
+export async function publishRent(ctx: ScenarioCtx, seller: SyntheticUser, title: string): Promise<{ id: string; rent: string } | string> {
   const { env } = ctx
   const model = env.catalog[0]
   if (model === undefined) throw new Error('the catalog has no model')

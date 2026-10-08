@@ -137,6 +137,17 @@ export class TaxDesk {
   }
 
   /**
+   * B32.97 — the seller as their self-billed invoice prints them (Lens market.selfBillFor), with the agreement they saved:
+   * undefined when they have not agreed to self-billing — unless `anyway`, as though every seller had.
+   */
+  selfBiller(seller: string, anyway: boolean): { agreement_version: string; name: string; address: string; country: string; vat_number: string } | undefined {
+    const d = this.sellers.get(seller)
+    if (d === undefined || (d.self_billing_agreed_version === '' && !anyway)) return undefined
+    const name = d.seller_type === 'individual' ? `${d.first_name} ${d.last_name}`.trim() : d.legal_name
+    return { agreement_version: d.self_billing_agreed_version, name: name || seller, address: d.address, country: d.country, vat_number: d.vat_valid ? d.vat_number : '' }
+  }
+
+  /**
    * The workspace's tax routes: true when `rest` was one of them. `agent`: the call is on one of its agents' keys, which
    * Lens refuses the tax profile to — only the workspace's owner or an admin may read or change it.
    */
