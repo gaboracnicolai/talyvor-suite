@@ -13,11 +13,11 @@
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Agent, BillLine, Loan, MarketEarnings, MarketJournal, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
+import type { Agent, BillLine, Listing, Loan, MarketEarnings, MarketJournal, MarketOffer, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
 import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, card, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
 import { keptOf, percent } from './fees.ts'
-import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
+import { RUN_SALT, listPriceUSD, seeded, statesNumber } from './oracles.ts'
 import { otherCompanyOnTeam } from './room.ts'
 import { CannotTest, type Scenario, type ScenarioCtx } from './scenarios.ts'
 
@@ -934,6 +934,19 @@ export async function buyFrom(ctx: ScenarioCtx, seller: number | SyntheticUser, 
   ctx.evidence.push({ note: `the seller publishes "Totals ${seed}-${a}" at ${lxcText(price)} LXC a use`, answer: JSON.stringify(published) })
   if (!published.ok) return `publishing was refused: ${published.status} ${published.error}`
   const id = published.value.id
+  const wrong = await askTotals(ctx, id, model, template, a, b)
+  if (wrong !== undefined) return wrong
+  const lines = ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === id)
+  if (lines.length !== 1 || lines[0].price_ulxc !== price) return `one use put ${lines.length} line(s) on the buyer's bill: ${JSON.stringify(lines)}`
+  return { id, line: lines[0], seller: co }
+}
+
+/**
+ * The person uses the "What is {{a}} + {{b}}" listing `id` on its page, held against the cap and booked for the ledger
+ * read-back, as every charged answer is: undefined when it answered a + b, else why not.
+ */
+async function askTotals(ctx: ScenarioCtx, id: string, model: ScenarioCtx['env']['catalog'][number], template: string, a: number, b: number): Promise<string | undefined> {
+  const { env, app } = ctx
   const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
   const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
   let used
@@ -949,9 +962,7 @@ export async function buyFrom(ctx: ScenarioCtx, seller: number | SyntheticUser, 
   ctx.evidence.push({ note: 'the buyer uses it', answer: used.shown, error: used.error })
   if (used.error !== undefined) return `the use was refused: ${used.error}`
   if (!statesNumber(used.shown ?? '', a + b)) return `the listing answered wrong: expected ${a + b}, got "${used.shown}"`
-  const lines = ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === id)
-  if (lines.length !== 1 || lines[0].price_ulxc !== price) return `one use put ${lines.length} line(s) on the buyer's bill: ${JSON.stringify(lines)}`
-  return { id, line: lines[0], seller: co }
+  return undefined
 }
 
 /** The buyer's bill paid now (B25.7), tried until Lens has metered the use (within a minute): the bill, or why not. */
@@ -1124,6 +1135,120 @@ export function marketJournal(seed: number): Scenario {
       if (!j2.reconciled) return fail(`released, the seller's journal does not reconcile with their earnings and payouts: ${journalText(j2)}`)
       return { pass: true, detail: `the bill paid, the seller's ${share} µUSD share was ${due ? 'due for release in the journal\'s holdback' : 'already released'}; ` +
         `${waited} s on, the holdback is 0 and the journal's available is ${share} µUSD, the earning and the earnings' available, and it reconciles` }
+    },
+  }
+}
+
+/**
+ * B32.76 — what is wrong with a listing's offers as a buyer reads them (Lens B32.18): each of `want` there on the terms it
+ * was published with and saying what its licence allows, and no other.
+ */
+export function offerFaults(got: readonly MarketOffer[], want: readonly MarketOffer[]): string[] {
+  const wrong: string[] = []
+  for (const w of want) {
+    const what = `the ${w.licence} ${w.kind} offer`
+    const o = got.find((x) => x.kind === w.kind && x.licence === w.licence)
+    if (o === undefined) {
+      wrong.push(`${what} is missing`)
+      continue
+    }
+    if (o.price_usd_micros !== w.price_usd_micros) wrong.push(`${what} is ${o.price_usd_micros} µUSD; it was published at ${w.price_usd_micros}`)
+    if (w.period_days !== undefined && o.period_days !== w.period_days) wrong.push(`${what} runs ${String(o.period_days)} days; it was published for ${w.period_days}`)
+    if (w.included_uses !== undefined && o.included_uses !== w.included_uses) wrong.push(`${what} includes ${String(o.included_uses)} uses; it was published with ${w.included_uses}`)
+    if ((o.terms ?? '').trim() === '') wrong.push(`${what} does not say what its licence allows`)
+  }
+  if (got.length !== want.length) wrong.push(`the listing has ${got.length} offers; it was published with ${want.length}`)
+  return wrong
+}
+
+/**
+ * B32.76 — a listing sold through four offers, and a price change that bills only the next use (Lens B32.18). The seller is
+ * a workspace the scenario makes; the buyer is the scenario's own workspace, so its bill holds this listing's uses alone.
+ */
+export function marketOffers(seed: number): Scenario {
+  const before = 100_000
+  const after = 150_000
+  const rent: MarketOffer = { kind: 'rent', licence: 'commercial', price_usd_micros: 1_500_000, period_days: 30 }
+  const offers: MarketOffer[] = [
+    { kind: 'per_use', licence: 'commercial', price_usd_micros: before },
+    rent,
+    { kind: 'buy', licence: 'commercial', price_usd_micros: 5_000_000 },
+    { kind: 'subscribe', licence: 'commercial', price_usd_micros: 2_000_000, period_days: 30, included_uses: 100 },
+  ]
+  return {
+    id: 'market-offers',
+    owner: 'talyvor-lens',
+    own: true,
+    feature: 'Marketplace',
+    title: 'a listing published with a per-use, a 30-day rent, a buy and a 30-day subscription with 100 uses shows the buyer all four with what each licence allows; ' +
+      "a second commercial rent is refused; the seller raises the per-use price between two uses, and the buyer's bill keeps the first at its old price and bills the second at the new",
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const r = seeded(seed * 53 + 29)
+      const [a1, b1, a2, b2] = [0, 1, 2, 3].map(() => 100 + Math.floor(r() * 900))
+      const template = 'What is {{a}} + {{b}}? Reply with the number only.'
+      const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+      if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
+      const [seller] = await env.lens.createUsers(1)
+      const title = `Offers ${seed}-${RUN_SALT}`
+      const pub = await env.lens.act<Listing>(seller, 'POST', '/v1/workspaces/{ws}/marketplace/listings', { kind: 'prompt', title, description: '', visibility: 'public',
+        artifact: { template, model: model.id }, changelog: '', offers })
+      ctx.evidence.push({ note: `the seller publishes "${title}" with a per-use, a rent, a buy and a subscription offer`, answer: JSON.stringify(pub) })
+      if (!pub.ok) return fail(`publishing with four offers was refused: ${pub.status} ${pub.error}`)
+      const id = pub.value.id
+      if (pub.value.review_status !== 'approved') {
+        // B32.46 — a listing like another night's is held for review, hidden from the buyer; a person approves it.
+        if (!env.lens.canModerate) throw new CannotTest(`the listing was ${pub.value.review_status}, and approving it needs a moderator key: LENS_MODERATOR_KEY, from \`lens moderator-keys create\``)
+        const ok = await env.lens.moderate(id, 'approve')
+        ctx.evidence.push({ note: `the listing was ${pub.value.review_status}; the operator approves it`, answer: JSON.stringify(ok) })
+        if (!ok.ok) return fail(`approving the held listing ${id}: ${ok.status} ${ok.error}`)
+      }
+
+      const read = () => env.lens.act<{ offers: MarketOffer[] | null }>(app.user, 'GET', `/v1/marketplace/listings/${id}`)
+      const seen = await read()
+      ctx.evidence.push({ note: "the buyer reads the listing's offers", answer: JSON.stringify(seen.ok ? seen.value.offers : seen) })
+      if (!seen.ok) return fail(`the buyer reading the listing: ${seen.status} ${seen.error}`)
+      const unseen = offerFaults(seen.value.offers ?? [], offers)
+      if (unseen.length > 0) return fail(`the buyer reads the listing's offers wrong: ${unseen.join('; ')}`)
+
+      const put = (set: MarketOffer[]) => env.lens.act<{ offers: MarketOffer[] }>(seller, 'PUT', `/v1/workspaces/{ws}/marketplace/listings/${id}/offers`, { offers: set })
+      const twice = await put([...offers, { ...rent, price_usd_micros: 1_200_000, period_days: 7 }])
+      ctx.evidence.push({ note: 'the seller sets a second commercial rent beside the first', answer: JSON.stringify(twice) })
+      if (twice.ok || twice.status !== 400) {
+        return fail(`a second active commercial rent offer should be refused with 400; Lens answered ${twice.status}: ${twice.ok ? JSON.stringify(twice.value) : twice.error}`)
+      }
+      const kept = await read()
+      const changed = kept.ok ? offerFaults(kept.value.offers ?? [], offers) : [`the buyer reading the listing: ${kept.status} ${kept.error}`]
+      if (changed.length > 0) return fail(`refused, the second rent still changed the listing's offers: ${changed.join('; ')}`)
+
+      const bill = async () => ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === id)
+      const used1 = await askTotals(ctx, id, model, template, a1, b1)
+      if (used1 !== undefined) return fail(used1)
+      const bill1 = await bill()
+      ctx.evidence.push({ note: "the buyer's bill after the first use", answer: JSON.stringify(bill1) })
+      if (bill1.length !== 1 || bill1[0].price_ulxc !== before * ULXC_PER_USD_MICRO) {
+        return fail(`a use at ${before} µUSD should be one line of ${before * ULXC_PER_USD_MICRO} µLXC on the buyer's bill; it has ${JSON.stringify(bill1)}`)
+      }
+      const first = bill1[0]
+
+      const raised = await put(offers.map((o) => (o.kind === 'per_use' ? { ...o, price_usd_micros: after } : o)))
+      ctx.evidence.push({ note: `the seller raises the per-use price to ${after} µUSD`, answer: JSON.stringify(raised) })
+      const perUse = raised.ok ? raised.value.offers.find((o) => o.kind === 'per_use' && o.licence === 'commercial') : undefined
+      if (perUse?.price_usd_micros !== after) return fail(`raising the per-use price to ${after} µUSD: ${raised.ok ? JSON.stringify(raised.value) : `${raised.status} ${raised.error}`}`)
+
+      const used2 = await askTotals(ctx, id, model, template, a2, b2)
+      if (used2 !== undefined) return fail(used2)
+      const bill2 = await bill()
+      ctx.evidence.push({ note: "the buyer's bill after the second use", answer: JSON.stringify(bill2) })
+      const again = bill2.find((l) => l.use_id === first.use_id)
+      const next = bill2.filter((l) => l.use_id !== first.use_id)
+      if (again === undefined || next.length !== 1) return fail(`two uses should be two lines on the buyer's bill; it has ${JSON.stringify(bill2)}`)
+      if (again.price_ulxc !== first.price_ulxc) return fail(`after the price change, the first use reads ${again.price_ulxc} µLXC on the bill; it was billed ${first.price_ulxc}`)
+      if (next[0].price_ulxc !== after * ULXC_PER_USD_MICRO) {
+        return fail(`the use after the price change is billed ${next[0].price_ulxc} µLXC; the per-use price is now ${after} µUSD, ${after * ULXC_PER_USD_MICRO} µLXC`)
+      }
+      return { pass: true, detail: `the buyer read all four offers with their licence terms; a second commercial rent was refused 400 and changed nothing; ` +
+        `the first use is billed ${first.price_ulxc} µLXC and stays so, and the use after the seller raised the price to ${after} µUSD is billed ${next[0].price_ulxc} µLXC` }
     },
   }
 }
