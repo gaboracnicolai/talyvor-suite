@@ -1170,6 +1170,14 @@ export function chatTrackIssue(seed: number): Scenario {
         const link = page.locator('[data-testid="turn-user"]').last().getByTestId('sent-track-issue')
         const href = (await link.getAttribute('href').catch(() => null)) ?? ''
         if (href !== `/track/issues/${made.id}`) return fail(`the question does not link the issue it carried: ${JSON.stringify(href)}`)
+        const asked = [1440, 390].map((w) => join(env.outDir, `chat-track-issue-question-${w}px-user${app.user.index}.png`))
+        for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+          await page.setViewportSize({ width, height })
+          await link.scrollIntoViewIfNeeded()
+          await page.screenshot({ path: asked[i] })
+        }
+        if (was !== null) await page.setViewportSize(was)
+        ctx.evidence.push({ note: `the question with ${made.identifier} linked, and the answer, at 1440px: ${asked[0]}; at 390px: ${asked[1]}` })
         let spend: LedgerRow[] = []
         for (let tries = 0; tries < 10 && spend.length === 0; tries++) {
           if (tries > 0) await page.waitForTimeout(1_000)
