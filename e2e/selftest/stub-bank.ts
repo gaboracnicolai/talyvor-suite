@@ -60,6 +60,13 @@
 //   licence-use-billed    — a use the licence covers is billed at the per-use price as if there were none
 //   licence-covers-agent  — a personal licence covers an agent key's use too
 //
+// B32.79 adds free trial uses (Lens B32.21): a per_use commercial offer's trial_uses (at most 5) makes each buyer's first
+// uses of its listing trials — charged trial at nothing, answering trial with the trial uses left and what it would have
+// cost, never on the bill and never an earning. Its defects:
+//   trial-billed   — a trial answers as one, but the use is on the buyer's bill at the offer's price
+//   trial-earns    — paying the bill pays the seller its share of each trial use too
+//   trial-endless  — the trial uses never run out: the use after the last is a trial as well
+//
 // B28.360 adds freezing an agent's card (POST …/card/freeze and …/card/unfreeze, for Lens's B28.97): a purchase on a
 // frozen card is declined and nothing leaves the agent. Its defect:
 //   freeze-ignored      — a frozen card answers frozen, and a purchase on it is still approved
@@ -146,7 +153,9 @@ interface Listing {
 /** B32.90 — Lens market.Collection: a curator's list of listings, in its order; the operator features one. */
 interface StubCollection { id: string; workspace_id: string; title: string; description: string; public: boolean; featured: boolean; featured_at?: string; listing_ids: string[]; created_at: string; updated_at: string }
 /** B34.4 — Lens market.Offer, a listing's licence remix grant and lineage edge, a licence, and a simulated portfolio. */
-interface StubOffer { id: string; kind: string; licence: string; price_usd_micros: number; period_days?: number; included_uses?: number; terms?: string; created_at: string }
+interface StubOffer {
+  id: string; kind: string; licence: string; price_usd_micros: number; period_days?: number; included_uses?: number; trial_uses?: number; terms?: string; created_at: string
+}
 interface Grant { ws: string; listing_id: string; version: number; share_bps: number; accepted_at: string }
 interface Edge { child_listing_id: string; child_version: number; parent_listing_id: string; parent_version: number; share_bps: number; source: string; created_at: string }
 interface StubLicence {
@@ -165,6 +174,8 @@ interface Use {
   released_at?: string
   /** B32.78 — the licence that covered it (charge licensed) */
   licence_id?: string
+  /** B32.79 — a trial use's would-be price */
+  trial_ulxc?: number
 }
 /**
  * B32.8 — what the seller keeps of a use, in µUSD (Lens market.SellerShare): a listing's 85% (LENS_MARKET_TAKE_BPS=1500),
@@ -254,6 +265,8 @@ const modelCaps = (caps: Record<string, number>): Record<string, number> =>
   Object.fromEntries(Object.entries(caps).filter(([, v]) => v > 0).map(([m, v]) => [modelCapKey(m), v]))
 /** µLXC per µUSD (LXC is pegged at $0.10), and µUSD a penny buys, at the stub's fixed pound. */
 const ULXC_PER_USD_MICRO = 10
+/** B32.79 — the most trial uses one offer may give (Lens market.DefaultTrialMax, LENS_MARKET_TRIAL_MAX) */
+const TRIAL_MAX = 5
 /** B32.76 — what each licence allows (Lens market.LicenceTerms). */
 const LICENCE_TERMS: Record<string, string> = {
   personal: 'One person. No agent keys, and not inside a product sold to others.',
@@ -631,6 +644,9 @@ export class Bank {
    */
   private setOffers(l: Listing, offers: Omit<StubOffer, 'id' | 'created_at'>[], now: string): string | undefined {
     if (offers.some((o) => !['per_use', 'buy', 'rent', 'subscribe'].includes(o.kind) || LICENCE_TERMS[o.licence] === undefined || !(o.price_usd_micros >= 0))) return 'market: invalid offer'
+    if (offers.some((o) => o.trial_uses !== undefined && (o.trial_uses < 0 || o.trial_uses > TRIAL_MAX || (o.trial_uses > 0 && o.kind !== 'per_use')))) {
+      return `market: invalid listing: only a per_use offer gives trial uses, at most ${TRIAL_MAX}`
+    }
     const twice = offers.find((o, i) => offers.findIndex((x) => x.kind === o.kind && x.licence === o.licence) !== i)
     if (twice !== undefined && !this.broken('offers-duplicate')) return `market: invalid listing: a listing has one active ${twice.licence} ${twice.kind} offer at a time`
     const stale = this.broken('offer-price-stale') && l.offers !== undefined
@@ -910,6 +926,9 @@ export class Bank {
       if (due.length === 0) return json(res, 409, { error: 'the bill holds no metered, unpaid marketplace use (a paid use is metered within a minute)' }), true
       const invoice = id('in_synthetic_')
       for (const u of due) Object.assign(u, { invoice, cleared_at: now })
+      if (this.broken('trial-earns')) {
+        for (const u of this.uses) if (u.buyer === m[1] && u.charge === 'trial' && u.cleared_at === undefined) Object.assign(u, { invoice, cleared_at: now, price_ulxc: u.trial_ulxc })
+      }
       return json(res, 200, { invoice_id: invoice, uses_cleared: due.length }), true
     }
     if ((m = /^\/v1\/synthetic\/workspaces\/([^/]+)\/marketplace\/bill\/([^/]+)\/refund$/.exec(path)) !== null) {
@@ -1738,11 +1757,18 @@ export class Bank {
       const ran = this.d.runModel(ws, model, template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, v: string) => b.variables?.[v] ?? ''))
       if ('error' in ran) return json(res, 400, { error: ran.error }), true
       const covered = l.workspace_id === ws.id ? undefined : this.coveringLicence(ws.id, l.id, agent, now)
-      const charge = l.workspace_id === ws.id && !this.broken('self-use-billed') ? 'own' : covered !== undefined ? 'licensed' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
-      const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: agent?.id ?? '', price_ulxc: charge === 'billed' ? l.price_per_use_ulxc : 0,
-        charge, used_at: now, payee_agent_id: '', memo: '', licence_id: covered?.id }
+      let charge = l.workspace_id === ws.id && !this.broken('self-use-billed') ? 'own' : covered !== undefined ? 'licensed' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
+      // B32.79 — a billed use is a trial while the buyer has one of the listing's trial uses left.
+      const given = (l.offers ?? []).find((o) => o.kind === 'per_use' && o.licence === 'commercial')?.trial_uses ?? 0
+      const had = this.uses.filter((u) => u.buyer === ws.id && u.listing_id === l.id && u.trial_ulxc !== undefined).length
+      const trial = charge === 'billed' && given > 0 && (had < given || this.broken('trial-endless'))
+      if (trial) charge = 'trial'
+      const stored = trial && this.broken('trial-billed') ? 'billed' : charge
+      const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: agent?.id ?? '', price_ulxc: stored === 'billed' ? l.price_per_use_ulxc : 0,
+        charge: stored, used_at: now, payee_agent_id: '', memo: '', licence_id: covered?.id, trial_ulxc: trial ? l.price_per_use_ulxc : undefined }
       this.uses.push(use)
-      return json(res, 200, { id: use.id, listing_id: l.id, version: 1, kind: l.kind, model, charge, price_ulxc: use.price_ulxc, output: ran.answer, used_at: now }), true
+      const told = trial ? { trial: true, trial_uses_left: Math.max(given - had - 1, 0), would_have_cost_usd_micros: l.price_per_use_ulxc / ULXC_PER_USD_MICRO } : {}
+      return json(res, 200, { id: use.id, listing_id: l.id, version: 1, kind: l.kind, model, charge, price_ulxc: charge === 'billed' ? use.price_ulxc : 0, output: ran.answer, used_at: now, ...told }), true
     }
     if (rest === '/marketplace/earnings') {
       const pending = this.uses.filter((u) => u.seller === ws.id && u.charge === 'billed' && u.cleared_at === undefined && u.refunded_at === undefined)

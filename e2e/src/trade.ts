@@ -1399,3 +1399,119 @@ export function marketRent(seed: number): Scenario {
     },
   }
 }
+
+/** B32.79 — one use of a listing as Lens answers it, with what B32.21 says of a trial. */
+interface TrialUse {
+  id: string
+  charge: string
+  price_ulxc: number
+  output?: string
+  trial?: boolean
+  trial_uses_left?: number
+  would_have_cost_usd_micros?: number
+}
+
+/**
+ * B32.79 — a listing's free trial uses, on test money (Lens B32.21). The seller is a workspace the scenario makes; the
+ * buyer is the scenario's own workspace, so its bill holds this listing's uses alone. Each trial is free and says what it
+ * would have cost; the use after the last is billed, and once the bill is paid only that one has earned the seller anything.
+ */
+export function marketTrial(seed: number): Scenario {
+  const perUse = 100_000
+  const trials = 3
+  return {
+    id: 'market-trial',
+    owner: 'talyvor-lens',
+    own: true,
+    feature: 'Marketplace',
+    title: `a listing's per-use offer gives ${trials} trial uses: each of the buyer's first ${trials} answers trial with one fewer left and what it would have cost, ` +
+      "the use after them is billed at the offer's price, the buyer's bill holds that one line alone, and once the bill is paid no trial use has earned the seller anything",
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const r = seeded(seed * 61 + 37)
+      const sums = Array.from({ length: trials + 1 }, () => [100 + Math.floor(r() * 900), 100 + Math.floor(r() * 900)] as const)
+      const template = 'What is {{a}} + {{b}}? Reply with the number only.'
+      const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+      if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
+      const [seller] = await env.lens.createUsers(1)
+
+      const title = `Trial ${seed}-${RUN_SALT}`
+      const pub = await env.lens.act<Listing>(seller, 'POST', '/v1/workspaces/{ws}/marketplace/listings', { kind: 'prompt', title, description: '', visibility: 'public',
+        artifact: { template, model: model.id }, changelog: '', offers: [{ kind: 'per_use', licence: 'commercial', price_usd_micros: perUse, trial_uses: trials }] })
+      ctx.evidence.push({ note: `the seller publishes "${title}" at ${perUse} µUSD a use with ${trials} trial uses`, answer: JSON.stringify(pub) })
+      if (!pub.ok) return fail(`publishing with ${trials} trial uses was refused: ${pub.status} ${pub.error}`)
+      const id = pub.value.id
+      if (pub.value.review_status !== 'approved') {
+        // B32.46 — a listing like another night's is held for review, hidden from the buyer; a person approves it.
+        if (!env.lens.canModerate) throw new CannotTest(`the listing was ${pub.value.review_status}, and approving it needs a moderator key: LENS_MODERATOR_KEY, from \`lens moderator-keys create\``)
+        const ok = await env.lens.moderate(id, 'approve')
+        if (!ok.ok) return fail(`approving the held listing ${id}: ${ok.status} ${ok.error}`)
+      }
+      const seen = await env.lens.act<{ offers: MarketOffer[] | null }>(app.user, 'GET', `/v1/marketplace/listings/${id}`)
+      ctx.evidence.push({ note: "the buyer reads the listing's offers", answer: JSON.stringify(seen.ok ? seen.value.offers : seen) })
+      if (!seen.ok) return fail(`the buyer reading the listing: ${seen.status} ${seen.error}`)
+      const offer = (seen.value.offers ?? []).find((o) => o.kind === 'per_use' && o.licence === 'commercial')
+      if (offer?.trial_uses !== trials) return fail(`the buyer reads the per-use offer with ${String(offer?.trial_uses)} trial uses; it was published with ${trials}: ${JSON.stringify(seen.value.offers)}`)
+
+      // Each use on Lens's use route, held against the cap and booked for the ledger read-back: a trial's model call is
+      // still the buyer's ordinary spend. Lens's answer, or why not.
+      const oneUse = async (n: number, [a, b]: readonly [number, number]): Promise<TrialUse | string> => {
+        const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
+        const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
+        let used
+        try {
+          used = await env.lens.as(app.user.token, 'POST', `/v1/workspaces/${app.user.workspaceID}/marketplace/listings/${id}/use`, { variables: { a: String(a), b: String(b) } })
+        } catch (e) {
+          env.cap.settle(hold, undefined)
+          throw e
+        }
+        const charged = (await spendRows(ctx)).filter((x) => !rows0.has(x.id))
+        env.cap.settle(hold, used.status === 200 ? (charged.reduce((t, x) => t - x.amount_ulxc, 0) / 1e6) * env.usdPerLXC : undefined)
+        for (const x of charged) env.book.add(app.user.workspaceID, -x.amount_ulxc)
+        ctx.evidence.push({ note: `the buyer's use ${n}`, answer: `${used.status} ${used.text.slice(0, 400)}` })
+        if (used.status !== 200) return `the buyer's use ${n} was refused: ${used.status} ${used.text.slice(0, 200)}`
+        const u = JSON.parse(used.text) as TrialUse
+        if (!statesNumber(u.output ?? '', a + b)) return `the listing answered use ${n} wrong: expected ${a + b}, got "${u.output}"`
+        return u
+      }
+      const said = ({ output: _o, ...u }: TrialUse) => JSON.stringify(u)
+      const uses: TrialUse[] = []
+      for (const [i, sum] of sums.entries()) {
+        const u = await oneUse(i + 1, sum)
+        if (typeof u === 'string') return fail(u)
+        uses.push(u)
+        const left = trials - i - 1
+        if (i < trials && (u.trial !== true || u.charge !== 'trial' || u.price_ulxc !== 0 || u.trial_uses_left !== left || u.would_have_cost_usd_micros !== perUse)) {
+          return fail(`use ${i + 1} of ${trials} trial uses should answer trial: true, charge trial at 0, ${left} left and would_have_cost_usd_micros ${perUse}; Lens answered ${said(u)}`)
+        }
+        if (i === trials && (u.trial === true || u.charge !== 'billed' || u.price_ulxc !== perUse * ULXC_PER_USD_MICRO)) {
+          return fail(`the use after the ${trials} trial uses should be billed at ${perUse * ULXC_PER_USD_MICRO} µLXC and answer no trial; Lens answered ${said(u)}`)
+        }
+      }
+      const billed = uses[trials]
+      const trialIDs = new Set(uses.slice(0, trials).map((u) => u.id))
+
+      const lines = ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === id)
+      ctx.evidence.push({ note: `the buyer's bill after ${trials} trial uses and one billed`, answer: JSON.stringify(lines) })
+      const trialLines = lines.filter((l) => trialIDs.has(l.use_id))
+      if (trialLines.length > 0) return fail(`${trialLines.length} of the ${trials} trial uses are on the buyer's bill: ${JSON.stringify(trialLines)}`)
+      if (lines.length !== 1 || lines[0].use_id !== billed.id || lines[0].price_ulxc !== perUse * ULXC_PER_USD_MICRO) {
+        return fail(`the buyer's bill should hold one line, the billed use's at ${perUse * ULXC_PER_USD_MICRO} µLXC; it has ${JSON.stringify(lines)}`)
+      }
+
+      // Paid, the bill clears the one billed use; the seller's earnings are this listing's alone, a seller new this run.
+      const paid = await payBill(ctx)
+      if (typeof paid === 'string') return fail(paid)
+      const earned = (await env.lens.marketEarnings(seller)).earnings ?? []
+      ctx.evidence.push({ note: "the seller's earnings once the bill is paid", answer: JSON.stringify(earned) })
+      const trialEarned = earned.filter((e) => trialIDs.has(e.use_id))
+      if (trialEarned.length > 0) return fail(`a trial use never earns; once the bill was paid the seller has earnings from ${trialEarned.length} of them: ${JSON.stringify(trialEarned)}`)
+      const share = keptOf(perUse, env.fees.market_take_bps)
+      const e = earned.find((x) => x.use_id === billed.id)
+      if (e?.share_usd_micros !== share) return fail(`the billed use's earning reads ${JSON.stringify(e)}; the seller's ${percent(10_000 - env.fees.market_take_bps)} of ${perUse} µUSD is ${share}`)
+      if (earned.length !== 1) return fail(`the seller earned from ${earned.length} uses; one was billed: ${JSON.stringify(earned)}`)
+      return { pass: true, detail: `${trials} trial uses answered trial with ${trials - 1} to 0 left, each would have cost ${perUse} µUSD; the next was billed ${billed.price_ulxc} µLXC, ` +
+        `the bill's one line; paid, it alone earned the seller ${share} µUSD` }
+    },
+  }
+}

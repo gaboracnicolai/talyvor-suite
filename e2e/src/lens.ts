@@ -187,6 +187,8 @@ export interface MarketOffer {
   price_usd_micros: number
   period_days?: number
   included_uses?: number
+  /** B32.79 — a per_use offer's free trial uses for each buyer (Lens B32.21) */
+  trial_uses?: number
   terms?: string
 }
 
