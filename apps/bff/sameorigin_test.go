@@ -113,6 +113,8 @@ func sameOriginAppRecording(t *testing.T) (*app, string, *originUpstream) {
 	auth.sessions.put("so-sid", s)
 	a := newApp(cfg, auth)
 	a.cfg.webDist = t.TempDir()
+	// B28.122: a connector is the person's own MCP server; here every connector's address is this recording upstream.
+	a.connectorOut = connectorsAt(up.URL)
 	return a, "so-sid", rec
 }
 
@@ -236,6 +238,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodDelete, path: "/api/agents/x1/rules/boosts/x1"},
 		{method: http.MethodPost, path: "/api/chat/tools/call", body: `{"name":"wallet_agents_spend","arguments":{}}`},
 		{method: http.MethodPost, path: "/api/chat/prompts", body: `{"name":"french","content":"Answer in French."}`},
+		{method: http.MethodPost, path: "/api/chat/connectors/tools", body: `{"url":"https://mcp.example.com/mcp"}`},
+		{method: http.MethodPost, path: "/api/chat/connectors/call", body: `{"url":"https://mcp.example.com/mcp","name":"t","arguments":{}}`},
 		{method: http.MethodPut, path: "/api/chat/history-sync", body: `{"base_version":0,"salt":"s","iv":"i","ciphertext":"c"}`},
 		{method: http.MethodDelete, path: "/api/chat/history-sync"},
 		// B22.10 — money between owners.

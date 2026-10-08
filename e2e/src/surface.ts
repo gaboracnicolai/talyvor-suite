@@ -5,13 +5,14 @@
 // and stored-answers switches; FX and currency conversion. Each is reached here from the screen a person uses, and
 // each oracle is what Lens, Track or Docs stored, read back afterwards — never the status the screen was given.
 
+import { createHash } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Page } from 'playwright'
 import type { AppUser } from './app.ts'
-import type { Answered, LensClient, SyntheticUser } from './lens.ts'
+import type { Answered, LedgerRow, LensClient, SyntheticUser } from './lens.ts'
 import { refusalOf } from './lens.ts'
-import { agentIn, bookOf, card, fail, openAgent, usdShown, withBank } from './bank.ts'
+import { ACTION_TIMEOUT_MS, agentIn, bookOf, card, fail, openAgent, usdShown, withBank } from './bank.ts'
 import { bff } from './routes.ts'
 import { RUN_SALT, freshWord } from './oracles.ts'
 import { CannotTest, eventually, metered } from './scenarios.ts'
@@ -901,6 +902,130 @@ export function chatFileBug(seed: number): Scenario {
       }
       if (!opened) return fail(`the link to ${issue.identifier} opened ${href} without the issue's title on it`)
       return { pass: true, detail: `asked first, then filed as ${issue.identifier} ("${issue.title.slice(0, 80)}") in Track, linked under the answer, and the link opens it` }
+    },
+  }
+}
+
+/**
+ * B28.122 — external MCP connectors: Talyvor test tools added on Connectors, and asked for the fingerprint of a fresh
+ * word, the model calls the connector's fingerprint tool; Chat asks first, and on Allow it runs through the BFF. The
+ * answer gives the fingerprint — the first
+ * 12 hex digits of the word's SHA-256, which no model can work out — and under it the call is listed on its connector
+ * with what it cost: the request that read the tool's answer, a spend row in the ledger. The connector is removed after.
+ */
+export function chatConnectors(seed: number): Scenario {
+  const CONNECTOR = 'Talyvor test tools'
+  return {
+    id: 'chat-connectors',
+    owner: 'talyvor-suite',
+    items: ['B28.122'],
+    title: "a connector's test tool is called in Chat, and under the answer the call's cost is shown: a spend row in the ledger",
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const word = freshWord(seed * 10 + 3, 1 + Math.floor(Math.random() * 999_999))
+      const expected = createHash('sha256').update(word).digest('hex').slice(0, 12)
+      let added = false
+      try {
+        if (new URL(page.url()).pathname !== '/chat') await app.openChat()
+        await page.getByRole('link', { name: 'Connectors' }).first().click()
+        const connector = page.getByTestId('connector-card').filter({ hasText: CONNECTOR })
+        const add = page.getByRole('button', { name: `Add ${CONNECTOR}` })
+        await connector.or(add).first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        if (await add.isVisible()) {
+          await add.click()
+          added = true
+        }
+        await connector.or(page.getByTestId('connectors-said')).first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        const tools = (await connector.getByTestId('connector-tools').innerText({ timeout: ACTION_TIMEOUT_MS }).catch(() => '')).trim()
+        const said = (await page.getByTestId('connectors-said').innerText().catch(() => '')).trim()
+        ctx.evidence.push({ note: `Connectors: "${said.slice(0, 200)}"; ${CONNECTOR} lists "${tools.slice(0, 200)}"` })
+        if (!tools.includes('fingerprint')) return fail(`${CONNECTOR} was not added with its fingerprint tool: "${(said || tools).slice(0, 200)}"`)
+        const was = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const pageShots = [1440, 390].map((w) => join(env.outDir, `chat-connectors-page-${w}px-user${app.user.index}.png`))
+        for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+          await page.setViewportSize({ width, height })
+          await page.screenshot({ path: pageShots[i], fullPage: true })
+        }
+        if (was !== null) await page.setViewportSize(was)
+        ctx.evidence.push({ note: `Connectors with ${CONNECTOR} at 1440px: ${pageShots[0]}; at 390px: ${pageShots[1]}` })
+        await page.getByRole('link', { name: 'Back to Chat' }).click()
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        await app.newChat()
+
+        const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+        // Every connector call is put to the person first; Allow is pressed as soon as the card asks.
+        const asking = page.getByTestId('tool-confirm')
+        let asked: string | undefined
+        const allowed = asking.waitFor({ state: 'visible', timeout: 120_000 }).then(async () => {
+          asked = (await asking.getByRole('heading').innerText().catch(() => '')).trim()
+          await asking.getByRole('button', { name: 'Allow', exact: true }).click()
+        }).catch(() => undefined)
+        const t = await app.ask(`What is the fingerprint of the text "${word}"? Use the fingerprint tool from ${CONNECTOR} and give me exactly what it returns.`)
+        ctx.evidence.push({ question: t.question, answer: t.answer.slice(0, 400), footer: t.footerText, error: t.error, note: `the card asked "${asked ?? 'nothing'}"` })
+        if (t.error !== undefined) return fail(`refused: ${t.error}`)
+        if (asked === undefined) {
+          void allowed
+          return fail(`Chat never asked before a connector call: the model did not call ${CONNECTOR}' fingerprint, it was not offered, or it ran unasked ("${t.answer.slice(0, 160)}")`)
+        }
+        if (asked !== `Let Chat use fingerprint in ${CONNECTOR}?`) return fail(`the card asked "${asked}", not to use fingerprint in ${CONNECTOR}`)
+        const call = page.locator('[data-testid="turn-assistant"]').last().getByTestId('turn-connector-call').first()
+        if (!(await call.isVisible().catch(() => false))) {
+          return fail(`the answer lists no connector call: the model did not call ${CONNECTOR}' fingerprint, or it was not offered ("${t.answer.slice(0, 160)}")`)
+        }
+        const listed = (await call.innerText()).trim()
+        const cost = (await call.getByTestId('turn-connector-cost').innerText()).trim()
+        ctx.evidence.push({ note: `under the answer: "${listed}"` })
+        if (!listed.includes(`fingerprint on ${CONNECTOR}`) || listed.includes('did not answer')) return fail(`the call under the answer reads "${listed}"`)
+        if (!t.answer.toLowerCase().includes(expected)) return fail(`the answer does not give ${expected}, the fingerprint of ${word}: "${t.answer.slice(0, 200)}"`)
+
+        // The money: each request the question took wrote a spend row, and the call's cost is the row of the one that
+        // read the tool's answer — or, while Lens does not say what it charged (talyvor-lens B28.102), its estimate.
+        let fresh: LedgerRow[] = []
+        for (let tries = 0; tries < 10 && fresh.length < 2; tries++) {
+          if (tries > 0) await page.waitForTimeout(1_000)
+          fresh = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
+        }
+        ctx.evidence.push({ note: `the call's cost: ${cost}; the spend rows the question wrote`, ledger: fresh.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+        if (fresh.length < 2) return fail(`the question took a request that called the tool and one that read its answer, and wrote ${fresh.length} spend row(s)`)
+        const charged = /^([\d,.]+) LXC charged$/.exec(cost)
+        if (charged !== null) {
+          const ulxc = Math.round(Number(charged[1].replace(/,/g, '')) * 1e6)
+          if (!fresh.some((r) => -r.amount_ulxc === ulxc)) {
+            return fail(`the call's cost is shown as ${cost}, and no spend row the question wrote is ${ulxc} µLXC: ${fresh.map((r) => r.amount_ulxc).join(', ')}`)
+          }
+        } else if (!/^≈ \$?[\d,.]+( LXC)?$/.test(cost) || /^≈ \$?0( LXC)?$/.test(cost)) {
+          return fail(`the call's cost reads "${cost}", not a figure`)
+        }
+
+        const viewport = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const shots = [1440, 390].map((w) => join(env.outDir, `chat-connectors-${w}px-user${app.user.index}.png`))
+        for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+          await page.setViewportSize({ width, height })
+          await call.scrollIntoViewIfNeeded()
+          await page.screenshot({ path: shots[i] })
+        }
+        if (viewport !== null) await page.setViewportSize(viewport)
+        ctx.evidence.push({ note: `the answer and its connector call at 1440px: ${shots[0]}; at 390px: ${shots[1]}` })
+        return {
+          pass: true,
+          detail: `${CONNECTOR}' fingerprint called for ${word}: ${expected}, in the answer; the call's cost shown as ${cost}, ` +
+            (charged !== null ? `a spend row of that amount among the ${fresh.length} the question wrote` : `the estimate, while Lens does not say its charge; the question wrote ${fresh.length} spend rows`),
+        }
+      } finally {
+        // Out of this browser again: a connector this scenario added is removed, so the next question is not offered it.
+        if (added) {
+          await page.getByRole('link', { name: 'Connectors' }).first().click().catch(() => undefined)
+          const connector = page.getByTestId('connector-card').filter({ hasText: CONNECTOR })
+          await connector.getByRole('button', { name: 'Remove' }).click({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+          await connector.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+          await page.getByRole('link', { name: 'Back to Chat' }).click().catch(() => undefined)
+        }
+        await page.locator('#chat-message').waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        await app.newChat().catch(() => undefined)
+      }
     },
   }
 }

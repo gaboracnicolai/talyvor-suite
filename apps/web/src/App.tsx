@@ -46,6 +46,7 @@ import { BillingCancel, BillingSuccess } from './areas/lens/BillingReturn'
 import { Chat } from './areas/chat/Chat'
 import { ChatHelp } from './areas/chat/ChatHelp'
 import { CompareModels } from './areas/chat/CompareModels'
+import { ConnectorsPage } from './areas/chat/ConnectorsPage'
 import { InstructionsPage } from './areas/chat/InstructionsPage'
 import { PromptsPage } from './areas/chat/PromptsPage'
 import { MemoryPage } from './areas/chat/MemoryPage'
@@ -230,6 +231,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/chat/prompts', title: 'Prompt library', element: <PromptsPage /> },
   // B28.371 — memory: what Chat remembers about the person, opt-in, every fact listed and deleted. Linked from Chat's rail.
   { path: '/chat/memory', title: 'Memory', element: <MemoryPage /> },
+  // B28.122 — connectors: the person's own MCP servers, whose tools Chat offers beside Talyvor's. Linked from Chat's rail.
+  { path: '/chat/connectors', title: 'Connectors', element: <ConnectorsPage /> },
   // B32.53 — rooms: open chats other workspaces join, the directory and a new room. Chat's rail lists them too.
   { path: '/rooms/*', title: 'Rooms', element: <RoomsArea /> },
   // THESE TWO PATHS ARE NOT OURS TO CHOOSE. Lens's Stripe redirect targets already default to

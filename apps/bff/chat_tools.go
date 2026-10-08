@@ -101,8 +101,13 @@ const mcpInvalidParams = -32602
 
 // mcpRequest is one JSON-RPC request to an MCP endpoint: the same envelope for Lens's, Track's and Docs'.
 func mcpRequest(method string, params any) []byte {
+	return mcpRequestID(1, method, params)
+}
+
+// mcpRequestID is mcpRequest with its id: B28.122's connectors send several requests in one MCP session, each its own.
+func mcpRequestID(id int, method string, params any) []byte {
 	// UPSTREAM-BINDS-ONLY lensMCPBody: none
-	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 	return body
 }
 

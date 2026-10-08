@@ -207,6 +207,20 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    heading: 'Connectors',
+    body: (
+      <>
+        <p>
+          Add your own MCP servers on Connectors, from Chat’s rail, by their address and the token they want if any.
+          Chat offers their tools to the model beside Talyvor’s own, in every chat, and asks you before every call —
+          what the model sends goes to that server; Don’t allow tells it no. Under the answer, each call is listed with what it
+          cost — the request to the model that read the tool’s answer. To try it, add Talyvor test tools and ask for the
+          fingerprint of a word.
+        </p>
+      </>
+    ),
+  },
+  {
     heading: 'The canvas',
     body: (
       <>

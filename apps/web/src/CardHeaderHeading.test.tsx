@@ -135,6 +135,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/chat/prompts': 0,
   // B28.371 — memory: a bordered box and a list, no Card on the page (the card in Chat is Chat's).
   '/chat/memory': 0,
+  '/chat/connectors': 0,
   // B32.53 — the rooms directory: rooms are list cards under Region headings, no Card.
   '/rooms': 0,
   // ⚠ 0 IS STRUCTURAL, THE SAME WAY /chat's IS — NOT W1.1.17b's fixture floor. Royalties is
