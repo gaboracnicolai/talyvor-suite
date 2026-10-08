@@ -90,6 +90,11 @@
 // seller with earnings and no tax details and pays one whose details are complete. Its defect, beside stub-tax.ts's two:
 //   payout-hold-ignored — the payout run pays a seller who gave no tax details
 //
+// B32.96 adds a seller's statements as only its owner or an admin reads them, and the payout page's paid_this_week. Its defects:
+//   statement-unsummed  — a paid week's statement leaves its Stripe fees out of its lines, its net still the payout's
+//   statement-list-gross — the list of statements gives a paid week's net as its payout's gross
+//   statement-agent     — an agent's key reads its workspace's statements
+//
 // B32.89 adds the trust panel (Lens B32.49, stub-trust.ts): a paying buyer's review and the seller's reply, the trust read
 // and market_listing's trust over MCP, and talyvor-lens B32.102's synthetic card link. Its defects are stub-trust.ts's.
 //
@@ -785,10 +790,15 @@ export class Bank {
    * (stub-tax.ts). B32.94: and its marketplace receipts.
    */
   async agentTaxProfile(req: IncomingMessage, res: ServerResponse, key: string, path: string): Promise<boolean> {
-    const m = /^\/v1\/workspaces\/([^/]+)(\/tax-profile|\/marketplace\/receipts(?:\/[^/]+)?)$/.exec(path)
+    const m = /^\/v1\/workspaces\/([^/]+)(\/tax-profile|\/marketplace\/receipts(?:\/[^/]+)?|\/marketplace\/statements)$/.exec(path)
     const who = this.agentOfKey(key)
     if (m === null || who === undefined) return false
     if (who.ws.id !== m[1]) return this.d.json(res, 403, { error: 'forbidden' }), true
+    // B32.96 — a seller's statements are its owner's or an admin's alone.
+    if (m[2] === '/marketplace/statements') {
+      if (!this.broken('statement-agent')) return this.d.json(res, 403, { error: "only the workspace's owner or an admin may read its statements" }), true
+      return this.workspaceRoute(req, res, who.ws, m[2], new URL(req.url ?? path, this.d.base), who.agent)
+    }
     return this.tax.route(req, res, who.ws.id, m[2], new Date().toISOString(), true)
   }
 
@@ -1412,8 +1422,10 @@ export class Bank {
       ['refunds', 'Refunds and chargebacks', 0], ['credits', 'Taken as Talyvor credits', -credits],
       ['carried_forward', 'Carried forward to next week', -(earlier + kept - paid - credits)], ['stripe_fees', "Stripe's fees, at cost", -fees]] as const
     const payout = this.payouts.find((p) => p.ws === ws && p.method === 'stripe' && p.period === period)
+    const unsummed = this.broken('statement-unsummed')
     return { period, from, to, payout: payout === undefined ? null : (({ ws: _w, ...p }) => p)(payout), sales: week.length,
-      lines: lines.map(([kind, label, amount_usd_micros]) => ({ kind, label, amount_usd_micros })), net_usd_micros: lines.reduce((s, l) => s + l[2], 0),
+      lines: lines.map(([kind, label, amount_usd_micros]) => ({ kind, label, amount_usd_micros: unsummed && kind === 'stripe_fees' ? 0 : amount_usd_micros })),
+      net_usd_micros: lines.reduce((s, l) => s + l[2], 0),
       vat_collected_usd_micros: this.broken('clear-tax-dropped') ? 0 : week.reduce((s, u) => s + this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO).tax_usd_micros, 0),
       self_billed_invoice: null }
   }
@@ -2231,7 +2243,7 @@ export class Bank {
       const period = url.searchParams.get('period')
       if (period === null) {
         return json(res, 200, { statements: this.payouts.filter((p) => p.ws === ws.id && p.method === 'stripe').sort((a, b) => (b.period ?? '').localeCompare(a.period ?? ''))
-          .map((p) => ({ period: p.period, payout_id: p.id, net_usd_micros: p.net_usd_micros, paid_at: p.paid_at })) }), true
+          .map((p) => ({ period: p.period, payout_id: p.id, net_usd_micros: this.broken('statement-list-gross') ? p.gross_usd_micros : p.net_usd_micros, paid_at: p.paid_at })) }), true
       }
       const st = this.weekStatement(ws.id, period)
       return st === undefined ? json(res, 400, { error: 'market: invalid: period must be an ISO week, such as 2026-W41' }) : json(res, 200, st), true
@@ -2240,6 +2252,7 @@ export class Bank {
       const e = this.earnings(ws.id)
       return json(res, 200, { account: this.accounts.get(ws.id) ?? null, in_holdback_usd_micros: 0, available_usd_micros: e.available, owed_usd_micros: 0,
         paid_out_usd_micros: e.paid, minimum_usd_micros: 10_000_000, paid_this_month: false,
+        paid_this_week: this.payouts.some((p) => p.ws === ws.id && p.method === 'stripe' && p.period === isoWeekOf(new Date(now))),
         quote: { gross_usd_micros: e.available, account_fee_usd_micros: 0, payout_fee_usd_micros: 0, net_usd_micros: e.available },
         payouts: this.payouts.filter((p) => p.ws === ws.id).map(({ ws: _w, ...p }) => p) }), true
     }

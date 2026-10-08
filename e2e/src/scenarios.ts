@@ -55,6 +55,7 @@ import { taxAndPayouts } from './taxPayouts.ts'
 import { marketTrust } from './marketTrust.ts'
 import { buyerTaxProfile } from './taxProfile.ts'
 import { sellerTaxDetails } from './sellerTax.ts'
+import { sellerWeekStatement } from './weekStatement.ts'
 import { marketBillTax } from './billTax.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
@@ -4604,6 +4605,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // account masked to their last four and the date of birth masked; saved again without them and with a never-issued VAT
   // number they are kept masked and only vat_number is missing; no answer carries one as it was given.
   if (i === 0) list.push(sellerTaxDetails())
+  // B32.96 — a seller's weekly statement, once a run, on workspaces of its own: before a payout this week's lines sum to a
+  // net of 0 with no payout, week 54 is 400 and the seller's agent key 403; paid by the payout run, the newest week's lines
+  // sum to its net, which is the listed net and the payout's, its Stripe fees the payout's.
+  if (i === 8) list.push(sellerWeekStatement(i))
   // B30.117 — verification levels, once a run, on a workspace of its own: an identity check before L1 is 409 naming L1;
   // email and phone make L1 and identity L2, each a Test check with its evidence reference and the live level still L0;
   // the record holds both checks; payments_out needs L2 and b2b_credit L3.
