@@ -55,6 +55,7 @@ import { taxAndPayouts } from './taxPayouts.ts'
 import { marketTrust } from './marketTrust.ts'
 import { buyerTaxProfile } from './taxProfile.ts'
 import { marketBillTax } from './billTax.ts'
+import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
 import { lineage } from './lineage.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
@@ -4447,6 +4448,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B32.93 — a marketplace bill's tax, once a run, on workspaces of its own: a GB consumer's per-use buy is taxed at 20% and a DE
   // business's reverse charged at 0, each bill's gross its net plus its tax, and the paid GB use's clear entry takes its tax to tax:GB.
   if (i === 1) list.push(marketBillTax(i))
+  // B32.94 — Talyvor's receipt for a paid marketplace bill, once a run, on workspaces of its own: a GB buyer's two uses paid get
+  // one receipt numbered TEST-<year>-NNNNNN with the bill's lines and totals, as a page and a PDF, refused to its agent key; a DE
+  // business's bill paid next is receipted in turn, reverse charged with no VAT and the note.
+  if (i === 5) list.push(marketReceipts(i))
   return list
 }
 

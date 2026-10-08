@@ -10,6 +10,11 @@
 //   tax-id-never-issued — a number on the list of numbers never issued is found valid, and makes a business
 //   tax-check-unread    — the profile's read leaves out when its tax id was checked
 //   tax-profile-agent   — an agent key may read and change its workspace's tax profile
+// B32.94 — and market-receipts': a receipt is its workspace owner's alone too, read as JSON, its page (?format=html) or its
+// PDF (?format=pdf), and its defects:
+//   receipt-unissued       — a paid bill gets no receipt
+//   receipt-sequence-stuck — every receipt is numbered the year's first, never the next in turn
+//   receipt-agent          — an agent key may read its workspace's receipts
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -30,6 +35,7 @@ interface Profile {
 export interface ReceiptUse { id: string; title: string; net_usd_micros: number }
 interface Receipt {
   id: string; number: string; sequence: number; year: number; series: string; invoice_id: string; buyer_workspace_id: string; issued_at: string; paid_at: string
+  supplier: { legal_name: string; address: string; vat_number: string }
   buyer: { workspace_id: string; name: string; country: string; business: boolean; vat_number?: string }
   lines: { use_id: string; description: string; net_usd_micros: number; rate_bps: number; tax_usd_micros: number; treatment: string; jurisdiction: string; note: string }[]
   net_usd_micros: number; tax_usd_micros: number; gross_usd_micros: number; gross_cents: number; stripe_total_cents: null; reverse_charge: boolean; notes: string[]
@@ -85,6 +91,7 @@ export class TaxDesk {
 
   /** Talyvor's receipt for a test buyer's paid bill: one line per use it cleared, numbered in the test series. */
   issueReceipt(buyer: string, invoice: string, uses: ReceiptUse[], at: string): void {
+    if (this.broken('receipt-unissued')) return
     const year = Number(at.slice(0, 4))
     const p = this.profiles.get(buyer)
     const lines = uses.map((u) => {
@@ -96,12 +103,14 @@ export class TaxDesk {
     const tax = lines.reduce((s, l) => s + l.tax_usd_micros, 0)
     const gross = this.broken('receipt-total-off') ? net : net + tax
     const reverse = lines.some((l) => l.treatment === 'reverse_charge')
-    this.sequence++
+    this.sequence = this.broken('receipt-sequence-stuck') ? 1 : this.sequence + 1
     this.receipts.push({ id: `rcpt_${invoice.slice(-12)}`, number: `TEST-${year}-${String(this.sequence).padStart(6, '0')}`, sequence: this.sequence, year, series: 'test',
       invoice_id: invoice, buyer_workspace_id: buyer, issued_at: at, paid_at: at,
+      // No LENS_SUPPLIER_VAT_NUMBER: the page prints "VAT registration pending" for it.
+      supplier: { legal_name: 'TALYVOR LTD', address: '1 Test Street, London', vat_number: '' },
       buyer: { workspace_id: buyer, name: p?.legal_name ?? '', country: p?.country ?? '', business: p !== undefined && p.business && p.tax_id_valid, ...(p?.tax_id_valid ? { vat_number: p.tax_id } : {}) },
       lines, net_usd_micros: net, tax_usd_micros: tax, gross_usd_micros: gross, gross_cents: Math.round(gross / 10_000), stripe_total_cents: null, reverse_charge: reverse,
-      notes: [...new Set(lines.filter((l) => l.treatment === 'reverse_charge').map((l) => l.note))], preview: true, preview_reason: 'VAT registration pending' })
+      notes: [...new Set(lines.filter((l) => l.treatment === 'reverse_charge').map((l) => l.note))], preview: true, preview_reason: 'Preview — test money only' })
   }
 
   /** Whether a seller's tax details are incomplete — the payout run withholds such a seller with earnings. */
@@ -151,6 +160,9 @@ export class TaxDesk {
         resolved: p === undefined ? { workspace_id: ws, country: '', known: false, business: false, decided_by: 'unknown', evidence: [], flagged: false }
           : { workspace_id: ws, country: p.country, known: true, business, ...(business ? { tax_id: p.tax_id } : {}), decided_by: 'declared', evidence: [{ source: 'declared', country: p.country }], flagged: false } }), true
     }
+    if (agent && rest.startsWith('/marketplace/receipts') && !this.broken('receipt-agent')) {
+      return this.json(res, 403, { error: "only the workspace's owner or an admin may read its receipts" }), true
+    }
     if (rest === '/marketplace/receipts' && method === 'GET') {
       return this.json(res, 200, { receipts: this.receipts.filter((r) => r.buyer_workspace_id === ws)
         .map((r) => ({ id: r.id, number: r.number, invoice_id: r.invoice_id, issued_at: r.issued_at, gross_usd_micros: r.gross_usd_micros, tax_usd_micros: r.tax_usd_micros })) }), true
@@ -158,7 +170,18 @@ export class TaxDesk {
     const one = /^\/marketplace\/receipts\/([^/]+)$/.exec(rest)
     if (one !== null && method === 'GET') {
       const r = this.receipts.find((x) => x.id === one[1] && x.buyer_workspace_id === ws)
-      return r === undefined ? this.json(res, 404, { error: 'market: no such receipt' }) : this.json(res, 200, r), true
+      if (r === undefined) return this.json(res, 404, { error: 'market: no such receipt' }), true
+      const format = new URL(req.url ?? '/', 'http://stub').searchParams.get('format') ?? ''
+      if (format === 'html') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        return res.end(`<!doctype html><title>Receipt ${r.number} — Talyvor</title><h1>Receipt ${r.number}</h1><p class="vat">${r.supplier.vat_number || 'VAT registration pending'}</p>` +
+          `<p class="preview">${r.preview_reason}</p>`), true
+      }
+      if (format === 'pdf') {
+        res.writeHead(200, { 'Content-Type': 'application/pdf' })
+        return res.end(`%PDF-1.4\n% Receipt ${r.number}\n%%EOF\n`), true
+      }
+      return this.json(res, 200, r), true
     }
     if (rest === '/marketplace/seller-tax') {
       if (method === 'PUT') {
