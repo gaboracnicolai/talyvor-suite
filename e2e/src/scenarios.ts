@@ -44,6 +44,7 @@ import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions
 import { roomsPrivate } from './rooms.ts'
 import { roomsModeration } from './roomsModeration.ts'
 import { roomInviteLimits } from './roomInvites.ts'
+import { roomMessages } from './roomMessages.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
@@ -4209,6 +4210,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // room past the plan and a private one refused naming rooms_plan_limits, then on Team a private room joined by a link
   // whose use Lens counts, and revoked, the link 404 to a third company. The operator closes its rooms at the end.
   if (i === 4) list.push(roomInviteLimits(i))
+  // B32.83 — a room's messages, once a run, on a Team workspace of its own: a post reaches another member's event stream
+  // within two seconds, a key in a public room is 422 naming its kind and stored nowhere, an edit and a delete read back
+  // as the edit and a tombstone, a private room's messages are 404 to a stranger, and the minute's limit is 429 naming it.
+  if (i === 8) list.push(roomMessages(i))
   return list
 }
 
