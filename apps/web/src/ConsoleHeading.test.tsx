@@ -83,6 +83,7 @@ const PINNED: Readonly<Record<string, string>> = {
   '/chat/prompts': 'Prompt library',
   '/chat/scheduled': 'Scheduled prompts',
   '/chat/memory': 'Memory',
+  '/chat/files': 'Uploaded files',
   '/chat/connectors': 'Connectors',
   '/rooms': 'Rooms',
   // B28.10 — Earnings became Royalties, under Statements; /earnings redirects to it.

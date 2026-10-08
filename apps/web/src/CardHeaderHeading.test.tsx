@@ -136,6 +136,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/chat/scheduled': 0,
   // B28.371 — memory: a bordered box and a list, no Card on the page (the card in Chat is Chat's).
   '/chat/memory': 0,
+  // B28.380 — uploaded files: a bordered list, no Card.
+  '/chat/files': 0,
   '/chat/connectors': 0,
   // B32.53 — the rooms directory: rooms are list cards under Region headings, no Card.
   '/rooms': 0,

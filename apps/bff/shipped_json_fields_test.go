@@ -91,6 +91,7 @@ var decodedFromUpstream = map[string]string{
 	"mcpReply":               "Lens's POST /mcp JSON-RPC reply, decoded in mcpCall() (B28.349)",
 	"connectorBody":          "the browser's body naming a connector, its token and a tool call, decoded wholesale in readConnectorBody (B28.122)",
 	"chatPrompt":             "one named prompt, decoded from Lens's GET /v1/prompts list or POST /v1/prompts reply in handleChatPrompts (B28.370)",
+	"uploadedDocument":       "one document uploaded in Chat, decoded from Lens's GET /v1/documents list in handleDocumentList (B28.380)",
 	"provisionResult":        "Lens's POST /v1/provision reply, decoded in provision()",
 	"trackBootstrapResult":   "Track's POST /v1/bootstrap reply, decoded in bootstrapTrackWorkspace()",
 	"trackProjectCreateBody": "request body this service POSTs to Track's project create (B4.2), built from four chosen fields",

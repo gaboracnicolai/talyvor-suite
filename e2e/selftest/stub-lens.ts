@@ -64,6 +64,7 @@
 //   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
 //   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
 //   temporary-kept — a temporary chat's answer (X-Talyvor-Cache-Store: off) is kept to serve again, as any other (B28.131)
+//   file-delete — an uploaded file's DELETE answers 204 and keeps it: still listed, its id still there (B28.380)
 //   connector   — offered a connector's fingerprint tool, the stand-in model makes a fingerprint up rather than calling it (B28.122)
 //   docs-page   — a Docs page attached in Chat is not read: asked to quote it, the stand-in model says it sees no page (B28.375)
 //   issue       — a request's X-Talyvor-Issue is not kept: its spend names no issue, so no Track issue's AI cost rises (B28.376)
@@ -179,8 +180,8 @@ interface ApiKey { id: string; workspace_id: string; key_prefix: string; name: s
 interface Workspace {
   id: string; token: string; created_at: string; balance: number; ledger: Row[]; answers: Map<string, string>
   keys: (ApiKey & { key: string })[]
-  /** Documents uploaded for Chat to reference by their tdoc_ id (Lens POST /v1/documents, B18.13). */
-  documents: Map<string, { mediaType: string; bytes: Buffer }>
+  /** Documents uploaded for Chat to reference by their tdoc_ id (Lens POST /v1/documents, B18.13), listed and deleted (B28.380). */
+  documents: Map<string, { mediaType: string; bytes: Buffer; filename: string; uploadedAt: string }>
   settings: Settings
   guardrails: Record<string, unknown> & { enable_injection: boolean; enable_pii: boolean }
   budgets: Budget[]
@@ -1235,8 +1236,23 @@ createServer(async (req, res) => {
       const bytes = await readBytes(req)
       const id = 'tdoc_' + randomBytes(12).toString('hex')
       const mediaType = String(req.headers['content-type'] ?? '')
-      ws.documents.set(id, { mediaType, bytes })
-      return json(res, 201, { id, media_type: mediaType, filename: url.searchParams.get('filename') ?? '', size_bytes: bytes.length, uploaded_at: new Date().toISOString() })
+      const filename = url.searchParams.get('filename') ?? ''
+      const uploadedAt = new Date().toISOString()
+      ws.documents.set(id, { mediaType, bytes, filename, uploadedAt })
+      return json(res, 201, { id, media_type: mediaType, filename, size_bytes: bytes.length, uploaded_at: uploadedAt })
+    }
+    // B28.380 — the workspace's uploaded documents, listed without their bytes, and one deleted for good (talyvor-lens
+    // B28.132): 204, then 404 for its id and gone from the list. STUB_BREAK=file-delete answers 204 and keeps it.
+    if (p === '/v1/documents' && req.method === 'GET') {
+      return json(res, 200, { documents: [...ws.documents].map(([id, d]) => ({ id, media_type: d.mediaType, filename: d.filename, size_bytes: d.bytes.length, uploaded_at: d.uploadedAt })) })
+    }
+    const ofDocument = /^\/v1\/documents\/([^/]+)$/.exec(p)
+    if (ofDocument !== null && req.method === 'DELETE') {
+      const id = decodeURIComponent(ofDocument[1])
+      if (!ws.documents.has(id)) return json(res, 404, { error: 'document not found' })
+      if (!broke('file-delete')) ws.documents.delete(id)
+      res.writeHead(204).end()
+      return
     }
     if (p === '/v1/auth/session-keys' && req.method === 'POST') {
       const key = 'tlv_sk_' + randomBytes(24).toString('hex')
