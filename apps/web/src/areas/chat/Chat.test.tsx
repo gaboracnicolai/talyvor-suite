@@ -1291,6 +1291,37 @@ describe('attached documents (B10.3)', () => {
     expect(posted).not.toHaveBeenCalled()
   })
 
+  it('a PDF dragged onto the chat shows where to drop it; dropped, it is uploaded, asked about by id and converted (B28.130)', async () => {
+    const { posted, uploaded } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', converts: true })
+    renderChat()
+    await chooseModel('GPT-4o')
+    const box = await screen.findByPlaceholderText('Ask anything')
+    // Words dragged from the page are the browser's to drop into the box: no overlay, nothing refused.
+    expect(fireEvent.dragEnter(box, { dataTransfer: { types: ['text/plain'], files: [] } })).toBe(true)
+    expect(screen.queryByTestId('drop-overlay')).toBeNull()
+    const dataTransfer = { types: ['Files'], files: [pdf()], dropEffect: 'none' }
+    fireEvent.dragEnter(box, { dataTransfer })
+    fireEvent.dragOver(box, { dataTransfer })
+    expect(screen.getByTestId('drop-overlay').textContent).toMatch(/^Drop to attach to your question/)
+    expect(dataTransfer.dropEffect).toBe('copy')
+    // Dropped, the browser does not open the file in place of the chat.
+    expect(fireEvent.drop(box, { dataTransfer })).toBe(false)
+    expect(screen.queryByTestId('drop-overlay')).toBeNull()
+    expect(await screen.findByText('report.pdf')).toBeTruthy()
+    expect(uploaded.mock.calls[0][0].url).toBe('/api/documents?filename=report.pdf')
+
+    await ask('summarise this')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
+    expect(message.content).toEqual([
+      { type: 'text', text: 'summarise this' },
+      { type: 'file', file: { file_id: 'tdoc_1' } },
+    ])
+    await waitFor(() =>
+      expect(screen.getByTestId('documents-status').textContent).toBe('Converted to text before the model read it.'),
+    )
+  })
+
   it('refuses a format Lens cannot convert, and a document over the limit, in words', async () => {
     const { posted, uploaded } = mockChat()
     renderChat()
@@ -1673,6 +1704,20 @@ describe('images for models that read them (B28.379)', () => {
     fireEvent.change(document.getElementById('chat-attach') as HTMLInputElement, { target: { files } })
   }
   const sentMessages = (posted: ReturnType<typeof vi.fn>, n: number) => JSON.parse(String(posted.mock.calls[n][0].init.body)).messages
+
+  it('a screenshot pasted into the box is attached, named by its type; pasted words with a picture of them paste the words (B28.130)', async () => {
+    const { uploaded } = mockChat({ catalog: SEEING, body: OK })
+    renderChat()
+    await chooseModel('GPT-4o')
+    const box = await screen.findByPlaceholderText('Ask anything')
+    const shot = new File([Uint8Array.from(atob(PNG), (c) => c.charCodeAt(0))], '', { type: 'image/png' })
+    // Copied from a document: the words and a picture of them. The words are pasted; nothing is attached.
+    expect(fireEvent.paste(box, { clipboardData: { files: [shot], getData: () => 'Q3 revenue rose 12%' } })).toBe(true)
+    expect(fireEvent.paste(box, { clipboardData: { files: [shot], getData: () => '' } })).toBe(false)
+    expect((await screen.findByTestId('attached-image')).getAttribute('src')).toBe(`data:image/png;base64,${PNG}`)
+    expect(screen.getAllByText('pasted.png')).toHaveLength(1)
+    expect(uploaded).not.toHaveBeenCalled()
+  })
 
   it('sends an image inside the question as OpenAI’s image_url part, shows it, sends it again with the next question, and keeps only its name', async () => {
     const { posted, uploaded } = mockChat({ catalog: SEEING, body: OK })

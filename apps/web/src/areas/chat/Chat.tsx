@@ -81,6 +81,7 @@ import { CheaperHint } from './CheaperHint'
 import { ConversationBudget, budgetRefusal, overBudget, spentULXC } from './ConversationBudget'
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
+import { DropOverlay, pastedFiles, useFileDrop } from './FileDrop'
 import { DocsPagePicker, attachDocsPage } from './DocsPagePicker'
 import { TrackIssuePicker, attachTrackIssue } from './TrackIssuePicker'
 import { pageHref } from '../docs/docsNav'
@@ -212,6 +213,16 @@ function readBase64(f: File): Promise<string> {
     r.onerror = () => reject(r.error ?? new Error(`${f.name} is unreadable`))
     r.readAsDataURL(f)
   })
+}
+
+/**
+ * B28.130 — a file pasted without a name to say what it is (some browsers paste a screenshot as "image"), named by its
+ * type, so it is attached as that kind of file.
+ */
+function named(f: File): File {
+  if (f.name.includes('.')) return f
+  const ext = [...Object.entries(IMAGE_TYPES), ...Object.entries(ATTACHABLE)].find(([, type]) => type === f.type)?.[0]
+  return ext === undefined ? f : new File([f], `${f.name === '' ? 'pasted' : f.name}.${ext}`, { type: f.type })
 }
 
 function formatSize(bytes: number): string {
@@ -924,7 +935,7 @@ export function Chat() {
   const attach = useCallback(
     async (files: File[]) => {
       setAttachError(null)
-      for (const f of files) {
+      for (const f of files.map(named)) {
         const ext = f.name.split('.').pop()?.toLowerCase() ?? ''
         // B28.379 — an image is read here and goes inside the question, to a model that reads images.
         if (IMAGE_TYPES[ext] !== undefined) {
@@ -1012,6 +1023,9 @@ export function Chat() {
       })
     }
   }, [])
+
+  // B28.130 — a file dropped on the chat is attached as Attach attaches it, and only while Attach can be pressed.
+  const drop = useFileDrop((files) => void attach(files), pending || selected === undefined)
 
   // send() is a new function every render; the waiting question is sent once, when the uploads end.
   const sendRef = useRef(send)
@@ -1240,7 +1254,8 @@ export function Chat() {
         <Drawer onClose={() => setDrawerOpen(false)}>{rail}</Drawer>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="relative flex min-w-0 flex-1 flex-col" {...drop.handlers}>
+        {drop.dragging ? <DropOverlay /> : null}
         <div className="flex min-h-row flex-wrap items-center gap-2 px-gutter pt-2">
           <button
             type="button"
@@ -2494,6 +2509,14 @@ function Composer({
         value={draft}
         disabled={selected === undefined}
         onChange={(e) => onDraft(e.target.value)}
+        onPaste={(e) => {
+          // B28.130 — a pasted screenshot or file is attached, as Attach would; pasted words go in the box.
+          const files = pastedFiles(e.clipboardData)
+          if (files.length > 0 && !pending) {
+            e.preventDefault()
+            onAttach(files)
+          }
+        }}
         onKeyDown={(e) => {
           if (e.key !== 'Enter') return
           // ⚠ AN IME COMPOSITION USES ENTER TO CONFIRM CHARACTERS (Chinese, Japanese, Korean).

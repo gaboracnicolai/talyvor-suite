@@ -365,13 +365,14 @@ export class AppUser {
   /**
    * Asks `question` in the open conversation and waits for the whole answer and its footer. With
    * `lengths`, each length the answer's visible text takes while it arrives; with `files`, they are
-   * attached first, as Attach does.
+   * attached first, as Attach does — or, `attached`, they are in the composer already (dropped there,
+   * B28.130) and only counted.
    */
-  async ask(question: string, lengths?: number[], files: Attachment[] = []): Promise<Turn> {
+  async ask(question: string, lengths?: number[], files: Attachment[] = [], attached = false): Promise<Turn> {
     // A document is read as input: its whole size counts toward the worst case.
     const hold = this.reserve(question.length + files.reduce((n, f) => n + f.buffer.length, 0))
     const before = await this.page.locator('[data-testid="turn-assistant"]').count()
-    if (files.length > 0) {
+    if (files.length > 0 && !attached) {
       await this.page.locator('#chat-attach').setInputFiles(files)
       await this.page.getByRole('list', { name: 'Attached documents' }).waitFor({ state: 'visible' })
     }
@@ -382,6 +383,26 @@ export class AppUser {
     const t = await this.finish(question, turn, hold)
     if (lengths !== undefined) lengths.push(...await this.page.evaluate(() => (window as unknown as { e2eLengths?: number[] }).e2eLengths ?? []))
     return t
+  }
+
+  /**
+   * B28.130 — drags `files` onto the chat as a person drags them from the desktop and waits for the overlay that says
+   * where to drop them. The function returned drops them and waits for them in the composer.
+   */
+  async dragFiles(files: Attachment[]): Promise<() => Promise<void>> {
+    const dataTransfer = await this.page.evaluateHandle((list) => {
+      const dt = new DataTransfer()
+      for (const f of list) dt.items.add(new File([Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0))], f.name, { type: f.mimeType }))
+      return dt
+    }, files.map((f) => ({ name: f.name, mimeType: f.mimeType, data: f.buffer.toString('base64') })))
+    const box = this.page.locator('#chat-message')
+    await box.dispatchEvent('dragenter', { dataTransfer })
+    await box.dispatchEvent('dragover', { dataTransfer })
+    await this.page.getByTestId('drop-overlay').waitFor({ state: 'visible' })
+    return async () => {
+      await box.dispatchEvent('drop', { dataTransfer })
+      await this.page.getByRole('list', { name: 'Attached documents' }).waitFor({ state: 'visible' })
+    }
   }
 
   /**
