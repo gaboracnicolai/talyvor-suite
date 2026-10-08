@@ -285,7 +285,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B18.58 — which of those providers this deployment's Lens holds a key for (providers.go).
 	a.mux.HandleFunc("/api/ai/providers", a.handleAIProviders())
 	// B18.24 — a document the chat attaches, up to 25 MB, stored in Lens for the chat to reference by id.
-	a.mux.HandleFunc("/api/documents", a.requireTenant(a.handleDocumentUpload))
+	// B28.380 — and listed (GET), and one deleted for good (DELETE /api/documents/{id}).
+	a.mux.HandleFunc("/api/documents", a.requireTenant(a.handleDocuments))
+	a.mux.HandleFunc("/api/documents/{id}", a.requireTenant(a.handleDocumentDelete))
 	// B23.12 — the chat's thumbs-down: Lens removes the answer marked wrong. See feedback.go.
 	a.mux.HandleFunc("/api/ai/feedback", a.requireTenant(a.handleAIFeedback))
 	// B28.349 — Chat asks what the agents spent through Lens's wallet MCP tools, read-only ones only. See chat_tools.go.

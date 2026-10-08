@@ -2825,6 +2825,80 @@ export function pdfDroppedInChat(seed: number): Scenario {
 }
 
 /**
+ * B28.380 — uploaded files (B28.132's DONE line, from the browser): a file uploaded as Chat's Attach uploads one is
+ * listed on Uploaded files (/chat/files) by its name and size; deleted there, it is gone from the page after a reload and
+ * from the list, and its id answers 404. Nothing is asked of a model, so it costs nothing. SKIP while Lens cannot list
+ * uploaded files (talyvor-lens B28.132).
+ */
+export function chatFiles(seed: number): Scenario {
+  return {
+    id: 'chat-files',
+    owner: 'talyvor-lens',
+    items: ['B28.132', 'B28.380'],
+    title: 'a file uploaded in Chat is listed on Uploaded files; deleted there, its id answers 404 and it is gone from the list',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const stamp = `${seed}-${Date.now().toString(36)}`
+      const name = `notes ${stamp}.md`
+      const text = `# Notes ${stamp}\n\nKept until it is deleted.\n`
+      /** A request from inside Chat's page, on its session and Origin, as the app's own calls go. */
+      const call = (method: string, path: string, body?: string) => app.page.evaluate(async ({ method, path, body }) => {
+        const res = await fetch(path, { method, headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'text/markdown' }) }, body })
+        return { status: res.status, body: await res.text() }
+      }, { method, path, body })
+
+      // Asked first, so a Lens that could never delete it is not left holding a file.
+      const can = await call('GET', '/api/documents')
+      if (can.body.includes('"documents_unavailable"')) throw new CannotTest('Lens cannot list uploaded files yet (talyvor-lens B28.132)')
+      const up = await call('POST', `/api/documents?filename=${encodeURIComponent(name)}`, text)
+      const id = (() => { try { return String((JSON.parse(up.body) as { id?: unknown }).id ?? '') } catch { return '' } })()
+      ctx.evidence.push({ note: `uploaded ${name}: ${up.status} ${id}` })
+      if (up.status !== 201 || !id.startsWith('tdoc_')) return { pass: false, detail: `the upload answered ${up.status}: ${up.body.slice(0, 200)}` }
+      const before = await call('GET', '/api/documents')
+      if (before.status !== 200 || !before.body.includes(id)) return { pass: false, detail: `the list does not hold the file just uploaded: ${before.status} ${before.body.slice(0, 200)}` }
+
+      const files = await app.tab('/chat/files')
+      try {
+        const row = files.locator(`[data-testid="uploaded-file"][data-id="${id}"]`)
+        const shown = await row.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!shown) return { pass: false, detail: `Uploaded files does not list ${name}, which the list holds` }
+        const said = (await row.innerText()).replace(/\s+/g, ' ').trim()
+        ctx.evidence.push({ note: `listed: "${said}"` })
+        if (!said.includes(name) || !said.includes('Markdown · 1 KB')) return { pass: false, detail: `the file is listed as "${said}", not by its name and size` }
+
+        await row.getByRole('button', { name: `Delete ${name}` }).click()
+        const viewport = files.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        for (const width of [1440, 390]) {
+          const path = join(env.outDir, `chat-files-${width}px-user${app.user.index}.png`)
+          await files.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+          await row.scrollIntoViewIfNeeded()
+          await files.screenshot({ path })
+          ctx.evidence.push({ note: `asked to confirm the delete at ${width}px: ${path}` })
+        }
+        if (viewport !== null) await files.setViewportSize(viewport)
+        await row.getByRole('button', { name: 'Delete for good' }).click()
+        const gone = await row.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!gone) return { pass: false, detail: 'Delete for good pressed, and the file is still on the page' }
+
+        await files.reload()
+        await files.getByRole('heading', { name: 'Your files' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        await files.getByText('Reading your files…').waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS })
+        if (await row.isVisible()) return { pass: false, detail: `deleted on the page, and after a reload Uploaded files lists ${name} again` }
+      } finally {
+        await files.close().catch(() => undefined)
+      }
+      const after = await call('GET', '/api/documents')
+      const again = await call('DELETE', `/api/documents/${encodeURIComponent(id)}`)
+      ctx.evidence.push({ note: `after the delete: the list ${after.status} ${after.body.includes(id) ? 'holds' : 'does not hold'} it; its id answers ${again.status}` })
+      if (after.status !== 200 || after.body.includes(id)) return { pass: false, detail: `deleted, and the list still holds it: ${after.status}` }
+      if (again.status !== 404) return { pass: false, detail: `deleted, and its id answers ${again.status}, not 404` }
+      return { pass: true, detail: `${name} listed by its name and size, deleted on Uploaded files: gone after a reload and from the list, its id 404` }
+    },
+  }
+}
+
+/**
  * B28.379 — an image in Chat (B28.129's DONE line, from the browser): a PNG showing "42" is attached, the model is asked
  * what number it shows, and the answer is 42. The question shows the image; the answer is priced like any other.
  */
@@ -4229,7 +4303,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 0: list.push(featureSwitches(i), tareProseModel(i)); break
     case 1: list.push(injectionBlocked(i)); break
     // B28.379 — then a PNG showing "42", answered 42; B28.130 — and a PDF dropped on the chat, converted.
-    case 2: list.push(documentInChat(i), imageInChat(), pdfDroppedInChat(i)); break
+    // B28.380 — and a file uploaded in Chat, listed on Uploaded files and deleted there: gone from the list, its id 404.
+    case 2: list.push(documentInChat(i), imageInChat(), pdfDroppedInChat(i), chatFiles(i)); break
     case 3: list.push(spendingLimit(i)); break
     case 4: list.push(tryConversionPage(i)); break
     case 5: list.push(docsAI(i)); break

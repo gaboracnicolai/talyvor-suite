@@ -50,6 +50,7 @@ import { ConnectorsPage } from './areas/chat/ConnectorsPage'
 import { InstructionsPage } from './areas/chat/InstructionsPage'
 import { PromptsPage } from './areas/chat/PromptsPage'
 import { ScheduledPage } from './areas/chat/ScheduledPage'
+import { FilesPage } from './areas/chat/FilesPage'
 import { MemoryPage } from './areas/chat/MemoryPage'
 import { RoomsArea } from './areas/rooms/Rooms'
 import { TrackArea } from './areas/track/TrackArea'
@@ -237,6 +238,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/chat/scheduled', title: 'Scheduled prompts', element: <ScheduledPage /> },
   // B28.371 — memory: what Chat remembers about the person, opt-in, every fact listed and deleted. Linked from Chat's rail.
   { path: '/chat/memory', title: 'Memory', element: <MemoryPage /> },
+  // B28.380 — uploaded files: every file attached in Chat, kept in Lens, listed and deleted for good. Linked from Chat's rail.
+  { path: '/chat/files', title: 'Uploaded files', element: <FilesPage /> },
   // B28.122 — connectors: the person's own MCP servers, whose tools Chat offers beside Talyvor's. Linked from Chat's rail.
   { path: '/chat/connectors', title: 'Connectors', element: <ConnectorsPage /> },
   // B32.53 — rooms: open chats other workspaces join, the directory and a new room. Chat's rail lists them too.

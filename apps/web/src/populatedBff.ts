@@ -85,6 +85,8 @@ const BODIES: Record<string, unknown> = {
   '/api/chat/tools': { tools: [] },
   // B28.370 — and the workspace's prompt library, offered under the box.
   '/api/chat/prompts': { prompts: [{ name: 'support-tone', version: 2, description: 'Replies to customers', content: 'Answer as a calm support agent.' }] },
+  // B28.380 — the files uploaded in Chat (/chat/files).
+  '/api/documents': { documents: [{ id: 'tdoc_3f2a9c1e-0b7d-4c55-9e21-6a0d1c2b3e4f', media_type: 'application/pdf', filename: 'Q3 report.pdf', size_bytes: 482000, uploaded_at: '2026-10-08T12:00:00Z' }] },
 
   // The BFF's capability envelope (apps/bff/lens.go#forwardGated), never a bare list. This was
   // `[{ id: 'bond-1', … }]`, which the screen read as switched off; off is what it showed, so off

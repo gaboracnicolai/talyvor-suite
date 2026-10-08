@@ -1904,6 +1904,10 @@ function ChatRail({
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/memory">
           Memory
         </Link>
+        {/* B28.380 — every file attached in Chat, kept in Lens until it is deleted there. */}
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/files">
+          Uploaded files
+        </Link>
         {/* B28.122 — the person's own MCP servers, whose tools Chat offers beside Talyvor's. */}
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/connectors">
           Connectors
