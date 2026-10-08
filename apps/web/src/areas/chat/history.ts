@@ -27,6 +27,8 @@ export interface Conversation {
   project_id?: string
   /** B28.370 — the named prompt from the library every question in it is sent with; absent, none. */
   prompt?: string
+  /** B28.381 — kept out of the shared pool: no other workspace is served its answers; absent, it shares as the workspace does. */
+  pool_off?: true
   created_at: number
   updated_at: number
   /** B28.365 — when this browser last saved a change to it (a rename too, which leaves updated_at); syncs merge by it. */
@@ -203,6 +205,8 @@ export function upsertConversation(
   projectId?: string,
   /** B28.370 — the named prompt it uses; '' is none. */
   prompt?: string,
+  /** B28.381 — it is kept out of the shared pool. */
+  poolOff?: boolean,
 ): Conversation[] {
   const kept = messages
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
@@ -220,6 +224,7 @@ export function upsertConversation(
     ...(budgetULXC !== undefined ? { budget_ulxc: budgetULXC } : {}),
     ...((projectId ?? prior?.project_id) !== undefined ? { project_id: projectId ?? prior?.project_id } : {}),
     ...(prompt !== undefined && prompt !== '' ? { prompt } : {}),
+    ...(poolOff === true ? { pool_off: true as const } : {}),
     // B28.110 — a pin outlasts new turns; a question asked in an archived conversation brings it back to the list.
     ...(prior?.pinned ? { pinned: true as const } : {}),
     created_at: prior?.created_at ?? now,

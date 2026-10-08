@@ -64,6 +64,7 @@
 //   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
 //   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
 //   temporary-kept — a temporary chat's answer (X-Talyvor-Cache-Store: off) is kept to serve again, as any other (B28.131)
+//   pool-off-shared — a chat kept out of the shared pool (X-Talyvor-Pool: off) has its answer pooled for other workspaces (B28.381)
 //   file-delete — an uploaded file's DELETE answers 204 and keeps it: still listed, its id still there (B28.380)
 //   connector   — offered a connector's fingerprint tool, the stand-in model makes a fingerprint up rather than calling it (B28.122)
 //   docs-page   — a Docs page attached in Chat is not read: asked to quote it, the stand-in model says it sees no page (B28.375)
@@ -828,6 +829,9 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   // talyvor-lens B28.453 — and a temporary chat's question (X-Talyvor-Cache-Store: off, B28.131) keeps nothing.
   const temporary = req.headers['x-talyvor-cache-store'] === 'off' && !broke('temporary-kept')
   const keep = !personal && !tooled && !temporary && (ws.settings.logging_policy !== 'none' || BREAK === 'logging')
+  // talyvor-lens B28.133 — a chat kept out of the shared pool (X-Talyvor-Pool: off, B28.381): its answer is not pooled
+  // for another workspace, and it is served none of theirs. Its own workspace's cache still serves and keeps it.
+  const unpooled = req.headers['x-talyvor-pool'] === 'off'
   ws.usage.total++
 
   const key = JSON.stringify([model.id, messages.map((m) => [m.role, text(m)])])
@@ -848,7 +852,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   // B28.368 — the answer stopped at max_tokens, as a model's does.
   let cut = false
   const own = personal || tooled ? undefined : ws.answers.get(key)
-  const shared = messages.length === 1 && !personal && !tooled ? pool.get(key) ?? (broke('pool-negation') ? looseMatch(model.id, said) : undefined) : undefined
+  const shared = messages.length === 1 && !personal && !tooled && !unpooled ? pool.get(key) ?? (broke('pool-negation') ? looseMatch(model.id, said) : undefined) : undefined
   if (broke('pool-tells') && [...workspaces.values()].some((w) => w.id !== ws.id && w.answers.has(key))) headers['X-Talyvor-Pool-Seen'] = 'elsewhere'
   const inTok = tokens(messages.map(text).join(' ')) + 8
   // B28.358 — what an answer costs at list price, which a replay saves whole and a pooled serve in part.
@@ -906,7 +910,7 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     charged = BREAK === 'charge' ? charge + 1 : charge
     if (retryKey !== undefined) retries.set(retryKey, answer)
     if (keep) ws.answers.set(key, answer)
-    if (keep && messages.length === 1 && !personal && (ws.settings.cache_poolable || broke('pool-unshared'))) pool.set(key, { owner: ws.id, answer })
+    if (keep && messages.length === 1 && !personal && (!unpooled || broke('pool-off-shared')) && (ws.settings.cache_poolable || broke('pool-unshared'))) pool.set(key, { owner: ws.id, answer })
   }
   const spend = () => {
     if (agentCall !== undefined) bank.spent(agentCall.agent, charge, model.id, fee)

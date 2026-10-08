@@ -4155,6 +4155,91 @@ export function chatTemporary(seed: number): Scenario {
 }
 
 /**
+ * B28.381 — a chat kept out of the shared pool (talyvor-lens B28.133). In a new chat Sharing is turned off and a question
+ * of the run's own asked; another test user, in another workspace, asks the same and is answered afresh — never served
+ * that answer from the pool. Asked in a chat kept out of the pool, a question the other user answered first is not
+ * served from the pool either. Then a question asked in a chat that shares is, a moment on, served to the other user
+ * from the pool: the pool is live here, so the checks before it are not empty.
+ */
+export function chatPoolOff(seed: number, partner: number): Scenario {
+  const r = seeded(seed * 29 + 3)
+  const sum = () => [1000 + Math.floor(r() * 9000), 1000 + Math.floor(r() * 9000)] as const
+  const salt = 1 + Math.floor(Math.random() * 999_999)
+  const question = ([a, b]: readonly [number, number], n: number) => `What is ${a} + ${b}? ${NUMBER_ONLY} (${freshWord(seed * 10 + n, salt)})`
+  const [kept, theirs, control] = [question(sum(), 3), question(sum(), 4), question(sum(), 5)]
+  return {
+    id: 'chat-pool-off',
+    owner: 'talyvor-lens',
+    items: ['B28.381', 'B28.133'],
+    title: 'an answer in a chat kept out of the shared pool is never served to another workspace, and the chat is served nothing from the pool',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const sharing = page.getByRole('switch', { name: 'Sharing' })
+      const share = async (on: boolean) => {
+        await sharing.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+        if ((await sharing.getAttribute('aria-checked')) !== String(on)) await sharing.click()
+      }
+      const wait = () => new Promise((done) => setTimeout(done, POOL_ACCEPT_MS))
+      await app.newChat()
+      await sharing.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      if (await sharing.isDisabled()) {
+        return { pass: false, detail: `Sharing reads "${await page.getByTestId('chat-sharing-state').innerText()}": this workspace shares nothing, so nothing here can be checked` }
+      }
+      await share(false)
+      const first = await ask(ctx, kept, 'in a chat kept out of the shared pool')
+      if (first.error !== undefined) return { pass: false, detail: `refused: ${first.error}` }
+      if (servedNotAsked(first)) return { pass: false, detail: `a question of the run's own was served, not asked: ${describe(first)}` }
+      const viewport = page.viewportSize()
+      await mkdir(env.outDir, { recursive: true })
+      const wide = join(env.outDir, `chat-pool-off-1440px-user${app.user.index}.png`)
+      const narrow = join(env.outDir, `chat-pool-off-390px-user${app.user.index}.png`)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.getByTestId('chat-sharing').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: wide })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.getByTestId('chat-sharing').scrollIntoViewIfNeeded()
+      await page.screenshot({ path: narrow })
+      if (viewport !== null) await page.setViewportSize(viewport)
+      ctx.evidence.push({ note: `Sharing off at 1440px: ${wide}; at 390px: ${narrow}` })
+
+      const other = await env.signInUser(partner)
+      try {
+        const contributed = record(ctx, await other.ask(theirs), `user ${partner} (another workspace) asks a question first`)
+        if (contributed.error !== undefined) return { pass: false, detail: `user ${partner} was refused: ${contributed.error}` }
+        await wait()
+        await other.newChat()
+        const got = record(ctx, await other.ask(kept), `user ${partner} asks what the chat kept out of the pool asked`)
+        if (got.footer.kind === 'pool') {
+          return { pass: false, detail: `another workspace was served the answer of a chat kept out of the shared pool: ${describe(got)} (talyvor-lens B28.133)` }
+        }
+
+        await app.newChat()
+        await share(false)
+        const back = await ask(ctx, theirs, `in a chat kept out of the shared pool, what user ${partner} asked first`)
+        if (back.footer.kind === 'pool') {
+          return { pass: false, detail: `a chat kept out of the shared pool was served another workspace's answer from it: ${describe(back)} (talyvor-lens B28.133)` }
+        }
+
+        await app.newChat()
+        await share(true)
+        const live = await ask(ctx, control, 'in a chat that shares')
+        if (servedNotAsked(live)) return { pass: false, detail: `in a chat that shares, a question of the run's own was served, not asked: ${describe(live)}` }
+        await wait()
+        await other.newChat()
+        const pooled = record(ctx, await other.ask(control), `user ${partner} asks what the chat that shares asked`)
+        if (pooled.footer.kind !== 'pool') {
+          return { pass: false, detail: `asked in a chat that shares, user ${partner} was not served it from the pool ${describe(pooled)}, so the pool serves nothing here and the checks before it prove nothing` }
+        }
+        return { pass: true, detail: `user ${partner} was answered afresh what the chat kept out of the pool asked, and served from the pool what a chat that shares asked; the chat kept out was not served user ${partner}'s answer` }
+      } finally {
+        await other.close()
+      }
+    },
+  }
+}
+
+/**
  * B28.120 — the canvas. An answer that writes a page in an ```html block opens it in the canvas, drawn as a page whose
  * scripts run and cannot reach the console; an edit made to its HTML there is drawn, and after a reload the answer opens
  * it as edited. The answer is made up in the browser, so this costs nothing.
@@ -4452,6 +4537,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // allowance, which the ledger read-back does not expect.
   // B35.8 — a second partner, asked once if the first is not served from the pool: the next 9, 19, … when there is one, else 8, 18, ….
   if (i % 10 === 7 && i + 2 < users) list.push(pooledServePaysRoyalty(i, [i + 2, i + 12 < users ? i + 12 : i + 1]))
+  // B28.381 — a chat kept out of the shared pool: its answer never served to the partner (9, 19, …), nor theirs to it.
+  if (i % 10 === 1 && i + 8 < users) list.push(chatPoolOff(i, i + 8))
   if (i % 10 === 6) list.push(planOnTestCard(i), planCancelResume())
   // B32.71 — a Free workspace's second member, refused in Lens's words; then, once a run, the same workspace on
   // Team takes its fifth and is refused its sixth. Team comes last, on a user nobody else asks as (4, 14, …).
