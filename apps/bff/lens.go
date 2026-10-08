@@ -291,6 +291,11 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/chat/prompts", a.requireTenant(a.handleChatPrompts))
 	// B28.365 — the person's history, sealed in their browser, synced across their devices when they turn it on.
 	a.mux.HandleFunc("/api/chat/history-sync", a.requireTenant(a.handleChatHistorySync))
+	// B28.127 — a chat shared as a link a stranger reads signed out, until it is turned off. See chat_shares.go.
+	a.mux.HandleFunc("/api/chat/shares", a.requireTenant(a.handleChatShares))
+	a.mux.HandleFunc("/api/chat/shares/{id}", a.requireTenant(a.handleChatShareRevoke))
+	a.mux.HandleFunc("/api/public/chats/{token}", a.publicChatShare())
+	a.mux.Handle("/share/{token}", a.sharePage())
 
 	// W4.6.1 step 6 — THE MODEL CATALOG, so the chat screen can offer what this DEPLOYMENT serves
 	// rather than a list someone typed into the front end.

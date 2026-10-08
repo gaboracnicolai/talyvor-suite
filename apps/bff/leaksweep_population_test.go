@@ -457,9 +457,12 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// (/api/marketplace/licences/{id}/cancel) and a renewal (/api/marketplace/listings/{id}/licences). Each relays Lens's
 	// answer — the licence — and holds nothing; the licences are read back through GET /api/marketplace/licences, which
 	// the sweep reaches.
-	if len(methodOnly) > 102 {
+	//
+	// THE HUNDRED-AND-THIRD IS B28.127'S SHARE LINK TURNED OFF, DELETE only: /api/chat/shares/{id}. It relays Lens's
+	// answer and holds nothing; the live links are read back through GET /api/chat/shares, which the sweep reaches.
+	if len(methodOnly) > 103 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 102 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 103 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

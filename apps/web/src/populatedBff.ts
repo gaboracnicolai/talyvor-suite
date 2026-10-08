@@ -42,6 +42,15 @@ const BODIES: Record<string, unknown> = {
     ],
     truncated: false,
   },
+  // B28.127 — a shared chat, at the address the public-route sweeps visit (`/share/:token`).
+  '/api/public/chats/%3Atoken': {
+    title: 'Why the importer drops the last row',
+    created_at: '2026-08-20T00:00:00Z',
+    messages: [
+      { role: 'user', content: 'Why does the importer drop the last row of a CSV file that has no newline at the end?' },
+      { role: 'assistant', content: 'It splits on newlines and discards the final piece as empty. Keep the last piece when it holds text.' },
+    ],
+  },
   // B27.15 — Docs counts the fixture's person as a member, so the sidebar reads its pins.
   '/api/docs/membership': { member: true },
   '/auth/me': { mode: 'disabled', authenticated: false, user: null },

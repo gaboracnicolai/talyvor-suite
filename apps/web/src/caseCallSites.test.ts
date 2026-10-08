@@ -422,16 +422,17 @@ const PINS: Record<string, Pin> = {
   // 104 → 106 at B28.374: the product eyebrow on the card asking to file a Track issue, and Filed in Track under the answer.
   // 106 → 108 at B28.122: Connectors over the calls an answer made with connectors' tools, and Add a connector on Connectors.
   // 108 → 110 at B28.375: the Docs mark on a Docs page attached in the composer, and on it under the question sent.
+  // 110 → 111 at B28.127: the Shared chat eyebrow over a chat opened from its share link.
   'apps/web/src/caseAudit.ts|<N> uppercase class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 110,
+    states: 111,
     why: "the argument for why the rule cannot live in the token — #99 wrote TWENTY here, the 'twenty other' figure with `other` dropped",
   },
   'apps/web/src/caseAudit.ts|uppercase (<N> class lists': {
     kind: 'LIVE',
     of: 'TOTAL',
-    states: 110,
+    states: 111,
     why: '#99 wrote 25 here: every occurrence of the WORD in non-test source with comments kept, which counts the paragraphs about the class',
   },
   'packages/ui/src/components/CaseSafe.tsx|<N> other uppercase class lists': {

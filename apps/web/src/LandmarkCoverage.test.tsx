@@ -155,7 +155,7 @@ function controlsOutside(root: HTMLElement): string[] {
 const addressOf = (routePath: string) => routePath.replace(/\/\*$/, '')
 
 /** The public addresses, checked against App.tsx below rather than trusted. */
-const PUBLIC = ['/marketing', '/pricing', '/privacy', '/terms', '/signup', '/signin', '/board/:token'] as const
+const PUBLIC = ['/marketing', '/pricing', '/privacy', '/terms', '/signup', '/signin', '/board/:token', '/share/:token'] as const
 /** `/*` is the gate itself and `*` is the not-found page INSIDE the shell; both are swept as gated.
  *  `/earnings` (B28.10) is a redirect inside the shell to /statements/royalties — gated, and no page. */
 const NOT_A_PUBLIC_PAGE = ['/*', '*', '/earnings']

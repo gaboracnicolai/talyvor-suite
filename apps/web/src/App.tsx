@@ -54,6 +54,7 @@ import { MemoryPage } from './areas/chat/MemoryPage'
 import { RoomsArea } from './areas/rooms/Rooms'
 import { TrackArea } from './areas/track/TrackArea'
 import { PublicBoard } from './areas/board/PublicBoard'
+import { SharedChat } from './areas/share/SharedChat'
 import { DocsArea } from './areas/docs/DocsArea'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
@@ -668,6 +669,9 @@ export function App() {
           {/* B27.30 — a Track board its workspace published as a link, read by anyone holding it.
               Outside the gate: the reader has no account. Read-only — see areas/board/PublicBoard.tsx. */}
           <Route path="/board/:token" element={<PublicBoard />} />
+          {/* B28.127 — a chat its person shared as a link, read by anyone holding it until it is turned off.
+              Outside the gate for the same reason. Read-only — see areas/share/SharedChat.tsx. */}
+          <Route path="/share/:token" element={<SharedChat />} />
           <Route
             path="/*"
             element={

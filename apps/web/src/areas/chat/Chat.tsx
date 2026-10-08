@@ -48,6 +48,7 @@ import {
   upsertConversation,
 } from './history'
 import { type HistorySync, HistorySyncPanel, useHistorySync } from './SyncPanel'
+import { SharePanel } from './SharePanel'
 import { type Project, type Projects, editProject, loadProjects, newProject, saveProjects } from './projects'
 import { instructionsFor, loadCustomInstructions } from './customInstructions'
 import { ProjectHome, ProjectLine, ProjectsRail } from './ProjectViews'
@@ -293,6 +294,8 @@ export function Chat() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // B28.127 — the open conversation's Share panel.
+  const [sharing, setSharing] = useState(false)
   const [storageRefused, setStorageRefused] = useState(false)
   // B28.108 — kept here, not in the rail, so a search survives the narrow drawer closing on the conversation it opened.
   const [search, setSearch] = useState('')
@@ -349,6 +352,7 @@ export function Chat() {
     setUnreadable(0)
     setRenaming(null)
     setConfirmingDelete(false)
+    setSharing(false)
     setDrawerOpen(false)
     setWaiting(false)
     setEditing(null)
@@ -1189,6 +1193,7 @@ export function Chat() {
                 }}
                 onPin={() => store((list) => setPinned(list, active.id, !active.pinned))}
                 onArchive={() => store((list) => setArchived(list, active.id, !active.archived))}
+                onShare={() => setSharing((s) => !s)}
                 onDeleteStart={() => {
                   setRenaming(null)
                   setConfirmingDelete(true)
@@ -1201,6 +1206,9 @@ export function Chat() {
                   open(undefined, project?.id)
                 }}
               />
+            ) : null}
+            {active !== undefined && sharing && renaming === null && !confirmingDelete ? (
+              <SharePanel conversation={active} onClose={() => setSharing(false)} />
             ) : null}
             {active !== undefined && project !== undefined && renaming === null && !confirmingDelete ? (
               <ProjectLine project={project} onOpen={() => open(undefined, project.id)} />
@@ -2464,6 +2472,7 @@ function ConversationTitle({
   onRenameSave,
   onPin,
   onArchive,
+  onShare,
   onDeleteStart,
   onDeleteCancel,
   onDeleteConfirm,
@@ -2479,6 +2488,8 @@ function ConversationTitle({
   /** B28.110 — each toggles: Pin and Unpin, Archive and Unarchive. */
   onPin: () => void
   onArchive: () => void
+  /** B28.127 — opens and closes the Share panel under the name. */
+  onShare: () => void
   onDeleteStart: () => void
   onDeleteCancel: () => void
   onDeleteConfirm: () => void
@@ -2537,6 +2548,9 @@ function ConversationTitle({
       )}
       <button type="button" className={railButtonClass} onClick={onArchive} disabled={disabled}>
         {conversation.archived ? 'Unarchive' : 'Archive'}
+      </button>
+      <button type="button" className={railButtonClass} onClick={onShare} disabled={disabled}>
+        Share
       </button>
       <button type="button" className={railButtonClass} onClick={onRenameStart} disabled={disabled}>
         Rename

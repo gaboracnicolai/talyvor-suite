@@ -29,6 +29,7 @@ describe('How to use Talyvor Chat (B10.3)', () => {
       'What an answer costs',
       'What each question sends',
       'Where conversations are kept',
+      'Sharing a chat',
     ])
     // B16.4 — what goes with a question, and what a new chat starts with.
     expect(screen.getByText(/Nothing from any other conversation goes with it/i)).toBeTruthy()

@@ -325,6 +325,17 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
       </p>
     ),
   },
+  {
+    heading: 'Sharing a chat',
+    body: (
+      <p>
+        Share, in the bar above a conversation, makes a link anyone can open without signing in. It shows the
+        conversation&rsquo;s questions and answers as they were when you shared it — nothing else of it — and that copy is
+        kept on Talyvor&rsquo;s servers while the link is on. Turn off link in the same place deletes the copy, and the link
+        then finds nothing.
+      </p>
+    ),
+  },
 ]
 
 export function ChatHelp() {

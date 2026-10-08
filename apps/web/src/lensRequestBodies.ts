@@ -364,6 +364,19 @@ export const LENS_BODIES: LensBody[] = [
       'r.Post("/v1/workspaces/{wsID}/agents/{agentID}/prompt-schedules", ownerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: "lensPromptScheduleBody",
   },
+  // B28.127 — a chat shared as a link: the copy of its questions and answers Lens keeps until the link is turned off.
+  // The talyvor-lens item after B28.127 mounts the handler; until it lands the settle command finds no anchor and fails,
+  // as it must.
+  {
+    route: "POST /v1/workspaces/{wsID}/chat-shares",
+    file: "apps/bff/chat_shares.go",
+    kind: "anon-struct",
+    fn: "func chatShareRequest(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/chat_shares_handler.go",
+    upstreamAnchor: 'r.Post("/v1/workspaces/{wsID}/chat-shares", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensChatShareBody",
+  },
   // B20.3 — the marketplace: publishing a listing, and using one.
   {
     route: "POST /v1/workspaces/{wsID}/marketplace/listings",
