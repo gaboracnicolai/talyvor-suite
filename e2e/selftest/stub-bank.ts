@@ -97,6 +97,10 @@
 // sale, and a royalty for each ancestor up the listing's lineage — and a refund reverses every one (B32.27). Its defects:
 //   lineage-one-generation — the royalty stops at the listing's parents: a grandparent earns nothing
 //   lineage-refund-kept    — refunding a paid bill reverses the seller's row and leaves the originals' royalties
+//
+// B32.93 adds two defects of a bill's tax (Lens B32.39), beside stub-tax.ts's tax-reverse-charged:
+//   bill-gross-untaxed — the bill's gross is its net, the tax left out
+//   clear-tax-dropped  — a paid use's clear entry takes none of its tax to tax:<XX>, so the seller's week collects no VAT
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -1378,7 +1382,8 @@ export class Bank {
     const payout = this.payouts.find((p) => p.ws === ws && p.method === 'stripe' && p.period === period)
     return { period, from, to, payout: payout === undefined ? null : (({ ws: _w, ...p }) => p)(payout), sales: week.length,
       lines: lines.map(([kind, label, amount_usd_micros]) => ({ kind, label, amount_usd_micros })), net_usd_micros: lines.reduce((s, l) => s + l[2], 0),
-      vat_collected_usd_micros: week.reduce((s, u) => s + this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO).tax_usd_micros, 0), self_billed_invoice: null }
+      vat_collected_usd_micros: this.broken('clear-tax-dropped') ? 0 : week.reduce((s, u) => s + this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO).tax_usd_micros, 0),
+      self_billed_invoice: null }
   }
 
   /**
@@ -2173,7 +2178,7 @@ export class Bank {
       const refunded = lines.filter((l) => l.refunded_at !== undefined).reduce((s, l) => s + l.price_ulxc, 0)
       const tax = lines.filter((l) => l.refunded_at === undefined).reduce((s, l) => s + l.tax_usd_micros, 0)
       return json(res, 200, { month, total_ulxc: total, total_usd_micros: Math.floor(total / 10), refunded_ulxc: refunded,
-        net_usd_micros: total / ULXC_PER_USD_MICRO, tax_usd_micros: tax, gross_usd_micros: total / ULXC_PER_USD_MICRO + tax, lines }), true
+        net_usd_micros: total / ULXC_PER_USD_MICRO, tax_usd_micros: tax, gross_usd_micros: total / ULXC_PER_USD_MICRO + (this.broken('bill-gross-untaxed') ? 0 : tax), lines }), true
     }
     // B32.66 — tax profiles, receipts and sellers' tax details (stub-tax.ts); a seller's weekly statements.
     if (await this.tax.route(req, res, ws.id, rest, now)) return true
