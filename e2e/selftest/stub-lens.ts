@@ -64,6 +64,7 @@
 //   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
 //   connector   — offered a connector's fingerprint tool, the stand-in model makes a fingerprint up rather than calling it (B28.122)
 //   docs-page   — a Docs page attached in Chat is not read: asked to quote it, the stand-in model says it sees no page (B28.375)
+//   issue       — a request's X-Talyvor-Issue is not kept: its spend names no issue, so no Track issue's AI cost rises (B28.376)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -183,7 +184,7 @@ interface Workspace {
   /** B28.365 — the person's chat history, sealed in their browser: talyvor-lens B28.107's one versioned copy per workspace. */
   history?: { version: number; salt: string; iv: string; ciphertext: string; updated_at: string }
   /** B28.106 — each charged request's feature tag (X-Talyvor-Feature) and provider USD: Lens's token_events, as Spend by feature groups them. */
-  tagged: { feature: string; cost_usd: number; at: number }[]
+  tagged: { feature: string; cost_usd: number; at: number; issue: string; request_id: string }[]
   plan?: { id: string; cancel: boolean; byok?: boolean }
   /** B35.7 — the plan the testers created it on (talyvor-lens B35.1), read after a subscription. */
   syntheticPlan?: string
@@ -258,7 +259,9 @@ function book(ws: Workspace, amount: number, type: string, description: string, 
 
 /** B28.106 — a charged request's tag as Lens records it; STUB_BREAK=feature drops the header, as an untagged caller does. */
 function tag(ws: Workspace, req: IncomingMessage, usd: number): void {
-  ws.tagged.push({ feature: BREAK === 'feature' ? '' : String(req.headers['x-talyvor-feature'] ?? ''), cost_usd: usd, at: Date.now() })
+  ws.tagged.push({ feature: BREAK === 'feature' ? '' : String(req.headers['x-talyvor-feature'] ?? ''), cost_usd: usd, at: Date.now(),
+    // B28.376 — and the Track issue it is for (X-Talyvor-Issue), as Lens keeps it with the spend; STUB_BREAK=issue drops it.
+    issue: BREAK === 'issue' ? '' : String(req.headers['x-talyvor-issue'] ?? ''), request_id: 'req_' + randomBytes(10).toString('hex') })
 }
 
 /** B32.12 — the plan a workspace's gates are read under: a chat plan takes Free's. */
@@ -1029,6 +1032,14 @@ createServer(async (req, res) => {
     // minted for that workspace. The stand-in for that credential is the synthetic key the stub Track is given.
     const seats = /^\/v1\/workspaces\/([^/]+)\/plan\/seats$/.exec(p)
     if (seats !== null && req.headers['x-talyvor-synthetic-key'] === KEY) return seatsCheck(res, seats[1], Number(url.searchParams.get('members')))
+    // B28.376 — Track's syncer reads each request's spend and the issue it named (talyvor-track GetSpendByRequest), on a
+    // credential for the workspace; the stand-in for it is the synthetic key the stub Track is given.
+    if (p === '/v1/api/spend/by-request' && req.headers['x-talyvor-synthetic-key'] === KEY) {
+      const since = Date.now() - Number(url.searchParams.get('days') ?? 30) * 86_400e3
+      const of = workspaces.get(url.searchParams.get('workspace_id') ?? '')
+      return json(res, 200, { rows: (of?.tagged ?? []).filter((e) => e.at >= since).map((e) => ({ request_id: e.request_id, feature: e.feature,
+        issue_id: e.issue, cost_usd: e.cost_usd, input_tokens: 0, output_tokens: 0, ts: new Date(e.at).toISOString() })), next_cursor: '' })
+    }
     // The BFF runs a marketplace use on the session key the chat streams on (B20.3).
     const ws = byToken.get(bearer) ?? byKey.get(bearer)
     if (ws === undefined) return json(res, 401, { error: 'unauthorized' })
@@ -1065,6 +1076,12 @@ createServer(async (req, res) => {
         by.set(e.feature, row)
       }
       return json(res, 200, by.size === 0 ? null : [...by.values()].sort((a, b) => b.cost_usd - a.cost_usd))
+    }
+    // B28.376 — what Lens holds an issue's requests cost (X-Talyvor-Issue), as its anomaly read says it.
+    const ofIssue = /^\/v1\/workspaces\/([^/]+)\/anomalies\/issue\/([^/]+)$/.exec(p)
+    if (ofIssue !== null && ofIssue[1] === ws.id) {
+      const issue = decodeURIComponent(ofIssue[2])
+      return json(res, 200, { workspace_id: ws.id, issue_id: issue, cost_usd: ws.tagged.filter((e) => e.issue === issue).reduce((sum, e) => sum + e.cost_usd, 0) })
     }
     if (p === '/v1/api/usage') {
       const u = ws.usage

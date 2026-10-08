@@ -1342,6 +1342,38 @@ describe('attached documents (B10.3)', () => {
     expect((await screen.findByTestId('sent-docs-page')).getAttribute('href')).toBe('/docs/spaces/sp1/pages/pg1')
     await waitFor(() => expect(loadConversations('user-a').list[0]?.messages[0].attachments?.[0].docs_page).toEqual({ space_id: 'sp1', page_id: 'pg1' }))
   })
+
+  it('attaches a Track issue: it goes to Lens as Markdown, the question links it, and the request names it so its cost is the issue’s (B28.376)', async () => {
+    const { posted, uploaded } = mockChat({ body: 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', converts: true })
+    const wire = vi.mocked(globalThis.fetch).getMockImplementation()!
+    const issue = { id: 'iss-7', identifier: 'ENG-7', title: 'Export times out', status: 'in_progress', description: 'Exports over 10k rows time out after 30s.' }
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) =>
+      String(input) === '/api/track/issues?limit=100'
+        ? new Response(JSON.stringify([issue]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        : wire(input, init),
+    )
+    renderChat()
+    await chooseModel('GPT-4o')
+    fireEvent.click(screen.getByRole('button', { name: 'Track issue' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'ENG-7 Export times out' }))
+    const chip = await screen.findByRole('list', { name: 'Attached documents' })
+    await waitFor(() => expect(within(chip).getByText('Export times out')).toBeTruthy())
+    const { url, init: sent } = uploaded.mock.calls[0][0]
+    expect(url).toBe('/api/documents?filename=ENG-7.md')
+    const read = await new Promise<unknown>((done) => {
+      const r = new FileReader()
+      r.onload = () => done(r.result)
+      r.readAsText(sent.body as File)
+    })
+    expect(read).toBe('# ENG-7 Export times out\n\nStatus: In progress\n\nExports over 10k rows time out after 30s.\n')
+
+    await ask('Why might the export time out?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    expect(new Headers(posted.mock.calls[0][0].init.headers).get('X-Talyvor-Issue')).toBe('ENG-7')
+    const [message] = JSON.parse(String(posted.mock.calls[0][0].init.body)).messages
+    expect(message.content).toContainEqual({ type: 'file', file: { file_id: 'tdoc_1' } })
+    expect((await screen.findByTestId('sent-track-issue')).getAttribute('href')).toBe('/track/issues/iss-7')
+  })
 })
 
 describe('the sidebar hides and comes back (B15.5)', () => {

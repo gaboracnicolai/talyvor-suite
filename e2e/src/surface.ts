@@ -1110,6 +1110,116 @@ export function chatDocsPage(seed: number): Scenario {
   }
 }
 
+/** B28.376 — how long Track is given to add an answer's cost to an issue: its syncer reads Lens every 15 minutes. */
+const TRACK_SYNC_MS = 16 * 60_000
+
+/**
+ * B28.376 — a Track issue attached in Chat, its cost attributed to it. A fresh issue made in Track, then in Chat attached
+ * with Track issue, and a question asked afresh: the question links the issue, Lens holds the answer's charge under the
+ * issue's identifier (its per-issue read), and the issue's AI cost in Track rises by exactly that charge — the one spend
+ * row Lens wrote for the answer, in dollars. Track adds it when its syncer next reads Lens, so that wait is long.
+ */
+export function chatTrackIssue(seed: number): Scenario {
+  return {
+    id: 'chat-track-issue',
+    owner: 'talyvor-suite',
+    items: ['B28.124', 'B28.376'],
+    title: "a Track issue attached in Chat: the answer's charge is added to the issue's AI cost",
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const word = freshWord(seed * 10 + 6, 1 + Math.floor(Math.random() * 999_999))
+      const title = `Export stalls ${word}`
+      const track = await TrackScreen.open(app)
+      await track.create(title)
+      await track.page.close()
+      const listed = await readFrom<(TrackIssue & { identifier: string; ai_cost_usd: number })[]>(page, '/api/track/issues?limit=100')
+      if (typeof listed === 'string') return fail(`Track's issues could not be read: ${listed}`)
+      const made = listed.find((i) => i.title === title)
+      if (made === undefined) return fail(`"${title}" was made in Track, and Track does not list it`)
+      const before = made.ai_cost_usd
+      try {
+        if (new URL(page.url()).pathname !== '/chat') await app.openChat()
+        await app.newChat()
+        await page.getByRole('button', { name: 'Track issue' }).click()
+        const panel = page.getByRole('dialog', { name: 'Attach a Track issue' })
+        await panel.getByRole('textbox', { name: 'Filter issues' }).fill(made.identifier)
+        const offered = panel.getByRole('list', { name: 'Track issues' }).getByRole('button', { name: `${made.identifier} ${title}`, exact: true })
+        if (!(await offered.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false))) {
+          return fail(`Track issue does not list ${made.identifier} "${title}": "${(await panel.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200)}"`)
+        }
+        const was = page.viewportSize()
+        await mkdir(env.outDir, { recursive: true })
+        const picking = [1440, 390].map((w) => join(env.outDir, `chat-track-issue-picker-${w}px-user${app.user.index}.png`))
+        for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+          await page.setViewportSize({ width, height })
+          await page.screenshot({ path: picking[i] })
+        }
+        if (was !== null) await page.setViewportSize(was)
+        ctx.evidence.push({ note: `Track issue listing ${made.identifier} at 1440px: ${picking[0]}; at 390px: ${picking[1]}` })
+        await offered.click()
+        const chip = page.getByRole('list', { name: 'Attached documents' }).getByText(title, { exact: true })
+        if (!(await chip.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false))) {
+          return fail(`${made.identifier} was picked, and it is not attached: ${(await page.getByRole('alert').allInnerTexts()).join(' ') || 'nothing said'}`)
+        }
+
+        const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+        const t = await app.ask(`In one sentence, what does the attached issue ask for? (${word})`)
+        ctx.evidence.push({ question: t.question, answer: t.answer.slice(0, 300), footer: t.footerText, error: t.error, note: `attached ${made.identifier} "${title}"` })
+        if (t.error !== undefined) return fail(`refused: ${t.error}`)
+        const link = page.locator('[data-testid="turn-user"]').last().getByTestId('sent-track-issue')
+        const href = (await link.getAttribute('href').catch(() => null)) ?? ''
+        if (href !== `/track/issues/${made.id}`) return fail(`the question does not link the issue it carried: ${JSON.stringify(href)}`)
+        let spend: LedgerRow[] = []
+        for (let tries = 0; tries < 10 && spend.length === 0; tries++) {
+          if (tries > 0) await page.waitForTimeout(1_000)
+          spend = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
+        }
+        ctx.evidence.push({ note: 'the spend rows Lens wrote for the answer', ledger: spend.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+        if (spend.length !== 1) return fail(`the answer [${t.footerText}] wrote ${spend.length} spend rows, not one`)
+        const charged = (-spend[0].amount_ulxc / 1e6) * env.usdPerLXC
+        // Lens and Track keep dollars, the ledger µLXC: each reading is within a µLXC, and Track's six places.
+        const near = (usd: number) => Math.abs(usd - charged) <= env.usdPerLXC / 1e6 + 5e-7 + 1e-9
+
+        // Lens holds the answer's charge under the issue (talyvor-lens B28.124), or Track has nothing to add.
+        const held = await until(async () => {
+          const r = await env.lens.as(app.user.token, 'GET', `/v1/workspaces/${app.user.workspaceID}/anomalies/issue/${encodeURIComponent(made.identifier)}`)
+          return { status: r.status, cost: parsed<{ cost_usd: number }>(r.text)?.cost_usd ?? 0, text: r.text.slice(0, 200) }
+        }, (r) => r.cost > 0, 15_000)
+        ctx.evidence.push({ note: `Lens's read of ${made.identifier}: ${held.status} ${held.text}; the answer was charged $${charged}` })
+        if (!near(held.cost)) return fail(`Lens holds $${held.cost} under ${made.identifier}; the answer that named it was charged $${charged} (${-spend[0].amount_ulxc} µLXC)`)
+
+        // And Track adds it to the issue's AI cost when its syncer next reads Lens.
+        const after = await until(async () => {
+          const r = await readFrom<{ ai_cost_usd: number }>(page, `/api/track/issues/${encodeURIComponent(made.id)}`)
+          return typeof r === 'string' ? before : r.ai_cost_usd
+        }, (usd) => usd > before, TRACK_SYNC_MS)
+        const rose = after - before
+        ctx.evidence.push({ note: `${made.identifier}'s AI cost in Track: $${before} before, $${after} after` })
+        if (!near(rose)) return fail(`${made.identifier}'s AI cost in Track rose by $${rose} ($${before} → $${after}); the answer was charged $${charged}`)
+
+        const issuePage = await app.tab(`/track/issues/${encodeURIComponent(made.id)}`)
+        try {
+          const cost = issuePage.getByRole('region', { name: /What it has cost so far/ })
+          await cost.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+          const shots = [1440, 390].map((w) => join(env.outDir, `chat-track-issue-${w}px-user${app.user.index}.png`))
+          for (const [i, [width, height]] of [[1440, 900], [390, 844]].entries()) {
+            await issuePage.setViewportSize({ width, height })
+            await cost.scrollIntoViewIfNeeded()
+            await issuePage.screenshot({ path: shots[i] })
+          }
+          ctx.evidence.push({ note: `${made.identifier} in Track with its AI cost, ${JSON.stringify((await cost.innerText()).replace(/\s+/g, ' ').slice(0, 120))}, at 1440px: ${shots[0]}; at 390px: ${shots[1]}` })
+        } finally {
+          await issuePage.close()
+        }
+        return { pass: true, detail: `${made.identifier} attached in Chat; the answer's one spend row of ${-spend[0].amount_ulxc} µLXC ($${charged}) is held under it in Lens, and its AI cost in Track rose by $${rose}` }
+      } finally {
+        await app.newChat().catch(() => undefined)
+      }
+    },
+  }
+}
+
 /**
  * Features' "Routing pattern sharing": switched on, Lens holds the workspace opted in; off again, opted out. Where Lens
  * runs no pattern mining the switch is not offered, and a request to opt in anyway is refused and stores nothing.

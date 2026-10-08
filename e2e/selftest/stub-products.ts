@@ -172,6 +172,29 @@ async function trackMCP(req: IncomingMessage, res: ServerResponse): Promise<void
   return rpcText(res, { id: issue.id, identifier: issue.identifier, title: issue.title, status: issue.status, priority: 0, url: `/issues/${issue.identifier}` })
 }
 
+/**
+ * B28.376 — Track's syncer (talyvor-track lensintegration SyncFeatureSpend): each request's spend Lens kept is landed once,
+ * by its request id, on the issue whose identifier it named, adding to that issue's AI cost. Track pulls every 15 minutes;
+ * the stub pulls as issues are read. The Lens workspace is the synthetic sign-in's: its email is <workspace>@synthetic.talyvor.invalid.
+ */
+const landed = new Set<string>()
+async function syncSpend(ws: string, email: string): Promise<void> {
+  const lensWS = email.endsWith('@synthetic.talyvor.invalid') ? email.split('@')[0] : ''
+  if (lensWS === '') return
+  const r = await fetch(`${LENS_URL}/v1/api/spend/by-request?workspace_id=${encodeURIComponent(lensWS)}&days=1`,
+    { headers: { 'X-Talyvor-Synthetic-Key': LENS_KEY } }).catch(() => undefined)
+  if (r === undefined || !r.ok) return
+  const { rows = [] } = (await r.json()) as { rows?: { request_id: string; issue_id: string; cost_usd: number; input_tokens: number; output_tokens: number }[] }
+  for (const row of rows) {
+    if (row.request_id === '' || landed.has(row.request_id)) continue
+    landed.add(row.request_id)
+    const issue = issues.find((i) => i.workspace === ws && row.issue_id !== '' && i.identifier === row.issue_id)
+    if (issue === undefined) continue
+    issue.ai_cost_usd += row.cost_usd
+    issue.ai_tokens += row.input_tokens + row.output_tokens
+  }
+}
+
 serve(TRACK_PORT, 'track', async (req, res, path, url) => {
   if (path === '/mcp' && req.method === 'POST') return trackMCP(req, res)
   if (path === '/v1/workspaces') {
@@ -203,6 +226,7 @@ serve(TRACK_PORT, 'track', async (req, res, path, url) => {
   const m = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(path)
   if (m === null) return json(res, 404, { error: 'stub track: no such route' })
   const [, ws, rest] = m
+  if (req.method === 'GET' && (rest === '/issues' || /^\/issues\/[^/]+$/.test(rest))) await syncSpend(ws, String(req.headers['x-user-email'] ?? ''))
   const mine = issues.filter((i) => i.workspace === ws)
   if (rest === '/teams') return json(res, 200, [TEAM])
   if (rest === '/members' && req.method === 'POST') return await addMember(req, res, ws)

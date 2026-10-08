@@ -22,6 +22,7 @@ import {
   fetchChatTools,
   fetchModels,
   fetchUnconfiguredProviders,
+  filedIssueHref,
   markAnswerWrong,
   pickerCatalog,
   statementLineHref,
@@ -75,7 +76,9 @@ import { ConversationBudget, budgetRefusal, overBudget, spentULXC } from './Conv
 import { CopyButton } from './CopyButton'
 import { FilePicker } from './FilePicker'
 import { DocsPagePicker, attachDocsPage } from './DocsPagePicker'
+import { TrackIssuePicker, attachTrackIssue } from './TrackIssuePicker'
 import { pageHref } from '../docs/docsNav'
+import type { TrackIssue } from '../track/types'
 import { ModelPicker } from './ModelPicker'
 import { Sources, WebSearchToggle } from './WebSearch'
 import { CodeRuns, RunCodeToggle } from './RunCode'
@@ -909,6 +912,24 @@ export function Chat() {
     }
   }, [])
 
+  // B28.376 — a Track issue, stored in Lens as a document so it travels as an attached file does; from then on the
+  // conversation's requests name it to Lens, and what they cost is added to the issue's AI cost in Track.
+  const attachIssue = useCallback(async (issue: TrackIssue) => {
+    setAttachError(null)
+    setUploading((prev) => [...prev, issue.title])
+    try {
+      const a = await attachTrackIssue(issue)
+      setAttachments((prev) => [...prev, a])
+    } catch (e) {
+      setAttachError(e instanceof Error && e.message !== '' ? e.message : `${issue.identifier} couldn’t be attached: try again.`)
+    } finally {
+      setUploading((prev) => {
+        const i = prev.indexOf(issue.title)
+        return i < 0 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]
+      })
+    }
+  }, [])
+
   // send() is a new function every render; the waiting question is sent once, when the uploads end.
   const sendRef = useRef(send)
   sendRef.current = send
@@ -1391,6 +1412,7 @@ export function Chat() {
               attachments={attachments}
               onAttach={(files) => void attach(files)}
               onAttachPage={(spaceId, pageId, title) => void attachPage(spaceId, pageId, title)}
+              onAttachIssue={(issue) => void attachIssue(issue)}
               onRemoveAttachment={(i) => setAttachments((prev) => prev.filter((_, j) => j !== i))}
               attachError={attachError}
               uploading={uploading}
@@ -1844,6 +1866,14 @@ function SentDocuments({ message, answering }: { message: ChatMessage; answering
                   {d.name}
                 </Link>
               </>
+            ) : d.track_issue !== undefined ? (
+              // B28.376 — a Track issue, linked to the issue; what the conversation's answers cost is added to its AI cost.
+              <span title={`What this conversation’s answers cost is added to ${d.track_issue.identifier}’s AI cost in Track`}>
+                <span className="font-figure text-label">{d.track_issue.identifier}</span>{' '}
+                <Link className={inlineLink} to={filedIssueHref(d.track_issue)} data-testid="sent-track-issue">
+                  {d.name}
+                </Link>
+              </span>
             ) : (
               d.name
             )}{' '}
@@ -2211,6 +2241,7 @@ function Composer({
   attachments,
   onAttach,
   onAttachPage,
+  onAttachIssue,
   onRemoveAttachment,
   attachError,
   uploading,
@@ -2232,6 +2263,8 @@ function Composer({
   onAttach: (files: File[]) => void
   /** B28.375 — a Docs page chosen to go with the question. */
   onAttachPage: (spaceId: string, pageId: string, title: string) => void
+  /** B28.376 — a Track issue chosen to go with the question, its cost attributed to it. */
+  onAttachIssue: (issue: TrackIssue) => void
   onRemoveAttachment: (index: number) => void
   attachError: string | null
   /** B18.24 — names of the documents still on their way to Lens. */
@@ -2281,6 +2314,7 @@ function Composer({
           {attachments.map((a, i) => (
             <li key={`${a.name}-${i}`} className="flex items-center gap-1 rounded-control border border-rule bg-canvas py-1 pl-2 pr-1 text-caption text-ink">
               {a.docs_page !== undefined ? <span className="font-figure text-eyebrow uppercase text-label">Docs</span> : null}
+              {a.track_issue !== undefined ? <span className="font-figure text-label">{a.track_issue.identifier}</span> : null}
               <span className="max-w-48 truncate">{a.name}</span>
               <span className="font-figure text-faint">{formatSize(a.size)}</span>
               <button
@@ -2360,6 +2394,7 @@ function Composer({
           Attach
         </button>
         <DocsPagePicker disabled={pending || selected === undefined} onPick={onAttachPage} />
+        <TrackIssuePicker disabled={pending || selected === undefined} onPick={onAttachIssue} />
         <WebSearchToggle on={webSearch} onChange={onWebSearch} disabled={pending || selected === undefined} />
         <RunCodeToggle on={runCode} onChange={onRunCode} disabled={pending || selected === undefined} />
         <ModelPicker catalog={picker} selected={selected} onSelect={onSelectModel} disabled={pending} />

@@ -75,6 +75,9 @@ export interface ChatAttachment {
   /** B28.375 — set when the document is a Docs page, read from Docs as it was stored when attached
    *  (DocsPagePicker.tsx): the question shows it linked to the page. */
   docs_page?: { space_id: string; page_id: string }
+  /** B28.376 — set when the document is a Track issue (TrackIssuePicker.tsx): the question shows it linked to the issue,
+   *  and every request in the conversation names it to Lens (ISSUE_HEADER), so what the answers cost is the issue's. */
+  track_issue?: { id: string; identifier: string }
 }
 
 /** B18.24 — what converting a question's documents saved, as Lens measured it (talyvor-lens B18.13):
@@ -188,6 +191,22 @@ export const WEB_SEARCH_HEADER = 'X-Talyvor-Web-Search'
 /** B28.373 — `on` lets the model run code in Lens's sandbox while it answers, and asks Lens to say in the stream what it
  *  ran and what that printed (chatStream.ts CODE_RUN_FRAME; talyvor-lens B28.119). */
 export const RUN_CODE_HEADER = 'X-Talyvor-Run-Code'
+
+/** B28.376 — the Track issue a request is for, by its identifier (ENG-42). Lens keeps it with the request's spend, and
+ *  Track adds that spend to the issue's AI cost (talyvor-track RecordRequestSpendAttributed; talyvor-lens B28.124). */
+export const ISSUE_HEADER = 'X-Talyvor-Issue'
+
+/** B28.376 — the Track issue a conversation is about: the one attached last, in any of its questions. */
+export function attachedIssue(messages: ChatMessage[]): { id: string; identifier: string } | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const atts = messages[i].attachments ?? []
+    for (let j = atts.length - 1; j >= 0; j--) {
+      const issue = atts[j].track_issue
+      if (issue !== undefined && issue.identifier !== '') return issue
+    }
+  }
+  return undefined
+}
 
 /** B28.361 — which conversation a request is part of, and its budget in µLXC when it has one. */
 export interface ConversationTag {
@@ -747,6 +766,7 @@ export async function streamChat(
     return
   }
 
+  const issue = attachedIssue(messages)
   const init: RequestInit = {
     method: 'POST',
     credentials: 'same-origin',
@@ -761,6 +781,7 @@ export async function streamChat(
       [REPORT_CHARGE_HEADER]: 'true',
       ...(conversation?.web_search === true ? { [WEB_SEARCH_HEADER]: 'on' } : {}),
       ...(conversation?.run_code === true ? { [RUN_CODE_HEADER]: 'on' } : {}),
+      ...(issue !== undefined ? { [ISSUE_HEADER]: issue.identifier } : {}),
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions, conversation?.prompt)),
     signal,
