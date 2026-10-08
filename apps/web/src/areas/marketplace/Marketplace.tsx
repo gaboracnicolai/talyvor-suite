@@ -22,6 +22,7 @@ import { Region, RegionScreen } from "../../components/Region";
 import { formatULXC } from "../lens/agentBankApi";
 import { formatUSD, formatWhen } from "../lens/format";
 import { parseShare } from "../rooms/roomsApi";
+import { CollectionPage, Discover } from "./Discover";
 import { Licences } from "./Licences";
 import { ListingPage } from "./ListingPage";
 import {
@@ -52,6 +53,7 @@ import {
 import {
   CATALOG_KEY,
   Card,
+  DISCOVER_KEY,
   EARNINGS_KEY,
   FigureTile,
   KIND_ICON,
@@ -65,8 +67,9 @@ import {
   useRunnableModels,
 } from "./parts";
 
-// Marketplace.tsx — B20.3: the marketplace. Browse and search what other teams published (agents,
-// prompts, skills, evaluations and pipelines — Lens B20.1), open a listing and use it (ListingPage;
+// Marketplace.tsx — B20.3: the marketplace. Find what other teams published (agents, prompts, skills,
+// evaluations and pipelines — Lens B20.1; B32.61: on Discover.tsx, by Lens's search, trending and collections),
+// open a listing and use it (ListingPage;
 // B20.2: run through Lens as this workspace, a paid listing's price metered onto its monthly
 // marketplace bill, never taken from prepaid credits), publish one, and read what this workspace's
 // listings earned.
@@ -77,96 +80,6 @@ import {
 // Lens decides everything: who may publish (the workspace's owner or an admin), whether a listing
 // carries a secret, personal data or an injection, what a use costs and who earns. These screens show
 // Lens's figures and, on a refusal, Lens's own sentence.
-
-// ── Browse ─────────────────────────────────────────────────────────────────────────────────────────
-
-function Browse() {
-  const [kind, setKind] = useState<ListingKind | "">("");
-  const [search, setSearch] = useState("");
-  const catalog = useQuery({
-    queryKey: [...CATALOG_KEY, kind],
-    queryFn: () => marketApi.catalog(kind),
-  });
-  const words = search.trim().toLowerCase();
-  const shown = (catalog.data ?? []).filter(
-    (l) =>
-      words === "" ||
-      `${l.title} ${l.description}`.toLowerCase().includes(words),
-  );
-  return (
-    <>
-      <Region
-        index="00"
-        label="Marketplace"
-        heading="Use what other teams built, and sell what yours did"
-        sectionClassName="pb-10 pt-4 wide:pb-12"
-        className="flex max-w-2xl flex-col gap-3"
-      >
-        <p className="text-body text-muted">
-          Agents, prompts, skills and evaluations published by other Talyvor
-          workspaces. Using one runs it through Lens as your workspace; a paid
-          listing’s price goes on your monthly marketplace bill, never on your
-          credits.
-        </p>
-        <p className="text-body text-muted">
-          <Link className={`text-ink ${inlineLink}`} to="/marketplace/publish">
-            Publish a listing
-          </Link>{" "}
-          and earn when others use it.
-        </p>
-      </Region>
-      <Region
-        index="01"
-        label="Browse"
-        fullWidth
-        className="flex flex-col gap-4"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <Input
-            aria-label="Search listings"
-            placeholder="Search"
-            className="w-56"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <Button
-            aria-pressed={kind === ""}
-            className={pressed}
-            onClick={() => setKind("")}
-          >
-            Everything
-          </Button>
-          {KINDS.map((k) => (
-            <Button
-              key={k.kind}
-              aria-pressed={kind === k.kind}
-              className={pressed}
-              onClick={() => setKind(k.kind)}
-            >
-              <NavIcon name={KIND_ICON[k.kind]} className="h-4 w-4" />
-              {k.plural}
-            </Button>
-          ))}
-        </div>
-        {catalog.isError ? (
-          <p className="text-body text-muted">
-            {readFailure(catalog.error, "The marketplace")}
-          </p>
-        ) : catalog.isPending ? (
-          <p className="text-body text-muted">Reading…</p>
-        ) : shown.length === 0 ? (
-          <p className="text-body text-muted">
-            {words !== ""
-              ? "Nothing published matches that search."
-              : "Nothing is published here yet."}
-          </p>
-        ) : (
-          <ListingGrid listings={shown} label="Listings" />
-        )}
-      </Region>
-    </>
-  );
-}
 
 // ── Publish ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -310,6 +223,7 @@ function Publish() {
     onSuccess: (l) => {
       void qc.invalidateQueries({ queryKey: MINE_KEY });
       void qc.invalidateQueries({ queryKey: CATALOG_KEY });
+      void qc.invalidateQueries({ queryKey: DISCOVER_KEY });
       const similar = l.versions?.[0]?.scan?.similar;
       if (l.review_status === "held" && similar) {
         setHeld({ listing: l, similar });
@@ -1184,15 +1098,16 @@ export function MarketplaceArea() {
   return (
     <RegionScreen>
       <Routes>
-        <Route index element={<Browse />} />
+        <Route index element={<Discover />} />
         <Route path="listings/:id" element={<ListingPage />} />
+        <Route path="collections/:id" element={<CollectionPage />} />
         <Route path="publish" element={<Publish />} />
         <Route path="selling" element={<Selling />} />
         <Route path="bill" element={<Bill />} />
         <Route path="licences" element={<Licences />} />
         <Route path="review" element={<ReviewQueue />} />
-        {/* Anything else under /marketplace/* lands on the catalog rather than a dead end. */}
-        <Route path="*" element={<Browse />} />
+        {/* Anything else under /marketplace/* lands on Discover rather than a dead end. */}
+        <Route path="*" element={<Discover />} />
       </Routes>
     </RegionScreen>
   );

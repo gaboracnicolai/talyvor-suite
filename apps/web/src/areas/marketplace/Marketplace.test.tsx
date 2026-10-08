@@ -54,6 +54,12 @@ function mockBff() {
         versions: [{ version: 1, artifact_sha256: 'abc', created_at: '2026-09-28T09:00:00Z', needs, ...(l.workspace_id === state.as ? { artifact } : {}) }],
       }
     }
+    // B32.61 — Discover asks Lens's search, which finds the public listings whose words match.
+    if (url.startsWith('/api/marketplace/search')) {
+      const words = (new URL(url, 'http://x').searchParams.get('q') ?? '').toLowerCase()
+      const found = listings.filter((l) => l.visibility === 'public' && `${l.title} ${l.description}`.toLowerCase().includes(words))
+      return json({ listings: found.map(({ artifact: _a, ...l }) => ({ ...l, price_per_use_usd_micros: Number(l.price_per_use_ulxc) / 10 })), sort: 'relevance', page: 1, page_size: 50, total: found.length, has_more: false })
+    }
     if (url.startsWith('/api/marketplace/listings?') || url === '/api/marketplace/listings')
       return json({ listings: listings.filter((l) => l.visibility === 'public').map(({ artifact: _a, ...l }) => l) })
     if (url === '/api/marketplace/mine')

@@ -68,7 +68,7 @@ import { fileBombBounded, ssrfRefused } from './ssrf.ts'
 import { csrfRefused, scriptInert } from './session.ts'
 import { keysNotForwarded, keysUnlisted } from './keys.ts'
 import { rateLimitsHold } from './ratelimit.ts'
-import { marketDiscovery } from './discovery.ts'
+import { marketDiscoverScreen, marketDiscovery } from './discovery.ts'
 
 export interface Evidence {
   note?: string
@@ -4368,6 +4368,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B32.90 — the marketplace's search, collections and trending, once a run, on workspaces of its own: searched by
   // capability and price it finds only what matches, a collection lists its listings in order, and a featured one is first.
   if (i === 5) list.push(marketDiscovery())
+  // B32.61 — the same search and a collection on the app's Discover screen, once a run: filtered by capability and the most
+  // a use may cost it shows only what Lens found, and a collection's page shows exactly its listings in its order.
+  if (i === 5) list.push(marketDiscoverScreen())
   // B32.75 — a sale's earning released on the seller's journal, once a run, bought by a workspace of its own from a seller it
   // makes: the bill paid, the share is due or available, Lens's release job empties the holdback, and the journal reconciles.
   if (i === 5) list.push(marketJournal(i))

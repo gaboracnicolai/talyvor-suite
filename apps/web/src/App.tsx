@@ -423,8 +423,11 @@ function Sidebar() {
         {item('/rooms', 'Rooms', 'members', { indent: true, wildcard: true })}
       </div>
       <Group label="Marketplace" {...fold.group('Marketplace')}>
-        {item('/marketplace', 'Browse', 'grid', {
-          active: pathname === '/marketplace' || pathname.startsWith('/marketplace/listings'),
+        {item('/marketplace', 'Discover', 'grid', {
+          active:
+            pathname === '/marketplace' ||
+            pathname.startsWith('/marketplace/listings') ||
+            pathname.startsWith('/marketplace/collections'),
         })}
         {item('/marketplace/publish', 'Publish', 'upload')}
         {item('/marketplace/selling', 'Your listings & earnings', 'tag')}

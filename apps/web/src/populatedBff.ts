@@ -171,6 +171,18 @@ const BODIES: Record<string, unknown> = {
 
 /** Bodies for endpoints whose URL carries a query string — matched on pathname. */
 const BY_PATH: Record<string, unknown> = {
+  // B32.61 — Discover's search: the catalog's two listings, as Lens's search finds them.
+  '/api/marketplace/search': {
+    listings: [
+      { id: 'lst_translate', workspace_id: 'ws-seller', kind: 'prompt', title: 'Translate to French', description: 'Idiomatic French for any English text.', price_per_use_ulxc: 500_000, visibility: 'public', latest_version: 2, created_at: '2026-09-27T09:00:00Z', updated_at: '2026-09-27T10:00:00Z', capabilities: ['translate'], price_per_use_usd_micros: 50_000, distinct_buyers_7d: 4, trending_score: 3.6 },
+      { id: 'lst_review', workspace_id: 'ws-seller', kind: 'agent', title: 'Code reviewer', description: 'Reviews a diff for correctness.', price_per_use_ulxc: 0, visibility: 'public', latest_version: 1, created_at: '2026-09-27T11:00:00Z', updated_at: '2026-09-27T11:00:00Z', capabilities: ['code-review'], price_per_use_usd_micros: 0, distinct_buyers_7d: 1, trending_score: 0.9 },
+    ],
+    sort: 'trending',
+    page: 1,
+    page_size: 50,
+    total: 2,
+    has_more: false,
+  },
   // B8.2 — the Features screen reads every capability setting on the workspace.
   '/api/features': {
     tare_policy: 'disabled',
@@ -206,6 +218,20 @@ const BY_PATH: Record<string, unknown> = {
     listings: [
       { id: 'lst_translate', workspace_id: 'ws-seller', kind: 'prompt', title: 'Translate to French', description: 'Idiomatic French for any English text.', price_per_use_ulxc: 500_000, visibility: 'public', latest_version: 2, created_at: '2026-09-27T09:00:00Z', updated_at: '2026-09-27T10:00:00Z' },
       { id: 'lst_review', workspace_id: 'ws-seller', kind: 'agent', title: 'Code reviewer', description: 'Reviews a diff for correctness.', price_per_use_ulxc: 0, visibility: 'public', latest_version: 1, created_at: '2026-09-27T11:00:00Z', updated_at: '2026-09-27T11:00:00Z' },
+    ],
+  },
+  // B32.61 — Discover (Lens B32.50): the same two listings found by a search, with what a use is billed and the week's
+  // buyers; the controlled list of capabilities; one featured and one public collection.
+  '/api/marketplace/capabilities': {
+    capabilities: [
+      { slug: 'translate', label: 'Translate' },
+      { slug: 'code-review', label: 'Code review' },
+    ],
+  },
+  '/api/marketplace/collections': {
+    collections: [
+      { id: 'col_starter', workspace_id: 'ws-talyvor', title: 'Start here', description: 'Listings that do one thing well.', public: true, featured: true, featured_at: '2026-10-06T09:00:00Z', listing_count: 2, created_at: '2026-10-05T09:00:00Z', updated_at: '2026-10-06T09:00:00Z' },
+      { id: 'col_lang', workspace_id: 'ws-seller', title: 'Languages', description: 'Everything for words in other languages.', public: true, featured: false, listing_count: 1, created_at: '2026-10-05T10:00:00Z', updated_at: '2026-10-05T10:00:00Z' },
     ],
   },
   // B32.53 — rooms: one this workspace is in, one open room it is not, and its Free plan's room limits.
