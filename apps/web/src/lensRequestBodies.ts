@@ -777,6 +777,41 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: "func newPlatformReportExportHandler(g *platformreport.Generator) http.Handler {",
     subject: "lensPlatformReportBody",
   },
+  // B30.116 — the owner's verification checks on the Verification screen (Lens B30.4). All three decode one
+  // economy.VerificationRequest upstream: each settle command pins its tags and that its own route decodes it.
+  {
+    route: "POST /v1/workspaces/{wsID}/verification/contact",
+    file: "apps/bff/verification.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleVerificationContact(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/verification_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/workspaces/{wsID}/verification/contact", check(economy.LevelContact))',
+    subject: "lensVerificationContactBody",
+  },
+  {
+    route: "POST /v1/workspaces/{wsID}/verification/identity",
+    file: "apps/bff/verification.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleVerificationIdentity(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/verification_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/workspaces/{wsID}/verification/identity", check(economy.LevelIdentity))',
+    subject: "lensVerificationIdentityBody",
+  },
+  {
+    route: "POST /v1/workspaces/{wsID}/verification/company",
+    file: "apps/bff/verification.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleVerificationCompany(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/verification_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/workspaces/{wsID}/verification/company", check(economy.LevelCompany))',
+    subject: "lensVerificationCompanyBody",
+  },
 ];
 
 /**

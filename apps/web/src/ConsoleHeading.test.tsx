@@ -103,6 +103,7 @@ const PINNED: Readonly<Record<string, string>> = {
   '/operator': 'Operator',
   '/operator/tax': 'Tax',
   '/settings': 'Settings',
+  '/settings/verification': 'Verification',
   '/features': 'Features',
   '/features/try/tare': 'Try Tare',
   '/features/try/conversion': 'Try document conversion',

@@ -422,6 +422,13 @@ async function send<T>(method: string, path: string, body: object = {}, headers:
 
 const e = encodeURIComponent
 
+/** B30.116 — where each level's check is sent. */
+const VERIFY_PATH: Record<VerificationBody['kind'], string> = {
+  contact: '/api/verification/contact',
+  identity: '/api/verification/identity',
+  company: '/api/verification/company',
+}
+
 /** A fresh Idempotency-Key for one Fund or Take back, or one move into or out of a pot. */
 export function newMoveKey(): string {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -568,6 +575,10 @@ export const agentBankApi = {
   subscribePush: (sub: PushSubscriptionBody) => send<{ endpoint: string }>('POST', '/api/agents/push/subscriptions', sub),
   // B22.10 — money between owners (Lens B22.1, B22.3, B22.4, B22.5).
   capabilities: () => getJSON<{ capabilities: WalletCapability[] | null }>('/api/wallets/capabilities', { capabilities: 'list' }),
+  // B30.116 — the owner's verification levels (Lens B30.4).
+  verification: () =>
+    getJSON<WorkspaceVerification>('/api/verification', { level: 'string', live_level: 'string', checks: 'list' }),
+  verify: ({ kind, ...body }: VerificationBody) => send<VerificationAnswer>('POST', VERIFY_PATH[kind], body),
   address: (address: string) => getJSON<WalletAddress>(`/api/wallets/address/${e(address)}`, { wallet_id: 'string', name: 'string' }),
   setHandle: (id: string, handle: string) => send<WalletAddress>('PUT', `/api/agents/${e(id)}/handle`, { handle }),
   send: (id: string, to: string, amount_ulxc: number, memo: string) =>
@@ -727,7 +738,48 @@ export interface WalletCapability {
   class: 'GREEN' | 'AMBER' | 'RED'
   real_money: boolean
   clearance?: { by: string; reference: string; at: string }
+  /** B30.4: the verification level its live money needs, "L0" to "L3". */
+  level_needed?: string
 }
+
+/** Lens economy.VerificationCheck (B30.4): one check, as the provider that made it answered. */
+export interface VerificationCheck {
+  level: string
+  subject: string
+  /** The provider that checked. */
+  method: string
+  /** Checked by the Test provider: it counts for test money only. */
+  test: boolean
+  status: 'pending' | 'completed' | 'failed' | 'returned'
+  evidence_ref: string
+  verified_name?: string
+  country?: string
+  company_number?: string
+  detail?: string
+  started_at: string
+  checked_at: string
+}
+
+/** Lens economy.WorkspaceVerification (B30.4): the level the checks reach, the level live money is judged by, every check. */
+export interface WorkspaceVerification {
+  level: string
+  meaning: string
+  live_level: string
+  live_meaning: string
+  checks: VerificationCheck[] | null
+}
+
+/** What a check answers: the check, and the record after it. */
+export interface VerificationAnswer {
+  check: VerificationCheck
+  verification: WorkspaceVerification
+}
+
+/** What each level's check is asked to confirm (Lens economy.VerificationRequest). */
+export type VerificationBody =
+  | { kind: 'contact'; email: string; phone: string }
+  | { kind: 'identity'; name: string; country: string; date_of_birth: string }
+  | { kind: 'company'; name: string; country: string; company_number: string; directors: string[]; people_with_significant_control: string[] }
 
 /** Lens economy.WalletAddress (B22.3): what a wallet ID or @handle is. */
 export interface WalletAddress {

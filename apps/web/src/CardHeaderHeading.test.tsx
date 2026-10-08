@@ -169,6 +169,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/operator/tax': 0,
   // 2 → 3 at B27.27: "Your provider keys".
   '/settings': 3,
+  // B30.116 — your level, the next check, the checks, and one card per level the capabilities need (L0, L2, L3).
+  '/settings/verification': 6,
   '/features': 0,
   '/features/try/tare': 0,
   '/features/try/conversion': 0,

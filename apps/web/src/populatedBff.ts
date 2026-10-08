@@ -393,14 +393,26 @@ const BY_PATH: Record<string, unknown> = {
   // and a loan being repaid.
   '/api/wallets/capabilities': {
     capabilities: [
-      { capability: 'spend_on_talyvor', name: 'Spending on Talyvor', class: 'GREEN', real_money: true },
-      { capability: 'pay_another_owner', name: 'Sending and requesting money between different owners', class: 'AMBER', real_money: false },
-      { capability: 'company_credit_line', name: 'Talyvor’s credit line to companies, for Talyvor services', class: 'GREEN', real_money: true },
-      { capability: 'loans_between_companies', name: 'Loans between companies', class: 'AMBER', real_money: false },
-      { capability: 'rules_approvals_statements_pots', name: 'Rules, approvals, statements and pots', class: 'GREEN', real_money: true },
-      { capability: 'escrow', name: 'Escrow between agents', class: 'AMBER', real_money: false },
-      { capability: 'cash_out', name: 'Cashing credits out as money', class: 'RED', real_money: false },
-      { capability: 'invest_and_trade', name: 'Investing and trading real assets', class: 'RED', real_money: false },
+      { capability: 'spend_on_talyvor', name: 'Spending on Talyvor', class: 'GREEN', real_money: true, level_needed: 'L0' },
+      { capability: 'pay_another_owner', name: 'Sending and requesting money between different owners', class: 'AMBER', real_money: false, level_needed: 'L2' },
+      { capability: 'company_credit_line', name: 'Talyvor’s credit line to companies, for Talyvor services', class: 'GREEN', real_money: true, level_needed: 'L0' },
+      { capability: 'loans_between_companies', name: 'Loans between companies', class: 'AMBER', real_money: false, level_needed: 'L3' },
+      { capability: 'rules_approvals_statements_pots', name: 'Rules, approvals, statements and pots', class: 'GREEN', real_money: true, level_needed: 'L0' },
+      { capability: 'escrow', name: 'Escrow between agents', class: 'AMBER', real_money: false, level_needed: 'L2' },
+      { capability: 'cash_out', name: 'Cashing credits out as money', class: 'RED', real_money: false, level_needed: 'L2' },
+      { capability: 'invest_and_trade', name: 'Investing and trading real assets', class: 'RED', real_money: false, level_needed: 'L2' },
+    ],
+  },
+  // B30.116 — the owner's verification: L2 on the Test provider's checks, so the live level is still L0.
+  '/api/verification': {
+    workspace_id: 'ws-1',
+    level: 'L2',
+    meaning: 'identity checked',
+    live_level: 'L0',
+    live_meaning: 'signed in',
+    checks: [
+      { level: 'L2', subject: 'person', method: 'test', test: true, status: 'completed', evidence_ref: 'kyc_test_8f2c41d07a', verified_name: 'Ada Owner', country: 'GB', started_at: '2026-10-08T09:12:00Z', checked_at: '2026-10-08T09:12:00Z' },
+      { level: 'L1', subject: 'contact', method: 'test', test: true, status: 'completed', evidence_ref: 'kyc_test_31be09c5d2', started_at: '2026-10-08T09:10:00Z', checked_at: '2026-10-08T09:10:00Z' },
     ],
   },
   '/api/agents/agt_research/transfers': {

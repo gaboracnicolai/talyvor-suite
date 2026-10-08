@@ -57,6 +57,7 @@ import { buyerTaxProfile } from './taxProfile.ts'
 import { marketBillTax } from './billTax.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
+import { verificationScreen } from './verificationScreen.ts'
 import { lineage } from './lineage.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
@@ -4441,6 +4442,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // email and phone make L1 and identity L2, each a Test check with its evidence reference and the live level still L0;
   // the record holds both checks; payments_out needs L2 and b2b_credit L3.
   if (i === 5) list.push(verificationLevels())
+  // B30.116 — the Verification screen, once a run, in the browser on a workspace of its own: L1 then L2 from its forms on
+  // the Test provider, then L2 shown with the live level L0, both checks marked Test, payments_out at L2 and b2b_credit at L3.
+  if (i === 7) list.push(verificationScreen())
   // B32.65 — lineage and licences, once a run, on workspaces of its own: A at a 20% royalty is remixed into B at 10% and B
   // into C, each under its remix licence; C rented and used twice is one line on its buyer's bill; the paid rent splits
   // Talyvor's fee, C, B and A in the design's proportions on each author's earnings and journal, and its refund reverses all four.

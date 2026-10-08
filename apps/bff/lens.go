@@ -433,6 +433,11 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/wallets/loans/{lid}/accept", a.requireTenant(a.handleLoanAction("accept")))
 	a.mux.HandleFunc("/api/wallets/loans/{lid}/decline", a.requireTenant(a.handleLoanAction("decline")))
 	a.mux.HandleFunc("/api/wallets/loans/{lid}/withdraw", a.requireTenant(a.handleLoanAction("withdraw")))
+	// B30.116 — the owner's verification levels: the record, and each level's check. See verification.go.
+	a.mux.HandleFunc("/api/verification", a.requireTenant(a.handleVerification))
+	a.mux.HandleFunc("/api/verification/contact", a.requireTenant(a.handleVerificationContact))
+	a.mux.HandleFunc("/api/verification/identity", a.requireTenant(a.handleVerificationIdentity))
+	a.mux.HandleFunc("/api/verification/company", a.requireTenant(a.handleVerificationCompany))
 	// B22.12 — escrow, pots, simulated investing and cash-out. See wallet_holdings.go.
 	a.mux.HandleFunc("/api/agents/{id}/escrows", a.requireTenant(a.handleAgentEscrow))
 	a.mux.HandleFunc("/api/wallets/escrows", a.requireTenant(a.handleEscrows))

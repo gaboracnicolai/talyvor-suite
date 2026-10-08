@@ -57,6 +57,7 @@ import { PublicBoard } from './areas/board/PublicBoard'
 import { SharedChat } from './areas/share/SharedChat'
 import { DocsArea } from './areas/docs/DocsArea'
 import { OperatorTax } from './areas/lens/OperatorTax'
+import { VerificationScreen } from './areas/lens/Verification'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
@@ -259,6 +260,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/spend', title: 'Spend & routing', element: <Spend /> },
   { path: '/members', title: 'Members', element: <Members /> },
   { path: '/settings', title: 'Settings', element: <Settings /> },
+  // B30.116 — the owner's verification level, each check, and the level each capability needs for live money.
+  { path: '/settings/verification', title: 'Verification', element: <VerificationScreen /> },
   // B8.2 — every capability, what it does and costs, whether it is on, and its switch.
   { path: '/features', title: 'Features', element: <Features /> },
   // B11.3 — run Tare or document conversion on your own input: no model call, no charge.
@@ -481,6 +484,7 @@ function Sidebar() {
       <Group label="Settings" {...fold.group('Settings')}>
         {item('/settings', 'Settings', 'settings')}
         {item('/members', 'Members', 'members')}
+        {item('/settings/verification', 'Verification', 'prove')}
       </Group>
       {/* B18.25 — offered only to someone the BFF's operator gate will admit. */}
       {me.data?.operator ? (
