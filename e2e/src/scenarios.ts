@@ -54,6 +54,7 @@ import { roomAgentMCP } from './roomAgentMCP.ts'
 import { taxAndPayouts } from './taxPayouts.ts'
 import { marketTrust } from './marketTrust.ts'
 import { buyerTaxProfile } from './taxProfile.ts'
+import { marketBillTax } from './billTax.ts'
 import { verificationLevels } from './verification.ts'
 import { lineage } from './lineage.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
@@ -4443,6 +4444,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // into C, each under its remix licence; C rented and used twice is one line on its buyer's bill; the paid rent splits
   // Talyvor's fee, C, B and A in the design's proportions on each author's earnings and journal, and its refund reverses all four.
   if (i === 2) list.push(lineage(i))
+  // B32.93 — a marketplace bill's tax, once a run, on workspaces of its own: a GB consumer's per-use buy is taxed at 20% and a DE
+  // business's reverse charged at 0, each bill's gross its net plus its tax, and the paid GB use's clear entry takes its tax to tax:GB.
+  if (i === 1) list.push(marketBillTax(i))
   return list
 }
 
