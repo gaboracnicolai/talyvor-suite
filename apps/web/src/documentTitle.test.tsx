@@ -135,6 +135,7 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/chat/compare': 'Compare models',
   '/chat/instructions': 'Custom instructions',
   '/chat/prompts': 'Prompt library',
+  '/chat/scheduled': 'Scheduled prompts',
   '/chat/memory': 'Memory',
   '/chat/connectors': 'Connectors',
   '/rooms/*': 'Rooms',

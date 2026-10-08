@@ -91,6 +91,25 @@ const SECTIONS: { heading: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    // B28.377 — ScheduledPrompt.tsx reads the command; Lens asks the prompt at its time on the agent's wallet.
+    heading: 'Scheduling a prompt',
+    body: (
+      <>
+        <p>
+          Type <span className="font-mono">/schedule</span>, the agent&rsquo;s name, a colon and what to ask — for example{' '}
+          <span className="font-mono">/schedule Researcher: summarise what my agents spent yesterday</span>. A card opens with
+          the agent, the prompt, the time and how often: once, every day or every week.
+        </p>
+        <p>
+          At that time the conversation&rsquo;s model is asked on the agent&rsquo;s own wallet: Lens judges it by the
+          agent&rsquo;s rules first and charges it to the agent, so what it cost is a line on the agent&rsquo;s statement.
+          Talyvor keeps the prompt and its answers so it runs while Chat is closed; every answer, and a Stop button for one
+          that repeats, is under <Link className={inlineLink} to="/chat/scheduled">Scheduled prompts</Link>.
+        </p>
+      </>
+    ),
+  },
+  {
     // B28.360 — CardFreeze.tsx reads the command; Lens refuses every purchase on a frozen card.
     heading: 'Freezing an agent’s card',
     body: (

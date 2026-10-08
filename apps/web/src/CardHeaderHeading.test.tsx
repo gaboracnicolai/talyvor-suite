@@ -133,6 +133,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/chat/instructions': 0,
   // B28.370 — the prompt cards are list items in a bordered box, no Card.
   '/chat/prompts': 0,
+  '/chat/scheduled': 0,
   // B28.371 — memory: a bordered box and a list, no Card on the page (the card in Chat is Chat's).
   '/chat/memory': 0,
   '/chat/connectors': 0,

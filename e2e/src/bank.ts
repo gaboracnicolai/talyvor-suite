@@ -2671,6 +2671,169 @@ export function chatAgentTask(seed: number): Scenario {
 }
 
 /**
+ * B28.377 (for B28.125) — a prompt scheduled from Chat is answered at the time set, on the paying agent's own wallet.
+ * `/schedule <agent>: <a sum>` typed in Chat opens a card, not a question. Scheduled for a whole minute at least 45
+ * seconds ahead, nothing is asked and nothing charged before then; at that time the card shows the model's answer and
+ * what the agent's wallet paid, linked to its statement line. Lens's ledger, not the card, is the proof: one run,
+ * answered no earlier than the time set, whose charge is exactly the agent's new statement lines and out of its balance,
+ * on the line the run names — while the workspace's own balance and its plan's allowance do not move.
+ */
+export function chatScheduledPrompt(seed: number): Scenario {
+  const funded = 2e6
+  return {
+    id: 'chat-scheduled-prompt',
+    // What it checks — asked at the time set, charged on the agent's statement — is Lens's tick and ledger (B35.9).
+    owner: 'talyvor-lens',
+    items: ['B28.125', 'B28.377'],
+    agents: 1,
+    title: 'a prompt scheduled from Chat with /schedule is answered at the time set, and what it cost is a line on the paying agent’s statement',
+    run: (ctx) =>
+      withBank(ctx, async (bank) => {
+        const { env, app } = ctx
+        const agent = await openAgent(ctx, bank, `Scheduler ${seed}`)
+        if (typeof agent === 'string') return fail(agent)
+        const err = await bank.move(agent, funded, 'Fund')
+        if (err !== undefined) return fail(`funding ${agent.name} was refused: ${err}`)
+        const lines0 = await env.lens.agentLines(app.user, agent.id)
+        const book0 = await bookOf(ctx)
+        const plan0 = await env.lens.allowance(app.user)
+        const fresh = (lines: AgentLine[]) => lines.filter((l) => !lines0.some((o) => o.entry_id === l.entry_id && o.kind === l.kind))
+
+        // A sum nobody has asked, so the model works it out and nothing is replayed.
+        const { q, want } = sum(seeded(seed * 7919 + Date.now()))
+        const command = `/schedule ${agent.name}: ${q}`
+        const page = app.page
+        const viewport = page.viewportSize()
+        // The time set: a whole minute at least 45 seconds away, typed as the browser's own zone reads it.
+        const at = Math.ceil((Date.now() + 45_000) / 60_000) * 60_000
+        const typed = await page.evaluate((ms) => {
+          const d = new Date(ms)
+          const p = (n: number) => String(n).padStart(2, '0')
+          return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+        }, at)
+        // Lens's tick may run it up to a minute after the time; and a little clock difference either way is not early.
+        const SKEW_MS = 5_000
+        const LATE_MS = 3 * 60_000
+        await app.newChat()
+        const card = page.getByTestId('chat-schedule').filter({ hasText: command })
+        let answer = ''
+        let said = ''
+        let href: string | null = null
+        let shownAt = 0
+        let charged: number | undefined
+        try {
+          await page.locator('#chat-message').fill(command)
+          await page.locator('#chat-message').press('Enter')
+          try {
+            await card.waitFor({ timeout: ACTION_TIMEOUT_MS })
+          } catch {
+            return fail(`"${command}" opened no schedule card in Chat`)
+          }
+          if ((await page.getByTestId('turn-user').count()) > 0) return fail('the /schedule command was asked of the model there and then, on the conversation’s account')
+          // The agent was made on Agent Wallets a moment ago: the card names it once its read of the agents holds it.
+          const picked = await card.getByLabel('Agent').locator(`option[value="${agent.id}"]`).waitFor({ state: 'attached', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+          if (!picked || (await card.getByLabel('Agent').inputValue()) !== agent.id) return fail(`the card did not read ${agent.name} from "${command}"`)
+          if ((await card.getByLabel('The prompt').inputValue()) !== q) return fail(`the card read the prompt from "${command}" as "${await card.getByLabel('The prompt').inputValue()}"`)
+          await card.getByLabel('When').fill(typed)
+          await card.getByLabel('How often').selectOption('once')
+          const terms = (await card.getByTestId('chat-schedule-terms').innerText()).trim()
+          const model = env.catalog.find((m) => terms.startsWith(`At the time set, ${m.display_name} is asked on `))
+          if (model === undefined) return fail(`the card names no model of the catalog: "${terms}"`)
+          // The run's worst case is held against the run's cap until Lens's ledger says what it cost.
+          const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(q.length), 4096))
+          try {
+            await card.getByRole('button', { name: 'Schedule it', exact: true }).click()
+            const refused = await outcome(card.getByTestId('chat-schedule-waiting'), card)
+            if (refused !== undefined) return fail(`scheduling "${q}" on ${agent.name}'s wallet was refused: ${refused}`)
+
+            // Before the time set: Lens holds the schedule, has asked nothing and charged nothing.
+            const pending = (await env.lens.promptSchedules(app.user)).find((s) => s.prompt === q)
+            if (pending === undefined) return fail(`Chat said the prompt was scheduled, but Lens lists no schedule for "${q}"`)
+            if (pending.agent_id !== agent.id) return fail(`the prompt was scheduled on ${agent.name}'s wallet, but Lens holds it for ${pending.agent_id}`)
+            if (Date.now() < at - SKEW_MS && ((pending.runs ?? []).length > 0 || fresh(await env.lens.agentLines(app.user, agent.id)).length > 0)) {
+              return fail(`the prompt was set for ${new Date(at).toISOString()}, yet at ${new Date().toISOString()} it had already run (${JSON.stringify(pending.runs)}) — a scheduled prompt waits for its time`)
+            }
+
+            // At the time set: the answer arrives in the card, with what the agent's wallet paid.
+            const done = card.getByTestId('chat-schedule-done')
+            try {
+              await done.waitFor({ timeout: at - Date.now() + LATE_MS })
+            } catch {
+              return fail(`the prompt was set for ${new Date(at).toISOString()}; by ${new Date().toISOString()} no answer had appeared in Chat: "${(await card.innerText()).trim()}"`)
+            }
+            shownAt = Date.now()
+            const billed = card.getByTestId('scheduled-run-billed')
+            if ((await card.getByTestId('scheduled-run-refused').count()) > 0) return fail(`the scheduled prompt was refused: ${(await card.getByTestId('scheduled-run-refused').innerText()).trim()}`)
+            answer = (await card.getByTestId('scheduled-run-answer').innerText()).trim()
+            said = (await billed.innerText()).trim()
+            href = await billed.getByRole('link').getAttribute('href').catch(() => null)
+            charged = -fresh(await env.lens.agentLines(app.user, agent.id)).filter((l) => l.kind !== 'platform_fee').reduce((t, l) => t + l.amount_ulxc, 0)
+          } finally {
+            // A run that failed may still have reached the provider: it is counted at its worst.
+            env.cap.settle(hold, charged === undefined ? undefined : (charged / 1e6) * env.usdPerLXC)
+            // One served call, as every charged answer is, for the ledger read-back.
+            if (charged !== undefined && charged > 0) env.book.add(app.user.workspaceID, charged)
+          }
+          await mkdir(env.outDir, { recursive: true })
+          for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+            await page.setViewportSize({ width, height })
+            await card.scrollIntoViewIfNeeded()
+            const shot = join(env.outDir, `chat-scheduled-prompt-${width}px-user${app.user.index}.png`)
+            await page.screenshot({ path: shot })
+            ctx.evidence.push({ note: `the answered schedule card at ${width}px: ${shot}` })
+          }
+        } finally {
+          if (viewport !== null) await page.setViewportSize(viewport)
+          await card.getByRole('button', { name: 'Close' }).click().catch(() => {})
+        }
+
+        // The ledger, not the card: one run at its time, its charge the agent's new statement lines, out of its balance.
+        const schedule = (await env.lens.promptSchedules(app.user)).find((s) => s.prompt === q)
+        const runs = schedule?.runs ?? []
+        const lines1 = await env.lens.agentLines(app.user, agent.id)
+        const book1 = await bookOf(ctx)
+        const plan1 = await env.lens.allowance(app.user)
+        const added = fresh(lines1)
+        const net = added.reduce((t, l) => t + l.amount_ulxc, 0)
+        const held = agentIn(book1, agent.id)?.balance_ulxc
+        const run = runs[0]
+        ctx.evidence.push({
+          note: `set for ${new Date(at).toISOString()}; Lens ran it at ${run?.ran_at}, Chat showed it at ${new Date(shownAt).toISOString()}; Chat said "${said}" linking ${href}; ${agent.name}'s new lines: ${added.map((l) => `${l.kind} ${l.amount_ulxc} ${l.entry_id}`).join(', ') || 'none'}; it holds ${held} µLXC`,
+          question: q,
+          answer,
+        })
+        if (runs.length !== 1 || run === undefined) return fail(`a prompt scheduled once ran ${runs.length} times: ${JSON.stringify(runs)}`)
+        if (run.outcome !== 'answered') return fail(`the scheduled prompt was not answered: ${run.outcome} — ${run.detail ?? ''}`)
+        if (Date.parse(run.ran_at) < at - SKEW_MS || shownAt < at - SKEW_MS) {
+          return fail(`the prompt was set for ${new Date(at).toISOString()}, but Lens asked it at ${run.ran_at} and Chat showed it at ${new Date(shownAt).toISOString()} — before its time`)
+        }
+        if (answer === '') return fail('the scheduled prompt was answered, but the card shows no answer')
+        if (!statesNumber(answer, want)) ctx.evidence.push({ note: `the model's answer does not state ${want}; the prompt still ran on ${agent.name}'s wallet` })
+        if (!added.some((l) => l.kind === 'spend' && l.entry_id === run.entry_id) || net >= 0) {
+          return fail(`the scheduled prompt was answered, but its charge is not on ${agent.name}'s statement: the run names line ${run.entry_id ?? '(none)'}, the new lines are ${JSON.stringify(added)} — a scheduled prompt is billed to the paying agent's wallet (B28.125)`)
+        }
+        if (run.charged_ulxc !== -net) return fail(`the run says it took ${run.charged_ulxc} µLXC from ${agent.name}; its statement's new lines come to ${-net}`)
+        if (held !== funded + net || held !== lines1[0].balance_after_ulxc) {
+          return fail(`${agent.name} was funded ${funded} and charged ${-net} µLXC for the scheduled prompt; Lens's book says it holds ${held}, its statement ends at ${lines1[0].balance_after_ulxc}`)
+        }
+        if (book1.unallocated_ulxc !== book0.unallocated_ulxc) {
+          return fail(`${agent.name} paid for the scheduled prompt, yet the workspace's own balance moved: ${book0.unallocated_ulxc} → ${book1.unallocated_ulxc} µLXC`)
+        }
+        if (plan0.ok && plan1.ok && plan0.value !== null && plan1.value !== null && plan1.value.consumed_ulxc !== plan0.value.consumed_ulxc) {
+          return fail(`${agent.name} paid for the scheduled prompt, yet the workspace's plan allowance was drawn: ${plan0.value.consumed_ulxc} → ${plan1.value.consumed_ulxc} µLXC used`)
+        }
+        if (!said.includes(lxcText(-net))) return fail(`Lens charged ${agent.name} ${-net} µLXC for the scheduled prompt; the card says "${said}"`)
+        const line = `/agents?${new URLSearchParams({ agent: agent.id, entry: run.entry_id ?? '' }).toString()}`
+        if (href !== line) return fail(`the card links the charge to ${href}, not its statement line ${line}`)
+        return {
+          pass: true,
+          detail: `"/schedule ${agent.name}: …" set for ${new Date(at).toISOString()} was asked at ${run.ran_at} and shown in Chat at ${new Date(shownAt).toISOString()}; ${-net} µLXC on ${agent.name}'s statement (${added.map((l) => l.kind).join(', ')}), it holds ${held}; the workspace's own ${book1.unallocated_ulxc} µLXC did not move`,
+        }
+      }),
+  }
+}
+
+/**
  * B28.360 (for B28.97) — an agent's card frozen from Chat refuses a purchase. `/freeze <agent>` typed in Chat opens a
  * card, not a question; frozen there, Lens reads the card back frozen and a purchase on it is declined, with nothing
  * leaving the agent — its balance and its statement unmoved. `/unfreeze <agent>` lets purchases through again: the
