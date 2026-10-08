@@ -90,7 +90,7 @@ import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
 import { DOC_CAP, auditWebhook, docxDocument, nodesAvailable, nodesRoute } from './stub-guards.ts'
-import { roomListingRoute, roomsModeratorRoute, roomsRoute } from './stub-rooms.ts'
+import { roomListingRoute, roomsModeratorRoute, roomsRoute, setRoomWallets } from './stub-rooms.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -551,6 +551,8 @@ const bank = new Bank({ brk: BREAK, workspace: (id) => workspaces.get(id), runMo
     if (ws !== undefined) book(ws, ulxc, type, description, metadata)
   } })
 setInterval(() => bank.tick(), 2000)
+// B32.85 — a room's wallet is an agent of its owner's in the Bank: funded, listed and posted as any agent (stub-rooms.ts).
+setRoomWallets({ open: (ws, agentID, name) => bank.openRoomWallet(ws, agentID, name), balance: (agentID) => bank.agentBalance(agentID) })
 
 /**
  * B28.377 — talyvor-lens B28.125's prompt schedules (apps/bff/prompt_schedules.go holds the contract): a prompt asked at

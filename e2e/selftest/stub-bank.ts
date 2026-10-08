@@ -141,6 +141,8 @@ interface Agent {
   id: string; ws: string; name: string; owner_user_id: string; created_at: string; keys: string[]; paused_at?: string; paused_reason?: string; rules: Rules; description?: string; archived_at?: string; versions?: RulesVersion[]; boosts?: Boost[]
   /** B34.4 — its address besides its wallet ID, and its automatic top-up */
   handle?: string; topup?: { below_ulxc: number; to_ulxc: number }
+  /** B32.85 — room for a room's wallet (Lens B32.32): one key nobody holds, and not counted toward the plan's agents. */
+  kind?: 'room'
 }
 /** B28.32 — Lens B28.308's agent_rule_boosts: one of the agent's limits raised from the rules' value until a time. */
 interface Boost { rule: BoostRule; raised_from: number; value: number; until: string; created_by: string; created_at: string }
@@ -370,7 +372,7 @@ export class Bank {
       pots_ulxc: this.pots.filter((p) => p.agent_id === a.id).reduce((s, p) => s + this.balance(`pot:${p.id}`), 0),
       spent_ulxc: this.postings.filter((p) => p.account === `agent:${a.id}` && (p.kind === 'spend' || p.kind === 'platform_fee')).reduce((s, p) => s - p.amount_ulxc, 0),
       keys: a.keys, created_at: a.created_at, paused_at: a.paused_at, paused_reason: a.paused_reason, owner_user_id: a.owner_user_id, verified: false,
-      description: a.description ?? '', archived_at: a.archived_at,
+      description: a.description ?? '', archived_at: a.archived_at, kind: a.kind ?? 'agent',
     }))
     const allocated = agents.reduce((s, a) => s + a.balance_ulxc + a.pots_ulxc, 0)
     const paused = this.allPaused.get(ws.id)
@@ -498,9 +500,19 @@ export class Bank {
     return a?.ws === wsID && a.archived_at === undefined ? a : undefined
   }
 
-  /** B32.12 — the workspace's agents a plan counts: every one not archived. */
+  /** B32.12 — the workspace's agents a plan counts: every one not archived. B32.85 — a room's wallet is not counted. */
   activeAgents(ws: string): number {
-    return [...this.agents.values()].filter((a) => a.ws === ws && a.archived_at === undefined).length
+    return [...this.agents.values()].filter((a) => a.ws === ws && a.archived_at === undefined && a.kind !== 'room').length
+  }
+
+  /** B32.85 — a room's wallet, opened with its room (Lens B32.32): an agent of kind room with one key whose plaintext nobody keeps. */
+  openRoomWallet(ws: string, agentID: string, name: string): void {
+    this.agents.set(agentID, { id: agentID, ws, name, owner_user_id: ws, created_at: new Date().toISOString(), keys: [id('key_')], rules: noRules(), kind: 'room' })
+  }
+
+  /** B32.85 — what one agent holds, as its postings sum. */
+  agentBalance(agentID: string): number {
+    return this.balance(`agent:${agentID}`)
   }
 
   private statement(ws: string, agentID: string | undefined, url: URL): object | string {

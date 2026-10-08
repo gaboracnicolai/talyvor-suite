@@ -59,6 +59,8 @@ export interface Agent {
   paused_at?: string
   /** B28.359 — the ids of every key it was issued, revoked ones too */
   keys?: string[]
+  /** B32.85 — agent, or room for a room's wallet (Lens B32.32) */
+  kind?: string
 }
 
 /** B28.377 — a prompt scheduled from Chat, as talyvor-lens B28.125 lists it (apps/bff/prompt_schedules.go). */
@@ -550,8 +552,11 @@ export interface LensRoomDetail extends LensRoom {
   me: { workspace_id: string; role: string } | null
   /** B32.52 — a public room reported by LENS_ROOM_REPORTS_HIDE workspaces, off the public list until the operator reviews it. */
   under_review?: boolean
-  /** B32.32 — the room's wallet: an agent of the owner's whose monthly limit is the room's budget; -1 is unlimited. */
-  wallet?: { agent_id: string; name: string; monthly_limit_ulxc: number; budget_max_ulxc: number }
+  /**
+   * B32.32 — the room's wallet: an agent of the owner's whose monthly limit is the room's budget; -1 is unlimited. B32.85 —
+   * what it holds, its spend policy, and whether the caller may spend it, with why not.
+   */
+  wallet?: { agent_id: string; name: string; balance_ulxc: number; monthly_limit_ulxc: number; budget_max_ulxc: number; spend_policy: string; may_spend: boolean; why_not?: string }
 }
 
 /** B32.55 — Lens rooms.Invite as the room's owner reads it: never a link's token. */
