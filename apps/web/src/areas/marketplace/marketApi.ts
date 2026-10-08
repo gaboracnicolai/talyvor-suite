@@ -68,6 +68,24 @@ export interface Listing {
   review_reason?: string;
   /** B32.18 — how it is sold: per use, outright, rented or by subscription, each under a licence. */
   offers?: Offer[] | null;
+  /** B32.51 — how its offers' prices in the buyer's currency are charged: in US dollars, on the monthly bill. */
+  price_note?: string;
+  /** B32.24 — whether others may build on it: not at all, freely, or for a share of each remix's sales. */
+  remix_policy?: "none" | "free" | "royalty";
+  remix_share_bps?: number;
+}
+
+/** Lens market.Display (B32.51) — an offer's price in the buyer's currency. The charge is still its US-dollar price. */
+export interface PriceDisplay {
+  currency: string;
+  /** rounded half-up to the currency's minor unit */
+  amount_minor: number;
+  includes_tax: boolean;
+  /** "incl. VAT", "+ VAT", or none */
+  tax_label?: string;
+  rate: string;
+  rate_date?: string;
+  source: string;
 }
 
 /** Lens market.Offer (B32.18). Prices are integer µUSD. */
@@ -79,7 +97,12 @@ export interface Offer {
   period_days?: number;
   included_uses?: number;
   seats?: number;
+  /** B32.21 — a per_use offer's free trial uses for each buyer */
+  trial_uses?: number;
+  /** what the licence allows, in Lens's words */
   terms?: string;
+  /** B32.51 — the price in the buyer's currency, on a read */
+  display?: PriceDisplay;
 }
 
 /** The reasons Lens takes a report for (B20.4), as a person would say them. */
@@ -116,6 +139,8 @@ export interface ListingDraft {
 
 /** Lens market.UseRequest. */
 export interface UseRequest {
+  /** B32.57 — the version to run; 0 or none is the latest (a licence's pinned version, where one covers the use) */
+  version?: number;
   model: string;
   input: string;
   variables: Record<string, string>;
@@ -136,11 +161,68 @@ export interface ListingUse {
   version: number;
   kind: ListingKind;
   model: string;
-  charge: "billed" | "free" | "own" | "linked";
+  charge: "billed" | "free" | "own" | "linked" | "licensed" | "trial";
   price_ulxc: number;
   output?: string;
   cases?: CaseResult[];
   used_at: string;
+  /** B32.19 — the licence it ran under */
+  licence_id?: string;
+  /** B32.21 — a trial use: free, on test money, and what it would have cost had it been billed */
+  trial?: boolean;
+  trial_uses_left?: number;
+  would_have_cost_usd_micros?: number;
+}
+
+/** Lens market.Review (B32.49) — a paying buyer's review and the seller's reply. */
+export interface ListingReview {
+  id: string;
+  rating: number;
+  text: string;
+  reply?: string;
+  created_at: string;
+}
+
+/** Lens market.Ancestor (B32.24) — one edge up the family tree: a listing this one builds on, and its share. */
+export interface Ancestor {
+  listing_id: string;
+  version: number;
+  /** none when the viewer may not see that listing */
+  title?: string;
+  hidden?: boolean;
+  child_listing_id: string;
+  child_version: number;
+  share_bps: number;
+  source: string;
+  /** 1 a parent, 2 a grandparent, … */
+  depth: number;
+}
+
+/** Lens market.Trust (B32.49) — a listing's trust panel, for the version a buyer would run. */
+export interface ListingTrust {
+  listing_id: string;
+  version: number;
+  publisher: {
+    workspace_id: string;
+    verified: boolean;
+    payouts_enabled: boolean;
+    upheld_claims_12_months: number;
+    not_verified_because?: string[] | null;
+  };
+  /** only from buyers who paid and are not linked to the seller */
+  reviews: {
+    count: number;
+    average: number;
+    /** how many gave 1, 2, 3, 4 and 5 */
+    stars: number[];
+    recent: ListingReview[] | null;
+  };
+  /** null: no stored eval run of that version */
+  eval: { version: number; passed: number; cases: number; ran_at: string } | null;
+  claims: { open: number; upheld: number; attributed: number; rejected: number };
+  originals: Ancestor[] | null;
+  /** how many listings build on it, at any depth */
+  remixes: number;
 }
 
 /** Lens market.Earning — one cleared use's share. */
@@ -504,6 +586,19 @@ async function send<T>(path: string, init: RequestInit): Promise<T> {
 
 const e = encodeURIComponent;
 
+/** Licenses one of a listing's offers. Lens requires the Idempotency-Key, so a retried click never buys twice. */
+function license(listingID: string, offerID: string, version: number, key: string) {
+  return send<MarketLicence>(`/api/marketplace/listings/${e(listingID)}/licences`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      "Idempotency-Key": key,
+    },
+    body: JSON.stringify({ offer_id: offerID, version }),
+  });
+}
+
 export const marketApi = {
   catalog: async (kind: ListingKind | "") =>
     (
@@ -514,11 +609,21 @@ export const marketApi = {
         },
       )
     ).listings ?? [],
-  listing: (id: string) =>
-    getJSON<Listing>(`/api/marketplace/listings/${e(id)}`, {
-      id: "string",
-      title: "string",
-      price_per_use_ulxc: "number",
+  /** B32.57 — `currency` "" asks for the buyer's own: that of their tax-profile country. */
+  listing: (id: string, currency = "") =>
+    getJSON<Listing>(
+      `/api/marketplace/listings/${e(id)}${currency ? `?currency=${e(currency)}` : ""}`,
+      {
+        id: "string",
+        title: "string",
+        price_per_use_ulxc: "number",
+      },
+    ),
+  trust: (id: string) =>
+    getJSON<ListingTrust>(`/api/marketplace/listings/${e(id)}/trust`, {
+      publisher: "object",
+      reviews: "object",
+      remixes: "number",
     }),
   mine: async () =>
     (
@@ -555,16 +660,10 @@ export const marketApi = {
     offerID: string,
     version: number,
     key: string,
-  ) =>
-    send<MarketLicence>(`/api/marketplace/listings/${e(listingID)}/licences`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "Idempotency-Key": key,
-      },
-      body: JSON.stringify({ offer_id: offerID, version }),
-    }),
+  ) => license(listingID, offerID, version, key),
+  /** B32.57 — buys, rents or subscribes to one of a listing's offers; version 0 follows the latest, any other pins it. */
+  license: (listingID: string, offerID: string, version: number, key: string) =>
+    license(listingID, offerID, version, key),
   receipts: async () =>
     (
       await read<{ receipts: ReceiptSummary[] | null }>(
@@ -640,6 +739,13 @@ export const marketApi = {
 
 /** Where a receipt opens: Talyvor's page for it, from Lens. */
 export const receiptHref = (id: string) => `/api/marketplace/receipts/${e(id)}`;
+
+/** B32.57 — an offer's price in the buyer's currency, from its minor units: `£18.55`, `¥2,950`. */
+export function formatDisplay(d: PriceDisplay): string {
+  const f = new Intl.NumberFormat("en-GB", { style: "currency", currency: d.currency });
+  const digits = f.resolvedOptions().maximumFractionDigits ?? 2;
+  return f.format(d.amount_minor / 10 ** digits);
+}
 
 /** A listing's price, in words. */
 export function priceText(micros: number): string {

@@ -2,7 +2,16 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Button, CardHeader, Input, Pill, focusRing } from '@talyvor/ui'
 import { formatULXC } from '../lens/agentBankApi'
-import { type Listing, type ListingUse, marketApi, refusalText, variablesIn, variablesNamedIn } from './marketApi'
+import { formatUSD } from '../lens/format'
+import {
+  type Listing,
+  type ListingUse,
+  type MarketLicence,
+  marketApi,
+  refusalText,
+  variablesIn,
+  variablesNamedIn,
+} from './marketApi'
 import { Card, Note, selectClass, useRunnableModels } from './parts'
 
 // UseListing.tsx — B20.3: using a listing. Lens runs it as this workspace (B20.2): the models it calls
@@ -10,6 +19,10 @@ import { Card, Note, selectClass, useRunnableModels } from './parts'
 // never on its credits. The seller's own use, and a use by a workspace linked to the seller, cost
 // nothing. The listing page mounts this per listing (keyed by its id), so nothing typed for one
 // listing survives into the next.
+//
+// B32.57 — a use a licence covers (Lens B32.19) is charged 'licensed': nothing new goes on the bill. A per-use offer's
+// first uses may be free trials (B32.21): the button reads Try it, and a trial's answer is marked "Trial — test money,
+// not billed" with what it would have cost. The version to run is the latest unless the buyer picks another.
 
 const CHARGED: Record<ListingUse['charge'], (u: ListingUse) => React.ReactNode> = {
   billed: (u) => (
@@ -20,6 +33,24 @@ const CHARGED: Record<ListingUse['charge'], (u: ListingUse) => React.ReactNode> 
   free: () => 'This listing is free.',
   own: () => 'Your own listing: nothing was charged.',
   linked: () => 'Your workspace and the seller’s are linked, so nothing was charged and the seller earns nothing.',
+  licensed: () => 'Covered by your licence: nothing new goes on your bill.',
+  trial: (u) => (
+    <>
+      Trial — test money, not billed.
+      {u.would_have_cost_usd_micros ? (
+        <>
+          {' '}
+          Billed, it would have cost <span className="font-figure">{formatUSD(u.would_have_cost_usd_micros)}</span>.
+        </>
+      ) : null}
+      {u.trial_uses_left !== undefined ? (
+        <>
+          {' '}
+          Trial uses left: <span className="font-figure">{u.trial_uses_left}</span>.
+        </>
+      ) : null}
+    </>
+  ),
 }
 
 function UseResult({ u }: { u: ListingUse }) {
@@ -28,6 +59,11 @@ function UseResult({ u }: { u: ListingUse }) {
     <Card>
       <CardHeader>What it answered</CardHeader>
       <div className="flex flex-col gap-3 px-gutter py-3" data-testid="market-use-result">
+        {u.trial ? (
+          <span className="flex" data-testid="market-use-trial">
+            <Pill status="held">Trial — test money, not billed</Pill>
+          </span>
+        ) : null}
         {u.kind === 'evaluation' ? (
           <>
             <p className="text-body text-ink">
@@ -49,17 +85,20 @@ function UseResult({ u }: { u: ListingUse }) {
           <p className="whitespace-pre-wrap text-body text-ink">{u.output}</p>
         )}
         <p className="text-caption text-muted">
-          {u.model} · {CHARGED[u.charge](u)}
+          {u.model} · {CHARGED[u.charge]?.(u) ?? null}
         </p>
       </div>
     </Card>
   )
 }
 
-export function UseListing({ listing, own }: { listing: Listing; own: boolean }) {
+export function UseListing({ listing, own, held }: { listing: Listing; own: boolean; held?: MarketLicence }) {
   const { models, runnable } = useRunnableModels()
   const [model, setModel] = useState('')
   const [input, setInput] = useState('')
+  const [version, setVersion] = useState(0)
+  // What Lens said of this buyer's trial uses on their last use of it; unknown until they use it.
+  const [trialsLeft, setTrialsLeft] = useState<number | undefined>(undefined)
   // B20.8: Lens says what a use of the latest version needs — its input, a prompt's variables, the model
   // it runs on — to everyone who may use it. A Lens that does not say leaves the owner reading the
   // template and anyone else learning the variables from Lens's refusal of a use without them, which
@@ -72,7 +111,8 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
   )
   const [values, setValues] = useState<Record<string, string>>({})
   const use = useMutation({
-    mutationFn: () => marketApi.use(listing.id, { model, input, variables: values }),
+    mutationFn: () => marketApi.use(listing.id, { version, model, input, variables: values }),
+    onSuccess: (u) => setTrialsLeft(u.trial ? (u.trial_uses_left ?? 0) : 0),
     onError: (err) => {
       const named = variablesNamedIn(err)
       if (named.length > 0) setVars((v) => [...new Set([...v, ...named])])
@@ -84,12 +124,33 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
   const needsInput = needs ? needs.input : listing.kind === 'agent' || listing.kind === 'skill'
   // With no model of its own, the person must name one: Lens refuses a use that runs on nothing.
   const needsModel = needs !== undefined && needs.model === '' && model === ''
-  const paid = listing.price_per_use_ulxc > 0 && !own
+  const paid = listing.price_per_use_ulxc > 0 && !own && !held
+  const trialUses = listing.offers?.find((o) => o.kind === 'per_use' && (o.trial_uses ?? 0) > 0)?.trial_uses ?? 0
+  const trying = paid && trialUses > 0 && (trialsLeft === undefined || trialsLeft > 0)
+  const versions = [...(listing.versions ?? [])].reverse()
   return (
     <div className="flex flex-col gap-3">
       <p className="text-body text-muted">
         {own ? (
           'This is your own listing: using it charges nothing. The models it calls are billed as usual.'
+        ) : held ? (
+          <>
+            Your licence covers your uses of it
+            {held.included_uses ? (
+              <>
+                {' '}
+                — its first <span className="font-figure">{held.included_uses}</span>
+              </>
+            ) : null}
+            : nothing new goes on your bill. The models it calls are billed to you as usual.
+          </>
+        ) : trying ? (
+          <>
+            Your first <span className="font-figure">{trialUses}</span> uses of it are free trials: Trial — test money, not
+            billed. Once they are used, each use costs{' '}
+            <span className="font-figure">{formatULXC(listing.price_per_use_ulxc)}</span>, billed monthly on your card. The
+            models it calls are billed to you as usual.
+          </>
         ) : paid ? (
           <>
             Each use costs <span className="font-figure">{formatULXC(listing.price_per_use_ulxc)}</span>, billed monthly
@@ -134,6 +195,19 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
           </label>
         ))}
         <div className="flex flex-wrap items-end gap-3">
+          {versions.length > 1 ? (
+            <label className="text-caption text-muted">
+              Version
+              <select className={selectClass} value={version} onChange={(e) => setVersion(Number(e.target.value))}>
+                <option value={0}>{held ? 'Your licence’s version' : 'The latest'}</option>
+                {versions.map((v) => (
+                  <option key={v.version} value={v.version}>
+                    Version {v.version}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="text-caption text-muted">
             Model
             <select className={selectClass} value={model} onChange={(e) => setModel(e.target.value)}>
@@ -152,6 +226,8 @@ export function UseListing({ listing, own }: { listing: Listing; own: boolean })
               'Running…'
             ) : listing.kind === 'evaluation' ? (
               'Run the evaluation'
+            ) : trying ? (
+              'Try it'
             ) : paid ? (
               <>
                 Use it · <span className="font-figure">{formatULXC(listing.price_per_use_ulxc)}</span>

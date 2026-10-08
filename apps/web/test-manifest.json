@@ -124,6 +124,7 @@
   "src/areas/marketing/Landing.test.tsx": 11,
   "src/areas/marketing/Pricing.test.tsx": 6,
   "src/areas/marketplace/Licences.test.tsx": 3,
+  "src/areas/marketplace/ListingPage.test.tsx": 3,
   "src/areas/marketplace/Marketplace.test.tsx": 3,
   "src/areas/marketplace/MarketplaceBrand.test.tsx": 3,
   "src/areas/marketplace/ReportListing.test.tsx": 2,

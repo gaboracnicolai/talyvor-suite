@@ -18,7 +18,8 @@ import (
 //
 //	GET  /api/marketplace/listings?kind=           the public catalog, optionally one kind
 //	POST /api/marketplace/listings                 {kind, title, description, price_per_use_ulxc, visibility, artifact, changelog}
-//	GET  /api/marketplace/listings/{id}            a listing and its versions (artifacts for its owner only)
+//	GET  /api/marketplace/listings/{id}?currency=  a listing and its versions (artifacts for its owner only); B32.57: its offers priced in currency
+//	GET  /api/marketplace/listings/{id}/trust      B32.57: its trust panel — verified publisher, reviews, eval score, claims and its originals
 //	POST /api/marketplace/listings/{id}/use        {version, model, input, variables}
 //	GET  /api/marketplace/mine                     this workspace's own listings, whatever their visibility
 //	GET  /api/marketplace/earnings                 the seller's pending, payable, in holdback and available
@@ -143,7 +144,11 @@ func (a *app) handleMarketListings(w http.ResponseWriter, r *http.Request, t ten
 	}
 }
 
-// handleMarketListing — GET /api/marketplace/listings/{id}.
+// displayCurrency is the one shape Lens reads ?currency= in: a three-letter ISO 4217 code.
+var displayCurrency = regexp.MustCompile(`^[A-Za-z]{3}$`)
+
+// handleMarketListing — GET /api/marketplace/listings/{id}?currency=: B32.57, the listing page asks for its offers in
+// the currency the buyer picked; without one Lens prices them in the currency of the buyer's tax-profile country (B32.51).
 func (a *app) handleMarketListing(w http.ResponseWriter, r *http.Request, t tenant) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
@@ -153,7 +158,30 @@ func (a *app) handleMarketListing(w http.ResponseWriter, r *http.Request, t tena
 	if !ok {
 		return
 	}
-	a.marketRelay(w, r, a.client, t.token, http.MethodGet, "/v1/marketplace/listings/"+url.PathEscape(id), nil, "")
+	path := "/v1/marketplace/listings/" + url.PathEscape(id)
+	if c := r.URL.Query().Get("currency"); c != "" {
+		if !displayCurrency.MatchString(c) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "currency must be a three-letter code, such as GBP"})
+			return
+		}
+		path += "?currency=" + c
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+}
+
+// handleMarketTrust — GET /api/marketplace/listings/{id}/trust (B32.57, Lens B32.49): the listing page's trust panel
+// and family tree, in one read — whether the publisher is verified, the reviews of paying buyers, the eval score, the
+// IP claims against it, the originals it builds on with their shares, and how many remixes build on it.
+func (a *app) handleMarketTrust(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	id, ok := pathID(w, "listing id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, "/v1/marketplace/listings/"+url.PathEscape(id)+"/trust", nil, "")
 }
 
 // handleMarketUse — POST /api/marketplace/listings/{id}/use runs the listing for this workspace.

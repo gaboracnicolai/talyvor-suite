@@ -67,6 +67,10 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/bill"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"month": r.URL.Query().Get("month"), "total_ulxc": 500000, "total_usd_micros": 50000, "lines": []any{}})
+		case r.URL.Path == "/v1/marketplace/listings/lst_1/trust":
+			_ = json.NewEncoder(w).Encode(map[string]any{"listing_id": "lst_1", "publisher": map[string]any{"verified": true}, "remixes": 3})
+		case r.URL.Path == "/v1/marketplace/listings/lst_1":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "lst_1", "currency": r.URL.Query().Get("currency")})
 		case r.URL.Path == "/v1/marketplace/listings":
 			_ = json.NewEncoder(w).Encode(map[string]any{"listings": []any{}})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/licences"):
@@ -163,6 +167,25 @@ func TestMarketplaceBillReadsTheMonthAsked(t *testing.T) {
 	}
 	if len(f.got) != 1 || !strings.Contains(f.got[0], "/marketplace/bill?month=2026-09 ") || !strings.HasPrefix(f.got[0], "GET /v1/workspaces/") {
 		t.Fatalf("Lens received %q, want one read of the September bill on the session's workspace", f.got)
+	}
+}
+
+// B32.57 — the listing page reads its listing in the currency the buyer picked, and its trust panel, on the session's
+// token; a currency that is not a three-letter code is refused before Lens is asked.
+func TestMarketplaceListingPageReadsItsCurrencyAndTrust(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	if rec := doJSON(a, http.MethodGet, "/api/marketplace/listings/lst_1?currency=GBP", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"currency":"GBP"`) {
+		t.Fatalf("listing = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodGet, "/api/marketplace/listings/lst_1/trust", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"remixes":3`) {
+		t.Fatalf("trust = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodGet, "/api/marketplace/listings/lst_1?currency=GB%26x%3D1", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("a malformed currency = %d, want 400", rec.Code)
+	}
+	if len(f.got) != 2 || !strings.HasPrefix(f.got[0], "GET /v1/marketplace/listings/lst_1?currency=GBP Bearer ") ||
+		!strings.HasPrefix(f.got[1], "GET /v1/marketplace/listings/lst_1/trust Bearer ") {
+		t.Fatalf("Lens received %q, want the listing in GBP and its trust panel", f.got)
 	}
 }
 
