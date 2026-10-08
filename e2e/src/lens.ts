@@ -372,6 +372,18 @@ export interface MarketEarnings {
   earnings?: { use_id: string; share_usd_micros: number; payable_at: string; refunded_at?: string; gross_usd_micros?: number; fee_usd_micros?: number }[] | null
 }
 
+/**
+ * B32.75 — the seller's marketplace journal (Lens B32.17, GET …/marketplace/journal): what they are owed in holdback and
+ * available (below zero, they owe it back), what of the holdback is due for release, and whether it reconciles with
+ * their earnings and payouts. µUSD.
+ */
+export interface MarketJournal {
+  holdback_usd_micros: number
+  available_usd_micros: number
+  due_for_release_usd_micros: number
+  reconciled: boolean
+}
+
 /** B32.15 — the plan Lens holds a workspace to, as GET …/plan answers it (B32.12). */
 export interface WorkspacePlan {
   plan: string
@@ -921,6 +933,11 @@ export class LensClient {
   /** B17.6 — the seller's earnings: pending, payable, in holdback, available (µUSD). */
   async marketEarnings(user: SyntheticUser): Promise<MarketEarnings> {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/earnings`, this.bearer(user.token))) as MarketEarnings
+  }
+
+  /** B32.75 — the seller's marketplace journal and whether it reconciles (Lens B32.17). */
+  async marketJournal(user: SyntheticUser): Promise<MarketJournal> {
+    return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/journal`, this.bearer(user.token))) as MarketJournal
   }
 
   /** B28.104 — the workspace's prepaid balance, as Lens's GET …/lxc/balance states it. */

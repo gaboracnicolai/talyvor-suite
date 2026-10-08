@@ -42,6 +42,11 @@
 //   payout-uncredited   — taking earnings as credits records the payout and credits nothing
 //   bill-refund-kept    — refunding a paid bill marks the buyer's use refunded and leaves the seller's earning
 //
+// B32.75 adds the seller's marketplace journal (Lens B32.17, GET …/marketplace/journal): a paid use's share waits in
+// the journal's holdback, due at once, until tick() releases it to available, as Lens's release job does. Its defects:
+//   journal-off           — a released share reads one µUSD short on the journal, though it still says it reconciles
+//   journal-unreconciled  — the journal says it does not reconcile
+//
 // B28.360 adds freezing an agent's card (POST …/card/freeze and …/card/unfreeze, for Lens's B28.97): a purchase on a
 // frozen card is declined and nothing leaves the agent. Its defect:
 //   freeze-ignored      — a frozen card answers frozen, and a purchase on it is still approved
@@ -142,6 +147,8 @@ interface Use {
   refunded_at?: string
   /** B25.8 — the bill it was paid on, when, and a refund that left the seller's share in place (bill-refund-kept) */
   invoice?: string; cleared_at?: string; kept?: boolean
+  /** B32.75 — when tick() released its share from the seller's holdback on the journal */
+  released_at?: string
 }
 /**
  * B32.8 — what the seller keeps of a use, in µUSD (Lens market.SellerShare): a listing's 85% (LENS_MARKET_TAKE_BPS=1500),
@@ -765,6 +772,8 @@ export class Bank {
 
   /** Lens's minute tick (cmd/lens): every recurring transfer due, every loan instalment due, then every cash-out's next step. */
   tick(now = Date.now()): void {
+    // B32.75 — every paid use's share, due at once (a test bill is paid a holdback ago), released from the journal's holdback.
+    for (const u of this.uses) if (u.cleared_at !== undefined && u.released_at === undefined) u.released_at = new Date(now).toISOString()
     // B25.8 — a loan's instalment due is taken from the borrower (principal, interest and, when late, the
     // late fee), or missed: once, the loan is late and tried a period on; again, it is in default.
     for (const l of this.loans) {
@@ -1682,6 +1691,15 @@ export class Bank {
         payable_at: u.cleared_at, refunded_at: u.kept ? undefined : u.refunded_at, payee_agent_id: u.payee_agent_id || undefined }))
       return json(res, 200, { pending_uses: pending.length, pending_usd_micros: pending.reduce((s, u) => s + shareOf(u), 0), payable_usd_micros: e.available, in_holdback_usd_micros: 0,
         available_usd_micros: e.available, paid_out_usd_micros: e.paid, owed_usd_micros: 0, lifetime_gross_usd_micros: e.lifetime, refunded_usd_micros: e.refunded, earnings }), true
+    }
+    if (rest === '/marketplace/journal') {
+      // What the seller is owed: a paid use's share in holdback until tick() releases it, then available less what was paid out.
+      const e = this.earnings(ws.id)
+      const held = this.uses.filter((u) => u.seller === ws.id && u.cleared_at !== undefined && u.released_at === undefined && (u.refunded_at === undefined || u.kept))
+        .reduce((s, u) => s + shareOf(u), 0)
+      const released = this.uses.some((u) => u.seller === ws.id && u.released_at !== undefined)
+      return json(res, 200, { holdback_usd_micros: held, available_usd_micros: e.available - held - (released && this.broken('journal-off') ? 1 : 0),
+        due_for_release_usd_micros: held, reconciled: !this.broken('journal-unreconciled') }), true
     }
     if (rest === '/marketplace/bill') {
       const month = url.searchParams.get('month') ?? now.slice(0, 7)

@@ -13,9 +13,10 @@
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Agent, BillLine, Loan, MarketEarnings, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
+import type { Agent, BillLine, Loan, MarketEarnings, MarketJournal, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
 import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, card, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
+import { keptOf, percent } from './fees.ts'
 import { listPriceUSD, seeded, statesNumber } from './oracles.ts'
 import { otherCompanyOnTeam } from './room.ts'
 import { CannotTest, type Scenario, type ScenarioCtx } from './scenarios.ts'
@@ -26,6 +27,10 @@ const USE_MAX_TOKENS = 4096
 const TICK_WAIT_MS = 240_000
 /** B35.8 — the most the testers wait for Lens to meter a marketplace use, which it does within a minute. */
 const METER_WAIT_MS = 90_000
+/** B32.75 — the most the testers wait for Lens to release a due earning from the journal's holdback: its job runs every 5 minutes. */
+const RELEASE_WAIT_MS = 360_000
+/** µLXC to the µUSD (Lens market.ulxcPerUSDMicro). */
+const ULXC_PER_USD_MICRO = 10
 const DAY_MS = 24 * 3600e3
 
 /** The other company: another test user, and an agent of its own, made and funded through Lens. */
@@ -915,16 +920,16 @@ export function walletCardPurchase(seed: number): Scenario {
 /**
  * The other company publishes a listing with its own token and the person uses it on its page: the listing,
  * the use's line on the buyer's bill, and the seller — or why not. The use is held against the cap and booked
- * for the ledger read-back, as every charged answer is.
+ * for the ledger read-back, as every charged answer is. `seller` is a run user's index, or a workspace of the scenario's own.
  */
-export async function buyFrom(ctx: ScenarioCtx, seller: number, seed: number, price: number): Promise<{ id: string; line: BillLine; seller: SyntheticUser } | string> {
+export async function buyFrom(ctx: ScenarioCtx, seller: number | SyntheticUser, seed: number, price: number): Promise<{ id: string; line: BillLine; seller: SyntheticUser } | string> {
   const { env, app } = ctx
   const r = seeded(seed * 47 + 23)
   const [a, b] = [100 + Math.floor(r() * 900), 100 + Math.floor(r() * 900)]
   const template = 'What is {{a}} + {{b}}? Reply with the number only.'
   const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
   if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
-  const co = env.userAt(seller)
+  const co = typeof seller === 'number' ? env.userAt(seller) : seller
   const published = await env.lens.publishListing(co, { title: `Totals ${seed}-${a}`, template, priceULXC: price, model: model.id })
   ctx.evidence.push({ note: `the seller publishes "Totals ${seed}-${a}" at ${lxcText(price)} LXC a use`, answer: JSON.stringify(published) })
   if (!published.ok) return `publishing was refused: ${published.status} ${published.error}`
@@ -1059,6 +1064,66 @@ export function marketBillRefund(seed: number, seller: number): Scenario {
         return fail(`refunded, the seller's ${cleared.share} µUSD earning was not reversed: available ${cleared.earned.available_usd_micros} → ${earned.available_usd_micros}, refunded ${cleared.earned.refunded_usd_micros ?? 0} → ${earned.refunded_usd_micros ?? 0}`)
       }
       return { pass: true, detail: `used and paid, then the bill refunded: the use reads refunded on the buyer's bill, and the seller's ${cleared.share} µUSD share is reversed out of what is available` }
+    },
+  }
+}
+
+/** What the seller's journal says, in a sentence. */
+const journalText = (j: MarketJournal): string =>
+  `${j.holdback_usd_micros} µUSD in holdback (${j.due_for_release_usd_micros} of it due for release), ${j.available_usd_micros} available, reconciled ${String(j.reconciled)}`
+
+/**
+ * B32.75 — a test sale's earning is released on the seller's journal (Lens B32.17) and reconciles. The seller is a
+ * workspace the scenario makes, so its journal holds this sale alone; the buyer is the scenario's own workspace, so
+ * paying its whole bill clears this use alone.
+ */
+export function marketJournal(seed: number): Scenario {
+  const price = 1_000_000
+  return {
+    id: 'market-journal',
+    owner: 'talyvor-lens',
+    own: true,
+    feature: 'Marketplace',
+    title: "a buyer's paid bill puts the seller's share in holdback on the seller's journal, Lens's release job moves it to available, " +
+      'and the journal reconciles: its available is the earning, as the seller\'s earnings state it',
+    run: async (ctx) => {
+      const { env } = ctx
+      const [seller] = await env.lens.createUsers(1)
+      const j0 = await env.lens.marketJournal(seller)
+      ctx.evidence.push({ note: `a new seller's journal: ${journalText(j0)}` })
+      const bought = await buyFrom(ctx, seller, seed, price)
+      if (typeof bought === 'string') return fail(bought)
+      const paid = await payBill(ctx)
+      if (typeof paid === 'string') return fail(paid)
+      const cleared = await clearedBothSides(ctx, bought)
+      if (typeof cleared === 'string') return fail(cleared)
+      // The earning row: the seller's share of the use, at the take Lens states (B32.8).
+      const take = env.fees.market_take_bps
+      const share = keptOf(price / ULXC_PER_USD_MICRO, take)
+      if (cleared.share !== share) return fail(`the seller's earning from the use is ${cleared.share} µUSD; their ${percent(10_000 - take)} of a ${price / ULXC_PER_USD_MICRO} µUSD use is ${share}`)
+      // Paid one holdback ago, the earning is due at once: on the journal it is due for release, or already released.
+      const j1 = await env.lens.marketJournal(seller)
+      ctx.evidence.push({ note: `the seller's journal right after the bill was paid: ${journalText(j1)}` })
+      if (!j1.reconciled) return fail(`right after the bill was paid, the seller's journal does not reconcile with their earnings and payouts: ${journalText(j1)}`)
+      const due = j1.holdback_usd_micros === share && j1.due_for_release_usd_micros === share && j1.available_usd_micros === 0
+      const released = j1.holdback_usd_micros === 0 && j1.due_for_release_usd_micros === 0 && j1.available_usd_micros === share
+      if (!due && !released) return fail(`right after the bill was paid, the seller's ${share} µUSD share is neither due for release nor available on the journal: ${journalText(j1)}`)
+      const t0 = Date.now()
+      const j2 = await until(() => env.lens.marketJournal(seller), (j) => j.holdback_usd_micros === 0, RELEASE_WAIT_MS)
+      const waited = Math.round((Date.now() - t0) / 1000)
+      ctx.evidence.push({ note: `the seller's journal ${waited} s on: ${journalText(j2)}` })
+      if (j2.holdback_usd_micros !== 0) return fail(`${RELEASE_WAIT_MS / 60_000} minutes after the bill was paid, the seller's due ${share} µUSD is still in the journal's holdback: ${journalText(j2)}`)
+      const earned = await env.lens.marketEarnings(seller)
+      const e = (earned.earnings ?? []).find((x) => x.use_id === bought.line.use_id)
+      ctx.evidence.push({ note: `the seller's earnings: the earning ${JSON.stringify(e)}, available ${earned.available_usd_micros} µUSD` })
+      if (e?.share_usd_micros !== share) return fail(`released, the seller's earning from the use reads ${JSON.stringify(e)}; their share is ${share} µUSD`)
+      if (j2.available_usd_micros !== earned.available_usd_micros) {
+        return fail(`released, the seller's journal holds ${j2.available_usd_micros} µUSD available; their earnings state ${earned.available_usd_micros} µUSD available`)
+      }
+      if (j2.available_usd_micros !== share) return fail(`released, the seller's journal holds ${j2.available_usd_micros} µUSD available; the one earning is ${share} µUSD`)
+      if (!j2.reconciled) return fail(`released, the seller's journal does not reconcile with their earnings and payouts: ${journalText(j2)}`)
+      return { pass: true, detail: `the bill paid, the seller's ${share} µUSD share was ${due ? 'due for release in the journal\'s holdback' : 'already released'}; ` +
+        `${waited} s on, the holdback is 0 and the journal's available is ${share} µUSD, the earning and the earnings' available, and it reconciles` }
     },
   }
 }
