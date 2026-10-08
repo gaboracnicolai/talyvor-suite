@@ -117,9 +117,10 @@ const SIDEBAR_DESTINATIONS = [
   '/terms',
 ] as const
 
-/** B20.12, B18.25 — offered only when /auth/me says this person is an operator, so absent from every render
- *  below (they sign in as nobody). Review.test.tsx and OperatorWorkspaces.test.tsx render them as links for an operator. */
-const OPERATOR_DESTINATIONS = ['/marketplace/review', '/operator'] as const
+/** B20.12, B18.25, B32.63 — offered only when /auth/me says this person is an operator, so absent from every render
+ *  below (they sign in as nobody). Review.test.tsx, OperatorWorkspaces.test.tsx and OperatorTax.test.tsx render them as
+ *  links for an operator. */
+const OPERATOR_DESTINATIONS = ['/marketplace/review', '/operator', '/operator/tax'] as const
 
 /**
  * B24.1 — the sidebar folds to its group titles. These are its only COMMANDS: each group's title
