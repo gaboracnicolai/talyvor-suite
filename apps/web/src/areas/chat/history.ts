@@ -208,6 +208,8 @@ export function upsertConversation(
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
     // B18.24 — an attached document is kept whole: it is Lens's id for the file, never the file's bytes,
     // so a reopened conversation still references it.
+    // B28.379 — an image is kept by its name and size; its bytes would fill this browser's storage.
+    .map((m) => (m.attachments?.some((a) => a.data !== undefined) ? { ...m, attachments: m.attachments.map(({ data: _bytes, ...a }) => a) } : m))
   const prior = list.find((c) => c.id === id)
   const next: Conversation = {
     id,

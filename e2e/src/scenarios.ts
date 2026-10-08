@@ -4,6 +4,7 @@
 
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import { deflateSync } from 'node:zlib'
 import type { Page, Request, Response } from 'playwright'
 import { type AppUser, type Attachment, type ChargeBook, NetworkDropped, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
@@ -2561,6 +2562,73 @@ function memo(seed: number): { file: Attachment; word: string } {
   return { file: { name: `memo-${seed}.html`, mimeType: 'text/html', buffer: Buffer.from(html) }, word }
 }
 
+/** B28.379 — the digits as 5×7 glyphs, a row to a string. */
+const GLYPHS: Record<string, string[]> = {
+  0: ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
+  1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
+  2: ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
+  3: ['11111', '00010', '00100', '00010', '00001', '10001', '01110'],
+  4: ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
+  5: ['11111', '10000', '11110', '00001', '00001', '10001', '01110'],
+  6: ['00110', '01000', '10000', '11110', '10001', '10001', '01110'],
+  7: ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
+  8: ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
+  9: ['01110', '10001', '10001', '01111', '00001', '00010', '01100'],
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c >>> 0
+})
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(type, 'latin1'), data])
+  let crc = 0xffffffff
+  for (const b of body) crc = CRC_TABLE[(crc ^ b) & 0xff] ^ (crc >>> 8)
+  const out = Buffer.alloc(body.length + 8)
+  out.writeUInt32BE(data.length, 0)
+  body.copy(out, 4)
+  out.writeUInt32BE((crc ^ 0xffffffff) >>> 0, body.length + 4)
+  return out
+}
+
+/** B28.379 — how many pixels a glyph's square is, and the squares of white around the number. */
+export const PNG_SCALE = 16
+export const PNG_MARGIN = 2
+
+/**
+ * B28.379 — a PNG of `digits`, black on white and large enough for any model that reads images. Its tEXt chunk names
+ * the number too, for the self-test's stand-in model (selftest/stub-lens.ts), which sees no pixels; a model never
+ * sees the chunk.
+ */
+export function numberPNG(digits: string): Buffer {
+  const w = (digits.length * 6 - 1 + 2 * PNG_MARGIN) * PNG_SCALE
+  const h = (7 + 2 * PNG_MARGIN) * PNG_SCALE
+  // Greyscale, one byte a pixel, each row after its filter byte (0, none).
+  const raw = Buffer.alloc((w + 1) * h, 0xff)
+  for (let y = 0; y < h; y++) {
+    raw[y * (w + 1)] = 0
+    const gy = Math.floor(y / PNG_SCALE) - PNG_MARGIN
+    for (let x = 0; x < w; x++) {
+      const gx = Math.floor(x / PNG_SCALE) - PNG_MARGIN
+      if (gy < 0 || gy >= 7 || gx < 0 || gx % 6 === 5) continue
+      if (GLYPHS[digits[Math.floor(gx / 6)]]?.[gy][gx % 6] === '1') raw[y * (w + 1) + 1 + x] = 0
+    }
+  }
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(w, 0)
+  header.writeUInt32BE(h, 4)
+  header[8] = 8
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('tEXt', Buffer.from(`Title\0${digits}`, 'latin1')),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
 /** Spend rows on the user's own ledger, as Lens has recorded them. */
 async function spendRows(ctx: ScenarioCtx): Promise<number> {
   return (await ctx.env.lens.ledger(ctx.app.user)).filter((r) => r.type === 'spend').length
@@ -2667,6 +2735,42 @@ export function documentInChat(seed: number): Scenario {
           : { pass: false, detail: `converted, but the answer is not the code word "${word}": ${describe(t)}` }
       })
       return typeof out === 'string' ? { pass: false, detail: out } : out
+    },
+  }
+}
+
+/**
+ * B28.379 — an image in Chat (B28.129's DONE line, from the browser): a PNG showing "42" is attached, the model is asked
+ * what number it shows, and the answer is 42. The question shows the image; the answer is priced like any other.
+ */
+export function imageInChat(): Scenario {
+  return {
+    id: 'image-in-chat',
+    owner: 'talyvor-lens',
+    items: ['B28.129', 'B28.379'],
+    title: 'a PNG showing "42" attached in Chat is answered "42"',
+    run: async (ctx) => {
+      const file = { name: 'number.png', mimeType: 'image/png', buffer: numberPNG('42') }
+      const t = record(ctx, await ctx.app.ask(`What number does the attached image show? ${NUMBER_ONLY}`, undefined, [file]), `attached ${file.name}`)
+      const { page } = ctx.app
+      const image = page.locator('[data-testid="turn-user"] [data-testid="sent-image"]').last()
+      const shown = await image.isVisible().catch(() => false)
+      if (priced(t) !== undefined) return { pass: false, detail: priced(t) as string }
+      if (!shown) return { pass: false, detail: 'the question does not show the image it carried' }
+      // The question with its image and the answer, at 1440 and at 390.
+      const viewport = page.viewportSize()
+      await mkdir(ctx.env.outDir, { recursive: true })
+      for (const width of [1440, 390]) {
+        const path = join(ctx.env.outDir, `image-in-chat-${width}px-user${ctx.app.user.index}.png`)
+        await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+        await image.scrollIntoViewIfNeeded()
+        await page.screenshot({ path })
+        ctx.evidence.push({ note: `at ${width}px: ${path}` })
+      }
+      if (viewport !== null) await page.setViewportSize(viewport)
+      return /(^|\D)42(\D|$)/.test(t.answer)
+        ? { pass: true, detail: `answered "${t.answer.trim().slice(0, 40)}" [${t.footerText}]` }
+        : { pass: false, detail: `the image shows 42, and the answer is not 42: ${describe(t)}` }
     },
   }
 }
@@ -3954,7 +4058,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   switch (i % 10) {
     case 0: list.push(featureSwitches(i), tareProseModel(i)); break
     case 1: list.push(injectionBlocked(i)); break
-    case 2: list.push(documentInChat(i)); break
+    // B28.379 — then a PNG showing "42", answered 42.
+    case 2: list.push(documentInChat(i), imageInChat()); break
     case 3: list.push(spendingLimit(i)); break
     case 4: list.push(tryConversionPage(i)); break
     case 5: list.push(docsAI(i)); break

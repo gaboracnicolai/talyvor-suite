@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS, savedLine } from './Chat'
+import { ATTACH_LIMIT_BYTES, Chat, EXAMPLE_PROMPTS, IMAGE_LIMIT_BYTES, savedLine } from './Chat'
 import { CONTINUE_PROMPT, type Conversation, historyKey, loadConversations } from './history'
 import { InstructionsPage } from './InstructionsPage'
 import { PromptsPage } from './PromptsPage'
@@ -1654,5 +1654,95 @@ describe('memory (B28.371)', () => {
     expect(screen.queryByTestId('memory-line')).toBeNull()
     expect(sent(1).system).toBeUndefined()
     expect(JSON.stringify(sent(1))).not.toContain('Heron Works')
+  })
+})
+
+describe('images for models that read them (B28.379)', () => {
+  // A 1×1 PNG; the catalog marks which models read images, as Lens's does (capabilities.vision).
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+  const png = (name = 'chart.png') => new File([Uint8Array.from(atob(PNG), (c) => c.charCodeAt(0))], name)
+  const SEEING = [
+    { ...CATALOG[0], capabilities: { vision: true } },
+    { ...CATALOG[1], capabilities: { vision: true } },
+    { ...CATALOG[2], capabilities: { vision: false } },
+  ]
+  const OK = 'data: {"choices":[{"delta":{"content":"42"}}]}\n\ndata: [DONE]\n\n'
+
+  async function attach(model: string, files: File[]) {
+    await chooseModel(model)
+    fireEvent.change(document.getElementById('chat-attach') as HTMLInputElement, { target: { files } })
+  }
+  const sentMessages = (posted: ReturnType<typeof vi.fn>, n: number) => JSON.parse(String(posted.mock.calls[n][0].init.body)).messages
+
+  it('sends an image inside the question as OpenAI’s image_url part, shows it, sends it again with the next question, and keeps only its name', async () => {
+    const { posted, uploaded } = mockChat({ catalog: SEEING, body: OK })
+    renderChat()
+    await attach('GPT-4o', [png()])
+    expect((await screen.findByTestId('attached-image')).getAttribute('src')).toBe(`data:image/png;base64,${PNG}`)
+    await ask('What number is shown?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    const asked = [
+      { type: 'text', text: 'What number is shown?' },
+      { type: 'image_url', image_url: { url: `data:image/png;base64,${PNG}` } },
+    ]
+    expect(sentMessages(posted, 0)[0].content).toEqual(asked)
+    // Not a document: nothing is stored in Lens and nothing asks Lens to convert it.
+    expect(uploaded).not.toHaveBeenCalled()
+    expect(new Headers(posted.mock.calls[0][0].init.headers).get('X-Talyvor-Distill')).toBeNull()
+    expect((await screen.findByRole('img', { name: 'chart.png' })).getAttribute('src')).toBe(`data:image/png;base64,${PNG}`)
+
+    await screen.findByText('42')
+    await ask('And doubled?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+    expect(sentMessages(posted, 1)[0].content).toEqual(asked)
+    await waitFor(() => expect(loadConversations('user-a').list[0]?.messages).toHaveLength(4))
+    expect(loadConversations('user-a').list[0].messages[0].attachments).toEqual([{ name: 'chart.png', media_type: 'image/png', size: 68 }])
+  })
+
+  it('sends it to Anthropic as an image block with a base64 source, ahead of the words', async () => {
+    const { posted } = mockChat({ catalog: SEEING, body: 'event: message_stop\ndata: {"type":"message_stop"}\n\n' })
+    renderChat()
+    // The bytes decide the type: a PNG named .jpg goes as a PNG.
+    await attach('Claude Opus 5', [png('scan.jpg')])
+    await screen.findByTestId('attached-image')
+    await ask('What number is shown?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    expect(posted.mock.calls[0][0].url).toBe('/api/ai/stream/anthropic/v1/messages')
+    expect(sentMessages(posted, 0)[0].content).toEqual([
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } },
+      { type: 'text', text: 'What number is shown?' },
+    ])
+  })
+
+  it('refuses, in words, an image for a model that cannot read one, a file that is not an image, and one over the limit', async () => {
+    const { posted } = mockChat({ catalog: SEEING })
+    renderChat()
+    await attach('Gemini 2 Pro', [png()])
+    expect((await screen.findByRole('alert')).textContent).toBe('Gemini 2 Pro can’t read images — pick one that can, such as GPT-4o.')
+    await attach('GPT-4o', [new File(['not a picture'], 'fake.png')])
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('fake.png couldn’t be read as a PNG, JPEG, GIF or WebP image.'))
+    await attach('GPT-4o', [new File([new Uint8Array(IMAGE_LIMIT_BYTES + 1)], 'huge.png')])
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('huge.png is too large: an image can be at most 3 MB.'))
+    expect(screen.queryByTestId('attached-image')).toBeNull()
+    expect(posted).not.toHaveBeenCalled()
+  })
+
+  it('does not send a conversation’s images to a model that cannot read them, nor images past the 4 MB a request may be', async () => {
+    const { posted } = mockChat({ catalog: SEEING, body: OK })
+    renderChat()
+    await attach('GPT-4o', [png()])
+    await screen.findByTestId('attached-image')
+    await chooseModel('Gemini 2 Pro')
+    await ask('What number is shown?')
+    expect((await screen.findByRole('alert')).textContent).toBe('Gemini 2 Pro can’t read images. Pick a model that can, or start a new chat.')
+    expect(posted).not.toHaveBeenCalled()
+
+    // Two images that fit one at a time do not fit together.
+    const big = (name: string) => new File([Uint8Array.from(atob(PNG), (c) => c.charCodeAt(0)), new Uint8Array(2_900_000)], name)
+    await attach('GPT-4o', [big('a.png'), big('b.png')])
+    await waitFor(() => expect(screen.getAllByTestId('attached-image')).toHaveLength(3))
+    await ask('Compare them')
+    await screen.findByText(/^The images in this conversation are too large to send together — at most 4 MB in all\./)
+    expect(posted).not.toHaveBeenCalled()
   })
 })

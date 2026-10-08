@@ -291,7 +291,7 @@ function monthUSD(ws: Workspace): number {
   return (ulxc / 1e6) * USD_PER_LXC
 }
 
-type Block = { type: string; text?: string; source?: { data?: string; media_type?: string; file_id?: string }; file?: { file_data?: string; file_id?: string }; content?: string }
+type Block = { type: string; text?: string; source?: { data?: string; media_type?: string; file_id?: string }; file?: { file_data?: string; file_id?: string }; image_url?: { url?: string }; content?: string }
 type Msg = { role: string; content: string | Block[] | null; tool_calls?: unknown[] }
 const text = (m: Msg): string => (typeof m.content === 'string' ? m.content : (m.content ?? []).map((c) => c.text ?? '').join(''))
 
@@ -463,9 +463,26 @@ function think(messages: Msg[]): string {
     const said = BREAK === 'docs-page' ? undefined : all.split(/\n|(?<=[.!?])\s+/).find((s) => s.includes(word) && !s.includes('Quote the sentence') && !s.trim().startsWith('#'))
     return said === undefined ? 'I cannot see any page.' : `The page says: "${said.trim()}"`
   }
+  // B28.379 — asked what an attached image shows, the stand-in for a model that reads images reads the number the
+  // scenario's PNG names in its tEXt chunk (e2e numberPNG), so it answers only when the image arrived whole.
+  if (/What number does the attached image show\?/.test(q)) return imageNumber(messages[messages.length - 1]) ?? 'I cannot see any image.'
   if (/code word in the attached document/.test(q)) return /code word is (\w+)/.exec(all)?.[1] ?? 'I cannot see any document.'
   if ((m = /from 1 to (\d+)/.exec(q))) return Array.from({ length: Number(m[1]) }, (_, i) => i + 1).join(' ')
   return 'I can only do arithmetic and capitals.'
+}
+
+/** B28.379 — the number a question's PNG names in its tEXt chunk, from Anthropic's image block or OpenAI's image_url. */
+function imageNumber(m: Msg): string | undefined {
+  for (const b of Array.isArray(m.content) ? m.content : []) {
+    const data = b.type === 'image' ? b.source?.data : b.type === 'image_url' ? /^data:image\/png;base64,(.*)$/.exec(b.image_url?.url ?? '')?.[1] : undefined
+    const png = Buffer.from(data ?? '', 'base64')
+    if (!png.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) continue
+    for (let at = 8; at + 8 <= png.length; at += 12 + png.readUInt32BE(at)) {
+      const [type, body] = [png.toString('latin1', at + 4, at + 8), png.subarray(at + 8, at + 8 + png.readUInt32BE(at))]
+      if (type === 'tEXt' && body.toString('latin1').startsWith('Title\0')) return body.toString('latin1').slice(6)
+    }
+  }
+  return undefined
 }
 
 const tokens = (s: string): number => Math.max(1, Math.ceil(s.length / 4))
