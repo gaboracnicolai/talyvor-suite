@@ -1,4 +1,4 @@
-import { ApiError, getJSON } from "../../lib/api";
+import { ApiError, getJSON, readable } from "../../lib/api";
 import { isSessionExpired } from "../../lib/productState";
 import { formatULXC } from "../lens/agentBankApi";
 
@@ -103,6 +103,8 @@ export interface Listing {
   /** B32.24 — whether others may build on it: not at all, freely, or for a share of each remix's sales. */
   remix_policy?: "none" | "free" | "royalty";
   remix_share_bps?: number;
+  /** B32.50 — what it can do, from Lens's controlled list (market_capabilities). */
+  capabilities?: string[] | null;
 }
 
 /** Lens market.Display (B32.51) — an offer's price in the buyer's currency. The charge is still its US-dollar price. */
@@ -133,6 +135,78 @@ export interface Offer {
   terms?: string;
   /** B32.51 — the price in the buyer's currency, on a read */
   display?: PriceDisplay;
+}
+
+// ── B32.61: discovery (Lens B32.50) ─────────────────────────────────────────────────────────────
+
+/** Lens market.Capability — one entry of the controlled list a listing declares from. */
+export interface Capability {
+  slug: string;
+  label: string;
+}
+
+/** Lens market.DiscoverHit — a listing a search found, with what one use is billed and what it was ranked by. */
+export interface DiscoverHit extends Listing {
+  /** µUSD: what one use is billed; 0 free; null when it is not sold per use (rented, bought or subscribed only) */
+  price_per_use_usd_micros: number | null;
+  distinct_buyers_7d: number;
+  trending_score: number;
+}
+
+/** Lens market.DiscoverPage — one page of a search, 50 listings at most. */
+export interface DiscoverPage {
+  listings: DiscoverHit[] | null;
+  sort: string;
+  page: number;
+  page_size: number;
+  total: number;
+  has_more: boolean;
+}
+
+export type DiscoverSort = "relevance" | "trending" | "new" | "price";
+
+/** A search as the Discover screen asks it; every field left empty is not a filter. */
+export interface DiscoverQuery {
+  q: string;
+  capability: string;
+  kind: ListingKind | "";
+  licence: "" | "personal" | "commercial" | "enterprise";
+  /** µUSD, or null for no ceiling */
+  max_price_per_use: number | null;
+  verified_only: boolean;
+  /** "" lets Lens choose: relevance with words, trending without */
+  sort: DiscoverSort | "";
+  page: number;
+}
+
+/** Lens market.Collection — a workspace's list of listings; `listings` only on a read of it alone, in its order. */
+export interface Collection {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string;
+  public: boolean;
+  featured: boolean;
+  featured_at?: string;
+  listing_count: number;
+  created_at: string;
+  updated_at: string;
+  listings?: Listing[] | null;
+}
+
+/** The search's query string: only what is set, so Lens applies its own defaults to the rest. */
+export function discoverParams(q: DiscoverQuery): string {
+  const p = new URLSearchParams();
+  if (q.q.trim()) p.set("q", q.q.trim());
+  if (q.capability) p.set("capability", q.capability);
+  if (q.kind) p.set("kind", q.kind);
+  if (q.licence) p.set("licence", q.licence);
+  if (q.max_price_per_use !== null)
+    p.set("max_price_per_use", String(q.max_price_per_use));
+  if (q.verified_only) p.set("verified_only", "true");
+  if (q.sort) p.set("sort", q.sort);
+  if (q.page > 1) p.set("page", String(q.page));
+  return p.toString();
 }
 
 /** The reasons Lens takes a report for (B20.4), as a person would say them. */
@@ -658,6 +732,37 @@ export const marketApi = {
         },
       )
     ).listings ?? [],
+  // B32.61 — discovery: Lens's search (B32.50), its controlled list of capabilities and the public collections.
+  /** A filter Lens refuses (a capability not on its list) is refused with its sentence, so it is a read that keeps it. */
+  search: async (q: DiscoverQuery) => {
+    const qs = discoverParams(q);
+    const path = `/api/marketplace/search${qs ? `?${qs}` : ""}`;
+    return readable<DiscoverPage>(path, await read<unknown>(path), {
+      listings: "list",
+      total: "number",
+      has_more: "boolean",
+    });
+  },
+  capabilities: async () =>
+    (
+      await getJSON<{ capabilities: Capability[] | null }>(
+        "/api/marketplace/capabilities",
+        { capabilities: "list" },
+      )
+    ).capabilities ?? [],
+  collections: async () =>
+    (
+      await getJSON<{ collections: Collection[] | null }>(
+        "/api/marketplace/collections",
+        { collections: "list" },
+      )
+    ).collections ?? [],
+  collection: (id: string) =>
+    // `listings` is left out of an empty collection's read (Lens omits it), so it is not part of the shape.
+    getJSON<Collection>(`/api/marketplace/collections/${e(id)}`, {
+      id: "string",
+      title: "string",
+    }),
   /** B32.57 — `currency` "" asks for the buyer's own: that of their tax-profile country. */
   listing: (id: string, currency = "") =>
     getJSON<Listing>(

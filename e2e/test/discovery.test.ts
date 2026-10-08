@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type Collection, type Hit, collectionFaults, featuredFaults, searchFaults, trendingFaults } from '../src/discovery.ts'
+import { type Collection, type Hit, collectionFaults, collectionPageFaults, featuredFaults, screenFaults, searchFaults, trendingFaults } from '../src/discovery.ts'
 
 const mine = { cheap: 'lst_cheap', dear: 'lst_dear', other: 'lst_other' }
 const hit = (id: string, capabilities: string[], price: number | null): Hit => ({ id, title: id, capabilities, price_per_use_usd_micros: price, distinct_buyers_7d: 0, trending_score: 0 })
@@ -26,5 +26,15 @@ describe('B32.90 market-discovery', () => {
     expect(collectionFaults({ ...col('c', false), listings: [{ id: 'a' }, { id: 'b' }] }, ['b', 'a'])).toEqual(['the collection lists ["a","b"], not ["b","a"] in that order'])
     expect(featuredFaults([col('mine', true), col('old', true)], 'mine')).toEqual([])
     expect(featuredFaults([col('old', true), col('mine', true)], 'mine')).toEqual(['the featured collection mine is listed at 2, after old "old"'])
+  })
+
+  it('B32.61 market-discover-screen: passes Discover showing the $0.04 listing alone and the collection in order, and fails otherwise', () => {
+    expect(screenFaults(['Extract invoice totals', 'Other'], 'Extract invoice totals', 'Extract street addresses')).toEqual([])
+    expect(screenFaults(['Extract street addresses'], 'Extract invoice totals', 'Extract street addresses')).toEqual([
+      'Discover filtered by capability extract and at most $0.05 a use does not show "Extract invoice totals" (shows ["Extract street addresses"])',
+      'Discover filtered by capability extract and at most $0.05 a use shows "Extract street addresses", billed $0.06 a use'])
+    expect(collectionPageFaults(['b', 'a'], ['b', 'a'])).toEqual([])
+    expect(collectionPageFaults(['a', 'b'], ['b', 'a'])).toEqual(['the collection\'s page shows ["a","b"], not ["b","a"] in that order'])
+    expect(collectionPageFaults(['b', 'a', 'c'], ['b', 'a'])).toEqual(['the collection\'s page shows ["b","a","c"], not ["b","a"] in that order'])
   })
 })

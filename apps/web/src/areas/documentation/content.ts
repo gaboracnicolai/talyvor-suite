@@ -179,7 +179,11 @@ export const CAPABILITIES: Capability[] = [
     role: 'Agents, prompts, skills, evaluations and pipelines',
     lede: 'Use what other teams published and publish your own. A listing runs through Lens as your workspace, and a paid listing’s price goes on your monthly bill.',
     claims: [
-      { text: 'Browse and search published listings, and open one to use it.', href: '/marketplace', label: 'Browse' },
+      {
+        text: 'Discover published listings — trending, new, searched by capability and price, and collections — and open one to use it.',
+        href: '/marketplace',
+        label: 'Discover',
+      },
       { text: 'Publish a listing, and new versions of it.', href: '/marketplace/publish', label: 'Publish' },
       {
         text: 'See what your listings earned, and connect a Stripe account to be paid.',

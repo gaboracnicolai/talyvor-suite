@@ -10,10 +10,16 @@
 //        after it, which a list ordered only by the latest change would put first. Trending is computed nightly, so
 //        sort=trending is held only to every hit carrying its distinct_buyers_7d and trending_score. The collections are
 //        deleted after.
+//   market-discover-screen — B32.61: the same search and a collection on the app's Discover screen. A seller publishes an
+//        extract listing at $0.04 a use and one at $0.06; Discover opened filtered by capability extract and at most $0.05
+//        a use shows the $0.04 one and not the $0.06 one, and a curator's public collection of the $0.06 then the $0.04
+//        listing, opened from its link, shows exactly those two in that order. Lens's own reads of the search and the
+//        collection are asked too, so a fault is the screen's only where Lens answered right; where Lens did not, it SKIPs.
 // Nothing is used or bought, so nothing is charged. A listing the similarity check holds (another night's of the same
 // words) is approved by the operator first, as a person would: what is tested here is how it is found.
 
-import { fail } from './bank.ts'
+import type { Page } from 'playwright'
+import { ACTION_TIMEOUT_MS, fail } from './bank.ts'
 import { verdictOf } from './gateway.ts'
 import type { Answered, SyntheticUser } from './lens.ts'
 import { RUN_SALT } from './oracles.ts'
@@ -103,6 +109,26 @@ async function search(ctx: ScenarioCtx, user: SyntheticUser, query: string): Pro
   return hits
 }
 
+/**
+ * A prompt listing `seller` publishes for the run, sold per use at `usdMicros` on a commercial licence and approved: its
+ * id. A listing the similarity check holds (another night's of the same words) is approved by the operator first.
+ */
+async function publishPriced(ctx: ScenarioCtx, seller: SyntheticUser, title: string, template: string, usdMicros: number, capabilities?: string[]): Promise<string> {
+  const { lens } = ctx.env
+  const pub = await lens.publishListing(seller, { title: `${title} ${RUN_SALT}`, template: `${template} (${RUN_SALT})`, priceULXC: usdMicros * ULXC_PER_USD_MICRO, model: ctx.env.judgeModel, capabilities })
+  ctx.evidence.push({ note: `published "${title}": ${said(pub)}` })
+  if (!pub.ok) throw new Error(`publishing "${title}" was refused: ${pub.status} ${pub.error}`)
+  const id = pub.value.id
+  const offers = await lens.act(seller, 'PUT', `/v1/workspaces/{ws}/marketplace/listings/${id}/offers`, { offers: [{ kind: 'per_use', licence: 'commercial', price_usd_micros: usdMicros }] })
+  if (!offers.ok) throw new Error(`pricing "${title}" at ${usdMicros} µUSD a use was refused: ${said(offers)}`)
+  if (pub.value.review_status !== 'approved') {
+    const ok = await lens.moderate(id, 'approve')
+    ctx.evidence.push({ note: `"${title}" was ${pub.value.review_status}; the operator approves it: ${said(ok)}` })
+    if (!ok.ok) throw new Error(`approving the held listing ${id}: ${said(ok)}`)
+  }
+  return id
+}
+
 export function marketDiscovery(): Scenario {
   return {
     id: 'market-discovery',
@@ -116,20 +142,8 @@ export function marketDiscovery(): Scenario {
       const { lens } = env
       if (!lens.canModerate) throw new CannotTest('needs a moderator key to feature a collection: LENS_MODERATOR_KEY, from `lens moderator-keys create`')
       const seller = ctx.app.user
-      const publish = async (title: string, template: string, usdMicros: number, capabilities?: string[]): Promise<string> => {
-        const pub = await lens.publishListing(seller, { title: `${title} ${RUN_SALT}`, template: `${template} (${RUN_SALT})`, priceULXC: usdMicros * ULXC_PER_USD_MICRO, model: env.judgeModel, capabilities })
-        ctx.evidence.push({ note: `published "${title}": ${said(pub)}` })
-        if (!pub.ok) throw new Error(`publishing "${title}" was refused: ${pub.status} ${pub.error}`)
-        const id = pub.value.id
-        const offers = await lens.act(seller, 'PUT', `/v1/workspaces/{ws}/marketplace/listings/${id}/offers`, { offers: [{ kind: 'per_use', licence: 'commercial', price_usd_micros: usdMicros }] })
-        if (!offers.ok) throw new Error(`pricing "${title}" at ${usdMicros} µUSD a use was refused: ${said(offers)}`)
-        if (pub.value.review_status !== 'approved') {
-          const ok = await lens.moderate(id, 'approve')
-          ctx.evidence.push({ note: `"${title}" was ${pub.value.review_status}; the operator approves it: ${said(ok)}` })
-          if (!ok.ok) throw new Error(`approving the held listing ${id}: ${said(ok)}`)
-        }
-        return id
-      }
+      const publish = (title: string, template: string, usdMicros: number, capabilities?: string[]) =>
+        publishPriced(ctx, seller, title, template, usdMicros, capabilities)
       const mine: Mine = {
         cheap: await publish('Extract dates', 'Extract every date in this text, one per line: {{text}}', CHEAP_USD_MICROS, ['extract']),
         dear: await publish('Extract names', 'Extract every person named in this text, one per line: {{text}}', DEAR_USD_MICROS, ['extract']),
@@ -186,6 +200,93 @@ export function marketDiscovery(): Scenario {
       }
       return verdictOf(wrong, `capability=extract under ${MAX_PRICE_USD_MICROS} µUSD found the $0.04 listing and not the $0.06 one (found with no price) nor the summarize one (found by summarize), ` +
         `every hit declaring extract at or under $0.05; the collection read ${order.join(', ')} in its order and, featured, was the first public collection, ahead of one changed after it; every trending hit carried its buyers and score`)
+    },
+  }
+}
+
+/** What is wrong with the listings Discover showed for capability=extract under $0.05: the $0.04 one missing, or the $0.06 one shown. */
+export function screenFaults(shown: readonly string[], cheap: string, dear: string): string[] {
+  const wrong: string[] = []
+  if (!shown.includes(cheap)) wrong.push(`Discover filtered by capability extract and at most $0.05 a use does not show "${cheap}" (shows ${JSON.stringify(shown)})`)
+  if (shown.includes(dear)) wrong.push(`Discover filtered by capability extract and at most $0.05 a use shows "${dear}", billed $0.06 a use`)
+  return wrong
+}
+
+/** What is wrong with a collection's page: its listings not exactly `want`, in that order. */
+export function collectionPageFaults(shown: readonly string[], want: readonly string[]): string[] {
+  return shown.length === want.length && shown.every((t, i) => t === want[i]) ? []
+    : [`the collection's page shows ${JSON.stringify(shown)}, not ${JSON.stringify(want)} in that order`]
+}
+
+/** The titles of the listing cards in the list named `list` once it is drawn, or none when the screen says nothing matches. */
+async function cardTitles(page: Page, list: string): Promise<string[]> {
+  const grid = page.getByRole('list', { name: list, exact: true })
+  await grid.or(page.getByText(/^Nothing (published matches|in this collection)/)).first().waitFor({ timeout: ACTION_TIMEOUT_MS })
+  if (!(await grid.isVisible())) return []
+  return (await grid.getByTestId('listing-card').getByRole('link').allInnerTexts()).map((t) => t.trim())
+}
+
+export function marketDiscoverScreen(): Scenario {
+  return {
+    id: 'market-discover-screen',
+    owner: 'talyvor-suite',
+    feature: 'Marketplace',
+    title: 'Discover filtered by capability extract and at most $0.05 a use shows the $0.04 extract listing and not the $0.06 one, ' +
+      "and a public collection's page shows exactly its two listings in its curator's order",
+    run: async (ctx) => {
+      const { lens } = ctx.env
+      if (!lens.canModerate) throw new CannotTest('needs a moderator key to approve a listing the similarity check holds: LENS_MODERATOR_KEY, from `lens moderator-keys create`')
+      const seller = ctx.app.user
+      const cheapTitle = 'Extract invoice totals'
+      const dearTitle = 'Extract street addresses'
+      const cheap = await publishPriced(ctx, seller, cheapTitle, 'List every invoice total in this text with its currency: {{text}}', CHEAP_USD_MICROS, ['extract'])
+      const dear = await publishPriced(ctx, seller, dearTitle, 'List every postal address in this text, one per line: {{text}}', DEAR_USD_MICROS, ['extract'])
+      const titleOf = (t: string) => `${t} ${RUN_SALT}`
+      const wrong: string[] = []
+
+      // Lens's own answer first: the screen is at fault only where Lens found the $0.04 one and not the $0.06 one.
+      const found = await search(ctx, seller, `capability=extract&max_price_per_use=${MAX_PRICE_USD_MICROS}&sort=new`)
+      if (typeof found === 'string') return fail(found)
+      if (!found.some((h) => h.id === cheap) || found.some((h) => h.id === dear)) {
+        throw new CannotTest(`Lens's own search for capability=extract under $0.05 found ${found.length} listings, ${found.some((h) => h.id === cheap) ? '' : `not the $0.04 one ${cheap}`}` +
+          `${found.some((h) => h.id === dear) ? ` and the $0.06 one ${dear}` : ''} — market-discovery owns that; the screen cannot be judged`)
+      }
+      const discover = await ctx.app.tab(`/marketplace?capability=extract&max=${MAX_PRICE_USD_MICROS / 1_000_000}&sort=new`)
+      try {
+        const shown = await cardTitles(discover, 'Listings')
+        ctx.evidence.push({ note: `Discover, capability extract, at most $0.05, newest first: ${JSON.stringify(shown.slice(0, 10))}${shown.length > 10 ? ' …' : ''}` })
+        wrong.push(...screenFaults(shown, titleOf(cheapTitle), titleOf(dearTitle)))
+      } finally {
+        await discover.close()
+      }
+
+      const [curator] = await lens.createUsers(1)
+      const order = [dear, cheap]
+      const made = await lens.act<Collection>(curator, 'POST', '/v1/workspaces/{ws}/marketplace/collections',
+        { title: `Addresses then totals ${RUN_SALT}`, description: 'Two extractors, in the order to run them.', public: true, listing_ids: order })
+      ctx.evidence.push({ note: `the curator's public collection: ${said(made)}` })
+      if (!made.ok) return verdictOf([...wrong, `publishing a public collection of ${order.join(', ')}: ${said(made)}`], '')
+      const col = made.value.id
+      try {
+        const read = await lens.act<Collection>(seller, 'GET', `/v1/marketplace/collections/${col}`)
+        if (!read.ok || collectionFaults(read.value, order).length > 0) {
+          const why = `Lens's own read of the collection ${col} is not ${order.join(', ')} in order (${said(read)}) — market-discovery owns that; the page cannot be judged`
+          if (wrong.length > 0) return verdictOf(wrong, '')
+          throw new CannotTest(why)
+        }
+        const page = await ctx.app.tab(`/marketplace/collections/${encodeURIComponent(col)}`)
+        try {
+          const shown = await cardTitles(page, 'Listings in this collection')
+          ctx.evidence.push({ note: `the collection's page: ${JSON.stringify(shown)}` })
+          wrong.push(...collectionPageFaults(shown, [titleOf(dearTitle), titleOf(cheapTitle)]))
+        } finally {
+          await page.close()
+        }
+      } finally {
+        ctx.evidence.push({ note: `${col} deleted: ${said(await lens.act(curator, 'DELETE', `/v1/workspaces/{ws}/marketplace/collections/${col}`))}` })
+      }
+      return verdictOf(wrong, 'Discover filtered by capability extract and at most $0.05 a use showed the $0.04 listing and not the $0.06 one, as Lens found them; ' +
+        "the collection's page showed exactly its two listings in its curator's order")
     },
   }
 }

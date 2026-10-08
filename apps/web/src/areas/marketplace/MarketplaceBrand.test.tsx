@@ -57,7 +57,8 @@ describe('the marketplace in the brand', () => {
     expect(review.querySelector('svg[data-icon]')?.getAttribute('data-icon')).toBe('agent')
     expect(within(translate).getByText('ws-seller').className).toContain('font-figure')
     const price = within(translate).getByTestId('listing-price')
-    expect(price.textContent).toBe('0.5 LXC')
+    // B32.61 — Discover's cards carry what one use is billed in US dollars, the figure its price filter reads.
+    expect(price.textContent).toBe('$0.05')
     expect(price.className).toContain('font-figure')
     expect(within(review).getByTestId('listing-price').textContent).toBe('Free')
     expect(within(translate).getByRole('link', { name: 'Translate to French' }).getAttribute('href')).toBe('/marketplace/listings/lst_translate')

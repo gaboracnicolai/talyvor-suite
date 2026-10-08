@@ -5,6 +5,7 @@ import { api } from '../../lib/api'
 import { isSessionExpired } from '../../lib/productState'
 import { fetchModels } from '../chat/chatApi'
 import { formatULXC } from '../lens/agentBankApi'
+import { usdText } from '../rooms/roomsApi'
 import { type Listing, type ListingKind, kindLabel, priceText } from './marketApi'
 
 // parts.tsx — B20.3: what the marketplace's screens share.
@@ -16,6 +17,7 @@ import { type Listing, type ListingKind, kindLabel, priceText } from './marketAp
 export const selectClass = `mt-1 block h-8 w-full rounded-control border border-rule bg-surface px-2 text-body text-ink transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`
 
 export const CATALOG_KEY = ['market-catalog']
+export const DISCOVER_KEY = ['market-discover']
 export const MINE_KEY = ['market-mine']
 export const EARNINGS_KEY = ['market-earnings']
 
@@ -68,9 +70,20 @@ function useWorkspaceID(): string | undefined {
  * One listing as the board's product card: its kind's icon and name, its title (the link, stretched over
  * the card), what it does, who sells it and what a use costs. Lens names a seller by its workspace; `own`
  * says the listing is this workspace's, as everything under Your listings is. A `preview` — the card a
- * listing being written will make — links nowhere.
+ * listing being written will make — links nowhere. B32.61: `usd`, where a search said it, is what one use is billed in
+ * US dollars (µUSD; null when the listing is not sold per use), shown in place of its LXC price.
  */
-export function ListingCard({ l, own, preview = false }: { l: Listing; own?: boolean; preview?: boolean }) {
+export function ListingCard({
+  l,
+  own,
+  preview = false,
+  usd,
+}: {
+  l: Listing
+  own?: boolean
+  preview?: boolean
+  usd?: number | null
+}) {
   const workspace = useWorkspaceID()
   const mine = own ?? l.workspace_id === workspace
   return (
@@ -117,7 +130,13 @@ export function ListingCard({ l, own, preview = false }: { l: Listing; own?: boo
         <span className="flex shrink-0 flex-col items-end gap-0.5">
           <span className="font-figure text-eyebrow uppercase text-label">A use</span>
           <span className="font-figure text-body text-ink" data-testid="listing-price">
-            {l.price_per_use_ulxc > 0 ? formatULXC(l.price_per_use_ulxc) : 'Free'}
+            {usd === undefined
+              ? l.price_per_use_ulxc > 0
+                ? formatULXC(l.price_per_use_ulxc)
+                : 'Free'
+              : usd === null
+                ? 'Rent or buy'
+                : usdText(usd)}
           </span>
         </span>
       </span>
@@ -126,11 +145,22 @@ export function ListingCard({ l, own, preview = false }: { l: Listing; own?: boo
 }
 
 /** Listings as a grid of cards: one column on a phone, two from `wide`, three on a broad screen. */
-export function ListingGrid({ listings, own, label }: { listings: Listing[]; own?: boolean; label: string }) {
+export function ListingGrid<L extends Listing>({
+  listings,
+  own,
+  label,
+  usd,
+}: {
+  listings: L[]
+  own?: boolean
+  label: string
+  /** B32.61 — what one use of each is billed in µUSD, where a search said it */
+  usd?: (l: L) => number | null
+}) {
   return (
     <ul className="grid gap-3 wide:grid-cols-2 xl:grid-cols-3" aria-label={label}>
       {listings.map((l) => (
-        <ListingCard key={l.id} l={l} own={own} />
+        <ListingCard key={l.id} l={l} own={own} usd={usd?.(l)} />
       ))}
     </ul>
   )
