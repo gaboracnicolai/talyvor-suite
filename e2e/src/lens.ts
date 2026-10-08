@@ -306,6 +306,39 @@ export interface WorkspaceVerification {
   checks: VerificationCheck[] | null
 }
 
+/** B30.118 — what an agent's Know Your Agent credential says (Lens kya.Claims, docs/kya.md): the JWT's payload. */
+export interface KYAClaims {
+  iss: string
+  sub: string
+  jti: string
+  iat: number
+  nbf: number
+  exp: number
+  agent: { id: string; name: string }
+  owner: { workspace_id: string; name?: string; level: string; live_level: string }
+  capabilities: { capability: string; money: string }[]
+  /** The agent's rules in force, in µLXC; a limit not set is absent. */
+  limits: { daily_limit_ulxc?: number; max_per_request_ulxc?: number; [limit: string]: unknown }
+}
+
+/** B30.118 — an agent's credential as GET …/agents/{id}/credential and MCP wallet_credential answer it (kya.Credential). */
+export interface KYACredential {
+  id: string
+  /** The signed token: a JWT, EdDSA, its kid in the published JWKS. */
+  credential: string
+  claims: KYAClaims
+  issued_at: string
+  expires_at: string
+  jwks_url: string
+  verify_url: string
+}
+
+/** B30.118 — POST /v1/kya/verify's answer (kya.Verification). */
+export interface KYAVerification { valid: boolean; reason?: string; claims?: KYAClaims }
+
+/** B30.118 — /.well-known/talyvor-kya/revoked.json: every credential revoked that has not yet expired, and why. */
+export interface KYARevocations { issuer: string; generated_at: string; revoked: { jti: string; reason: string; revoked_at: string; expires_at: string }[] | null }
+
 /** Lens economy.AgentBook: workspace = allocated + unallocated. */
 export interface AgentBook {
   workspace_balance_ulxc: number
