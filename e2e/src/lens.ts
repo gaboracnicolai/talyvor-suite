@@ -190,6 +190,22 @@ export interface MarketOffer {
   terms?: string
 }
 
+/** B32.78 — a licence a buyer holds (Lens market.Licence, B32.19), and the use on its bill that bought it. */
+export interface MarketLicence {
+  id: string
+  listing_id: string
+  offer_id?: string
+  licence: string
+  kind: string
+  status: string
+  starts_at: string
+  ends_at: string | null
+  uses_covered: number
+  use_id: string
+  charge: string
+  price_ulxc: number
+}
+
 /** B25.8 — one payout (market.Payout): money through Stripe, or the balance taken as credits. */
 export interface Payout {
   id: string

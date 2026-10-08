@@ -11,9 +11,10 @@
 // (Stripe's authorization). B25.8: Lens (B25.7) brings each due now for a test workspace, with the
 // synthetic key, and the last five scenarios below trade through them.
 
+import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Agent, BillLine, Listing, Loan, MarketEarnings, MarketJournal, MarketOffer, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
+import type { Agent, BillLine, Listing, Loan, MarketEarnings, MarketJournal, MarketLicence, MarketOffer, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
 import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, card, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
 import { keptOf, percent } from './fees.ts'
@@ -1249,6 +1250,152 @@ export function marketOffers(seed: number): Scenario {
       }
       return { pass: true, detail: `the buyer read all four offers with their licence terms; a second commercial rent was refused 400 and changed nothing; ` +
         `the first use is billed ${first.price_ulxc} µLXC and stays so, and the use after the seller raised the price to ${after} µUSD is billed ${next[0].price_ulxc} µLXC` }
+    },
+  }
+}
+
+/**
+ * B32.78 — a listing rented, used under the licence, and an agent key a personal licence does not cover (Lens B32.19). The
+ * seller is a workspace the scenario makes; the buyer is the scenario's own workspace, so its bill holds these listings'
+ * lines alone. A rent lasts a day at the shortest, so one run sees when it ends, not the end itself.
+ */
+export function marketRent(seed: number): Scenario {
+  const perUse = 100_000
+  const rentPrice = 1_500_000
+  const personalPrice = 500_000
+  const days = 30
+  const uses = 3
+  const fund = 2_000_000
+  return {
+    id: 'market-rent',
+    owner: 'talyvor-lens',
+    own: true,
+    agents: 1,
+    feature: 'Marketplace',
+    title: `a buyer rents a listing for ${days} days with an Idempotency-Key, and the same request again answers the same licence and buys nothing; ` +
+      `${uses} uses under it put nothing on the bill beside the rent, and the licence reads active with ${uses} uses covered until its end; ` +
+      "an agent's key in the same workspace, which holds only a personal licence to another listing, is billed per use",
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const r = seeded(seed * 59 + 31)
+      const sums = Array.from({ length: uses + 1 }, () => [100 + Math.floor(r() * 900), 100 + Math.floor(r() * 900)] as const)
+      const template = 'What is {{a}} + {{b}}? Reply with the number only.'
+      const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+      if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
+      const [seller] = await env.lens.createUsers(1)
+
+      // The seller publishes with its offers; the buyer reads them back, with the ids a licence is bought on.
+      const publish = async (title: string, offers: MarketOffer[]): Promise<{ id: string; offers: MarketOffer[] } | string> => {
+        const pub = await env.lens.act<Listing>(seller, 'POST', '/v1/workspaces/{ws}/marketplace/listings', { kind: 'prompt', title, description: '', visibility: 'public',
+          artifact: { template, model: model.id }, changelog: '', offers })
+        ctx.evidence.push({ note: `the seller publishes "${title}" with ${offers.map((o) => `a ${o.licence} ${o.kind}`).join(' and ')}`, answer: JSON.stringify(pub) })
+        if (!pub.ok) return `publishing "${title}" was refused: ${pub.status} ${pub.error}`
+        if (pub.value.review_status !== 'approved') {
+          // B32.46 — a listing like another night's is held for review, hidden from the buyer; a person approves it.
+          if (!env.lens.canModerate) throw new CannotTest(`the listing was ${pub.value.review_status}, and approving it needs a moderator key: LENS_MODERATOR_KEY, from \`lens moderator-keys create\``)
+          const ok = await env.lens.moderate(pub.value.id, 'approve')
+          if (!ok.ok) return `approving the held listing ${pub.value.id}: ${ok.status} ${ok.error}`
+        }
+        const read = await env.lens.act<{ offers: MarketOffer[] | null }>(app.user, 'GET', `/v1/marketplace/listings/${pub.value.id}`)
+        if (!read.ok) return `the buyer reading "${title}": ${read.status} ${read.error}`
+        return { id: pub.value.id, offers: read.value.offers ?? [] }
+      }
+      const license = (listing: string, offer: string, key: string) =>
+        env.lens.act<MarketLicence>(app.user, 'POST', `/v1/workspaces/{ws}/marketplace/listings/${listing}/licences`, { offer_id: offer }, { 'Idempotency-Key': key })
+      const billFor = async (listing: string) => ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === listing)
+      // A use on Lens with `credential` (the person's token, or an agent's key), held against the cap and booked for the ledger
+      // read-back: Lens's answer, or why not. The listing's page cannot show a licensed use yet (FOUND.md, B32.78).
+      const runAs = async (credential: string, who: string, listing: string, [a, b]: readonly [number, number]): Promise<{ id: string; charge: string } | string> => {
+        const rows0 = new Set((await spendRows(ctx)).map((x) => x.id))
+        const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(template.length + 8), USE_MAX_TOKENS))
+        let used
+        try {
+          used = await env.lens.as(credential, 'POST', `/v1/workspaces/${app.user.workspaceID}/marketplace/listings/${listing}/use`, { variables: { a: String(a), b: String(b) } })
+        } catch (e) {
+          env.cap.settle(hold, undefined)
+          throw e
+        }
+        const charged = (await spendRows(ctx)).filter((x) => !rows0.has(x.id))
+        env.cap.settle(hold, used.status === 200 ? (charged.reduce((t, x) => t - x.amount_ulxc, 0) / 1e6) * env.usdPerLXC : undefined)
+        for (const x of charged) env.book.add(app.user.workspaceID, -x.amount_ulxc)
+        ctx.evidence.push({ note: `${who} uses it`, answer: `${used.status} ${used.text.slice(0, 300)}` })
+        if (used.status !== 200) return `${who}'s use was refused: ${used.status} ${used.text.slice(0, 200)}`
+        const u = JSON.parse(used.text) as { id: string; charge: string; output?: string }
+        if (!statesNumber(u.output ?? '', a + b)) return `the listing answered ${who} wrong: expected ${a + b}, got "${u.output}"`
+        return u
+      }
+
+      const rented = await publish(`Rented ${seed}-${RUN_SALT}`, [{ kind: 'per_use', licence: 'commercial', price_usd_micros: perUse },
+        { kind: 'rent', licence: 'commercial', price_usd_micros: rentPrice, period_days: days }])
+      if (typeof rented === 'string') return fail(rented)
+      const rent = rented.offers.find((o) => o.kind === 'rent' && o.licence === 'commercial')
+      if (rent?.id === undefined) return fail(`the buyer cannot see the listing's commercial rent offer: ${JSON.stringify(rented.offers)}`)
+
+      // Rented, then the same request again — a retry, as a client whose answer was lost sends it.
+      const key = randomUUID()
+      const bought = await license(rented.id, rent.id, key)
+      ctx.evidence.push({ note: `the buyer rents it for ${days} days`, answer: JSON.stringify(bought) })
+      if (!bought.ok || bought.status !== 201) return fail(`renting the listing should answer 201 with the licence; Lens answered ${bought.status}: ${bought.ok ? JSON.stringify(bought.value) : bought.error}`)
+      const lic = bought.value
+      const replay = await license(rented.id, rent.id, key)
+      ctx.evidence.push({ note: 'the same rent, sent again with its Idempotency-Key', answer: JSON.stringify(replay) })
+      if (!replay.ok || replay.status !== 200 || replay.value.id !== lic.id) {
+        return fail(`the rent sent again with its Idempotency-Key should answer 200 with licence ${lic.id}; Lens answered ${replay.status}: ${replay.ok ? JSON.stringify(replay.value) : replay.error}`)
+      }
+      const rentLine = await billFor(rented.id)
+      ctx.evidence.push({ note: "the buyer's bill after the rent and its replay", answer: JSON.stringify(rentLine) })
+      if (rentLine.length !== 1 || rentLine[0].use_id !== lic.use_id || rentLine[0].price_ulxc !== rentPrice * ULXC_PER_USD_MICRO) {
+        return fail(`a rent at ${rentPrice} µUSD, sent twice with one key, should be one line of ${rentPrice * ULXC_PER_USD_MICRO} µLXC on the bill; it has ${JSON.stringify(rentLine)}`)
+      }
+
+      for (const sum of sums.slice(0, uses)) {
+        const u = await runAs(app.user.token, 'the buyer', rented.id, sum)
+        if (typeof u === 'string') return fail(u)
+      }
+      const after = await billFor(rented.id)
+      ctx.evidence.push({ note: `the buyer's bill after ${uses} uses under the licence`, answer: JSON.stringify(after) })
+      const billedUses = after.filter((l) => l.use_id !== lic.use_id)
+      if (billedUses.length > 0) return fail(`${billedUses.length} of ${uses} uses the rent covers are on the buyer's bill: ${JSON.stringify(billedUses)}`)
+      if (after.length !== 1) return fail(`the rent's line is no longer on the bill: ${JSON.stringify(after)}`)
+
+      const held = await env.lens.act<{ licences: MarketLicence[] | null }>(app.user, 'GET', '/v1/workspaces/{ws}/marketplace/licences')
+      ctx.evidence.push({ note: "the buyer's licences", answer: JSON.stringify(held) })
+      if (!held.ok) return fail(`reading the buyer's licences: ${held.status} ${held.error}`)
+      const mine = (held.value.licences ?? []).filter((x) => x.listing_id === rented.id)
+      if (mine.length !== 1) return fail(`the buyer should hold one licence to the rented listing; it holds ${mine.length}: ${JSON.stringify(mine)}`)
+      const [l] = mine
+      if (l.id !== lic.id || l.status !== 'active' || l.kind !== 'rent' || l.licence !== 'commercial') return fail(`the rent should read active, a commercial rent, as ${lic.id}: ${JSON.stringify(l)}`)
+      if (l.uses_covered !== uses) return fail(`the rent covered ${uses} uses; it reads uses_covered ${l.uses_covered}`)
+      const ends = l.ends_at === null ? NaN : Date.parse(l.ends_at) - Date.parse(l.starts_at)
+      if (!(Math.abs(ends - days * DAY_MS) < 60_000)) return fail(`a ${days}-day rent should end ${days} days after it starts; it runs ${l.starts_at} to ${String(l.ends_at)}`)
+
+      // An agent's key, in a workspace that holds only a personal licence to the listing: it pays per use.
+      const personal = await publish(`Personal ${seed}-${RUN_SALT}`, [{ kind: 'per_use', licence: 'commercial', price_usd_micros: perUse },
+        { kind: 'rent', licence: 'personal', price_usd_micros: personalPrice, period_days: days }])
+      if (typeof personal === 'string') return fail(personal)
+      const mineOnly = personal.offers.find((o) => o.kind === 'rent' && o.licence === 'personal')
+      if (mineOnly?.id === undefined) return fail(`the buyer cannot see the listing's personal rent offer: ${JSON.stringify(personal.offers)}`)
+      const own = await license(personal.id, mineOnly.id, randomUUID())
+      ctx.evidence.push({ note: 'the buyer rents the second listing under a personal licence', answer: JSON.stringify(own) })
+      if (!own.ok || own.value.licence !== 'personal') return fail(`renting a personal licence: ${own.status} ${own.ok ? JSON.stringify(own.value) : own.error}`)
+      const agent = await env.lens.createAgent(app.user, `Renter ${RUN_SALT}`)
+      const k = await env.lens.act<{ key: string }>(app.user, 'POST', `/v1/workspaces/{ws}/agents/${agent.id}/keys`, { name: 'market-rent' })
+      if (!k.ok) return fail(`issuing ${agent.name} a key was refused: ${k.status} ${k.error}`)
+      await env.lens.fundAgent(app.user, agent.id, fund)
+      const use = await runAs(k.value.key, `${agent.name}'s key`, personal.id, sums[uses])
+      if (typeof use === 'string') return fail(use)
+      const lines = await billFor(personal.id)
+      ctx.evidence.push({ note: "the second listing's lines on the buyer's bill", answer: JSON.stringify(lines) })
+      const line = lines.find((x) => x.use_id === use.id)
+      if (use.charge !== 'billed' || line === undefined) {
+        return fail(`a personal licence never covers an agent's key, so its use should be billed per use; Lens charged it "${use.charge}" and the bill has ${JSON.stringify(lines)}`)
+      }
+      if (line.price_ulxc !== perUse * ULXC_PER_USD_MICRO || line.agent_id !== agent.id) {
+        return fail(`the agent's use should be one line of ${perUse * ULXC_PER_USD_MICRO} µLXC for ${agent.id}; the bill has ${JSON.stringify(line)}`)
+      }
+      return { pass: true, detail: `a ${days}-day rent bought once (the replay answered licence ${lic.id}) is one ${rentPrice * ULXC_PER_USD_MICRO} µLXC line; ` +
+        `${uses} uses under it added none, and it reads active with ${uses} uses covered until ${String(l.ends_at)}; ` +
+        `the agent's key, beside a personal licence only, was billed ${line.price_ulxc} µLXC for its use` }
     },
   }
 }

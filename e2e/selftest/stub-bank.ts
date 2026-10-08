@@ -53,6 +53,13 @@
 //   offer-price-stale     — raising the per_use price leaves the next use billed at the old one
 //   offer-price-backdated — the bill reads every use of a listing at the listing's price now
 //
+// B32.78 adds the uses a licence covers (Lens B32.19): while a rent, buy or subscription is active, a use of its listing
+// is charged licensed at nothing and counted in its uses_covered; a personal licence never covers an agent's key. Its
+// defects:
+//   licence-replay-buys   — the same Idempotency-Key sent again buys a second licence, and a second line on the bill
+//   licence-use-billed    — a use the licence covers is billed at the per-use price as if there were none
+//   licence-covers-agent  — a personal licence covers an agent key's use too
+//
 // B28.360 adds freezing an agent's card (POST …/card/freeze and …/card/unfreeze, for Lens's B28.97): a purchase on a
 // frozen card is declined and nothing leaves the agent. Its defect:
 //   freeze-ignored      — a frozen card answers frozen, and a purchase on it is still approved
@@ -145,6 +152,7 @@ interface Edge { child_listing_id: string; child_version: number; parent_listing
 interface StubLicence {
   id: string; ws: string; listing_id: string; title: string; offer_id: string; licence: string; kind: string; pinned_version: number | null; starts_at: string
   ends_at: string | null; auto_renew: boolean; status: string; use_id: string; charge: string; price_ulxc: number; created_at: string; key: string
+  included_uses?: number
 }
 interface SimOrder { id: string; portfolio_id: string; instrument: string; side: string; type: string; quantity_micros: number; limit_price_usd?: string; status: string; fill_price_usd?: string; cash_uusd: number; simulated: true; created_at: string }
 interface Portfolio { id: string; agent_id: string; name: string; starting_cash_uusd: number; created_at: string; orders: SimOrder[] }
@@ -155,6 +163,8 @@ interface Use {
   invoice?: string; cleared_at?: string; kept?: boolean
   /** B32.75 — when tick() released its share from the seller's holdback on the journal */
   released_at?: string
+  /** B32.78 — the licence that covered it (charge licensed) */
+  licence_id?: string
 }
 /**
  * B32.8 — what the seller keeps of a use, in µUSD (Lens market.SellerShare): a listing's 85% (LENS_MARKET_TAKE_BPS=1500),
@@ -601,7 +611,7 @@ export class Bank {
       const refused = this.judge(who.agent, price, { payment: true, listing: l.id, fingerprint: `market\0${who.agent.id}\0${l.id}\0${price}` })
       if (refused !== undefined) return this.d.json(res, refused.status, { error: refused.error }), true
     }
-    return this.workspaceRoute(req, res, who.ws, m[2], new URL(path, this.d.base))
+    return this.workspaceRoute(req, res, who.ws, m[2], new URL(path, this.d.base), who.agent)
   }
 
   /** B34.4 — a simulated portfolio as Lens answers it: its cash after its filled orders, and what they bought. */
@@ -628,6 +638,23 @@ export class Bank {
     const perUse = offers.find((o) => o.kind === 'per_use' && o.licence === 'commercial')
     if (!stale) l.price_per_use_ulxc = (perUse?.price_usd_micros ?? 0) * ULXC_PER_USD_MICRO
     return undefined
+  }
+
+  /**
+   * B32.78 — the active licence of `buyer` to `listing` that covers a use by `agent` (none: a person), as Lens's licenceFor
+   * finds it: not past its end nor its included uses, and a personal one never an agent's key.
+   */
+  private coveringLicence(buyer: string, listing: string, agent: Agent | undefined, now: string): StubLicence | undefined {
+    if (this.broken('licence-use-billed')) return undefined
+    return this.licences.find((x) => x.ws === buyer && x.listing_id === listing && x.status === 'active' && (x.ends_at === null || x.ends_at > now) &&
+      (agent === undefined || x.licence !== 'personal' || this.broken('licence-covers-agent')) &&
+      (!x.included_uses || this.uses.filter((u) => u.licence_id === x.id).length < x.included_uses))
+  }
+
+  /** B32.78 — a licence as Lens answers it: its uses covered, never the key that bought it. */
+  private licenceOut(x: StubLicence): object {
+    const { key: _k, ...out } = x
+    return { ...out, terms: LICENCE_TERMS[x.licence], uses_covered: this.uses.filter((u) => u.licence_id === x.id).length }
   }
 
   private listingOut(l: Listing, viewer: string): object {
@@ -1257,7 +1284,7 @@ export class Bank {
   }
 
   /** A route under /v1/workspaces/{ws}: answers true when it was one of the bank's or the marketplace's. */
-  async workspaceRoute(req: IncomingMessage, res: ServerResponse, ws: BankWorkspace, rest: string, url: URL): Promise<boolean> {
+  async workspaceRoute(req: IncomingMessage, res: ServerResponse, ws: BankWorkspace, rest: string, url: URL, agent?: Agent): Promise<boolean> {
     const { json } = this.d
     const method = req.method ?? 'GET'
     const now = new Date().toISOString()
@@ -1671,7 +1698,7 @@ export class Bank {
         const key = String(req.headers['idempotency-key'] ?? '')
         if (key.length < 1 || key.length > 128) return json(res, 400, { error: 'market: invalid listing: licensing takes an Idempotency-Key of 1 to 128 characters, so a retry never buys twice' }), true
         const again = this.licences.find((x) => x.ws === ws.id && x.key === key)
-        if (again !== undefined) return json(res, 200, again), true
+        if (again !== undefined && !this.broken('licence-replay-buys')) return json(res, 200, this.licenceOut(again)), true
         const { offer_id = '', version = 0 } = await this.body<{ offer_id?: string; version?: number }>(req)
         const o = (l.offers ?? []).find((x) => x.id === offer_id)
         if (o === undefined || o.kind === 'per_use') return json(res, 400, { error: 'market: invalid listing: that offer is not one a licence is bought on' }), true
@@ -1681,18 +1708,21 @@ export class Bank {
         const days = o.kind === 'buy' ? undefined : o.period_days ?? 30
         const lic: StubLicence = { id: id('lic_'), ws: ws.id, listing_id: l.id, title: l.title, offer_id: o.id, licence: o.licence, kind: o.kind, pinned_version: version || null,
           starts_at: now, ends_at: days === undefined ? null : new Date(Date.now() + days * 86_400e3).toISOString(), auto_renew: o.kind === 'subscribe', status: 'active',
-          use_id: use.id, charge: use.charge, price_ulxc: use.price_ulxc, created_at: now, key }
+          use_id: use.id, charge: use.charge, price_ulxc: use.price_ulxc, created_at: now, key, included_uses: o.included_uses }
         this.licences.unshift(lic)
-        return json(res, 201, lic), true
+        return json(res, 201, this.licenceOut(lic)), true
       }
     }
     if ((m = /^\/marketplace\/licences(?:\/([^/]+)\/cancel)?$/.exec(rest)) !== null) {
-      if (m[1] === undefined && method === 'GET') return json(res, 200, { licences: this.licences.filter((x) => x.ws === ws.id) }), true
+      if (m[1] === undefined && method === 'GET') {
+        for (const x of this.licences) if (x.status === 'active' && x.ends_at !== null && x.ends_at <= now && !x.auto_renew) x.status = 'expired'
+        return json(res, 200, { licences: this.licences.filter((x) => x.ws === ws.id).map((x) => this.licenceOut(x)) }), true
+      }
       const lic = this.licences.find((x) => x.id === m?.[1] && x.ws === ws.id)
       if (m[1] !== undefined && method === 'POST') {
         if (lic === undefined) return json(res, 404, { error: 'market: no such licence' }), true
         if (!this.broken('licence-renews')) lic.auto_renew = false
-        return json(res, 200, lic), true
+        return json(res, 200, this.licenceOut(lic)), true
       }
     }
     if ((m = /^\/marketplace\/listings\/([^/]+)\/use$/.exec(rest)) !== null && method === 'POST') {
@@ -1707,9 +1737,10 @@ export class Bank {
       if (model === '') return json(res, 400, { error: 'market: this listing names no model, so the use must' }), true
       const ran = this.d.runModel(ws, model, template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, v: string) => b.variables?.[v] ?? ''))
       if ('error' in ran) return json(res, 400, { error: ran.error }), true
-      const charge = l.workspace_id === ws.id && !this.broken('self-use-billed') ? 'own' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
-      const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: '', price_ulxc: charge === 'billed' ? l.price_per_use_ulxc : 0,
-        charge, used_at: now, payee_agent_id: '', memo: '' }
+      const covered = l.workspace_id === ws.id ? undefined : this.coveringLicence(ws.id, l.id, agent, now)
+      const charge = l.workspace_id === ws.id && !this.broken('self-use-billed') ? 'own' : covered !== undefined ? 'licensed' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
+      const use: Use = { id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer: ws.id, agent_id: agent?.id ?? '', price_ulxc: charge === 'billed' ? l.price_per_use_ulxc : 0,
+        charge, used_at: now, payee_agent_id: '', memo: '', licence_id: covered?.id }
       this.uses.push(use)
       return json(res, 200, { id: use.id, listing_id: l.id, version: 1, kind: l.kind, model, charge, price_ulxc: use.price_ulxc, output: ran.answer, used_at: now }), true
     }
