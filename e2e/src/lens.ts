@@ -592,6 +592,9 @@ export interface LensRoomMessage {
   body: string
   /** B32.86 — what it refers to: a run message's use, charge and payer (Lens rooms.Run's refs). */
   refs?: Record<string, unknown> | null
+  /** B32.88 — an agent's message: the agent that wrote it, and its name (Lens B32.36) */
+  author_agent_id?: string
+  author_agent_name?: string
 }
 
 /** B32.83 — one of a room's events (Lens's rooms.Event), as its event stream's data line carries it. */

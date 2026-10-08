@@ -50,6 +50,7 @@ import { roomContributions } from './roomContributions.ts'
 import { roomWallet } from './roomWallet.ts'
 import { roomRuns } from './roomRuns.ts'
 import { roomPrizes } from './roomPrizes.ts'
+import { roomAgentMCP } from './roomAgentMCP.ts'
 import { taxAndPayouts } from './taxPayouts.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
@@ -4412,6 +4413,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // nowhere; one awarded is one billed prize use on the owner's bill by the room's wallet and a perpetual commercial
   // licence, cleared to the author at Lens's take once paid; one past its deadline closes unawarded and bills nothing.
   if (i === 7) list.push(roomPrizes(i))
+  // B32.88 — an agent in a room over MCP, once a run, on a Free workspace of its own: its run paying itself within its
+  // rules is one billed use on its owner's bill by the agent; above its limit per request, or paying room without
+  // may_spend, it is isError and bills nothing; every call it makes has its agent_tool_calls row.
+  if (i === 8) list.push(roomAgentMCP(i))
   // B32.66 — tax and payouts, once a run, on workspaces of its own: a GB consumer, a DE business and a US buyer each rent one
   // listing and each line, receipt and the seller's week carries its tax; the seller, withheld from the payout run without
   // tax details, completes them and is paid on the next run with a statement equal to its journal postings.
