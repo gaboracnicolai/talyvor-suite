@@ -63,6 +63,11 @@ it on either side, Lens's synthetic routes or `/auth/synthetic` answer 404.
    with the same refusal from Lens (the same `LENS_` setting, or the same sentence once its numbers are
    taken out) are one item for that cause, for talyvor-lens, carrying each scenario's line. An ERROR
    (the harness could not reach a verdict) is in the report but files nothing.
+7. B28.296 — a scenario that has FAILED three runs running (this one and the runs before it in `--out`,
+   nightly and light alike; a run that did not play it, or only SKIPped or ERRORed it, neither counts nor
+   breaks the streak) has the item carrying its marker moved to a section at the top of BUILD.md, `# FIRST
+   IN THE QUEUE …`, with a line under its `repo:` line saying why — the loop claims the first OPEN item in
+   file order, so it is built next. The report and TESTERS.md name each such scenario and its item.
 
 **The cap is hard.** Every question reserves its worst case before it is sent: its whole input plus
 4,096 output tokens at list price. When the answer arrives, the reservation is settled with the real

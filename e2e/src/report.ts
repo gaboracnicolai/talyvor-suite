@@ -18,6 +18,7 @@ import type { ExplorerSummary, Finding } from './explore.ts'
 import type { DayBudget } from './day.ts'
 import type { MemorySample } from './memory.ts'
 import type { Evidence } from './scenarios.ts'
+import type { Raised } from './streak.ts'
 import { type Versions, versionsLine } from './versions.ts'
 
 /** The parts of a run's result the report reads (run.ts RunResult). */
@@ -83,6 +84,8 @@ export interface ReportedRun {
   light?: true
   /** B28.294 — the day's one cap and what the day's earlier runs had spent of it (run.ts). */
   day?: DayBudget
+  /** B28.296 — the scenarios FAILing three runs running or more, and their items, moved to the top of the queue (streak.ts). */
+  raised?: Raised[]
 }
 
 /** B28.294 — the day's one cap, after the run's own: what the day's earlier runs had spent of it. */
@@ -436,7 +439,7 @@ export function renderRun(run: ReportedRun): string {
     lines.push(`| \`${id}\` | ${n.PASS} | ${n.FAIL} | ${n.ERROR} | ${n.SKIP} | ${cell(os[0].title)} |`)
   }
   lines.push(...renderDeep(run), ...renderPlans(run), ...renderSecondAttempts(run), ...renderEnvironment(run), ...renderEdge(run.edge), ...renderCode(run.code), ...renderHostile(run.hostile),
-    ...renderB28(run.b28, run.filed))
+    ...renderB28(run.b28, run.filed), ...renderRaised(run.raised))
 
   // The features in the order the app mounts them, then any a scenario named for itself.
   const features = [...new Set([...(map?.screens.map((r) => r.feature) ?? []), ...run.outcomes.flatMap(featuresOf),
@@ -522,6 +525,7 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
       `${c.ERROR > 0 ? `; ${c.ERROR} errored` : ''}.`,
     `- **New findings**: ${newItems.length > 0 ? `build items ${newItems.join(', ')}` : 'no new build item'}; ` +
       `${groupLeads(findings).length} explorer lead(s)${findings.length > 0 ? ` on ${[...new Set(findings.map((f) => f.feature ?? '(no screen)'))].join(', ')}` : ''}.`,
+    ...raisedLine(run.raised),
     ...(run.stopped_by === undefined ? [] : [`- **STOPPED EARLY**: ${run.stopped_by}.`]),
     ...(run.incidents ?? []).map((i) => `- **Incident**: ${i}.`),
     ...deepLine(run),
@@ -535,6 +539,21 @@ export function renderSummary(run: ReportedRun, report: string, newItems: string
     `- **Report**: ${report}`,
     '',
   ].join('\n')
+}
+
+/** B28.296 — the report's section: each scenario FAILing three runs running and where its item is. */
+function renderRaised(raised: Raised[] | undefined): string[] {
+  if (raised === undefined || raised.length === 0) return []
+  return ['', `### Failing three runs running or more (B28.296)`, '',
+    `A scenario FAILing three runs running has its item moved to the top of the queue, where the loop builds first.`, '',
+    ...raised.map((r) => `- \`${r.scenario}\` — FAILED ${r.runs} runs running, since ${r.since}: ` +
+      (r.item === undefined ? 'no OPEN item carries it, so nothing was moved.' : `${r.item} ${r.moved ? 'moved to the top of the queue by this run' : 'already first in the queue'}.`))]
+}
+
+/** B28.296 — the summary's line. */
+function raisedLine(raised: Raised[] | undefined): string[] {
+  if (raised === undefined || raised.length === 0) return []
+  return [`- **Failing three runs running**: ${raised.map((r) => `\`${r.scenario}\` (${r.runs} runs${r.item === undefined ? ', no item' : `, ${r.item} ${r.moved ? 'moved to the top' : 'already at the top'}`})`).join(', ')}.`]
 }
 
 /** B35.8 — the environment and the second attempts in one line each, when there was anything to say. */

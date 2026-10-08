@@ -27,6 +27,7 @@ import { fileB28Items, fileCodeItems, fileEdgeItems, fileHostileItems, fileItems
 import { type HostileReport, type Repo, runHostile } from './hostile.ts'
 import { LensClient, type SyntheticUser, describe } from './lens.ts'
 import { lightJourneys } from './light.ts'
+import { type Raised, raiseFailing } from './streak.ts'
 import { type MemorySample, SAMPLE_EVERY_MS, nextWidth, readMemory } from './memory.ts'
 import { networkDrop } from './oracles.ts'
 import { cast, seat, seatKey } from './plans.ts'
@@ -117,6 +118,8 @@ export interface RunResult {
   versions?: Versions
   /** B34.2 — production's versions read again at the end, to show a deploy that landed during the run. */
   production_after?: Pick<Versions, 'app' | 'lens'>
+  /** B28.296 — the scenarios FAILing three runs running or more, and their items, moved to the top of the queue (streak.ts). */
+  raised?: Raised[]
 }
 
 /**
@@ -766,6 +769,14 @@ async function main(): Promise<number> {
       console.log(`build items in ${cfg.buildMd}: ` +
         (f.filed.map((x) => `${x.id} (${x.scenario}, ${x.repo})`).join(', ') || 'none new') +
         (f.covered.length > 0 ? `; already open: ${f.covered.map((x) => `${x.scenario} → ${x.by}`).join(', ')}` : ''))
+    })
+  }
+  // B28.296 — then every scenario FAILing three runs running has its item moved to the top of the queue.
+  if (cfg.buildMd !== 'none') {
+    await attempt(`the items failing three runs running to the top of ${cfg.buildMd}`, async () => {
+      result.raised = await raiseFailing(cfg.buildMd, cfg.outDir, result)
+      if (result.raised.length > 0) console.log(`failing three runs running: ${result.raised.map((r) => `${r.scenario} (${r.runs} runs) → ` +
+        `${r.item === undefined ? 'no item' : `${r.item}${r.moved ? ' moved to the top of the queue' : ' already at the top'}`}`).join(', ')}`)
     })
   }
   const edge = result.edge
