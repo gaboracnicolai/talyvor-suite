@@ -111,6 +111,7 @@ const SIDEBAR_DESTINATIONS = [
   '/spend',
   '/members',
   '/settings',
+  '/settings/verification',
   '/track',
   '/docs',
   '/privacy',

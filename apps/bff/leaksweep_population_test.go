@@ -468,9 +468,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE HUNDRED-AND-FIFTH IS B32.58'S REMIX, POST only: /api/marketplace/listings/{id}/remix. It relays Lens's answer —
 	// the remix licence's grant and the artifact to build on — and holds nothing; the remix itself is published through
 	// POST /api/marketplace/listings and read back through the listing's GET, which the sweep reaches.
-	if len(methodOnly) > 105 {
+	//
+	// THE HUNDRED-AND-SIXTH TO HUNDRED-AND-EIGHTH ARE B30.116'S VERIFICATION CHECKS, POST only:
+	// /api/verification/contact, …/identity and …/company. Each relays Lens's answer — the check and the record — and
+	// holds nothing; the record is read back through GET /api/verification, which the sweep reaches.
+	if len(methodOnly) > 108 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 105 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 108 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}
