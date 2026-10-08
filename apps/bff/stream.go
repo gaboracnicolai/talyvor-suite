@@ -277,6 +277,12 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		// B15.6 — Regenerate asks Lens for a fresh answer rather than the cached one. Only the one
 		// value is forwarded.
 		bypass := strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheHeader)), "bypass")
+		// B28.131 — a temporary chat's question: Lens keeps nothing of the answer, and it is never served from the
+		// cache or the pool either, whatever else the browser sent.
+		keepNothing := strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheStoreHeader)), "off")
+		if keepNothing {
+			bypass = true
+		}
 		send := func(bypass bool) (*http.Response, error) {
 			// B17.30 — a question that never reached a restarting Lens is asked again once it is back.
 			up, err := http.NewRequestWithContext(resendOnRestart(ctx), http.MethodPost,
@@ -300,6 +306,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			}
 			if bypass {
 				up.Header.Set(cacheHeader, "bypass")
+			}
+			if keepNothing {
+				up.Header.Set(cacheStoreHeader, "off")
 			}
 			if paidBy != "" {
 				up.Header.Set(paidByHeader, paidBy)
@@ -465,6 +474,10 @@ var agentIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // cacheHeader is Lens's cache-bypass header (talyvor-lens B15.2): `bypass` on a request skips every
 // cache read.
 const cacheHeader = "X-Talyvor-Cache"
+
+// cacheStoreHeader `off` asks Lens to keep nothing of the answer, in the workspace's cache or the shared pool (B28.131,
+// Chat's temporary chat). Only the one value is forwarded, and it brings cacheHeader's bypass with it.
+const cacheStoreHeader = "X-Talyvor-Cache-Store"
 
 // ownReplay reports that Lens answered from this workspace's own cache: a replay with no pool price
 // (web chatApi.ts answerSource reads the same headers the same way).

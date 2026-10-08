@@ -87,6 +87,7 @@ import { TrackIssuePicker, attachTrackIssue } from './TrackIssuePicker'
 import { pageHref } from '../docs/docsNav'
 import type { TrackIssue } from '../track/types'
 import { ModelPicker } from './ModelPicker'
+import { TemporaryChatNotice, TemporaryChatToggle } from './TemporaryChat'
 import { Sources, WebSearchToggle } from './WebSearch'
 import { CodeRuns, RunCodeToggle } from './RunCode'
 import { ConnectorCalls, FiledIssues, ToolConfirmCard, ToolsUsed } from './TalyvorTools'
@@ -306,6 +307,8 @@ export function Chat() {
   const [webSearch, setWebSearch] = useState(false)
   // B28.373 — Run code: on, the model may run code in Lens's sandbox for every question until it is turned off.
   const [runCode, setRunCode] = useState(false)
+  // B28.131 — the open chat is temporary: kept nowhere, and its answers neither served from nor kept in the cache.
+  const [temporary, setTemporary] = useState(false)
   const [failure, setFailure] = useState<Refusal | null>(null)
   // B28.374 — a call the model wants to make that changes something (file a Track issue), waiting for the person's yes.
   const [confirming, setConfirming] = useState<{ ask: ToolConfirm; answer: (yes: boolean) => void } | null>(null)
@@ -411,6 +414,8 @@ export function Chat() {
     setWaiting(false)
     setEditing(null)
     setCanvas(null)
+    // B28.131 — opening any chat leaves a temporary one, and it is gone: nothing of it was kept.
+    setTemporary(false)
   }, [])
 
   // B28.275 — a question can be sent before who is signed in is known. Until then its conversation
@@ -419,6 +424,8 @@ export function Chat() {
   scopeRef.current = scope
   const activeRef = useRef(activeId)
   activeRef.current = activeId
+  const temporaryRef = useRef(temporary)
+  temporaryRef.current = temporary
   const unsavedRef = useRef<Conversation[]>([])
 
   // Reopening the tab lands on the most recent conversation — "it is still there", literally.
@@ -434,12 +441,13 @@ export function Chat() {
       )
       setStorageRefused(!saveConversations(scope, list))
       setHistory({ list, error: null })
-      if (activeRef.current === null) open(list[0])
+      if (activeRef.current === null && !temporaryRef.current) open(list[0])
       return
     }
     setHistory(read)
     // B28.110 — an archived conversation was put away, so a reload does not reopen it.
-    open(read.list.find((c) => !c.archived))
+    // B28.131 — a temporary chat begun before who is signed in was known stays open.
+    if (!temporaryRef.current) open(read.list.find((c) => !c.archived))
   }, [scope, open])
 
   useEffect(() => {
@@ -549,6 +557,8 @@ export function Chat() {
       const searching = webSearch
       // B28.373 — and whether the model may run code to answer it.
       const running = runCode
+      // B28.131 — and whether it is a temporary chat, which keeps neither the question nor the answer.
+      const temp = temporary
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       const carry = was === undefined ? {} : keptVersions(was, turn.length)
       // B28.113 — continued, the screen and the saved thread end on the answer, not on what Continue asked.
@@ -557,7 +567,7 @@ export function Chat() {
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer. B28.112 — asked again, nothing is lost: the thread stays as it was until the new version comes.
-      if (carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject, named))
+      if (!temp && carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject, named))
       setMessages([...thread, head === undefined ? { role: 'assistant', content: '', ...carry } : { role: 'assistant', content: start, versions: head.versions, version: head.version }])
       setPending(true)
       setFailure(null)
@@ -791,7 +801,7 @@ export function Chat() {
         fresh,
         tools,
         payer,
-        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}), ...(running ? { run_code: true } : {}) },
+        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}), ...(running ? { run_code: true } : {}), ...(temp ? { temporary: true } : {}) },
       )
       // B28.112 — asked again and nothing came back (stopped, refused, blank): the answer it had is shown and kept.
       if (was !== undefined && carry.versions !== undefined && answer.trim() === '') {
@@ -805,6 +815,7 @@ export function Chat() {
         if (!failed && !controller.signal.aborted) setFailure({ text: 'Nothing more came back. The answer is as it was.' })
         return
       }
+      if (temp) return
       const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...(toolsUsed !== undefined ? { tools_used: toolsUsed } : {}), ...(filed !== undefined ? { filed } : {}), ...(connectorCalls !== undefined ? { connector_calls: connectorCalls } : {}), ...carry }
       store((list) =>
         upsertConversation(
@@ -820,7 +831,7 @@ export function Chat() {
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode, connectors, connectorKey],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode, temporary, connectors, connectorKey],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -905,6 +916,11 @@ export function Chat() {
       }
       // B28.371 — kept at once with memory on; with it off, nothing is kept until the card is asked to.
       const fact = parseRemember(question)
+      // B28.131 — a temporary chat keeps nothing, so it remembers nothing; the words stay in the box.
+      if (fact !== null && temporary) {
+        setFailure({ text: 'A temporary chat keeps nothing, so Chat won’t remember this. Turn off Temporary chat to have it remembered.' })
+        return
+      }
       if (fact !== null) {
         setDraft('')
         if (memory.on) updateMemory((m) => remember(m, fact, Date.now()))
@@ -929,7 +945,7 @@ export function Chat() {
       setAttachError(null)
       void run([...messages, docs.length > 0 ? { role: 'user', content: question, attachments: docs } : { role: 'user', content: question }])
     },
-    [attachments, draft, memory.on, messages, paidBy, pending, refuseOverBudget, run, selected, updateMemory, uploading],
+    [attachments, draft, memory.on, messages, paidBy, pending, refuseOverBudget, run, selected, temporary, updateMemory, uploading],
   )
 
   const attach = useCallback(
@@ -1308,15 +1324,27 @@ export function Chat() {
               <ProjectLine project={project} onOpen={() => open(undefined, project.id)} />
             ) : null}
           </div>
-          {!statementBeside ? (
-            <button type="button" className={cn(railButtonClass, 'ml-auto')} onClick={() => setStatementOpen(true)}>
-              Statement
-            </button>
-          ) : null}
+          <div className="ml-auto flex items-center gap-1">
+            {/* B28.131 — on or off, a new chat: a temporary chat is never mixed into one that is kept. */}
+            <TemporaryChatToggle
+              on={temporary}
+              disabled={pending}
+              onChange={(on) => {
+                open(undefined)
+                setTemporary(on)
+              }}
+            />
+            {!statementBeside ? (
+              <button type="button" className={railButtonClass} onClick={() => setStatementOpen(true)}>
+                Statement
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-1 flex-col px-gutter">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+            {temporary ? <TemporaryChatNotice /> : null}
             {catalog.isPending || providers.isPending ? (
               <p className="mt-10 text-body text-muted">Reading the model catalog…</p>
             ) : catalog.isError ? (
