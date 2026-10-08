@@ -43,6 +43,7 @@ import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeA
 import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
 import { roomsPrivate } from './rooms.ts'
 import { roomsModeration } from './roomsModeration.ts'
+import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
 import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
@@ -4174,6 +4175,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // B32.91 — room safety, once a run, on a public room of its own: reports hide it until the operator keeps it, a ban
   // refuses a post, and a closed room refuses a message and a run on its wallet, whose statement gains no line.
   if (i === 3) list.push(roomsModeration())
+  // B28.295 — the room screens and routes nothing else reached, once a run, each on a Team workspace of its own: terms saved
+  // on settings, a private room refused to a company without its link and joined through the link's own screen until it
+  // is used up, and on the room screen a contribution accepted and a run refused for a missing variable, nothing charged.
+  if (i === 6) list.push(roomInviteScreen(i), roomDecideRun())
   return list
 }
 

@@ -47,6 +47,19 @@
 //
 // STUB_BREAK=room-reports keeps a reported room listed; room-ban lets a banned member post; room-close refuses a closed
 // room's run and spends its wallet anyway — each of them a defect the scenario must FAIL on.
+//
+// B28.295 — and the room screens' last routes (Lens B32.28, B32.29, B32.31, B32.33):
+//
+//   PUT    /v1/rooms/{id}/terms                 {split_rule, remix_share_bps, default_price_usd_micros, spend_policy}, the
+//                                               owner's: the next version
+//   GET    /v1/rooms/{id}/contributions/{c}     one, for a member
+//   PATCH  /v1/rooms/{id}/contributions/{c}     {status: accepted or rejected}, by the owner or an editor
+//   POST   /v1/rooms/{id}/runs                  a prompt run without a variable its template names is 400 naming it, and
+//                                               moves nothing
+//
+// STUB_BREAK=room-invite-uses lets a one-use link admit again after its use; room-decide answers Accept and changes
+// nothing; room-run-variables runs a prompt without its variable, on the room's wallet — each a defect room-invite-screen
+// or room-decide-run must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -101,6 +114,8 @@ interface Msg { id: string; cursor: number; room_id: string; author_workspace_id
 interface Contribution {
   id: string; room_id: string; listing_id: string; version: number; kind: string; title: string; author_workspace_id: string
   forked_from?: string; status: string; message_id: string; votes: Map<string, number>; created_at: string
+  /** B28.295 — a prompt's template, whose {{variables}} a run must give. */
+  template: string
 }
 
 const messages = new Map<string, Msg[]>()
@@ -146,8 +161,8 @@ function stream(req: IncomingMessage, res: ServerResponse, roomID: string, after
 
 /** The room screen's routes on a room `ws` is in; false when `p` is not one. */
 async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, url: URL, ws: string, r: Room): Promise<boolean> {
-  const sub = /^\/v1\/rooms\/[^/]+\/(messages|events|contributions)(?:\/([^/]+)\/(fork|vote))?$/.exec(p)
-  if (sub === null) return false
+  const sub = /^\/v1\/rooms\/[^/]+\/(messages|events|contributions)(?:\/([^/]+)(?:\/(fork|vote))?)?$/.exec(p)
+  if (sub === null || (sub[2] !== undefined && sub[1] !== 'contributions')) return false
   const [, what, cid, act] = sub
   if (what === 'messages' && req.method === 'GET') {
     return json(res, 200, { messages: messages.get(r.id) ?? [], more: false, events_cursor: cursor }), true
@@ -176,8 +191,9 @@ async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, 
     const title = String(d.title || from?.title || '').trim()
     const kind = String(from?.kind ?? d.kind ?? 'prompt')
     const m = post(r.id, ws, `proposed a ${kind} “${title}”`, 'contribution', { contribution_id: id, ...(from ? { forked_from: from.id } : {}) })
+    const template = String(((d.artifact ?? {}) as Record<string, unknown>).template ?? from?.template ?? '')
     const c: Contribution = { id, room_id: r.id, listing_id: 'lst_' + randomBytes(8).toString('hex'), version: 1, kind, title, author_workspace_id: ws,
-      ...(from ? { forked_from: from.id } : {}), status: 'proposed', message_id: m.id, votes: new Map(), created_at: m.created_at }
+      ...(from ? { forked_from: from.id } : {}), status: 'proposed', message_id: m.id, votes: new Map(), created_at: m.created_at, template }
     contributions.set(r.id, [c, ...list])
     return json(res, 201, contributionView(c, ws)), true
   }
@@ -194,6 +210,15 @@ async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, 
     if (v !== 1 && v !== -1) return json(res, 400, { error: 'rooms: invalid request: a vote is 1 or -1' }), true
     c.votes.set(ws, v)
     return json(res, 200, contributionView(c, ws)), true
+  }
+  if (act === undefined && req.method === 'GET') return json(res, 200, contributionView(c, ws)), true
+  if (act === undefined && req.method === 'PATCH') {
+    const role = r.members.find((m) => m.workspace_id === ws)?.role ?? ''
+    if (role !== 'owner' && role !== 'editor') return json(res, 403, { error: 'rooms: not allowed: only the room’s owner or an editor decides a contribution' }), true
+    const status = String((await body(req)).status ?? '')
+    if (status !== 'accepted' && status !== 'rejected') return json(res, 400, { error: 'rooms: invalid request: status must be accepted or rejected' }), true
+    if (BREAK !== 'room-decide') c.status = status
+    return json(res, 200, { ...contributionView(c, ws), status }), true
   }
   return false
 }
@@ -280,7 +305,7 @@ export async function roomsRoute(req: IncomingMessage, res: ServerResponse, p: s
     return true
   }
   if (await settingsOutsideRoom(req, res, p, ws)) return true
-  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions|members|invites|prizes|reports|runs)/.exec(p)
+  const one = /^\/v1\/rooms\/([^/]+)(\/join)?$/.exec(p) ?? /^\/v1\/rooms\/([^/]+)()\/(?:messages|events|contributions|members|invites|prizes|reports|runs|terms)/.exec(p)
   if (one === null) return false
   const r = rooms.get(decodeURIComponent(one[1]))
   if (r === undefined || (r.visibility === 'private' && !r.members.some((m) => m.workspace_id === ws))) {
@@ -333,7 +358,7 @@ async function settingsOutsideRoom(req: IncomingMessage, res: ServerResponse, p:
       if (was !== undefined) return json(res, 200, { room_id: r.id, member: member(r, was) }), true
       const m = { workspace_id: ws, role: 'member', terms_version: r.terms.version, joined_at: new Date().toISOString() }
       r.members.push(m)
-      i.uses++
+      if (BREAK !== 'room-invite-uses') i.uses++
       return json(res, 201, { room_id: r.id, member: member(r, m) }), true
     }
     return false
@@ -361,6 +386,15 @@ async function settingsOutsideRoom(req: IncomingMessage, res: ServerResponse, p:
 
 /** B32.55 — a room's members, invites and prizes as its owner or an editor changes them; false when `p` is not one. */
 async function roomSettings(req: IncomingMessage, res: ServerResponse, p: string, ws: string, r: Room): Promise<boolean> {
+  if (p === `/v1/rooms/${r.id}/terms` && req.method === 'PUT') {
+    if (!r.members.some((m) => m.workspace_id === ws && m.role === 'owner')) return json(res, 403, { error: 'rooms: not allowed: only the room’s owner changes its terms' }), true
+    const d = await body(req)
+    r.terms = { version: r.terms.version + 1, split_rule: String(d.split_rule || r.terms.split_rule), remix_share_bps: Number(d.remix_share_bps ?? 0),
+      default_price_usd_micros: Number(d.default_price_usd_micros ?? 0), spend_policy: String(d.spend_policy || r.terms.spend_policy), created_at: new Date().toISOString() }
+    const owner = r.members.find((m) => m.workspace_id === ws)
+    if (owner !== undefined) owner.terms_version = r.terms.version
+    return json(res, 200, r.terms), true
+  }
   const sub = /^\/v1\/rooms\/[^/]+\/(members|invites|prizes)(?:\/([^/]+))?$/.exec(p)
   if (sub === null) return false
   const [, what, which] = sub
@@ -445,6 +479,11 @@ async function roomSafety(req: IncomingMessage, res: ServerResponse, p: string, 
   const d = await body(req)
   const target = (contributions.get(r.id) ?? []).find((c) => c.id === String(d.target ?? ''))
   if (target === undefined) return json(res, 404, { error: 'market: not found: no such listing' }), true
+  const given = (d.variables ?? {}) as Record<string, unknown>
+  const missing = [...target.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((v) => v[1]).filter((v) => !(v in given))
+  if (missing.length > 0 && BREAK !== 'room-run-variables') {
+    return json(res, 400, { error: `market: invalid listing: the prompt needs the variables ${missing.join(', ')}` }), true
+  }
   const at = new Date().toISOString()
   const cost = 1_000
   const balance = r.walletLines.reduce((n, l) => n + l.amount_ulxc, 0) - cost
