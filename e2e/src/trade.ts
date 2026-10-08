@@ -1515,3 +1515,143 @@ export function marketTrial(seed: number): Scenario {
     },
   }
 }
+
+/**
+ * B32.80 — an agent's licences within its mandate (Lens B32.22): the most one licence may commit it to, whether it may
+ * subscribe, and an approval that lets one rent through once. The seller is a workspace the scenario makes; the buyer is the
+ * scenario's own workspace, so its bill and its licences hold this listing's alone.
+ */
+export function marketAgentCommitment(seed: number): Scenario {
+  const perUse = 100_000
+  const rentPrice = 1_500_000
+  const enterprisePrice = 2_500_000
+  const subscribePrice = 500_000
+  const maxCommitment = 20_000_000
+  const approvalAbove = 10_000_000
+  const days = 30
+  const rentULXC = rentPrice * ULXC_PER_USD_MICRO
+  const lx = (ulxc: number) => `${ulxc / 1e6} LXC`
+  return {
+    id: 'market-agent-commitment',
+    owner: 'talyvor-lens',
+    own: true,
+    agents: 2,
+    feature: 'Marketplace',
+    title: `an agent whose rules commit it to at most ${lx(maxCommitment)} a licence rents one at ${lx(rentULXC)} with its own key, and is refused a ` +
+      `${lx(enterprisePrice * ULXC_PER_USD_MICRO)} rent naming max_commitment_ulxc and a subscription naming may_subscribe; a second agent, above its ` +
+      'approval amount, is refused with an approval, the approved rent goes through once and the next needs a new approval; ' +
+      'the bill and the licences hold the two rents alone',
+    run: async (ctx) => {
+      const { env, app } = ctx
+      const model = env.catalog.find((m) => m.display_name === app.modelNameInUse)
+      if (model === undefined) throw new Error(`the catalog has no model named "${app.modelNameInUse}"`)
+      const [seller] = await env.lens.createUsers(1)
+
+      const title = `Commitment ${seed}-${RUN_SALT}`
+      const pub = await env.lens.act<Listing>(seller, 'POST', '/v1/workspaces/{ws}/marketplace/listings', { kind: 'prompt', title, description: '', visibility: 'public',
+        artifact: { template: 'What is {{a}} + {{b}}? Reply with the number only.', model: model.id }, changelog: '', offers: [
+          { kind: 'per_use', licence: 'commercial', price_usd_micros: perUse },
+          { kind: 'rent', licence: 'commercial', price_usd_micros: rentPrice, period_days: days },
+          { kind: 'rent', licence: 'enterprise', price_usd_micros: enterprisePrice, period_days: days, seats: 5 },
+          { kind: 'subscribe', licence: 'commercial', price_usd_micros: subscribePrice, period_days: days },
+        ] })
+      ctx.evidence.push({ note: `the seller publishes "${title}" with a commercial and an enterprise ${days}-day rent and a commercial subscription`, answer: JSON.stringify(pub) })
+      if (!pub.ok) return fail(`publishing "${title}" was refused: ${pub.status} ${pub.error}`)
+      const listing = pub.value.id
+      if (pub.value.review_status !== 'approved') {
+        // B32.46 — a listing like another night's is held for review, hidden from the buyer; a person approves it.
+        if (!env.lens.canModerate) throw new CannotTest(`the listing was ${pub.value.review_status}, and approving it needs a moderator key: LENS_MODERATOR_KEY, from \`lens moderator-keys create\``)
+        const ok = await env.lens.moderate(listing, 'approve')
+        if (!ok.ok) return fail(`approving the held listing ${listing}: ${ok.status} ${ok.error}`)
+      }
+      const read = await env.lens.act<{ offers: MarketOffer[] | null }>(app.user, 'GET', `/v1/marketplace/listings/${listing}`)
+      if (!read.ok) return fail(`the buyer reading "${title}": ${read.status} ${read.error}`)
+      const offerOf = (kind: string, licence: string) => (read.value.offers ?? []).find((o) => o.kind === kind && o.licence === licence)?.id
+      const rent = offerOf('rent', 'commercial')
+      const enterprise = offerOf('rent', 'enterprise')
+      const subscription = offerOf('subscribe', 'commercial')
+      if (rent === undefined || enterprise === undefined || subscription === undefined) return fail(`the buyer cannot see the listing's rents and subscription: ${JSON.stringify(read.value.offers)}`)
+
+      // An agent of the buyer's with its own key, its rules saved as given.
+      const agentWith = async (name: string, rules: Record<string, number>): Promise<{ id: string; name: string; key: string } | string> => {
+        const a = await env.lens.createAgent(app.user, name)
+        const k = await env.lens.act<{ key: string }>(app.user, 'POST', `/v1/workspaces/{ws}/agents/${a.id}/keys`, { name: 'market-agent-commitment' })
+        if (!k.ok) return `issuing ${a.name} a key was refused: ${k.status} ${k.error}`
+        const put = await env.lens.act<Record<string, unknown>>(app.user, 'PUT', `/v1/workspaces/{ws}/agents/${a.id}/rules`, rules)
+        ctx.evidence.push({ note: `${a.name}'s rules`, answer: JSON.stringify(put) })
+        if (!put.ok) return `setting ${a.name}'s rules ${JSON.stringify(rules)} was refused: ${put.status} ${put.error}`
+        const unsaved = Object.entries(rules).filter(([r, v]) => put.value[r] !== v)
+        if (unsaved.length > 0) return `${a.name}'s rules were saved without ${unsaved.map(([r, v]) => `${r} ${v}`).join(', ')}: ${JSON.stringify(put.value)}`
+        return { ...a, key: k.value.key }
+      }
+      // A licence taken with an agent's key: Lens's status and body.
+      const license = async (who: { name: string; key: string }, offer: string, key: string, what: string) => {
+        const r = await env.lens.as(who.key, 'POST', `/v1/workspaces/${app.user.workspaceID}/marketplace/listings/${listing}/licences`, { offer_id: offer }, { 'Idempotency-Key': key })
+        ctx.evidence.push({ note: `${who.name} ${what}`, answer: `${r.status} ${r.text.slice(0, 400)}` })
+        let body: Partial<MarketLicence> & { error?: string; approval_id?: string } = {}
+        try {
+          body = JSON.parse(r.text) as typeof body
+        } catch {
+          // not JSON: the status and the text say what happened
+        }
+        return { status: r.status, text: r.text.slice(0, 300), body }
+      }
+
+      // Within its commitment, then above it, then a subscription it may not take.
+      const capped = await agentWith(`Committed ${RUN_SALT}`, { max_commitment_ulxc: maxCommitment })
+      if (typeof capped === 'string') return fail(capped)
+      const first = await license(capped, rent, randomUUID(), `rents for ${lx(rentULXC)}, within ${lx(maxCommitment)}`)
+      if (first.status !== 201 || first.body.agent_id !== capped.id || first.body.price_ulxc !== rentULXC) {
+        return fail(`${capped.name} renting at ${lx(rentULXC)}, within its ${lx(maxCommitment)} commitment, should answer 201 with its licence; Lens answered ${first.status} ${first.text}`)
+      }
+      const over = await license(capped, enterprise, randomUUID(), `rents for ${lx(enterprisePrice * ULXC_PER_USD_MICRO)}, above ${lx(maxCommitment)}`)
+      if (over.status !== 403 || !(over.body.error ?? '').includes('max_commitment_ulxc')) {
+        return fail(`a ${lx(enterprisePrice * ULXC_PER_USD_MICRO)} rent above ${capped.name}'s ${lx(maxCommitment)} commitment should be refused 403 naming max_commitment_ulxc; Lens answered ${over.status} ${over.text}`)
+      }
+      const sub = await license(capped, subscription, randomUUID(), 'subscribes, with no may_subscribe')
+      if (sub.status !== 403 || !(sub.body.error ?? '').includes('may_subscribe')) {
+        return fail(`a subscription by ${capped.name}, whose rules do not let it subscribe, should be refused 403 naming may_subscribe; Lens answered ${sub.status} ${sub.text}`)
+      }
+
+      // Above its approval amount: refused with an approval, approved, the same request through once, the next refused again.
+      const approver = await agentWith(`Approved ${RUN_SALT}`, { approval_above_ulxc: approvalAbove })
+      if (typeof approver === 'string') return fail(approver)
+      const key = randomUUID()
+      const asked = await license(approver, rent, key, `rents for ${lx(rentULXC)}, above its ${lx(approvalAbove)} approval amount`)
+      const approval = asked.body.approval_id ?? ''
+      if (asked.status !== 403 || approval === '') {
+        return fail(`a ${lx(rentULXC)} rent above ${approver.name}'s ${lx(approvalAbove)} approval amount should be refused 403 with an approval_id; Lens answered ${asked.status} ${asked.text}`)
+      }
+      const approved = await env.lens.act(app.user, 'POST', `/v1/workspaces/{ws}/agents/approvals/${approval}/approve`, {})
+      ctx.evidence.push({ note: `the owner approves ${approval}`, answer: JSON.stringify(approved) })
+      if (!approved.ok) return fail(`the owner approving ${approval} was refused: ${approved.status} ${approved.error}`)
+      const through = await license(approver, rent, key, 'sends the same rent again, approved')
+      if (through.status !== 201 || through.body.agent_id !== approver.id || through.body.price_ulxc !== rentULXC) {
+        return fail(`approved, ${approver.name}'s rent sent again should answer 201 with its licence; Lens answered ${through.status} ${through.text}`)
+      }
+      const again = await license(approver, rent, randomUUID(), 'rents a second time, on the same approval')
+      if (again.status !== 403 || (again.body.approval_id ?? '') === '' || again.body.approval_id === approval) {
+        return fail(`one approval lets one rent through: ${approver.name}'s second rent should be refused 403 with a new approval, not ${approval}; Lens answered ${again.status} ${again.text}`)
+      }
+
+      // The bill and the licences: the two rents alone.
+      const ids = [first.body.id, through.body.id]
+      const lines = ((await env.lens.marketBill(app.user)).lines ?? []).filter((l) => l.listing_id === listing)
+      ctx.evidence.push({ note: "the listing's lines on the buyer's bill", answer: JSON.stringify(lines) })
+      const want = [[first.body.use_id, capped.id], [through.body.use_id, approver.id]]
+      if (lines.length !== 2 || !want.every(([use, agent]) => lines.some((l) => l.use_id === use && l.agent_id === agent && l.price_ulxc === rentULXC))) {
+        return fail(`the buyer's bill should hold two ${lx(rentULXC)} rents, one for each agent, and nothing refused; it has ${JSON.stringify(lines)}`)
+      }
+      const held = await env.lens.act<{ licences: MarketLicence[] | null }>(app.user, 'GET', '/v1/workspaces/{ws}/marketplace/licences')
+      ctx.evidence.push({ note: "the buyer's licences", answer: JSON.stringify(held) })
+      if (!held.ok) return fail(`reading the buyer's licences: ${held.status} ${held.error}`)
+      const mine = (held.value.licences ?? []).filter((x) => x.listing_id === listing)
+      if (mine.length !== 2 || !ids.every((x) => mine.some((l) => l.id === x && l.kind === 'rent' && l.licence === 'commercial'))) {
+        return fail(`the buyer should hold two licences to the listing, the two commercial rents ${ids.join(' and ')}; it holds ${JSON.stringify(mine)}`)
+      }
+      return { pass: true, detail: `${capped.name} rented at ${lx(rentULXC)} and was refused ${lx(enterprisePrice * ULXC_PER_USD_MICRO)} naming max_commitment_ulxc and a ` +
+        `subscription naming may_subscribe; ${approver.name}'s rent went through once on approval ${approval}, and its next filed ${again.body.approval_id}; ` +
+        'the bill holds the two rents and the buyer the two licences' }
+    },
+  }
+}
