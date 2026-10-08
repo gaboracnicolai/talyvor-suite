@@ -48,6 +48,9 @@ type app struct {
 	// fx caches the ECB's euro reference rates for /api/fx (fx.go); fxSource is where they are read.
 	fx       fxReads
 	fxSource string
+
+	// connectorOut is how Chat's external MCP connectors are reached: public addresses only (chat_connectors.go).
+	connectorOut http.RoundTripper
 }
 
 func newApp(cfg config, auth *authenticator) *app {
@@ -59,6 +62,7 @@ func newApp(cfg config, auth *authenticator) *app {
 		streamClient: newStreamClient(cfg.lensRestartWait),
 		sessionKeys:  map[string]sessionKeyLease{},
 		fxSource:     ecbDailyURL,
+		connectorOut: newConnectorTransport(),
 	}
 
 	// The auth surface. Registered in every mode: in disabled mode the login
@@ -280,6 +284,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B28.349 — Chat asks what the agents spent through Lens's wallet MCP tools, read-only ones only. See chat_tools.go.
 	a.mux.HandleFunc("/api/chat/tools", a.requireTenant(a.handleChatTools))
 	a.mux.HandleFunc("/api/chat/tools/call", a.requireTenant(a.handleChatToolCall))
+	// B28.122 — the person's own MCP connectors: their tools listed, and a call the model made run. See chat_connectors.go.
+	a.mux.HandleFunc("/api/chat/connectors/tools", a.requireSession(a.handleConnectorTools))
+	a.mux.HandleFunc("/api/chat/connectors/call", a.requireSession(a.handleConnectorCall))
 	// B28.370 — the prompt library: the workspace's named prompts in Lens, listed and saved. See chat_prompts.go.
 	a.mux.HandleFunc("/api/chat/prompts", a.requireTenant(a.handleChatPrompts))
 	// B28.365 — the person's history, sealed in their browser, synced across their devices when they turn it on.

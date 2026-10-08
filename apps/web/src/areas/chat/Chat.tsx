@@ -77,7 +77,8 @@ import { FilePicker } from './FilePicker'
 import { ModelPicker } from './ModelPicker'
 import { Sources, WebSearchToggle } from './WebSearch'
 import { CodeRuns, RunCodeToggle } from './RunCode'
-import { FiledIssues, ToolConfirmCard, ToolsUsed } from './TalyvorTools'
+import { ConnectorCalls, FiledIssues, ToolConfirmCard, ToolsUsed } from './TalyvorTools'
+import { type Connector, connectorChatTools, loadConnectors } from './connectors'
 import { Canvas, OpenInCanvas } from './Canvas'
 import { artifactHtml, artifactTitle, htmlArtifacts, withArtifactEdit } from './artifacts'
 import { useRevealedText } from './reveal'
@@ -380,6 +381,15 @@ export function Chat() {
   useEffect(() => {
     if (scope !== null) setCustom(loadCustomInstructions(scope).text)
   }, [scope])
+  // B28.122 — the person's own connectors (/chat/connectors), whose tools are offered beside Talyvor's; read once, like
+  // the custom instructions, and their tools listed ahead of the first question since they are part of its price.
+  const [connectors, setConnectors] = useState<Connector[]>([])
+  useEffect(() => {
+    if (scope !== null) setConnectors(loadConnectors(scope).list)
+  }, [scope])
+  const connectorKey = useMemo(() => ['chat-connector-tools', scope, ...connectors.map((c) => c.id)], [scope, connectors])
+  const connectorTools = useQuery({ queryKey: connectorKey, queryFn: () => connectorChatTools(connectors), enabled: connectors.length > 0, retry: false, staleTime: 5 * 60_000 })
+  const offeredTools = useMemo(() => [...(chatTools.data ?? []), ...(connectors.length > 0 ? (connectorTools.data ?? []) : [])], [chatTools.data, connectorTools.data, connectors.length])
   // B28.370 — "Use in a new chat" on the prompt library opens /chat?prompt=<name>: a new chat with that prompt chosen.
   // Declared after the effect that opens the latest conversation, so it wins once the history is read.
   const [params, setParams] = useSearchParams()
@@ -440,7 +450,7 @@ export function Chat() {
     (modelId === AUTO_MODEL_ID ? picker.auto : models.find((m) => m.id === modelId)) ?? picker.defaultModel
   // B28.99 — what sending the draft will cost, as a range, while it is typed.
   const asking = draft.trim()
-  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, chatTools.data ?? [], pricedWith)
+  const preview = (m: ChatModel) => previewCost(messages, asking, attachments, m, offeredTools, pricedWith)
   const estimate =
     selected !== undefined && !pending && asking !== '' && !answeredHere(asking)
       ? withLowEnd(preview(selected), selected.auto && preview(selected.auto.cheapest))
@@ -505,9 +515,14 @@ export function Chat() {
       let codeRuns: ChatMessage['code_runs']
       let toolsUsed: ChatMessage['tools_used']
       let filed: ChatMessage['filed']
+      let connectorCalls: ChatMessage['connector_calls']
       let failed = false
       // B28.349 — Lens's read-only wallet tools, read once: a spend question is answered from the statements.
-      const tools = await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])
+      // B28.122 — and the tools of the person's own connectors after them.
+      const tools = [
+        ...(await qc.ensureQueryData({ queryKey: ['chat-tools'], queryFn: fetchChatTools, retry: false }).catch(() => [])),
+        ...(connectors.length > 0 ? await qc.ensureQueryData({ queryKey: connectorKey, queryFn: () => connectorChatTools(connectors), retry: false }).catch(() => []) : []),
+      ]
       // B10.3 — whether Lens converted the documents this question carried, marked on the question.
       const asked = turn.length - 1
       const carriedDocs = turn[asked]?.attachments?.some((a) => a.file_id !== undefined) === true
@@ -533,7 +548,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, citations: pages, codeRuns: ran, toolsUsed: usedTools, filed: filedIssues }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, citations: pages, codeRuns: ran, toolsUsed: usedTools, filed: filedIssues, connectorCalls: madeCalls }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -653,6 +668,21 @@ export function Chat() {
                 return next
               })
             }
+            // B28.122 — the calls made with connectors' tools, under the answer, each priced: Lens's charge for the request
+            // that read its answer when it said, else that request's tokens at the answer's model's price.
+            if (madeCalls !== undefined) {
+              const calls = madeCalls.map(({ usage: read, ...c }) => ({
+                ...c,
+                ...(c.charged_ulxc === undefined && from === undefined ? { usd: pricedAnswer(read, target, servedBy, catalog.data ?? [])?.usd } : {}),
+              }))
+              connectorCalls = calls
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, connector_calls: calls }
+                return next
+              })
+            }
             // B28.81 — an answer that finished having said nothing, or stopped at the length limit, says so
             // rather than looking like a whole answer.
             incomplete = answer.trim() === '' ? 'blank' : cutOff(finish) ? 'cut_off' : undefined
@@ -708,7 +738,7 @@ export function Chat() {
         if (!failed && !controller.signal.aborted) setFailure({ text: 'Nothing more came back. The answer is as it was.' })
         return
       }
-      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...(toolsUsed !== undefined ? { tools_used: toolsUsed } : {}), ...(filed !== undefined ? { filed } : {}), ...carry }
+      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...(toolsUsed !== undefined ? { tools_used: toolsUsed } : {}), ...(filed !== undefined ? { filed } : {}), ...(connectorCalls !== undefined ? { connector_calls: connectorCalls } : {}), ...carry }
       store((list) =>
         upsertConversation(
           list,
@@ -723,7 +753,7 @@ export function Chat() {
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode, connectors, connectorKey],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -759,12 +789,12 @@ export function Chat() {
   const refuseOverBudget = useCallback(
     (turns: ChatMessage[], question: string, docs: ChatAttachment[], using: ChatModel | undefined = selected): boolean => {
       if (using === undefined) return false
-      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, chatTools.data ?? [], pricedWith), usdPerLXC)
+      const over = overBudget(budget, messages, previewCost(turns, question, docs, using, offeredTools, pricedWith), usdPerLXC)
       if (over === undefined) return false
       setFailure({ text: budgetRefusal(over), remedy: { label: 'Start a new chat', action: 'new_chat' } })
       return true
     },
-    [budget, chatTools.data, messages, pricedWith, selected, usdPerLXC],
+    [budget, offeredTools, messages, pricedWith, selected, usdPerLXC],
   )
 
   const send = useCallback(
@@ -1675,6 +1705,10 @@ function ChatRail({
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/memory">
           Memory
         </Link>
+        {/* B28.122 — the person's own MCP servers, whose tools Chat offers beside Talyvor's. */}
+        <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/connectors">
+          Connectors
+        </Link>
         <Link className={`block text-caption text-ink ${inlineLink}`} to="/chat/help">
           How to use Talyvor Chat
         </Link>
@@ -2007,6 +2041,9 @@ function Reply({
       {message.code_runs !== undefined && message.code_runs.length > 0 && message.incomplete !== 'blank' && !answering && !shown.revealing ? <CodeRuns runs={message.code_runs} /> : null}
       {message.filed !== undefined && message.filed.length > 0 && !answering && !shown.revealing ? <FiledIssues issues={message.filed} /> : null}
       {message.tools_used !== undefined && message.tools_used.length > 0 && !answering && !shown.revealing ? <ToolsUsed names={message.tools_used} /> : null}
+      {message.connector_calls !== undefined && message.connector_calls.length > 0 && !answering && !shown.revealing ? (
+        <ConnectorCalls calls={message.connector_calls} usdPerLXC={usdPerLXC} />
+      ) : null}
       {message.content !== '' && message.incomplete !== 'blank' && !answering && !shown.revealing ? (
         <div className="mt-2 flex flex-wrap items-center gap-1">
           {message.incomplete === 'cut_off' ? (

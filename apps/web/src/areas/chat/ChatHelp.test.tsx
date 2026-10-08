@@ -23,6 +23,7 @@ describe('How to use Talyvor Chat (B10.3)', () => {
       'Searching the web',
       'Running code',
       'Track and Docs in Chat',
+      'Connectors',
       'The canvas',
       'What an answer costs',
       'What each question sends',

@@ -62,6 +62,7 @@
 //                 as Lens's does once Redis starts erroring after the night's own run (B28.292: only the deep pass FAILs)
 //   web-search  — Search the web is ignored: nothing is searched, and an answer cites no page (B28.372)
 //   run-code    — Run code is ignored: no code is run, and the model answers from what it knows (B28.373)
+//   connector   — offered a connector's fingerprint tool, the stand-in model makes a fingerprint up rather than calling it (B28.122)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -291,6 +292,10 @@ const SPEND_QUESTION = /^What did (.+?) spend today\?/
 /** B28.374 — "file this as a bug", which the stand-in model answers with Track's create_issue, when it is offered. */
 const FILE_BUG = /\bfile (?:this|it) as a bug\b/i
 
+/** B28.122 — "the fingerprint of the text "…"", which the stand-in model answers with a connector's fingerprint tool
+ *  (Talyvor test tools, offered as <connector>__fingerprint), when one is offered. */
+const FINGERPRINT = /\bfingerprint of the text "([^"]+)"/i
+
 /** B28.374 — the issue it files for "file this as a bug": the sentences before it are the bug, the first its title. */
 function bugReport(q: string): { title: string; description: string } {
   const bug = q.slice(0, FILE_BUG.exec(q)?.index ?? q.length).trim()
@@ -388,6 +393,9 @@ function think(messages: Msg[]): string {
     const filed = filedOf(spent)
     if (filed !== undefined) return `Filed it in Track as ${filed.identifier}: ${filed.title}.`
     if (FILE_BUG.test(messages.map(text).join('\n'))) return `I did not file it. ${spent}`
+    // B28.122 — told what the connector's fingerprint tool answered, it gives that.
+    const fingerprinted = FINGERPRINT.exec(messages.map(text).join('\n'))
+    if (fingerprinted !== null) return `The fingerprint of "${fingerprinted[1]}" is ${spent}.`
     try {
       return `Your agents spent ${(JSON.parse(spent) as { total_ulxc: number }).total_ulxc / 1e6} LXC today.`
     } catch {
@@ -396,6 +404,9 @@ function think(messages: Msg[]): string {
   }
   const q = text(messages[messages.length - 1])
   const all = messages.map(text).join('\n')
+  // B28.122 — asked for a fingerprint with no tool called (or STUB_BREAK=connector), it makes one up, as a model would.
+  const guessed = FINGERPRINT.exec(q)
+  if (guessed !== null) return `The fingerprint of "${guessed[1]}" is 0f1e2d3c4b5a.`
   // B28.368 — asked to go on with an answer it cut off: the rest of the whole answer, after what it had said.
   if (CONTINUE.test(q) && messages.length >= 3) {
     const had = text(messages[messages.length - 2])
@@ -617,14 +628,19 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   const lastAsked = text(messages[messages.length - 1] ?? { role: 'user', content: '' })
   const asked = SPEND_QUESTION.exec(lastAsked)
   const offeredTool = (name: string) => (body.tools ?? []).some((t) => (t.name ?? t.function?.name) === name)
+  // B28.122 — offered a connector's fingerprint tool and asked for a text's fingerprint, it calls it.
+  const fingerprintTool = (body.tools ?? []).map((t) => t.name ?? t.function?.name ?? '').find((n) => n.endsWith('__fingerprint'))
+  const fingerprint = FINGERPRINT.exec(lastAsked)
   // B28.374 — offered Track's create_issue and told to file a bug, it files it.
   const tool = toolResultOf(messages) !== undefined || !body.stream ? undefined
     : offeredTool('wallet_agents_spend') && asked !== null ? 'wallet_agents_spend'
     : offeredTool('create_issue') && FILE_BUG.test(lastAsked) ? 'create_issue'
+    : fingerprintTool !== undefined && fingerprint !== null && BREAK !== 'connector' ? fingerprintTool
     : undefined
   if (tool !== undefined) {
     const inTok = tokens(messages.map(text).join(' ')) + 8
     const args = tool === 'create_issue' ? JSON.stringify(bugReport(lastAsked))
+      : tool === fingerprintTool ? JSON.stringify({ text: fingerprint?.[1] ?? '' })
       : JSON.stringify({ from: new Date().toISOString().slice(0, 10), ...(asked?.[1] === 'my agents' ? {} : { agent: asked?.[1] }) })
     const outTok = tokens(args) + 8
     const toolCharge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)

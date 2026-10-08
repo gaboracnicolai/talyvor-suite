@@ -444,9 +444,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// (POST /api/rooms/{id}/prizes/{pid}/award) and a join through a link (POST /api/room-invites/{token}/join). Each
 	// relays Lens's answer and holds nothing; the members and terms are read back through GET /api/rooms/{id}, the
 	// invites through GET /api/rooms/{id}/invites and the prizes through GET /api/rooms/{id}/prizes, which the sweep reaches.
-	if len(methodOnly) > 96 {
+	//
+	// THE NINETY-SEVENTH AND NINETY-EIGHTH ARE B28.122'S CONNECTORS, POST only: /api/chat/connectors/tools and
+	// /api/chat/connectors/call. Each relays what the person's own MCP server answered for the connector the body names,
+	// and holds nothing: the connectors are kept in the person's browser, and the BFF stores none of them.
+	if len(methodOnly) > 98 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 96 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 98 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

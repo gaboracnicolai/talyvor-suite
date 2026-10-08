@@ -609,7 +609,7 @@ export const LENS_BODIES: LensBody[] = [
     route: 'POST /mcp',
     file: 'apps/bff/chat_tools.go',
     kind: 'map-literal',
-    anchor: 'json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": method, "params": params})',
+    anchor: 'json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})',
     upstreamFile: 'internal/mcp/server.go',
     upstreamAnchor: 'type rpcRequest struct {',
     subject: 'lensMCPBody',
@@ -651,7 +651,7 @@ export const NON_LENS_ANON_SITES = [
   {
     file: 'chat_tools.go',
     what:
-      'withoutArguments (B28.374) re-marshals a Lens, Track or Docs MCP tool’s inputSchema after deleting the arguments the BFF sets from the session (workspace_id, team_id) — a RESPONSE projection for GET /api/chat/tools, so it sends no key set and is exempt rather than uncovered. The JSON-RPC body chat_tools.go does send is the lensMCPBody row, built once in mcpRequest for all three products.',
+      'withoutArguments (B28.374) re-marshals a Lens, Track or Docs MCP tool’s inputSchema after deleting the arguments the BFF sets from the session (workspace_id, team_id) — a RESPONSE projection for GET /api/chat/tools, so it sends no key set and is exempt rather than uncovered. The JSON-RPC body chat_tools.go does send is the lensMCPBody row, built once in mcpRequestID for all three products and for B28.122’s connectors (chat_connectors.go), which send the same envelope with an id of their own per request.',
   },
   {
     file: 'track_projects.go',

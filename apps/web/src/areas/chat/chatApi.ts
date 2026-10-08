@@ -1,5 +1,6 @@
 import { ApiError, readableList } from '../../lib/api'
 import { type Citation, type CodeRun, type ToolCallPiece, type Usage, extractDeltas, mergeUsage, splitFrames } from './chatStream'
+import { type ConnectorCall, type ConnectorRef, callConnectorTool } from './connectors'
 import type { AnswerCost, AnswerSource } from './price'
 import { PROMPT_RESOLVED_HEADER, promptReference } from './promptLibrary'
 
@@ -141,6 +142,9 @@ export interface ChatMessage {
   tools_used?: string[]
   /** B28.374 — on an answer: the Track issues it filed, each linked to the issue. Screen-side only. */
   filed?: FiledIssue[]
+  /** B28.122 — on an answer: each call it made with a connector's tool, and what the request that read its answer cost.
+   *  Screen-side only. */
+  connector_calls?: ConnectorCall[]
 }
 
 /** B28.370 — the named prompt an answer was asked with, and whether Lens's answer said it used it. */
@@ -206,6 +210,8 @@ export interface ChatTool {
   input_schema: unknown
   product?: string
   writes?: boolean
+  /** B28.122 — a connector's tool (`product` "connector"): which connector, and the tool's own name there. */
+  connector?: ConnectorRef
 }
 
 /** B28.349 — one tool call the model made: its id in the answer, the tool, and its arguments as JSON text. */
@@ -692,6 +698,8 @@ export interface StreamHandlers {
     toolsUsed?: string[]
     /** B28.374 — askChat: the Track issues the answer filed. */
     filed?: FiledIssue[]
+    /** B28.122 — askChat: the calls the answer made with connectors' tools, each with the request that read its answer. */
+    connectorCalls?: ConnectorCall[]
   }) => void
   /** A server-reported error inside the stream, or a transport failure; `remedy` when a refusal has one here. */
   onError: (message: string, remedy?: Remedy) => void
@@ -908,6 +916,11 @@ export async function askChat(
   const used: string[] = []
   const filed: FiledIssue[] = []
   const spend: SpendLine[] = []
+  // B28.122 — the calls made with connectors' tools; `reading` are the last round's, whose answers the next request reads,
+  // and `among` how many calls of any tool that request reads the answers of.
+  const connectorCalls: ConnectorCall[] = []
+  let reading: ConnectorCall[] = []
+  let among = 0
   for (let round = 1; ; round++) {
     let said = ''
     let ended: Parameters<StreamHandlers['onDone']>[0] | undefined
@@ -945,9 +958,16 @@ export async function askChat(
     citations = done.citations ?? citations
     codeRuns.push(...(done.codeRuns ?? []))
     billed = billed === null || billed === done.paidBy ? done.paidBy : undefined
+    // B28.122 — this request read the answers of the connector calls the last round made: it is what they cost.
+    for (const c of reading) {
+      if (done.chargedULXC !== undefined) c.charged_ulxc = done.chargedULXC
+      if (done.usage !== undefined) c.usage = done.usage
+      if (among > 1) c.shared = among
+    }
+    reading = []
     const calls = done.toolCalls ?? []
     if (calls.length === 0 || round === MAX_TOOL_ROUNDS) {
-      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, citations, codeRuns, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}), ...(used.length > 0 ? { toolsUsed: used } : {}), ...(filed.length > 0 ? { filed } : {}) })
+      handlers.onDone({ ...done, usage, tare, unrecognised, chargedULXC: charged, citations, codeRuns, paidBy: billed ?? undefined, ...(spend.length > 0 ? { spend } : {}), ...(round > 1 ? { requests: round } : {}), ...(used.length > 0 ? { toolsUsed: used } : {}), ...(filed.length > 0 ? { filed } : {}), ...(connectorCalls.length > 0 ? { connectorCalls } : {}) })
       return
     }
     // B28.374 — a call that changes something is put to the person first, one at a time; a no is the model's answer.
@@ -969,14 +989,23 @@ export async function askChat(
       if (signal?.aborted) return
     }
     const results = await Promise.all(
-      calls.map((c, i) =>
-        offered.find((t) => t.name === c.name)?.writes === true && !yes[i]
-          ? Promise.resolve<ToolResult>({ text: DECLINED_TOOL_TEXT, is_error: true })
-          : callChatTool(c, signal, yes[i]),
-      ),
+      calls.map((c, i) => {
+        const tool = offered.find((t) => t.name === c.name)
+        if (tool?.writes === true && !yes[i]) return Promise.resolve<ToolResult>({ text: DECLINED_TOOL_TEXT, is_error: true })
+        // B28.122 — a connector's tool runs on that connector, through the BFF.
+        return tool?.connector !== undefined ? callConnectorTool(tool.connector, c, signal) : callChatTool(c, signal, yes[i])
+      }),
     )
     if (signal?.aborted) return
+    among = calls.length
     calls.forEach((c, i) => {
+      const connector = offered.find((t) => t.name === c.name)?.connector
+      if (connector !== undefined) {
+        const made: ConnectorCall = { connector: connector.name, tool: connector.tool, ok: !results[i].is_error }
+        connectorCalls.push(made)
+        reading.push(made)
+        return
+      }
       if (results[i].is_error) return
       if (!used.includes(c.name)) used.push(c.name)
       const issue = c.name === ISSUE_TOOL ? filedIssue(results[i].text) : undefined
