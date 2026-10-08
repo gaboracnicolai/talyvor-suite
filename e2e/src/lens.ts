@@ -283,6 +283,27 @@ export interface CapabilityStatus {
   class: string
   real_money: boolean
   clearance?: unknown
+  /** B30.117 — the verification level its live money needs (Lens B30.4): "L0" to "L3". */
+  level_needed?: string
+}
+
+/** B30.117 — one verification check as Lens answers it (economy.VerificationCheck, B30.4). */
+export interface VerificationCheck {
+  level: string
+  subject: string
+  method: string
+  /** Checked by the Test provider: it counts for test money only. */
+  test: boolean
+  status: string
+  evidence_ref: string
+  checked_at: string
+}
+
+/** B30.117 — a workspace's verification record (economy.WorkspaceVerification): its level, its live level, every check. */
+export interface WorkspaceVerification {
+  level: string
+  live_level: string
+  checks: VerificationCheck[] | null
 }
 
 /** Lens economy.AgentBook: workspace = allocated + unallocated. */
