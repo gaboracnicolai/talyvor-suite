@@ -71,6 +71,17 @@
 //                                         the caller, and a message.deleted event
 //
 // STUB_BREAK=room-secret stores a public room's message carrying a key — a defect room-messages must FAIL on.
+//
+// B32.84 — and a contribution's listing and a fork's lineage (Lens B32.31), as room-contributions reads them:
+//
+//   GET    /v1/marketplace/listings/{l}          a contribution's listing with its artifact and one per_use offer, at the
+//                                                price it named or the room's default, to its author and the room's
+//                                                members; 404 to anyone else
+//   GET    /v1/marketplace/listings/{l}/lineage  a fork's one room_fork edge to the version it forked, at the room's
+//                                                remix share
+//
+// STUB_BREAK=room-fork-lineage records a fork's edge as a remix at the original's own remix share (0) — a defect
+// room-contributions must FAIL on.
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
@@ -140,6 +151,8 @@ interface Contribution {
   forked_from?: string; status: string; message_id: string; votes: Map<string, number>; created_at: string
   /** B28.295 — a prompt's template, whose {{variables}} a run must give. */
   template: string
+  /** B32.84 — its listing's artifact, its per_use price in µUSD, and who accepted or rejected it. */
+  artifact: Record<string, unknown>; price: number; decided_by?: string
 }
 
 const messages = new Map<string, Msg[]>()
@@ -164,8 +177,8 @@ const contributionView = (c: Contribution, ws: string) => {
   const votes = [...c.votes.values()]
   return {
     id: c.id, room_id: c.room_id, listing_id: c.listing_id, version: c.version, kind: c.kind, title: c.title, author_workspace_id: c.author_workspace_id,
-    ...(c.forked_from ? { forked_from: c.forked_from } : {}), status: c.status, message_id: c.message_id,
-    tally: votes.reduce((a, b) => a + b, 0), up: votes.filter((v) => v > 0).length, down: votes.filter((v) => v < 0).length,
+    ...(c.forked_from ? { forked_from: c.forked_from } : {}), status: c.status, ...(c.decided_by ? { decided_by_workspace_id: c.decided_by } : {}),
+    message_id: c.message_id, tally: votes.reduce((a, b) => a + b, 0), up: votes.filter((v) => v > 0).length, down: votes.filter((v) => v < 0).length,
     my_vote: c.votes.get(ws) ?? 0, created_at: c.created_at,
   }
 }
@@ -257,8 +270,10 @@ async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, 
     const kind = String(from?.kind ?? d.kind ?? 'prompt')
     const m = post(r.id, ws, `proposed a ${kind} “${title}”`, 'contribution', { contribution_id: id, ...(from ? { forked_from: from.id } : {}) })
     const template = String(((d.artifact ?? {}) as Record<string, unknown>).template ?? from?.template ?? '')
+    const artifact = (d.artifact ?? from?.artifact ?? {}) as Record<string, unknown>
+    const price = typeof d.price_usd_micros === 'number' ? d.price_usd_micros : r.terms.default_price_usd_micros
     const c: Contribution = { id, room_id: r.id, listing_id: 'lst_' + randomBytes(8).toString('hex'), version: 1, kind, title, author_workspace_id: ws,
-      ...(from ? { forked_from: from.id } : {}), status: 'proposed', message_id: m.id, votes: new Map(), created_at: m.created_at, template }
+      ...(from ? { forked_from: from.id } : {}), status: 'proposed', message_id: m.id, votes: new Map(), created_at: m.created_at, template, artifact, price }
     contributions.set(r.id, [c, ...list])
     return json(res, 201, contributionView(c, ws)), true
   }
@@ -282,10 +297,35 @@ async function roomScreen(req: IncomingMessage, res: ServerResponse, p: string, 
     if (role !== 'owner' && role !== 'editor') return json(res, 403, { error: 'rooms: not allowed: only the room’s owner or an editor decides a contribution' }), true
     const status = String((await body(req)).status ?? '')
     if (status !== 'accepted' && status !== 'rejected') return json(res, 400, { error: 'rooms: invalid request: status must be accepted or rejected' }), true
-    if (BREAK !== 'room-decide') c.status = status
+    if (BREAK !== 'room-decide') Object.assign(c, { status, decided_by: ws })
     return json(res, 200, { ...contributionView(c, ws), status }), true
   }
   return false
+}
+
+/** B32.84 — a contribution's listing, or its lineage, as `ws` reads it; false when `p` names no contribution's listing. */
+export function roomListingRoute(res: ServerResponse, p: string, ws: string): boolean {
+  const m = /^\/v1\/marketplace\/listings\/([^/]+)(\/lineage)?$/.exec(p)
+  const c = m === null ? undefined : [...contributions.values()].flat().find((x) => x.listing_id === decodeURIComponent(m[1]))
+  if (m === null || c === undefined) return false
+  const r = rooms.get(c.room_id)
+  if (r === undefined || (c.author_workspace_id !== ws && !r.members.some((x) => x.workspace_id === ws))) return json(res, 404, { error: 'market: not found: no such listing' }), true
+  const siblings = contributions.get(r.id) ?? []
+  const from = siblings.find((x) => x.id === c.forked_from)
+  const edge = from === undefined ? undefined : { listing_id: from.listing_id, version: from.version, share_bps: BREAK === 'room-fork-lineage' ? 0 : r.terms.remix_share_bps,
+    source: BREAK === 'room-fork-lineage' ? 'remix' : 'room_fork', created_at: c.created_at }
+  if (m[2] !== undefined) {
+    return json(res, 200, { listing_id: c.listing_id, version: c.version, remix_policy: 'none', remix_share_bps: 0,
+      ancestors: edge === undefined ? [] : [{ ...edge, title: from?.title, child_listing_id: c.listing_id, child_version: c.version, depth: 1 }],
+      descendants: siblings.filter((x) => x.forked_from === c.id).length, max_depth: 5 }), true
+  }
+  return json(res, 200, {
+    id: c.listing_id, workspace_id: c.author_workspace_id, kind: c.kind, title: c.title, description: '', price_per_use_ulxc: c.price * 10, visibility: 'room',
+    room_id: r.id, latest_version: c.version, created_at: c.created_at, updated_at: c.created_at, review_status: 'approved', remix_policy: 'none', remix_share_bps: 0,
+    offers: c.price > 0 ? [{ id: 'off_' + c.listing_id.slice(4), kind: 'per_use', licence: 'commercial', price_usd_micros: c.price }] : [], capabilities: [],
+    versions: [{ version: c.version, artifact_sha256: '', scan: {}, created_at: c.created_at, needs: { input: false, variables: [], model: String(c.artifact.model ?? '') },
+      ...(edge === undefined ? {} : { parents: [edge] }), artifact: c.artifact }],
+  }), true
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {

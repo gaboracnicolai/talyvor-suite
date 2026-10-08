@@ -90,7 +90,7 @@ import { readFileSync } from 'node:fs'
 import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
 import { DOC_CAP, auditWebhook, docxDocument, nodesAvailable, nodesRoute } from './stub-guards.ts'
-import { roomsModeratorRoute, roomsRoute } from './stub-rooms.ts'
+import { roomListingRoute, roomsModeratorRoute, roomsRoute } from './stub-rooms.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -1169,6 +1169,8 @@ createServer(async (req, res) => {
     // B28.285 — the nodes Lens offers for a model, and the audit export sent to a webhook (stub-guards.ts).
     if (p === '/v1/nodes/available') return json(res, 200, nodesAvailable(url.searchParams.get('model') ?? ''))
     if (p === '/v1/audit/webhook' && req.method === 'POST') return json(res, ...auditWebhook(await read(req), broke('ssrf')))
+    // B32.84 — a room contribution's listing and lineage, its room's members' alone (stub-rooms.ts).
+    if (roomListingRoute(res, p, ws.id)) return
     if (bank.publicRoute(res, p, url, ws.id)) return
     if (await bank.publicWrite(req, res, p, ws.id)) return
     // B32.53 — rooms: Chat's rail, the directory, a new room and a room's first screen (stub-rooms.ts).

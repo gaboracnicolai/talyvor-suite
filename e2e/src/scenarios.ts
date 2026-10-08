@@ -45,6 +45,7 @@ import { roomsPrivate } from './rooms.ts'
 import { roomsModeration } from './roomsModeration.ts'
 import { roomInviteLimits } from './roomInvites.ts'
 import { roomMessages } from './roomMessages.ts'
+import { roomContributions } from './roomContributions.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
 import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
@@ -4214,6 +4215,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // within two seconds, a key in a public room is 422 naming its kind and stored nowhere, an edit and a delete read back
   // as the edit and a tombstone, a private room's messages are 404 to a stranger, and the minute's limit is 429 naming it.
   if (i === 8) list.push(roomMessages(i))
+  // B32.84 — a room's contributions, once a run, on a Free workspace of its own: a proposed prompt is a listing its members
+  // read with the artifact at the room's default price, 404 to a stranger and never in the catalog; a member's fork of it
+  // has a room_fork lineage edge at the room's remix share, each member's latest vote counts once, and the owner accepts it.
+  if (i === 9) list.push(roomContributions(i))
   return list
 }
 
