@@ -1065,6 +1065,15 @@ createServer(async (req, res) => {
         return json(res, 200, { reset: chosen.length })
       }
       if (await bank.syntheticRoute(req, res, p)) return
+      // Lens B35.1 — a test workspace put on a plan with the synthetic key.
+      const onPlan = /^\/v1\/synthetic\/workspaces\/([^/]+)\/plan$/.exec(p)
+      if (onPlan !== null && req.method === 'POST') {
+        const ws = workspaces.get(decodeURIComponent(onPlan[1]))
+        if (ws === undefined) return json(res, 404, { error: 'not a synthetic workspace' })
+        const { plan = '' } = JSON.parse((await read(req)) || '{}') as { plan?: string }
+        ws.syntheticPlan = plan
+        return json(res, 200, { workspace_id: ws.id, plan: { plan } })
+      }
       const { count = 100, plan = 'free' } = JSON.parse((await read(req)) || '{}') as { count?: number; plan?: string }
       const expires = new Date(Date.now() + 24 * 3600e3).toISOString().replace(/\.\d+Z$/, 'Z')
       const out = []
