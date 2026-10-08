@@ -283,6 +283,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		if keepNothing {
 			bypass = true
 		}
+		// B28.381 — a question from a chat kept out of the shared pool: its answer is never pooled for another
+		// workspace, and it is served nothing from the pool.
+		unpooled := strings.EqualFold(strings.TrimSpace(r.Header.Get(poolHeader)), "off")
 		send := func(bypass bool) (*http.Response, error) {
 			// B17.30 — a question that never reached a restarting Lens is asked again once it is back.
 			up, err := http.NewRequestWithContext(resendOnRestart(ctx), http.MethodPost,
@@ -309,6 +312,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			}
 			if keepNothing {
 				up.Header.Set(cacheStoreHeader, "off")
+			}
+			if unpooled {
+				up.Header.Set(poolHeader, "off")
 			}
 			if paidBy != "" {
 				up.Header.Set(paidByHeader, paidBy)
@@ -478,6 +484,11 @@ const cacheHeader = "X-Talyvor-Cache"
 // cacheStoreHeader `off` asks Lens to keep nothing of the answer, in the workspace's cache or the shared pool (B28.131,
 // Chat's temporary chat). Only the one value is forwarded, and it brings cacheHeader's bypass with it.
 const cacheStoreHeader = "X-Talyvor-Cache-Store"
+
+// poolHeader `off` keeps a request out of the shared pool (B28.381, Chat's Sharing switch; talyvor-lens B28.133): Lens
+// does not pool its answer for another workspace and serves it no other workspace's answer. Only the one value is
+// forwarded.
+const poolHeader = "X-Talyvor-Pool"
 
 // ownReplay reports that Lens answered from this workspace's own cache: a replay with no pool price
 // (web chatApi.ts answerSource reads the same headers the same way).

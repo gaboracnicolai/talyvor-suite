@@ -135,6 +135,7 @@ const CONVERSATION: Shape = {
   'budget_ulxc?': 'number',
   'project_id?': 'string',
   'prompt?': 'string',
+  'pool_off?': oneOf(true),
   'pinned?': oneOf(true),
   'archived?': oneOf(true),
 }

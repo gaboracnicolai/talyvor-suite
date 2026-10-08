@@ -220,6 +220,11 @@ export const RUN_CODE_HEADER = 'X-Talyvor-Run-Code'
  *  pool. It goes with `X-Talyvor-Cache: bypass`, so the answer is not served from either. */
 export const CACHE_STORE_HEADER = 'X-Talyvor-Cache-Store'
 
+/** B28.381 — `off` on a request from a chat kept out of the shared pool: Lens neither puts its answer in the pool, so no
+ *  other workspace is ever served it, nor serves it another workspace's answer from there (talyvor-lens B28.133). The
+ *  workspace's own cache still serves and keeps it. */
+export const POOL_HEADER = 'X-Talyvor-Pool'
+
 /** B28.376 — the Track issue a request is for, by its identifier (ENG-42). Lens keeps it with the request's spend, and
  *  Track adds that spend to the issue's AI cost (talyvor-track RecordRequestSpendAttributed; talyvor-lens B28.124). */
 export const ISSUE_HEADER = 'X-Talyvor-Issue'
@@ -250,6 +255,8 @@ export interface ConversationTag {
   run_code?: boolean
   /** B28.131 — a temporary chat: its answer is neither served from nor kept in the cache or the shared pool. */
   temporary?: boolean
+  /** B28.381 — the chat is kept out of the shared pool: its answers never go to another workspace, nor theirs to it. */
+  pool_off?: boolean
 }
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read.
@@ -815,6 +822,7 @@ export async function streamChat(
       ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
       ...(fresh || conversation?.temporary === true ? { 'X-Talyvor-Cache': 'bypass' } : {}),
       ...(conversation?.temporary === true ? { [CACHE_STORE_HEADER]: 'off' } : {}),
+      ...(conversation?.pool_off === true ? { [POOL_HEADER]: 'off' } : {}),
       ...(paidBy !== undefined && paidBy !== '' ? { [PAID_BY_HEADER]: paidBy } : {}),
       ...(conversation !== undefined ? { [CONVERSATION_HEADER]: conversation.id } : {}),
       ...(conversation?.budget_ulxc !== undefined ? { [CONVERSATION_BUDGET_HEADER]: String(conversation.budget_ulxc) } : {}),

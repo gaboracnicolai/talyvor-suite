@@ -67,6 +67,7 @@ type streamUpstream struct {
 	gotWebSearch    string // B28.372 — X-Talyvor-Web-Search as Lens received it
 	gotRunCode      string // B28.373 — X-Talyvor-Run-Code as Lens received it
 	gotCacheStore   string // B28.131 — X-Talyvor-Cache-Store as Lens received it
+	gotPool         string // B28.381 — X-Talyvor-Pool as Lens received it
 	gotFeature      string // B28.106 — X-Talyvor-Feature as Lens received it
 	gotIssue        string // B28.376 — X-Talyvor-Issue as Lens received it
 	refuse          string
@@ -127,6 +128,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotWebSearch = r.Header.Get("X-Talyvor-Web-Search")
 			u.gotRunCode = r.Header.Get("X-Talyvor-Run-Code")
 			u.gotCacheStore = r.Header.Get("X-Talyvor-Cache-Store")
+			u.gotPool = r.Header.Get("X-Talyvor-Pool")
 			u.gotFeature = r.Header.Get("X-Talyvor-Feature")
 			u.gotIssue = r.Header.Get("X-Talyvor-Issue")
 			if u.refuse != "" {
@@ -943,6 +945,42 @@ func TestStream_TemporaryChatReachesLensKeepingNothingAndReadingNoCache(t *testi
 		}
 		if up.gotCache != tc.wantCache {
 			t.Errorf("sent %q: Lens received X-Talyvor-Cache %q, want %q", tc.sent, up.gotCache, tc.wantCache)
+		}
+	}
+}
+
+// B28.381 — a question from a chat kept out of the shared pool reaches Lens saying so. Only `off` is forwarded, and it
+// leaves the cache alone: the workspace's own earlier answer may still be served.
+func TestStream_ChatOutOfThePoolReachesLensSayingSo(t *testing.T) {
+	for _, tc := range []struct{ sent, wantPool string }{
+		{"off", "off"},
+		{" OFF ", "off"},
+		{"", ""},
+		{"on", ""},
+	} {
+		up := newStreamUpstream(t)
+		up.noBlock = true
+		a, sess := streamApp(t, up)
+		ts := httptest.NewServer(a)
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+		req.AddCookie(sess)
+		req.Header.Set("Origin", "https://app.talyvor.com")
+		req.Header.Set("Content-Type", "application/json")
+		if tc.sent != "" {
+			req.Header.Set("X-Talyvor-Pool", tc.sent)
+		}
+		resp, err := ts.Client().Do(req)
+		if err != nil {
+			t.Fatalf("do: %v", err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		ts.Close()
+		if up.gotPool != tc.wantPool {
+			t.Errorf("sent %q: Lens received X-Talyvor-Pool %q, want %q", tc.sent, up.gotPool, tc.wantPool)
+		}
+		if up.gotCache != "" {
+			t.Errorf("sent %q: Lens received X-Talyvor-Cache %q, want none", tc.sent, up.gotCache)
 		}
 	}
 }

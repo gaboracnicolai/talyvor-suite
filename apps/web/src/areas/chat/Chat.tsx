@@ -88,6 +88,7 @@ import { pageHref } from '../docs/docsNav'
 import type { TrackIssue } from '../track/types'
 import { ModelPicker } from './ModelPicker'
 import { TemporaryChatNotice, TemporaryChatToggle } from './TemporaryChat'
+import { ChatSharing } from './ChatSharing'
 import { Sources, WebSearchToggle } from './WebSearch'
 import { CodeRuns, RunCodeToggle } from './RunCode'
 import { ConnectorCalls, FiledIssues, ToolConfirmCard, ToolsUsed } from './TalyvorTools'
@@ -309,6 +310,8 @@ export function Chat() {
   const [runCode, setRunCode] = useState(false)
   // B28.131 — the open chat is temporary: kept nowhere, and its answers neither served from nor kept in the cache.
   const [temporary, setTemporary] = useState(false)
+  // B28.381 — the open chat is kept out of the shared pool: its answers never go to another workspace, nor theirs to it.
+  const [poolOff, setPoolOff] = useState(false)
   const [failure, setFailure] = useState<Refusal | null>(null)
   // B28.374 — a call the model wants to make that changes something (file a Track issue), waiting for the person's yes.
   const [confirming, setConfirming] = useState<{ ask: ToolConfirm; answer: (yes: boolean) => void } | null>(null)
@@ -405,6 +408,7 @@ export function Chat() {
     setPaidBy(c?.paid_by ?? '')
     setBudget(c?.budget_ulxc)
     setPromptName(c?.prompt ?? '')
+    setPoolOff(c?.pool_off === true)
     setFailure(null)
     setUnreadable(0)
     setRenaming(null)
@@ -559,6 +563,8 @@ export function Chat() {
       const running = runCode
       // B28.131 — and whether it is a temporary chat, which keeps neither the question nor the answer.
       const temp = temporary
+      // B28.381 — and whether the chat is kept out of the shared pool.
+      const unshared = poolOff
       const payerName = payers.find((a) => a.id === payer)?.name ?? 'the agent'
       const carry = was === undefined ? {} : keptVersions(was, turn.length)
       // B28.113 — continued, the screen and the saved thread end on the answer, not on what Continue asked.
@@ -567,7 +573,7 @@ export function Chat() {
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer. B28.112 — asked again, nothing is lost: the thread stays as it was until the new version comes.
-      if (!temp && carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject, named))
+      if (!temp && carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject, named, unshared))
       setMessages([...thread, head === undefined ? { role: 'assistant', content: '', ...carry } : { role: 'assistant', content: start, versions: head.versions, version: head.version }])
       setPending(true)
       setFailure(null)
@@ -801,7 +807,7 @@ export function Chat() {
         fresh,
         tools,
         payer,
-        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}), ...(running ? { run_code: true } : {}), ...(temp ? { temporary: true } : {}) },
+        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}), ...(running ? { run_code: true } : {}), ...(temp ? { temporary: true } : {}), ...(unshared ? { pool_off: true } : {}) },
       )
       // B28.112 — asked again and nothing came back (stopped, refused, blank): the answer it had is shown and kept.
       if (was !== undefined && carry.versions !== undefined && answer.trim() === '') {
@@ -828,10 +834,11 @@ export function Chat() {
           cap,
           inProject,
           named,
+          unshared,
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode, temporary, connectors, connectorKey],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode, temporary, poolOff, connectors, connectorKey],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -848,6 +855,15 @@ export function Chat() {
     (name: string) => {
       setPromptName(name)
       if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, prompt: name === '' ? undefined : name } : c)))
+    },
+    [activeId, store],
+  )
+
+  // B28.381 — kept out of the shared pool, or back in, with the conversation at once, like the payer.
+  const chooseSharing = useCallback(
+    (off: boolean) => {
+      setPoolOff(off)
+      if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, pool_off: off ? true : undefined } : c)))
     },
     [activeId, store],
   )
@@ -1585,6 +1601,8 @@ export function Chat() {
               <PromptPicker library={library} value={promptName} onChange={choosePrompt} disabled={pending} />
               {/* B28.361 — the most this conversation may spend. */}
               <ConversationBudget value={budget} spent={spentULXC(messages, usdPerLXC)} onChange={chooseBudget} disabled={pending} />
+              {/* B28.381 — whether this chat's answers may be shared with other workspaces. A temporary chat shares nothing. */}
+              {!temporary ? <ChatSharing off={poolOff} workspaceOff={me.data?.cache_poolable === false} onChange={chooseSharing} disabled={pending} /> : null}
               {/* B28.101 — the prices under this conversation's answers, added up; the answer being written is not priced yet. */}
               <ChatTotal messages={pending ? messages.slice(0, -1) : messages} usdPerLXC={usdPerLXC} />
               {/* B28.104 — the plan's allowance used and the prepaid balance, read again once an answer is charged. */}
