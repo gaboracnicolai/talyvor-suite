@@ -447,6 +447,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/marketplace/payouts", a.requireTenant(a.handleMarketPayouts)) // B20.6
 	a.mux.HandleFunc("/api/marketplace/payouts/connect", a.requireTenant(a.handleMarketPayoutsConnect))
 	a.mux.HandleFunc("/api/marketplace/payouts/credits", a.requireTenant(a.handleMarketPayoutsCredits))
+	// B32.59 — your licences (renew and cancel) and the receipts for your paid bills. See marketplace.go.
+	a.mux.HandleFunc("/api/marketplace/licences", a.requireTenant(a.handleMarketLicences))
+	a.mux.HandleFunc("/api/marketplace/licences/{id}/cancel", a.requireTenant(a.handleMarketLicenceCancel))
+	a.mux.HandleFunc("/api/marketplace/listings/{id}/licences", a.requireTenant(a.handleMarketLicense))
+	a.mux.HandleFunc("/api/marketplace/receipts", a.requireTenant(a.handleMarketReceipts))
+	a.mux.HandleFunc("/api/marketplace/receipts/{id}", a.requireTenant(a.handleMarketReceipt))
 	// B32.53 — rooms: the open chats Chat lists, opening one and joining one. See rooms.go.
 	a.mux.HandleFunc("/api/rooms", a.requireTenant(a.handleRooms))
 	a.mux.HandleFunc("/api/rooms/{id}", a.requireTenant(a.handleRoom))

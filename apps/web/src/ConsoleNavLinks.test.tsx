@@ -102,10 +102,11 @@ const SIDEBAR_DESTINATIONS = [
   '/keys',
   // B19.4 — Agent Wallets (B21.6), beside the keys an agent spends through.
   '/agents',
-  // B20.3 — the marketplace: browse, publish, and what your listings earned.
+  // B20.3 — the marketplace: browse, publish, and what your listings earned; B32.59 — your licences.
   '/marketplace',
   '/marketplace/publish',
   '/marketplace/selling',
+  '/marketplace/licences',
   '/marketplace/bill',
   '/spend',
   '/members',

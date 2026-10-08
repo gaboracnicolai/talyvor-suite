@@ -424,6 +424,7 @@ function Sidebar() {
         })}
         {item('/marketplace/publish', 'Publish', 'upload')}
         {item('/marketplace/selling', 'Your listings & earnings', 'tag')}
+        {item('/marketplace/licences', 'Your licences', 'key')}
         {item('/marketplace/bill', 'Your bill', 'receipt')}
         {/* B20.12 — offered only to someone the BFF's operator gate will admit. */}
         {me.data?.operator ? item('/marketplace/review', 'Review queue', 'prove') : null}
