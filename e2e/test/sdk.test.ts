@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { quickstartBooking, quickstartStatement } from '../src/sdk.ts'
+import { quickstartBooking, quickstartQuestion, quickstartStatement } from '../src/sdk.ts'
 
 const line = (kind: string, amount: number, after: number) => ({ entry_id: `${kind}${after}`, kind, amount_ulxc: amount, balance_after_ulxc: after, at: '' })
 
@@ -28,5 +28,11 @@ describe("how the SDK quickstart's model call is booked (B17.180)", () => {
   it('books a pooled answer at what Lens says it charged, and any other at its price', () => {
     expect(quickstartBooking(new Headers({ 'X-Talyvor-Cache-Replay': 'true', 'X-Talyvor-Pool-Charged-ULXC': '420' }), 0.0001, 0.01)).toEqual({ replayed: false, ulxc: 420 })
     expect(quickstartBooking(new Headers(), 0.0001, 0.01)).toEqual({ replayed: false, ulxc: 10_000 })
+  })
+})
+
+describe("the SDK quickstart's question (B17.181)", () => {
+  it('asks the model to repeat its fresh word, the wording gpt-4o-mini answered with the bare word 20 of 20', () => {
+    expect(quickstartQuestion('fetutevoni')).toBe('Repeat this exact string and nothing else: fetutevoni')
   })
 })

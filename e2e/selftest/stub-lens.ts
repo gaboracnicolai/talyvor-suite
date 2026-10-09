@@ -463,6 +463,7 @@ function think(messages: Msg[]): string {
   }
   if ((m = /capital of ([A-Za-z ]+)\?/.exec(q))) return CAPITALS[m[1].trim().toLowerCase()] ?? 'I do not know.'
   if ((m = /single word: (\w+)/.exec(q))) return m[1]
+  if ((m = /Repeat this exact string and nothing else: (\w+)/.exec(q))) return m[1]
   // B28.375 — asked to quote an attached Docs page: its sentence that names the word, as the page says it.
   if ((m = /Quote the sentence in the attached page that mentions ([\w-]+)/.exec(q))) {
     const word = m[1]
