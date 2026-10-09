@@ -440,6 +440,13 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/verification/contact", a.requireTenant(a.handleVerificationContact))
 	a.mux.HandleFunc("/api/verification/identity", a.requireTenant(a.handleVerificationIdentity))
 	a.mux.HandleFunc("/api/verification/company", a.requireTenant(a.handleVerificationCompany))
+	// B30.103 — each capability's terms, and each agent's credential with Talyvor's check of it. See
+	// capability_terms.go and kya.go.
+	a.mux.HandleFunc("/api/terms", a.requireTenant(a.handleTerms))
+	a.mux.HandleFunc("/api/terms/{capability}", a.requireTenant(a.handleTermsFor))
+	a.mux.HandleFunc("/api/terms/{capability}/accept", a.requireTenant(a.handleTermsAccept))
+	a.mux.HandleFunc("/api/agents/{id}/credential", a.requireTenant(a.handleAgentCredential))
+	a.mux.HandleFunc("/api/kya/verify", a.requireTenant(a.handleKYAVerify))
 	// B22.12 — escrow, pots, simulated investing and cash-out. See wallet_holdings.go.
 	a.mux.HandleFunc("/api/agents/{id}/escrows", a.requireTenant(a.handleAgentEscrow))
 	a.mux.HandleFunc("/api/wallets/escrows", a.requireTenant(a.handleEscrows))

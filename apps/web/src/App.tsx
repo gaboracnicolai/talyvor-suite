@@ -59,6 +59,7 @@ import { SharedChat } from './areas/share/SharedChat'
 import { DocsArea } from './areas/docs/DocsArea'
 import { OperatorTax } from './areas/lens/OperatorTax'
 import { VerificationScreen } from './areas/lens/Verification'
+import { CapabilityTermsScreen } from './areas/lens/CapabilityTerms'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
 import { Landing } from './areas/marketing/Landing'
 import { Pricing } from './areas/marketing/Pricing'
@@ -266,6 +267,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/settings', title: 'Settings', element: <Settings /> },
   // B30.116 — the owner's verification level, each check, and the level each capability needs for live money.
   { path: '/settings/verification', title: 'Verification', element: <VerificationScreen /> },
+  // B30.103 — each money capability's terms, read and accepted before its first use.
+  { path: '/settings/terms', title: 'Capability terms', element: <CapabilityTermsScreen /> },
   // B8.2 — every capability, what it does and costs, whether it is on, and its switch.
   { path: '/features', title: 'Features', element: <Features /> },
   // B11.3 — run Tare or document conversion on your own input: no model call, no charge.
@@ -490,6 +493,7 @@ function Sidebar() {
         {item('/settings', 'Settings', 'settings')}
         {item('/members', 'Members', 'members')}
         {item('/settings/verification', 'Verification', 'prove')}
+        {item('/settings/terms', 'Capability terms', 'page')}
       </Group>
       {/* B18.25 — offered only to someone the BFF's operator gate will admit. */}
       {me.data?.operator ? (

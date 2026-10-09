@@ -235,6 +235,8 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/verification/contact", body: `{"email":"o@example.com"}`},
 		{method: http.MethodPost, path: "/api/verification/identity", body: `{"name":"a"}`},
 		{method: http.MethodPost, path: "/api/verification/company", body: `{"name":"a"}`},
+		{method: http.MethodPost, path: "/api/terms/x1/accept", body: `{"version":1}`},
+		{method: http.MethodPost, path: "/api/kya/verify", body: `{"credential":"a.b.c"}`},
 		{method: http.MethodPost, path: "/api/admin/platform-reports", body: `{"year":2026}`},
 		{method: http.MethodDelete, path: "/api/agents/x1/topup", body: `{}`},
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/reports", body: `{"reason":"other"}`},

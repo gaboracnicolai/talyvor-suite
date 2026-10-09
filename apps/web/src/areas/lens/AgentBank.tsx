@@ -10,6 +10,7 @@ import { kindLabel, marketApi, priceText } from '../marketplace/marketApi'
 import { CATALOG_KEY } from '../marketplace/parts'
 import { notifyThisDevice, passkeysSupported, pushSupported, registerThisDevice, signApproval } from './passkeys'
 import { AgentCardPanel } from './AgentCardPanel'
+import { AgentCredentialCard } from './AgentCredential'
 import { CurrencyPicker, Lxc } from './money'
 import { ChoicePicker, ModelLimitsPicker, RulesInWords, TimePicker, TimeZonePicker, useRuleChoices } from './rulePickers'
 import { RULE_TEMPLATES, type RuleTemplate } from './ruleTemplates'
@@ -2372,6 +2373,7 @@ export function AgentBank() {
               <CashOutCard key={`cash-out-${agent.id}`} agent={agent} />
               <AgentTopUpCard key={`topup-${agent.id}`} agent={agent} />
               <IssueKey key={`key-${agent.id}`} agent={agent} />
+              <AgentCredentialCard key={`credential-${agent.id}`} agent={agent} />
               <AgentCardPanel key={`card-${agent.id}`} agent={agent} />
               <Statement agent={agent} nameOf={nameOf} entry={agent.id === linkedAgent ? linkedEntry : undefined} />
               <ArchiveAgent

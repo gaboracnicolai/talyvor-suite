@@ -812,6 +812,29 @@ export const LENS_BODIES: LensBody[] = [
       'r.Post("/v1/workspaces/{wsID}/verification/company", check(economy.LevelCompany))',
     subject: "lensVerificationCompanyBody",
   },
+  // B30.103 — accepting a capability's terms (Lens B30.9), and Talyvor's check of an agent's credential (Lens B30.5).
+  {
+    route: "POST /v1/workspaces/{wsID}/terms/{capability}/accept",
+    file: "apps/bff/capability_terms.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleTermsAccept(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/capability_terms_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/workspaces/{wsID}/terms/{capability}/accept", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensTermsAcceptBody",
+  },
+  {
+    route: "POST /v1/kya/verify",
+    file: "apps/bff/kya.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleKYAVerify(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/kya_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/kya/verify", func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensKYAVerifyBody",
+  },
 ];
 
 /**

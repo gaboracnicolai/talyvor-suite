@@ -472,9 +472,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE HUNDRED-AND-SIXTH TO HUNDRED-AND-EIGHTH ARE B30.116'S VERIFICATION CHECKS, POST only:
 	// /api/verification/contact, …/identity and …/company. Each relays Lens's answer — the check and the record — and
 	// holds nothing; the record is read back through GET /api/verification, which the sweep reaches.
-	if len(methodOnly) > 108 {
+	//
+	// THE HUNDRED-AND-NINTH AND HUNDRED-AND-TENTH ARE B30.103'S, POST only: /api/terms/{capability}/accept relays Lens's
+	// acceptance, which is read back through GET /api/terms and GET /api/terms/{capability}, both in the sweep's reach;
+	// /api/kya/verify relays Lens's public answer on a credential the caller already holds, and stores nothing.
+	if len(methodOnly) > 110 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 108 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 110 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

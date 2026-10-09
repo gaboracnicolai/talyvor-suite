@@ -2,7 +2,8 @@
 // GET …/terms (every capability with terms, its latest version and whether the workspace accepted it), GET …/terms/{capability}
 // (with its text) and POST …/terms/{capability}/accept {"version": n} — 201 with the acceptance, 409 for a version that is not
 // the latest. Every B30 capability has version 1 of a text headed "Draft — for legal review". Its defect:
-//   terms-fx-accepted — a new workspace's list reads fx as already accepted
+//   terms-fx-accepted    — a new workspace's list reads fx as already accepted
+//   terms-accept-ignored — an acceptance is answered 201 and recorded nowhere, so the capability still asks (B30.103)
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -40,7 +41,7 @@ export class TermsDesk {
     if (typeof b.version !== 'number' || b.version <= 0) return this.json(res, 400, { error: 'body must be {"version": n}, the version of the terms read' }), true
     if (b.version !== VERSION) return this.json(res, 409, { error: 'economy: a newer version of these terms is published' }), true
     const a: Acceptance = { workspace_id: ws, capability: c.capability, version: VERSION, person: `jwt:user:${ws}`, accepted_at: now }
-    this.accepted.set(`${ws} ${c.capability}`, a)
+    if (!this.broken('terms-accept-ignored')) this.accepted.set(`${ws} ${c.capability}`, a)
     return this.json(res, 201, { acceptance: a }), true
   }
 
