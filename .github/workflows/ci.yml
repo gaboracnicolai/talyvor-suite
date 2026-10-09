@@ -185,3 +185,30 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
           "$(go env GOPATH)/bin/govulncheck" ./...
+
+  # B28.211 — the suite container image (Dockerfile): build it and prove it serves. It runs in the
+  # posture a cluster runs it in — OIDC, bound beyond loopback — against a stub issuer that shares
+  # its network namespace, because the BFF discovers the issuer at boot and refuses to start without.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+      - run: docker build --build-arg SUITE_COMMIT="$(git rev-parse --short HEAD)" -t talyvor-suite:ci .
+      - name: the container answers /healthz and serves the app
+        run: |
+          commit="$(git rev-parse --short HEAD)"
+          docker run -d --name idp -p 8787:8787 busybox:stable sh -c 'mkdir -p /w/.well-known &&
+            echo "{\"issuer\":\"http://127.0.0.1:9999\",\"authorization_endpoint\":\"http://127.0.0.1:9999/a\",\"token_endpoint\":\"http://127.0.0.1:9999/t\",\"jwks_uri\":\"http://127.0.0.1:9999/k\"}" > /w/.well-known/openid-configuration &&
+            exec httpd -f -p 127.0.0.1:9999 -h /w'
+          sleep 1
+          docker run -d --name bff --network container:idp -e BFF_AUTH_MODE=oidc \
+            -e OIDC_ISSUER=http://127.0.0.1:9999 -e OIDC_CLIENT_ID=ci -e OIDC_CLIENT_SECRET=ci \
+            -e OIDC_ALLOWED_EMAILS='*' -e BFF_PUBLIC_BASE_URL=https://app.example.test \
+            -e LENS_PROVISION_SECRET=ci talyvor-suite:ci
+          trap 'docker logs bff' EXIT
+          get() { curl -fsS --retry 15 --retry-connrefused --retry-delay 1 "http://127.0.0.1:8787$1"; }
+          get /healthz | grep '"status":"ok"'
+          get / | grep -c '<div id="root">'
+          v="$(get /api/version)"; echo "$v"
+          grep -q '"agree":true' <<<"$v"
+          grep -q "\"commit\":\"${commit}\"" <<<"$v"

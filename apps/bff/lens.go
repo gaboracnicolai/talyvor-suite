@@ -84,6 +84,16 @@ func newApp(cfg config, auth *authenticator) *app {
 	// B5.2 — what anything costs, for a buyer who has no account yet. The second public /api/ route,
 	// for the same reason as the first: the reader is by definition not signed in. See pricing.go.
 	a.mux.HandleFunc("/api/pricing", a.handlePricing)
+	// B28.211 — the container probe. Without it /healthz fell through to the SPA and answered
+	// index.html with a 200, so a probe passed whether or not the process could route a request.
+	a.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
 
 	// /api/context is the only endpoint that never calls upstream and never touches the
 	// key: it tells the UI which workspace it is looking at, and nothing more.

@@ -235,3 +235,12 @@ func TestClientRoutesStillFallBack(t *testing.T) {
 		}
 	}
 }
+
+// TestHealthzIsNotTheApp — B28.211's container probe. Before it had a route, /healthz fell through
+// to index.html with a 200, so a probe passed without the process routing anything.
+func TestHealthzIsNotTheApp(t *testing.T) {
+	rec := getPath(t, newFallbackApp(t, fallbackFixture{withVersionJSON: true}), "/healthz")
+	if rec.Code != http.StatusOK || servedTheApp(rec) || !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("GET /healthz = %d %q, want 200 {\"status\":\"ok\"} and not index.html", rec.Code, rec.Body.String())
+	}
+}

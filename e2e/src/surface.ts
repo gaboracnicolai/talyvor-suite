@@ -47,6 +47,7 @@ interface VersionAnswer { service?: string; commit?: string; stamped?: boolean; 
 
 /**
  * The app's own reads of the session: /api/version names the build the BFF and the bundle came from, and they agree;
+ * /healthz answers {"status":"ok"};
  * /api/workspaces lists exactly the workspace Lens gives this user's token; an /api/ path the BFF does not have answers
  * a JSON 404, never the app's page. Then the person signs in again in a second browser and presses Sign out there: that
  * browser is signed out (its /auth/me, its workspaces refused, an unknown path 401), and the first one still is not.
@@ -66,6 +67,11 @@ export function sessionSignOut(seed: number): Scenario {
       if (v.status !== 200 || version?.service !== 'bff') failures.push(`/api/version answered ${v.status} ${v.text.slice(0, 200)}`)
       // An unstamped BFF is a development build (the self-test's): nothing names a commit to compare.
       else if (version.stamped === true && version.agree !== true) failures.push(`/api/version: ${version.verdict ?? 'no verdict'}`)
+
+      // B28.211 — the probe a cluster restarts the app on: its own JSON, never the app's page.
+      const h = await from(app.page, 'GET', '/healthz')
+      ctx.evidence.push({ note: `/healthz: ${h.status} ${h.text.slice(0, 100)}` })
+      if (h.status !== 200 || parsed<{ status?: string }>(h.text)?.status !== 'ok') failures.push(`/healthz answered ${h.status} ${h.text.slice(0, 200)}`)
 
       const mine = await bff<{ id: string }[]>(ctx, 'GET', '/api/workspaces')
       const lens = await env.lens.act<{ id: string }[]>(app.user, 'GET', '/v1/workspaces')
