@@ -4,7 +4,7 @@ import { Button, Input, NavIcon, Pill, cn, focusRing, inlineLink } from '@talyvo
 import { Region } from '../../components/Region'
 import { ApiError } from '../../lib/api'
 import { formatWhen } from '../lens/format'
-import { ROOMS_KEY, type Room, roomsApi } from '../rooms/roomsApi'
+import { ROOMS_KEY, type Room, roomsApi, usdText } from '../rooms/roomsApi'
 import {
   type Collection,
   type DiscoverHit,
@@ -43,6 +43,34 @@ const LICENCES: readonly [DiscoverQuery['licence'], string][] = [
 const isKind = (k: string): k is ListingKind => KINDS.some((x) => x.kind === k)
 const isLicence = (l: string): l is DiscoverQuery['licence'] => LICENCES.some(([v]) => v === l)
 const isSort = (s: string): s is DiscoverSort => s === 'relevance' || SORTS.some(([v]) => v === s)
+
+/** What a search filtered on, as the empty Discover names it. */
+interface Filters {
+  words: string
+  kind: ListingKind | ''
+  capability: string
+  licence: DiscoverQuery['licence']
+  maxMicros: number | null
+  verified: boolean
+}
+
+/**
+ * B28.139 — what an empty Discover says: the filters that matched nothing, never that nothing is published when a
+ * filter simply found none. A kind alone is "No pipelines yet."; with anything else, the sentence names each filter.
+ */
+export function emptyDiscover(f: Filters, capLabel: string): string {
+  const noun = f.kind === '' ? 'listings' : (KINDS.find((k) => k.kind === f.kind)?.plural ?? f.kind).toLowerCase()
+  const licence = LICENCES.find(([v]) => v === f.licence)?.[1].toLowerCase() ?? f.licence
+  const said = [
+    f.words.trim() !== '' ? `matching “${f.words.trim()}”` : '',
+    f.capability !== '' ? `tagged ${capLabel}` : '',
+    f.licence !== '' ? `under ${/^[aeiou]/.test(licence) ? 'an' : 'a'} ${licence} licence` : '',
+    f.maxMicros === null ? '' : f.maxMicros <= 0 ? 'that are free' : `at ${usdText(f.maxMicros)} a use or less`,
+    f.verified ? 'from verified publishers' : '',
+  ].filter((x) => x !== '')
+  if (said.length > 0) return `No ${noun} ${said.join(', ')}.`
+  return f.kind === '' ? 'Nothing is published here yet.' : `No ${noun} yet.`
+}
 
 /** How many rooms the strip shows. */
 const ROOMS_SHOWN = 4
@@ -239,8 +267,16 @@ export function Discover() {
         ) : results.isPending ? (
           <p className="text-body text-muted">Reading…</p>
         ) : hits.length === 0 ? (
-          <p className="text-body text-muted">
-            {filtered ? 'Nothing published matches that search.' : 'Nothing is published here yet.'}
+          <p className="text-body text-muted" data-testid="discover-empty">
+            {emptyDiscover({ words, kind: query.kind, capability, licence: query.licence, maxMicros, verified }, capLabel)}
+            {filtered ? (
+              <>
+                {' '}
+                <Link className={`text-ink ${inlineLink}`} to="/marketplace">
+                  Show everything
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : (
           <ListingGrid listings={hits} label="Listings" usd={(h) => h.price_per_use_usd_micros} />

@@ -51,7 +51,10 @@ function mockBff() {
       const q = url.searchParams
       searched.push(q)
       const max = q.get('max_price_per_use')
+      // Every mock listing is a prompt, and words match its title.
       const found = LISTINGS.filter((m) => !q.get('capability') || m.capabilities.includes(q.get('capability') ?? ''))
+        .filter(() => !q.get('kind') || q.get('kind') === 'prompt')
+        .filter((m) => !q.get('q') || m.title.toLowerCase().includes((q.get('q') ?? '').toLowerCase()))
         .filter((m) => max === null || m.usd <= Number(max))
         .map((m) => ({ ...listing(m), price_per_use_usd_micros: m.usd, distinct_buyers_7d: 0, trending_score: 0 }))
       return json({ listings: found, sort: q.get('sort') || 'trending', page: 1, page_size: 50, total: found.length, has_more: false })
@@ -116,6 +119,19 @@ describe('Discover', () => {
     // The rooms on the same topic, and not the others.
     const rooms = await screen.findByRole('list', { name: 'Rooms' })
     expect(within(rooms).getAllByRole('link').map((a) => a.textContent)).toEqual(['Invoice extraction'])
+  })
+
+  // B28.139 — a filter that simply matched nothing names itself; it never says nothing is published.
+  it('an empty category reads "No <kind> yet", and an empty search names its filters', async () => {
+    mockBff()
+    await at('/marketplace?kind=pipeline')
+    expect((await screen.findByTestId('discover-empty')).textContent).toBe('No pipelines yet. Show everything')
+    await at('/marketplace?kind=skill&q=invoice&verified=1')
+    expect((await screen.findByTestId('discover-empty')).textContent).toBe(
+      'No skills matching “invoice”, from verified publishers. Show everything',
+    )
+    fireEvent.click(screen.getByRole('link', { name: 'Show everything' }))
+    await waitFor(() => expect(titles(screen.getByRole('list', { name: 'Listings' }))).toHaveLength(3))
   })
 
   it("lists a collection's listings exactly, in its curator's order", async () => {

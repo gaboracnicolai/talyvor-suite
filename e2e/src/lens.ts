@@ -191,6 +191,8 @@ export interface Listing {
   title: string
   price_per_use_ulxc: number
   review_status: string
+  /** why Lens holds it or a moderator took it down */
+  review_reason?: string
 }
 
 /** B32.76 — one way a listing is sold (Lens market.Offer, B32.18), in µUSD, with what its licence allows. */

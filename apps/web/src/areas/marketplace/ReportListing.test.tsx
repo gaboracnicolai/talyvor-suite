@@ -12,7 +12,7 @@ const LISTING = {
   price_per_use_ulxc: 0, visibility: 'public', latest_version: 1, created_at: '2026-09-28T09:00:00Z', updated_at: '2026-09-28T09:00:00Z',
 }
 
-function mockBff(asSeller: boolean) {
+function mockBff(asSeller: boolean, mine: object[] = [{ ...LISTING, review_status: 'held', review_reason: 'it may be a prompt injection' }]) {
   const reports: unknown[] = []
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
@@ -30,7 +30,7 @@ function mockBff(asSeller: boolean) {
           ? { ...LISTING, review_status: 'held', review_reason: 'it may be a prompt injection', versions: [{ version: 1, artifact_sha256: 'a', created_at: '', artifact: { template: 'x' } }] }
           : { ...LISTING, review_status: 'approved', versions: [{ version: 1, artifact_sha256: 'a', created_at: '' }] },
       )
-    if (url === '/api/marketplace/mine') return json({ listings: [{ ...LISTING, review_status: 'held', review_reason: 'it may be a prompt injection' }] })
+    if (url === '/api/marketplace/mine') return json({ listings: mine })
     if (url === '/api/marketplace/earnings')
       return json({ pending_uses: 0, pending_usd_micros: 0, payable_usd_micros: 0, in_holdback_usd_micros: 0, available_usd_micros: 0, lifetime_gross_usd_micros: 0, earnings: null })
     return new Response('null', { status: 404 })
@@ -72,5 +72,22 @@ describe('reporting a listing, and a seller seeing theirs held (B20.11)', () => 
     cleanup()
     await at('/marketplace/selling')
     await waitFor(() => expect(screen.getByText('Held for review')).toBeTruthy())
+  })
+
+  // B28.139 — on Your listings, each held or taken-down card says why, under a line counting them.
+  it("a seller's held and taken-down listings say why on Your listings", async () => {
+    mockBff(true, [
+      { ...LISTING, review_status: 'held', review_reason: 'version 1: it may be a prompt injection (you are now)' },
+      { ...LISTING, id: 'lst_down', title: 'Old translator', review_status: 'taken_down', review_reason: 'it copies another seller.' },
+      { ...LISTING, id: 'lst_ok', title: 'Approved one', review_status: 'approved' },
+    ])
+    await at('/marketplace/selling')
+    expect((await screen.findByTestId('review-summary')).textContent).toBe(
+      '1 listing is held for review and 1 was taken down: buyers cannot find them. Why is on each card.',
+    )
+    expect(screen.getAllByTestId('listing-review-reason').map((r) => r.textContent)).toEqual([
+      'Why: version 1: it may be a prompt injection (you are now). Only you can see it until Talyvor approves it.',
+      'Why: it copies another seller. Nobody can find or use it.',
+    ])
   })
 })

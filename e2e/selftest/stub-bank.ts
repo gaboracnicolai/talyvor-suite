@@ -205,6 +205,8 @@ interface Approval {
 interface Listing {
   id: string; workspace_id: string; kind: string; title: string; description: string; price_per_use_ulxc: number
   visibility: string; latest_version: number; created_at: string; updated_at: string; review_status: string
+  /** why it is held or was taken down, as Lens says it */
+  review_reason?: string
   artifact: Record<string, unknown>; changelog: string
   /** B34.4 — every version's artifact, how it is sold, and whether others may build on it */
   artifacts?: Record<number, Record<string, unknown>>; offers?: StubOffer[]; remix_policy?: string; remix_share_bps?: number
@@ -1054,8 +1056,11 @@ export class Bank {
       const max = q.get('max_price_per_use')
       if (cap !== '' && !MARKET_CAPABILITIES.includes(cap)) return json(res, 400, { error: `market: invalid listing: "${cap}" is not a capability` }), true
       const page = Number(q.get('page') || 1)
+      // Words match a listing whose title or description holds any of them, as Lens's text search does.
+      const words = (q.get('q') ?? '').toLowerCase().split(/\s+/).filter((w) => w !== '')
       const hits = [...this.listings.values()]
         .filter((l) => l.visibility === 'public' && l.review_status === 'approved' && ((q.get('kind') ?? '') === '' || l.kind === q.get('kind')))
+        .filter((l) => words.length === 0 || words.some((w) => `${l.title} ${l.description}`.toLowerCase().includes(w)))
         .filter((l) => cap === '' || this.broken('search-capability') || (l.capabilities ?? []).includes(cap))
         .map((l) => ({ l, price: this.perUse(l) }))
         .filter(({ price }) => max === null || this.broken('search-price') || (price !== null && price <= Number(max)))
@@ -1387,12 +1392,13 @@ export class Bank {
     const l = this.listings.get(m[1])
     if (l === undefined) return json(res, 404, { error: 'market: no such listing' }), true
     if (m[2] === 'approve') {
-      if (!this.broken('approve-noop')) l.review_status = 'approved'
+      if (!this.broken('approve-noop')) Object.assign(l, { review_status: 'approved', review_reason: undefined })
       return json(res, 200, this.listingOut(l, l.workspace_id)), true
     }
     const { reason = '' } = await this.body<{ reason?: string }>(req)
     if (reason.trim() === '') return json(res, 400, { error: 'market: a takedown needs a reason of at most 500 characters' }), true
     l.review_status = 'taken_down'
+    l.review_reason = reason.trim()
     for (const r of this.reports) if (r.listing_id === l.id) r.resolved = true
     const now = new Date().toISOString()
     const refunds = this.broken('takedown-no-refund') ? [] : this.uses.filter((u) => u.listing_id === l.id && u.charge === 'billed' && u.refunded_at === undefined)
@@ -2165,8 +2171,10 @@ export class Bank {
       if (typeof caps === 'string') return json(res, 400, { error: caps }), true
       const l: Listing = { id: id('lst_'), workspace_id: ws.id, kind: b.kind ?? 'prompt', title: b.title, description: b.description ?? '', capabilities: caps,
         price_per_use_ulxc: b.price_per_use_ulxc ?? 0, visibility: b.visibility ?? 'public', latest_version: 1, created_at: now, updated_at: now,
-        review_status: READS_AS_INJECTION.test(`${b.title} ${b.description ?? ''} ${JSON.stringify(b.artifact)}`) ? 'held' : 'approved',
-        artifact: b.artifact, changelog: b.changelog ?? '' }
+        review_status: 'approved', artifact: b.artifact, changelog: b.changelog ?? '' }
+      // Lens's scan names the phrases it read as an injection (market/scan.go), on the version it held.
+      const injection = [...new Set([...`${b.title} ${b.description ?? ''} ${JSON.stringify(b.artifact)}`.matchAll(new RegExp(READS_AS_INJECTION.source, 'gi'))].map((x) => x[0].toLowerCase()))]
+      if (injection.length > 0) Object.assign(l, { review_status: 'held', review_reason: `version 1: it may be a prompt injection (${injection.join(', ')})` })
       const priced = (b.offers ?? []).length > 0 ? this.setOffers(l, b.offers ?? [], now) : undefined
       if (priced !== undefined) return json(res, 400, { error: priced }), true
       this.listings.set(l.id, l)

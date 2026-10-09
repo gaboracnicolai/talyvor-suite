@@ -63,6 +63,7 @@ import {
   Note,
   pressed,
   readFailure,
+  reviewSummary,
   selectClass,
   useRunnableModels,
 } from "./parts";
@@ -889,7 +890,14 @@ function Selling() {
             </Link>
           </p>
         ) : (
-          <ListingGrid listings={mine.data} own label="Your listings" />
+          <>
+            {reviewSummary(mine.data) !== "" ? (
+              <p className="text-body text-ink" data-testid="review-summary">
+                {reviewSummary(mine.data)}
+              </p>
+            ) : null}
+            <ListingGrid listings={mine.data} own label="Your listings" />
+          </>
         )}
       </Region>
     </>
