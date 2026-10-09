@@ -85,7 +85,7 @@ func (a *app) handleAgentTask(w http.ResponseWriter, r *http.Request, t tenant) 
 
 	// The agent's key for this task, on the session's own token — Lens refuses an agent that is not this
 	// workspace's (404) or is archived (409), and a person who may not issue its keys.
-	issued, status, refusal := a.issueTaskKey(r.Context(), t, keys)
+	issued, status, refusal := a.issueTaskKey(r.Context(), t, keys, taskKeyName)
 	if issued.Key == "" {
 		writeJSON(w, status, map[string]string{"error": refusal})
 		return
@@ -119,9 +119,10 @@ type taskKey struct {
 	ID  string `json:"id"`
 }
 
-// issueTaskKey asks Lens for a key of the agent's own. With none, it answers the status and sentence to refuse with.
-func (a *app) issueTaskKey(ctx context.Context, t tenant, suffix string) (taskKey, int, string) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.lensBaseURL+lensWorkspacePath(t, suffix), bytes.NewReader(agentKeyBody(taskKeyName)))
+// issueTaskKey asks Lens for a key of the agent's own, named name. With none, it answers the status and sentence to
+// refuse with. B17.126 — Chat's "Paid by" issues its answer's key with it too (stream.go).
+func (a *app) issueTaskKey(ctx context.Context, t tenant, suffix, name string) (taskKey, int, string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.lensBaseURL+lensWorkspacePath(t, suffix), bytes.NewReader(agentKeyBody(name)))
 	if err != nil {
 		return taskKey{}, http.StatusBadGateway, "lens upstream request"
 	}
