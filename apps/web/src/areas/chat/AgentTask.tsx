@@ -54,8 +54,11 @@ const selectClass = `h-8 rounded-control border border-rule bg-surface px-2 text
 export function TaskCard({ command, model, onClose }: { command: string; model: ChatModel | undefined; onClose: () => void }) {
   const qc = useQueryClient()
   const [typed] = useState(() => parseTask(command))
-  const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
-  const agents = (book.data?.agents ?? []).filter((a) => a.archived_at === undefined)
+  // Read afresh when the card opens: the agent named may have been made on Agent Wallets a moment ago. Until that read
+  // is in, the cached list is not judged: a name missing from it may be an agent made since.
+  const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book, refetchOnMount: 'always' })
+  const read = book.isFetchedAfterMount ? book.data : undefined
+  const agents = (read?.agents ?? []).filter((a) => a.archived_at === undefined)
   const named = typed.agent === '' ? undefined : agents.find((a) => a.name.trim().toLowerCase() === typed.agent.toLowerCase())
   // With no agent named, the workspace's only agent is the one meant.
   const [agentId, setAgentId] = useState<string | null>(null)
@@ -63,7 +66,7 @@ export function TaskCard({ command, model, onClose }: { command: string; model: 
   const agent = agents.find((a) => a.id === chosen)
   // Before the colon was not an agent's name: it was part of the task.
   const [edited, setEdited] = useState<string | null>(null)
-  const task = edited ?? (named !== undefined || typed.agent === '' || book.data === undefined ? typed.task : typed.whole)
+  const task = edited ?? (named !== undefined || typed.agent === '' || read === undefined ? typed.task : typed.whole)
 
   // The task's model is the conversation's, as it stood when the command was typed.
   const [on] = useState(model)
@@ -174,30 +177,34 @@ export function TaskCard({ command, model, onClose }: { command: string; model: 
               }}
             >
               <div className="flex flex-col gap-3 wide:flex-row wide:items-center">
-                <select
-                  aria-label="Agent"
-                  className={`${selectClass} wide:max-w-48`}
-                  value={chosen}
-                  disabled={run.isPending}
-                  onChange={(e) => setAgentId(e.target.value)}
-                >
-                  <option value="" disabled>
-                    Pick an agent
-                  </option>
-                  {agents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
+                {read === undefined && !book.isError ? (
+                  <p className="text-caption text-muted wide:w-48">Reading your agents…</p>
+                ) : (
+                  <select
+                    aria-label="Agent"
+                    className={`${selectClass} wide:max-w-48`}
+                    value={chosen}
+                    disabled={run.isPending}
+                    onChange={(e) => setAgentId(e.target.value)}
+                  >
+                    <option value="" disabled>
+                      Pick an agent
                     </option>
-                  ))}
-                </select>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <Input aria-label="The task" placeholder="What it should do" value={task} disabled={run.isPending} onChange={(e) => setEdited(e.target.value)} />
               </div>
-              {typed.agent !== '' && named === undefined && book.data !== undefined && agentId === null ? (
+              {typed.agent !== '' && named === undefined && read !== undefined && agentId === null ? (
                 <p className="text-caption text-muted">No agent is called “{typed.agent}” — pick one.</p>
               ) : null}
               {book.isError ? (
                 <p className="text-caption text-muted">Your agents could not be read just now.</p>
-              ) : book.data !== undefined && agents.length === 0 ? (
+              ) : read !== undefined && agents.length === 0 ? (
                 <p className="text-caption text-muted">
                   The workspace has no agent yet. Launch one with <span className="font-mono">/agent</span>.
                 </p>
