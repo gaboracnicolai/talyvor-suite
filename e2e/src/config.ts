@@ -26,6 +26,11 @@ export interface RunConfig {
    */
   webhookSecret: string
   /**
+   * B30.123 — LENS_OPERATOR_READ_KEY: the narrow operator READ credential Lens boots with, for the daily reconciliation and
+   * the safeguarding view; '' leaves daily-reconciliation a SKIP
+   */
+  operatorReadKey: string
+  /**
    * B28.287 — the port the synthetic upstream listens on, where the Lens under test sends its vLLM traffic
    * (LENS_VLLM_BASE_URL); 0 leaves keys-not-forwarded a SKIP
    */
@@ -157,6 +162,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     moderatorKey: env.LENS_MODERATOR_KEY ?? '',
     adminKey: env.LENS_API_KEY ?? '',
     webhookSecret: env.LENS_STRIPE_TEST_WEBHOOK_SECRET ?? '',
+    operatorReadKey: env.LENS_OPERATOR_READ_KEY ?? '',
     upstreamPort: Math.floor(num('upstream-port', 'E2E_UPSTREAM_PORT', 0, true)),
     users: light ? LIGHT_USERS : Math.floor(num('users', 'E2E_USERS', DEFAULTS.users)),
     concurrency: Math.floor(num('concurrency', 'E2E_CONCURRENCY', DEFAULTS.concurrency)),
