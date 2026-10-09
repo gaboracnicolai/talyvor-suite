@@ -2110,6 +2110,7 @@ async function chatSpendRow(ctx: ScenarioCtx, shots?: { wide: string; narrow: st
 /**
  * B28.106 — Chat's spend is tagged "chat": a question asked afresh in Chat, and Spend by feature on /spend then lists
  * `chat` with one request more and the answer's charge more — the one spend row Lens wrote for it, in dollars.
+ * B17.134 — asked in a temporary chat, served nothing from the cache or the pool (as chat-meter, B17.130).
  */
 export function chatFeatureSpend(seed: number): Scenario {
   return {
@@ -2122,10 +2123,21 @@ export function chatFeatureSpend(seed: number): Scenario {
       const before = (await chatSpendRow(ctx)) ?? { requests: 0, usd: 0, text: 'no chat row' }
       await app.newChat()
       const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
-      const t = await ask(ctx, `Name the smallest planet in one word. (${freshWord(seed * 10 + 3, 1 + Math.floor(Math.random() * 999_999))})`)
+      const toggle = app.page.getByRole('button', { name: 'Temporary chat' })
+      await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const temporary = async (on: boolean) => {
+        if ((await toggle.getAttribute('aria-pressed')) !== String(on)) await toggle.click()
+      }
+      await temporary(true)
+      let t: Turn
+      try {
+        t = await ask(ctx, `Name the smallest planet in one word. (${freshWord(seed * 10 + 3, 1 + Math.floor(Math.random() * 999_999))})`, 'in a temporary chat')
+      } finally {
+        await temporary(false).catch(() => undefined)
+      }
       const noPrice = priced(t)
       if (noPrice !== undefined) return { pass: false, detail: noPrice }
-      if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
+      if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer, in a temporary chat, was not written by the model just now: [${t.footerText}]` }
       // The spend row and the request's tag are written as the answer is charged; room for them to land.
       let fresh: LedgerRow[] = []
       let after: { requests: number; usd: number; text: string } | undefined
