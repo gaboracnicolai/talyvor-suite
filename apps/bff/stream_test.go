@@ -70,8 +70,13 @@ type streamUpstream struct {
 	gotPool         string // B28.381 — X-Talyvor-Pool as Lens received it
 	gotFeature      string // B28.106 — X-Talyvor-Feature as Lens received it
 	gotIssue        string // B28.376 — X-Talyvor-Issue as Lens received it
-	refuse          string
-	answerHeaders   map[string]string // set on the proxied answer, as Lens does on a cache serve
+	// B17.126 — the agent keys Lens issued (each "<path> <credential>") and revoked (each key id), and, when
+	// set, the JSON body of the 409 Lens answers instead of issuing one.
+	keysIssued    []string
+	keysRevoked   []string
+	refuseKey     string
+	refuse        string
+	answerHeaders map[string]string // set on the proxied answer, as Lens does on a cache serve
 	// replayUnlessBypassed sets answerHeaders only on a request without X-Talyvor-Cache: bypass, as
 	// Lens does: a bypass skips every cache read.
 	replayUnlessBypassed bool
@@ -112,6 +117,24 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 		case strings.HasPrefix(r.URL.Path, "/v1/workspaces/") && r.Method == http.MethodGet && u.loggingPolicy != "":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = fmt.Fprintf(w, `{"logging_policy":%q}`, u.loggingPolicy)
+			return
+
+		case strings.HasPrefix(r.URL.Path, "/v1/workspaces/") && strings.HasSuffix(r.URL.Path, "/keys") && r.Method == http.MethodPost:
+			u.keysIssued = append(u.keysIssued, r.URL.Path+" "+r.Header.Get("Authorization"))
+			w.Header().Set("Content-Type", "application/json")
+			if u.refuseKey != "" {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = io.WriteString(w, u.refuseKey)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"key":"tlv_agent_paid_key","id":"key_paid","prefix":"tlv_agent_pa"}`)
+			return
+
+		case strings.HasPrefix(r.URL.Path, "/v1/workspaces/") && strings.Contains(r.URL.Path, "/api-keys/") && r.Method == http.MethodDelete:
+			u.keysRevoked = append(u.keysRevoked, r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:])
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"ok":true}`)
 			return
 
 		case strings.HasPrefix(r.URL.Path, "/v1/proxy/"):
@@ -986,18 +1009,25 @@ func TestStream_ChatOutOfThePoolReachesLensSayingSo(t *testing.T) {
 }
 
 // B28.354 — the agent Chat's "Paid by" chose reaches Lens's streaming proxy, and the agent Lens says it
-// billed reaches the chat. A malformed id is refused before Lens is asked anything.
+// billed reaches the chat. A malformed id is refused before Lens is asked anything. B17.126 — the question is
+// asked on a key of the agent's own, so Lens bills the agent; the key is revoked once the answer is relayed,
+// and the chat hears the agent paid unless Lens replayed this workspace's own answer for free.
 func TestStream_PaidByReachesLensAndWhoLensBilledReachesTheChat(t *testing.T) {
-	for _, tc := range []struct{ sent, billed, wantUp, wantBack string }{
-		{"agt_researcher-1", "agt_researcher-1", "agt_researcher-1", "agt_researcher-1"},
-		{"agt_researcher-1", "", "agt_researcher-1", ""},
-		{"", "", "", ""},
+	own := map[string]string{"X-Talyvor-Cache-Replay": "true"}
+	for _, tc := range []struct {
+		sent     string
+		answer   map[string]string
+		wantUp   string
+		wantBack string
+	}{
+		{"agt_researcher-1", map[string]string{"X-Talyvor-Paid-By": "agt_researcher-1"}, "agt_researcher-1", "agt_researcher-1"},
+		{"agt_researcher-1", nil, "agt_researcher-1", "agt_researcher-1"},
+		{"agt_researcher-1", own, "agt_researcher-1", ""},
+		{"", nil, "", ""},
 	} {
 		up := newStreamUpstream(t)
 		up.noBlock = true
-		if tc.billed != "" {
-			up.answerHeaders = map[string]string{"X-Talyvor-Paid-By": tc.billed}
-		}
+		up.answerHeaders = tc.answer
 		a, sess := streamApp(t, up)
 		ts := httptest.NewServer(a)
 		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
@@ -1018,21 +1048,59 @@ func TestStream_PaidByReachesLensAndWhoLensBilledReachesTheChat(t *testing.T) {
 			t.Errorf("sent %q: Lens received X-Talyvor-Paid-By %q, want %q", tc.sent, up.gotPaidBy, tc.wantUp)
 		}
 		if got := resp.Header.Get("X-Talyvor-Paid-By"); got != tc.wantBack {
-			t.Errorf("Lens billed %q: the chat received X-Talyvor-Paid-By %q, want %q", tc.billed, got, tc.wantBack)
+			t.Errorf("sent %q, Lens answered %v: the chat received X-Talyvor-Paid-By %q, want %q", tc.sent, tc.answer, got, tc.wantBack)
+		}
+		if tc.sent == "" {
+			if up.gotProxyAuth != "Bearer "+testSessionKey || len(up.keysIssued) != 0 {
+				t.Errorf("the workspace paying: asked on %q after issuing %q, want the session key and no agent key", up.gotProxyAuth, up.keysIssued)
+			}
+			continue
+		}
+		if len(up.keysIssued) != 1 || !strings.HasSuffix(strings.Fields(up.keysIssued[0])[0], "/agents/"+tc.sent+"/keys") || strings.Contains(up.keysIssued[0], "tlv_") {
+			t.Errorf("sent %q: Lens issued %q, want one key for that agent, on the session's workspace token", tc.sent, up.keysIssued)
+		}
+		if up.gotProxyAuth != "Bearer tlv_agent_paid_key" || up.mintCalls != 0 {
+			t.Errorf("sent %q: asked on %q with %d session-key mint(s), want the agent's own key and none", tc.sent, up.gotProxyAuth, up.mintCalls)
+		}
+		if len(up.keysRevoked) != 1 || up.keysRevoked[0] != "key_paid" {
+			t.Errorf("sent %q: Lens revoked %q, want the agent's key key_paid", tc.sent, up.keysRevoked)
 		}
 	}
 
+	// An agent Lens will not issue a key for — archived here — is a refusal in Lens's words, and nothing is asked:
+	// the workspace never pays for an answer the conversation said the agent would.
 	up := newStreamUpstream(t)
 	up.noBlock = true
+	up.refuseKey = `{"error":"agent is archived"}`
 	a, sess := streamApp(t, up)
 	ts := httptest.NewServer(a)
-	defer ts.Close()
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
 	req.AddCookie(sess)
 	req.Header.Set("Origin", "https://app.talyvor.com")
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Talyvor-Paid-By", "../v1/admin")
+	req.Header.Set("X-Talyvor-Paid-By", "agt_gone")
 	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	said, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	ts.Close()
+	if resp.StatusCode != http.StatusConflict || !strings.Contains(string(said), "agent is archived") || up.proxyCalls != 0 || up.mintCalls != 0 {
+		t.Fatalf("an archived agent chosen to pay: %d %s with %d proxied request(s) and %d mint(s), want 409 in Lens's words and none", resp.StatusCode, said, up.proxyCalls, up.mintCalls)
+	}
+
+	up = newStreamUpstream(t)
+	up.noBlock = true
+	a, sess = streamApp(t, up)
+	ts = httptest.NewServer(a)
+	defer ts.Close()
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+	req.AddCookie(sess)
+	req.Header.Set("Origin", "https://app.talyvor.com")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Talyvor-Paid-By", "../v1/admin")
+	resp, err = ts.Client().Do(req)
 	if err != nil {
 		t.Fatalf("do: %v", err)
 	}

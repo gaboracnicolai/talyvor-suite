@@ -39,6 +39,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -236,7 +237,24 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			budget = strconv.FormatInt(n, 10)
 		}
 
-		key, err := a.sessionKeyFor(r.Context(), t)
+		// B17.126 — Lens bills a call to the agent whose key it is made with (agent_task.go), and does not read
+		// X-Talyvor-Paid-By, so a conversation an agent pays for is asked on a key of that agent's own, issued for
+		// this one request and revoked once the answer is relayed. The agent's rules judge it first. A key Lens will
+		// not issue — the agent is not this workspace's, is archived, or this person may not issue its keys — is a
+		// refusal: the workspace never pays for what the conversation said an agent would.
+		var key string
+		var err error
+		if paidBy != "" {
+			issued, status, refusal := a.issueTaskKey(r.Context(), t, "/agents/"+url.PathEscape(paidBy)+"/keys", paidByKeyName)
+			if issued.Key == "" {
+				writeJSON(w, status, map[string]string{"error": refusal})
+				return
+			}
+			defer a.revokeTaskKey(context.WithoutCancel(r.Context()), t, issued.ID)
+			key = issued.Key
+		} else {
+			key, err = a.sessionKeyFor(r.Context(), t)
+		}
 		if err != nil {
 			log.Printf("bff: stream credential: %v", err)
 			// ⚠ TWO CAUSES, AND THEY WERE ONE SENTENCE. A Lens that ANSWERED the mint and declined
@@ -392,9 +410,12 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			}
 		}
 		// B28.354 — the agent Lens billed this answer to, when it billed one. The chat says who paid only
-		// from this, never from what it asked for.
+		// from this, never from what it asked for. B17.126 — an answer asked on the agent's own key is on its
+		// wallet whether or not Lens names it, unless Lens replayed this workspace's own answer for free.
 		if v := resp.Header.Get(paidByHeader); v != "" {
 			w.Header().Set(paidByHeader, v)
+		} else if paidBy != "" && resp.StatusCode == http.StatusOK && !ownReplay(resp.Header) {
+			w.Header().Set(paidByHeader, paidBy)
 		}
 		// B28.370 — Lens swapped a "lens:prompt:<name>" system message for the named prompt (chat_prompts.go); the chat
 		// says so under the answer.
@@ -433,6 +454,10 @@ var tareHeaders = []string{"X-Talyvor-Tare", "X-Talyvor-Tare-Tokens-Saved"}
 // paidByHeader names the agent whose wallet pays for a Chat request (B28.354). On the request it is the
 // agent the conversation chose; on Lens's answer it is the agent Lens billed, absent when the workspace paid.
 const paidByHeader = "X-Talyvor-Paid-By"
+
+// paidByKeyName names the key a conversation's answer is asked on when an agent pays for it (B17.126), on Agent
+// Wallets and the Keys screen, where its revocation shows.
+const paidByKeyName = "Paid by in Chat"
 
 // conversationHeader names the Chat conversation a request is part of, and conversationBudgetHeader the most that
 // conversation may spend, in µLXC (B28.361). Lens counts the conversation's spend and refuses past the budget.
