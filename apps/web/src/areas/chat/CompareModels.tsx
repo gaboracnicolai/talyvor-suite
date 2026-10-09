@@ -15,11 +15,13 @@ import { stampChanged } from './historySync'
 import { Markdown } from './Markdown'
 import { ModelPicker } from './ModelPicker'
 import { type AnswerCost, type AnswerSource, answerSourceLine, formatAnswerCost, formatCharged, formatCostRange, formatUsdPer1M, pricedAnswer } from './price'
+import { useRevealedText } from './reveal'
 
 // B28.369 — compare models side by side: one question to three models at once, each answer streaming in its own
 // column with what it cost under it. Each column is one ordinary Chat request (streamChat, no wallet tools), so Lens
 // prices and charges each on its own and says what it charged in the stream (chatStream.ts CHARGE_FRAME); a column
 // shows that figure, or the estimate at the list rate until Lens says. An answer can be carried on in Chat.
+// B17.123 — every column is asked afresh: a comparison of models is never a cached or shared answer.
 
 const COLUMNS = 3
 
@@ -63,6 +65,101 @@ function costLine(c: Column, usdPerLXC: number | undefined): string {
   }
   if (c.charged_ulxc !== undefined) return formatCharged(c.charged_ulxc)
   return 'Price not known — the provider reported no token counts for this answer'
+}
+
+/** One model's column: its answer as it arrives, and under it what it cost. */
+function CompareColumn({
+  c,
+  asked,
+  pending,
+  canKeep,
+  usdPerLXC,
+  onRetry,
+  onKeep,
+}: {
+  c: Column
+  asked: string
+  pending: boolean
+  canKeep: boolean
+  usdPerLXC: number | undefined
+  onRetry: () => void
+  onKeep: () => void
+}) {
+  // B16.3, as under a Chat answer: the answer grows at a steady pace however it arrives (a burst, or a whole answer in
+  // one piece), and its price appears once all of it is on screen.
+  const shown = useRevealedText(c.answer, c.answering)
+  const settled = !c.answering && !shown.revealing
+  return (
+    <section
+      role="listitem"
+      aria-label={c.model.display_name}
+      data-testid="compare-column"
+      className="flex min-h-64 min-w-0 flex-col rounded-card border border-rule bg-surface p-4"
+    >
+      <h2 className="text-head text-ink">{c.model.display_name}</h2>
+      <p className="font-figure text-caption text-faint">
+        {formatUsdPer1M(c.model.input_per_1m)} in / {formatUsdPer1M(c.model.output_per_1m)} out per 1M tokens
+      </p>
+      <div className="mt-3 flex-1" aria-live="polite" aria-busy={c.answering}>
+        {c.failure !== undefined ? (
+          <div role="alert" className="space-y-2" data-testid="compare-failure">
+            <p className="text-body text-ink">
+              {c.failure.text}
+              {c.failure.remedy !== undefined && 'to' in c.failure.remedy ? (
+                <>
+                  {' '}
+                  <Link className={inlineLink} to={c.failure.remedy.to}>
+                    {c.failure.remedy.label}
+                  </Link>
+                </>
+              ) : null}
+            </p>
+            <Button onClick={onRetry} disabled={pending}>
+              Retry
+            </Button>
+          </div>
+        ) : c.answering && c.answer === '' ? (
+          <p className="text-body text-muted">Answering…</p>
+        ) : c.incomplete === 'blank' ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3" data-testid="compare-blank">
+            <p className="text-body text-ink">No answer came back.</p>
+            <Button onClick={onRetry} disabled={pending}>
+              Retry
+            </Button>
+          </div>
+        ) : c.answer !== '' ? (
+          <Markdown source={shown.text} />
+        ) : asked === '' ? (
+          <p className="text-body text-faint">Its answer appears here.</p>
+        ) : null}
+      </div>
+      {settled && c.answer !== '' && c.failure === undefined ? (
+        <div className="mt-3 space-y-2 border-t border-rule pt-3">
+          {c.incomplete === 'cut_off' ? (
+            <p className="text-caption text-muted">
+              <span className="mr-1 rounded-control border border-rule px-1.5 py-0.5 text-ink">Cut off</span> The model reached its length
+              limit before it finished this answer.
+            </p>
+          ) : null}
+          {c.stopped ? (
+            <p className="text-caption text-muted">Stopped before it finished.</p>
+          ) : (
+            <p className="font-figure text-caption text-faint" data-testid="compare-cost">
+              {costLine(c, usdPerLXC)}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={!canKeep}
+            onClick={onKeep}
+            className={cn('-ml-2 rounded-control px-2 py-1 text-caption text-muted transition-colors duration-200 hover:text-ink disabled:opacity-50', focusRing)}
+          >
+            Continue in Chat
+          </button>
+        </div>
+      ) : null}
+    </section>
+  )
 }
 
 export function CompareModels() {
@@ -119,6 +216,7 @@ export function CompareModels() {
           onError: (text, remedy) => update((c) => ({ ...c, answering: false, failure: { text, remedy } })),
         },
         controller.signal,
+        true,
       )
       // Stopped: streamChat returns without a word, and the answer keeps what had arrived.
       if (controller.signal.aborted) update((c) => (c.answering ? { ...c, answering: false, stopped: true } : c))
@@ -190,76 +288,16 @@ export function CompareModels() {
       ) : null}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3" aria-label="Answers" role="list">
         {shown.map((c, i) => (
-          <section
+          <CompareColumn
             key={i}
-            role="listitem"
-            aria-label={c.model.display_name}
-            data-testid="compare-column"
-            className="flex min-h-64 min-w-0 flex-col rounded-card border border-rule bg-surface p-4"
-          >
-            <h2 className="text-head text-ink">{c.model.display_name}</h2>
-            <p className="font-figure text-caption text-faint">
-              {formatUsdPer1M(c.model.input_per_1m)} in / {formatUsdPer1M(c.model.output_per_1m)} out per 1M tokens
-            </p>
-            <div className="mt-3 flex-1" aria-live="polite" aria-busy={c.answering}>
-              {c.failure !== undefined ? (
-                <div role="alert" className="space-y-2" data-testid="compare-failure">
-                  <p className="text-body text-ink">
-                    {c.failure.text}
-                    {c.failure.remedy !== undefined && 'to' in c.failure.remedy ? (
-                      <>
-                        {' '}
-                        <Link className={inlineLink} to={c.failure.remedy.to}>
-                          {c.failure.remedy.label}
-                        </Link>
-                      </>
-                    ) : null}
-                  </p>
-                  <Button onClick={() => retry(i)} disabled={pending}>
-                    Retry
-                  </Button>
-                </div>
-              ) : c.answering && c.answer === '' ? (
-                <p className="text-body text-muted">Answering…</p>
-              ) : c.incomplete === 'blank' ? (
-                <div role="alert" className="flex flex-wrap items-center gap-3" data-testid="compare-blank">
-                  <p className="text-body text-ink">No answer came back.</p>
-                  <Button onClick={() => retry(i)} disabled={pending}>
-                    Retry
-                  </Button>
-                </div>
-              ) : c.answer !== '' ? (
-                <Markdown source={c.answer} />
-              ) : asked === '' ? (
-                <p className="text-body text-faint">Its answer appears here.</p>
-              ) : null}
-            </div>
-            {!c.answering && c.answer !== '' && c.failure === undefined ? (
-              <div className="mt-3 space-y-2 border-t border-rule pt-3">
-                {c.incomplete === 'cut_off' ? (
-                  <p className="text-caption text-muted">
-                    <span className="mr-1 rounded-control border border-rule px-1.5 py-0.5 text-ink">Cut off</span> The model reached its length
-                    limit before it finished this answer.
-                  </p>
-                ) : null}
-                {c.stopped ? (
-                  <p className="text-caption text-muted">Stopped before it finished.</p>
-                ) : (
-                  <p className="font-figure text-caption text-faint" data-testid="compare-cost">
-                    {costLine(c, usdPerLXC)}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  disabled={scope === null}
-                  onClick={() => keep(c)}
-                  className={cn('-ml-2 rounded-control px-2 py-1 text-caption text-muted transition-colors duration-200 hover:text-ink disabled:opacity-50', focusRing)}
-                >
-                  Continue in Chat
-                </button>
-              </div>
-            ) : null}
-          </section>
+            c={c}
+            asked={asked}
+            pending={pending}
+            canKeep={scope !== null}
+            usdPerLXC={usdPerLXC}
+            onRetry={() => retry(i)}
+            onKeep={() => keep(c)}
+          />
         ))}
       </div>
       {keepRefused ? (
