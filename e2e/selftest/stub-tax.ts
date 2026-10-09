@@ -20,6 +20,13 @@
 //   seller-tax-unmasked  — the read returns the TINs as they were given
 //   seller-tax-forgets   — a save that leaves out the TINs, date of birth and account removes them
 //   seller-vat-unchecked — a VAT number never issued counts as given, and the details read complete
+// B32.100 — and market-buyer-currency's: a listing's offers read in the reader's currency (Lens B32.51) at the fixture ECB
+// rates of the day (1 EUR = 1.10 USD = 0.85 GBP), VAT included for a consumer where Talyvor is registered and "+ VAT" for
+// a business, and its defects:
+//   display-missing        — the offers carry no display
+//   display-usd-moved      — the US-dollar price reads as the converted one's dollars, VAT and all
+//   display-vat-left-out   — a consumer's price is labelled "incl. VAT" and leaves the VAT out
+//   display-business-taxed — a business's price has the VAT in it, "incl. VAT"
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
@@ -51,6 +58,12 @@ interface SellerDetails {
   date_of_birth: string; account_identifier: string; account_holder: string; vat_number: string; vat_valid: boolean; vat_detail: string; vat_checked_at?: string
   self_billing_agreed_version: string; reminders_sent: number; withheld_since?: string; completed_at?: string
 }
+
+/** B32.100 — the fixture ECB day: each currency per US dollar as a fraction (1 EUR = 1.10 USD = 0.85 GBP), and each country's currency. */
+const PER_USD: Record<string, [bigint, bigint]> = { USD: [1n, 1n], EUR: [10n, 11n], GBP: [17n, 22n] }
+const RATE_DATE = '2026-10-02T00:00:00Z'
+const CURRENCY_OF: Record<string, string> = { GB: 'GBP', DE: 'EUR', FR: 'EUR' }
+const CHARGED_IN_USD = 'Charged in US dollars on your monthly marketplace bill'
 
 export const HOLD_REASON = 'Your payouts are on hold until your tax details are complete. Your earnings keep clearing and are paid at the next payout after you complete them.'
 const mask = (v: string): string => (v === '' ? '' : `••••${v.slice(-4)}`)
@@ -116,6 +129,36 @@ export class TaxDesk {
       buyer: { workspace_id: buyer, name: p?.legal_name ?? '', country: p?.country ?? '', business: p !== undefined && p.business && p.tax_id_valid, ...(p?.tax_id_valid ? { vat_number: p.tax_id } : {}) },
       lines, net_usd_micros: net, tax_usd_micros: tax, gross_usd_micros: gross, gross_cents: Math.round(gross / 10_000), stripe_total_cents: null, reverse_charge: reverse,
       notes: [...new Set(lines.filter((l) => l.treatment === 'reverse_charge').map((l) => l.note))], preview: true, preview_reason: 'Preview — test money only' })
+  }
+
+  /**
+   * B32.100 — `offers` as `viewer` reads them (Lens market.ShowPrices): each with its display in `asked`, or in the currency
+   * of the viewer's declared country (dollars where none), at the fixture ECB rates rounded half-up to the cent — VAT
+   * included for a consumer in a country Talyvor is registered in, "+ VAT" for a business — and the note on how it is
+   * charged. A currency that is no ISO code is the refusal's sentence.
+   */
+  showPrices<T extends { price_usd_micros: number }>(viewer: string, offers: T[], asked: string): { offers: T[]; price_note: string } | string {
+    const ccyAsked = asked.trim().toUpperCase()
+    if (ccyAsked !== '' && !/^[A-Z]{3}$/.test(ccyAsked)) return 'market: invalid listing: currency must be a three-letter ISO 4217 code, such as GBP'
+    const p = this.profiles.get(viewer)
+    const business = p !== undefined && p.business && p.tax_id_valid
+    const ccy = ccyAsked !== '' ? ccyAsked : (CURRENCY_OF[p?.country ?? ''] ?? 'USD')
+    const per = PER_USD[ccy]
+    if (per === undefined) return { offers, price_note: `${CHARGED_IN_USD}; no ECB reference rate for ${ccy} is published yet.` }
+    const [num, den] = per
+    const vat = p !== undefined && !business && REGISTERED.has(p.country) ? RATES_BPS[p.country] : undefined
+    const shown = offers.map((o) => {
+      if (this.broken('display-missing')) return o
+      const taxed = vat !== undefined || this.broken('display-business-taxed') ? halfUp(o.price_usd_micros, vat ?? RATES_BPS.GB) : 0
+      const gross = o.price_usd_micros + (this.broken('display-vat-left-out') ? 0 : taxed)
+      const amount = Number((2n * BigInt(gross) * 100n * num + den * 1_000_000n) / (2n * den * 1_000_000n))
+      const label = taxed > 0 ? 'incl. VAT' : business ? '+ VAT' : undefined
+      return { ...o, ...(this.broken('display-usd-moved') ? { price_usd_micros: o.price_usd_micros + taxed } : {}),
+        display: { currency: ccy, amount_minor: amount, includes_tax: taxed > 0, ...(label === undefined ? {} : { tax_label: label }),
+          rate: ccy === 'USD' ? '1' : (Number(num) / Number(den)).toFixed(6), ...(ccy === 'USD' ? {} : { rate_date: RATE_DATE }), source: ccy === 'USD' ? 'none' : 'ecb' } }
+    })
+    const note = ccy === 'USD' ? `${CHARGED_IN_USD}.` : `${CHARGED_IN_USD}; ${ccy} prices are at the ECB reference rate of 2 October 2026.`
+    return { offers: shown, price_note: note }
   }
 
   /** Whether a seller's tax details are incomplete — the payout run withholds such a seller with earnings. */
