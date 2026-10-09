@@ -8,6 +8,7 @@ import { LICENCES_KEY } from './Licences'
 import { ListingOffers } from './ListingOffers'
 import { FamilyTree, TrustPanel } from './ListingTrust'
 import { kindLabel, marketApi } from './marketApi'
+import { NewVersion } from './NewVersion'
 import { Card, Price, readFailure } from './parts'
 import { SimilarHold, republishPrefill } from './Remix'
 import { ReportListing } from './Report'
@@ -23,6 +24,8 @@ import { UseListing } from './UseListing'
 //
 // B32.58 — and to its seller, a version Lens held as a near-copy: the listing it is nearest to and how similar, with
 // Declare it as a parent, which opens Publish on everything it was published with and that original as its parent.
+//
+// B28.162 — and to its seller, a form for the next version with a changelog; the earlier versions stay runnable.
 
 export function ListingPage() {
   const { id = '' } = useParams()
@@ -121,7 +124,7 @@ export function ListingPage() {
         </Region>
       ) : null}
       {versions.length > 0 ? (
-        <Region index="05" label="Versions">
+        <Region index="05" label="Versions" className="flex flex-col gap-6">
           <Card>
             <CardHeader>Versions</CardHeader>
             {[...versions].reverse().map((v) => (
@@ -138,6 +141,7 @@ export function ListingPage() {
               </Row>
             ))}
           </Card>
+          {own && latest && l.review_status !== 'taken_down' ? <NewVersion key={l.id} listing={l} latest={latest} /> : null}
         </Region>
       ) : null}
     </>

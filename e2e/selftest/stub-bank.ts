@@ -119,6 +119,9 @@
 //   lineage-one-generation — the royalty stops at the listing's parents: a grandparent earns nothing
 //   lineage-refund-kept    — refunding a paid bill reverses the seller's row and leaves the originals' royalties
 //
+// B28.162 adds a listing's versions: each keeps its artifact and changelog, and a use runs the version it names. Its defect:
+//   version-pin-ignored — a use runs the listing's latest version whatever version it names
+//
 // B32.93 adds two defects of a bill's tax (Lens B32.39), beside stub-tax.ts's tax-reverse-charged:
 //   bill-gross-untaxed — the bill's gross is its net, the tax left out
 //   clear-tax-dropped  — a paid use's clear entry takes none of its tax to tax:<XX>, so the seller's week collects no VAT
@@ -218,6 +221,8 @@ interface Listing {
   artifact: Record<string, unknown>; changelog: string
   /** B34.4 — every version's artifact, how it is sold, and whether others may build on it */
   artifacts?: Record<number, Record<string, unknown>>; offers?: StubOffer[]; remix_policy?: string; remix_share_bps?: number
+  /** B28.162 — every version's changelog, once it has a second */
+  changelogs?: Record<number, string>
   /** B32.90 — what it can do, from MARKET_CAPABILITIES in their order */
   capabilities?: string[]
 }
@@ -1006,9 +1011,11 @@ export class Bank {
   private listingOut(l: Listing, viewer: string): object {
     const vars = typeof l.artifact.template === 'string' ? [...new Set([...l.artifact.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((x) => x[1]))] : []
     const { artifact, changelog, ...rest } = l
-    return { ...rest, versions: [{ version: 1, artifact_sha256: createHash('sha256').update(JSON.stringify(artifact)).digest('hex'), changelog,
-      scan: {}, created_at: l.created_at, needs: { input: l.kind === 'agent' || l.kind === 'skill', variables: vars, model: String(artifact.model ?? '') },
-      ...(viewer === l.workspace_id ? { artifact } : {}) }] }
+    // B28.162 — every version, each with its own artifact and changelog.
+    return { ...rest, versions: Object.entries(l.artifacts ?? { 1: artifact }).map(([n, a]) => ({ version: Number(n),
+      artifact_sha256: createHash('sha256').update(JSON.stringify(a)).digest('hex'), changelog: l.changelogs?.[Number(n)] ?? changelog,
+      scan: {}, created_at: l.created_at, needs: { input: l.kind === 'agent' || l.kind === 'skill', variables: vars, model: String(a.model ?? '') },
+      ...(viewer === l.workspace_id ? { artifact: a } : {}) })) }
   }
 
   /** GET /v1/marketplace/listings[/{id}]: the public catalog, as anyone signed in reads it. */
@@ -2261,6 +2268,7 @@ export class Bank {
         const b = await this.body<{ artifact?: Record<string, unknown>; changelog?: string }>(req)
         if (b.artifact === undefined) return json(res, 400, { error: 'body must be {artifact, changelog, parents}' }), true
         l.artifacts = { ...(l.artifacts ?? { 1: l.artifact }), [l.latest_version + 1]: b.artifact }
+        l.changelogs = { ...(l.changelogs ?? { 1: l.changelog }), [l.latest_version + 1]: b.changelog ?? '' }
         l.latest_version++
         l.artifact = b.artifact
         l.changelog = b.changelog ?? ''
@@ -2334,11 +2342,15 @@ export class Bank {
       const l = this.listings.get(m[1])
       if (l === undefined || !this.visible(l, ws.id)) return json(res, 404, { error: 'market: no such listing' }), true
       if (l.review_status === 'taken_down') return json(res, 403, { error: 'market: the listing was taken down' }), true
-      const b = await this.body<{ model?: string; variables?: Record<string, string>; max_price_usd_micros?: number }>(req)
-      const template = String(l.artifact.template ?? '')
+      const b = await this.body<{ version?: number; model?: string; variables?: Record<string, string>; max_price_usd_micros?: number }>(req)
+      // B28.162 — the version named, or the latest; STUB_BREAK=version-pin-ignored runs the latest whatever is named.
+      const version = this.broken('version-pin-ignored') ? l.latest_version : b.version || l.latest_version
+      const artifact = (l.artifacts ?? { 1: l.artifact })[version]
+      if (artifact === undefined) return json(res, 404, { error: `market: no such listing: it has no version ${version}` }), true
+      const template = String(artifact.template ?? '')
       const missing = [...template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((x) => x[1]).filter((v) => !(b.variables?.[v] ?? '').trim())
       if (missing.length > 0) return json(res, 400, { error: `market: the prompt needs ${missing.map((v) => `{{${v}}}`).join(', ')}` }), true
-      const model = b.model || String(l.artifact.model ?? '')
+      const model = b.model || String(artifact.model ?? '')
       if (model === '') return json(res, 400, { error: 'market: this listing names no model, so the use must' }), true
       const covered = l.workspace_id === ws.id ? undefined : this.coveringLicence(ws.id, l.id, agent, now)
       let charge = l.workspace_id === ws.id && !this.broken('self-use-billed') ? 'own' : covered !== undefined ? 'licensed' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
@@ -2361,7 +2373,7 @@ export class Bank {
       if ('error' in ran) return json(res, 400, { error: ran.error }), true
       this.uses.push(use)
       const told = trial ? { trial: true, trial_uses_left: Math.max(given - had - 1, 0), would_have_cost_usd_micros: l.price_per_use_ulxc / ULXC_PER_USD_MICRO } : {}
-      return json(res, 200, { id: use.id, listing_id: l.id, version: 1, kind: l.kind, model, charge, price_ulxc: charge === 'billed' ? use.price_ulxc : 0, output: ran.answer, used_at: now, ...told }), true
+      return json(res, 200, { id: use.id, listing_id: l.id, version, kind: l.kind, model, charge, price_ulxc: charge === 'billed' ? use.price_ulxc : 0, output: ran.answer, used_at: now, ...told }), true
     }
     if (rest === '/marketplace/earnings') {
       const pending = this.uses.filter((u) => u.seller === ws.id && u.charge === 'billed' && u.cleared_at === undefined && u.refunded_at === undefined)

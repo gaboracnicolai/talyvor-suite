@@ -434,6 +434,18 @@ export const LENS_BODIES: LensBody[] = [
       'r.Post("/v1/workspaces/{wsID}/marketplace/listings/{listingID}/remix", marketOwnerOnly(func(w http.ResponseWriter, req *http.Request) {',
     subject: "lensMarketRemixBody",
   },
+  // B28.162 — a seller uploads a new version of their listing, with a changelog.
+  {
+    route: "POST /v1/workspaces/{wsID}/marketplace/listings/{listingID}/versions",
+    file: "apps/bff/marketplace.go",
+    kind: "anon-struct",
+    fn: "func (a *app) handleMarketVersion(",
+    anchor: "var in struct {",
+    upstreamFile: "cmd/lens/market_handler.go",
+    upstreamAnchor:
+      'r.Post("/v1/workspaces/{wsID}/marketplace/listings/{listingID}/versions", marketOwnerOnly(func(w http.ResponseWriter, req *http.Request) {',
+    subject: "lensMarketVersionBody",
+  },
   // B32.60 — a seller saves their tax details.
   {
     route: "PUT /v1/workspaces/{wsID}/marketplace/seller-tax",

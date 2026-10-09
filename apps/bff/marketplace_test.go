@@ -79,6 +79,9 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"licences": []any{map[string]any{"id": "lic_1", "kind": "subscribe", "auto_renew": true}}})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/licences/lic_1/cancel"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": "lic_1", "kind": "subscribe", "auto_renew": false, "status": "active"})
+		case strings.HasSuffix(r.URL.Path, "/listings/lst_1/versions"):
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"version":2,"artifact_sha256":"ab","changelog":"Shorter answers"}`)
 		case strings.HasSuffix(r.URL.Path, "/listings/lst_1/remix"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"listing_id": "lst_1", "version": 2, "grant": map[string]any{"share_bps": 1500}, "artifact": map[string]any{"template": "x"}})
 		case strings.HasSuffix(r.URL.Path, "/listings/lst_1/licences"):
@@ -235,6 +238,25 @@ func TestMarketplaceRemixAcceptsTheLicenceOnTheSessionsWorkspace(t *testing.T) {
 	if len(f.got) != 1 || !strings.HasPrefix(f.got[0], "POST /v1/workspaces/") || !strings.Contains(f.got[0], "/marketplace/listings/lst_1/remix Bearer ") ||
 		!strings.HasSuffix(f.got[0], ` {"version":2}`) {
 		t.Fatalf("Lens received %q, want one remix on the session's workspace with only the version", f.got)
+	}
+}
+
+// B28.162 — a new version goes to Lens on the session's workspace with its artifact, changelog and parents and nothing
+// else; a body with no artifact object never reaches Lens.
+func TestMarketplaceNewVersionReachesLensOnTheSessionsWorkspace(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	rec := doJSON(a, http.MethodPost, "/api/marketplace/listings/lst_1/versions",
+		`{"artifact":{"template":"Summarise {{text}} briefly"},"changelog":"Shorter answers","parents":[],"workspace_id":"ws_other"}`)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"version":2`) {
+		t.Fatalf("new version = %d %s, want Lens's 201 and the version", rec.Code, rec.Body.String())
+	}
+	if rec := doJSON(a, http.MethodPost, "/api/marketplace/listings/lst_1/versions", `{"artifact":"text","changelog":"x"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("an artifact that is not an object = %d, want 400", rec.Code)
+	}
+	if len(f.got) != 1 || !strings.HasPrefix(f.got[0], "POST /v1/workspaces/") || strings.Contains(f.got[0], "ws_other") ||
+		!strings.Contains(f.got[0], "/marketplace/listings/lst_1/versions Bearer ") ||
+		!strings.HasSuffix(f.got[0], ` {"artifact":{"template":"Summarise {{text}} briefly"},"changelog":"Shorter answers","parents":[]}`) {
+		t.Fatalf("Lens received %q, want one new version on the session's workspace", f.got)
 	}
 }
 
