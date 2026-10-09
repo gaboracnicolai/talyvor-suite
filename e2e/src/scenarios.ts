@@ -4319,6 +4319,127 @@ export function chatCanvas(seed: number): Scenario {
 }
 
 /**
+ * B28.134 — code, formulas and diagrams. An answer (made up in the browser, so this costs nothing) holding a Python block,
+ * a formula inline and one on its own line, a Mermaid flowchart and two prices: the code is drawn in more than one colour,
+ * each formula is drawn by KaTeX from the TeX the answer wrote in KaTeX's own face, the diagram is an SVG holding its
+ * nodes' labels and is drawn again when the theme is switched, its directive's CSS that fetches is never fetched, and the
+ * prices stay text.
+ */
+export function chatRichAnswer(seed: number): Scenario {
+  return {
+    id: 'chat-rich-answer',
+    owner: 'talyvor-suite',
+    items: ['B28.134'],
+    title: 'a code block is highlighted, LaTeX is drawn as formulas and a Mermaid block as a diagram',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const stamp = `${seed}-${Date.now().toString(36)}`
+      const label = `Wallet ${stamp}`
+      const inline = 'E = mc^2'
+      const display = '\\sum_{k=1}^{n} k = \\frac{n(n+1)}{2}'
+      const prices = 'It costs $5 and $10.'
+      // A diagram an answer was steered into writing: its directive tries to restyle it with CSS that fetches.
+      const probe = `/diagram-probe-${stamp}`
+      const hostile = `%%{init: {"themeCSS": ".node rect{fill:url(${probe}-css)}", "fontFamily": "x;}@import url(${probe}-font);a{"}}%%`
+      const answer = [
+        'The code:', '', '```python', 'def total(prices):', '    # every price, in cents', '    return sum(prices)', '```', '',
+        'Inline, $' + inline + '$; on its own line:', '', '$$', display, '$$', '',
+        '```mermaid', hostile, 'flowchart LR', `  A[Agent] --> B[${label}]`, '  B --> C[Model]', '```', '',
+        prices,
+      ].join('\n')
+      const provider = env.catalog.find((m) => m.display_name === app.modelNameInUse)?.provider ?? 'anthropic'
+      const fetched: string[] = []
+      const seen = (r: { url: () => string }) => {
+        if (r.url().includes(probe)) fetched.push(r.url())
+      }
+      page.on('request', seen)
+      await app.newChat()
+      const turn = await app.askAnswered(`Show me code, a formula and a diagram, ${stamp}`, madeUpAnswer(provider, answer, false)).catch((e) => {
+        page.off('request', seen)
+        throw e
+      })
+
+      const code = turn.locator('pre code').first()
+      await code.locator('span').first().waitFor({ state: 'attached', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+      const colours = await code.evaluate((el) => [...new Set([el, ...Array.from(el.querySelectorAll('span'))].map((s) => getComputedStyle(s).color))])
+      ctx.evidence.push({ note: `the Python block is drawn in ${colours.length} colour(s): ${colours.join(', ')}` })
+      if (colours.length < 3) return { pass: false, detail: `the Python block is not highlighted: its text is drawn in ${colours.length} colour(s)` }
+
+      const drawn = turn.locator('[data-testid="math"] .katex')
+      await drawn.nth(1).waitFor({ state: 'attached', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+      const tex = await turn.locator('[data-testid="math"] annotation[encoding="application/x-tex"]').allTextContents()
+      const ownLine = await turn.locator('[data-testid="math"] .katex-display').count()
+      const face = await page.evaluate(() => Array.from(document.fonts as unknown as Iterable<FontFace>).some((f) => f.family.replace(/["']/g, '') === 'KaTeX_Main' && f.status === 'loaded'))
+      ctx.evidence.push({ note: `formulas drawn from ${JSON.stringify(tex)}, ${ownLine} on its own line; KaTeX's face ${face ? 'loaded' : 'not loaded'}` })
+      if (tex.length !== 2 || tex[0] !== inline || tex[1] !== display) return { pass: false, detail: `the formulas were not drawn from the answer's TeX: ${JSON.stringify(tex)}` }
+      if (ownLine !== 1) return { pass: false, detail: `${ownLine} formula(s) drawn on a line of their own, not 1` }
+      if (!face) return { pass: false, detail: 'the formulas are drawn, but KaTeX\'s face never loaded, so they render in a fallback font' }
+
+      const svg = turn.locator('[data-testid="diagram"] svg')
+      const shown = await svg.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+      if (!shown) {
+        const refused = await turn.getByText('This diagram couldn’t be drawn.', { exact: false }).isVisible()
+        return { pass: false, detail: refused ? 'the Mermaid block says it couldn’t be drawn' : 'the Mermaid block was never drawn as a diagram' }
+      }
+      // Its labels as SVG text, a word to a <tspan>, so a wrapped label is read without its spaces.
+      const words = (await svg.locator('text').allTextContents()).join(' ')
+      const bare = (t: string) => t.replace(/\s+/g, '')
+      ctx.evidence.push({ note: `the diagram's labels read "${words}"` })
+      if (!['Agent', label, 'Model'].every((w) => bare(words).includes(bare(w)))) return { pass: false, detail: `the diagram does not hold its nodes' labels: "${words}"` }
+      // The listener sees a request the page makes, so its silence about the diagram means something.
+      await page.evaluate((u) => fetch(u).catch(() => undefined), `${probe}-control`)
+      await page.waitForTimeout(500)
+      page.off('request', seen)
+      const fromDiagram = fetched.filter((u) => !u.endsWith('-control'))
+      ctx.evidence.push({ note: `requests to ${probe}: ${JSON.stringify(fetched)}` })
+      if (!fetched.some((u) => u.endsWith('-control'))) return { pass: false, detail: 'a request the page made was never seen, so the check that the diagram fetched nothing proves nothing' }
+      if (fromDiagram.length > 0) return { pass: false, detail: `the diagram's directive made the page fetch ${fromDiagram.join(', ')}` }
+
+      const said = turn.getByText(prices, { exact: true })
+      if (!(await said.isVisible()) || (await said.locator('[data-testid="math"]').count()) > 0) {
+        return { pass: false, detail: `the prices were not left as text: "${prices}" is ${await said.isVisible() ? 'drawn as a formula' : 'not on the page'}` }
+      }
+
+      // Drawn again in the other theme's colours when the theme is switched; switched back after, for the scenarios behind it.
+      const nodeFill = () => svg.locator('.node rect, .node polygon').first().evaluate((el) => getComputedStyle(el).fill)
+      const viewport = page.viewportSize()
+      await mkdir(env.outDir, { recursive: true })
+      const shoot = async () => {
+        const theme = await page.evaluate(() => document.documentElement.getAttribute('data-theme') ?? 'light')
+        const wide = join(env.outDir, `chat-rich-answer-${theme}-1440px-user${app.user.index}.png`)
+        const narrow = join(env.outDir, `chat-rich-answer-${theme}-390px-user${app.user.index}.png`)
+        await page.setViewportSize({ width: 1440, height: 900 })
+        await turn.locator('[data-testid="math"]').first().scrollIntoViewIfNeeded()
+        await page.screenshot({ path: wide })
+        await page.setViewportSize({ width: 390, height: 844 })
+        await turn.locator('.katex-display').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+        await page.screenshot({ path: narrow })
+        if (viewport !== null) await page.setViewportSize(viewport)
+        ctx.evidence.push({ note: `the answer in the ${theme} theme at 1440px: ${wide}; at 390px: ${narrow}` })
+      }
+      const before = await nodeFill()
+      await shoot()
+      const toggle = page.getByRole('button', { name: /^Switch to (dark|light) theme$/ })
+      await toggle.click()
+      try {
+        let after = before
+        for (const end = Date.now() + ACTION_TIMEOUT_MS; after === before && Date.now() < end; ) {
+          await page.waitForTimeout(200)
+          after = await nodeFill().catch(() => before)
+        }
+        ctx.evidence.push({ note: `a node of the diagram is filled ${before}, and ${after} once the theme is switched` })
+        if (after === before) return { pass: false, detail: `switched to the other theme, the diagram was not drawn again: its node is still filled ${before}` }
+        await shoot()
+      } finally {
+        await toggle.click().catch(() => undefined)
+      }
+      return { pass: true, detail: `the code drawn in ${colours.length} colours, both formulas drawn by KaTeX from the answer's TeX, the diagram an SVG with its three labels drawn again in the other theme, and the prices left as text` }
+    },
+  }
+}
+
+/**
  * Which scenarios user `i` runs. Everyone runs the two known-answer questions; one in ten of the users
  * also runs each of the others, so 100 users cover the catalog ten times over; user 0 prices every
  * model. A user runs at most one scenario from each catalog, v1 first. The ledger read-back runs for everyone after all journeys (checkLedger).
@@ -4360,8 +4481,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.366 — and a follow-up edited and sent again, the thread re-run from it.
     // B28.367 — and an answer regenerated, both versions still there after a reload.
     // B28.120 — and a page an answer wrote, opened in the canvas, edited, and still edited after a reload.
+    // B28.134 — and an answer with code, formulas and a Mermaid diagram: highlighted, drawn by KaTeX, drawn as an SVG.
     // B28.127 — and a chat shared as a link, read signed out, and 404 to the same stranger once the link is turned off.
-    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i), answerVersionsSurviveReload(i), chatCanvas(i), chatShareLink(i), chatExportImport(i)); break
+    case 5: list.push(followUpNotCached(i), stoppedThenAnswers(i), pinnedSurvivesReload(i), editResendRerunsThread(i), answerVersionsSurviveReload(i), chatCanvas(i), chatRichAnswer(i), chatShareLink(i), chatExportImport(i)); break
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
     // B28.368 — and an answer cut off at a tiny max_tokens, which Continue carries on.

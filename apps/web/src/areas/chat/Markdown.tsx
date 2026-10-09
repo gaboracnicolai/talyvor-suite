@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 
 import { CopyButton } from './CopyButton'
+import { Diagram, Highlighted, TexMath } from './RichBlocks'
 import { inlineLink } from '@talyvor/ui'
 
 // B10.3 — a reply renders as Markdown: headings, lists, tables, quotes and code blocks with a Copy
@@ -13,13 +14,18 @@ import { inlineLink } from '@talyvor/ui'
 // ⚠ IT IS FED HALF A MESSAGE, MANY TIMES A SECOND. Every delta re-renders the whole answer, so the
 // parser must be total: an unclosed code fence is a code block still being written, an unclosed
 // `**` is literal text until its partner arrives, and nothing throws on a prefix.
+//
+// B28.134 — code is highlighted for its language, LaTeX between $…$, $$…$$, \(…\) or \[…\] (or in a
+// ```math block) is drawn as a formula, and a ```mermaid block as a diagram (./RichBlocks.tsx). A
+// formula or diagram still being written shows as its source until it is closed.
 
 type Align = 'left' | 'center' | 'right' | null
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
   | { kind: 'paragraph'; text: string }
-  | { kind: 'code'; lang: string; code: string }
+  | { kind: 'code'; lang: string; code: string; closed: boolean }
+  | { kind: 'math'; tex: string; closed: boolean }
   | { kind: 'list'; ordered: boolean; start: number; items: string[] }
   | { kind: 'quote'; body: string }
   | { kind: 'table'; header: string[]; align: Align[]; rows: string[][] }
@@ -32,6 +38,7 @@ const BULLET = /^( {0,3})([-*+])\s+(.*)$/
 const ORDERED = /^( {0,3})(\d{1,9})[.)]\s+(.*)$/
 const QUOTE = /^ {0,3}>\s?(.*)$/
 const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/
+const MATH_OPEN = /^ {0,3}(\$\$|\\\[)(.*)$/
 
 /** A closing fence: the opening character, at least as many of it, and nothing else. */
 function closesFence(line: string, marker: string): boolean {
@@ -53,6 +60,7 @@ function splitRow(line: string): string[] {
 function startsBlock(line: string, next: string | undefined): boolean {
   return (
     FENCE.test(line) ||
+    MATH_OPEN.test(line) ||
     HEADING.test(line) ||
     RULE.test(line) ||
     BULLET.test(line) ||
@@ -84,9 +92,39 @@ export function parseBlocks(source: string): Block[] {
         body.push(lines[i])
         i++
       }
+      const closed = i < lines.length
       i++ // the closing fence, if there was one
-      blocks.push({ kind: 'code', lang: fence[2], code: body.join('\n') })
+      blocks.push({ kind: 'code', lang: fence[2], code: body.join('\n'), closed })
       continue
+    }
+
+    // B28.134 — display math: $$ or \[ to its partner, which ends its line. TeX allows no blank line in a
+    // formula, so one before the partner means this was never math, and nor is "\[1\] Smith" — text after
+    // the partner leaves the line to the paragraph. The end of the text means it is still being written.
+    const math = MATH_OPEN.exec(line)
+    if (math !== null) {
+      const close = math[1] === '$$' ? '$$' : '\\]'
+      const body: string[] = []
+      let rest = math[2]
+      let j = i
+      let after: string | undefined
+      for (;;) {
+        const at = rest.indexOf(close)
+        if (at >= 0) {
+          body.push(rest.slice(0, at))
+          after = rest.slice(at + close.length).trim()
+          break
+        }
+        body.push(rest)
+        j++
+        if (j >= lines.length || isBlank(lines[j])) break
+        rest = lines[j]
+      }
+      if (after === '' || (after === undefined && j >= lines.length)) {
+        blocks.push({ kind: 'math', tex: body.join('\n').trim(), closed: after === '' })
+        i = j + 1
+        continue
+      }
     }
 
     const heading = HEADING.exec(line)
@@ -195,8 +233,12 @@ export function parseBlocks(source: string): Block[] {
 
 // Inline spans. The order of the alternation is the precedence: code first, so `**` inside a code
 // span stays literal.
+//
+// B28.134 — then math: $$…$$, \(…\) and $…$, read as Pandoc reads a dollar so that prices are not
+// formulas — the opening $ has a character after it, the closing one has a character before it and no
+// digit after it, so "$5 and $10" and "$5-$10" stay text. \$ is a dollar sign.
 const INLINE =
-  /(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)|\*\*(?=\S)([\s\S]*?\S)\*\*|__(?=\S)([\s\S]*?\S)__(?![A-Za-z0-9])|\*(?=[^\s*])([\s\S]*?[^\s*])\*|(?<![A-Za-z0-9])_(?=[^\s_])([\s\S]*?[^\s_])_(?![A-Za-z0-9])|\[([^\]\n]+)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)|<((?:https?:\/\/|mailto:)[^>\s]+)>/g
+  /(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)|\*\*(?=\S)([\s\S]*?\S)\*\*|__(?=\S)([\s\S]*?\S)__(?![A-Za-z0-9])|\*(?=[^\s*])([\s\S]*?[^\s*])\*|(?<![A-Za-z0-9])_(?=[^\s_])([\s\S]*?[^\s_])_(?![A-Za-z0-9])|\[([^\]\n]+)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)|<((?:https?:\/\/|mailto:)[^>\s]+)>|\$\$((?:\\[\s\S]|[^\\$])+?)\$\$|\\\(([\s\S]+?)\\\)|(?<![\\$])\$(?=[^\s$])((?:\\.|[^\\$\n])+?)(?<!\s)\$(?![\d$])/g
 
 function safeHref(url: string): string | null {
   return /^(https?:\/\/|mailto:)/i.test(url) ? url : null
@@ -242,6 +284,10 @@ function renderInline(text: string, key: string): ReactNode[] {
           {m[9]}
         </a>,
       )
+    } else if (m[10] !== undefined) {
+      out.push(<TexMath key={k} tex={m[10].trim()} display />)
+    } else if (m[11] !== undefined || m[12] !== undefined) {
+      out.push(<TexMath key={k} tex={(m[11] ?? m[12]).trim()} />)
     }
     last = m.index + m[0].length
   }
@@ -251,7 +297,7 @@ function renderInline(text: string, key: string): ReactNode[] {
 
 /** A single newline inside a paragraph is a soft break in Markdown; a reply reads better keeping it. */
 function withBreaks(text: string, key: string): ReactNode[] {
-  const parts = text.replace(/\\([\\`*_[\]()#|>-])/g, '$1').split('\n')
+  const parts = text.replace(/\\([\\`*_[\]()#|>$-])/g, '$1').split('\n')
   return parts.flatMap((p, i) => (i === 0 ? figures(p, `${key}.l${i}`) : [<br key={`${key}.br${i}`} />, ...figures(p, `${key}.l${i}`)]))
 }
 
@@ -283,7 +329,25 @@ export function isHtmlLang(lang: string): boolean {
   return /^html?$/i.test(lang)
 }
 
-function CodeBlock({ lang, code, action }: { lang: string; code: string; action?: ReactNode }) {
+/** B28.134 — a ```mermaid block is a diagram, and a ```math block a formula. */
+export function isMermaidLang(lang: string): boolean {
+  return /^mermaid$/i.test(lang)
+}
+
+function isMathLang(lang: string): boolean {
+  return /^math$/i.test(lang)
+}
+
+function CodeBody({ lang, code }: { lang: string; code: string }) {
+  return (
+    <pre className="overflow-x-auto px-3 py-3 font-mono text-body text-ink">
+      <code>{lang === '' ? code : <Highlighted lang={lang} code={code} />}</code>
+    </pre>
+  )
+}
+
+/** `children`, when given, is drawn in the code's place: a diagram. */
+function CodeBlock({ lang, code, action, children }: { lang: string; code: string; action?: ReactNode; children?: ReactNode }) {
   return (
     <div className="overflow-hidden rounded-card border border-rule bg-raised">
       <div className="flex items-center justify-between border-b border-rule pl-3 pr-1">
@@ -293,9 +357,7 @@ function CodeBlock({ lang, code, action }: { lang: string; code: string; action?
           <CopyButton text={code} label="Copy code" />
         </div>
       </div>
-      <pre className="overflow-x-auto px-3 py-3 font-mono text-body text-ink">
-        <code>{code}</code>
-      </pre>
+      {children ?? <CodeBody lang={lang} code={code} />}
     </div>
   )
 }
@@ -335,7 +397,23 @@ function renderBlocks(blocks: Block[], key: string, tight = false, htmlAction?: 
           <p key={k}>{renderInline(b.text, k)}</p>
         )
       case 'code':
+        if (b.closed && isMathLang(b.lang)) return <TexMath key={k} tex={b.code.trim()} display />
+        if (b.closed && isMermaidLang(b.lang)) {
+          return (
+            <CodeBlock key={k} lang={b.lang} code={b.code}>
+              <Diagram code={b.code} source={<CodeBody lang={b.lang} code={b.code} />} />
+            </CodeBlock>
+          )
+        }
         return <CodeBlock key={k} lang={b.lang} code={b.code} action={htmlAction !== undefined && isHtmlLang(b.lang) ? htmlAction(html++) : undefined} />
+      case 'math':
+        return b.closed ? (
+          <TexMath key={k} tex={b.tex} display />
+        ) : (
+          <p key={k} className="whitespace-pre-wrap font-mono text-muted">
+            {`$$${b.tex}`}
+          </p>
+        )
       case 'rule':
         return <hr key={k} className="border-rule" />
       case 'quote':
