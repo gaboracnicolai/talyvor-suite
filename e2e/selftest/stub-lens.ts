@@ -75,6 +75,8 @@
 //                 links no API reference (stub-openapi.ts)
 //   rails-outage — /status.json's screening rail failed after its last success, so it reads outage (B30.124)
 //   status-truth — /healthz reads degraded while /status.json reads operational (B37.7)
+//   reconciliation-missing — yesterday's pounds run has a payment the partner's statement does not show, and the £7.00
+//                 shortfall it leaves in the safeguarding view (B30.123)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -1101,6 +1103,21 @@ function moneyRails(screeningDown: boolean): { name: string; status: string }[] 
   })
 }
 
+// talyvor-lens B30.11 — yesterday's reconciliation in each money currency on the Test partner, clean; planted, the pounds run
+// has one payment the partner's statement does not show and the £7.00 shortfall it leaves, as Lens's own test has it.
+function reconciliationRuns(): unknown[] {
+  const ranAt = new Date(Date.now() - 3600e3)
+  const day = new Date(ranAt.getTime() - 86_400e3).toISOString().slice(0, 10)
+  return ['EUR', 'GBP', 'USD', 'USDC'].map((currency) => {
+    const missing = currency === 'GBP' && broke('reconciliation-missing')
+    const breaks = missing ? [{ kind: 'missing', workspace_id: 'ws_stub', account_id: 'macc_stub_gbp', payment_ref: 'test_pbb_never_arrived',
+      ledger_minor: 700, statement_minor: 0, amount_minor: -700 }] : []
+    const hold = missing ? 700 : 0
+    return { id: `rec_stub_${currency}`, day, currency, funding: 'test', partner: 'test', customers_hold_minor: hold, partner_holds_minor: 0,
+      shortfall_minor: hold, break_count: breaks.length, breaks, ran_at: ranAt.toISOString() }
+  })
+}
+
 // talyvor-lens's /status.json (B37.3's documented keys): Lens's own components up, the rails answering their probes (B37.2).
 function statusJSON(): unknown {
   const at = new Date().toISOString()
@@ -1131,6 +1148,11 @@ createServer(async (req, res) => {
     // talyvor-lens B30.12 — the money rails, every one on its Test partner. Screening failed once an hour ago and has answered
     // since, so it is up; planted, its failure is the newer and it is down.
     if (p === '/status.json') return json(res, 200, statusJSON())
+    // talyvor-lens B30.11 — the reconciliation runs and the safeguarding view, on the operator read key or the admin key, as Lens.
+    if (p === '/v1/admin/reconciliation' || p === '/v1/admin/safeguarding') {
+      if (bearer === '' || ![process.env.STUB_OPERATOR_READ_KEY, process.env.STUB_ADMIN_KEY].includes(bearer)) return json(res, 401, { error: 'admin credentials required' })
+      return json(res, 200, p === '/v1/admin/safeguarding' ? { currencies: reconciliationRuns() } : { runs: reconciliationRuns() })
+    }
     // talyvor-lens B28.118 — the web pages a search "finds", so a cited link opens.
     const page = WEB_PAGES.find((w) => w.path === p)
     if (page !== undefined) {

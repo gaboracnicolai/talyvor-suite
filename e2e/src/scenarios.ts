@@ -39,6 +39,7 @@ import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine, heroFade, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
 import { moneyRails } from './moneyRails.ts'
+import { dailyReconciliation } from './reconciliation.ts'
 import { statusTruth } from './statusTruth.ts'
 import { crossCompanyTestMoney } from './testmoney.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
@@ -131,6 +132,8 @@ export interface RunEnv {
   lensSrc: string
   /** B28.280 — the signing secret of Lens's test-mode Stripe webhook (LENS_STRIPE_TEST_WEBHOOK_SECRET); '' when not given. */
   webhookSecret: string
+  /** B30.123 — Lens's operator read key (LENS_OPERATOR_READ_KEY), for the reconciliation and safeguarding reads; '' when not given. */
+  operatorReadKey: string
   /** B28.287 — the port the synthetic upstream listens on, where the Lens under test sends its vLLM traffic (E2E_UPSTREAM_PORT); 0 when not given. */
   upstreamPort: number
   /** B29.21 — where the run's screenshots for the report go: `dir` on disk, `link` the same place as the report links it. */
@@ -5102,6 +5105,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // operational, its own components operational, every money rail answering its 5-minute probe, only the documented keys,
   // no error text, and a public /healthz with no pool or request internals.
   if (i === 8) list.push(statusTruth())
+  // B30.123 — once a run, last, after the night's test payments through partner accounts: on the operator read key, every money
+  // currency reconciled within two days, no shortfall in the safeguarding view and no break on the newest day.
+  if (i === 8) list.push(dailyReconciliation())
   return list
 }
 
