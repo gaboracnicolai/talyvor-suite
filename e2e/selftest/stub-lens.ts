@@ -71,6 +71,8 @@
 //   issue       — a request's X-Talyvor-Issue is not kept: its spend names no issue, so no Track issue's AI cost rises (B28.376)
 //   schedule-early — a scheduled prompt is asked as soon as it is scheduled, not at the time set (B28.377)
 //   schedule-free  — a scheduled prompt is answered with nothing on the paying agent's statement (B28.377)
+//   openapi-wallets — /openapi.json, / and /status are as before B28.12: no Agent Wallets line, tag or operation, and /
+//                 links no API reference (stub-openapi.ts)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -94,6 +96,7 @@ import { type IncomingMessage, type ServerResponse, createServer } from 'node:ht
 import { Bank, SIM_QUOTES } from './stub-bank.ts'
 import { DOC_CAP, auditWebhook, docxDocument, nodesAvailable, nodesRoute } from './stub-guards.ts'
 import { roomAgentTool, roomListingRoute, roomsModeratorRoute, roomsRoute, setRoomWallets } from './stub-rooms.ts'
+import { lensOpenAPI, lensPage } from './stub-openapi.ts'
 
 const PORT = Number(process.env.STUB_PORT ?? 9911)
 const BASE = `http://127.0.0.1:${PORT}`
@@ -1077,6 +1080,12 @@ createServer(async (req, res) => {
   try {
     // B28.285 — Lens's /healthz: how long it has been up, which the testers read to tell a restart.
     if (p === '/healthz') return json(res, 200, { status: 'healthy', uptime_seconds: Math.floor(process.uptime()), version: 'stub' })
+    // talyvor-lens B28.12 — the API reference and the two pages that say what Lens is, none behind a credential.
+    if (p === '/openapi.json') return json(res, 200, lensOpenAPI(broke('openapi-wallets')))
+    if (p === '/' || p === '/status') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      return void res.end(lensPage(p, broke('openapi-wallets')))
+    }
     // talyvor-lens B28.118 — the web pages a search "finds", so a cited link opens.
     const page = WEB_PAGES.find((w) => w.path === p)
     if (page !== undefined) {

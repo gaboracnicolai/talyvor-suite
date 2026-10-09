@@ -79,6 +79,7 @@ import { keysNotForwarded, keysUnlisted } from './keys.ts'
 import { rateLimitsHold } from './ratelimit.ts'
 import { marketDiscoverScreen, marketDiscovery } from './discovery.ts'
 import { royaltiesNotHeadline } from './royalties.ts'
+import { openapiWallets } from './openapiWallets.ts'
 
 export interface Evidence {
   note?: string
@@ -4532,7 +4533,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   switch (i % 10) {
     // B28.440 — then the TypeScript SDK's README quickstart, with this user as the signed-in owner.
     // B28.441 — then Features, which opens on Agent Wallets and these agents.
-    case 0: list.push(agentOpenFund(i), sdkWalletQuickstart(i), featuresLeadWithWallets(i)); break
+    // B28.12 — then Lens's page, /status and API reference, and a wallet driven by that document alone.
+    case 0: list.push(agentOpenFund(i), sdkWalletQuickstart(i), featuresLeadWithWallets(i), openapiWallets(i)); break
     // B28.22 — then an agent's balance in dollars and its allowed model picked, not typed.
     // B28.24 — then an hourly cap: over it, no posting; raised, one.
     // B28.30 — then Would it pass?: over the daily limit refused, under it allowed, and no posting either way.

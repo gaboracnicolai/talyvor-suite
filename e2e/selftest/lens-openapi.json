@@ -1,0 +1,2226 @@
+{
+ "x-recorded": {
+  "from": "https://lens.talyvor.com/openapi.json",
+  "lens": "c5c877e",
+  "at": "2026-10-09",
+  "kept": "info, tags, servers, security, every operation tagged Agent Wallets and the schemas they name"
+ },
+ "openapi": "3.0.3",
+ "info": {
+  "contact": {
+   "name": "Talyvor",
+   "url": "https://talyvor.com"
+  },
+  "description": "Agent Wallets and the gateway that enforces them. Every AI agent gets a wallet — a balance, spending rules, approvals, a card and a live statement — and Lens judges each model call and payment against that wallet before it reaches the provider or the payee. Underneath: multi-provider routing with cost tracking, quality scoring and tenant isolation.",
+  "title": "Talyvor Lens API",
+  "version": "1.0.0"
+ },
+ "servers": [
+  {
+   "description": "current deployment",
+   "url": "/"
+  }
+ ],
+ "security": [
+  {
+   "ApiKeyAuth": []
+  }
+ ],
+ "tags": [
+  {
+   "description": "Every AI agent gets a wallet — a balance, spending rules, approvals, a card and a live statement. The agent calls its models through Lens with a key of its own, and Lens judges each request and payment against its wallet before the provider or the payee sees it. Amounts are in µLXC: 1 LXC = 1,000,000 µLXC = $0.10, so $1 is 10000000.",
+   "name": "Agent Wallets"
+  }
+ ],
+ "paths": {
+  "/v1/wallets/{address}": {
+   "get": {
+    "description": "Who a wallet id or @handle is.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "address",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "the wallet's agent and company"
+     },
+     "404": {
+      "description": "no such wallet"
+     }
+    },
+    "summary": "Look up a wallet before sending to it",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents": {
+   "get": {
+    "description": "Each agent's balance and spend, reconciled with the workspace's own balance.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentBook"
+        }
+       }
+      },
+      "description": "the agents and the workspace's totals"
+     }
+    },
+    "summary": "List the workspace's agents and their wallets",
+    "tags": [
+     "Agent Wallets"
+    ]
+   },
+   "post": {
+    "description": "Owner or admin. The signed-in person owns the agent; an admin credential names the owner in owner_user_id. With template, the agent starts with exactly that rule template's rules, and the answer carries template and rules too.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "name": {
+          "type": "string"
+         },
+         "owner_user_id": {
+          "type": "string"
+         },
+         "template": {
+          "description": "the id of a rule template to start from",
+          "example": "support-bot",
+          "type": "string"
+         }
+        },
+        "required": [
+         "name"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Agent"
+        }
+       }
+      },
+      "description": "the new agent, balance zero"
+     },
+     "400": {
+      "description": "no name, no owner, or no such template"
+     }
+    },
+    "summary": "Create an agent",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/approvals": {
+   "get": {
+    "description": "Newest first. A payment's approval names its payee and memo.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "approvals": {
+           "items": {
+            "$ref": "#/components/schemas/AgentApproval"
+           },
+           "type": "array"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the approvals"
+     }
+    },
+    "summary": "List the requests the agents' rules sent to a person",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/approvals/{approvalID}/approve": {
+   "post": {
+    "description": "Owner or admin. The agent's retry of the same request then goes through. Once the workspace has a passkey, the body is {\"assertion\": {credential_id, client_data_json, authenticator_data, signature}} over the approval's challenge.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "approvalID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentApproval"
+        }
+       }
+      },
+      "description": "the approval, approved"
+     },
+     "403": {
+      "description": "a passkey assertion is required, or it is invalid"
+     },
+     "404": {
+      "description": "no such approval"
+     }
+    },
+    "summary": "Approve a request, once",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/approvals/{approvalID}/deny": {
+   "post": {
+    "description": "Owner or admin; signed with a passkey the same way as approve.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "approvalID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentApproval"
+        }
+       }
+      },
+      "description": "the approval, denied"
+     },
+     "403": {
+      "description": "a passkey assertion is required, or it is invalid"
+     },
+     "404": {
+      "description": "no such approval"
+     }
+    },
+    "summary": "Deny a request",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/pause-all": {
+   "post": {
+    "description": "Owner or admin. Those created later included, until resume-all.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "reason": {
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "description": "paused"
+     }
+    },
+    "summary": "Pause every agent in the workspace",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/rule-templates": {
+   "get": {
+    "description": "Support bot, Researcher and Coder: each names every rule, so applying one replaces an agent's rules whole.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "templates": {
+           "items": {
+            "$ref": "#/components/schemas/RuleTemplate"
+           },
+           "type": "array"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the templates"
+     }
+    },
+    "summary": "List the rule templates an agent can start from",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/statement": {
+   "get": {
+    "description": "For the period [from, to), as JSON or CSV — the statement an auditor can open.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "RFC 3339 time or YYYY-MM-DD (midnight UTC); defaults to the start of this month",
+      "in": "query",
+      "name": "from",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "exclusive; RFC 3339 time or YYYY-MM-DD; defaults to now",
+      "in": "query",
+      "name": "to",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "format",
+      "required": false,
+      "schema": {
+       "enum": [
+        "json",
+        "csv"
+       ],
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "the period statement"
+     }
+    },
+    "summary": "Read the statement of every agent wallet in the workspace",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}": {
+   "patch": {
+    "description": "Owner or admin. Either field or both; a name cannot be blank and a description is at most 500 characters.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "description": {
+          "type": "string"
+         },
+         "name": {
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Agent"
+        }
+       }
+      },
+      "description": "the agent"
+     },
+     "400": {
+      "description": "a blank name, a description too long, or an unknown field"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "Rename or describe the agent",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/archive": {
+   "post": {
+    "description": "Owner or admin. In one step: the agent's whole balance goes back to the workspace as one withdraw, its proxy keys are revoked, its top-up and schedules stop. It stays listed, with archived_at, and its statement is kept; it can no longer be funded or move money of its own.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "agent_id": {
+           "type": "string"
+          },
+          "archived_at": {
+           "format": "date-time",
+           "type": "string"
+          },
+          "revoked_keys": {
+           "items": {
+            "type": "string"
+           },
+           "type": "array"
+          },
+          "swept_ulxc": {
+           "format": "int64",
+           "type": "integer"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "what archiving did"
+     },
+     "404": {
+      "description": "no such agent"
+     },
+     "409": {
+      "description": "already archived, or LXC is still kept in its pots"
+     }
+    },
+    "summary": "Archive the agent",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/card": {
+   "get": {
+    "description": "Newest first, approved and declined; each authorisation was decided by the agent's rules and balance.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "the card and its authorisations"
+     }
+    },
+    "summary": "Read the agent's card and its authorisations",
+    "tags": [
+     "Agent Wallets"
+    ]
+   },
+   "post": {
+    "description": "Owner or admin; the agent's owner is the cardholder. Test mode only: with a live Stripe key it is 409 and nothing is issued.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "city": {
+          "type": "string"
+         },
+         "country": {
+          "type": "string"
+         },
+         "email": {
+          "type": "string"
+         },
+         "first_name": {
+          "type": "string"
+         },
+         "last_name": {
+          "type": "string"
+         },
+         "line1": {
+          "type": "string"
+         },
+         "line2": {
+          "type": "string"
+         },
+         "phone_number": {
+          "type": "string"
+         },
+         "postal_code": {
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "the card"
+     },
+     "409": {
+      "description": "a live Stripe key, or the agent already has a card — no card is issued"
+     }
+    },
+    "summary": "Issue the agent a virtual card — test mode",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/fund": {
+   "post": {
+    "description": "Owner or admin.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "sent again with the same key, the move lands once (at most 128 characters)",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "amount_ulxc": {
+          "format": "int64",
+          "minimum": 1,
+          "type": "integer"
+         }
+        },
+        "required": [
+         "amount_ulxc"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "agent_id": {
+           "type": "string"
+          },
+          "balance_ulxc": {
+           "format": "int64",
+           "minimum": 1,
+           "type": "integer"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the agent's balance after the move"
+     },
+     "404": {
+      "description": "no such agent"
+     },
+     "409": {
+      "description": "the workspace cannot cover it, or the agent has no owner"
+     }
+    },
+    "summary": "Fund the agent from the workspace's credit",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/keys": {
+   "post": {
+    "description": "Owner or admin. The agent calls its models through /v1/proxy/… with this key, and every request on it is judged against the agent's wallet. The raw key is shown once.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "name": {
+          "description": "defaults to the agent's id",
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "agent_id": {
+           "type": "string"
+          },
+          "id": {
+           "type": "string"
+          },
+          "key": {
+           "type": "string"
+          },
+          "prefix": {
+           "type": "string"
+          },
+          "warning": {
+           "type": "string"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the key, shown once"
+     },
+     "404": {
+      "description": "no such agent in this workspace"
+     }
+    },
+    "summary": "Issue the agent a proxy key of its own",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/pause": {
+   "post": {
+    "description": "Owner or admin. Every movement of the agent is refused until it is resumed, effective on its next request, buffered or streamed.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "reason": {
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      }
+     },
+     "required": false
+    },
+    "responses": {
+     "200": {
+      "description": "paused"
+     }
+    },
+    "summary": "Pause the agent",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/resume": {
+   "post": {
+    "description": "Owner or admin.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "resumed"
+     }
+    },
+    "summary": "Resume a paused agent",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules": {
+   "get": {
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentRules"
+        }
+       }
+      },
+      "description": "the rules"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "Read the agent's spending rules",
+    "tags": [
+     "Agent Wallets"
+    ]
+   },
+   "put": {
+    "description": "Owner or admin. Lens judges every model call, payment and card purchase of the agent against these before it happens: a request a rule refuses is answered 403 naming the rule and never reaches the provider.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AgentRules"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentRules"
+        }
+       }
+      },
+      "description": "the rules as stored"
+     },
+     "400": {
+      "description": "an unknown field or an invalid rule"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "Replace the agent's spending rules",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules/boosts": {
+   "get": {
+    "description": "The limits raised for now, the soonest to end first. A boost that has ended is not listed: the limit is the rules' again.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "boosts": {
+           "items": {
+            "$ref": "#/components/schemas/AgentRuleBoost"
+           },
+           "type": "array"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the boosts in force"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "List the agent's temporary limit boosts in force",
+    "tags": [
+     "Agent Wallets"
+    ]
+   },
+   "post": {
+    "description": "Owner or admin. Until the time, the limit is the boost's value; from then on the rules judge it as the rules set it, with nothing to undo. The limit must be set and the value above it, and the boost applies only while the rules leave the limit as it was. A boost replaces the one the limit had.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "rule": {
+          "enum": [
+           "approval_above_ulxc",
+           "daily_limit_ulxc",
+           "hourly_limit_ulxc",
+           "max_per_request_ulxc",
+           "monthly_limit_ulxc",
+           "requests_per_minute",
+           "weekly_limit_ulxc"
+          ],
+          "type": "string"
+         },
+         "until": {
+          "format": "date-time",
+          "type": "string"
+         },
+         "value": {
+          "format": "int64",
+          "minimum": 1,
+          "type": "integer"
+         }
+        },
+        "required": [
+         "rule",
+         "value",
+         "until"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentRuleBoost"
+        }
+       }
+      },
+      "description": "the boost"
+     },
+     "400": {
+      "description": "an unknown limit, a limit not set, a value not above it, or a time not in the future"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "Raise one of the agent's limits until a time",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules/boosts/{rule}": {
+   "delete": {
+    "description": "Owner or admin. The limit is the rules' again at once.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "rule",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "ended"
+     },
+     "404": {
+      "description": "no such agent, or no boost in force on that limit"
+     }
+    },
+    "summary": "End a limit boost before its time",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules/history": {
+   "get": {
+    "description": "Newest first: the first is the rules in force. Every change that alters the rules — a save, a template, a rollback — is a version, with who made it.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "versions": {
+           "items": {
+            "$ref": "#/components/schemas/AgentRulesVersion"
+           },
+           "type": "array"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the versions"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "List the versions of the agent's rules",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules/rollback": {
+   "post": {
+    "description": "Owner or admin. The rules become exactly what they were at version — a rule added since keeps its value — and the rollback is itself a new version, recording who made it.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "version": {
+          "minimum": 1,
+          "type": "integer"
+         }
+        },
+        "required": [
+         "version"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentRules"
+        }
+       }
+      },
+      "description": "the rules now in force"
+     },
+     "400": {
+      "description": "no version given"
+     },
+     "404": {
+      "description": "no such agent, or no such version"
+     }
+    },
+    "summary": "Roll the agent's rules back to an earlier version",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules/simulate": {
+   "post": {
+    "description": "Moves nothing: the rules judge the request exactly as a real one, against what the agent has really spent, and everything the judgement would write is rolled back — no posting, no approval filed. With payee it is a payment to that payee; without, a question to model through provider. at (RFC 3339) asks about another time, for the active hours and the periods; now when absent.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "amount_ulxc": {
+          "format": "int64",
+          "minimum": 0,
+          "type": "integer"
+         },
+         "at": {
+          "format": "date-time",
+          "type": "string"
+         },
+         "model": {
+          "type": "string"
+         },
+         "payee": {
+          "properties": {
+           "id": {
+            "type": "string"
+           },
+           "kind": {
+            "enum": [
+             "agent",
+             "listing",
+             "company",
+             "merchant"
+            ],
+            "type": "string"
+           }
+          },
+          "required": [
+           "kind",
+           "id"
+          ],
+          "type": "object"
+         },
+         "provider": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "amount_ulxc"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "amount_ulxc": {
+           "format": "int64",
+           "type": "integer"
+          },
+          "at": {
+           "format": "date-time",
+           "type": "string"
+          },
+          "balance_ulxc": {
+           "description": "what the agent holds now, which the rules do not judge",
+           "format": "int64",
+           "type": "integer"
+          },
+          "reason": {
+           "description": "why it is refused or needs approval; empty when allowed",
+           "type": "string"
+          },
+          "verdict": {
+           "enum": [
+            "allowed",
+            "refused",
+            "approval_required"
+           ],
+           "type": "string"
+          }
+         },
+         "required": [
+          "verdict",
+          "reason",
+          "amount_ulxc",
+          "at",
+          "balance_ulxc"
+         ],
+         "type": "object"
+        }
+       }
+      },
+      "description": "the rules' answer"
+     },
+     "400": {
+      "description": "an unknown field, a negative amount or a payee of no known kind"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "Ask whether the agent's rules would let a request through",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/rules/template": {
+   "post": {
+    "description": "Owner or admin. Replaces every one of the agent's rules with the template's: the agent then holds exactly the template, nothing kept from before.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "template": {
+          "example": "researcher",
+          "type": "string"
+         }
+        },
+        "required": [
+         "template"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentRules"
+        }
+       }
+      },
+      "description": "the rules as stored"
+     },
+     "400": {
+      "description": "no such template"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "Apply a rule template to the agent",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/send": {
+   "post": {
+    "description": "By the agent's own key, the workspace's owner or an admin. The agent's rules judge it like any other spend.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "amount_ulxc": {
+          "format": "int64",
+          "minimum": 1,
+          "type": "integer"
+         },
+         "memo": {
+          "type": "string"
+         },
+         "to": {
+          "description": "a wallet id or @handle",
+          "type": "string"
+         }
+        },
+        "required": [
+         "to",
+         "amount_ulxc"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentTransfer"
+        }
+       }
+      },
+      "description": "the transfer"
+     },
+     "403": {
+      "description": "not the agent's key, the owner or an admin — or a rule refused it"
+     },
+     "409": {
+      "description": "the agent's balance cannot cover it"
+     }
+    },
+    "summary": "Send credits to any agent on Talyvor",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/statement": {
+   "get": {
+    "description": "With none of from, to or format: the agent's account, newest first (limit, default 100, at most 1000). With any of them: the statement for the period [from, to), as JSON or CSV.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "maximum": 1000,
+       "minimum": 1,
+       "type": "integer"
+      }
+     },
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "RFC 3339 time or YYYY-MM-DD (midnight UTC); defaults to the start of this month",
+      "in": "query",
+      "name": "from",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "exclusive; RFC 3339 time or YYYY-MM-DD; defaults to now",
+      "in": "query",
+      "name": "to",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "format",
+      "required": false,
+      "schema": {
+       "enum": [
+        "json",
+        "csv"
+       ],
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "agent_id": {
+           "type": "string"
+          },
+          "lines": {
+           "items": {
+            "$ref": "#/components/schemas/AgentStatementLine"
+           },
+           "type": "array"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the agent's lines"
+     },
+     "404": {
+      "description": "no such agent"
+     }
+    },
+    "summary": "Read the agent's statement",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/transfers": {
+   "get": {
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "transfers": {
+           "items": {
+            "$ref": "#/components/schemas/AgentTransfer"
+           },
+           "type": "array"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the transfers"
+     }
+    },
+    "summary": "List what the agent sent and received",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  },
+  "/v1/workspaces/{wsID}/agents/{agentID}/withdraw": {
+   "post": {
+    "description": "Owner or admin.",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "wsID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "agentID",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "description": "sent again with the same key, the move lands once (at most 128 characters)",
+      "in": "header",
+      "name": "Idempotency-Key",
+      "required": false,
+      "schema": {
+       "maxLength": 128,
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "properties": {
+         "amount_ulxc": {
+          "format": "int64",
+          "minimum": 1,
+          "type": "integer"
+         }
+        },
+        "required": [
+         "amount_ulxc"
+        ],
+        "type": "object"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "properties": {
+          "agent_id": {
+           "type": "string"
+          },
+          "balance_ulxc": {
+           "format": "int64",
+           "minimum": 1,
+           "type": "integer"
+          }
+         },
+         "type": "object"
+        }
+       }
+      },
+      "description": "the agent's balance after the move"
+     },
+     "404": {
+      "description": "no such agent"
+     },
+     "409": {
+      "description": "the agent's balance cannot cover it"
+     }
+    },
+    "summary": "Move credit from the agent back to the workspace",
+    "tags": [
+     "Agent Wallets"
+    ]
+   }
+  }
+ },
+ "components": {
+  "securitySchemes": {
+   "ApiKeyAuth": {
+    "description": "Lens API key — Authorization: Bearer tlv_...",
+    "scheme": "bearer",
+    "type": "http"
+   }
+  },
+  "schemas": {
+   "Agent": {
+    "properties": {
+     "archived_at": {
+      "description": "set once the agent is archived: swept to zero, its keys revoked",
+      "format": "date-time",
+      "nullable": true,
+      "type": "string"
+     },
+     "balance_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "type": "string"
+     },
+     "description": {
+      "description": "what the agent is for, in its owner's words",
+      "type": "string"
+     },
+     "handle": {
+      "description": "its @handle, once its owner picks one",
+      "type": "string"
+     },
+     "id": {
+      "type": "string"
+     },
+     "keys": {
+      "description": "ids of the agent's own proxy keys",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "name": {
+      "type": "string"
+     },
+     "owner_user_id": {
+      "description": "the person answerable for what it spends",
+      "type": "string"
+     },
+     "paused_at": {
+      "format": "date-time",
+      "nullable": true,
+      "type": "string"
+     },
+     "paused_reason": {
+      "type": "string"
+     },
+     "pots_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "spent_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "verified": {
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "AgentApproval": {
+    "properties": {
+     "agent_id": {
+      "type": "string"
+     },
+     "amount_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "created_at": {
+      "format": "date-time",
+      "type": "string"
+     },
+     "decided_at": {
+      "format": "date-time",
+      "nullable": true,
+      "type": "string"
+     },
+     "id": {
+      "type": "string"
+     },
+     "memo": {
+      "type": "string"
+     },
+     "model": {
+      "type": "string"
+     },
+     "payee": {
+      "nullable": true,
+      "properties": {
+       "id": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "agent",
+         "listing",
+         "company",
+         "merchant"
+        ],
+        "type": "string"
+       },
+       "name": {
+        "type": "string"
+       }
+      },
+      "type": "object"
+     },
+     "reason": {
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "pending",
+       "approved",
+       "denied",
+       "used"
+      ],
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "AgentBook": {
+    "properties": {
+     "agents": {
+      "items": {
+       "$ref": "#/components/schemas/Agent"
+      },
+      "type": "array"
+     },
+     "all_paused_at": {
+      "format": "date-time",
+      "nullable": true,
+      "type": "string"
+     },
+     "all_paused_reason": {
+      "type": "string"
+     },
+     "allocated_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "spent_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "unallocated_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "workspace_balance_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   },
+   "AgentRuleBoost": {
+    "properties": {
+     "created_at": {
+      "format": "date-time",
+      "type": "string"
+     },
+     "created_by": {
+      "description": "the credential that set it; empty when unknown",
+      "type": "string"
+     },
+     "raised_from": {
+      "description": "the limit as the rules set it when the boost was set; once the rules change it, the boost no longer applies",
+      "format": "int64",
+      "minimum": 1,
+      "type": "integer"
+     },
+     "rule": {
+      "description": "the limit raised, as AgentRules names it",
+      "enum": [
+       "approval_above_ulxc",
+       "daily_limit_ulxc",
+       "hourly_limit_ulxc",
+       "max_per_request_ulxc",
+       "monthly_limit_ulxc",
+       "requests_per_minute",
+       "weekly_limit_ulxc"
+      ],
+      "type": "string"
+     },
+     "until": {
+      "description": "from this time on the boost is not read and the limit is the rules' again",
+      "format": "date-time",
+      "type": "string"
+     },
+     "value": {
+      "description": "what it is raised to: µLXC, or requests a minute for requests_per_minute",
+      "format": "int64",
+      "minimum": 1,
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   },
+   "AgentRules": {
+    "additionalProperties": false,
+    "description": "Zero or empty means no limit. A field this schema does not name is refused (400), so a misspelt rule is never silently no rule.",
+    "properties": {
+     "active_from": {
+      "description": "HH:MM in timezone; with active_until, the hours it may spend",
+      "example": "09:00",
+      "type": "string"
+     },
+     "active_until": {
+      "description": "exclusive; earlier than active_from crosses midnight",
+      "example": "18:00",
+      "type": "string"
+     },
+     "allowed_listings": {
+      "description": "marketplace listings it may use; empty allows any",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "allowed_models": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "allowed_payees": {
+      "description": "the ids of the agents, listings, companies (a company names its agents and listings) and card merchants it may pay; once it names any, a payment to another is refused. Absent keeps the stored list",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "allowed_providers": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "approval_above_ulxc": {
+      "description": "a request that could cost more waits for a person's approval",
+      "format": "int64",
+      "type": "integer"
+     },
+     "blocked_payees": {
+      "description": "the ids of the payees it may not pay; a payment to one is refused and posts nothing. Absent keeps the stored list",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "daily_limit_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "hourly_limit_ulxc": {
+      "description": "the clock hour, in timezone; absent keeps the stored cap",
+      "format": "int64",
+      "type": "integer"
+     },
+     "max_per_request_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "model_daily_limits_ulxc": {
+      "additionalProperties": {
+       "format": "int64",
+       "type": "integer"
+      },
+      "description": "a model, named as the agent asks for it, to what the agent may spend on it in a day, in timezone; absent keeps the stored caps",
+      "type": "object"
+     },
+     "monthly_limit_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "pause_on_unusual_spend": {
+      "type": "boolean"
+     },
+     "payee_daily_limits_ulxc": {
+      "additionalProperties": {
+       "format": "int64",
+       "type": "integer"
+      },
+      "description": "µLXC it may pay one payee in a day, by the payee's id as the payee lists name it (a company's counts its agents and listings); a payment past it is refused and posts nothing. Absent keeps the stored caps; saved, it replaces them whole",
+      "type": "object"
+     },
+     "requests_per_minute": {
+      "description": "the requests to models it may make in any sixty seconds; one more is refused 429 and holds nothing. Absent keeps the stored cap",
+      "type": "integer"
+     },
+     "timezone": {
+      "description": "IANA name; UTC when empty",
+      "example": "Europe/Berlin",
+      "type": "string"
+     },
+     "weekly_limit_ulxc": {
+      "description": "the week from Monday, in timezone; absent keeps the stored cap",
+      "format": "int64",
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   },
+   "AgentRulesVersion": {
+    "properties": {
+     "change": {
+      "description": "set, template <id>, rollback to <n>, or before history for rules set before versions were kept",
+      "type": "string"
+     },
+     "changed_by": {
+      "description": "the credential that changed them: operator, or its method, user and key (jwt:user:…); empty when unknown",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "type": "string"
+     },
+     "rules": {
+      "$ref": "#/components/schemas/AgentRules"
+     },
+     "version": {
+      "minimum": 1,
+      "type": "integer"
+     }
+    },
+    "type": "object"
+   },
+   "AgentStatementLine": {
+    "properties": {
+     "amount_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "at": {
+      "format": "date-time",
+      "type": "string"
+     },
+     "balance_after_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "counterparty": {
+      "description": "workspace | spend | agent:<id>",
+      "type": "string"
+     },
+     "entry_id": {
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "fund",
+       "withdraw",
+       "spend",
+       "hold",
+       "settle",
+       "release",
+       "pay",
+       "platform_fee"
+      ],
+      "type": "string"
+     },
+     "label": {
+      "description": "on a platform_fee line, the fee and its rate: \"Platform fee 3%\"",
+      "type": "string"
+     },
+     "ref": {
+      "description": "a payment's memo, or the request it paid for",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "AgentTransfer": {
+    "properties": {
+     "amount_ulxc": {
+      "description": "µLXC (1 LXC = 1,000,000 µLXC = $0.10)",
+      "format": "int64",
+      "type": "integer"
+     },
+     "class": {
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "type": "string"
+     },
+     "entry_id": {
+      "type": "string"
+     },
+     "from_agent_id": {
+      "type": "string"
+     },
+     "from_workspace_id": {
+      "type": "string"
+     },
+     "id": {
+      "type": "string"
+     },
+     "memo": {
+      "type": "string"
+     },
+     "refund_of": {
+      "type": "string"
+     },
+     "request_id": {
+      "type": "string"
+     },
+     "schedule_id": {
+      "type": "string"
+     },
+     "to_agent_id": {
+      "type": "string"
+     },
+     "to_workspace_id": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "RuleTemplate": {
+    "description": "Rules an agent can start from. They name every rule, so applying them replaces the agent's rules whole.",
+    "properties": {
+     "id": {
+      "example": "support-bot",
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "rules": {
+      "$ref": "#/components/schemas/AgentRules"
+     },
+     "summary": {
+      "description": "the agent it suits and what its rules do",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   }
+  }
+ }
+}
