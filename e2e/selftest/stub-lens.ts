@@ -1097,7 +1097,7 @@ function moneyRails(screeningDown: boolean): { name: string; status: string }[] 
     const capabilities = service === 'fx' ? [{ key: 'fx', cleared: false }] : []
     if (service !== 'screening') return { service, mode: 'test', last_success: recent, last_failure: null, name, status: 'operational', capabilities }
     const [ok, failed] = screeningDown ? [hourAgo, recent] : [recent, hourAgo]
-    return { service, mode: 'test', last_success: ok, last_failure: failed, name, status: screeningDown ? 'outage' : 'operational', capabilities }
+    return { service, mode: 'test', last_success: ok, last_failure: failed, name, status: screeningDown ? 'outage' : 'operational', capabilities, lists_age_hours: 3 }
   })
 }
 
