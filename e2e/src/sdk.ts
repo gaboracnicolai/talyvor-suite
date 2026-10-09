@@ -111,6 +111,13 @@ export function quickstartBooking(headers: Headers, costUSD: number | undefined,
   return { replayed: false, ulxc: costUSD === undefined ? undefined : chargeULXC(costUSD, usdPerLXC) }
 }
 
+/**
+ * B17.181 — what the quickstart's agent asks: its fresh word, to be repeated. gpt-4o-mini, asked to "Reply with the single
+ * word: <w>", answered half the failing nights' words with another word ("Defamation", "Unknown") or a refusal; asked to
+ * repeat the string, it answered the bare word 20 of 20.
+ */
+export const quickstartQuestion = (word: string): string => `Repeat this exact string and nothing else: ${word}`
+
 const show = (lines: readonly StatementLine[]): string => lines.map((l) => `${l.kind} ${l.amount_ulxc} → ${l.balance_after_ulxc}`).join('; ') || 'no lines'
 
 export function sdkWalletQuickstart(seed: number): Scenario {
@@ -139,11 +146,11 @@ export function sdkWalletQuickstart(seed: number): Scenario {
       // 3. Issue the agent its own key.
       const { key } = await owner.agents.issueKey(agent.id)
 
-      // 4. The agent calls a model through Lens with that key. B35.8 — a word made up tonight, asked back: a question no one
-      // has asked is neither replayed nor pooled, and saying a word back is no sum for the model to get wrong. B17.180 — a word of
-      // its own each attempt, so a second attempt is not answered from the first's.
+      // 4. The agent calls a model through Lens with that key. B35.8 — a word made up tonight, asked back to be repeated: a
+      // question no one has asked is neither replayed nor pooled, and repeating a string is no sum for the model to get wrong.
+      // B17.180 — a word of its own each attempt, so a second attempt is not answered from the first's.
       const word = freshWord(1_000 + seed, 1 + Math.floor(Math.random() * 999_999))
-      const question = `Reply with the single word: ${word}`
+      const question = quickstartQuestion(word)
       const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(question.length), MAX_TOKENS))
       let r: Completion
       let headers: Headers
