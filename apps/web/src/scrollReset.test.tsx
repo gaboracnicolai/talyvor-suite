@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 
 import { App, CONSOLE_ROUTES, queryClient } from './App'
 import { SIDEBAR_FOLD_KEY } from './sidebarFold'
@@ -53,7 +53,7 @@ import { revealLink } from './sidebarTestKit'
 /** Where the product must put the reader on a push: the top of the document. */
 const TOP = [0, 0]
 
-function scrollCalls(spy: ReturnType<typeof vi.spyOn>): unknown[][] {
+function scrollCalls(spy: MockInstance): unknown[][] {
   return spy.mock.calls.map((c) => Array.from(c) as unknown[])
 }
 
@@ -82,7 +82,7 @@ function destination(path: string): HTMLAnchorElement {
   return revealLink(sectionsNav(), path)
 }
 
-let scrollTo: ReturnType<typeof vi.spyOn>
+let scrollTo: MockInstance
 
 beforeEach(() => {
   // jsdom's window.scrollTo is a no-op that warns; the spy replaces it so the call is observable

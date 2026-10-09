@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import type { GlobalSetupContext } from 'vitest/node'
+import type { TestProject } from 'vitest/node'
 
 /**
  * Clear the reach shards ONCE per run, before any worker starts, and hand the workers the
@@ -33,7 +33,7 @@ import type { GlobalSetupContext } from 'vitest/node'
  * to a throwaway directory, which this setup clears and hands out instead — so the probe still
  * gets the same treatment and the evidence of the real run survives it.
  */
-export default function setup({ provide, config }: GlobalSetupContext): void {
+export default function setup({ provide, config }: TestProject): void {
   const dir = resolve(config.root, process.env.REACH_SHARD_DIR ?? '.reach')
   rmSync(dir, { recursive: true, force: true })
   provide('reachDir', dir)

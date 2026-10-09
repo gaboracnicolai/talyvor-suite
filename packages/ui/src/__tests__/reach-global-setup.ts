@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import type { GlobalSetupContext } from 'vitest/node'
+import type { TestProject } from 'vitest/node'
 
 /**
  * This project's half of the reach measurement: clear its shards once per run and hand the
@@ -27,7 +27,7 @@ import type { GlobalSetupContext } from 'vitest/node'
  * afterwards, blaming a DevTools hook that was fine. See apps/web/scripts/reach-global-setup.ts
  * for the measurement.
  */
-export default function setup({ provide, config }: GlobalSetupContext): void {
+export default function setup({ provide, config }: TestProject): void {
   const dir = resolve(config.root, process.env.REACH_SHARD_DIR ?? '.reach')
   rmSync(dir, { recursive: true, force: true })
   provide('reachDir', dir)

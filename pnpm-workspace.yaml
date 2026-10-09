@@ -11,3 +11,16 @@ packages:
 # pnpm 11.1.1 — verified — so `allowBuilds` is the correct key.)
 allowBuilds:
   esbuild: true
+# B28.263 — the `audit` CI job runs `pnpm audit` and fails on any known-vulnerable dependency.
+# tailwindcss 3 pins postcss-selector-parser ^6, and the fix (GHSA-rj75-hqrm-r3gf) is only in 7.1.6;
+# with 7.1.6 forced, apps/web's built CSS was byte-identical to the 6.1.4 build (measured).
+overrides:
+  postcss-selector-parser@<7.1.6: ^7.1.6
+# Each ignore is an advisory with no fix to take. Drop the line when its condition stops holding.
+auditConfig:
+  ignoreGhsas:
+    # braces <=3.0.3 (via tailwindcss>chokidar): no patched braces release exists (3.0.3 is the latest).
+    - GHSA-vfj7-8cjw-p6xm
+    # katex <0.18.2 (via mermaid): low; mermaid 12.1.0, the latest, requires katex ^0.16, and 0.17,
+    # 0.18 and 0.19 each make breaking changes. The app's own katex is 0.19.
+    - GHSA-238p-pmpm-9mq7
