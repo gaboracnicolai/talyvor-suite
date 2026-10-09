@@ -63,6 +63,7 @@ import { marketBillInvoices } from './billInvoices.ts'
 import { marketBuyerCurrency } from './buyerCurrency.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
+import { capabilityTerms } from './capabilityTerms.ts'
 import { verificationScreen } from './verificationScreen.ts'
 import { agentCredential } from './kya.ts'
 import { lineage } from './lineage.ts'
@@ -5000,6 +5001,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // email and phone make L1 and identity L2, each a Test check with its evidence reference and the live level still L0;
   // the record holds both checks; payments_out needs L2 and b2b_credit L3.
   if (i === 5) list.push(verificationLevels())
+  // B30.122 — each money capability's terms, once a run, on a workspace of its own: all nineteen B30 capabilities listed,
+  // versioned and unaccepted; fx's text a draft for legal review; accepting its version 201 naming the person, then listed
+  // accepted; a version one higher 409.
+  if (i === 1) list.push(capabilityTerms())
   // B30.116 — the Verification screen, once a run, in the browser on a workspace of its own: L1 then L2 from its forms on
   // the Test provider, then L2 shown with the live level L0, both checks marked Test, payments_out at L2 and b2b_credit at L3.
   if (i === 7) list.push(verificationScreen())

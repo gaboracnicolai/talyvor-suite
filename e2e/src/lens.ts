@@ -308,6 +308,30 @@ export interface WorkspaceVerification {
   checks: VerificationCheck[] | null
 }
 
+/** B30.122 — a person's acceptance of one version of a capability's terms (Lens economy.TermsAcceptance, B30.9). */
+export interface TermsAcceptance {
+  workspace_id: string
+  capability: string
+  version: number
+  person: string
+  accepted_at: string
+}
+
+/** B30.122 — a capability's latest terms and whether the workspace has accepted them (Lens economy.WorkspaceTerms). */
+export interface WorkspaceTerms {
+  capability: string
+  name: string
+  class: string
+  version: number
+  text_path: string
+  /** The words themselves: on GET …/terms/{capability}, not on the list. */
+  body?: string
+  body_sha256: string
+  /** Of the latest version; absent until it is accepted. */
+  accepted?: TermsAcceptance
+  previously_accepted_version?: number
+}
+
 /** B30.118 — what an agent's Know Your Agent credential says (Lens kya.Claims, docs/kya.md): the JWT's payload. */
 export interface KYAClaims {
   iss: string
