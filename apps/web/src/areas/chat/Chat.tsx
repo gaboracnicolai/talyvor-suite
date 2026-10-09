@@ -87,6 +87,8 @@ import { TrackIssuePicker, attachTrackIssue } from './TrackIssuePicker'
 import { pageHref } from '../docs/docsNav'
 import type { TrackIssue } from '../track/types'
 import { ModelPicker } from './ModelPicker'
+import { readChatAction } from './chatActions'
+import { ariaKeys } from '../../components/CommandPalette'
 import { TemporaryChatNotice, TemporaryChatToggle } from './TemporaryChat'
 import { ChatSharing } from './ChatSharing'
 import { Sources, WebSearchToggle } from './WebSearch'
@@ -359,6 +361,18 @@ export function Chat() {
   const [storageRefused, setStorageRefused] = useState(false)
   // B28.108 — kept here, not in the rail, so a search survives the narrow drawer closing on the conversation it opened.
   const [search, setSearch] = useState('')
+  // B28.135 — the command palette's asks: focus the search box, open the model picker. 0 is nothing asked.
+  const [searchAsk, setSearchAsk] = useState(0)
+  const [pickerAsk, setPickerAsk] = useState(0)
+  const pickerAsked = useCallback(() => setPickerAsk(0), [])
+  // The box is focused once the rail asked for is drawn, and after a drawer's own first focus: a parent's effects follow
+  // its children's. A narrow screen draws the rail twice, beside the conversation (hidden there) and in the drawer, and
+  // a hidden box takes no focus, so each is asked and the one on screen takes it.
+  useEffect(() => {
+    if (searchAsk === 0) return
+    for (const box of document.querySelectorAll<HTMLInputElement>('input[aria-label="Search conversations"]')) box.focus()
+    setSearchAsk(0)
+  }, [searchAsk])
   // B28.109 — the projects kept in this browser, and the one the open or new chat is in; '' is none.
   const [projects, setProjects] = useState<Projects>({ list: [], error: null })
   const [projectId, setProjectId] = useState('')
@@ -480,6 +494,26 @@ export function Chat() {
     setPromptName(PROMPT_NAME_PATTERN.test(startWith) ? startWith : '')
     setParams({}, { replace: true })
   }, [scope, startWith, open, setParams])
+  // B28.135 — the command palette and the shortcuts (chatActions.ts): a new chat, the conversations searched (for `q`
+  // when given), or the model picker opened. Like ?prompt=, done once who is signed in is known, then dropped.
+  const action = readChatAction(params)
+  const actionQuery = params.get('q') ?? ''
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
+  useEffect(() => {
+    if (scope === null || action === null) return
+    setParams({}, { replace: true })
+    if (action === 'new') {
+      // As the New chat button: not while an answer is arriving.
+      if (!pendingRef.current) open(undefined)
+    } else if (action === 'search') {
+      if (actionQuery !== '') setSearch(actionQuery)
+      const wide = typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 840px)').matches
+      if (wide) setRailHidden(false)
+      else setDrawerOpen(true)
+      setSearchAsk((n) => n + 1)
+    } else setPickerAsk((n) => n + 1)
+  }, [scope, action, actionQuery, open, setParams])
 
   // ⚠ READS STORAGE, NOT STATE. It runs after an await inside run(), where `history` from the
   // closure is a render old; merging into that would drop a rename made while it streamed.
@@ -1589,6 +1623,8 @@ export function Chat() {
               picker={picker}
               selected={selected}
               onSelectModel={setModelId}
+              pickerAsk={pickerAsk}
+              onPickerOpened={pickerAsked}
               webSearch={webSearch}
               onWebSearch={setWebSearch}
               runCode={runCode}
@@ -1779,11 +1815,12 @@ function ChatRail({
   const [showArchived, setShowArchived] = useState(false)
   return (
     <div className="flex h-full min-h-0 flex-col p-2">
-      <Button className="w-full justify-start" onClick={onNew} disabled={pending || activeId === null}>
+      <Button className="w-full justify-start" onClick={onNew} disabled={pending || activeId === null} aria-keyshortcuts={ariaKeys('new-chat')}>
         New chat
       </Button>
       {searchable ? (
         <Input
+          aria-keyshortcuts={ariaKeys('search')}
           type="search"
           className="mt-3"
           aria-label="Search conversations"
@@ -2451,6 +2488,8 @@ function Composer({
   picker,
   selected,
   onSelectModel,
+  pickerAsk,
+  onPickerOpened,
   webSearch,
   onWebSearch,
   runCode,
@@ -2476,6 +2515,9 @@ function Composer({
   picker: PickerCatalog
   selected: ChatModel | undefined
   onSelectModel: (id: string) => void
+  /** B28.135 — the command palette asked for the model picker. 0 is nothing asked. */
+  pickerAsk: number
+  onPickerOpened: () => void
   /** B28.372 — Search the web is on. */
   webSearch: boolean
   onWebSearch: (on: boolean) => void
@@ -2605,7 +2647,7 @@ function Composer({
         <TrackIssuePicker disabled={pending || selected === undefined} onPick={onAttachIssue} />
         <WebSearchToggle on={webSearch} onChange={onWebSearch} disabled={pending || selected === undefined} />
         <RunCodeToggle on={runCode} onChange={onRunCode} disabled={pending || selected === undefined} />
-        <ModelPicker catalog={picker} selected={selected} onSelect={onSelectModel} disabled={pending} />
+        <ModelPicker catalog={picker} selected={selected} onSelect={onSelectModel} disabled={pending} openAsk={pickerAsk} onOpened={onPickerOpened} />
         <div className="flex-1" />
         {pending ? (
           // ⚠ KEYED APART FROM Send. Reusing one <button> and flipping its type lets the click on

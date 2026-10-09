@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect } from 'react'
+import { useId, useLayoutEffect, useMemo } from 'react'
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   BrowserRouter,
@@ -68,6 +68,7 @@ import { Privacy } from './routes/Privacy'
 import { Terms } from './routes/Terms'
 import { SignIn, SignUp } from './areas/auth/Entry'
 import { SessionExpiredBar } from './components/SessionExpiredBar'
+import { CommandPalette, type PalettePage } from './components/CommandPalette'
 import { ScreenBoundary } from './components/ScreenBoundary'
 import { type DocRef, pageHref, useDocsNav } from './areas/docs/docsNav'
 import { useAuthMeReader } from './lib/authMe'
@@ -546,8 +547,21 @@ function Sidebar() {
   )
 }
 
+/**
+ * B28.135 — the pages the command palette opens: the console's routes by their own titles, so a page cannot be added
+ * without the palette finding it. Stripe's two return pages are where Stripe sends a person, not somewhere to go, and
+ * the operator's are offered only to someone the BFF's operator gate admits, as in the sidebar.
+ */
+function palettePages(operator: boolean): PalettePage[] {
+  return CONSOLE_ROUTES.filter(
+    (r) => r.path !== '/billing/success' && r.path !== '/billing/cancel' && (operator || !r.path.startsWith('/operator')),
+  ).map((r) => ({ path: r.path.replace(/\/\*$/, ''), title: r.title }))
+}
+
 function AppShell() {
   const { pathname } = useLocation()
+  const operator = useAuthMeReader().data?.operator === true
+  const pages = useMemo(() => palettePages(operator), [operator])
   // ONE expression, two consumers: the banner paints it and the browser tab is told it. They
   // cannot drift into naming different pages because there is nothing to drift between —
   // documentTitle.test.tsx asserts the tab's page half IS the banner's string, at every address.
@@ -572,6 +586,7 @@ function AppShell() {
           <h1 className="min-w-0 flex-1 break-words text-bar text-ink">{page}</h1>
           <div className="flex min-w-0 items-center gap-3">
             <SessionChip />
+            <CommandPalette pages={pages} />
             <ThemeToggle />
           </div>
         </>
