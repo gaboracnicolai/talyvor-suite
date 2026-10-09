@@ -49,9 +49,18 @@ const ANSWERS: Record<string, { first: string; rest: string }> = {
   },
 }
 
-function mockBff(refuseFirst?: string) {
+// B17.123 — a whole answer in one piece, as Lens sends a burst or a replay: its text, usage and charge at once.
+const COUNT = Array.from({ length: 99 }, (_, i) => i + 1).join(' ')
+const WHOLE =
+  frame({ type: 'message_start', message: { model: 'claude-haiku-4-5', usage: { input_tokens: 12, output_tokens: 1 } } }) +
+  frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: COUNT } }) +
+  frame({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 99 } }) +
+  frame({ type: CHARGE_FRAME, charged_ulxc: 300 }) +
+  frame({ type: 'message_stop' })
+
+function mockBff(refuseFirst?: string, whole?: string) {
   let refused = false
-  const streams: { model: string; url: string; reportCharge: boolean; finish: () => void }[] = []
+  const streams: { model: string; url: string; reportCharge: boolean; fresh: boolean; finish: () => void }[] = []
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -72,14 +81,17 @@ function mockBff(refuseFirst?: string) {
       const body = new ReadableStream<Uint8Array>({
         start(c) {
           ctl = c
-          c.enqueue(enc.encode(answer.first))
+          c.enqueue(enc.encode(model === whole ? WHOLE : answer.first))
+          if (model === whole) c.close()
         },
       })
       streams.push({
         model,
         url,
         reportCharge: new Headers(init?.headers).get(REPORT_CHARGE_HEADER) === 'true',
+        fresh: new Headers(init?.headers).get('X-Talyvor-Cache') === 'bypass',
         finish: () => {
+          if (model === whole) return
           ctl.enqueue(enc.encode(answer.rest))
           ctl.close()
         },
@@ -121,10 +133,11 @@ describe('compare models side by side (B28.369)', () => {
       expect(within(columns[2]).getByTestId('turn-reply').textContent).toBe('France:')
     })
     expect(screen.queryAllByTestId('compare-cost')).toHaveLength(0)
-    expect(streams.map((s) => [s.model, s.url, s.reportCharge])).toEqual([
-      ['claude-opus-5', '/api/ai/stream/anthropic/v1/messages', true],
-      ['claude-haiku-4-5', '/api/ai/stream/anthropic/v1/messages', true],
-      ['gpt-5', '/api/ai/stream/openai/v1/chat/completions', true],
+    // B17.123 — each model asked afresh, never served a cached or shared answer.
+    expect(streams.map((s) => [s.model, s.url, s.reportCharge, s.fresh])).toEqual([
+      ['claude-opus-5', '/api/ai/stream/anthropic/v1/messages', true, true],
+      ['claude-haiku-4-5', '/api/ai/stream/anthropic/v1/messages', true, true],
+      ['gpt-5', '/api/ai/stream/openai/v1/chat/completions', true, true],
     ])
 
     for (const s of streams) s.finish()
@@ -135,6 +148,21 @@ describe('compare models side by side (B28.369)', () => {
       '0.0009 LXC charged · GPT-5 · 12 in / 3 out tokens',
     ])
     expect(columns.map((c) => within(c).getByTestId('turn-reply').textContent)).toEqual(['Paris is the capital.', 'It is Paris.', 'France: Paris.'])
+  })
+
+  // B17.123 — the testers saw a Claude column land whole in one frame, its price with it, beside two that grew.
+  it('reveals an answer that arrives in one piece as it does in Chat, and prices it once it is all shown', async () => {
+    mockBff(undefined, 'claude-haiku-4-5')
+    await compare('Count to 99.')
+    const column = (await screen.findAllByTestId('compare-column'))[1]
+    await waitFor(() => {
+      const shown = within(column).getByTestId('turn-reply').textContent ?? ''
+      expect(shown.length).toBeGreaterThan(0)
+      expect(shown.length).toBeLessThan(COUNT.length)
+      expect(within(column).queryByTestId('compare-cost')).toBeNull()
+    })
+    await waitFor(() => expect(within(column).getByTestId('compare-cost').textContent).toBe('0.0003 LXC charged · Claude Haiku 4.5 · 12 in / 99 out tokens'), { timeout: 3_000 })
+    expect(within(column).getByTestId('turn-reply').textContent).toBe(COUNT)
   })
 
   it('carries one answer on in Chat, priced as it was', async () => {
