@@ -1455,16 +1455,16 @@ func TestStream_AttachedIssueReachesLens(t *testing.T) {
 	}
 }
 
-// B28.426 — a conversation's listing reaches Lens by its id on every request, and how Lens charged the use comes back to the
-// chat; a header that is not an id's shape is refused before Lens is asked.
+// B28.426 — a conversation's listing reaches Lens by its id on every request, asked afresh so a use is never a replay, and how
+// Lens charged the use comes back to the chat; a header that is not an id's shape is refused before Lens is asked.
 func TestStream_ConversationListingReachesLens(t *testing.T) {
 	for _, tc := range []struct {
-		name, sent, wantUp, wantCharge string
-		wantStatus, wantCalls          int
+		name, sent, wantUp, wantCharge, wantCache string
+		wantStatus, wantCalls                     int
 	}{
-		{"a listing", "lst_tone", "lst_tone", "billed", http.StatusOK, 1},
-		{"no listing", "", "", "", http.StatusOK, 1},
-		{"not an id", "lst_tone, lst_other", "", "", http.StatusBadRequest, 0},
+		{"a listing", "lst_tone", "lst_tone", "billed", "bypass", http.StatusOK, 1},
+		{"no listing", "", "", "", "", http.StatusOK, 1},
+		{"not an id", "lst_tone, lst_other", "", "", "", http.StatusBadRequest, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			up := newStreamUpstream(t)
@@ -1489,9 +1489,9 @@ func TestStream_ConversationListingReachesLens(t *testing.T) {
 			_, _ = io.ReadAll(resp.Body)
 			resp.Body.Close()
 			charge := resp.Header.Get("X-Talyvor-Listing-Charge")
-			if resp.StatusCode != tc.wantStatus || up.proxyCalls != tc.wantCalls || up.gotListing != tc.wantUp || charge != tc.wantCharge {
-				t.Fatalf("answered %d, charge %q, after asking Lens %d times with X-Talyvor-Listing %q; want %d, %q, %d times, %q",
-					resp.StatusCode, charge, up.proxyCalls, up.gotListing, tc.wantStatus, tc.wantCharge, tc.wantCalls, tc.wantUp)
+			if resp.StatusCode != tc.wantStatus || up.proxyCalls != tc.wantCalls || up.gotListing != tc.wantUp || charge != tc.wantCharge || up.gotCache != tc.wantCache {
+				t.Fatalf("answered %d, charge %q, after asking Lens %d times with X-Talyvor-Listing %q, X-Talyvor-Cache %q; want %d, %q, %d times, %q, %q",
+					resp.StatusCode, charge, up.proxyCalls, up.gotListing, up.gotCache, tc.wantStatus, tc.wantCharge, tc.wantCalls, tc.wantUp, tc.wantCache)
 			}
 		})
 	}

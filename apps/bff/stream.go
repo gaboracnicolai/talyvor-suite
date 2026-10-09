@@ -300,8 +300,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), streamMaxDuration)
 		defer cancel()
 		// B15.6 — Regenerate asks Lens for a fresh answer rather than the cached one. Only the one
-		// value is forwarded.
-		bypass := strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheHeader)), "bypass")
+		// value is forwarded. B28.426 — a question asked through a listing is a use of it, so it is always asked afresh:
+		// never a replay, and never the replay below that is thrown away and asked again, which would be two uses.
+		bypass := strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheHeader)), "bypass") || listing != ""
 		// B28.131 — a temporary chat's question: Lens keeps nothing of the answer, and it is never served from the
 		// cache or the pool either, whatever else the browser sent.
 		keepNothing := strings.EqualFold(strings.TrimSpace(r.Header.Get(cacheStoreHeader)), "off")

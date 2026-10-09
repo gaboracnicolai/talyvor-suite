@@ -1,12 +1,14 @@
+import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 
 import { cn, focusRing, inlineLink } from '@talyvor/ui'
 
 import { formatULXC } from '../lens/agentBankApi'
+import { marketApi } from '../marketplace/marketApi'
 import type { AnswerListing, ChatListing } from './chatApi'
 
-// B28.426 — a marketplace listing used in Chat. "Use in Chat" on a skill's listing page opens /chat?listing=<id>: a new chat
-// the listing is attached to. The choice is kept with the conversation (history.ts), every question in it goes to Lens
+// B28.426 — a marketplace listing used in Chat. "Use in Chat" on a skill's listing page opens a new chat the listing is
+// attached to. The choice is kept with the conversation (history.ts), every question in it goes to Lens
 // naming the listing (chatApi.ts LISTING_HEADER), and Lens asks it through the listing and charges the use as a
 // marketplace use (talyvor-lens B28.186). Under each answer the screen says how the use was charged only as Lens said it.
 
@@ -16,6 +18,9 @@ function listingHref(id: string): string {
 
 /** Under the composer: the listing this conversation is asked through, what each question costs, and Remove. */
 export function ListingChip({ listing, onRemove, disabled }: { listing: ChatListing; onRemove: () => void; disabled: boolean }) {
+  // The price Lens charges is the listing's now, read again with the listing page's query; until it is, the one it had when attached.
+  const live = useQuery({ queryKey: ['market-listing', listing.id, ''], queryFn: () => marketApi.listing(listing.id), retry: false, staleTime: 60_000 })
+  const price = live.data?.price_per_use_ulxc ?? listing.price_per_use_ulxc
   return (
     <p className="flex min-w-0 flex-wrap items-center gap-x-2 text-caption text-muted" data-testid="chat-listing">
       <span className="font-figure text-eyebrow uppercase text-label">Listing</span>
@@ -23,9 +28,9 @@ export function ListingChip({ listing, onRemove, disabled }: { listing: ChatList
         {listing.title}
       </Link>
       <span>
-        {listing.price_per_use_ulxc > 0 ? (
+        {price > 0 ? (
           <>
-            · <span className="font-figure">{formatULXC(listing.price_per_use_ulxc)}</span> a question, on your marketplace bill
+            · <span className="font-figure">{formatULXC(price)}</span> a question, on your marketplace bill
           </>
         ) : (
           '· free to use'

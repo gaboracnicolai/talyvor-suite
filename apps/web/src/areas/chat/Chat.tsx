@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 
 import { Button, Input, cn, focusRing, inlineLink } from '@talyvor/ui'
 
@@ -500,15 +500,15 @@ export function Chat() {
     setPromptName(PROMPT_NAME_PATTERN.test(startWith) ? startWith : '')
     setParams({}, { replace: true })
   }, [scope, startWith, open, setParams])
-  // B28.426 — "Use in Chat" on a listing's page opens /chat?listing=<id>: a new chat attached to that listing, as Lens reads
-  // it to this person. One Lens will not show them is not attached, and the screen says so.
-  const startListing = params.get('listing')
+  // B28.426 — "Use in Chat" on a skill's listing page opens a new chat attached to it, as Lens reads it to this person. The
+  // listing rides the navigation's state, never the address: a link from anywhere else cannot attach a paid listing.
+  const startListing = (useLocation().state as { listing?: unknown } | null)?.listing
   useEffect(() => {
-    if (scope === null || startListing === null) return
+    if (scope === null || typeof startListing !== 'string') return
     open(undefined)
     setParams({}, { replace: true })
     marketApi.listing(startListing).then(
-      (l) => setListing({ id: l.id, title: l.title, price_per_use_ulxc: l.price_per_use_ulxc }),
+      (l) => (l.kind === 'skill' ? setListing({ id: l.id, title: l.title, price_per_use_ulxc: l.price_per_use_ulxc }) : setFailure({ text: 'Only a skill can be used in Chat.' })),
       () => setFailure({ text: 'That listing could not be read, so this chat is not using it.' }),
     )
   }, [scope, startListing, open, setParams])

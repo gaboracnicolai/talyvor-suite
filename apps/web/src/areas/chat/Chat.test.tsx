@@ -1650,7 +1650,7 @@ describe('a listing in Chat (B28.426)', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={['/chat?listing=lst_tone']}>
+        <MemoryRouter initialEntries={[{ pathname: '/chat', state: { listing: 'lst_tone' } }]}>
           <Routes>
             <Route path="/chat" element={<Chat />} />
           </Routes>
@@ -1685,6 +1685,20 @@ describe('a listing in Chat (B28.426)', () => {
     await waitFor(() => expect(posted).toHaveBeenCalledTimes(3))
     expect(named(2)).toBeNull()
     await waitFor(() => expect(loadConversations('user-a').list[0].listing).toBeUndefined())
+  })
+
+  it('a link from anywhere else attaches nothing: the listing comes only from Use in Chat', async () => {
+    mockChat({ listings: { lst_tone: { id: 'lst_tone', title: 'Support tone', kind: 'skill', price_per_use_ulxc: 20_000 } } })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/chat?listing=lst_tone']}>
+          <Chat />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await chooseModel('Claude Opus 5')
+    expect(screen.queryByTestId('chat-listing')).toBeNull()
   })
 })
 

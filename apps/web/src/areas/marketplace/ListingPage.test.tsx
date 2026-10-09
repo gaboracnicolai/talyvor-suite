@@ -247,7 +247,8 @@ describe('listing page 2', () => {
   it('offers a skill, and only a skill, to use in Chat: a new chat attached to it (B28.426)', async () => {
     mockBff()
     await at('/marketplace/listings/lst_skill')
-    expect((await screen.findByRole('link', { name: 'Use in Chat' })).getAttribute('href')).toBe('/chat?listing=lst_skill')
+    // The listing goes in the navigation's state (Chat.test.tsx), so the address is Chat's own.
+    expect((await screen.findByRole('link', { name: 'Use in Chat' })).getAttribute('href')).toBe('/chat')
     await at('/marketplace/listings/lst_trial')
     await screen.findByTestId('listing-offer')
     expect(screen.queryByRole('link', { name: 'Use in Chat' })).toBeNull()
