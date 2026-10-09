@@ -7,7 +7,7 @@ import { Button, Pill, inlineLink } from '@talyvor/ui'
 import { APPROVALS_KEY, BOOK_KEY, PASSKEYS_KEY, deviceText } from '../lens/AgentBank'
 import { type AgentApproval, AgentBankError, agentBankApi, refusalText } from '../lens/agentBankApi'
 import { formatWhen } from '../lens/format'
-import { Lxc } from '../lens/money'
+import { Lxc, pegQuery } from '../lens/money'
 import { passkeysSupported, registerThisDevice, signApproval } from '../lens/passkeys'
 import { Card } from '../lens/walletBrand'
 import { PENDING_POLL_MS } from '../lens/WalletScreens'
@@ -37,6 +37,9 @@ export function ApprovalCards() {
   })
   const book = useQuery({ queryKey: BOOK_KEY, queryFn: agentBankApi.book })
   const keys = useQuery({ queryKey: PASSKEYS_KEY, queryFn: agentBankApi.passkeys })
+  // B17.139 — a card first shows once the peg's first read answers, so its amount never appears without its
+  // currency and then changes under the person about to approve it. A failed read does not hold the cards back.
+  const peg = useQuery(pegQuery)
   const signed = (keys.data?.passkeys ?? []).length > 0
   const agents = book.data?.agents ?? []
   const nameOf = (id: string) => agents.find((a) => a.id === id)?.name ?? 'an agent'
@@ -106,7 +109,7 @@ export function ApprovalCards() {
       </p>
     )
   }
-  if (shown.length === 0) return null
+  if (shown.length === 0 || (peg.isPending && peg.failureCount === 0)) return null
 
   return (
     <section aria-label="Waiting for your approval" className="flex flex-col gap-3 pb-6">
