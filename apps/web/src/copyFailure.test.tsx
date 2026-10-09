@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 import { Keys } from './areas/lens/Keys'
 import { Setup } from './areas/lens/Setup'
@@ -107,12 +107,12 @@ type Env = 'absent' | 'rejecting' | 'working'
  * non-secure context is: the API is not installed on `navigator` at all. Measured in Chrome at
  * `http://192.168.100.149:8791` — `typeof navigator.clipboard === 'undefined'`.
  */
-function clipboardEnv(env: Env): { writeText: ReturnType<typeof vi.fn> | null } {
+function clipboardEnv(env: Env): { writeText: Mock<(text: string) => Promise<void>> | null } {
   if (env === 'absent') {
     Reflect.deleteProperty(navigator as unknown as Record<string, unknown>, 'clipboard')
     return { writeText: null }
   }
-  const writeText = vi.fn(() =>
+  const writeText = vi.fn<(text: string) => Promise<void>>(() =>
     env === 'working'
       ? Promise.resolve()
       : Promise.reject(new DOMException('Document is not focused.', 'NotAllowedError')),
