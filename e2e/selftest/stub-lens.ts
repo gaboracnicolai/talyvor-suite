@@ -73,6 +73,7 @@
 //   schedule-free  — a scheduled prompt is answered with nothing on the paying agent's statement (B28.377)
 //   openapi-wallets — /openapi.json, / and /status are as before B28.12: no Agent Wallets line, tag or operation, and /
 //                 links no API reference (stub-openapi.ts)
+//   rails-outage — /status.json's screening rail failed after its last success, so it reads outage (B30.124)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -1074,6 +1075,22 @@ async function stripeWebhook(req: IncomingMessage, res: ServerResponse, secret: 
   res.writeHead(200).end()
 }
 
+// talyvor-lens partners.Services and status.railNames, in its order.
+const RAILS: [string, string][] = [['account', 'Accounts and payments'], ['fx', 'Currency conversion'], ['broker', 'Trading'],
+  ['stablecoin', 'Stablecoins'], ['kyc', 'Identity verification'], ['screening', 'Sanctions screening'], ['capital', 'Credit'],
+  ['insurer', 'Cover'], ['agent_token', 'Agent cards'], ['tax', 'Tax']]
+
+function moneyRails(screeningDown: boolean): unknown[] {
+  const now = Date.now()
+  const hourAgo = new Date(now - 3_600_000).toISOString()
+  const recent = new Date(now).toISOString()
+  return RAILS.map(([service, name]) => {
+    if (service !== 'screening') return { service, mode: 'test', last_success: null, last_failure: null, name, status: 'unknown', capabilities: [] }
+    const [ok, failed] = screeningDown ? [hourAgo, recent] : [recent, hourAgo]
+    return { service, mode: 'test', last_success: ok, last_failure: failed, name, status: screeningDown ? 'outage' : 'operational', capabilities: [] }
+  })
+}
+
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', BASE)
   const p = url.pathname
@@ -1087,6 +1104,9 @@ createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
       return void res.end(lensPage(p, broke('openapi-wallets')))
     }
+    // talyvor-lens B30.12 — the money rails, every one on its Test partner. Screening failed once an hour ago and has answered
+    // since, so it is up; planted, its failure is the newer and it is down.
+    if (p === '/status.json') return json(res, 200, { status: 'operational', version: 'stub', rails: moneyRails(broke('rails-outage')) })
     // talyvor-lens B28.118 — the web pages a search "finds", so a cited link opens.
     const page = WEB_PAGES.find((w) => w.path === p)
     if (page !== undefined) {
