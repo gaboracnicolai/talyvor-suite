@@ -74,6 +74,7 @@
 //   openapi-wallets — /openapi.json, / and /status are as before B28.12: no Agent Wallets line, tag or operation, and /
 //                 links no API reference (stub-openapi.ts)
 //   rails-outage — /status.json's screening rail failed after its last success, so it reads outage (B30.124)
+//   status-truth — /healthz reads degraded while /status.json reads operational (B37.7)
 //
 // B17.6 adds the Agent Bank and the marketplace (stub-bank.ts): agents with keys of their own, whose
 // requests through the proxy are judged by their rules and spent from their own balance.
@@ -1088,15 +1089,30 @@ const RAILS: [string, string][] = [['account', 'Accounts and payments'], ['fx', 
   ['stablecoin', 'Stablecoins'], ['kyc', 'Identity verification'], ['screening', 'Sanctions screening'], ['capital', 'Credit'],
   ['insurer', 'Cover'], ['agent_token', 'Agent cards'], ['tax', 'Tax']]
 
-function moneyRails(screeningDown: boolean): unknown[] {
+function moneyRails(screeningDown: boolean): { name: string; status: string }[] {
   const now = Date.now()
   const hourAgo = new Date(now - 3_600_000).toISOString()
   const recent = new Date(now).toISOString()
   return RAILS.map(([service, name]) => {
-    if (service !== 'screening') return { service, mode: 'test', last_success: null, last_failure: null, name, status: 'unknown', capabilities: [] }
+    const capabilities = service === 'fx' ? [{ key: 'fx', cleared: false }] : []
+    if (service !== 'screening') return { service, mode: 'test', last_success: recent, last_failure: null, name, status: 'operational', capabilities }
     const [ok, failed] = screeningDown ? [hourAgo, recent] : [recent, hourAgo]
-    return { service, mode: 'test', last_success: ok, last_failure: failed, name, status: screeningDown ? 'outage' : 'operational', capabilities: [] }
+    return { service, mode: 'test', last_success: ok, last_failure: failed, name, status: screeningDown ? 'outage' : 'operational', capabilities }
   })
+}
+
+// talyvor-lens's /status.json (B37.3's documented keys): Lens's own components up, the rails answering their probes (B37.2).
+function statusJSON(): unknown {
+  const at = new Date().toISOString()
+  const rails = moneyRails(broke('rails-outage'))
+  const down = rails.filter((r) => r.status === 'outage').map((r) => r.name)
+  return {
+    status: 'operational', version: 'stub', uptime_hours: Math.round(process.uptime() / 36) / 100, updated_at: at,
+    components: ['PostgreSQL', 'Redis', 'NATS', 'Proxy'].map((name) => ({ name, status: 'operational', latency_ms: 1, measured: true, checked_at: at })),
+    providers: [{ name: 'OpenAI', status: 'operational', latency_ms: 100, checked_at: at }],
+    rails,
+    rails_summary: { up: rails.length - down.length, down: down.length, idle: 0, down_names: down },
+  }
 }
 
 createServer(async (req, res) => {
@@ -1105,7 +1121,7 @@ createServer(async (req, res) => {
   const bearer = (req.headers.authorization ?? '').replace(/^Bearer /, '')
   try {
     // B28.285 — Lens's /healthz: how long it has been up, which the testers read to tell a restart.
-    if (p === '/healthz') return json(res, 200, { status: 'healthy', uptime_seconds: Math.floor(process.uptime()), version: 'stub' })
+    if (p === '/healthz') return json(res, 200, { status: broke('status-truth') ? 'degraded' : 'healthy', uptime_seconds: Math.floor(process.uptime()), version: 'stub' })
     // talyvor-lens B28.12 — the API reference and the two pages that say what Lens is, none behind a credential.
     if (p === '/openapi.json') return json(res, 200, lensOpenAPI(broke('openapi-wallets')))
     if (p === '/' || p === '/status') {
@@ -1114,7 +1130,7 @@ createServer(async (req, res) => {
     }
     // talyvor-lens B30.12 — the money rails, every one on its Test partner. Screening failed once an hour ago and has answered
     // since, so it is up; planted, its failure is the newer and it is down.
-    if (p === '/status.json') return json(res, 200, { status: 'operational', version: 'stub', rails: moneyRails(broke('rails-outage')) })
+    if (p === '/status.json') return json(res, 200, statusJSON())
     // talyvor-lens B28.118 — the web pages a search "finds", so a cited link opens.
     const page = WEB_PAGES.find((w) => w.path === p)
     if (page !== undefined) {
