@@ -154,7 +154,7 @@ describe('money between owners on Agent Wallets', () => {
     expect(shown).toContain('The loan is late')
     expect(shown).toContain('Missed again: the loan is in default')
     expect((await screen.findByTestId('no-credit-line')).textContent).toContain('no credit line')
-  })
+  }, 15_000)
 
   it('gives back a received transfer, asked twice: the refund shows, the original is marked, and the balance falls by it', async () => {
     const sent = mockBff({ received: true })

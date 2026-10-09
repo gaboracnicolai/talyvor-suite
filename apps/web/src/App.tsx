@@ -29,7 +29,7 @@ import { ApiError, UnreadableError } from './lib/api'
 import { Overview } from './areas/lens/Overview'
 import { Home } from './areas/lens/Home'
 import { Ledger } from './areas/lens/Ledger'
-import { Earnings, EarningsMoved } from './areas/lens/Earnings'
+import { Earnings, EarningsMoved, ROYALTIES_PATH } from './areas/lens/Earnings'
 import { Keys } from './areas/lens/Keys'
 import { Setup } from './areas/lens/Setup'
 import { Spend } from './areas/lens/Spend'
@@ -283,7 +283,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
 const TITLE_MATCHERS = CONSOLE_ROUTES.map(({ path }) => ({ path }))
 
 function titleFor(pathname: string): string {
-  const matches = matchRoutes(TITLE_MATCHERS, pathname)
+  // B17.82 — /earnings draws Royalties before its address catches up, so it is titled as Royalties.
+  const matches = matchRoutes(TITLE_MATCHERS, pathname === '/earnings' ? ROYALTIES_PATH : pathname)
   const matched = matches?.[matches.length - 1]?.route.path
   return CONSOLE_ROUTES.find((r) => r.path === matched)?.title ?? NOT_FOUND_TITLE
 }

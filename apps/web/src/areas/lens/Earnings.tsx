@@ -1,5 +1,6 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Button, MuNumeral, Pill, inlineLink } from '@talyvor/ui'
 
 import { api, UnreadableError, type EarningsSummary, type EarningsTypeLine } from '../../lib/api'
@@ -95,9 +96,18 @@ function TypeRow({ line }: { line: EarningsTypeLine }) {
 
 const HEADING = 'What your shared answers earned'
 
-/** B28.10 — the old /earnings address, kept so a bookmark lands on Royalties rather than nowhere. */
+export const ROYALTIES_PATH = '/statements/royalties'
+
+/** B28.10 — the old /earnings address, kept so a bookmark lands on Royalties rather than nowhere.
+ *  B17.82 — it draws Royalties on its first render and corrects the address after. It was a
+ *  <Navigate>, which draws nothing and redirects from an effect that React Router runs as a
+ *  transition, so a cold load of /earnings had an empty page at the load event (8 of 10 nightly users). */
 export function EarningsMoved() {
-  return <Navigate to="/statements/royalties" replace />
+  const navigate = useNavigate()
+  useEffect(() => {
+    navigate(ROYALTIES_PATH, { replace: true })
+  }, [navigate])
+  return <Earnings />
 }
 
 export function Earnings() {

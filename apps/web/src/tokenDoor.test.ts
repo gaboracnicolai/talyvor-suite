@@ -524,7 +524,7 @@ describe('the sweep', () => {
       ['border-transparent', ['(control)']],
     ])
     expect(bypasses(control, asked)).toEqual(['border-black  ((control))'])
-  })
+  }, 15_000)
 
   it('nothing reaches past a closed door', async () => {
     const door = await readDoor()

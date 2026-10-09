@@ -1,3 +1,5 @@
+import { flushSync } from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import { render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -42,5 +44,27 @@ describe('Royalties sits under Statements', () => {
     render(<App />)
     expect(await screen.findByRole('heading', { level: 1, name: 'Royalties' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/statements/royalties')
+  })
+
+  // B17.82 — the nightly opens /earnings cold and reads the page at the load event. One synchronous
+  // render, outside act so no redirect or transition is flushed, is that first frame: a <Navigate>
+  // drew an empty main there.
+  it('the old /earnings address draws Royalties on its first render', () => {
+    window.history.pushState({}, '', '/earnings')
+    localStorage.setItem('talyvor.had-session', '1')
+    const actEnv = (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
+    const host = document.body.appendChild(document.createElement('div'))
+    const root = createRoot(host)
+    try {
+      flushSync(() => root.render(<App />))
+      expect(host.querySelector('h1')?.textContent).toBe('Royalties')
+      expect(host.querySelector('main h2')?.textContent).toBe('What your shared answers earned')
+    } finally {
+      flushSync(() => root.unmount())
+      host.remove()
+      localStorage.removeItem('talyvor.had-session')
+      ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = actEnv
+    }
   })
 })
