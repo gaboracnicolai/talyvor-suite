@@ -851,14 +851,16 @@ export function chatProjectInstructions(seed: number): Scenario {
 }
 
 /** B28.366 — a question edited and sent again re-runs the thread from that turn: a sum, then "Multiply that by 2",
- *  and that second question edited to "by 3" and sent. It is answered from the turn before it, and the thread holds
+ *  and that second question edited to "by 10" and sent. It is answered from the turn before it, and the thread holds
  *  two questions again, the "by 2" answer gone. */
 export function editResendRerunsThread(seed: number): Scenario {
   // The run's own sum, so the model is asked rather than an earlier run's answer served from the pool.
   const r = seeded(seed * 31 + 11 + RUN_SALT)
   const [a, b] = [0, 0].map(() => 1000 + Math.floor(r() * 9000))
   const by2 = `Multiply that by 2. ${NUMBER_ONLY}`
-  const by3 = `Multiply that by 3. ${NUMBER_ONLY}`
+  // B17.140 — by 10, not by 3: Haiku once said 20014 for 6338 × 3 on a thread sent correctly. A model does not slip on
+  // a nought, and the answer still tells the thread apart: 10× the sum re-ran from that turn, 20× kept the old one.
+  const by10 = `Multiply that by 10. ${NUMBER_ONLY}`
   return {
     id: 'chat-edit-resend',
     owner: 'talyvor-suite',
@@ -869,7 +871,7 @@ export function editResendRerunsThread(seed: number): Scenario {
       await ask(ctx, `What is ${a} + ${b}? ${NUMBER_ONLY}`, 'the first question')
       const before = await ask(ctx, by2, 'the follow-up, before the edit')
       if (!statesNumber(before.answer, 2 * (a + b))) return { pass: false, detail: `the follow-up was wrong before any edit: ${describe(before)}` }
-      const t = record(ctx, await ctx.app.editAndResend(1, by3), 'the follow-up edited to "by 3" and sent')
+      const t = record(ctx, await ctx.app.editAndResend(1, by10), 'the follow-up edited to "by 10" and sent')
       if (t.error !== undefined) return { pass: false, detail: `the edited question was refused: ${t.error}` }
       const questions = await ctx.app.page.locator('[data-testid="turn-user"]').allInnerTexts()
       const answers = await ctx.app.page.locator('[data-testid="turn-assistant"]').count()
@@ -877,10 +879,10 @@ export function editResendRerunsThread(seed: number): Scenario {
       if (questions.length !== 2 || answers !== 2) {
         return { pass: false, detail: `after the edit the thread holds ${questions.length} questions and ${answers} answers, not 2 and 2` }
       }
-      if (!questions[1]?.includes('by 3')) return { pass: false, detail: `the second question reads "${questions[1]}", not the edited one` }
-      return statesNumber(t.answer, 3 * (a + b))
-        ? { pass: true, detail: `edited to "by 3", the thread re-ran from that turn: ${3 * (a + b)}, the "by 2" answer gone` }
-        : { pass: false, detail: `expected ${3 * (a + b)} from the turn before the edit, got ${describe(t)}` }
+      if (!questions[1]?.includes('by 10')) return { pass: false, detail: `the second question reads "${questions[1]}", not the edited one` }
+      return statesNumber(t.answer, 10 * (a + b))
+        ? { pass: true, detail: `edited to "by 10", the thread re-ran from that turn: ${10 * (a + b)}, the "by 2" answer gone` }
+        : { pass: false, detail: `expected ${10 * (a + b)} from the turn before the edit, got ${describe(t)}` }
     },
   }
 }
