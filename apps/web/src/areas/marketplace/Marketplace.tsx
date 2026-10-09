@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Link,
@@ -37,14 +37,20 @@ import { SellerTaxCard, SellerTaxNotice } from "./SellerTax";
 import {
   type BillLine,
   type Listing,
+  type MarketBill,
+  type MarketInvoice,
   type ListingKind,
   type RemixPolicy,
   type SimilarListing,
   KINDS,
   MarketError,
+  UPCOMING_INVOICE,
+  dayName,
+  invoicePdfHref,
   marketApi,
   monthName,
   parsePrice,
+  periodName,
   receiptHref,
   recentMonths,
   refusalText,
@@ -973,31 +979,138 @@ function Receipts() {
   );
 }
 
-function Bill() {
+/** A bill line's state (B28.385): a refunded use reads Refunded, never paid — it was credited back. */
+function lineState(l: BillLine): { status: "idle" | "settled" | "held"; text: string } {
+  if (l.refunded_at) return { status: "idle", text: "Refunded" };
+  if (l.cleared_at) return { status: "settled", text: "Paid" };
+  return { status: "held", text: "Not yet paid" };
+}
+
+/** An invoice's status, as the period picker says it. */
+const INVOICE_STATUS: Record<MarketInvoice["status"], string> = {
+  upcoming: "in progress",
+  draft: "being issued",
+  open: "due",
+  paid: "paid",
+  void: "void",
+  uncollectible: "unpaid",
+};
+
+/** One bill: its lines and Lens's net, tax and gross (B32.39). A refunded line is struck through and counted apart
+ *  (B28.385), so the lines left add up to the total. */
+function BillCard({
+  bill,
+  heading,
+  head,
+  totalHint,
+}: {
+  bill: MarketBill;
+  heading: string;
+  head?: ReactNode;
+  totalHint: string;
+}) {
+  const lines = bill.lines ?? [];
+  // A bill read before tax was charged has its price alone.
+  const net = bill.net_usd_micros ?? bill.total_usd_micros ?? 0;
+  const tax = bill.tax_usd_micros ?? 0;
+  const gross = bill.gross_usd_micros ?? net + tax;
+  const refunded = bill.refunded_ulxc ?? 0;
+  return (
+    <Card>
+      <CardHeader>{heading}</CardHeader>
+      {head}
+      {lines.map((l) => {
+        const state = lineState(l);
+        const struck = l.refunded_at ? " line-through" : "";
+        return (
+          <Row
+            key={l.use_id}
+            stack
+            data-testid="market-bill-line"
+            label={
+              // A payment to another company's agent (B19.15) has no listing, so there is no page to link to.
+              l.listing_id ? (
+                <Link
+                  className={`text-ink ${inlineLink}`}
+                  to={`/marketplace/listings/${encodeURIComponent(l.listing_id)}`}
+                >
+                  {l.title || l.listing_id}
+                </Link>
+              ) : (
+                l.title || "Payment to an agent"
+              )
+            }
+            hint={
+              <>
+                <span className="font-figure">{formatWhen(l.used_at)}</span>
+                {l.agent_id ? " · by an agent" : ""}
+                {taxText(l) ? ` · ${taxText(l)}` : ""}
+              </>
+            }
+          >
+            <Pill status={state.status} data-testid="market-bill-line-state">
+              {state.text}
+            </Pill>
+            <span className={`font-figure text-body text-ink${struck}`}>
+              {formatUSD(l.price_ulxc / 10)}
+            </span>
+            <span
+              className={`font-figure text-caption text-muted${struck}`}
+              data-testid="market-bill-line-tax"
+            >
+              + {formatUSD(l.tax_usd_micros ?? 0)} tax
+            </span>
+          </Row>
+        );
+      })}
+      {refunded > 0 ? (
+        <Row label="Refunded" hint="Credited back to you, and not in the total">
+          <span
+            className="font-figure text-body text-ink"
+            data-testid="market-bill-refunded"
+          >
+            {formatUSD(refunded / 10)}
+          </span>
+        </Row>
+      ) : null}
+      <Row label="Net" hint="The listings’ prices, before tax">
+        <span
+          className="font-figure text-body text-ink"
+          data-testid="market-bill-net"
+        >
+          {formatUSD(net)}
+        </span>
+      </Row>
+      <Row label="Tax" hint="Added to the price and owed to the tax authority">
+        <span
+          className="font-figure text-body text-ink"
+          data-testid="market-bill-tax"
+        >
+          {formatUSD(tax)}
+        </span>
+      </Row>
+      <Row label="Total" hint={totalHint}>
+        <span
+          className="font-figure text-body text-ink"
+          data-testid="market-bill-total"
+        >
+          {formatUSD(gross)}
+        </span>
+      </Row>
+    </Card>
+  );
+}
+
+/** The bill by calendar month: what a Lens that does not list its Stripe invoices yet answers (before B28.140). */
+function MonthBill() {
   const months = recentMonths(new Date());
   const [month, setMonth] = useState(months[0]);
   const bill = useQuery({
     queryKey: ["market-bill", month],
     queryFn: () => marketApi.bill(month),
   });
-  const lines = bill.data?.lines ?? [];
-  // Lens's net, tax and gross (B32.39); a bill read before tax was charged has its price alone.
-  const net = bill.data?.net_usd_micros ?? bill.data?.total_usd_micros ?? 0;
-  const tax = bill.data?.tax_usd_micros ?? 0;
-  const gross = bill.data?.gross_usd_micros ?? net + tax;
   return (
-    <Region
-      index="00"
-      label="Your bill"
-      heading="What your workspace used in the marketplace"
-      sectionClassName="pb-10 pt-4 wide:pb-12"
-      className="flex max-w-2xl flex-col gap-3"
-    >
-      <p className="text-body text-muted">
-        Every paid listing your workspace or its agents used, billed on your
-        card each month — never taken from your credits. The models a listing
-        calls are on your usual bill, not here.
-      </p>
+    <>
       <label className="text-caption text-muted">
         Month
         <select
@@ -1019,83 +1132,136 @@ function Bill() {
       ) : bill.isPending ? (
         <p className="text-body text-muted">Reading…</p>
       ) : (
-        <Card>
-          <CardHeader>{monthName(bill.data.month || month)}</CardHeader>
-          {lines.map((l) => (
+        <BillCard
+          bill={bill.data}
+          heading={monthName(bill.data.month || month)}
+          totalHint={
+            (bill.data.lines ?? []).length > 0
+              ? "Billed on your card for this month, tax included"
+              : "No paid listing was used this month"
+          }
+        />
+      )}
+    </>
+  );
+}
+
+/** B28.385 — the bill by Stripe invoice: each billing period Stripe charged for, newest first, the one in progress
+ *  before them; its uses as that invoice carried them, and Stripe's PDF of it. */
+function InvoiceBill({ invoices }: { invoices: MarketInvoice[] }) {
+  const [chosen, setChosen] = useState(invoices[0]?.id ?? "");
+  const inv = invoices.find((i) => i.id === chosen) ?? invoices[0];
+  const bill = useQuery({
+    queryKey: ["market-bill", "invoice", inv?.id],
+    queryFn: () => marketApi.invoiceBill(inv.id),
+    enabled: inv !== undefined,
+  });
+  if (inv === undefined) {
+    return (
+      <p className="text-body text-muted">
+        No paid listing has been used yet, so there is no invoice.
+      </p>
+    );
+  }
+  const upcoming = inv.id === UPCOMING_INVOICE;
+  const pdf = invoicePdfHref(inv);
+  const period = periodName(inv.period_start, inv.period_end);
+  return (
+    <>
+      <label className="text-caption text-muted">
+        Billing period
+        <select
+          className={`${selectClass} w-72`}
+          value={inv.id}
+          onChange={(e) => setChosen(e.target.value)}
+        >
+          {invoices.map((i) => (
+            <option key={i.id} value={i.id}>
+              {periodName(i.period_start, i.period_end)} ·{" "}
+              {INVOICE_STATUS[i.status] ?? i.status}
+            </option>
+          ))}
+        </select>
+      </label>
+      {bill.isError ? (
+        <p className="text-body text-muted">
+          {readFailure(bill.error, "This invoice")}
+        </p>
+      ) : bill.isPending ? (
+        <p className="text-body text-muted">Reading…</p>
+      ) : (
+        <BillCard
+          bill={bill.data}
+          heading={period}
+          head={
             <Row
-              key={l.use_id}
               label={
-                // A payment to another company's agent (B19.15) has no listing, so there is no page to link to.
-                l.listing_id ? (
-                  <Link
-                    className={`text-ink ${inlineLink}`}
-                    to={`/marketplace/listings/${encodeURIComponent(l.listing_id)}`}
-                  >
-                    {l.title || l.listing_id}
-                  </Link>
-                ) : (
-                  l.title || "Payment to an agent"
-                )
+                upcoming
+                  ? "Not invoiced yet"
+                  : `Invoice${inv.number ? ` ${inv.number}` : ""}`
               }
               hint={
-                <>
-                  <span className="font-figure">{formatWhen(l.used_at)}</span>
-                  {l.agent_id ? " · by an agent" : ""} ·{" "}
-                  {l.refunded_at
-                    ? "refunded"
-                    : l.cleared_at
-                      ? "paid"
-                      : "not yet paid"}
-                  {taxText(l) ? ` · ${taxText(l)}` : ""}
-                </>
+                upcoming
+                  ? `Stripe invoices this period on ${dayName(inv.period_end)}`
+                  : `Stripe’s invoice for this period · ${INVOICE_STATUS[inv.status] ?? inv.status}`
               }
             >
-              <span className="font-figure text-body text-ink">
-                {formatUSD(l.price_ulxc / 10)}
-              </span>
-              <span
-                className="font-figure text-caption text-muted"
-                data-testid="market-bill-line-tax"
-              >
-                + {formatUSD(l.tax_usd_micros ?? 0)} tax
-              </span>
+              {pdf ? (
+                <a
+                  className={`text-ink ${inlineLink}`}
+                  href={pdf}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-testid="market-invoice-pdf"
+                >
+                  Invoice PDF
+                </a>
+              ) : null}
             </Row>
-          ))}
-          <Row label="Net" hint="The listings’ prices, before tax">
-            <span
-              className="font-figure text-body text-ink"
-              data-testid="market-bill-net"
-            >
-              {formatUSD(net)}
-            </span>
-          </Row>
-          <Row
-            label="Tax"
-            hint="Added to the price and owed to the tax authority"
-          >
-            <span
-              className="font-figure text-body text-ink"
-              data-testid="market-bill-tax"
-            >
-              {formatUSD(tax)}
-            </span>
-          </Row>
-          <Row
-            label="Total"
-            hint={
-              lines.length > 0
-                ? "Billed on your card for this month, tax included"
-                : "No paid listing was used this month"
-            }
-          >
-            <span
-              className="font-figure text-body text-ink"
-              data-testid="market-bill-total"
-            >
-              {formatUSD(gross)}
-            </span>
-          </Row>
-        </Card>
+          }
+          totalHint={
+            (bill.data.lines ?? []).length === 0
+              ? "No paid listing was used in this period"
+              : upcoming
+                ? "So far this period, tax included"
+                : "Charged for this period, tax included, refunds taken off"
+          }
+        />
+      )}
+    </>
+  );
+}
+
+function Bill() {
+  // B28.385 — the bill is grouped by Stripe's invoices once Lens lists them (B28.140), by calendar month until then.
+  const invoices = useQuery({
+    queryKey: ["market-invoices"],
+    queryFn: marketApi.invoices,
+    retry: false,
+  });
+  return (
+    <Region
+      index="00"
+      label="Your bill"
+      heading="What your workspace used in the marketplace"
+      sectionClassName="pb-10 pt-4 wide:pb-12"
+      className="flex max-w-2xl flex-col gap-3"
+    >
+      <p className="text-body text-muted">
+        Every paid listing your workspace or its agents used, billed on your
+        card each month — never taken from your credits. The models a listing
+        calls are on your usual bill, not here.
+      </p>
+      {invoices.isError ? (
+        <p className="text-body text-muted">
+          {readFailure(invoices.error, "Your bill")}
+        </p>
+      ) : invoices.isPending ? (
+        <p className="text-body text-muted">Reading…</p>
+      ) : invoices.data === null ? (
+        <MonthBill />
+      ) : (
+        <InvoiceBill invoices={invoices.data} />
       )}
       <Receipts />
     </Region>

@@ -468,8 +468,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/marketplace/collections/{id}", a.requireTenant(a.handleMarketCollection))  // B32.61
 	a.mux.HandleFunc("/api/marketplace/mine", a.requireTenant(a.handleMarketMine))
 	a.mux.HandleFunc("/api/marketplace/earnings", a.requireTenant(a.handleMarketEarnings))
-	a.mux.HandleFunc("/api/marketplace/bill", a.requireTenant(a.handleMarketBill))       // B20.10
-	a.mux.HandleFunc("/api/marketplace/payouts", a.requireTenant(a.handleMarketPayouts)) // B20.6
+	a.mux.HandleFunc("/api/marketplace/bill", a.requireTenant(a.handleMarketBill))         // B20.10
+	a.mux.HandleFunc("/api/marketplace/invoices", a.requireTenant(a.handleMarketInvoices)) // B28.385
+	a.mux.HandleFunc("/api/marketplace/payouts", a.requireTenant(a.handleMarketPayouts))   // B20.6
 	a.mux.HandleFunc("/api/marketplace/payouts/connect", a.requireTenant(a.handleMarketPayoutsConnect))
 	a.mux.HandleFunc("/api/marketplace/payouts/credits", a.requireTenant(a.handleMarketPayoutsCredits))
 	// B32.59 — your licences (renew and cancel) and the receipts for your paid bills. See marketplace.go.

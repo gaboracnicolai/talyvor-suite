@@ -26,6 +26,8 @@ import (
 //	GET  /api/marketplace/mine                     this workspace's own listings, whatever their visibility
 //	GET  /api/marketplace/earnings                 the seller's pending, payable, in holdback and available
 //	GET  /api/marketplace/bill?month=YYYY-MM       the buyer's billed uses in a month (B20.10), this month by default
+//	GET  /api/marketplace/bill?invoice=ID          B28.385: the uses one Stripe invoice carried; "upcoming" the period in progress
+//	GET  /api/marketplace/invoices                 B28.385: the bill's Stripe invoices, newest first, each with its period and PDF
 //	POST /api/marketplace/listings/{id}/reports    {reason, details}: report a listing to Talyvor's review (B20.11)
 //	GET  /api/marketplace/payouts                  B20.6: the seller's Stripe account, balance, next payout and payouts
 //	POST /api/marketplace/payouts/connect          B20.6: {country} a link to Stripe's onboarding (B35.10: Lens is sent the session's email too)
@@ -291,15 +293,30 @@ func (a *app) handleMarketEarnings(w http.ResponseWriter, r *http.Request, t ten
 // billMonth is the one shape Lens reads ?month= in.
 var billMonth = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
 
+// billInvoice is a Stripe invoice id (in_…), or "upcoming": the invoice the period in progress will be (B28.385).
+var billInvoice = regexp.MustCompile(`^(upcoming|in_[A-Za-z0-9_]{1,250})$`)
+
 // handleMarketBill — GET /api/marketplace/bill?month=YYYY-MM: the paid listings this workspace used in
 // a month, billed on its card — never on its credits. No month is this month, in Lens's clock.
+// B28.385: ?invoice= instead reads the uses one Stripe invoice carried (Lens B28.140); a bill is read by one or the other.
 func (a *app) handleMarketBill(w http.ResponseWriter, r *http.Request, t tenant) {
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w, http.MethodGet)
 		return
 	}
 	path := lensWorkspacePath(t, "/marketplace/bill")
-	if month := r.URL.Query().Get("month"); month != "" {
+	month, invoice := r.URL.Query().Get("month"), r.URL.Query().Get("invoice")
+	switch {
+	case month != "" && invoice != "":
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "read the bill by month or by invoice, not both"})
+		return
+	case invoice != "":
+		if !billInvoice.MatchString(invoice) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invoice must be a Stripe invoice id (in_…) or upcoming"})
+			return
+		}
+		path += "?invoice=" + invoice
+	case month != "":
 		if !billMonth.MatchString(month) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "month must be YYYY-MM"})
 			return
@@ -307,6 +324,17 @@ func (a *app) handleMarketBill(w http.ResponseWriter, r *http.Request, t tenant)
 		path += "?month=" + month
 	}
 	a.marketRelay(w, r, a.client, t.token, http.MethodGet, path, nil, "")
+}
+
+// handleMarketInvoices — GET /api/marketplace/invoices (B28.385, Lens B28.140): the Stripe invoices of this workspace's
+// marketplace bill, newest first — each billing period, its status, what it charged and refunded, and Stripe's PDF.
+// A Lens that does not list them yet answers 404, and the screen reads the bill by month.
+func (a *app) handleMarketInvoices(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodGet {
+		methodNotAllowed(w, http.MethodGet)
+		return
+	}
+	a.marketRelay(w, r, a.client, t.token, http.MethodGet, lensWorkspacePath(t, "/marketplace/invoices"), nil, "")
 }
 
 // handleMarketLicences — GET /api/marketplace/licences (B32.59, Lens B32.19–B32.20): every licence this workspace

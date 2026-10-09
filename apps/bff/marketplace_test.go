@@ -65,6 +65,8 @@ func newFakeLensMarket(t *testing.T) (*app, *fakeLensMarket) {
 		case strings.HasSuffix(r.URL.Path, "/marketplace/payouts"):
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "service unavailable"})
+		case strings.HasSuffix(r.URL.Path, "/marketplace/invoices"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"invoices": []any{map[string]any{"id": "in_A", "status": "paid", "invoice_pdf": "https://pay.stripe.com/invoice/x/pdf"}}})
 		case strings.HasSuffix(r.URL.Path, "/marketplace/bill"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"month": r.URL.Query().Get("month"), "total_ulxc": 500000, "total_usd_micros": 50000, "lines": []any{}})
 		case r.URL.Path == "/v1/marketplace/listings/lst_1/trust":
@@ -169,6 +171,35 @@ func TestMarketplaceBillReadsTheMonthAsked(t *testing.T) {
 	}
 	if len(f.got) != 1 || !strings.Contains(f.got[0], "/marketplace/bill?month=2026-09 ") || !strings.HasPrefix(f.got[0], "GET /v1/workspaces/") {
 		t.Fatalf("Lens received %q, want one read of the September bill on the session's workspace", f.got)
+	}
+}
+
+// B28.385 — the bill's Stripe invoices are listed, and one invoice's bill read, on the session's workspace; an invoice
+// id that is not Stripe's, or a bill asked for by month and invoice at once, is refused before Lens is asked.
+func TestMarketplaceBillReadsTheInvoiceAsked(t *testing.T) {
+	a, f := newFakeLensMarket(t)
+	rec := doJSON(a, http.MethodGet, "/api/marketplace/invoices", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"invoice_pdf":"https://pay.stripe.com/invoice/x/pdf"`) {
+		t.Fatalf("invoices = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, q := range []string{"invoice=in_A", "invoice=upcoming"} {
+		if rec = doJSON(a, http.MethodGet, "/api/marketplace/bill?"+q, ""); rec.Code != http.StatusOK {
+			t.Fatalf("bill?%s = %d %s", q, rec.Code, rec.Body.String())
+		}
+	}
+	for _, q := range []string{"invoice=../agents", "invoice=in_A%26month=2026-09", "invoice=in_A&month=2026-09"} {
+		if rec = doJSON(a, http.MethodGet, "/api/marketplace/bill?"+q, ""); rec.Code != http.StatusBadRequest {
+			t.Fatalf("bill?%s = %d, want 400", q, rec.Code)
+		}
+	}
+	want := []string{"/marketplace/invoices ", "/marketplace/bill?invoice=in_A ", "/marketplace/bill?invoice=upcoming "}
+	if len(f.got) != len(want) {
+		t.Fatalf("Lens received %q, want %q", f.got, want)
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(f.got[i], "GET /v1/workspaces/") || !strings.Contains(f.got[i], w) {
+			t.Fatalf("Lens's read %d was %q, want %q on the session's workspace", i, f.got[i], w)
+		}
 	}
 }
 
