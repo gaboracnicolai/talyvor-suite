@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
+import { BOOK_KEY } from '../lens/AgentBank'
 import { parseTask } from './AgentTask'
 
 // B28.359 — `/task Researcher: …` typed in Chat hands the task to the agent: the BFF runs it on the agent's own wallet
@@ -28,6 +29,7 @@ function mockBff(refuse?: string) {
       const agents = [
         { id: 'agt_1', name: 'Researcher', balance_ulxc: 2 * M, spent_ulxc: 0, keys: [], created_at: '2026-10-06T05:00:00Z' },
         { id: 'agt_2', name: 'Writer', balance_ulxc: 0, spent_ulxc: 0, keys: [], created_at: '2026-10-06T05:00:00Z' },
+        { id: 'agt_3', name: 'Task taker 26', balance_ulxc: 2 * M, spent_ulxc: 0, keys: [], created_at: '2026-10-06T05:02:00Z' },
       ]
       return json({ workspace_balance_ulxc: 100 * M, allocated_ulxc: 2 * M, unallocated_ulxc: 98 * M, spent_ulxc: 0, agents })
     }
@@ -92,6 +94,17 @@ describe('Hand a task to an agent from Chat (B28.359)', () => {
     const billed = await within(card).findByTestId('chat-task-billed')
     expect(billed).toHaveTextContent(/^Researcher’s wallet paid for it: −0\.012345 LXC on its statement, leaving 1\.987655 LXC\.Spent on a request −0\.012345 LXC$/)
     expect(within(billed).getByRole('link', { name: 'Spent on a request' })).toHaveAttribute('href', '/agents?agent=agt_1&entry=ent_2')
+  })
+
+  it('reads the agents afresh when it opens, so an agent made a moment ago is the one picked (B17.137)', async () => {
+    mockBff()
+    // The list Chat already holds, read before Task taker 26 was made on Agent Wallets, and still within its cache time.
+    queryClient.setQueryData(BOOK_KEY, { workspace_balance_ulxc: 100 * M, allocated_ulxc: 2 * M, unallocated_ulxc: 98 * M, spent_ulxc: 0, agents: [] })
+    const card = await typeInChat('/task Task taker 26: What is 9623 + 1581?')
+    // Read at once, as a person sees it: the picker shows only once the fresh list is in, with the agent already chosen.
+    expect(await within(card).findByLabelText('Agent')).toHaveValue('agt_3')
+    expect(within(card).getByLabelText('The task')).toHaveValue('What is 9623 + 1581?')
+    expect(card).not.toHaveTextContent('No agent is called')
   })
 
   it('says why, in Lens’s words, when the agent’s rules refuse the task', async () => {
