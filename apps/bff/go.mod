@@ -21,7 +21,7 @@ go 1.25.0
 //
 // ⚠ RAISING THIS MEANS RE-MEASURING. Lowering it restores the 32. talyvor-lens, talyvor-track
 // (W6.34) and talyvor-docs all pin the same go1.26.6 floor, each for the same reason.
-toolchain go1.26.6
+toolchain go1.26.9
 
 require (
 	github.com/coreos/go-oidc/v3 v3.20.0
