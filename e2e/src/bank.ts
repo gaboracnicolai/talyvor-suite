@@ -570,6 +570,36 @@ export class AgentBankScreen {
     await rows.first().waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
     return (await rows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim())
   }
+
+  /** B19.21 — Automatic top-up → Set top-up: below `belowULXC` the workspace tops the agent up to `toULXC`; Lens's refusal, if it was refused. */
+  async setTopUp(agent: Agent, belowULXC: number, toULXC: number): Promise<string | undefined> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Automatic top-up')
+    await c.getByLabel(`Top ${agent.name} up below, in LXC`).fill(lxcText(belowULXC))
+    await c.getByLabel(`Top ${agent.name} up to, in LXC`).fill(lxcText(toULXC))
+    await c.getByRole('button', { name: 'Set top-up', exact: true }).click()
+    return outcome(c.getByTestId('agent-topup').filter({ hasText: `When ${agent.name} holds less than` }), c)
+  }
+
+  /** Automatic top-up → Remove; Lens's refusal, if it was refused. */
+  async removeTopUp(agent: Agent): Promise<string | undefined> {
+    await this.fresh(agent)
+    const c = card(this.page, 'Automatic top-up')
+    await c.getByRole('button', { name: 'Remove', exact: true }).click()
+    return outcome(c.getByTestId('agent-topup').filter({ hasText: 'is not topped up automatically' }), c)
+  }
+
+  /** B28.19 — Statement: each line's words and its amount, as the screen shows them, top to bottom. */
+  async statement(agent: Agent): Promise<{ what: string; amount: string }[]> {
+    await this.fresh(agent)
+    const rows = card(this.page, 'Statement').getByTestId('agent-statement').locator('tbody tr')
+    await rows.first().waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+    const shown: { what: string; amount: string }[] = []
+    for (const row of await rows.all()) {
+      shown.push({ what: figureText(await row.getByTestId('statement-what').innerText()), amount: figureText(await row.locator('td').nth(2).innerText()) })
+    }
+    return shown
+  }
 }
 
 /** The note a card shows once its form was sent: what was done, or "Refused …"/"Not …" and why. */
