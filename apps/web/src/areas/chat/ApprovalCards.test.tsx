@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
 import { b64u } from '../lens/passkeys'
@@ -36,6 +36,11 @@ function mockBff() {
         ],
       })
     if (url === '/api/agents/approvals') return json({ approvals })
+    // B17.139 — the peg answers after the approvals, as on a loaded server: the card must wait for it.
+    if (url === '/api/lxc/topup-options') {
+      await new Promise((r) => setTimeout(r, 100))
+      return json({ allowed_usd_cents: [1000], usd_per_lxc: 0.1 })
+    }
     // B28.351 — the live statement beside the conversation reads the first agent's statement.
     if (url === '/api/agents/agt_1/statement') return json({ lines: [] })
     if (url === '/api/agents/passkeys') return json({ passkeys: [{ credential_id: b64u(bytes('cred1')), name: 'iPhone', created_at: '2026-10-06T04:00:00Z' }] })
@@ -82,12 +87,13 @@ describe('Chat approval cards (B28.84)', () => {
     window.history.pushState({}, '', '/chat')
     render(<App />)
 
+    // Read the moment the card first appears: its amount already carries its currency (B17.139).
     const card = (await screen.findAllByTestId('chat-approval'))[0]
-    await waitFor(() => expect(within(card).getByTestId('chat-approval-asks')).toHaveTextContent(/^Researcher wants to pay Writer 2 LXC — October drafts$/))
+    expect(within(card).getByTestId('chat-approval-asks')).toHaveTextContent(/^Researcher wants to pay Writer 2 LXC \(\$0\.20\) — October drafts$/)
     fireEvent.click(await within(card).findByRole('button', { name: 'Approve with Face ID' }))
 
     const said = await within(card).findByRole('status')
-    expect(said).toHaveTextContent(/^Approved and paid 2 LXC from Researcher to Writer\. See it on Researcher’s statement$/)
+    expect(said).toHaveTextContent(/^Approved and paid 2 LXC \(\$0\.20\) from Researcher to Writer\. See it on Researcher’s statement$/)
     expect(within(said).getByRole('link')).toHaveAttribute('href', '/agents?agent=agt_1&entry=ent_9')
     expect(new TextDecoder().decode(get.mock.calls[0][0].publicKey!.challenge as Uint8Array)).toBe('challenge-apr_1')
     expect(bff.decisions).toEqual([
