@@ -65,6 +65,7 @@ function mockChat({
   unconfigured = [],
   identityAfter,
   prompts,
+  listings = {},
 }: {
   catalog?: unknown
   catalogStatus?: number
@@ -90,6 +91,8 @@ function mockChat({
   identityAfter?: Promise<void>
   /** B28.370 — the workspace's prompt library as Lens holds it; a prompt saved is added to it. */
   prompts?: Array<{ name: string; version: number; description: string; content: string }>
+  /** B28.426 — the marketplace listings Lens shows this person, by id. */
+  listings?: Record<string, { id: string; title: string; kind: string; price_per_use_ulxc: number }>
 } = {}) {
   const posted = vi.fn()
   const uploaded = vi.fn()
@@ -132,6 +135,10 @@ function mockChat({
         return new Response(JSON.stringify(saved), { status: 201, headers: { 'Content-Type': 'application/json' } })
       }
       return new Response(JSON.stringify({ prompts }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    const listing = /^\/api\/marketplace\/listings\/([^/?]+)$/.exec(url)
+    if (listing !== null && listings[decodeURIComponent(listing[1])] !== undefined) {
+      return new Response(JSON.stringify(listings[decodeURIComponent(listing[1])]), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }
     if (url === '/api/ai/providers') {
       return new Response(JSON.stringify({ unconfigured }), {
@@ -1630,6 +1637,68 @@ describe('prompt library (B28.370)', () => {
     await ask('And now?')
     await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
     expect(sent(1).messages[0]).toEqual({ role: 'system', content: 'lens:prompt:support-tone' })
+  })
+})
+
+describe('a listing in Chat (B28.426)', () => {
+  it('Use in Chat attaches a paid skill: each question names it to Lens, the answer says how Lens charged it, and Remove stops it', async () => {
+    const { posted } = mockChat({
+      body: 'data: {"choices":[{"delta":{"content":"Happy to help."}}]}\n\ndata: [DONE]\n\n',
+      listings: { lst_tone: { id: 'lst_tone', title: 'Support tone', kind: 'skill', price_per_use_ulxc: 20_000 } },
+      answerHeaders: { 'X-Talyvor-Listing-Charge': 'billed' },
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[{ pathname: '/chat', state: { listing: 'lst_tone' } }]}>
+          <Routes>
+            <Route path="/chat" element={<Chat />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    const named = (n: number) => new Headers(posted.mock.calls[n][0].init.headers).get('X-Talyvor-Listing')
+    const answered = async (n: number) => {
+      await waitFor(() => expect(posted).toHaveBeenCalledTimes(n))
+      await waitFor(() => expect(screen.getAllByRole('button', { name: 'Regenerate' })).toHaveLength(1))
+    }
+
+    const chip = await screen.findByTestId('chat-listing')
+    expect(chip.textContent).toBe('ListingSupport tone· 0.02 LXC a question, on your marketplace billRemove')
+    await chooseModel('Claude Opus 5')
+
+    // Two questions: each request names the listing, so Lens bills two uses, and each answer says how Lens charged it.
+    await ask('My card was declined.')
+    await answered(1)
+    await ask('And now?')
+    await answered(2)
+    expect([named(0), named(1)]).toEqual(['lst_tone', 'lst_tone'])
+    const lines = screen.getAllByTestId('turn-listing')
+    expect(lines.map((l) => l.textContent)).toEqual(Array(2).fill('Asked through Support tone · its use is on your marketplace bill for this month'))
+    // Kept with the conversation, so reopened it is asked through the listing still.
+    expect(loadConversations('user-a').list[0].listing).toEqual({ id: 'lst_tone', title: 'Support tone', price_per_use_ulxc: 20_000 })
+
+    // Removed: the next question is asked as any other, and the conversation no longer keeps it.
+    fireEvent.click(within(chip).getByRole('button', { name: 'Remove' }))
+    expect(screen.queryByTestId('chat-listing')).toBeNull()
+    await ask('Thanks.')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(3))
+    expect(named(2)).toBeNull()
+    await waitFor(() => expect(loadConversations('user-a').list[0].listing).toBeUndefined())
+  })
+
+  it('a link from anywhere else attaches nothing: the listing comes only from Use in Chat', async () => {
+    mockChat({ listings: { lst_tone: { id: 'lst_tone', title: 'Support tone', kind: 'skill', price_per_use_ulxc: 20_000 } } })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={['/chat?listing=lst_tone']}>
+          <Chat />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await chooseModel('Claude Opus 5')
+    expect(screen.queryByTestId('chat-listing')).toBeNull()
   })
 })
 

@@ -755,6 +755,14 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   if (BREAK !== 'budget' && ws.budgets.some((b) => b.enforcement === 'hard_block' && b.spent_usd >= b.limit_usd)) {
     return json(res, 402, { error: 'budget exceeded for workspace/team/sprint' })
   }
+  // B28.426 — talyvor-lens B28.186: a question asked through a marketplace listing (X-Talyvor-Listing) is one use of it, charged
+  // as a marketplace use, and the answer says how.
+  const listing = header('x-talyvor-listing')
+  if (listing !== '') {
+    const charge = bank.chatListingUse(ws.id, listing)
+    if (charge === undefined) return json(res, 404, { error: 'market: no such listing' })
+    headers['X-Talyvor-Listing-Charge'] = charge
+  }
   // B28.349 — offered Lens's wallet tool and asked what the agents spent, the stand-in model calls it, as a model does.
   // An answer that used a tool depends on the books at that moment, so none of it is kept or replayed; a question that
   // was only offered one is kept as any other.

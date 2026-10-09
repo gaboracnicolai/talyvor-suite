@@ -158,6 +158,8 @@ export interface ChatMessage {
   version?: number
   /** B28.370 — on an answer in a chat that uses a named prompt: which, and whether Lens said it swapped it in. */
   prompt?: AnswerPrompt
+  /** B28.426 — on an answer in a chat a marketplace listing is attached to: which, and how Lens said it charged the use. */
+  listing?: AnswerListing
   /** B28.372 — on an answer asked with Search the web on: the pages Lens searched and gave the model, by the number the
    *  answer cites each with (chatStream.ts CITATIONS_FRAME); empty when none came back. Screen-side only. */
   citations?: Citation[]
@@ -181,6 +183,21 @@ export interface ChatMessage {
 export interface AnswerPrompt {
   name: string
   resolved: boolean
+}
+
+/** B28.426 — a marketplace listing attached to a conversation: every question in it is asked through it. */
+export interface ChatListing {
+  id: string
+  title: string
+  price_per_use_ulxc: number
+}
+
+/** B28.426 — the listing an answer was asked through, and how Lens's answer said it charged that use (LISTING_CHARGE_HEADER:
+ *  billed, free, own, linked, licensed or trial); absent when Lens did not say. */
+export interface AnswerListing {
+  id: string
+  title: string
+  charge?: string
 }
 
 /** B28.354 — the agent chosen to pay for an answer. `billed` only when Lens's answer named that agent. */
@@ -229,6 +246,11 @@ export const POOL_HEADER = 'X-Talyvor-Pool'
  *  Track adds that spend to the issue's AI cost (talyvor-track RecordRequestSpendAttributed; talyvor-lens B28.124). */
 export const ISSUE_HEADER = 'X-Talyvor-Issue'
 
+/** B28.426 — the marketplace listing a conversation is attached to, by id: Lens asks the question through it and charges
+ *  the use as a marketplace use (talyvor-lens B28.186). Lens answers with how it charged it in LISTING_CHARGE_HEADER. */
+export const LISTING_HEADER = 'X-Talyvor-Listing'
+export const LISTING_CHARGE_HEADER = 'X-Talyvor-Listing-Charge'
+
 /** B28.376 — the Track issue a conversation is about: the one attached last, in any of its questions. */
 export function attachedIssue(messages: ChatMessage[]): { id: string; identifier: string } | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -257,6 +279,8 @@ export interface ConversationTag {
   temporary?: boolean
   /** B28.381 — the chat is kept out of the shared pool: its answers never go to another workspace, nor theirs to it. */
   pool_off?: boolean
+  /** B28.426 — the id of the marketplace listing the conversation is attached to. */
+  listing?: string
 }
 
 /** B28.349 — a Lens MCP tool Chat may offer the model (GET /api/chat/tools): only ones that read.
@@ -758,6 +782,9 @@ export interface StreamHandlers {
     chargedULXC?: number
     /** B28.370 — Lens said it swapped the conversation's named prompt in (X-Talyvor-Prompt-Resolved: true). */
     promptResolved?: boolean
+    /** B28.426 — how Lens said it charged the use of the conversation's listing (X-Talyvor-Listing-Charge); for askChat, the
+     *  last request's. */
+    listingCharge?: string
     /** B28.372 — the pages Lens searched and gave the model, when it said; for askChat, the last request's that said. */
     citations?: Citation[]
     /** B28.373 — the code the model ran in Lens's sandbox, in order; for askChat, every request's. */
@@ -830,6 +857,7 @@ export async function streamChat(
       ...(conversation?.web_search === true ? { [WEB_SEARCH_HEADER]: 'on' } : {}),
       ...(conversation?.run_code === true ? { [RUN_CODE_HEADER]: 'on' } : {}),
       ...(issue !== undefined ? { [ISSUE_HEADER]: issue.identifier } : {}),
+      ...(conversation?.listing !== undefined ? { [LISTING_HEADER]: conversation.listing } : {}),
     },
     body: JSON.stringify(requestBody(provider, model, messages, tools, exchange, conversation?.instructions, conversation?.prompt)),
     signal,
@@ -877,6 +905,7 @@ export async function streamChat(
   const requestId = res.headers.get('X-Talyvor-Request-ID') ?? undefined
   const paidByLens = res.headers.get(PAID_BY_HEADER) ?? undefined
   const promptResolved = res.headers.get(PROMPT_RESOLVED_HEADER) === 'true'
+  const listingCharge = res.headers.get(LISTING_CHARGE_HEADER) ?? undefined
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -921,7 +950,7 @@ export async function streamChat(
         for (const d of got.deltas) handlers.onDelta(d.text)
         for (const p of got.toolCalls ?? []) gather(p)
         if (got.done) {
-          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations, codeRuns })
+          handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, listingCharge, citations, codeRuns })
           return
         }
       }
@@ -936,7 +965,7 @@ export async function streamChat(
   // reported as one: it is what a truncated relay, a killed upstream or a 10s client timeout look
   // like. Step 3 found exactly that shape (a whole-exchange Timeout guillotining long completions),
   // so a chat screen that rendered it as a finished answer would hide the defect it was built after.
-  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, citations, codeRuns })
+  handlers.onDone({ unrecognised, usage, model: served, converted, source, saved, tare, requestId, finish, toolCalls: toolCalls(), paidBy: paidByLens, chargedULXC: charged, promptResolved, listingCharge, citations, codeRuns })
 }
 
 /** B28.349 — how many times one question may go to the model: the tools' answers go back at most twice. */

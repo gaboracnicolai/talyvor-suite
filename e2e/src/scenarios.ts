@@ -62,6 +62,7 @@ import { selfBilledInvoice } from './selfBill.ts'
 import { platformReport } from './platformReport.ts'
 import { marketBillTax } from './billTax.ts'
 import { marketBillInvoices } from './billInvoices.ts'
+import { chatListing } from './chatListing.ts'
 import { marketBuyerCurrency } from './buyerCurrency.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
@@ -5041,6 +5042,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // use left unpaid list as the period in progress then two invoices, each with its billing period and PDF; each invoice's
   // bill holds its own uses, the refunded one reading refunded, its total the invoice's less refunds, as its receipt collected.
   if (i === 3) list.push(marketBillInvoices(i))
+  // B28.426 (for talyvor-lens B28.186) — a paid skill used in Chat, once a run, on workspaces of its own: opened from its listing
+  // page with Use in Chat, two questions write two billed uses on the buyer's marketplace bill and two model spend rows.
+  if (i === 7) list.push(chatListing(i))
   // B30.118 — Know Your Agent, once a run, on a workspace of its own: the owner's read and the agent's wallet_credential hand over
   // one credential that verifies with only the published JWKS and states the daily limit; a rule change lists it "rules changed"
   // on revoked.json and the next states the new limit; pausing the agent lists that one "frozen" and the route is 409.
