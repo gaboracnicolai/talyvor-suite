@@ -30,7 +30,7 @@ interface SdkClient {
     issueKey(agentId: string): Promise<{ key: string }>
     statement(agentId: string): Promise<{ lines: StatementLine[] }>
   }
-  openai(): { chat: { completions: { create(body: object): Promise<Completion> } } }
+  openai(): { chat: { completions: { create(body: object): { withResponse(): Promise<{ data: Completion; response: Response }> } } } }
 }
 interface Sdk { LensClient: new (o: { lensUrl: string; apiKey: string; workspaceId: string }) => SdkClient }
 
@@ -98,6 +98,19 @@ export function quickstartStatement(newestFirst: readonly StatementLine[], feeBP
   return { pass: true, spentULXC }
 }
 
+/**
+ * B17.180 — how the quickstart's model call is booked for the ledger read-back, from Lens's headers on it. An answer Lens
+ * replayed from the workspace's own earlier one is no charged answer at all (Lens writes no spend row for it), so it is
+ * not booked; one served from the pool is booked at the µLXC Lens says it charged, any other at its price in µLXC.
+ * `ulxc` is undefined when there is nothing to book: a replay, or a call that reported no usage to price.
+ */
+export function quickstartBooking(headers: Headers, costUSD: number | undefined, usdPerLXC: number): { replayed: boolean; ulxc: number | undefined } {
+  const pooled = headers.get('X-Talyvor-Pool-Charged-ULXC')
+  if (pooled !== null) return { replayed: false, ulxc: Number(pooled) }
+  if (headers.get('X-Talyvor-Cache-Replay') === 'true') return { replayed: true, ulxc: undefined }
+  return { replayed: false, ulxc: costUSD === undefined ? undefined : chargeULXC(costUSD, usdPerLXC) }
+}
+
 const show = (lines: readonly StatementLine[]): string => lines.map((l) => `${l.kind} ${l.amount_ulxc} → ${l.balance_after_ulxc}`).join('; ') || 'no lines'
 
 export function sdkWalletQuickstart(seed: number): Scenario {
@@ -127,24 +140,29 @@ export function sdkWalletQuickstart(seed: number): Scenario {
       const { key } = await owner.agents.issueKey(agent.id)
 
       // 4. The agent calls a model through Lens with that key. B35.8 — a word made up tonight, asked back: a question no one
-      // has asked is neither replayed nor pooled, and saying a word back is no sum for the model to get wrong.
-      const word = freshWord(1_000 + seed)
+      // has asked is neither replayed nor pooled, and saying a word back is no sum for the model to get wrong. B17.180 — a word of
+      // its own each attempt, so a second attempt is not answered from the first's.
+      const word = freshWord(1_000 + seed, 1 + Math.floor(Math.random() * 999_999))
       const question = `Reply with the single word: ${word}`
       const hold = env.cap.reserve(listPriceUSD(model, worstInputTokens(question.length), MAX_TOKENS))
       let r: Completion
+      let headers: Headers
       try {
         const ai = new LensClient({ lensUrl, apiKey: key, workspaceId }).openai()
-        r = await ai.chat.completions.create({ model: model.id, messages: [{ role: 'user', content: question }], max_tokens: MAX_TOKENS })
+        const { data, response } = await ai.chat.completions.create({ model: model.id, messages: [{ role: 'user', content: question }], max_tokens: MAX_TOKENS }).withResponse()
+        r = data
+        headers = response.headers
       } catch (e) {
         env.cap.settle(hold, undefined)
         return { pass: false, detail: `the agent's model call (${model.id}, .openai()) was refused: ${e instanceof Error ? e.message : String(e)}` }
       }
       const answer = r.choices[0]?.message.content ?? ''
       const cost = r.usage === undefined ? undefined : listPriceUSD(model, r.usage.prompt_tokens, r.usage.completion_tokens)
-      env.cap.settle(hold, cost)
-      // Booked as every charged answer is, for the ledger read-back.
-      if (cost !== undefined) env.book.add(workspaceId, chargeULXC(cost, env.usdPerLXC))
-      ctx.evidence.push({ note: `the agent asked ${model.id} with its own key`, question, answer })
+      const booked = quickstartBooking(headers, cost, env.usdPerLXC)
+      env.cap.settle(hold, booked.replayed ? 0 : cost)
+      // Booked as every charged answer is, for the ledger read-back; a replay is not booked.
+      if (booked.ulxc !== undefined) env.book.add(workspaceId, booked.ulxc)
+      ctx.evidence.push({ note: `the agent asked ${model.id} with its own key${booked.replayed ? ', answered from an earlier answer' : ''}`, question, answer })
       if (!namesWord(answer, word)) return { pass: false, detail: `the model call answered wrong: asked to say "${word}", it said "${answer}"` }
 
       // 5. Read its statement, newest first.
