@@ -686,6 +686,115 @@ export function docsTools(seed: number): Scenario {
 }
 
 /** Presses the page's Save and waits for Docs to say it is saved. */
+/**
+ * B28.447 — what B28.249 shipped in talyvor-docs, through the app. Share on a page this person wrote makes a link a
+ * stranger opens signed out; the same link with one character of its signature changed answers 404, exactly as a link
+ * Docs never made does; and an edit sent over the page's live-edit socket, closed straight after Docs acknowledged it
+ * (well inside Docs' 5-second autosave tick), is in the page read back — Docs saves it when the last socket leaves.
+ */
+export function docsShareCollab(seed: number): Scenario {
+  const word = `ferrule${seed}${RUN_SALT}`
+  const edit = `kestrel${seed}${RUN_SALT}`
+  const space = `Field notes ${seed}`
+  const title = `Shared runbook ${seed}`
+  const text = `the night shift checks valve ${word} before handover.`
+  return {
+    id: 'docs-share-collab',
+    owner: 'talyvor-docs',
+    items: ['B28.249', 'B28.447'],
+    title: 'Docs: a share link is read signed out, the same link with one signature character changed is 404 like an unknown link, and an edit on the live-edit socket closed before the autosave tick is saved',
+    run: async (ctx) => {
+      const browser = ctx.app.context.browser()
+      if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
+      const doc = await DocsPage.write(ctx.app, space, title, text)
+      const p = doc.page
+      const stranger = await browser.newContext()
+      const shots: string[] = []
+      const shoot = async (on: Page, name: string): Promise<void> => {
+        await mkdir(ctx.env.outDir, { recursive: true })
+        const was = on.viewportSize()
+        for (const [width, height] of [[1440, 900], [390, 844]]) {
+          await on.setViewportSize({ width, height })
+          const file = join(ctx.env.outDir, `docs-share-${name}-${width}px-user${ctx.app.user.index}.png`)
+          await on.screenshot({ path: file, fullPage: true })
+          shots.push(file)
+        }
+        if (was !== null) await on.setViewportSize(was)
+      }
+      try {
+        const ids = /\/docs\/spaces\/([^/]+)\/pages\/([^/?#]+)/.exec(p.url())
+        if (ids === null) return fail(`the page opened at ${p.url()}, which names no space and page`)
+        const [, spaceID, pageID] = ids
+
+        // Share, and read the link signed out.
+        await p.getByRole('button', { name: 'Share', exact: true }).click({ timeout: ACTION_TIMEOUT_MS })
+        const box = p.getByRole('textbox', { name: 'Link to this page' })
+        if (!(await box.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false))) {
+          return fail(`Share showed no link: ${(await p.getByRole('alert').allInnerTexts().catch(() => [])).join(' ') || 'nothing said'}`)
+        }
+        const link = await box.inputValue()
+        const signed = /\/docs\/s\/([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(link)
+        if (signed === null) return fail(`the link ${JSON.stringify(link)} is not a signed token (nonce.signature) under /docs/s/`)
+        const [, nonce, sig] = signed
+        const origin = new URL(link).origin
+        const tampered = `${nonce}.${sig[0] === 'A' ? 'B' : 'A'}${sig.slice(1)}`
+        const unknown = `s1_${createHash('sha256').update(`${seed}${RUN_SALT}${Date.now()}`).digest('hex').slice(0, 32)}.${sig}`
+        ctx.evidence.push({ note: `Share gave ${link}; one signature character changed: ${tampered}; a link Docs never made: ${unknown}` })
+        await shoot(p, 'link')
+
+        const reader = await stranger.newPage()
+        const live = await reader.goto(link)
+        await reader.getByRole('heading', { level: 1, name: title }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).catch(() => undefined)
+        const read = (await reader.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ')
+        await shoot(reader, 'page')
+        ctx.evidence.push({ note: `signed out, ${link} answered ${live?.status()}: "${read.slice(0, 200)}"` })
+        if (live?.status() !== 200) return fail(`a stranger opening the share link got ${live?.status()}, not 200`)
+        if (!read.includes(word)) return fail(`the shared page does not hold the page's word ${word}: "${read.slice(0, 200)}"`)
+
+        const changed = await reader.goto(`${origin}/docs/s/${tampered}`)
+        const gone = await reader.getByRole('heading', { level: 1, name: 'This page isn’t available' }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        const shown = (await reader.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ')
+        await shoot(reader, 'refused')
+        const apiChanged = await from(reader, 'GET', `/api/public/docs/${tampered}`)
+        const apiUnknown = await from(reader, 'GET', `/api/public/docs/${unknown}`)
+        ctx.evidence.push({ note: `the changed link answered ${changed?.status()} (its read ${apiChanged.status} ${apiChanged.text.trim()}); the unknown one's read ${apiUnknown.status} ${apiUnknown.text.trim()}; the page ${gone ? 'says it is not there' : `shows "${shown.slice(0, 160)}"`}` })
+        if (changed?.status() !== 404) return fail(`the link with one signature character changed answered ${changed?.status()}, not 404`)
+        if (apiChanged.status !== 404 || apiUnknown.status !== 404) return fail(`Docs read the changed link as ${apiChanged.status} and an unknown one as ${apiUnknown.status}; both must be 404`)
+        if (apiChanged.text !== apiUnknown.text) return fail(`the changed link's 404 (${apiChanged.text.trim()}) differs from an unknown link's (${apiUnknown.text.trim()}), so the refusal tells the two apart`)
+        if (!gone || shown.includes(word)) return fail(`the changed link's page ${shown.includes(word) ? `still shows the page's word ${word}` : 'does not say the page is not there'}`)
+
+        // An edit on the live-edit socket, closed straight after Docs acknowledged it.
+        const content = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `${text} then logs ${edit}.` }] }] })
+        const sent = await p.evaluate(async ({ pageID, content }) => new Promise<string>((resolve) => {
+          const ws = new WebSocket(`${location.origin.replace(/^http/, 'ws')}/api/docs/collab/${encodeURIComponent(pageID)}/ws?client_id=e2e-${Date.now()}&member_name=Tester`)
+          const timer = setTimeout(() => { ws.close(); resolve('no answer from Docs in 15 s') }, 15_000)
+          ws.onopen = () => ws.send(JSON.stringify({ type: 'change', change: { version: 0, ops: [], snapshot: content } }))
+          ws.onmessage = (e) => {
+            const m = JSON.parse(String(e.data)) as { type: string; reason?: string }
+            if (m.type !== 'ack' && m.type !== 'change_rejected') return
+            clearTimeout(timer)
+            ws.close()
+            resolve(m.type === 'ack' ? 'ack' : `refused: ${m.reason ?? ''}`)
+          }
+          ws.onerror = () => { clearTimeout(timer); resolve('the socket did not open') }
+        }), { pageID, content })
+        const closed = Date.now()
+        if (sent !== 'ack') return fail(`the edit on the live-edit socket was not acknowledged: ${sent}`)
+        const stored = async () => readFrom<DocsPageRead>(p, `/api/docs/spaces/${spaceID}/pages/${pageID}`)
+        const back = await until(stored, (x) => typeof x !== 'string' && x.content_text.includes(edit), 15_000)
+        ctx.evidence.push({ note: `the socket closed on Docs' ack; ${Date.now() - closed} ms later the page reads: ${typeof back === 'string' ? back : `"${back.content_text.slice(0, 200)}"`}` })
+        if (typeof back === 'string') return fail(back)
+        if (!back.content_text.includes(edit)) return fail(`the edit acknowledged on the socket and closed before the autosave tick is not in the page: "${back.content_text.slice(0, 200)}"`)
+        ctx.evidence.push({ note: `screenshots ${shots.join(', ')}` })
+        return { pass: true, detail: `a stranger read the shared page (it holds ${word}); one signature character changed was 404, the same 404 as a link Docs never made; the edit holding ${edit}, closed on its ack, was in the page read back` }
+      } finally {
+        await stranger.close()
+        await doc.close()
+      }
+    },
+  }
+}
+
 async function saved(p: Page): Promise<void> {
   await p.getByRole('button', { name: 'Save', exact: true }).click()
   await p.getByRole('status').filter({ hasText: 'Saved.' }).last().waitFor({ timeout: 15_000 }).catch(() => undefined)

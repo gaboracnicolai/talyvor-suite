@@ -10,9 +10,12 @@
 //   docs-export  — a Docs page's HTML export is set in Inter, its links in #f0a030
 //   seats        — Track adds a member without asking Lens whether the plan has a seat for them (B32.71)
 //   file-bug     — Track's MCP create_issue says it filed the issue and keeps nothing (B28.374)
+//   docs-share-unsigned — Docs opens a share link whatever its signature says (B28.447)
+//   docs-collab-drop    — Docs drops an edit acknowledged on the live-edit socket when the socket closes (B28.447)
 
-import { randomBytes } from 'node:crypto'
-import { type IncomingMessage, type ServerResponse, createServer } from 'node:http'
+import { createHash, createHmac, randomBytes } from 'node:crypto'
+import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http'
+import type { Duplex } from 'node:stream'
 
 const TRACK_PORT = Number(process.env.TRACK_PORT ?? 9912)
 const DOCS_PORT = Number(process.env.DOCS_PORT ?? 9913)
@@ -48,8 +51,8 @@ const sentences = (text: string): string[] => text.split(/(?<=[.!?])\s+/).map((s
 /** One workspace per identity, as Track's bootstrap makes it; Docs uses the same id. */
 const byEmail = new Map<string, string>()
 
-function serve(port: number, name: string, route: (req: IncomingMessage, res: ServerResponse, path: string, url: URL) => Promise<void>): void {
-  createServer(async (req, res) => {
+function serve(port: number, name: string, route: (req: IncomingMessage, res: ServerResponse, path: string, url: URL) => Promise<void>): Server {
+  return createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`)
     try {
       // B34.5 — a published board is read by anyone with its link: the BFF sends no gateway proof for it (publicBoard).
@@ -378,8 +381,77 @@ function exportHTML(p: Page): string {
     '<footer>Exported from Talyvor Docs</footer>\n</body>\n</html>\n'
 }
 
+// B28.447 — Docs' share links and live-edit socket as B28.249 made them (talyvor-docs internal/sharing, internal/collab).
+// A token is nonce.HMAC(nonce), and a changed character is refused with the same 404 as a link never made. The socket
+// acknowledges a change, and the page is saved when its last socket closes.
+const shareKey = randomBytes(32)
+const shares = new Map<string, string>()
+const signNonce = (nonce: string): string => createHmac('sha256', shareKey).update(nonce).digest('base64url')
+function sharedPage(token: string): Page | undefined {
+  const [nonce, sig = ''] = token.split('.')
+  if (BREAK !== 'docs-share-unsigned' && sig !== signNonce(nonce)) return undefined
+  return pages.find((p) => p.id === shares.get(nonce))
+}
+
+function collab(req: IncomingMessage, socket: Duplex): void {
+  socket.on('error', () => undefined)
+  const m = /^\/v1\/collab\/([^/]+)\/ws$/.exec(new URL(req.url ?? '/', 'http://stub').pathname)
+  const page = m === null ? undefined : pages.find((p) => p.id === m[1])
+  // Docs refuses a socket from another host's page; the BFF must send none of the browser's Origin.
+  if (req.headers['x-gateway-auth'] !== SECRET || page === undefined || req.headers.origin !== undefined) {
+    socket.end('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n')
+    return
+  }
+  const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
+  socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`)
+  let buf = Buffer.alloc(0)
+  let unsaved: string | undefined
+  // shortcut: one unfragmented frame each way, and an answer under 126 bytes — all the scenario sends and reads.
+  const send = (text: string): void => void socket.write(Buffer.concat([Buffer.from([0x81, Buffer.byteLength(text)]), Buffer.from(text)]))
+  socket.on('data', (chunk: Buffer) => {
+    buf = Buffer.concat([buf, chunk])
+    for (;;) {
+      if (buf.length < 2) return
+      const op = buf[0] & 0x0f
+      let len = buf[1] & 0x7f
+      let at = 2
+      if (len === 126) [len, at] = buf.length < 4 ? [Infinity, 4] : [buf.readUInt16BE(2), 4]
+      else if (len === 127) [len, at] = buf.length < 10 ? [Infinity, 10] : [Number(buf.readBigUInt64BE(2)), 10]
+      if (buf.length < at + 4 + len) return
+      const mask = buf.subarray(at, at + 4)
+      const data = Buffer.from(buf.subarray(at + 4, at + 4 + len).map((b, i) => b ^ mask[i % 4]))
+      buf = buf.subarray(at + 4 + len)
+      if (op === 0x8) return void socket.end(Buffer.from([0x88, 0]))
+      if (op !== 0x1) continue
+      const msg = JSON.parse(data.toString()) as { type?: string; change?: { snapshot?: string } }
+      if (msg.type !== 'change' || typeof msg.change?.snapshot !== 'string') continue
+      unsaved = msg.change.snapshot
+      send(JSON.stringify({ type: 'ack', id: id(), version: 1 }))
+    }
+  })
+  socket.on('close', () => {
+    if (unsaved === undefined || BREAK === 'docs-collab-drop') return
+    page.content = unsaved
+    page.content_text = plainText(unsaved)
+  })
+}
+
 serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
   let m: RegExpExecArray | null
+  if ((m = /^\/v1\/public\/s\/([^/]+)$/.exec(path))) {
+    const p = sharedPage(decodeURIComponent(m[1]))
+    if (p === undefined) return json(res, 404, { error: 'link not found' })
+    return json(res, 200, { page: { id: p.id, title: p.title, icon: '', content: p.content, content_text: p.content_text, updated_at: now() }, access: 'view', has_password: false, powered_by: 'Talyvor Docs' })
+  }
+  if ((m = /^\/v1\/spaces\/([^/]+)\/pages\/([^/]+)\/share$/.exec(path)) && req.method === 'POST') {
+    const [, space, pageID] = m
+    const p = pages.find((x) => x.space_id === space && x.id === pageID)
+    if (p === undefined) return json(res, 404, { error: 'no such page' })
+    const nonce = `s1_${randomBytes(16).toString('hex')}`
+    shares.set(nonce, p.id)
+    const token = `${nonce}.${signNonce(nonce)}`
+    return json(res, 201, { link: { id: id(), page_id: p.id, token, access: 'view', view_count: 0, created_at: now(), has_password: false }, share_url: `/s/${token}` })
+  }
   // B28.374 — Docs' /mcp as Chat uses it (talyvor-docs internal/mcp): search_docs over the pages, by title and text.
   if (path === '/mcp' && req.method === 'POST') {
     const rpc = await body<RPC>(req)
@@ -510,4 +582,4 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
     return json(res, 200, { title: (sentences(content)[0] ?? 'Untitled').split(/\s+/).slice(0, 6).join(' ') })
   }
   return json(res, 404, { error: 'stub docs: no such route' })
-})
+}).on('upgrade', collab)

@@ -56,6 +56,7 @@ import { RoomsArea } from './areas/rooms/Rooms'
 import { TrackArea } from './areas/track/TrackArea'
 import { PublicBoard } from './areas/board/PublicBoard'
 import { SharedChat } from './areas/share/SharedChat'
+import { SharedDocsPage } from './areas/share/SharedDocsPage'
 import { DocsArea } from './areas/docs/DocsArea'
 import { OperatorTax } from './areas/lens/OperatorTax'
 import { OperatorCompliance } from './areas/lens/OperatorCompliance'
@@ -710,6 +711,9 @@ export function App() {
           {/* B28.127 — a chat its person shared as a link, read by anyone holding it until it is turned off.
               Outside the gate for the same reason. Read-only — see areas/share/SharedChat.tsx. */}
           <Route path="/share/:token" element={<SharedChat />} />
+          {/* B28.447 — a Docs page its admin shared as a link, read by anyone holding it. Outside the gate for the same
+              reason. Read-only — see areas/share/SharedDocsPage.tsx. */}
+          <Route path="/docs/s/:token" element={<SharedDocsPage />} />
           <Route
             path="/*"
             element={

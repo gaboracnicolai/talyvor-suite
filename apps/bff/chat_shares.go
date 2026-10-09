@@ -219,16 +219,21 @@ func (a *app) sharePage() http.Handler {
 			spa.ServeHTTP(w, r)
 			return
 		}
-		page, err := os.ReadFile(filepath.Join(filepath.Clean(a.cfg.webDist), "index.html"))
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusNotFound)
-		if r.Method == http.MethodGet {
-			_, _ = w.Write(page)
-		}
+		a.serveAppNotFound(w, r)
 	})
+}
+
+// serveAppNotFound answers the app's own page with a 404, so a dead link is gone as a link and the page says why.
+func (a *app) serveAppNotFound(w http.ResponseWriter, r *http.Request) {
+	page, err := os.ReadFile(filepath.Join(filepath.Clean(a.cfg.webDist), "index.html"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
+	if r.Method == http.MethodGet {
+		_, _ = w.Write(page)
+	}
 }

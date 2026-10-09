@@ -428,6 +428,15 @@ export const docsApi = {
       patch,
     ),
 
+  /** B28.447 — a view-only link to the page, opened signed out at /docs/s/{token}. Docs needs Admin on the page and
+   *  signs the token; the BFF asks for view whatever is sent. */
+  sharePage: (spaceId: string, pageId: string) =>
+    send<{ link: { token: string } }>(
+      `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}/share`,
+      'POST',
+      {},
+    ),
+
   /** B29.30 — the page as an HTML file, rendered by Docs in the brand. The filename is Docs' own
    *  (named after the page's title), read off Content-Disposition. */
   exportPageHTML: async (spaceId: string, pageId: string): Promise<{ filename: string; html: string }> => {
