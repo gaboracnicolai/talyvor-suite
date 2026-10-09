@@ -1209,13 +1209,14 @@ export class Bank {
         sc.next_run_at = new Date(Date.parse(at) + (PERIOD_MS[sc.every] ?? PERIOD_MS.month)).toISOString()
       }
     }
-    // B34.4 — an agent below its top-up level is filled to it from the workspace's free credits.
+    // B34.4 — an agent below its top-up level is filled to it from the workspace's free credits, as a topup entry (Lens's
+    // topUpAgent).
     for (const a of this.agents.values()) {
       const ws = a.topup === undefined || a.archived_at !== undefined ? undefined : this.d.workspace(a.ws)
       const have = this.balance(`agent:${a.id}`)
       if (ws === undefined || a.topup === undefined || have >= a.topup.below_ulxc) continue
       const n = a.topup.to_ulxc - have
-      if (n <= ws.balance - (this.book(ws) as { allocated_ulxc: number }).allocated_ulxc) this.post(ws.id, 'fund', [['workspace', -n, `agent:${a.id}`], [`agent:${a.id}`, n, 'workspace']], 'topup')
+      if (n <= ws.balance - (this.book(ws) as { allocated_ulxc: number }).allocated_ulxc) this.post(ws.id, 'topup', [['workspace', -n, `agent:${a.id}`], [`agent:${a.id}`, n, 'workspace']])
     }
     for (const c of this.cashOuts) {
       if (c.status === 'held') {
@@ -1683,8 +1684,9 @@ export class Bank {
       }
       const have = this.balance(m[3] === 'in' ? `agent:${a.id}` : `pot:${pot.id}`)
       if (!(n > 0) || n > have) return json(res, 409, { error: `economy: there are only ${lxc(have)} LXC to move` }), true
-      if (m[3] === 'in') this.post(ws.id, 'pot', [[`agent:${a.id}`, -n, `pot:${pot.id}`], [`pot:${pot.id}`, n, `agent:${a.id}`]], pot.id)
-      else this.post(ws.id, 'pot', this.broken('pot-out-lost') ? [[`pot:${pot.id}`, -n, `agent:${a.id}`]] : [[`pot:${pot.id}`, -n, `agent:${a.id}`], [`agent:${a.id}`, n, `pot:${pot.id}`]], pot.id)
+      // As Lens's movePot: a pot_in entry into it, a pot_out entry out of it.
+      if (m[3] === 'in') this.post(ws.id, 'pot_in', [[`agent:${a.id}`, -n, `pot:${pot.id}`], [`pot:${pot.id}`, n, `agent:${a.id}`]], pot.id)
+      else this.post(ws.id, 'pot_out', this.broken('pot-out-lost') ? [[`pot:${pot.id}`, -n, `agent:${a.id}`]] : [[`pot:${pot.id}`, -n, `agent:${a.id}`], [`agent:${a.id}`, n, `pot:${pot.id}`]], pot.id)
       return json(res, 200, { ...pot, balance_ulxc: this.balance(`pot:${pot.id}`) }), true
     }
     if ((m = /^\/agents\/([^/]+)\/pots\/([^/]+)\/lock$/.exec(rest)) !== null && method === 'PUT') {
