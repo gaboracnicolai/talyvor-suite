@@ -590,7 +590,10 @@ export function marketReview(seed: number, partner: number): Scenario {
   }
 }
 
-/** Marketplace → Your listings & earnings, as the seller: the line over the listings, and the text of the card titled `title`. */
+/**
+ * Marketplace → Your listings & earnings, as the seller: the line over the listings, and the text of the card titled
+ * `title`. Its pill's words are capitals on the screen (innerText follows text-transform): match a status in any case.
+ */
 async function yourListing(ctx: ScenarioCtx, title: string): Promise<{ summary: string; card: string } | string> {
   const page = await ctx.app.tab('/marketplace/selling')
   try {
@@ -651,7 +654,7 @@ export function marketHeldSeller(seed: number): Scenario {
       const held = await yourListing(ctx, title)
       ctx.evidence.push({ note: 'Your listings, held', answer: JSON.stringify(held) })
       if (typeof held === 'string') return fail(held)
-      if (!held.card.includes('Held for review') || !held.card.includes(`Why: ${reason}.`)) {
+      if (!/held for review/i.test(held.card) || !held.card.includes(`Why: ${reason}.`)) {
         return fail(`Your listings' card reads "${held.card}", not Held for review with Lens's reason "${reason}"`)
       }
       if (!/\b(is|are) held for review\b/.test(held.summary)) return fail(`the line over Your listings reads "${held.summary}", not a count of the held listing`)
@@ -667,7 +670,7 @@ export function marketHeldSeller(seed: number): Scenario {
       const after = await yourListing(ctx, title)
       ctx.evidence.push({ note: 'Your listings, taken down', answer: JSON.stringify(after) })
       if (typeof after === 'string') return fail(after)
-      if (!after.card.includes('Taken down') || !after.card.includes(`Why: ${why}.`)) {
+      if (!/taken down/i.test(after.card) || !after.card.includes(`Why: ${why}.`)) {
         return fail(`taken down, Your listings' card reads "${after.card}", not Taken down with the moderator's reason "${why}"`)
       }
       return { pass: true, detail: `${passed}; taken down, its card reads Taken down with the moderator's reason` }
