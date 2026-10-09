@@ -112,8 +112,16 @@ export function ListingCard({
         {l.description ? <span className="line-clamp-2 text-body text-muted">{l.description}</span> : null}
       </span>
       {l.review_status === 'held' || l.review_status === 'taken_down' ? (
-        <span className="flex">
+        <span className="flex flex-col items-start gap-1.5">
           {l.review_status === 'held' ? <Pill status="held">Held for review</Pill> : <Pill status="slashed">Taken down</Pill>}
+          {mine && l.review_reason ? (
+            <span className="text-caption text-muted" data-testid="listing-review-reason">
+              <span className="text-ink">Why: {l.review_reason.replace(/\.+$/, '')}.</span>{' '}
+              {l.review_status === 'held'
+                ? 'Only you can see it until Talyvor approves it.'
+                : 'Nobody can find or use it.'}
+            </span>
+          ) : null}
         </span>
       ) : null}
       <span className="mt-auto flex items-end justify-between gap-3 border-t border-rule pt-3">
@@ -142,6 +150,24 @@ export function ListingCard({
       </span>
     </li>
   )
+}
+
+/**
+ * B28.139 — the line over a seller's own listings when Talyvor holds or took any down: how many, and that buyers
+ * cannot find them; each card says why. Nothing when every listing is approved.
+ */
+export function reviewSummary(listings: readonly Listing[]): string {
+  const held = listings.filter((l) => l.review_status === 'held').length
+  const down = listings.filter((l) => l.review_status === 'taken_down').length
+  if (held + down === 0) return ''
+  const one = held + down === 1
+  const said =
+    held > 0 && down > 0
+      ? `${held} ${held === 1 ? 'listing is' : 'listings are'} held for review and ${down} ${down === 1 ? 'was' : 'were'} taken down`
+      : held > 0
+        ? `${held} ${held === 1 ? 'listing is' : 'listings are'} held for review`
+        : `${down} ${down === 1 ? 'listing was' : 'listings were'} taken down`
+  return `${said}: buyers cannot find ${one ? 'it' : 'them'}. Why is on ${one ? 'its card' : 'each card'}.`
 }
 
 /** Listings as a grid of cards: one column on a phone, two from `wide`, three on a broad screen. */
