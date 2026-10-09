@@ -90,6 +90,10 @@
 // seller with earnings and no tax details and pays one whose details are complete. Its defect, beside stub-tax.ts's two:
 //   payout-hold-ignored — the payout run pays a seller who gave no tax details
 //
+// B28.426 adds a Chat question asked through a listing (X-Talyvor-Listing, talyvor-lens B28.186): one use of it, charged as a
+// marketplace use, the answer saying how (X-Talyvor-Listing-Charge). Its defect:
+//   chat-listing-unbilled — a question asked through a paid listing answers billed, and nothing goes on the buyer's bill
+//
 // B32.96 adds a seller's statements as only its owner or an admin reads them, and the payout page's paid_this_week. Its defects:
 //   statement-unsummed  — a paid week's statement leaves its Stripe fees out of its lines, its net still the payout's
 //   statement-list-gross — the list of statements gives a paid week's net as its payout's gross
@@ -480,6 +484,22 @@ export class Bank {
     const a = this.keys.get(key)
     const ws = a === undefined ? undefined : this.d.workspace(a.ws)
     return a === undefined || ws === undefined ? undefined : { ws, agent: a }
+  }
+
+  /**
+   * B28.426 — a Chat question asked through a listing (X-Talyvor-Listing; talyvor-lens B28.186): one use of it, charged as a
+   * marketplace use is — the seller's own and a free listing for nothing, any other billed on the buyer's bill. Undefined, and
+   * nothing charged, for a listing the buyer cannot see or one taken down. STUB_BREAK=chat-listing-unbilled bills nothing.
+   */
+  chatListingUse(buyer: string, listingID: string): string | undefined {
+    const l = this.listings.get(listingID)
+    if (l === undefined || !this.visible(l, buyer) || l.review_status === 'taken_down') return undefined
+    const charge = l.workspace_id === buyer ? 'own' : l.price_per_use_ulxc === 0 ? 'free' : 'billed'
+    if (!this.broken('chat-listing-unbilled')) {
+      this.uses.push({ id: id('use_'), listing_id: l.id, seller: l.workspace_id, buyer, agent_id: '', price_ulxc: charge === 'billed' ? l.price_per_use_ulxc : 0,
+        charge, used_at: new Date().toISOString(), payee_agent_id: '', memo: '' })
+    }
+    return charge
   }
 
   /** B28.359 — revokes one of the workspace's agent keys by its id, as Lens's DELETE …/api-keys/{id} does; false: no such key. */

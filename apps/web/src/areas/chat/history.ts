@@ -1,4 +1,4 @@
-import type { ChatMessage } from './chatApi'
+import type { ChatListing, ChatMessage } from './chatApi'
 
 // CONVERSATION HISTORY — B1.3. Conversations persist and reopen.
 //
@@ -29,6 +29,8 @@ export interface Conversation {
   prompt?: string
   /** B28.381 — kept out of the shared pool: no other workspace is served its answers; absent, it shares as the workspace does. */
   pool_off?: true
+  /** B28.426 — the marketplace listing every question in it is asked through; absent, none. */
+  listing?: ChatListing
   created_at: number
   updated_at: number
   /** B28.365 — when this browser last saved a change to it (a rename too, which leaves updated_at); syncs merge by it. */
@@ -207,6 +209,8 @@ export function upsertConversation(
   prompt?: string,
   /** B28.381 — it is kept out of the shared pool. */
   poolOff?: boolean,
+  /** B28.426 — the marketplace listing it is asked through. */
+  listing?: ChatListing,
 ): Conversation[] {
   const kept = messages
     .filter((m) => !(m.role === 'assistant' && m.content === ''))
@@ -225,6 +229,7 @@ export function upsertConversation(
     ...((projectId ?? prior?.project_id) !== undefined ? { project_id: projectId ?? prior?.project_id } : {}),
     ...(prompt !== undefined && prompt !== '' ? { prompt } : {}),
     ...(poolOff === true ? { pool_off: true as const } : {}),
+    ...(listing !== undefined ? { listing } : {}),
     // B28.110 — a pin outlasts new turns; a question asked in an archived conversation brings it back to the list.
     ...(prior?.pinned ? { pinned: true as const } : {}),
     created_at: prior?.created_at ?? now,

@@ -227,6 +227,13 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid issue"})
 			return
 		}
+		// B28.426 — the marketplace listing the conversation is asked through, by its id: Lens asks the question through it
+		// and charges the use as a marketplace use (talyvor-lens B28.186). Only an id's shape goes on.
+		listing := strings.TrimSpace(r.Header.Get(listingHeader))
+		if listing != "" && !listingIDPattern.MatchString(listing) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid listing"})
+			return
+		}
 		budget := strings.TrimSpace(r.Header.Get(conversationBudgetHeader))
 		if budget != "" {
 			n, err := strconv.ParseInt(budget, 10, 64)
@@ -346,6 +353,9 @@ func (a *app) handleAIStream() http.HandlerFunc {
 			if issue != "" {
 				up.Header.Set(issueHeader, issue)
 			}
+			if listing != "" {
+				up.Header.Set(listingHeader, listing)
+			}
 			// B28.362 — Chat asks Lens to say in the stream what it charged for the answer (talyvor-lens B28.102).
 			// Only the one value is forwarded: Lens adds its frame only for a reader that asked for it.
 			if strings.EqualFold(strings.TrimSpace(r.Header.Get(reportChargeHeader)), "true") {
@@ -422,6 +432,10 @@ func (a *app) handleAIStream() http.HandlerFunc {
 		if v := resp.Header.Get(promptResolvedHeader); v != "" {
 			w.Header().Set(promptResolvedHeader, v)
 		}
+		// B28.426 — how Lens charged the use of the conversation's listing; the chat says so under the answer.
+		if v := resp.Header.Get(listingChargeHeader); v != "" {
+			w.Header().Set(listingChargeHeader, v)
+		}
 		// B23.12 — which request this answer was, so a thumbs-down on it can name it (feedback.go).
 		if v := resp.Header.Get(requestIDHeader); v != "" {
 			w.Header().Set(requestIDHeader, v)
@@ -488,6 +502,16 @@ const issueHeader = "X-Talyvor-Issue"
 // issueIdentifierPattern is the shape of a Track identifier the BFF passes on: a team's key, '-', the issue's number, in
 // letters, digits, '-' and '_', at most 64.
 var issueIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// listingHeader names the marketplace listing a Chat request is asked through (B28.426), and listingChargeHeader is Lens
+// saying how it charged that use — billed, free, own, linked, licensed or trial (talyvor-lens B28.186).
+const (
+	listingHeader       = "X-Talyvor-Listing"
+	listingChargeHeader = "X-Talyvor-Listing-Charge"
+)
+
+// listingIDPattern is the shape of a listing id the BFF passes on: letters, digits, '-' and '_', at most 64.
+var listingIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // featureHeader is the tag Lens groups spend by (token_events.feature, /v1/api/spend/by-feature), and chatFeature
 // Chat's tag on it (B28.106). The cheaper-model hint asks Lens for the same cohort (routing.go).

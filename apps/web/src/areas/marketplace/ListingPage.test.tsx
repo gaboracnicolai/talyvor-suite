@@ -55,6 +55,8 @@ function listing(id: string, currency: string): Record<string, unknown> {
   return {
     ...base,
     id,
+    // B28.426 — a skill, which can be used in Chat.
+    ...(id === 'lst_skill' ? { kind: 'skill' } : {}),
     title: 'Daily brief',
     price_per_use_ulxc: 5_000_000,
     remix_policy: 'none',
@@ -240,6 +242,15 @@ describe('listing page 2', () => {
     expect(result.textContent).toContain('Trial uses left: 2.')
     expect(bill).toEqual([])
     expect(screen.queryByTestId('new-version')).toBeNull()
+  })
+
+  it('offers a skill, and only a skill, to use in Chat: a new chat attached to it (B28.426)', async () => {
+    mockBff()
+    await at('/marketplace/listings/lst_skill')
+    expect((await screen.findByRole('link', { name: 'Use in Chat' })).getAttribute('href')).toBe('/chat?listing=lst_skill')
+    await at('/marketplace/listings/lst_trial')
+    await screen.findByTestId('listing-offer')
+    expect(screen.queryByRole('link', { name: 'Use in Chat' })).toBeNull()
   })
 
   it('shows the trust figures and the originals with their shares, and the remix terms', async () => {

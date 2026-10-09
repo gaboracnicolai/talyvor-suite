@@ -10,6 +10,7 @@ import {
   AUTO_MODEL_ID,
   type AnswerPayer,
   type ChatAttachment,
+  type ChatListing,
   type ChatMessage,
   type ChatModel,
   type DistillSaved,
@@ -75,6 +76,8 @@ import { ChatSavings } from './Savings'
 import { PaidBy, PayerLine, usePayers } from './PaidBy'
 import { PromptLine, PromptPicker, usePromptLibrary } from './PromptChoice'
 import { PROMPT_NAME_PATTERN } from './promptLibrary'
+import { ListingChip, ListingLine } from './ListingChoice'
+import { marketApi } from '../marketplace/marketApi'
 import { ChatTotal } from './ChatTotal'
 import { AllowanceMeter } from './AllowanceMeter'
 import { CheaperHint } from './CheaperHint'
@@ -386,6 +389,8 @@ export function Chat() {
   // B28.370 — the named prompt from the library this conversation uses; '' is none. Sent by name, Lens swaps it in.
   const [promptName, setPromptName] = useState('')
   const library = usePromptLibrary()
+  // B28.426 — the marketplace listing this conversation is asked through; none, undefined.
+  const [listing, setListing] = useState<ChatListing | undefined>(undefined)
   // Its text, when the library has it, is part of what a question is priced on before it is sent.
   const promptText = library.data?.find((p) => p.name === promptName)?.content ?? ''
   const pricedWith = [promptText, told].filter((t) => t !== '').join('\n\n')
@@ -422,6 +427,7 @@ export function Chat() {
     setPaidBy(c?.paid_by ?? '')
     setBudget(c?.budget_ulxc)
     setPromptName(c?.prompt ?? '')
+    setListing(c?.listing)
     setPoolOff(c?.pool_off === true)
     setFailure(null)
     setUnreadable(0)
@@ -494,6 +500,18 @@ export function Chat() {
     setPromptName(PROMPT_NAME_PATTERN.test(startWith) ? startWith : '')
     setParams({}, { replace: true })
   }, [scope, startWith, open, setParams])
+  // B28.426 — "Use in Chat" on a listing's page opens /chat?listing=<id>: a new chat attached to that listing, as Lens reads
+  // it to this person. One Lens will not show them is not attached, and the screen says so.
+  const startListing = params.get('listing')
+  useEffect(() => {
+    if (scope === null || startListing === null) return
+    open(undefined)
+    setParams({}, { replace: true })
+    marketApi.listing(startListing).then(
+      (l) => setListing({ id: l.id, title: l.title, price_per_use_ulxc: l.price_per_use_ulxc }),
+      () => setFailure({ text: 'That listing could not be read, so this chat is not using it.' }),
+    )
+  }, [scope, startListing, open, setParams])
   // B28.135 — the command palette and the shortcuts (chatActions.ts): a new chat, the conversations searched (for `q`
   // when given), or the model picker opened. Like ?prompt=, done once who is signed in is known, then dropped.
   const action = readChatAction(params)
@@ -591,6 +609,8 @@ export function Chat() {
       const inProject = project?.id
       // B28.370 — and the named prompt, as chosen when the question was asked.
       const named = promptName
+      // B28.426 — and the listing it is asked through.
+      const through = listing
       // B28.372 — and whether it is answered from a web search.
       const searching = webSearch
       // B28.373 — and whether the model may run code to answer it.
@@ -607,7 +627,7 @@ export function Chat() {
       setActiveId(id)
       // The question is kept before the answer starts, so a tab closed mid-stream loses only the
       // answer. B28.112 — asked again, nothing is lost: the thread stays as it was until the new version comes.
-      if (!temp && carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject, named, unshared))
+      if (!temp && carry.versions === undefined && head === undefined) store((list) => upsertConversation(list, id, model, turn, Date.now(), payer, cap, inProject, named, unshared, through))
       setMessages([...thread, head === undefined ? { role: 'assistant', content: '', ...carry } : { role: 'assistant', content: start, versions: head.versions, version: head.version }])
       setPending(true)
       setFailure(null)
@@ -628,6 +648,7 @@ export function Chat() {
       let charged: number | undefined
       let auto: boolean | undefined
       let usedPrompt: ChatMessage['prompt']
+      let usedListing: ChatMessage['listing']
       let citations: ChatMessage['citations']
       let codeRuns: ChatMessage['code_runs']
       let toolsUsed: ChatMessage['tools_used']
@@ -665,7 +686,7 @@ export function Chat() {
               return next
             })
           },
-          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, citations: pages, codeRuns: ran, toolsUsed: usedTools, filed: filedIssues, connectorCalls: madeCalls }) => {
+          onDone: ({ unrecognised, usage, model: servedBy, converted, source: from, saved: conversion, tare: trimmed, requestId: rid, finish, spend: lines, requests: took, paidBy: billedTo, chargedULXC, promptResolved, listingCharge, citations: pages, codeRuns: ran, toolsUsed: usedTools, filed: filedIssues, connectorCalls: madeCalls }) => {
             if (carriedDocs) {
               sentTurn = turn.map((m, i) => (i === asked ? { ...m, converted } : m))
               setMessages((prev) => prev.map((m, i) => (i === asked ? { ...m, converted } : m)))
@@ -750,6 +771,17 @@ export function Chat() {
                 const next = [...prev]
                 const last = next[next.length - 1]
                 if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, prompt: p }
+                return next
+              })
+            }
+            // B28.426 — asked through a listing: how Lens said it charged the use.
+            if (through !== undefined) {
+              const l = { id: through.id, title: through.title, ...(listingCharge !== undefined ? { charge: listingCharge } : {}) }
+              usedListing = l
+              setMessages((prev) => {
+                const next = [...prev]
+                const last = next[next.length - 1]
+                if (last !== undefined && last.role === 'assistant') next[next.length - 1] = { ...last, listing: l }
                 return next
               })
             }
@@ -841,7 +873,7 @@ export function Chat() {
         fresh,
         tools,
         payer,
-        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}), ...(running ? { run_code: true } : {}), ...(temp ? { temporary: true } : {}), ...(unshared ? { pool_off: true } : {}) },
+        { id, ...(cap !== undefined ? { budget_ulxc: cap } : {}), ...(told !== '' ? { instructions: told } : {}), ...(named !== '' ? { prompt: named } : {}), ...(searching ? { web_search: true } : {}), ...(running ? { run_code: true } : {}), ...(temp ? { temporary: true } : {}), ...(unshared ? { pool_off: true } : {}), ...(through !== undefined ? { listing: through.id } : {}) },
       )
       // B28.112 — asked again and nothing came back (stopped, refused, blank): the answer it had is shown and kept.
       if (was !== undefined && carry.versions !== undefined && answer.trim() === '') {
@@ -856,7 +888,7 @@ export function Chat() {
         return
       }
       if (temp) return
-      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...(toolsUsed !== undefined ? { tools_used: toolsUsed } : {}), ...(filed !== undefined ? { filed } : {}), ...(connectorCalls !== undefined ? { connector_calls: connectorCalls } : {}), ...carry }
+      const answered: ChatMessage = { role: 'assistant', content: answer, cost, source, saved, tare, request_id: requestId, incomplete, spend, requests, payer: answerPayer, charged_ulxc: charged, auto, ...(usedPrompt !== undefined ? { prompt: usedPrompt } : {}), ...(usedListing !== undefined ? { listing: usedListing } : {}), ...(citations !== undefined ? { citations } : {}), ...(codeRuns !== undefined ? { code_runs: codeRuns } : {}), ...(toolsUsed !== undefined ? { tools_used: toolsUsed } : {}), ...(filed !== undefined ? { filed } : {}), ...(connectorCalls !== undefined ? { connector_calls: connectorCalls } : {}), ...carry }
       store((list) =>
         upsertConversation(
           list,
@@ -869,10 +901,11 @@ export function Chat() {
           inProject,
           named,
           unshared,
+          through,
         ),
       )
     },
-    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, qc, selected, store, told, webSearch, runCode, temporary, poolOff, connectors, connectorKey],
+    [activeId, budget, catalog.data, paidBy, payers, pending, project, promptName, listing, qc, selected, store, told, webSearch, runCode, temporary, poolOff, connectors, connectorKey],
   )
 
   // B28.354 — a new payer is kept with the conversation at once, so reopening it keeps the choice.
@@ -883,6 +916,12 @@ export function Chat() {
     },
     [activeId, store],
   )
+
+  // B28.426 — a listing removed is removed from the conversation at once: its next question is asked as any other.
+  const removeListing = useCallback(() => {
+    setListing(undefined)
+    if (activeId !== null) store((list) => list.map((c) => (c.id === activeId ? { ...c, listing: undefined } : c)))
+  }, [activeId, store])
 
   // B28.370 — a prompt chosen is kept with the conversation at once, like the payer.
   const choosePrompt = useCallback(
@@ -1635,6 +1674,8 @@ export function Chat() {
               <PaidBy book={payersBook} payers={payers} value={paidBy} onChange={choosePayer} disabled={pending} />
               {/* B28.370 — the named prompt from the library this conversation is sent with. */}
               <PromptPicker library={library} value={promptName} onChange={choosePrompt} disabled={pending} />
+              {/* B28.426 — the marketplace listing this conversation is asked through. */}
+              {listing !== undefined ? <ListingChip listing={listing} onRemove={removeListing} disabled={pending} /> : null}
               {/* B28.361 — the most this conversation may spend. */}
               <ConversationBudget value={budget} spent={spentULXC(messages, usdPerLXC)} onChange={chooseBudget} disabled={pending} />
               {/* B28.381 — whether this chat's answers may be shared with other workspaces. A temporary chat shares nothing. */}
@@ -2406,6 +2447,7 @@ function Reply({
           ) : null}
           {message.payer !== undefined ? <PayerLine payer={message.payer} /> : null}
           {message.prompt !== undefined ? <PromptLine prompt={message.prompt} /> : null}
+          {message.listing !== undefined ? <ListingLine listing={message.listing} /> : null}
           {savedLine(message.saved) !== undefined ? (
             <p className="ml-1 w-full font-figure text-caption text-faint" data-testid="turn-saved">
               {savedLine(message.saved)}

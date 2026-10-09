@@ -70,6 +70,7 @@ type streamUpstream struct {
 	gotPool         string // B28.381 — X-Talyvor-Pool as Lens received it
 	gotFeature      string // B28.106 — X-Talyvor-Feature as Lens received it
 	gotIssue        string // B28.376 — X-Talyvor-Issue as Lens received it
+	gotListing      string // B28.426 — X-Talyvor-Listing as Lens received it
 	// B17.126 — the agent keys Lens issued (each "<path> <credential>") and revoked (each key id), and, when
 	// set, the JSON body of the 409 Lens answers instead of issuing one.
 	keysIssued    []string
@@ -154,6 +155,7 @@ func newStreamUpstream(t *testing.T) *streamUpstream {
 			u.gotPool = r.Header.Get("X-Talyvor-Pool")
 			u.gotFeature = r.Header.Get("X-Talyvor-Feature")
 			u.gotIssue = r.Header.Get("X-Talyvor-Issue")
+			u.gotListing = r.Header.Get("X-Talyvor-Listing")
 			if u.refuse != "" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusPaymentRequired)
@@ -1448,6 +1450,48 @@ func TestStream_AttachedIssueReachesLens(t *testing.T) {
 			if resp.StatusCode != tc.wantStatus || up.proxyCalls != tc.wantCalls || up.gotIssue != tc.wantUp {
 				t.Fatalf("answered %d after asking Lens %d times with X-Talyvor-Issue %q; want %d, %d times, %q",
 					resp.StatusCode, up.proxyCalls, up.gotIssue, tc.wantStatus, tc.wantCalls, tc.wantUp)
+			}
+		})
+	}
+}
+
+// B28.426 — a conversation's listing reaches Lens by its id on every request, and how Lens charged the use comes back to the
+// chat; a header that is not an id's shape is refused before Lens is asked.
+func TestStream_ConversationListingReachesLens(t *testing.T) {
+	for _, tc := range []struct {
+		name, sent, wantUp, wantCharge string
+		wantStatus, wantCalls          int
+	}{
+		{"a listing", "lst_tone", "lst_tone", "billed", http.StatusOK, 1},
+		{"no listing", "", "", "", http.StatusOK, 1},
+		{"not an id", "lst_tone, lst_other", "", "", http.StatusBadRequest, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := newStreamUpstream(t)
+			up.noBlock = true
+			if tc.sent != "" {
+				up.answerHeaders = map[string]string{"X-Talyvor-Listing-Charge": "billed"}
+			}
+			a, sess := streamApp(t, up)
+			ts := httptest.NewServer(a)
+			defer ts.Close()
+			req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/ai/stream/anthropic/v1/messages", strings.NewReader(`{"stream":true}`))
+			req.AddCookie(sess)
+			req.Header.Set("Origin", "https://app.talyvor.com")
+			req.Header.Set("Content-Type", "application/json")
+			if tc.sent != "" {
+				req.Header.Set("X-Talyvor-Listing", tc.sent)
+			}
+			resp, err := ts.Client().Do(req)
+			if err != nil {
+				t.Fatalf("do: %v", err)
+			}
+			_, _ = io.ReadAll(resp.Body)
+			resp.Body.Close()
+			charge := resp.Header.Get("X-Talyvor-Listing-Charge")
+			if resp.StatusCode != tc.wantStatus || up.proxyCalls != tc.wantCalls || up.gotListing != tc.wantUp || charge != tc.wantCharge {
+				t.Fatalf("answered %d, charge %q, after asking Lens %d times with X-Talyvor-Listing %q; want %d, %q, %d times, %q",
+					resp.StatusCode, charge, up.proxyCalls, up.gotListing, tc.wantStatus, tc.wantCharge, tc.wantCalls, tc.wantUp)
 			}
 		})
 	}

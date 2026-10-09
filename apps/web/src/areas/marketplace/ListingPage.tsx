@@ -109,6 +109,12 @@ export function ListingPage() {
         </Region>
       ) : null}
       <Region index="02" label="Use it">
+        {/* B28.426 — a skill used in Chat: a new chat attached to it, every question asked through it. */}
+        {l.kind === 'skill' ? (
+          <Link className={`mb-3 inline-flex text-body text-ink ${inlineLink}`} to={`/chat?listing=${encodeURIComponent(l.id)}`}>
+            Use in Chat
+          </Link>
+        ) : null}
         <UseListing key={l.id} listing={l} own={own} held={held} />
       </Region>
       <Region index="03" label="Trust">
