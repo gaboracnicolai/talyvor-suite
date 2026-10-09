@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { quickstartBooking, quickstartQuestion, quickstartStatement } from '../src/sdk.ts'
+import { copiesWord, quickstartBooking, quickstartQuestion, quickstartStatement } from '../src/sdk.ts'
 
 const line = (kind: string, amount: number, after: number) => ({ entry_id: `${kind}${after}`, kind, amount_ulxc: amount, balance_after_ulxc: after, at: '' })
 
@@ -34,5 +34,12 @@ describe("how the SDK quickstart's model call is booked (B17.180)", () => {
 describe("the SDK quickstart's question (B17.181)", () => {
   it('asks the model to repeat its fresh word, the wording gpt-4o-mini answered with the bare word 20 of 20', () => {
     expect(quickstartQuestion('fetutevoni')).toBe('Repeat this exact string and nothing else: fetutevoni')
+  })
+
+  it('accepts a copy of the word that slips at most two letters, and nothing the failing nights answered (B17.182)', () => {
+    expect(copiesWord('masoninoga', 'masinonoga')).toBe(true)
+    expect(copiesWord('Defamation', 'defamamitu')).toBe(false)
+    expect(copiesWord('Unknown', 'masinonoga')).toBe(false)
+    expect(copiesWord("Sorry, I can't assist with that.", 'masinonoga')).toBe(false)
   })
 })

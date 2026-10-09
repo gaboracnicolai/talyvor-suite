@@ -118,6 +118,16 @@ export function quickstartBooking(headers: Headers, costUSD: number | undefined,
  */
 export const quickstartQuestion = (word: string): string => `Repeat this exact string and nothing else: ${word}`
 
+/**
+ * B17.182 — the answer copies `word`: names it, or its first word is as long and slips at most two letters ("masoninoga"
+ * for masinonoga, about 1 user in 80). The word is fresh, so no replayed or pooled answer lands that close.
+ */
+export function copiesWord(answer: string, word: string): boolean {
+  if (namesWord(answer, word)) return true
+  const first = /[a-z]+/i.exec(answer)?.[0].toLowerCase() ?? ''
+  return first.length === word.length && [...first].filter((c, i) => c !== word[i]).length <= 2
+}
+
 const show = (lines: readonly StatementLine[]): string => lines.map((l) => `${l.kind} ${l.amount_ulxc} → ${l.balance_after_ulxc}`).join('; ') || 'no lines'
 
 export function sdkWalletQuickstart(seed: number): Scenario {
@@ -170,7 +180,7 @@ export function sdkWalletQuickstart(seed: number): Scenario {
       // Booked as every charged answer is, for the ledger read-back; a replay is not booked.
       if (booked.ulxc !== undefined) env.book.add(workspaceId, booked.ulxc)
       ctx.evidence.push({ note: `the agent asked ${model.id} with its own key${booked.replayed ? ', answered from an earlier answer' : ''}`, question, answer })
-      if (!namesWord(answer, word)) return { pass: false, detail: `the model call answered wrong: asked to say "${word}", it said "${answer}"` }
+      if (!copiesWord(answer, word)) return { pass: false, detail: `the model call answered wrong: asked to say "${word}", it said "${answer}"` }
 
       // 5. Read its statement, newest first.
       const { lines } = await owner.agents.statement(agent.id)
