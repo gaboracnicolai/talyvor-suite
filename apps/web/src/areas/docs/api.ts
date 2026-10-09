@@ -226,6 +226,27 @@ export interface DocsChangelogEntry {
   issue_ids: string[]
 }
 
+/** talyvor-docs team.Team (B28.446). `members` are roster member ids; `can_manage` is true for its creator alone.
+ *  UPSTREAM-ONLY DocsTeam: created_by, created_at */
+export interface DocsTeam {
+  id: string
+  name: string
+  members: string[]
+  can_manage: boolean
+}
+
+/** The access a team can be given on a page: Docs stops a team grant at edit. */
+export type TeamAccess = 'view' | 'comment' | 'edit'
+
+/** talyvor-docs model.Permission, as a page's grants list it.
+ *  UPSTREAM-ONLY DocsGrant: resource_type, resource_id, workspace_id, granted_by, created_at */
+export interface DocsGrant {
+  id: string
+  subject_type: 'member' | 'everyone' | 'team'
+  subject_id: string
+  access: 'none' | 'view' | 'comment' | 'edit' | 'admin'
+}
+
 export const docsApi = {
   /** LIVE — spaces in the SESSION's workspace (the BFF no longer pins one). */
   spaces: async (): Promise<DocsSpace[]> => readableList<DocsSpace>('/api/docs/spaces', await getJSON<unknown>('/api/docs/spaces')),
@@ -240,7 +261,8 @@ export const docsApi = {
    * ⚠ NO workspace_id. Docs takes it from the body on this route and the BFF injects the pinned one
    * — a workspace this client named would be a workspace the browser chose.
    */
-  createSpace: (name: string) => send<DocsSpace>('/api/docs/spaces', 'POST', { name }),
+  createSpace: (name: string, isPrivate = false) =>
+    send<DocsSpace>('/api/docs/spaces', 'POST', isPrivate ? { name, private: true } : { name }),
 
   /** B2.2 reads the page's AI spend off this one read — the cost readout pinned in the editor.
    *  `total_ai_cost_usd` = `own_ai_cost_usd` (actions on this page, priced later by Docs' sweep)
@@ -430,6 +452,28 @@ export const docsApi = {
 
   /** B28.447 — a view-only link to the page, opened signed out at /docs/s/{token}. Docs needs Admin on the page and
    *  signs the token; the BFF asks for view whatever is sent. */
+  /** B28.450 — the teams in the SESSION's workspace (talyvor-docs internal/team). */
+  teams: async (): Promise<DocsTeam[]> => readableList<DocsTeam>('/api/docs/teams', await getJSON<unknown>('/api/docs/teams')),
+  createTeam: (name: string) => send<DocsTeam>('/api/docs/teams', 'POST', { name }),
+  /** Puts a roster member on a team, or takes them off. Only the team's creator may. */
+  teamMember: (teamId: string, memberId: string, on: boolean) =>
+    send<{ member: boolean }>(
+      `/api/docs/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberId)}`,
+      on ? 'PUT' : 'DELETE',
+      undefined,
+    ),
+  pageGrants: async (spaceId: string, pageId: string): Promise<DocsGrant[]> => {
+    const path = `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}/permissions`
+    return readableList<DocsGrant>(path, await getJSON<unknown>(path))
+  },
+  /** Gives everyone on a team this access to the page. Docs needs Admin on the page, and stops a team at edit. */
+  grantTeam: (spaceId: string, pageId: string, teamId: string, access: TeamAccess) =>
+    send<DocsGrant>(
+      `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}/permissions`,
+      'POST',
+      { subject_type: 'team', subject_id: teamId, access },
+    ),
+
   sharePage: (spaceId: string, pageId: string) =>
     send<{ link: { token: string } }>(
       `/api/docs/spaces/${encodeURIComponent(spaceId)}/pages/${encodeURIComponent(pageId)}/share`,

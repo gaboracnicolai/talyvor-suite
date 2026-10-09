@@ -484,9 +484,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE HUNDRED-AND-TWELFTH IS B28.447'S DOCS SHARE LINK, POST only: /api/docs/spaces/{spaceID}/pages/{pageID}/share. It
 	// relays Docs' answer — the link and its token — and holds nothing; the shared page is read back through GET
 	// /api/public/docs/{token}, which the sweep reaches.
-	if len(methodOnly) > 112 {
+	//
+	// THE HUNDRED-AND-THIRTEENTH IS B28.450'S DOCS TEAM ROSTER, PUT and DELETE only:
+	// /api/docs/teams/{teamID}/members/{memberID}. It relays Docs' answer and holds nothing; who is on each team is read
+	// back through GET /api/docs/teams, which the sweep reaches.
+	if len(methodOnly) > 113 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 112 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 113 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

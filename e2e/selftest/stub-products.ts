@@ -12,6 +12,7 @@
 //   file-bug     — Track's MCP create_issue says it filed the issue and keeps nothing (B28.374)
 //   docs-share-unsigned — Docs opens a share link whatever its signature says (B28.447)
 //   docs-collab-drop    — Docs drops an edit acknowledged on the live-edit socket when the socket closes (B28.447)
+//   docs-team-grant-sticky — someone taken off a team keeps the access the team was given on a page (B28.450)
 
 import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http'
@@ -330,13 +331,35 @@ serve(TRACK_PORT, 'track', async (req, res, path, url) => {
 
 // ─── Docs ────────────────────────────────────────────────────────────────────
 
-interface Space { id: string; workspace: string; name: string; slug: string; description: string; icon: string; private: boolean }
+interface Space { id: string; workspace: string; name: string; slug: string; description: string; icon: string; private: boolean; created_by: string }
 interface Page { id: string; space_id: string; title: string; content: string; content_text: string; ai_cost_usd: number; own_ai_cost_usd: number; total_ai_cost_usd: number }
 /** B34.5 — the pages each workspace pinned, newest first. */
 const pinned: { ws: string; page_id: string; space_id: string; at: string }[] = []
 
 const spaces: Space[] = []
 const pages: Page[] = []
+
+/**
+ * B28.450 — Docs' teams and page grants as talyvor-docs B28.446 made them (internal/team, internal/permission). A
+ * workspace's members are its Track roster, ids and all; a team's creator alone changes who is on it; a page's admin
+ * (its space's creator) grants a team view, comment or edit; and on a private space only the creator and the people a
+ * grant reaches may edit a page. `ever` is everyone a team has held, for STUB_BREAK=docs-team-grant-sticky.
+ */
+interface Team { id: string; workspace: string; name: string; created_by: string; members: string[]; ever: string[] }
+interface Grant { id: string; page_id: string; subject_type: 'team'; subject_id: string; access: 'view' | 'comment' | 'edit' }
+const teams: Team[] = []
+const grants: Grant[] = []
+const callerIn = (req: IncomingMessage, ws: string): Member | undefined =>
+  rosterOf(ws).find((m) => m.email === String(req.headers['x-user-email'] ?? ''))
+
+/** Whether the caller may edit page p: anyone on a public space's workspace, else its creator or a team granted edit. */
+function canEdit(req: IncomingMessage, sp: Space, pageID: string): boolean {
+  const me = callerIn(req, sp.workspace)
+  if (me === undefined) return false
+  if (!sp.private || me.email === sp.created_by) return true
+  return grants.some((g) => g.page_id === pageID && g.access === 'edit' &&
+    teams.some((t) => t.id === g.subject_id && (BREAK === 'docs-team-grant-sticky' ? t.ever : t.members).includes(me.id)))
+}
 
 /** The plain text of a stored ProseMirror document: its text nodes, one line per block. */
 function plainText(content: string): string {
@@ -474,9 +497,10 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
     return
   }
   if (path === '/v1/spaces' && req.method === 'POST') {
-    const b = await body<{ name?: string; workspace_id?: string }>(req)
+    const b = await body<{ name?: string; workspace_id?: string; private?: boolean }>(req)
     if (!b.name || !b.workspace_id) return json(res, 400, { error: 'name and workspace_id required' })
-    const s: Space = { id: id(), workspace: b.workspace_id, name: b.name, slug: b.name.toLowerCase().replace(/\W+/g, '-'), description: '', icon: '', private: false }
+    const s: Space = { id: id(), workspace: b.workspace_id, name: b.name, slug: b.name.toLowerCase().replace(/\W+/g, '-'), description: '', icon: '',
+      private: b.private === true, created_by: String(req.headers['x-user-email'] ?? '') }
     spaces.push(s)
     return json(res, 201, s)
   }
@@ -497,6 +521,23 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
     return json(res, 201, { id: id(), page_id: pageID, version, title: `Release ${version}`, summary: `${issue_ids.length} change(s): ${issue_ids.join(', ')}`,
       type: 'improvement', issue_ids })
   }
+  if ((m = /^\/v1\/spaces\/([^/]+)\/pages\/([^/]+)\/permissions$/.exec(path))) {
+    const [, space, pageID] = m
+    const sp = spaces.find((x) => x.id === space)
+    if (sp === undefined || !pages.some((x) => x.space_id === space && x.id === pageID)) return json(res, 404, { error: 'no such page' })
+    const me = callerIn(req, sp.workspace)
+    if (me === undefined) return json(res, 403, { error: 'not a member of this workspace' })
+    if (req.method !== 'POST') return json(res, 200, grants.filter((g) => g.page_id === pageID))
+    if (me.email !== sp.created_by) return json(res, 403, { error: 'admin access required' })
+    const { subject_type = '', subject_id = '', access = '' } = await body<{ subject_type?: string; subject_id?: string; access?: string }>(req)
+    const team = teams.find((t) => t.id === subject_id && t.workspace === sp.workspace)
+    if (subject_type !== 'team' || team === undefined || team.created_by !== me.id) return json(res, 400, { error: 'stub docs: a team you manage, in this workspace' })
+    if (access !== 'view' && access !== 'comment' && access !== 'edit') return json(res, 400, { error: 'a team grant stops at edit' })
+    const g: Grant = { id: id(), page_id: pageID, subject_type: 'team', subject_id, access }
+    grants.push(g)
+    return json(res, 201, g)
+  }
+  if (/^\/v1\/service\/workspaces\/[^/]+\/member-sync$/.test(path)) return json(res, 200, { synced: true })
   if ((m = /^\/v1\/spaces\/([^/]+)$/.exec(path))) {
     const space = m[1]
     const s = spaces.find((x) => x.id === space)
@@ -517,6 +558,8 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
     const p = pages.find((x) => x.space_id === space && x.id === pageID)
     if (p === undefined) return json(res, 404, { error: 'no such page' })
     if (req.method === 'PATCH') {
+      const sp = spaces.find((x) => x.id === space)
+      if (sp !== undefined && !canEdit(req, sp, pageID)) return json(res, 403, { error: 'forbidden' })
       const b = await body<{ title?: string; content?: string }>(req)
       if (b.title !== undefined) p.title = b.title
       if (b.content !== undefined) {
@@ -529,6 +572,34 @@ serve(DOCS_PORT, 'docs', async (req, res, path, url) => {
   if ((m = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(path)) === null) return json(res, 404, { error: 'stub docs: no such route' })
   const [, ws, rest] = m
   const mine = spaces.filter((s) => s.workspace === ws)
+  if (rest === '/teams' || rest.startsWith('/teams/')) {
+    const me = callerIn(req, ws)
+    if (me === undefined) return json(res, 403, { error: 'not a member of this workspace' })
+    if (rest === '/teams' && req.method === 'POST') {
+      const { name = '' } = await body<{ name?: string }>(req)
+      if (name.trim() === '') return json(res, 400, { error: 'team: a team needs a name' })
+      if (teams.some((t) => t.workspace === ws && t.name === name.trim())) return json(res, 409, { error: 'team: a team with that name already exists' })
+      const t: Team = { id: id(), workspace: ws, name: name.trim(), created_by: me.id, members: [], ever: [] }
+      teams.push(t)
+      return json(res, 201, { id: t.id, name: t.name, created_by: t.created_by, created_at: now(), members: [], can_manage: true })
+    }
+    if (rest === '/teams') {
+      return json(res, 200, teams.filter((t) => t.workspace === ws).map((t) => ({ id: t.id, name: t.name, created_by: t.created_by, created_at: now(),
+        members: t.members, can_manage: t.created_by === me.id })))
+    }
+    const r = /^\/teams\/([^/]+)\/members\/([^/]+)$/.exec(rest)
+    const team = r === null ? undefined : teams.find((t) => t.id === r[1] && t.workspace === ws)
+    if (r === null || team === undefined) return json(res, 404, { error: 'not found' })
+    if (team.created_by !== me.id) return json(res, 403, { error: 'team: only the team\'s creator can change it' })
+    const who = decodeURIComponent(r[2])
+    if (!rosterOf(ws).some((x) => x.id === who)) return json(res, 400, { error: 'team: not a member of this workspace' })
+    team.members = team.members.filter((x) => x !== who)
+    if (req.method === 'PUT') {
+      team.members.push(who)
+      if (!team.ever.includes(who)) team.ever.push(who)
+    }
+    return json(res, 200, { member: req.method === 'PUT' })
+  }
   if (rest === '/spaces') return json(res, 200, mine)
   if (rest === '/pins') {
     return json(res, 200, pinned.filter((x) => x.ws === ws).map((x) => ({ page_id: x.page_id, space_id: x.space_id, title: pages.find((p) => p.id === x.page_id)?.title ?? '', at: x.at })))

@@ -795,6 +795,142 @@ export function docsShareCollab(seed: number): Scenario {
   }
 }
 
+/** The address a synthetic user signs in with (apps/bff/synthetic.go): Docs and Track know them by it. */
+const syntheticEmail = (u: SyntheticUser): string => `${u.workspaceID}@synthetic.talyvor.invalid`
+
+/**
+ * B28.450 — what B28.446 shipped in talyvor-docs, through the app. Alice puts Bob and Carol on her workspace's roster,
+ * makes a private space and page, and on the page's Share with a team makes a team, puts Bob on it and gives it edit.
+ * Bob's edit of the page is saved and reads back; Carol, in the workspace but not on the team, is refused, and cannot
+ * put herself on Alice's team; and once Alice takes Bob off the team, his next edit is refused too.
+ */
+export function docsTeamGrant(seed: number): Scenario {
+  const space = `Private plans ${seed}${RUN_SALT}`
+  const title = `Launch checklist ${seed}`
+  const team = `Reviewers ${seed}${RUN_SALT}`
+  const edited = `Checked by Bob ${seed}${RUN_SALT}`
+  return {
+    id: 'docs-team-grant',
+    owner: 'talyvor-docs',
+    items: ['B28.446', 'B28.450'],
+    // Bob and Carol take two of Team's five seats; Free holds one.
+    plan: 'team',
+    title: 'Docs: a team given edit on a private page lets its member edit it, a workspace member off the team is refused and cannot join it, and taking the member off takes the access away',
+    run: async (ctx) => {
+      const { env, app } = ctx
+      if (env.userCount < 3) throw new CannotTest(`needs two other users for Bob and Carol; the run has ${env.userCount}`)
+      const [bobAt, carolAt] = [(app.user.index + 1) % env.userCount, (app.user.index + 2) % env.userCount]
+      const [bobEmail, carolEmail] = [syntheticEmail(env.userAt(bobAt)), syntheticEmail(env.userAt(carolAt))]
+      const p = await app.tab('/docs')
+      const shots: string[] = []
+      const shoot = async (name: string): Promise<void> => {
+        await mkdir(ctx.env.outDir, { recursive: true })
+        const was = p.viewportSize()
+        for (const [width, height] of [[1440, 900], [390, 844]]) {
+          await p.setViewportSize({ width, height })
+          const file = join(ctx.env.outDir, `docs-team-${name}-${width}px-user${app.user.index}.png`)
+          await p.screenshot({ path: file, fullPage: true })
+          shots.push(file)
+        }
+        if (was !== null) await p.setViewportSize(was)
+      }
+      const bob = await env.signInUser(bobAt)
+      const carol = await env.signInUser(carolAt).catch(async (e: unknown) => {
+        await bob.close()
+        throw e
+      })
+      try {
+        // Bob and Carol join Alice's workspace, as Members adds people.
+        for (const email of [bobEmail, carolEmail]) {
+          const added = await from(p, 'POST', '/api/members', { email, role: 'member' })
+          ctx.evidence.push({ note: `Alice adds ${email} on Members: ${added.status} ${added.text.slice(0, 160)}` })
+          if (added.status !== 201 && added.status !== 409) throw new Error(`adding ${email} to Alice's roster answered ${added.status} ${added.text.slice(0, 200)}`)
+        }
+        const roster = await readFrom<{ id: string; email: string }[]>(p, '/api/members')
+        if (typeof roster === 'string') throw new Error(roster)
+        const carolID = roster.find((m) => m.email === carolEmail)?.id
+        if (carolID === undefined) throw new Error(`Alice's roster does not list Carol (${carolEmail}): ${roster.map((m) => m.email).join(', ')}`)
+
+        // A private space and a page in it.
+        await p.getByLabel('Space name').fill(space)
+        await p.getByLabel(/^Private/).check()
+        await p.getByRole('button', { name: 'Create space' }).click()
+        await p.getByRole('link', { name: `Open space ${space}` }).click({ timeout: ACTION_TIMEOUT_MS })
+        await p.getByLabel('Page title').fill(title)
+        await p.getByRole('button', { name: 'Create page' }).click()
+        await p.getByRole('link', { name: title, exact: true }).first().click({ timeout: ACTION_TIMEOUT_MS })
+        await p.waitForURL(/\/docs\/spaces\/[^/]+\/pages\/[^/?#]+/, { timeout: ACTION_TIMEOUT_MS })
+        const ids = /\/docs\/spaces\/([^/]+)\/pages\/([^/?#]+)/.exec(p.url())
+        if (ids === null) return fail(`the page opened at ${p.url()}, which names no space and page`)
+        const [, spaceID, pageID] = ids
+        const pagePath = `/api/docs/spaces/${spaceID}/pages/${pageID}`
+        const titleNow = async (): Promise<string> => {
+          const r = await readFrom<DocsPageRead>(p, pagePath)
+          if (typeof r === 'string') throw new Error(r)
+          return r.title
+        }
+        const edit = async (who: AppUser, to: string) => (await from(who.page, 'PATCH', pagePath, { title: to })).status
+
+        // Share with a team: make it, put Bob on it, give it edit.
+        await p.getByRole('button', { name: 'Share with a team' }).click({ timeout: ACTION_TIMEOUT_MS })
+        await p.getByLabel('Team name').fill(team)
+        await p.getByRole('button', { name: 'Create team' }).click()
+        const pick = p.getByRole('combobox', { name: `Add a member to ${team}` })
+        await pick.waitFor({ timeout: ACTION_TIMEOUT_MS })
+        await p.getByRole('option', { name: bobEmail }).waitFor({ state: 'attached', timeout: ACTION_TIMEOUT_MS })
+        await pick.selectOption({ label: bobEmail })
+        await p.getByRole('button', { name: `Add to ${team}` }).click()
+        const removeBob = p.getByRole('button', { name: `Remove ${bobEmail} from ${team}` })
+        const onTeam = await removeBob.waitFor({ timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!onTeam) return fail(`Bob was not put on ${team}: ${(await p.getByRole('alert').allInnerTexts().catch(() => [])).join(' ') || 'nothing said'}`)
+        await p.getByRole('combobox', { name: `Access for ${team}` }).selectOption('edit')
+        await p.getByRole('button', { name: `Give access to ${team}` }).click()
+        const granted = await p.getByText('can edit this page').waitFor({ timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        await shoot('granted')
+        if (!granted) return fail(`giving ${team} edit was not shown as given: ${(await p.getByRole('alert').allInnerTexts().catch(() => [])).join(' ') || 'nothing said'}`)
+        const teams = await readFrom<{ id: string; name: string; members: string[] }[]>(p, '/api/docs/teams')
+        if (typeof teams === 'string') throw new Error(teams)
+        const made = teams.find((t) => t.name === team)
+        if (made === undefined) return fail(`Docs lists no team ${team} after Create team: ${teams.map((t) => t.name).join(', ')}`)
+
+        // Bob, on the team, edits the page; Carol, off it, cannot, and cannot put herself on it.
+        await bob.page.goto(`${new URL(p.url()).origin}/docs`)
+        await carol.page.goto(`${new URL(p.url()).origin}/docs`)
+        const bobs = await edit(bob, edited)
+        const read = await titleNow()
+        ctx.evidence.push({ note: `on ${team} with edit, Bob's PATCH of ${pagePath}: ${bobs}; the title reads "${read}"` })
+        if (bobs !== 200) return fail(`Bob, on a team given edit, could not edit the page: PATCH answered ${bobs}`)
+        if (read !== edited) return fail(`Bob's edit was answered 200 and the title reads "${read}", not "${edited}"`)
+        const carols = await edit(carol, `Changed by Carol ${seed}`)
+        const join = await from(carol.page, 'PUT', `/api/docs/teams/${encodeURIComponent(made.id)}/members/${encodeURIComponent(carolID)}`)
+        const after = await readFrom<{ id: string; members: string[] }[]>(p, '/api/docs/teams')
+        const still = typeof after === 'string' ? after : after.find((t) => t.id === made.id)?.members ?? []
+        ctx.evidence.push({ note: `Carol, in the workspace and off the team: PATCH ${carols}; putting herself on ${team}: ${join.status} ${join.text.slice(0, 160)}; on the team now: ${JSON.stringify(still)}` })
+        if (carols !== 403) return fail(`Carol, not on the team, editing the private page answered ${carols}, not 403`)
+        if (join.status !== 403 && join.status !== 404) return fail(`Carol putting herself on Alice's team answered ${join.status}, not a refusal`)
+        if (typeof still === 'string' || still.includes(carolID)) return fail(`Carol's own add was refused, yet ${team} reads ${JSON.stringify(still)}`)
+        if (await titleNow() !== edited) return fail(`Carol's refused edit changed the title to "${await titleNow()}"`)
+
+        // Alice takes Bob off the team, and his access goes with it.
+        await removeBob.click()
+        const off = await removeBob.waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+        if (!off) return fail(`Remove did not take Bob off ${team}: ${(await p.getByRole('alert').allInnerTexts().catch(() => [])).join(' ') || 'nothing said'}`)
+        await shoot('removed')
+        const again = await edit(bob, `Edited again by Bob ${seed}`)
+        const last = await titleNow()
+        ctx.evidence.push({ note: `Bob taken off ${team}: his PATCH ${again}; the title reads "${last}"; screenshots ${shots.join(', ')}` })
+        if (again !== 403) return fail(`Bob, taken off the team, could still edit the page: PATCH answered ${again}, not 403`)
+        if (last !== edited) return fail(`Bob's refused edit changed the title to "${last}"`)
+        return { pass: true, detail: `Bob on ${team} (edit) edited the private page and it reads "${edited}"; Carol off the team was refused (403) and her own add to it was refused (${join.status}); off the team, Bob was refused (403)` }
+      } finally {
+        await carol.close().catch(() => undefined)
+        await bob.close().catch(() => undefined)
+        await p.close().catch(() => undefined)
+      }
+    },
+  }
+}
+
 async function saved(p: Page): Promise<void> {
   await p.getByRole('button', { name: 'Save', exact: true }).click()
   await p.getByRole('status').filter({ hasText: 'Saved.' }).last().waitFor({ timeout: 15_000 }).catch(() => undefined)
