@@ -268,6 +268,19 @@ const BY_PATH: Record<string, unknown> = {
       { id: 1, actor: 'ops@example.com sub=110248495', action: 'marketplace.listing.takedown', target: 'listing:lst_leak', detail: 'exposes a live key', occurred_at: '2026-09-28T10:00:00Z', recorded_at: '2026-09-28T10:00:00Z' },
     ],
   },
+  // B30.104 — the Compliance page: yesterday's GBP run with one payment missing from the statement, USDC clean.
+  '/api/admin/safeguarding': {
+    currencies: [
+      { id: 'run_gbp', day: '2026-09-27', currency: 'GBP', funding: 'test', partner: 'test', customers_hold_minor: 120_000, partner_holds_minor: 119_300, shortfall_minor: 700, break_count: 1, breaks: [], ran_at: '2026-09-28T01:00:00Z' },
+      { id: 'run_usdc', day: '2026-09-27', currency: 'USDC', funding: 'test', partner: 'test', customers_hold_minor: 2_500_000, partner_holds_minor: 2_500_000, shortfall_minor: 0, break_count: 0, breaks: [], ran_at: '2026-09-28T01:00:00Z' },
+    ],
+  },
+  '/api/admin/reconciliation': {
+    runs: [
+      { id: 'run_gbp', day: '2026-09-27', currency: 'GBP', funding: 'test', partner: 'test', customers_hold_minor: 120_000, partner_holds_minor: 119_300, shortfall_minor: 700, break_count: 1, breaks: [{ kind: 'missing', workspace_id: 'ws-acme', account_id: 'acc_gbp', payment_ref: 'pay_77', ledger_minor: 700, statement_minor: 0, amount_minor: -700 }], ran_at: '2026-09-28T01:00:00Z' },
+      { id: 'run_usdc', day: '2026-09-27', currency: 'USDC', funding: 'test', partner: 'test', customers_hold_minor: 2_500_000, partner_holds_minor: 2_500_000, shortfall_minor: 0, break_count: 0, breaks: [], ran_at: '2026-09-28T01:00:00Z' },
+    ],
+  },
   // B32.63 — the Tax page: two rates, a GB registration, a quarter's GB tax and one platform report run.
   '/api/admin/tax/status': { stripe_live: false, tax_partner: 'test' },
   '/api/admin/tax/rates': {
