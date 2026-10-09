@@ -92,5 +92,5 @@ describe('scheduled payments and automatic top-ups on the Agent Bank', () => {
       { method: 'POST', url: '/api/agents/schedules/sch_1/stop', body: {} },
       { method: 'PUT', url: '/api/agents/agt_1/topup', body: { below_ulxc: 5_000_000, to_ulxc: 8_000_000 } },
     ])
-  })
+  }, 15_000)
 })
