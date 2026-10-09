@@ -47,7 +47,7 @@ interface VersionAnswer { service?: string; commit?: string; stamped?: boolean; 
 
 /**
  * The app's own reads of the session: /api/version names the build the BFF and the bundle came from, and they agree;
- * /healthz answers {"status":"ok"};
+ * /healthz answers {"status":"ok"}; an app page carries a CSP, X-Frame-Options: DENY and Referrer-Policy;
  * /api/workspaces lists exactly the workspace Lens gives this user's token; an /api/ path the BFF does not have answers
  * a JSON 404, never the app's page. Then the person signs in again in a second browser and presses Sign out there: that
  * browser is signed out (its /auth/me, its workspaces refused, an unknown path 401), and the first one still is not.
@@ -56,6 +56,7 @@ export function sessionSignOut(seed: number): Scenario {
   return {
     id: 'session-sign-out',
     owner: 'talyvor-suite',
+    items: ['B28.247'],
     title: "the app's version, its workspace list and an unknown /api/ path read as the BFF and Lens hold them; Sign out in a second browser ends that session and only that one",
     run: async (ctx) => {
       const { app, env } = ctx
@@ -72,6 +73,16 @@ export function sessionSignOut(seed: number): Scenario {
       const h = await from(app.page, 'GET', '/healthz')
       ctx.evidence.push({ note: `/healthz: ${h.status} ${h.text.slice(0, 100)}` })
       if (h.status !== 200 || parsed<{ status?: string }>(h.text)?.status !== 'ok') failures.push(`/healthz answered ${h.status} ${h.text.slice(0, 200)}`)
+
+      // B28.247 — an app page names its CSP, refuses every frame, and sends no address in a Referer to another site.
+      const sec = await app.page.evaluate(async () => {
+        const res = await fetch('/ledger', { credentials: 'same-origin' })
+        return { csp: res.headers.get('content-security-policy') ?? '', frame: res.headers.get('x-frame-options') ?? '', referrer: res.headers.get('referrer-policy') ?? '' }
+      })
+      ctx.evidence.push({ note: `/ledger headers: CSP "${sec.csp}"; X-Frame-Options "${sec.frame}"; Referrer-Policy "${sec.referrer}"` })
+      if (!sec.csp.includes("frame-ancestors 'none'") || sec.frame !== 'DENY' || sec.referrer !== 'same-origin') {
+        failures.push(`/ledger: CSP "${sec.csp}", X-Frame-Options "${sec.frame}", Referrer-Policy "${sec.referrer}"`)
+      }
 
       const mine = await bff<{ id: string }[]>(ctx, 'GET', '/api/workspaces')
       const lens = await env.lens.act<{ id: string }[]>(app.user, 'GET', '/v1/workspaces')

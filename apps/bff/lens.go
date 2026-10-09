@@ -690,6 +690,7 @@ func newApp(cfg config, auth *authenticator) *app {
 // It runs BEFORE the mux deliberately: the guard must not depend on a handler being reached,
 // and a cross-origin write to an unknown path should be refused rather than routed.
 func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w.Header())
 	if !a.sameOriginWriteAllowed(r) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": "cross-origin write refused: the Origin header must be the app origin"})
