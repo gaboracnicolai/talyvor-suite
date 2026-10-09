@@ -50,7 +50,7 @@ function MarkedText({ node }: { node: PMNode }) {
         out = <span className="rounded-control bg-sidebar px-1">{out}</span>
         break
       case 'link': {
-        const href = typeof mark.attrs?.href === 'string' ? mark.attrs.href : '#'
+        const href = safeURL(mark.attrs?.href) ?? '#'
         const external = href.startsWith('http')
         out = (
           <a
@@ -131,7 +131,7 @@ function PMNodeView({ node }: { node: PMNode }) {
       )
     }
     case 'image': {
-      const src = typeof node.attrs?.src === 'string' ? node.attrs.src : ''
+      const src = safeURL(node.attrs?.src, /^(https?:\/\/|\/|data:image\/)/i) ?? '' // an <img> never runs a data: image
       const alt = typeof node.attrs?.alt === 'string' ? node.attrs.alt : ''
       if (!src) return null
       return <img src={src} alt={alt} className="max-w-full rounded-control border border-rule" />
@@ -168,6 +168,12 @@ function PMNodeView({ node }: { node: PMNode }) {
         </span>
       )
   }
+}
+
+/** A stored URL is drawn only when it cannot run script: http(s), mailto, or a path on this site. B28.447 — a shared
+ *  page renders on the app's origin for anyone, and React 18 still runs a `javascript:` href. */
+function safeURL(u: unknown, rule = /^(https?:\/\/|mailto:|\/|#)/i): string | undefined {
+  return typeof u === 'string' && rule.test(u) ? u : undefined
 }
 
 /** Renders the string-encoded ProseMirror doc a page row carries. Invalid JSON is an

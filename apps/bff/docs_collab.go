@@ -2,7 +2,7 @@ package main
 
 // docs_collab.go — B28.447: a Docs page's live-edit socket, from the app.
 //
-//	GET /api/docs/collab/{pageID}/ws?client_id=&member_name= → GET /v1/collab/{pageID}/ws (WebSocket upgrade)
+//	GET /api/docs/collab/{pageID}/ws?client_id= → GET /v1/collab/{pageID}/ws (WebSocket upgrade)
 //
 // A browser cannot put X-Gateway-Auth on a WebSocket, so the BFF attaches the transit proof and the SESSION's
 // identity to the upgrade server-side, exactly as forwardProduct does, and then copies the socket both ways. Docs
@@ -53,7 +53,7 @@ func (a *app) docsCollab() http.HandlerFunc {
 		}
 		q := url.Values{}
 		q.Set("client_id", r.URL.Query().Get("client_id"))
-		q.Set("member_name", r.URL.Query().Get("member_name"))
+		q.Set("member_name", sess.email) // the label other editors see is the session's, never the browser's
 		target.RawQuery = q.Encode()
 
 		proxy := &httputil.ReverseProxy{

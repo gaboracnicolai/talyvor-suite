@@ -167,8 +167,8 @@ func TestDocsCollab_TheSocketReachesDocsOnlyFromTheAppOrigin(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if got.URL.Path != "/v1/collab/p1/ws" || got.URL.Query().Get("client_id") != "c1" || got.URL.Query().Get("member_name") != "Ann" {
-		t.Errorf("Docs got %s; want /v1/collab/p1/ws with the client id and name", got.URL)
+	if got.URL.Path != "/v1/collab/p1/ws" || got.URL.Query().Get("client_id") != "c1" || got.URL.Query().Get("member_name") != "ng@example.com" {
+		t.Errorf("Docs got %s; want /v1/collab/p1/ws with the client id and the session's name, not the browser's", got.URL)
 	}
 	if got.Header.Get("X-Gateway-Auth") != testDocsSecret || got.Header.Get("X-User-Email") != "ng@example.com" {
 		t.Errorf("Docs got proof %q and email %q; want the transit proof and the session's identity", got.Header.Get("X-Gateway-Auth"), got.Header.Get("X-User-Email"))
