@@ -159,6 +159,7 @@ const PINNED_CONSOLE: Readonly<Record<string, string>> = {
   '/operator/tax': 'Tax',
   '/settings': 'Settings',
   '/settings/verification': 'Verification',
+  '/settings/terms': 'Capability terms',
   '/features': 'Features',
   '/features/try/tare': 'Try Tare',
   '/features/try/conversion': 'Try document conversion',

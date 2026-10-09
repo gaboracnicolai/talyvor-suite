@@ -422,6 +422,21 @@ async function send<T>(method: string, path: string, body: object = {}, headers:
 
 const e = encodeURIComponent
 
+/** B30.103 — a read whose refusal carries Lens's sentence: a frozen agent's credential is a 409 saying why it has none. */
+async function getSaid<T>(path: string): Promise<T> {
+  const res = await fetch(path, { headers: { Accept: 'application/json' } })
+  if (!res.ok) {
+    let sentence = ''
+    try {
+      sentence = ((await res.json()) as { error?: string }).error ?? ''
+    } catch {
+      // a body that is not JSON carries no sentence
+    }
+    throw new AgentBankError(res.status, path, sentence)
+  }
+  return (await res.json()) as T
+}
+
 /** B30.116 — where each level's check is sent. */
 const VERIFY_PATH: Record<VerificationBody['kind'], string> = {
   contact: '/api/verification/contact',
@@ -579,6 +594,14 @@ export const agentBankApi = {
   verification: () =>
     getJSON<WorkspaceVerification>('/api/verification', { level: 'string', live_level: 'string', checks: 'list' }),
   verify: ({ kind, ...body }: VerificationBody) => send<VerificationAnswer>('POST', VERIFY_PATH[kind], body),
+  // B30.103 — each capability's terms (Lens B30.9), and each agent's Know Your Agent credential (Lens B30.5).
+  terms: () => getJSON<{ terms: WorkspaceTerms[] | null }>('/api/terms', { terms: 'list' }),
+  termsFor: (capability: string) =>
+    getJSON<WorkspaceTerms>(`/api/terms/${e(capability)}`, { capability: 'string', version: 'number', body: 'string' }),
+  acceptTerms: (capability: string, version: number) =>
+    send<{ acceptance: TermsAcceptance }>('POST', `/api/terms/${e(capability)}/accept`, { version }),
+  credential: (id: string) => getSaid<KYACredential>(`/api/agents/${e(id)}/credential`),
+  verifyCredential: (credential: string) => send<KYAVerification>('POST', '/api/kya/verify', { credential }),
   address: (address: string) => getJSON<WalletAddress>(`/api/wallets/address/${e(address)}`, { wallet_id: 'string', name: 'string' }),
   setHandle: (id: string, handle: string) => send<WalletAddress>('PUT', `/api/agents/${e(id)}/handle`, { handle }),
   send: (id: string, to: string, amount_ulxc: number, memo: string) =>
@@ -780,6 +803,60 @@ export type VerificationBody =
   | { kind: 'contact'; email: string; phone: string }
   | { kind: 'identity'; name: string; country: string; date_of_birth: string }
   | { kind: 'company'; name: string; country: string; company_number: string; directors: string[]; people_with_significant_control: string[] }
+
+/** Lens economy.TermsAcceptance (B30.9): who accepted which version of a capability's terms, and when. */
+export interface TermsAcceptance {
+  capability: string
+  version: number
+  person: string
+  accepted_at: string
+}
+
+/** Lens economy.WorkspaceTerms (B30.9): a capability's latest terms, and whether this workspace has accepted them. */
+export interface WorkspaceTerms {
+  capability: string
+  name: string
+  class: 'GREEN' | 'AMBER' | 'RED'
+  version: number
+  published_at: string
+  /** The text, in Markdown; only on the read of one capability's terms. */
+  body?: string
+  /** Of the latest version; absent until it is accepted. */
+  accepted?: TermsAcceptance
+  /** The latest earlier version this workspace accepted, while it has not accepted this one. */
+  previously_accepted_version?: number
+}
+
+/** Lens kya claims (docs/kya.md): what an agent's credential says about it. */
+export interface KYAClaims {
+  iss: string
+  sub: string
+  jti: string
+  iat: number
+  exp: number
+  agent: { id: string; name: string }
+  owner: { workspace_id: string; name?: string; level: string; live_level: string }
+  capabilities: { capability: string; money: string }[] | null
+  limits: Record<string, number | string | boolean>
+}
+
+/** Lens kya.Credential (B30.5): the signed credential an agent shows, and where any platform checks it. */
+export interface KYACredential {
+  id: string
+  credential: string
+  claims: KYAClaims
+  issued_at: string
+  expires_at: string
+  jwks_url: string
+  verify_url: string
+}
+
+/** Lens kya.Verification (B30.5): Talyvor's answer on a credential. */
+export interface KYAVerification {
+  valid: boolean
+  reason?: string
+  claims?: KYAClaims
+}
 
 /** Lens economy.WalletAddress (B22.3): what a wallet ID or @handle is. */
 export interface WalletAddress {

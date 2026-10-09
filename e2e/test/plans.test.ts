@@ -63,6 +63,7 @@ describe('every scenario on the plan it needs (B35.7)', () => {
     // B30.117 — and verification levels, reached in order, a Test pass counting for test money only.
     // B30.122 — and each money capability's terms, listed unaccepted on a new workspace, fx's accepted and the next version 409.
     // B30.116 — and the Verification screen, L1 then L2 reached from its forms.
+    // B30.103 — and the Capability terms screen and an agent's credential, one agent on Free.
     // B30.118 — and an agent's Know Your Agent credential, revoked by a rule change and by a pause.
     // B32.65 — and a family of three remixes, the rent of the youngest split up the family and refunded.
     // B32.93 — and two buyers' per-use buys, each taxed by its treatment, the paid one's tax cleared to tax:GB.
@@ -72,7 +73,7 @@ describe('every scenario on the plan it needs (B35.7)', () => {
       'gateway-mcp:free', 'gateway-providers:free', 'gateway-sessions:free', 'injection-exfil:free', 'keys-not-forwarded:free', 'keys-unlisted:free', 'kya-credential:free', 'ledger-call-once:team', 'ledger-moves-at-once:team', 'lens-tokens:free', 'lineage:free', 'market-abuse:free', 'market-agent-commitment:free', 'market-agent-mcp:free', 'market-bill-invoices:free', 'market-bill-tax:free', 'market-buyer-currency:free', 'market-discovery:free', 'market-journal:free', 'market-offers:free', 'market-receipts:free', 'market-rent:free', 'market-trial:free', 'market-trust:free', 'nodes:free', 'outputs-attribution:free',
       'plan-agents-business:business', 'plan-agents-team:team', 'plan-change:free', 'platform-report:free', 'pool-isolation:free', 'povi:free', 'rate-limits-hold:free', 'room-agent-mcp:free', 'room-contributions:free', 'room-decide-run:team', 'room-invite-limits:free', 'room-invite-screen:team', 'room-messages:team', 'room-prizes:free', 'room-runs:free', 'room-wallet:free', 'rooms-moderation:free', 'rooms-private:team', 'script-inert:team', 'seats-free:free', 'seats-team:free', 'self-billed-invoice:free', 'seller-tax-details:free', 'seller-week-statement:free',
       'settings-config-budgets:free', 'settings-guardrails:free', 'settings-operator-only:free', 'settings-prompts:free', 'settings-stored-answers:free',
-      'settings-switches:free', 'settings-tare-distill:free', 'ssrf-refused:free', 'tax-and-payouts:free', 'verification-levels:free', 'verification-screen:free', 'webhook-replayed:free', 'webhook-unsigned:free'])
+      'settings-switches:free', 'settings-tare-distill:free', 'ssrf-refused:free', 'tax-and-payouts:free', 'terms-credential-screens:free', 'verification-levels:free', 'verification-screen:free', 'webhook-replayed:free', 'webhook-unsigned:free'])
   })
 
   it('creates each plan’s workspaces in one call, each user at its index and each gate’s own beside it', async () => {

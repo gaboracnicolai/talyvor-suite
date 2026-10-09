@@ -155,7 +155,7 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/billing/cancel': 0,
   '/keys': 2,
   // B19.4 — Waiting for a person, Agents, and the open agent's Money, Rules, Pay, Key and Statement.
-  '/agents': 33, // B19.10 added "Face ID and notifications"; B19.20 "Month-end forecast" and "Unusual spend"; B19.21 "Scheduled payments" and "Automatic top-up"; B19.22 "Statement for every agent"; B19.24 "Card"; B22.10 "Address", "Send or request", "Transfers", "Recurring transfer", "Offer a loan", "Requests", "Credit line" and "Loans"; B22.12 "Pay into escrow", "Pots", "Investing, simulated", "Cash out", "Escrow" and "Cash-outs"; B28.21 "Name and description" and "Archive"; B28.30 "Would it pass?"; B28.31 "Rules history"; B28.32 "Limit boost"
+  '/agents': 34, // B30.103 "Know Your Agent credential"; B19.10 added "Face ID and notifications"; B19.20 "Month-end forecast" and "Unusual spend"; B19.21 "Scheduled payments" and "Automatic top-up"; B19.22 "Statement for every agent"; B19.24 "Card"; B22.10 "Address", "Send or request", "Transfers", "Recurring transfer", "Offer a loan", "Requests", "Credit line" and "Loans"; B22.12 "Pay into escrow", "Pots", "Investing, simulated", "Cash out", "Escrow" and "Cash-outs"; B28.21 "Name and description" and "Archive"; B28.30 "Would it pass?"; B28.31 "Rules history"; B28.32 "Limit boost"
   // B20.3 — the catalog's Listings card. 1 → 0 at B29.11: the listings are cards of their own, a list
   // named Listings in the Browse region, and no card header.
   '/marketplace': 0,
@@ -173,6 +173,8 @@ const CARD_HEADER_CENSUS: Readonly<Record<string, number>> = {
   '/settings': 3,
   // B30.116 — your level, the next check, the checks, and one card per level the capabilities need (L0, L2, L3).
   '/settings/verification': 6,
+  // B30.103 — every capability with terms, in one card.
+  '/settings/terms': 1,
   '/features': 0,
   '/features/try/tare': 0,
   '/features/try/conversion': 0,

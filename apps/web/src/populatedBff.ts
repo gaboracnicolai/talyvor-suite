@@ -417,6 +417,14 @@ const BY_PATH: Record<string, unknown> = {
       { level: 'L1', subject: 'contact', method: 'test', test: true, status: 'completed', evidence_ref: 'kyc_test_31be09c5d2', started_at: '2026-10-08T09:10:00Z', checked_at: '2026-10-08T09:10:00Z' },
     ],
   },
+  // B30.103 — each capability's terms: fx accepted, payments_out's new version asking again, b2b_credit never accepted.
+  '/api/terms': {
+    terms: [
+      { capability: 'fx', name: 'Converting between currencies', class: 'RED', version: 1, text_path: 'docs/terms/fx.md', body_sha256: '', published_by: 'lens', published_at: '2026-10-09T07:00:00Z', accepted: { workspace_id: 'ws-1', capability: 'fx', version: 1, person: 'ada@example.com', accepted_at: '2026-10-09T08:00:00Z' } },
+      { capability: 'payments_out', name: 'Paying people and companies outside Talyvor', class: 'RED', version: 2, text_path: 'docs/terms/payments_out.md', body_sha256: '', published_by: 'lens', published_at: '2026-10-09T07:00:00Z', previously_accepted_version: 1 },
+      { capability: 'b2b_credit', name: 'Credit lines and loans to companies', class: 'AMBER', version: 1, text_path: 'docs/terms/b2b_credit.md', body_sha256: '', published_by: 'lens', published_at: '2026-10-09T07:00:00Z' },
+    ],
+  },
   '/api/agents/agt_research/transfers': {
     transfers: [
       { id: 'xfer_2', from_workspace_id: 'ws-other', from_agent_id: 'agt_bea', to_workspace_id: 'ws-1', to_agent_id: 'agt_research', amount_ulxc: 2_000_000, memo: 'expenses', class: 'AMBER', test_funded_ulxc: 2_000_000, created_at: '2026-09-28T12:00:00Z' },
