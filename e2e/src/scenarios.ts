@@ -78,6 +78,7 @@ import { csrfRefused, scriptInert } from './session.ts'
 import { keysNotForwarded, keysUnlisted } from './keys.ts'
 import { rateLimitsHold } from './ratelimit.ts'
 import { marketDiscoverScreen, marketDiscovery } from './discovery.ts'
+import { royaltiesNotHeadline } from './royalties.ts'
 
 export interface Evidence {
   note?: string
@@ -4380,7 +4381,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     case 7: list.push(streamsProgressively(), refusalsReadAsThemselves(i), chatBudget(i), chatTotalAfterReload(i), chatChargedFooter(i), chatMeter(i), chatFeatureSpend(i), chatHistorySync(i)); break
     // B29.1 — then the favicon, the Home Screen icon and the install manifest; B29.3 — the drawn logo;
     // B29.6 — sign-in and sign-up in the brand, signed out.
-    case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs()); break
+    // B28.10 — and sharing as a saving first: Settings, Royalties under Statements, /earnings, Billing and Overview.
+    case 8: list.push(socialPreview(), brandIcons(), brandLogo(), signinBoard(), walletDocs(), royaltiesNotHeadline()); break
     // B29.4 — then /marketing in the board's design, at 1440 and at 390; B29.5 — /pricing in the brand.
     // B28.274 — and /terms and /privacy dated and read to their last line.
     // B36.1 — and the hero photograph fading into the page, in both themes.
