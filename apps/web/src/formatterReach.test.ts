@@ -377,6 +377,7 @@ describe('an exported formatter nobody calls', () => {
       'apps/web/src/areas/lens/Overview.tsx',
       'apps/web/src/areas/lens/TopUp.tsx',
       'apps/web/src/areas/lens/WalletHoldings.tsx',
+      'apps/web/src/areas/marketplace/EarningsList.tsx',
       'apps/web/src/areas/marketplace/Licences.tsx',
       'apps/web/src/areas/marketplace/ListingOffers.tsx',
       'apps/web/src/areas/marketplace/Marketplace.tsx',

@@ -23,6 +23,7 @@ import { formatULXC } from "../lens/agentBankApi";
 import { formatUSD, formatWhen } from "../lens/format";
 import { parseShare } from "../rooms/roomsApi";
 import { CollectionPage, Discover } from "./Discover";
+import { EarningsListCard } from "./EarningsList";
 import { Licences } from "./Licences";
 import { ListingPage } from "./ListingPage";
 import {
@@ -857,6 +858,7 @@ function Selling() {
         </p>
         <SellerTaxNotice />
         <EarningsCard />
+        <EarningsListCard />
         <PayoutsCard />
       </Region>
       <Region
