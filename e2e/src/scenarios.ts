@@ -2310,7 +2310,8 @@ async function meterFigures(page: Page): Promise<{ left: number | undefined; pre
 /**
  * B28.104 — the plan's allowance used and the prepaid balance, under the box in Chat. A question asked afresh, and once
  * it is answered the meter shows what Lens holds — GET …/billing/allowance's remaining and GET …/lxc/balance — and the
- * prepaid balance dropped by exactly the rows Lens wrote to the ledger for the answer.
+ * prepaid balance dropped by exactly the rows Lens wrote to the ledger for the answer. B17.130 — asked in a temporary
+ * chat, served nothing from the cache or the pool: a made-up word in brackets does not keep the pool from serving it.
  */
 export function chatMeter(seed: number): Scenario {
   return {
@@ -2319,50 +2320,66 @@ export function chatMeter(seed: number): Scenario {
     items: ['B28.104'],
     title: 'the meter under the box drops by what an answer was charged: Lens’s allowance and balance, and the answer’s ledger rows',
     run: async (ctx) => {
-      const { app, env } = ctx
+      const { app } = ctx
       const { page } = app
       await app.newChat()
-      await page.locator('[data-testid="prepaid-balance"]').waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => {})
-      const before = await meterFigures(page)
-      if (before.prepaid === undefined) return { pass: false, detail: 'Chat shows no prepaid balance under the box' }
-      const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
-      const t = await ask(ctx, `Name the smallest ocean in one word. (${freshWord(seed * 10 + 8, 1 + Math.floor(Math.random() * 999_999))})`)
-      const noPrice = priced(t)
-      if (noPrice !== undefined) return { pass: false, detail: noPrice }
-      if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer was not written by the model just now: [${t.footerText}]` }
-      // The meter reads Lens again once the answer is done, and each second until a figure moves.
-      let after = await meterFigures(page)
-      for (let tries = 0; tries < 15 && after.left === before.left && after.prepaid === before.prepaid; tries++) {
-        await page.waitForTimeout(1_000)
-        after = await meterFigures(page)
+      const toggle = page.getByRole('button', { name: 'Temporary chat' })
+      await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const temporary = async (on: boolean) => {
+        if ((await toggle.getAttribute('aria-pressed')) !== String(on)) await toggle.click()
       }
-      const plan = await env.lens.allowance(app.user)
-      const balance = await env.lens.lxcBalance(app.user)
-      const rows = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id))
-      const held = plan.ok && plan.value !== null ? plan.value.remaining_ulxc : undefined
-      ctx.evidence.push({ note: `the meter before ${JSON.stringify(before)}, after ${JSON.stringify(after)}; Lens: ${held ?? 'no'} µLXC of allowance left, a ${balance} µLXC balance; the rows written for [${t.footerText}]`,
-        ledger: rows.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
-      if (after.prepaid !== balance) return { pass: false, detail: `the meter says ${after.prepaid} µLXC prepaid, Lens's balance is ${balance} µLXC` }
-      if (after.left !== held) return { pass: false, detail: `the meter says ${after.left ?? 'no'} µLXC of allowance left, Lens's allowance read ${held ?? 'none'}` }
-      const drawn = -rows.reduce((n, r) => n + r.amount_ulxc, 0)
-      if (before.prepaid - after.prepaid !== drawn) {
-        return { pass: false, detail: `the meter's prepaid balance dropped ${before.prepaid - after.prepaid} µLXC; the ledger rows written for the answer come to ${drawn} µLXC` }
+      await temporary(true)
+      try {
+        return await meterDrops(ctx, seed)
+      } finally {
+        await temporary(false).catch(() => undefined)
       }
-      const dropped = (before.left ?? 0) - (after.left ?? 0) + before.prepaid - after.prepaid
-      if (dropped <= 0) return { pass: false, detail: `the answer [${t.footerText}] was charged, and the meter did not drop: ${JSON.stringify(before)} → ${JSON.stringify(after)}` }
-      const viewport = page.viewportSize()
-      await mkdir(env.outDir, { recursive: true })
-      const wide = join(env.outDir, `chat-meter-1440px-user${app.user.index}.png`)
-      const narrow = join(env.outDir, `chat-meter-390px-user${app.user.index}.png`)
-      await page.setViewportSize({ width: 1440, height: 900 })
-      await page.screenshot({ path: wide })
-      await page.setViewportSize({ width: 390, height: 844 })
-      await page.screenshot({ path: narrow })
-      if (viewport !== null) await page.setViewportSize(viewport)
-      ctx.evidence.push({ note: `the meter at 1440px: ${wide}; at 390px: ${narrow}` })
-      return { pass: true, detail: `the meter dropped ${dropped} µLXC (${before.prepaid - after.prepaid} prepaid, the answer's ledger rows) and reads what Lens holds` }
     },
   }
+}
+
+async function meterDrops(ctx: ScenarioCtx, seed: number): Promise<Verdict> {
+  const { app, env } = ctx
+  const { page } = app
+  await page.locator('[data-testid="prepaid-balance"]').waitFor({ timeout: ACTION_TIMEOUT_MS }).catch(() => {})
+  const before = await meterFigures(page)
+  if (before.prepaid === undefined) return { pass: false, detail: 'Chat shows no prepaid balance under the box' }
+  const seen = new Set((await env.lens.ledger(app.user)).map((r) => r.id))
+  const t = await ask(ctx, `Name the smallest ocean in one word. (${freshWord(seed * 10 + 8, 1 + Math.floor(Math.random() * 999_999))})`, 'in a temporary chat')
+  const noPrice = priced(t)
+  if (noPrice !== undefined) return { pass: false, detail: noPrice }
+  if (t.footer.kind !== 'priced') return { pass: false, detail: `the answer, in a temporary chat, was not written by the model just now: [${t.footerText}]` }
+  // The meter reads Lens again once the answer is done, and each second until a figure moves.
+  let after = await meterFigures(page)
+  for (let tries = 0; tries < 15 && after.left === before.left && after.prepaid === before.prepaid; tries++) {
+    await page.waitForTimeout(1_000)
+    after = await meterFigures(page)
+  }
+  const plan = await env.lens.allowance(app.user)
+  const balance = await env.lens.lxcBalance(app.user)
+  const rows = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id))
+  const held = plan.ok && plan.value !== null ? plan.value.remaining_ulxc : undefined
+  ctx.evidence.push({ note: `the meter before ${JSON.stringify(before)}, after ${JSON.stringify(after)}; Lens: ${held ?? 'no'} µLXC of allowance left, a ${balance} µLXC balance; the rows written for [${t.footerText}]`,
+    ledger: rows.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
+  if (after.prepaid !== balance) return { pass: false, detail: `the meter says ${after.prepaid} µLXC prepaid, Lens's balance is ${balance} µLXC` }
+  if (after.left !== held) return { pass: false, detail: `the meter says ${after.left ?? 'no'} µLXC of allowance left, Lens's allowance read ${held ?? 'none'}` }
+  const drawn = -rows.reduce((n, r) => n + r.amount_ulxc, 0)
+  if (before.prepaid - after.prepaid !== drawn) {
+    return { pass: false, detail: `the meter's prepaid balance dropped ${before.prepaid - after.prepaid} µLXC; the ledger rows written for the answer come to ${drawn} µLXC` }
+  }
+  const dropped = (before.left ?? 0) - (after.left ?? 0) + before.prepaid - after.prepaid
+  if (dropped <= 0) return { pass: false, detail: `the answer [${t.footerText}] was charged, and the meter did not drop: ${JSON.stringify(before)} → ${JSON.stringify(after)}` }
+  const viewport = page.viewportSize()
+  await mkdir(env.outDir, { recursive: true })
+  const wide = join(env.outDir, `chat-meter-1440px-user${app.user.index}.png`)
+  const narrow = join(env.outDir, `chat-meter-390px-user${app.user.index}.png`)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.screenshot({ path: wide })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: narrow })
+  if (viewport !== null) await page.setViewportSize(viewport)
+  ctx.evidence.push({ note: `the meter at 1440px: ${wide}; at 390px: ${narrow}` })
+  return { pass: true, detail: `the meter dropped ${dropped} µLXC (${before.prepaid - after.prepaid} prepaid, the answer's ledger rows) and reads what Lens holds` }
 }
 
 /**
