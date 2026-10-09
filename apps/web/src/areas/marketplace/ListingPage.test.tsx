@@ -97,6 +97,10 @@ function mockBff() {
   const licences: Array<Record<string, unknown>> = []
   const trials: Record<string, number> = { lst_trial: 3 }
   const sent: Array<{ url: string; key: string | null; body: string }> = []
+  // B28.162 — the seller's own prompt: Lens shows its owner each version's artifact.
+  const own: Array<Record<string, unknown>> = [
+    { version: 1, artifact_sha256: 'o1', changelog: 'First version', created_at: '2026-09-01T09:00:00Z', artifact: { template: 'Summarise {{text}}' } },
+  ]
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = String(input)
@@ -149,7 +153,15 @@ function mockBff() {
       bill.push({ use_id: base.id, listing_id: id, title: 'Daily brief', price_ulxc: 5_000_000, used_at: base.used_at })
       return json({ ...base, charge: 'billed', price_ulxc: 5_000_000 })
     }
+    if (url === '/api/marketplace/listings/lst_own/versions' && method === 'POST') {
+      const { artifact, changelog } = JSON.parse(String(init?.body)) as Record<string, unknown>
+      const v = { version: own.length + 1, artifact_sha256: `o${own.length + 1}`, changelog, created_at: '2026-10-09T09:00:00Z', artifact }
+      own.push(v)
+      return json(v, 201)
+    }
     const one = /^\/api\/marketplace\/listings\/([^/?]+)(?:\?currency=([A-Z]{3}))?$/.exec(url)
+    if (one?.[1] === 'lst_own')
+      return json({ ...listing('lst_own', ''), kind: 'prompt', title: 'Summariser', offers: [], latest_version: own.length, versions: own })
     if (one) return json(listing(one[1], one[2] ?? ''))
     if (url.startsWith('/api/marketplace/bill?month='))
       return json({
@@ -227,6 +239,7 @@ describe('listing page 2', () => {
     expect(result.textContent).toContain('Billed, it would have cost $0.50.')
     expect(result.textContent).toContain('Trial uses left: 2.')
     expect(bill).toEqual([])
+    expect(screen.queryByTestId('new-version')).toBeNull()
   })
 
   it('shows the trust figures and the originals with their shares, and the remix terms', async () => {
@@ -248,5 +261,28 @@ describe('listing page 2', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Remix this' }))
     expect(screen.getByTestId('remix-terms').textContent).toContain('15% of each sale of your remix')
+  })
+
+  it('uploads a new version with a changelog from the seller’s own listing page', async () => {
+    const { sent } = mockBff()
+    await at('/marketplace/listings/lst_own')
+    const form = await screen.findByTestId('new-version')
+    expect(form.textContent).toContain('Publishing makes it version 2.')
+    const template = within(form).getByLabelText(/^Template/)
+    expect((template as HTMLTextAreaElement).value).toBe('Summarise {{text}}')
+    fireEvent.change(template, { target: { value: 'Summarise {{text}} in three bullets' } })
+    fireEvent.change(within(form).getByLabelText('What changed'), { target: { value: 'Three bullets' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Publish this version' }))
+    await within(form).findByText('Version 2 is published.')
+    expect(sent.filter((s) => s.url.endsWith('/versions'))).toEqual([
+      {
+        url: '/api/marketplace/listings/lst_own/versions',
+        key: null,
+        body: '{"artifact":{"template":"Summarise {{text}} in three bullets"},"changelog":"Three bullets","parents":[]}',
+      },
+    ])
+    await waitFor(() => expect(form.textContent).toContain('Publishing makes it version 3.'))
+    expect(screen.getByText('Three bullets')).toBeTruthy()
+    expect(screen.getByText('First version')).toBeTruthy()
   })
 })

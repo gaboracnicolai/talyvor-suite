@@ -887,6 +887,9 @@ export const marketApi = {
     ).receipts ?? [],
   publish: (draft: ListingDraft) =>
     post<Listing>("/api/marketplace/listings", draft),
+  /** B28.162 — uploads the next version of this workspace's listing; the earlier ones stay as they were. */
+  publishVersion: (id: string, artifact: Record<string, unknown>, changelog: string) =>
+    post<ListingVersion>(`/api/marketplace/listings/${e(id)}/versions`, { artifact, changelog, parents: [] }),
   /** B32.58 — accepts a listing's remix licence for a version (0: its latest) and opens its artifact to build on. */
   remix: (id: string, version = 0) =>
     post<RemixOpened>(`/api/marketplace/listings/${e(id)}/remix`, { version }),

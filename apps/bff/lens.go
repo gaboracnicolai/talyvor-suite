@@ -466,13 +466,14 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/marketplace/listings", a.requireTenant(a.handleMarketListings))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}", a.requireTenant(a.handleMarketListing))
 	a.mux.HandleFunc("/api/marketplace/listings/{id}/use", a.requireTenant(a.handleMarketUse))
-	a.mux.HandleFunc("/api/marketplace/listings/{id}/trust", a.requireTenant(a.handleMarketTrust))    // B32.57
-	a.mux.HandleFunc("/api/marketplace/listings/{id}/remix", a.requireTenant(a.handleMarketRemix))    // B32.58
-	a.mux.HandleFunc("/api/marketplace/listings/{id}/reports", a.requireTenant(a.handleMarketReport)) // B20.11
-	a.mux.HandleFunc("/api/marketplace/search", a.requireTenant(a.handleMarketSearch))                // B32.61
-	a.mux.HandleFunc("/api/marketplace/capabilities", a.requireTenant(a.handleMarketCapabilities))    // B32.61
-	a.mux.HandleFunc("/api/marketplace/collections", a.requireTenant(a.handleMarketCollections))      // B32.61
-	a.mux.HandleFunc("/api/marketplace/collections/{id}", a.requireTenant(a.handleMarketCollection))  // B32.61
+	a.mux.HandleFunc("/api/marketplace/listings/{id}/trust", a.requireTenant(a.handleMarketTrust))      // B32.57
+	a.mux.HandleFunc("/api/marketplace/listings/{id}/remix", a.requireTenant(a.handleMarketRemix))      // B32.58
+	a.mux.HandleFunc("/api/marketplace/listings/{id}/versions", a.requireTenant(a.handleMarketVersion)) // B28.162
+	a.mux.HandleFunc("/api/marketplace/listings/{id}/reports", a.requireTenant(a.handleMarketReport))   // B20.11
+	a.mux.HandleFunc("/api/marketplace/search", a.requireTenant(a.handleMarketSearch))                  // B32.61
+	a.mux.HandleFunc("/api/marketplace/capabilities", a.requireTenant(a.handleMarketCapabilities))      // B32.61
+	a.mux.HandleFunc("/api/marketplace/collections", a.requireTenant(a.handleMarketCollections))        // B32.61
+	a.mux.HandleFunc("/api/marketplace/collections/{id}", a.requireTenant(a.handleMarketCollection))    // B32.61
 	a.mux.HandleFunc("/api/marketplace/mine", a.requireTenant(a.handleMarketMine))
 	a.mux.HandleFunc("/api/marketplace/earnings", a.requireTenant(a.handleMarketEarnings))
 	a.mux.HandleFunc("/api/marketplace/bill", a.requireTenant(a.handleMarketBill))         // B20.10

@@ -53,6 +53,7 @@ import { roomPrizes } from './roomPrizes.ts'
 import { roomAgentMCP } from './roomAgentMCP.ts'
 import { taxAndPayouts } from './taxPayouts.ts'
 import { marketTrust } from './marketTrust.ts'
+import { marketVersions } from './marketVersions.ts'
 import { buyerTaxProfile } from './taxProfile.ts'
 import { sellerTaxDetails } from './sellerTax.ts'
 import { sellerWeekStatement } from './weekStatement.ts'
@@ -4979,6 +4980,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // counted, with the seller's reply; a workspace that never paid and one sharing a card with the seller are refused and
   // never counted, and MCP market_listing's trust equals the read.
   if (i === 4) list.push(marketTrust(i))
+  // B28.162 — a listing's new version, once a run, on workspaces of its own: version 2 uploaded with a changelog reads back
+  // beside version 1, unchanged; a use pinned to version 1 still runs version 1, and an unpinned use runs version 2.
+  if (i === 0) list.push(marketVersions(i))
   // B32.92 — a buyer's tax profile, once a run, on a workspace of its own: a valid German VAT number makes a DE business and
   // one never issued is kept invalid and leaves a consumer, each read back as saved; "Germany" is 400 and the agent key 403.
   if (i === 6) list.push(buyerTaxProfile())

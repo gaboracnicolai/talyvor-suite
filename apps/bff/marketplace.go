@@ -22,6 +22,7 @@ import (
 //	GET  /api/marketplace/listings/{id}?currency=  a listing and its versions (artifacts for its owner only); B32.57: its offers priced in currency
 //	GET  /api/marketplace/listings/{id}/trust      B32.57: its trust panel — verified publisher, reviews, eval score, claims and its originals
 //	POST /api/marketplace/listings/{id}/remix      B32.58: {version} accept its remix licence and open its artifact to build on
+//	POST /api/marketplace/listings/{id}/versions   B28.162: {artifact, changelog, parents} a new version; the earlier ones stay usable
 //	POST /api/marketplace/listings/{id}/use        {version, model, input, variables}
 //	GET  /api/marketplace/mine                     this workspace's own listings, whatever their visibility
 //	GET  /api/marketplace/earnings                 the seller's pending, payable, in holdback and available
@@ -184,6 +185,40 @@ func (a *app) handleMarketRemix(w http.ResponseWriter, r *http.Request, t tenant
 	body, _ := json.Marshal(in)
 	a.marketRelay(w, r, a.client, t.token, http.MethodPost,
 		lensWorkspacePath(t, "/marketplace/listings/"+url.PathEscape(id)+"/remix"), body, "")
+}
+
+// handleMarketVersion — POST /api/marketplace/listings/{id}/versions {artifact, changelog, parents} (B28.162, Lens
+// B20.1): the seller uploads a new version of their listing. Lens adds it as the next version and keeps every earlier
+// one as it was, so a use or licence pinned to an earlier version still runs that one; the new version keeps the
+// parents of the one before it. Lens refuses anyone but the workspace's owner or an admin, a taken-down listing, and
+// an artifact carrying a secret, personal data or an injection, each with its sentence.
+func (a *app) handleMarketVersion(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	id, ok := pathID(w, "listing id", r.PathValue("id"))
+	if !ok {
+		return
+	}
+	var in struct {
+		Artifact  json.RawMessage `json:"artifact"`
+		Changelog string          `json:"changelog"`
+		Parents   []marketParent  `json:"parents"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 320<<10)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	var artifact map[string]any
+	if json.Unmarshal(in.Artifact, &artifact) != nil || artifact == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a version needs its artifact"})
+		return
+	}
+	// UPSTREAM-BINDS-ONLY lensMarketVersionBody: none
+	body, _ := json.Marshal(in)
+	a.marketRelay(w, r, a.client, t.token, http.MethodPost,
+		lensWorkspacePath(t, "/marketplace/listings/"+url.PathEscape(id)+"/versions"), body, "")
 }
 
 // displayCurrency is the one shape Lens reads ?currency= in: a three-letter ISO 4217 code.

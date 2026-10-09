@@ -287,6 +287,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/licences", body: `{"offer_id":"x1"}`},
 		// B32.58 — accepting a listing's remix licence.
 		{method: http.MethodPost, path: "/api/marketplace/listings/x1/remix", body: `{"version":0}`},
+		{method: http.MethodPost, path: "/api/marketplace/listings/x1/versions", body: `{"artifact":{"template":"x"},"changelog":"x"}`}, // B28.162
 		// B32.60 — saving the seller's tax details.
 		{method: http.MethodPut, path: "/api/marketplace/seller-tax", body: `{"seller_type":"individual"}`},
 		// B32.53 — opening a room and joining one.
