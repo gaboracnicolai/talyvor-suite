@@ -68,6 +68,7 @@ import { verificationLevels } from './verification.ts'
 import { capabilityTerms } from './capabilityTerms.ts'
 import { verificationScreen } from './verificationScreen.ts'
 import { termsAndCredentialScreens } from './termsScreen.ts'
+import { operatorComplianceBoundary } from './operatorCompliance.ts'
 import { agentCredential } from './kya.ts'
 import { lineage } from './lineage.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
@@ -5018,6 +5019,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // fx's terms read and accepted on the screen and recorded by Lens at their latest version; the credential Agent Wallets
   // shows verifies with only the published keys, and the screen's check says Valid.
   if (i === 6) list.push(termsAndCredentialScreens())
+  // B30.104 — the operator's Compliance page, once a run: a tester, never an operator, asking the BFF for the reconciliation and
+  // safeguarding figures is refused 403 for both, and the page says only operators can see it and shows none of them.
+  if (i === 3) list.push(operatorComplianceBoundary())
   // B32.65 — lineage and licences, once a run, on workspaces of its own: A at a 20% royalty is remixed into B at 10% and B
   // into C, each under its remix licence; C rented and used twice is one line on its buyer's bill; the paid rent splits
   // Talyvor's fee, C, B and A in the design's proportions on each author's earnings and journal, and its refund reverses all four.

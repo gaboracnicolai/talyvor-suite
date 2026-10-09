@@ -58,6 +58,7 @@ import { PublicBoard } from './areas/board/PublicBoard'
 import { SharedChat } from './areas/share/SharedChat'
 import { DocsArea } from './areas/docs/DocsArea'
 import { OperatorTax } from './areas/lens/OperatorTax'
+import { OperatorCompliance } from './areas/lens/OperatorCompliance'
 import { VerificationScreen } from './areas/lens/Verification'
 import { CapabilityTermsScreen } from './areas/lens/CapabilityTerms'
 import { OperatorWorkspaces } from './areas/lens/OperatorWorkspaces'
@@ -280,6 +281,8 @@ export const CONSOLE_ROUTES: readonly ConsoleRoute[] = [
   { path: '/operator', title: 'Operator', element: <OperatorWorkspaces /> },
   // B32.63 — tax rates, registrations, each quarter's tax and the platform report.
   { path: '/operator/tax', title: 'Tax', element: <OperatorTax /> },
+  // B30.104 — every capability's class and clearance, safeguarding, and the daily reconciliation with its breaks.
+  { path: '/operator/compliance', title: 'Compliance', element: <OperatorCompliance /> },
 ]
 
 // Built once: matchRoutes only needs the paths, and rebuilding this per render would allocate
@@ -500,6 +503,7 @@ function Sidebar() {
         <Group label="Operator" {...fold.group('Operator')}>
           {item('/operator', 'Workspaces', 'server')}
           {item('/operator/tax', 'Tax', 'receipt')}
+          {item('/operator/compliance', 'Compliance', 'ledger')}
         </Group>
       ) : null}
       {/* The first "Operator" group held one item, /admin, and went with it: an operator

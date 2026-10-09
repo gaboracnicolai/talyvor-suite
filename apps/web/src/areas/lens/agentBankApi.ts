@@ -760,7 +760,15 @@ export interface WalletCapability {
   name: string
   class: 'GREEN' | 'AMBER' | 'RED'
   real_money: boolean
-  clearance?: { by: string; reference: string; at: string }
+  clearance?: {
+    by: string
+    reference: string
+    at: string
+    licence_reference?: string
+    partner?: string
+    countries?: string[] | null
+    expires_at?: string
+  }
   /** B30.4: the verification level its live money needs, "L0" to "L3". */
   level_needed?: string
 }

@@ -276,6 +276,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/admin/tax/registrations", onlyGetOrPost(a.requireOperator(a.handleTaxRegistrations)))
 	a.mux.HandleFunc("/api/admin/tax/return", onlyMethod(http.MethodGet, a.requireOperator(a.handleTaxReturn)))
 	a.mux.HandleFunc("/api/admin/platform-reports", onlyGetOrPost(a.requireOperator(a.handlePlatformReports)))
+	// B30.104 — the Compliance page: the daily reconciliation and the safeguarding view (operator_reconciliation.go).
+	a.mux.HandleFunc("/api/admin/reconciliation", onlyMethod(http.MethodGet, a.requireOperator(a.handleReconciliation)))
+	a.mux.HandleFunc("/api/admin/safeguarding", onlyMethod(http.MethodGet, a.requireOperator(a.handleSafeguarding)))
 
 	// W4.6.1 step 3 — STREAMING inference to the browser. Its own handler rather than `forward`
 	// because forward is GET-only, sets Accept: application/json, io.Copy's without a Flush, and
