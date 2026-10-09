@@ -348,15 +348,29 @@ export interface ListingTrust {
   remixes: number;
 }
 
-/** Lens market.Earning — one cleared use's share. */
+/** Lens market.Earning — one cleared use's share: the seller's, or an original's royalty from a remix's sale. */
 export interface Earning {
   use_id: string;
+  /** the listing sold; "" for a payment to this company's agent */
   listing_id: string;
+  /** sale, or lineage: a royalty from a remix's sale (B32.26) */
+  kind?: string;
+  /** a royalty's own listing: the original the listing sold builds on */
+  original_listing_id?: string;
+  /** what the buyer paid: on the sale, 0 on a royalty */
   gross_usd_micros: number;
   share_usd_micros: number;
+  /** Talyvor's take, on the sale */
+  fee_usd_micros?: number;
   invoice_id: string;
   cleared_at: string;
   payable_at: string;
+  /** its share was reversed by a refund, chargeback or takedown */
+  refunded_at?: string | null;
+  /** a payment to this company's agent, not a use of a listing (B19.15) */
+  payee_agent_id?: string;
+  /** dispute or ip_claim: kept in the holdback until the hold is released (B32.17) */
+  held_for?: string;
 }
 
 /** Lens market.Earnings — a seller's totals and latest 100 earnings. */

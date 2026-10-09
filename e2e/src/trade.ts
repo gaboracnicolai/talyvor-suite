@@ -14,6 +14,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { Page } from 'playwright'
 import type { Agent, BillLine, Listing, Loan, MarketEarnings, MarketJournal, MarketLicence, MarketOffer, MoneyRequest, PaidTestBill, SyntheticUser } from './lens.ts'
 import { ACTION_TIMEOUT_MS, type AgentBankScreen, agentIn, bookOf, card, fail, lxcText, openAgent, publishPrompt, runListing, spendRows, withBank } from './bank.ts'
 import { worstInputTokens } from './budget.ts'
@@ -1079,16 +1080,41 @@ export async function clearedBothSides(ctx: ScenarioCtx, bought: { line: BillLin
   return { share: e.share_usd_micros, earned }
 }
 
-/** Your listings & earnings → Take … as credits, as the seller; what the Payouts card then says. */
-async function takeAsCredits(ctx: ScenarioCtx, seller: number): Promise<string> {
+/** B28.159 — Every earning on Your listings & earnings, as the screen draws it: each row's use and its share, in µUSD. */
+async function earningsShown(page: Page): Promise<{ use_id: string; share: number }[]> {
+  const list = page.getByTestId('market-earnings-list')
+  await list.waitFor({ timeout: ACTION_TIMEOUT_MS })
+  const rows = await list.getByTestId('market-earning').evaluateAll((els) =>
+    els.map((el) => ({ use_id: (el as HTMLElement).dataset.useId ?? '', share: el.querySelector('[data-testid="market-earning-share"]')?.textContent ?? '' })))
+  return rows.map((r) => ({ use_id: r.use_id, share: Math.round(Number(r.share.replace(/[$,]/g, '')) * 1e6) }))
+}
+
+/** Why the rows on screen are not Lens's earnings list one for one — the same uses, in its order, each with its share — or undefined. */
+function earningsListFault(shown: { use_id: string; share: number }[], lens: MarketEarnings[]): string | undefined {
+  const want = (e: MarketEarnings) => (e.earnings ?? []).map((x) => ({ use_id: x.use_id, share: x.share_usd_micros }))
+  // Lens is read either side of the screen, so an earning cleared meanwhile is not a mismatch.
+  if (lens.some((e) => JSON.stringify(want(e)) === JSON.stringify(shown))) return undefined
+  return `Every earning on Your listings & earnings is not Lens's earnings list one for one: the screen shows ${JSON.stringify(shown)}; Lens lists ${JSON.stringify(want(lens[lens.length - 1]))}`
+}
+
+/**
+ * Your listings & earnings → Take … as credits, as the seller; what the Payouts card then says. First, B28.159: why the
+ * earnings drawn there are not Lens's earnings list one for one, or undefined.
+ */
+async function takeAsCredits(ctx: ScenarioCtx, seller: number, sellerUser: SyntheticUser): Promise<{ said: string; listFault: string | undefined }> {
   const sellerApp = await ctx.env.signInUser(seller)
   try {
     const page = await sellerApp.tab('/marketplace/selling')
+    const lens0 = await ctx.env.lens.marketEarnings(sellerUser)
+    const shown = await earningsShown(page)
+    const lens1 = await ctx.env.lens.marketEarnings(sellerUser)
+    ctx.evidence.push({ note: `the seller's earnings on screen: ${JSON.stringify(shown)}` })
+    const listFault = earningsListFault(shown, [lens0, lens1])
     const c = card(page, 'Payouts')
     await c.getByRole('button', { name: /^Take .* as credits$/ }).click({ timeout: ACTION_TIMEOUT_MS })
     const note = c.getByRole('status').filter({ hasText: /credits\.$/ }).or(c.getByRole('alert')).first()
     await note.waitFor({ timeout: ACTION_TIMEOUT_MS })
-    return (await note.innerText()).trim()
+    return { said: (await note.innerText()).trim(), listFault }
   } finally {
     await sellerApp.close()
   }
@@ -1099,7 +1125,7 @@ export function marketPayout(seed: number, seller: number): Scenario {
   return {
     id: 'market-payout',
     owner: 'talyvor-lens',
-    title: "a buyer uses another company's listing and pays the bill; past the holdback, the seller takes the earnings as credits on Your listings & earnings: one credits payout, its credits in the seller's workspace, nothing left available",
+    title: "a buyer uses another company's listing and pays the bill; past the holdback, the seller's earnings on Your listings & earnings are Lens's earnings list one for one, and the seller takes them as credits there: one credits payout, its credits in the seller's workspace, nothing left available",
     run: async (ctx) => {
       const { env } = ctx
       const bought = await buyFrom(ctx, seller, seed, price)
@@ -1111,7 +1137,8 @@ export function marketPayout(seed: number, seller: number): Scenario {
       const gross = cleared.earned.available_usd_micros
       const payouts0 = new Set(((await env.lens.payouts(bought.seller)).payouts ?? []).map((p) => p.id))
       const rows0 = new Set((await env.lens.ledger(bought.seller)).map((x) => x.id))
-      const said = await takeAsCredits(ctx, seller)
+      const { said, listFault } = await takeAsCredits(ctx, seller, bought.seller)
+      if (listFault !== undefined) return fail(listFault)
       ctx.evidence.push({ note: `the seller: Take as credits: ${said}` })
       if (!/credits\.$/.test(said)) return fail(`taking the earnings as credits was refused: "${said}"`)
       const made = ((await env.lens.payouts(bought.seller)).payouts ?? []).filter((p) => !payouts0.has(p.id))
@@ -1129,7 +1156,7 @@ export function marketPayout(seed: number, seller: number): Scenario {
       if (after.available_usd_micros !== 0 || after.paid_out_usd_micros !== (cleared.earned.paid_out_usd_micros ?? 0) + gross) {
         return fail(`paid out, the seller has ${after.available_usd_micros} µUSD available (want 0) and ${after.paid_out_usd_micros} paid out (want ${(cleared.earned.paid_out_usd_micros ?? 0) + gross})`)
       }
-      return { pass: true, detail: `used (one ${lxcText(price)} LXC line), the bill paid: the line reads paid and the seller's ${cleared.share} µUSD share is payable; taken as credits on the screen: one credits payout of ${gross} µUSD, ${lxcText(gross * 10)} LXC on the seller's ledger, nothing left available` }
+      return { pass: true, detail: `used (one ${lxcText(price)} LXC line), the bill paid: the line reads paid and the seller's ${cleared.share} µUSD share is payable, its row on screen as Lens lists it; taken as credits on the screen: one credits payout of ${gross} µUSD, ${lxcText(gross * 10)} LXC on the seller's ledger, nothing left available` }
     },
   }
 }
