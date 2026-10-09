@@ -550,6 +550,8 @@ function isRenderable(cp: number): boolean {
 export function unservedGlyphsIn(root: ParentNode): RenderedGlyph[] {
   const out: RenderedGlyph[] = []
   for (const el of Array.from(root.querySelectorAll('*'))) {
+    // B28.134 — KaTeX draws a formula in the math faces its own stylesheet serves.
+    if (el.closest('.katex') !== null) continue
     const text = ownText(el)
     if (!text) continue
     const family = effectiveFamily(el)
@@ -584,6 +586,7 @@ let currentFile = ''
 
 function scan(): void {
   for (const el of Array.from(document.body.querySelectorAll('*'))) {
+    if (el.closest('.katex') !== null) continue
     const text = ownText(el)
     if (!text) continue
     const className = el.getAttribute('class') ?? ''

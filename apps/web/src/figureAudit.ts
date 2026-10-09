@@ -146,6 +146,8 @@ export function onFigureFace(el: Element | null): boolean {
 export function figuresIn(root: ParentNode): RenderedFigure[] {
   const out: RenderedFigure[] = []
   for (const el of Array.from(root.querySelectorAll('*'))) {
+    // B28.134 — a formula's digits are mathematics, drawn by KaTeX in its own faces, not figures.
+    if (el.closest('.katex') !== null) continue
     const text = ownText(el)
     const kind = figureKind(text)
     if (!kind) continue
