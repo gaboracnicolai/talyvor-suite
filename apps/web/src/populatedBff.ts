@@ -51,6 +51,16 @@ const BODIES: Record<string, unknown> = {
       { role: 'assistant', content: 'It splits on newlines and discards the final piece as empty. Keep the last piece when it holds text.' },
     ],
   },
+  // B28.447 — a shared Docs page, at the address the public-route sweeps visit (`/docs/s/:token`).
+  '/api/public/docs/%3Atoken': {
+    page: {
+      id: 'p-importer',
+      title: 'Importer runbook',
+      content: JSON.stringify({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'When an import drops its last row, check that the file ends with a newline, then run the import again from the Track settings page.' }] }] }),
+      content_text: 'When an import drops its last row, check that the file ends with a newline, then run the import again from the Track settings page.',
+      updated_at: '2026-08-20T00:00:00Z',
+    },
+  },
   // B27.15 — Docs counts the fixture's person as a member, so the sidebar reads its pins.
   '/api/docs/membership': { member: true },
   '/auth/me': { mode: 'disabled', authenticated: false, user: null },

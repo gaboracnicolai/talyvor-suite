@@ -480,9 +480,13 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE HUNDRED-AND-ELEVENTH IS B28.162'S NEW VERSION, POST only: /api/marketplace/listings/{id}/versions. It relays
 	// Lens's answer — the version it wrote — and holds nothing; the versions are read back through the listing's GET,
 	// which the sweep reaches.
-	if len(methodOnly) > 111 {
+	//
+	// THE HUNDRED-AND-TWELFTH IS B28.447'S DOCS SHARE LINK, POST only: /api/docs/spaces/{spaceID}/pages/{pageID}/share. It
+	// relays Docs' answer — the link and its token — and holds nothing; the shared page is read back through GET
+	// /api/public/docs/{token}, which the sweep reaches.
+	if len(methodOnly) > 112 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 111 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 112 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

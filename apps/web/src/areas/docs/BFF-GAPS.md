@@ -78,11 +78,13 @@ segments (they are upstream-scoped to that workspace by membership + tier checks
 - **Anything that writes page content** — creates, PATCH, deletes, restores, comment writes,
   template use/import, approval decisions. The BFF is read-only by design; the editor question is
   a separate arc (see `./EDITOR-SIZING.md`).
-- **`/v1/collab/{pageID}/ws`** — WebSocket, needed only by an editor arc. Note for that future PR:
-  it sits behind gatewayauth, and a browser cannot attach `X-Gateway-Auth` to a WebSocket — the BFF
-  must terminate the browser socket and dial upstream with the secret (a small dedicated proxy, not
-  `proxyProduct`).
-- **`GET /v1/public/s/{token}`** — public share links bypass the gateway by design; out of scope.
+- ~~**`/v1/collab/{pageID}/ws`**~~ — **NOW PROXIED (B28.447)** at `GET /api/docs/collab/{pageID}/ws`
+  (`apps/bff/docs_collab.go`): the BFF attaches the transit proof and the session's identity to the
+  upgrade server-side and copies the socket both ways; the Origin is checked by the one write gate.
+  No screen uses it yet — the editor still saves with PATCH.
+- ~~**`GET /v1/public/s/{token}`**~~ — **NOW PROXIED (B28.447)**: Share on a page makes a view-only link
+  (`POST /api/docs/spaces/{spaceID}/pages/{pageID}/share`), a stranger reads it signed out at
+  `/docs/s/{token}` through `GET /api/public/docs/{token}`, sent with no credential (`apps/bff/docs_share.go`).
 - **DB-REST / MCP / importer surfaces** — not part of a read-only reader.
 - ~~**AI**~~ — **ONE of the five is now proxied.** `POST /api/docs/ai/ask` →
   `POST /v1/workspaces/{ws}/ai/ask` (`apps/bff/docs_ai.go`), driven by the Ask card on `/docs`.

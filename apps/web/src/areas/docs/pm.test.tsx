@@ -102,4 +102,14 @@ describe('PMDoc renders the stored schema', () => {
     rerender(<PMDoc content='{"type":"paragraph"}' />)
     expect(screen.getByText(/not a ProseMirror document/)).toBeInTheDocument()
   })
+
+  it('draws no URL that could run script (B28.447: a shared page renders on the app origin)', () => {
+    const doc = JSON.stringify({ type: 'doc', content: [
+      { type: 'paragraph', content: [{ type: 'text', marks: [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }], text: 'trap' }] },
+      { type: 'image', attrs: { src: 'javascript:alert(2)', alt: 'trap image' } },
+    ] })
+    render(<PMDoc content={doc} />)
+    expect(screen.getByRole('link', { name: 'trap' })).toHaveAttribute('href', '#')
+    expect(screen.queryByRole('img', { name: 'trap image' })).toBeNull()
+  })
 })

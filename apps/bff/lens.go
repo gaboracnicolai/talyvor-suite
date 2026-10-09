@@ -240,6 +240,12 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/docs/membership", a.docsMembership()) // B27.15 — see docs_membership.go
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/pin", a.docsPagePin())
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/export", a.docsExportPage()) // B29.30 — see docs_export.go
+	// B28.447 — a page shared as a link a stranger reads signed out, and the page's live-edit socket. See docs_share.go
+	// and docs_collab.go.
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/share", a.docsSharePageLink())
+	a.mux.HandleFunc("/api/public/docs/{token}", a.publicDocsShare())
+	a.mux.Handle("/docs/s/{token}", a.docsSharePage())
+	a.mux.HandleFunc("/api/docs/collab/{pageID}/ws", a.docsCollab())
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			a.docsUpdatePage()(w, r)
@@ -727,7 +733,10 @@ func (a *app) sameOriginWriteAllowed(r *http.Request) bool {
 	switch r.Method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 	default:
-		return true // reads and preflights are not write paths
+		// A WebSocket upgrade is a GET, and then a channel that writes (B28.447, docs_collab.go): gated like a write.
+		if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			return true // reads and preflights are not write paths
+		}
 	}
 	if a.cfg.authMode == authModeDisabled {
 		return true

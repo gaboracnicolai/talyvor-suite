@@ -340,6 +340,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/docs/spaces", body: `{"name":"s"}`},
 		{method: http.MethodPost, path: "/api/docs/spaces/s1/pages", body: `{"title":"p"}`},
 		{method: http.MethodPatch, path: "/api/docs/spaces/s1/pages/p1", body: `{"title":"p2"}`},
+		{method: http.MethodPost, path: "/api/docs/spaces/s1/pages/p1/share", body: `{}`},
 		// The first AI control. It writes nothing in Docs, but it SPENDS: every ask is a metered
 		// Lens completion billed to the caller's workspace, so a cross-origin one is a stranger
 		// spending someone else's balance. That is the reason it is a write path here.
