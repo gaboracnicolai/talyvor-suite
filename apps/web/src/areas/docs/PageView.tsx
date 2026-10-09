@@ -46,6 +46,7 @@ import { useDocsNav } from './docsNav'
 import { PinToggle } from './PinToggle'
 import { ExportHTML } from './ExportHTML'
 import { SharePage } from './SharePage'
+import { ShareWithTeam } from './ShareWithTeam'
 
 // ── THE FIVE HEADLINES, AND WHY THIS SCREEN'S TITLE CARRIES STATE AT ALL ─────
 //
@@ -224,6 +225,7 @@ export function PageView() {
       {openedTitle !== null ? <PinToggle doc={{ spaceId, pageId, title: openedTitle }} /> : null}
       {page.data ? <ExportHTML spaceId={spaceId} pageId={pageId} /> : null}
       {page.data ? <SharePage spaceId={spaceId} pageId={pageId} /> : null}
+      {page.data ? <ShareWithTeam spaceId={spaceId} pageId={pageId} /> : null}
     </div>
   )
 

@@ -61,12 +61,14 @@ function SpaceRow({ space }: { space: DocsSpace }) {
 function CreateSpaceForm({ nameRef }: { nameRef: React.MutableRefObject<HTMLInputElement | null> }) {
   const qc = useQueryClient()
   const [name, setName] = useState('')
+  const [isPrivate, setPrivate] = useState(false)
   // Invalidate on success so the new space appears without a reload — the create that does not
   // refetch leaves someone looking at the empty list they just acted on, which reads as a failure.
   const create = useMutation({
-    mutationFn: (n: string) => docsApi.createSpace(n),
+    mutationFn: (n: string) => docsApi.createSpace(n, isPrivate),
     onSuccess: async () => {
       setName('')
+      setPrivate(false)
       await qc.invalidateQueries({ queryKey: ['docs-spaces'] })
     },
   })
@@ -95,6 +97,16 @@ function CreateSpaceForm({ nameRef }: { nameRef: React.MutableRefObject<HTMLInpu
           {create.isPending ? 'Creating…' : 'Create space'}
         </Button>
       </form>
+      {/* B28.450 — a private space is seen only by the people and teams its pages are shared with. */}
+      <label className="flex items-center gap-2 text-caption text-muted">
+        <input
+          type="checkbox"
+          checked={isPrivate}
+          onChange={(e) => setPrivate(e.target.checked)}
+          className={`transition-colors duration-200 hover:border-rule-strong disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+        />
+        Private — only people and teams you share it with can open it
+      </label>
       {create.isError ? (
         <p className="text-caption text-muted">
           Couldn’t create that space — nothing was saved. Try again.

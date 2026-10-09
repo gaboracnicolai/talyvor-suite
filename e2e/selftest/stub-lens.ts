@@ -1027,7 +1027,7 @@ function seatsCheck(res: ServerResponse, wsID: string, members: number): void {
   const ws = workspaces.get(wsID)
   if (ws === undefined) return json(res, 404, { error: 'workspace not found' })
   if (!(members >= 0)) return json(res, 400, { error: 'members must be the number of members the workspace would have, ≥ 0' })
-  const plan = ws.plan?.id ?? 'free'
+  const plan = ws.plan?.id ?? ws.syntheticPlan ?? 'free'
   const gated = GATED_AS[plan] ?? plan
   const limit = SEATS.find(([p]) => p === gated)?.[1] ?? 1
   if (limit === -1 || members <= limit) return json(res, 200, { plan, seats: limit, members })

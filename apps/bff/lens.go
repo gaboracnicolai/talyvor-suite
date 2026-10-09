@@ -246,6 +246,10 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/public/docs/{token}", a.publicDocsShare())
 	a.mux.Handle("/docs/s/{token}", a.docsSharePage())
 	a.mux.HandleFunc("/api/docs/collab/{pageID}/ws", a.docsCollab())
+	// B28.450 — a page shared with a team, and who is on the team. See docs_teams.go.
+	a.mux.HandleFunc("/api/docs/teams", a.docsTeams())
+	a.mux.HandleFunc("/api/docs/teams/{teamID}/members/{memberID}", a.docsTeamMember())
+	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}/permissions", a.docsPagePermissions())
 	a.mux.HandleFunc("/api/docs/spaces/{spaceID}/pages/{pageID}", a.requireSession(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			a.docsUpdatePage()(w, r)

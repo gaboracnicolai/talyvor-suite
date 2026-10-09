@@ -379,6 +379,12 @@ func TestDocsWorkspacePathOnlyForWorkspaceScopedUpstreamRoutes(t *testing.T) {
 		// sibling AI routes use, which binds to nothing here) and one naming no page, each a real
 		// billed completion. See docs_suggesttitle_test.go's header for the six measured rows.
 		"docsSuggestTitlePage:/ai/suggest-title": "POST /v1/workspaces/{wsID}/ai/suggest-title — internal/ai/handler.go Mount",
+		// B28.450 — talyvor-docs 822091c (B28.446): internal/team/handler.go Mount registers GET and POST
+		// `/workspaces/{wsID}/teams` and PUT and DELETE `/workspaces/{wsID}/teams/{teamID}/members/{memberID}`, and
+		// each one's first act (caller) is AuthorizeWorkspace on that {wsID}. The roster route appends its two ids
+		// AFTER the literal mount, so the workspace prefix is still the session's alone.
+		"docsTeams:/teams":      "GET|POST /v1/workspaces/{wsID}/teams — internal/team/handler.go Mount",
+		"docsTeamMember:/teams": "PUT|DELETE /v1/workspaces/{wsID}/teams/{teamID}/members/{memberID} — internal/team/handler.go Mount",
 	}
 
 	type site struct{ fn, suffix string }
