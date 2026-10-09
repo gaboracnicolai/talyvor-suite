@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { quickstartStatement } from '../src/sdk.ts'
+import { quickstartBooking, quickstartStatement } from '../src/sdk.ts'
 
 const line = (kind: string, amount: number, after: number) => ({ entry_id: `${kind}${after}`, kind, amount_ulxc: amount, balance_after_ulxc: after, at: '' })
 
@@ -17,5 +17,16 @@ describe("the SDK quickstart's statement oracle (B28.440)", () => {
     expect(quickstartStatement([line('settle', 300, 9_998_800), line('hold', -1_500, 9_998_500), line('fund', 10_000_000, 10_000_000)], 550).pass).toBe(false)
     expect(quickstartStatement([line('platform_fee', -65, 9_998_735), line('settle', 300, 9_998_800), line('hold', -1_500, 9_998_500),
       line('fund', 10_000_000, 10_000_000)], 550).pass).toBe(false)
+  })
+})
+
+describe("how the SDK quickstart's model call is booked (B17.180)", () => {
+  it("does not book an answer Lens replayed from the workspace's own earlier one: Lens wrote no spend row for it", () => {
+    expect(quickstartBooking(new Headers({ 'X-Talyvor-Cache-Replay': 'true' }), 0.0001, 0.01)).toEqual({ replayed: true, ulxc: undefined })
+  })
+
+  it('books a pooled answer at what Lens says it charged, and any other at its price', () => {
+    expect(quickstartBooking(new Headers({ 'X-Talyvor-Cache-Replay': 'true', 'X-Talyvor-Pool-Charged-ULXC': '420' }), 0.0001, 0.01)).toEqual({ replayed: false, ulxc: 420 })
+    expect(quickstartBooking(new Headers(), 0.0001, 0.01)).toEqual({ replayed: false, ulxc: 10_000 })
   })
 })
