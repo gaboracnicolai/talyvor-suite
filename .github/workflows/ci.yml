@@ -186,6 +186,20 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
           "$(go env GOPATH)/bin/govulncheck" ./...
 
+  # B28.263 — the frontend half of the supply-chain gate: `pnpm audit` over the whole workspace
+  # lockfile (apps/web, packages/ui, e2e, dev dependencies included) fails on any known-vulnerable
+  # package. It reads the lockfile only, so no install. Ignores live in pnpm-workspace.yaml's
+  # auditConfig, each with the reason it has no fix to take.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9 (node24)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0 (node24)
+        with:
+          node-version: 22
+      - run: pnpm audit
+
   # B28.211 — the suite container image (Dockerfile): build it and prove it serves. It runs in the
   # posture a cluster runs it in — OIDC, bound beyond loopback — against a stub issuer that shares
   # its network namespace, because the BFF discovers the issuer at boot and refuses to start without.
