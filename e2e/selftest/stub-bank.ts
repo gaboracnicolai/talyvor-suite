@@ -1017,8 +1017,11 @@ export class Bank {
     const m = /^\/v1\/marketplace\/listings\/([^/]+)$/.exec(path)
     if (m === null) return false
     const l = this.listings.get(m[1])
-    if (l === undefined || !this.visible(l, viewer)) json(res, 404, { error: 'market: no such listing' })
-    else json(res, 200, this.listingOut(l, viewer))
+    if (l === undefined || !this.visible(l, viewer)) return json(res, 404, { error: 'market: no such listing' }), true
+    // B32.100 — each offer also in the reader's currency (Lens B32.51): ?currency=, or that of its declared country.
+    const shown = this.tax.showPrices(viewer, l.offers ?? [], url.searchParams.get('currency') ?? '')
+    if (typeof shown === 'string') return json(res, 400, { error: shown }), true
+    json(res, 200, { ...this.listingOut(l, viewer), ...(shown.offers.length > 0 ? shown : {}) })
     return true
   }
 
