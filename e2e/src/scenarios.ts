@@ -39,6 +39,7 @@ import { featuresLeadWithWallets } from './features.ts'
 import { brandDocs, brandROI, brandVisual, companyLine, heroFade, readingPages } from './brand.ts'
 import { b30Capabilities } from './clearances.ts'
 import { moneyRails } from './moneyRails.ts'
+import { statusTruth } from './statusTruth.ts'
 import { crossCompanyTestMoney } from './testmoney.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
 import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
@@ -5055,6 +5056,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   if (i === 9) list.push(agentCredential(i))
   // B30.124 — last, after the night's partner calls: the money rails on Lens's status page, all ten on their Test partner, none down.
   if (i % 100 === 8) list.push(moneyRails())
+  // B37.7 — once a run, last: Lens's status page against its own /healthz — the same version and uptime, healthy when it reads
+  // operational, its own components operational, every money rail answering its 5-minute probe, only the documented keys,
+  // no error text, and a public /healthz with no pool or request internals.
+  if (i === 8) list.push(statusTruth())
   return list
 }
 
