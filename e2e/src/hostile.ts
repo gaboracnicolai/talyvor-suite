@@ -9,7 +9,7 @@
 import { execFile } from 'node:child_process'
 import { access, mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 export type Repo = 'talyvor-suite' | 'talyvor-lens' | 'talyvor-track' | 'talyvor-docs'
@@ -140,6 +140,8 @@ export interface HostileVerdict {
   commit?: string
   /** The build item that holds it, filed this night or already open. */
   item?: string
+  /** Not run because a checkout, or a file in it, is not on disk: the testers' harness is broken, so it files an item. */
+  missing?: true
 }
 
 export interface HostileReport {
@@ -161,6 +163,11 @@ export async function judge(pr: HostilePR, src: string, exec: Exec = execCLI): P
       const r = await exec(file, args, { cwd, timeout: 120_000 })
       if (r.code !== 0) throw new Error(`\`${file} ${args.join(' ')}\` exited ${r.code}: ${lastLines(r.out)}`)
       return r.out
+    }
+    if (!(await access(src).then(() => true, () => false))) {
+      v.missing = true
+      v.detail = `there is no checkout of ${pr.repo} at ${src}`
+      return v
     }
     v.commit = (await must('git', ['-C', src, 'rev-parse', '--short', 'HEAD'], src)).trim()
     const workflow = await readFile(join(src, pr.workflow), 'utf8').catch(() => '')
@@ -191,6 +198,7 @@ export async function judge(pr: HostilePR, src: string, exec: Exec = execCLI): P
     v.detail = why ?? `red on the change, exit ${red.code}: ${[...new Set(red.out.split('\n').filter((l) => pr.names.some((n) => l.includes(n))).map((l) => l.trim()))].slice(0, 2).join(' / ')}`
   } catch (e) {
     v.state = e instanceof Stale ? 'stale' : 'not run'
+    if (v.state === 'not run' && /No such file or directory/.test(String(e))) v.missing = true
     v.detail = e instanceof Stale ? `the hostile change no longer applies to main${v.commit === undefined ? '' : ` at ${v.commit}`}: ${e.message}`
       : (e as { code?: string }).code === 'ENOENT' ? `a tool it needs is not on this machine's PATH: ${(e as Error).message}` : (e instanceof Error ? e.message : String(e)).split('\n')[0]
   } finally {
@@ -203,9 +211,11 @@ export async function judge(pr: HostilePR, src: string, exec: Exec = execCLI): P
 export async function runHostile(src: Record<Repo, string>, behind: Partial<Record<Repo, string>> = {}, exec: Exec = execCLI,
   prs: HostilePR[] = HOSTILE_PRS, now: Date = new Date()): Promise<HostileReport> {
   const out: HostileReport = { read_at: now.toISOString(), prs: [] }
+  // B34.11 — absolute once, here: judge runs git with the checkout as its cwd, where a relative path names nothing.
+  const at = (repo: Repo): string => (src[repo] === 'none' ? 'none' : resolve(src[repo]))
   for (const pr of prs) {
     const why = behind[pr.repo] ?? (src[pr.repo] === 'none' ? `no checkout of ${pr.repo} was given` : undefined)
-    out.prs.push(why !== undefined ? { id: pr.id, repo: pr.repo, what: pr.what, guard: pr.guard, state: 'not run', detail: why } : await judge(pr, src[pr.repo], exec))
+    out.prs.push(why !== undefined ? { id: pr.id, repo: pr.repo, what: pr.what, guard: pr.guard, state: 'not run', detail: why } : await judge(pr, at(pr.repo), exec))
   }
   return out
 }
