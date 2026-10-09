@@ -122,6 +122,13 @@
 // B32.93 adds two defects of a bill's tax (Lens B32.39), beside stub-tax.ts's tax-reverse-charged:
 //   bill-gross-untaxed — the bill's gross is its net, the tax left out
 //   clear-tax-dropped  — a paid use's clear entry takes none of its tax to tax:<XX>, so the seller's week collects no VAT
+//
+// B28.385 adds the bill by Stripe invoice (talyvor-lens B28.140): each synthetic bill-pay is an invoice whose billing period
+// runs from the last one's end to its payment, listed newest first after the period in progress ("upcoming"), with its PDF
+// and what it charged and refunded; ?invoice= reads the uses one invoice carried. Its defects:
+//   invoice-refund-paid — an invoice's bill reads a refunded use paid, and counts it in the total
+//   invoice-by-month    — the bill read for an invoice holds the calendar month's uses, not the invoice's
+//   invoice-total-off   — an invoice's gross leaves its tax out
 
 import { createHash, randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -371,6 +378,8 @@ const modelCaps = (caps: Record<string, number>): Record<string, number> =>
   Object.fromEntries(Object.entries(caps).filter(([, v]) => v > 0).map(([m, v]) => [modelCapKey(m), v]))
 /** µLXC per µUSD (LXC is pegged at $0.10), and µUSD a penny buys, at the stub's fixed pound. */
 const ULXC_PER_USD_MICRO = 10
+/** B28.385 — the invoice the period in progress will be, as Lens lists it. */
+const UPCOMING = 'upcoming'
 /** B32.79 — the most trial uses one offer may give (Lens market.DefaultTrialMax, LENS_MARKET_TRIAL_MAX) */
 const TRIAL_MAX = 5
 /** B32.76 — what each licence allows (Lens market.LicenceTerms). */
@@ -409,6 +418,8 @@ export class Bank {
   private readonly listings = new Map<string, Listing>()
   private readonly collections = new Map<string, StubCollection>()
   private readonly uses: Use[] = []
+  /** B28.385 — each test bill paid, as the Stripe invoice it was: its billing period ran to its payment */
+  private readonly invoices: { id: string; ws: string; number: string; period_start: string; period_end: string }[] = []
   private nextPosting = 1
   private readonly transfers: Transfer[] = []
   private readonly requests: MoneyReq[] = []
@@ -1236,6 +1247,25 @@ export class Bank {
   }
 
   /**
+   * B28.385 — a buyer's marketplace bill as Stripe invoiced it (talyvor-lens B28.140), newest first: the period in progress
+   * first, from the last invoice's end, while it has a billed use; then each paid test bill, with its PDF and what it charged
+   * and refunded, µUSD with tax.
+   */
+  private invoicesOf(ws: string, now: string): Record<string, unknown>[] {
+    const billed = this.uses.filter((u) => u.buyer === ws && u.charge === 'billed')
+    const amounts = (on: Use[]) => {
+      const gross = (u: Use) => u.price_ulxc / ULXC_PER_USD_MICRO + (this.broken('invoice-total-off') ? 0 : this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO).tax_usd_micros)
+      return { gross_usd_micros: on.reduce((s, u) => s + gross(u), 0), refunded_usd_micros: on.filter((u) => u.refunded_at !== undefined).reduce((s, u) => s + gross(u), 0) }
+    }
+    const paid = this.invoices.filter((x) => x.ws === ws).reverse().map((x) => ({ ...x, ws: undefined, status: 'paid',
+      invoice_pdf: `https://pay.stripe.com/invoice/acct_stub/${x.id}/pdf`, ...amounts(billed.filter((u) => u.invoice === x.id)) }))
+    if (billed.length === 0) return paid
+    const start = paid[0]?.period_end ?? billed.map((u) => u.used_at).sort()[0]
+    const end = new Date(Math.max(Date.parse(start), Date.parse(now)) + 30 * 86_400_000).toISOString()
+    return [{ id: UPCOMING, period_start: start, period_end: end, status: UPCOMING, ...amounts(billed.filter((u) => u.invoice === undefined)) }, ...paid]
+  }
+
+  /**
    * B25.8 — Lens B25.7's synthetic-key routes that bring a test workspace's slow money due now (every stub
    * workspace is a test one): a loan's instalment, the buyer's bill paid and refunded, a purchase on a card.
    */
@@ -1254,6 +1284,10 @@ export class Bank {
       if (due.length === 0) return json(res, 409, { error: 'the bill holds no metered, unpaid marketplace use (a paid use is metered within a minute)' }), true
       const invoice = id('in_synthetic_')
       for (const u of due) Object.assign(u, { invoice, cleared_at: now })
+      // B28.385 — its billing period: from the last invoice's end (the first use's, for the first), to now.
+      const mine = this.invoices.filter((x) => x.ws === m?.[1])
+      const start = mine.at(-1)?.period_end ?? due.map((u) => u.used_at).sort()[0]
+      this.invoices.push({ id: invoice, ws: m[1], number: `TEST-${String(this.invoices.length + 1).padStart(4, '0')}`, period_start: start, period_end: now })
       // B32.66 — the paid bill's receipt, in the test series (Lens B32.40).
       this.tax.issueReceipt(m[1], invoice, due.map((u) => ({ id: u.id, title: this.listings.get(u.listing_id)?.title ?? '', net_usd_micros: u.price_ulxc / ULXC_PER_USD_MICRO })), now)
       if (this.broken('trial-earns')) {
@@ -2346,22 +2380,31 @@ export class Bank {
       return json(res, 200, { holdback_usd_micros: held, available_usd_micros: e.available - held - (released && this.broken('journal-off') ? 1 : 0),
         due_for_release_usd_micros: held, reconciled: !this.broken('journal-unreconciled') }), true
     }
+    if (rest === '/marketplace/invoices') {
+      return json(res, 200, { invoices: this.invoicesOf(ws.id, now) }), true
+    }
     if (rest === '/marketplace/bill') {
       const month = url.searchParams.get('month') ?? now.slice(0, 7)
-      const lines = this.uses.filter((u) => u.buyer === ws.id && u.charge === 'billed' && u.used_at.startsWith(month)).map((u) => ({
+      // B28.385 — ?invoice= reads the uses one invoice carried; "upcoming", those no invoice has yet.
+      const asked = url.searchParams.get('invoice')
+      const invoice = asked === null ? undefined : this.invoicesOf(ws.id, now).find((x) => x.id === asked)
+      if (asked !== null && invoice === undefined) return json(res, 404, { error: 'market: no invoice of this workspace has that id' }), true
+      const on = (u: Use): boolean => invoice === undefined || this.broken('invoice-by-month') ? u.used_at.startsWith(month) : u.invoice === (asked === UPCOMING ? undefined : asked)
+      const lines = this.uses.filter((u) => u.buyer === ws.id && u.charge === 'billed' && on(u)).map((u) => ({
         use_id: u.id, listing_id: u.listing_id,
         title: u.listing_id !== '' ? this.listings.get(u.listing_id)?.title ?? '' : `Payment to ${this.agents.get(u.payee_agent_id)?.name ?? ''}`,
         agent_id: u.agent_id || undefined, used_at: u.used_at,
         price_ulxc: this.broken('offer-price-backdated') && u.listing_id !== '' ? this.listings.get(u.listing_id)?.price_per_use_ulxc ?? u.price_ulxc : u.price_ulxc, payee_agent_id: u.payee_agent_id || undefined, memo: u.memo || undefined,
-        cleared_at: u.cleared_at, refunded_at: u.refunded_at,
+        cleared_at: u.cleared_at, refunded_at: invoice !== undefined && this.broken('invoice-refund-paid') ? undefined : u.refunded_at,
         // B32.66 — its buyer's tax (Lens B32.39), worked out once.
         ...this.tax.taxOf(u.buyer, u.id, u.price_ulxc / ULXC_PER_USD_MICRO),
       }))
       const total = lines.filter((l) => l.refunded_at === undefined).reduce((s, l) => s + l.price_ulxc, 0)
       const refunded = lines.filter((l) => l.refunded_at !== undefined).reduce((s, l) => s + l.price_ulxc, 0)
       const tax = lines.filter((l) => l.refunded_at === undefined).reduce((s, l) => s + l.tax_usd_micros, 0)
-      return json(res, 200, { month, total_ulxc: total, total_usd_micros: Math.floor(total / 10), refunded_ulxc: refunded,
-        net_usd_micros: total / ULXC_PER_USD_MICRO, tax_usd_micros: tax, gross_usd_micros: total / ULXC_PER_USD_MICRO + (this.broken('bill-gross-untaxed') ? 0 : tax), lines }), true
+      return json(res, 200, { month: invoice === undefined ? month : '', total_ulxc: total, total_usd_micros: Math.floor(total / 10), refunded_ulxc: refunded,
+        net_usd_micros: total / ULXC_PER_USD_MICRO, tax_usd_micros: tax, gross_usd_micros: total / ULXC_PER_USD_MICRO + (this.broken('bill-gross-untaxed') ? 0 : tax), lines,
+        ...(invoice === undefined ? {} : { invoice }) }), true
     }
     // B32.66 — tax profiles, receipts and sellers' tax details (stub-tax.ts); a seller's weekly statements.
     if (await this.tax.route(req, res, ws.id, rest, now)) return true

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
+import { invoicePdfHref } from './marketApi'
 
 // B20.3 — the marketplace, walked the way its DONE line reads: publish a prompt from one workspace,
 // find it and use it from another — whose monthly bill then carries the use (B20.10) — and see the
@@ -199,5 +200,68 @@ describe('the marketplace', () => {
     const payment = await screen.findByText('Payment to Bea')
     expect(payment.closest('a')).toBeNull()
     expect(screen.getByRole('link', { name: 'Translate to French' }).getAttribute('href')).toBe('/marketplace/listings/lst_1')
+  })
+
+  // B28.385 — once Lens lists the bill's Stripe invoices (B28.140), the bill is read by invoice period, not calendar
+  // month: a refunded use reads Refunded (it was paid, then credited back), Stripe's PDF is linked, and the total is
+  // Lens's for that invoice.
+  it('reads the bill by Stripe invoice: a refunded use reads Refunded, the PDF is linked, the total is Lens’s', async () => {
+    const state = mockBff()
+    const rest = vi.mocked(globalThis.fetch).getMockImplementation()!
+    const asked: string[] = []
+    const pdf = 'https://pay.stripe.com/invoice/acct_1/test_in_A/pdf'
+    vi.mocked(globalThis.fetch).mockImplementation(async (input, init) => {
+      const url = String(input)
+      const json = (v: unknown) => new Response(JSON.stringify(v), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url === '/api/marketplace/invoices') {
+        return json({
+          invoices: [
+            { id: 'upcoming', period_start: '2026-10-14T09:00:00Z', period_end: '2026-11-14T09:00:00Z', status: 'upcoming', gross_usd_micros: 0, refunded_usd_micros: 0 },
+            { id: 'in_A', number: 'TLV-0007', period_start: '2026-09-14T09:00:00Z', period_end: '2026-10-14T09:00:00Z', status: 'paid', invoice_pdf: pdf,
+              gross_usd_micros: 2_400_000, refunded_usd_micros: 1_200_000 },
+          ],
+        })
+      }
+      if (url.startsWith('/api/marketplace/bill?')) {
+        asked.push(url)
+        if (url !== '/api/marketplace/bill?invoice=in_A') return json({ month: '', total_ulxc: 0, total_usd_micros: 0, lines: [] })
+        const line = { listing_id: 'lst_1', title: 'Translate to French', price_ulxc: 10_000_000, cleared_at: '2026-10-14T09:00:00Z', tax_usd_micros: 200_000, tax_rate_bps: 2000, tax_jurisdiction: 'GB' }
+        return json({
+          month: '', total_ulxc: 10_000_000, total_usd_micros: 1_000_000, refunded_ulxc: 10_000_000,
+          net_usd_micros: 1_000_000, tax_usd_micros: 200_000, gross_usd_micros: 1_200_000,
+          lines: [
+            { ...line, use_id: 'use_refunded', used_at: '2026-09-20T10:00:00Z', refunded_at: '2026-10-15T09:00:00Z' },
+            { ...line, use_id: 'use_paid', used_at: '2026-09-21T10:00:00Z' },
+          ],
+        })
+      }
+      return rest(input, init)
+    })
+    state.as = 'ws_buyer'
+    await at('/marketplace/bill')
+
+    // The period in progress first, then each invoice by its billing period — never a calendar month.
+    const period = await screen.findByLabelText('Billing period')
+    expect(within(period).getAllByRole('option').map((o) => o.textContent)).toEqual(['Oct 14 – Nov 14, 2026 · in progress', 'Sep 14 – Oct 14, 2026 · paid'])
+    expect(await screen.findByText('Not invoiced yet')).toBeTruthy()
+    expect(screen.queryByTestId('market-invoice-pdf')).toBeNull()
+
+    fireEvent.change(period, { target: { value: 'in_A' } })
+    await waitFor(() => expect(screen.getByTestId('market-bill-total').textContent).toBe('$1.20'))
+    expect(asked).toEqual(['/api/marketplace/bill?invoice=upcoming', '/api/marketplace/bill?invoice=in_A'])
+    expect(screen.getByText('Invoice TLV-0007')).toBeTruthy()
+    expect(screen.getByTestId('market-invoice-pdf').getAttribute('href')).toBe(pdf)
+    // Both uses were paid; the refunded one reads Refunded, not Paid, and is counted apart from the total.
+    expect(screen.getAllByTestId('market-bill-line-state').map((p) => p.textContent)).toEqual(['Refunded', 'Paid'])
+    expect(screen.getByTestId('market-bill-refunded').textContent).toBe('$1.00')
+    expect(screen.getByTestId('market-bill-net').textContent).toBe('$1.00')
+  })
+
+  it('links an invoice PDF only over https', () => {
+    const inv = { id: 'in_A', period_start: '', period_end: '', status: 'paid' as const, gross_usd_micros: 0, refunded_usd_micros: 0 }
+    expect(invoicePdfHref({ ...inv, invoice_pdf: 'https://pay.stripe.com/invoice/x/pdf' })).toBe('https://pay.stripe.com/invoice/x/pdf')
+    expect(invoicePdfHref({ ...inv, invoice_pdf: 'javascript:alert(1)' })).toBeUndefined()
+    expect(invoicePdfHref({ ...inv, invoice_pdf: 'http://pay.stripe.com/invoice/x/pdf' })).toBeUndefined()
+    expect(invoicePdfHref(inv)).toBeUndefined()
   })
 })

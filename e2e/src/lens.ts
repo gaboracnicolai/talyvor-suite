@@ -448,6 +448,7 @@ export interface BillLine {
   title: string
   agent_id?: string
   price_ulxc: number
+  used_at?: string
   cleared_at?: string
   /** B25.4 — credited back: the listing was taken down */
   refunded_at?: string
@@ -460,7 +461,7 @@ export interface BillLine {
   tax_note?: string
 }
 
-/** Lens market.Bill: a buyer's billed uses in one month. */
+/** Lens market.Bill: a buyer's billed uses in one month — or, B28.385, on one Stripe invoice (?invoice=). */
 export interface MarketBill {
   month: string
   total_ulxc: number
@@ -470,6 +471,24 @@ export interface MarketBill {
   tax_usd_micros?: number
   gross_usd_micros?: number
   lines: BillLine[] | null
+  /** B28.385 — the invoice it was read for (talyvor-lens B28.140) */
+  invoice?: MarketInvoice
+}
+
+/**
+ * B28.385 — one Stripe invoice of a buyer's marketplace bill, as GET …/marketplace/invoices lists it (talyvor-lens B28.140):
+ * the billing period it charged for, Stripe's PDF, and what it charged and refunded, µUSD with tax. The period in progress
+ * is listed first as id "upcoming", status "upcoming", with no number or PDF.
+ */
+export interface MarketInvoice {
+  id: string
+  number?: string
+  period_start: string
+  period_end: string
+  status: 'upcoming' | 'draft' | 'open' | 'paid' | 'void' | 'uncollectible'
+  invoice_pdf?: string
+  gross_usd_micros: number
+  refunded_usd_micros: number
 }
 
 /** B32.66 — a buyer's tax profile as Lens answers GET and PUT …/tax-profile (B32.38): what it declared, and where that resolves. */
@@ -1236,6 +1255,16 @@ export class LensClient {
   /** B17.6 — the buyer's marketplace bill for this month (Lens B20.2). */
   async marketBill(user: SyntheticUser): Promise<MarketBill> {
     return (await this.call('GET', `/v1/workspaces/${user.workspaceID}/marketplace/bill`, this.bearer(user.token))) as MarketBill
+  }
+
+  /** B28.385 — the buyer's marketplace bill's Stripe invoices, newest first (talyvor-lens B28.140): 404 until Lens has them. */
+  async marketInvoices(user: SyntheticUser): Promise<Answered<{ invoices: MarketInvoice[] | null }>> {
+    return this.act(user, 'GET', '/v1/workspaces/{ws}/marketplace/invoices')
+  }
+
+  /** B28.385 — the uses one Stripe invoice carried, as the bill ("upcoming": the period in progress). */
+  async marketInvoiceBill(user: SyntheticUser, invoiceID: string): Promise<Answered<MarketBill>> {
+    return this.act(user, 'GET', `/v1/workspaces/{ws}/marketplace/bill?invoice=${encodeURIComponent(invoiceID)}`)
   }
 
   /** B17.6 — the seller's earnings: pending, payable, in holdback, available (µUSD). */

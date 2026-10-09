@@ -570,8 +570,9 @@ export interface BillLine {
   tax_note?: string;
 }
 
-/** Lens market.Bill — the buyer's billed uses in one month (UTC). The totals are before tax; net, tax and gross are
- *  what the buyer pays, its tax included (B32.39). */
+/** Lens market.Bill — the buyer's billed uses in one month (UTC), or (B28.140) on one Stripe invoice. The totals are
+ *  before tax; net, tax and gross are what the buyer pays, its tax included (B32.39). A refunded use is listed, and
+ *  counts in refunded_ulxc instead of the totals. */
 export interface MarketBill {
   month: string;
   total_ulxc: number;
@@ -581,6 +582,30 @@ export interface MarketBill {
   tax_usd_micros?: number;
   gross_usd_micros?: number;
   lines: BillLine[] | null;
+  /** B28.140 — the invoice it was read for (?invoice=) */
+  invoice?: MarketInvoice;
+}
+
+/** B28.385 — the invoice the marketplace bill's period in progress will be: Lens lists it first, before Stripe issues it. */
+export const UPCOMING_INVOICE = "upcoming";
+
+/** Lens market.Invoice (B28.140) — one Stripe invoice of the buyer's marketplace bill: the billing period it charged
+ *  for, and Stripe's PDF of it. µUSD. The bill read for it (?invoice=) has gross = gross_usd_micros − refunded_usd_micros. */
+export interface MarketInvoice {
+  /** Stripe's invoice id; UPCOMING_INVOICE for the period in progress */
+  id: string;
+  /** Stripe's invoice number, once it is issued */
+  number?: string;
+  /** the billing period: its first instant, and its end (exclusive) */
+  period_start: string;
+  period_end: string;
+  status: "upcoming" | "draft" | "open" | "paid" | "void" | "uncollectible";
+  /** Stripe's PDF of the invoice, once it is issued */
+  invoice_pdf?: string;
+  /** what it charged — or, upcoming, has come to so far — its tax included, refunded uses too */
+  gross_usd_micros: number;
+  /** of that, what was refunded */
+  refunded_usd_micros: number;
 }
 
 /** Lens market.Licence (B32.19–B32.20) — a purchase, rental or subscription this workspace holds or held. */
@@ -798,6 +823,28 @@ export const marketApi = {
       total_usd_micros: "number",
       lines: "list",
     }),
+  /** B28.385 — the bill's Stripe invoices, newest first (Lens B28.140); null from a Lens that does not list them yet. */
+  invoices: async (): Promise<MarketInvoice[] | null> => {
+    try {
+      return (
+        (
+          await read<{ invoices: MarketInvoice[] | null }>(
+            "/api/marketplace/invoices",
+          )
+        ).invoices ?? []
+      );
+    } catch (err) {
+      if (err instanceof MarketError && err.status === 404) return null;
+      throw err;
+    }
+  },
+  /** B28.385 — the uses one invoice carried, as the bill (Lens B28.140). */
+  invoiceBill: (id: string) =>
+    getJSON<MarketBill>(`/api/marketplace/bill?invoice=${e(id)}`, {
+      total_ulxc: "number",
+      total_usd_micros: "number",
+      lines: "list",
+    }),
   // B32.59 — the licences this workspace holds (Lens B32.19–B32.20), and the receipts for its paid bills (B32.40).
   licences: async () =>
     (
@@ -964,6 +1011,35 @@ export function recentMonths(now: Date): string[] {
     );
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
   });
+}
+
+/** B28.385 — an invoice's billing period, as Stripe prints it: `Sep 14 – Oct 14, 2026`, or with both years across one. */
+export function periodName(start: string, end: string): string {
+  const across =
+    new Date(start).getUTCFullYear() !== new Date(end).getUTCFullYear();
+  return `${dayName(start, across)} – ${dayName(end)}`;
+}
+
+/** `2026-10-14T…` → `Oct 14, 2026` (UTC), or `Oct 14` without its year. */
+export function dayName(iso: string, year = true): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(year ? { year: "numeric" } : {}),
+    timeZone: "UTC",
+  });
+}
+
+/** B28.385 — Stripe's PDF of an invoice, when Lens gave one that opens over https: anything else is not linked. */
+export function invoicePdfHref(inv: MarketInvoice): string | undefined {
+  if (!inv.invoice_pdf) return undefined;
+  try {
+    return new URL(inv.invoice_pdf).protocol === "https:"
+      ? inv.invoice_pdf
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** `2026-09` → `September 2026`. */

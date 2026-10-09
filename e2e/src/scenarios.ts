@@ -59,6 +59,7 @@ import { sellerWeekStatement } from './weekStatement.ts'
 import { selfBilledInvoice } from './selfBill.ts'
 import { platformReport } from './platformReport.ts'
 import { marketBillTax } from './billTax.ts'
+import { marketBillInvoices } from './billInvoices.ts'
 import { marketBuyerCurrency } from './buyerCurrency.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
@@ -5017,6 +5018,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // one receipt numbered TEST-<year>-NNNNNN with the bill's lines and totals, as a page and a PDF, refused to its agent key; a DE
   // business's bill paid next is receipted in turn, reverse charged with no VAT and the note.
   if (i === 5) list.push(marketReceipts(i))
+  // B28.385 — the bill by Stripe invoice (talyvor-lens B28.140), once a run, on workspaces of its own: two bills paid and a
+  // use left unpaid list as the period in progress then two invoices, each with its billing period and PDF; each invoice's
+  // bill holds its own uses, the refunded one reading refunded, its total the invoice's less refunds, as its receipt collected.
+  if (i === 3) list.push(marketBillInvoices(i))
   // B30.118 — Know Your Agent, once a run, on a workspace of its own: the owner's read and the agent's wallet_credential hand over
   // one credential that verifies with only the published JWKS and states the daily limit; a rule change lists it "rules changed"
   // on revoked.json and the next states the new limit; pausing the agent lists that one "frozen" and the route is 409.
