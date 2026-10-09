@@ -10,6 +10,7 @@ function page(): StatusJSON & Record<string, unknown> {
   const rails = RAIL_SERVICES.map((service) => ({
     service, name: service, mode: 'test', status: 'operational', last_success: probed, last_failure: null,
     capabilities: service === 'fx' ? [{ key: 'fx', cleared: false }] : [],
+    ...(service === 'screening' ? { lists_age_hours: 3 } : {}),
   }))
   return {
     status: 'operational', version: 'b98a576', uptime_hours: 0.05, updated_at: probed,
@@ -57,5 +58,21 @@ describe('the status-truth oracle (B37.7)', () => {
       'keys it does not document: workspace', 'components[0].message holds an error text', 'carries database_pool and requests']) {
       expect(v.detail).toContain(want)
     }
+  })
+
+  it("holds the sanctions lists' age to the screening rail alone, and to no more than 48 h while it reads operational (B37.14)", () => {
+    const screening = RAIL_SERVICES.indexOf('screening')
+    const p = page()
+    delete p.rails![screening].lists_age_hours
+    p.rails![0] = { ...p.rails![0], lists_age_hours: 3 }
+    const v = statusTruthVerdict(p, health(), NOW)
+    expect(v.detail).toContain('rail screening (screening) carries no whole lists_age_hours (undefined)')
+    expect(v.detail).toContain('rail account (account) carries lists_age_hours, which only the screening rail does')
+
+    const stale = page()
+    stale.rails![screening] = { ...stale.rails![screening], lists_age_hours: 52 }
+    expect(statusTruthVerdict(stale, health(), NOW).detail).toContain('reads operational with its lists 52 h old, more than 48')
+    stale.rails![screening] = { ...stale.rails![screening], lists_age_hours: 2.5 }
+    expect(statusTruthVerdict(stale, health(), NOW).detail).toContain('carries no whole lists_age_hours (2.5)')
   })
 })

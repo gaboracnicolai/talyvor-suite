@@ -2,7 +2,8 @@
 // one to the other: the same version and uptime, healthy whenever the page reads operational (talyvor-lens B37.11), Lens's
 // own components operational, every money rail on its Test partner and answering its 5-minute probe (B37.2) with its
 // clearances read, rails_summary the rows', the documented keys and nothing else (B37.3), no error text (B37.1), and a
-// public /healthz with no pool or request internals (B37.11). Every rail that is down or not called is named.
+// public /healthz with no pool or request internals (B37.11). Every rail that is down or not called is named. The screening
+// rail alone says how old the sanctions lists are, and reads operational only while they are fresh (B37.4).
 
 import { RAIL_SERVICES } from './moneyRails.ts'
 import type { Scenario } from './scenarios.ts'
@@ -15,11 +16,13 @@ export const DOCUMENTED_KEYS = [
   'providers', 'providers[].name', 'providers[].status', 'providers[].latency_ms', 'providers[].checked_at',
   'rails', 'rails[].service', 'rails[].name', 'rails[].mode', 'rails[].status', 'rails[].last_success',
   'rails[].last_failure', 'rails[].capabilities', 'rails[].capabilities[].key', 'rails[].capabilities[].cleared',
+  'rails[].lists_age_hours',
   'rails_summary', 'rails_summary.up', 'rails_summary.down', 'rails_summary.idle', 'rails_summary.down_names',
 ] as const
 
-/** Lens sends a component's message only when it has one (omitempty), so a page with every component quiet has none. */
-const OPTIONAL_KEYS = new Set(['components[].message'])
+/** Lens sends a component's message only when it has one (omitempty), so a page with every component quiet has none; the
+ * screening rail's lists_age_hours is held by name in the rail loop instead. */
+const OPTIONAL_KEYS = new Set(['components[].message', 'rails[].lists_age_hours'])
 
 /** Lens's own components, by the names the status page gives them. */
 export const OWN_COMPONENTS = ['PostgreSQL', 'Redis', 'NATS', 'Proxy'] as const
@@ -29,6 +32,8 @@ const ERROR_TEXT = /error|failed|refused|panic|\bEOF\b|deadline|no such host|dia
 
 const RAIL_FRESH_MS = 10 * 60_000
 const UPTIME_SLACK_S = 3 * 60
+/** talyvor-lens LENS_SCREENING_MAX_AGE_HOURS's default; Lens calls the lists stale only once they are more than this old. */
+const LISTS_MAX_AGE_H = 48
 
 interface Rail {
   service: string
@@ -38,6 +43,7 @@ interface Rail {
   last_success: string | null
   last_failure: string | null
   capabilities: { key: string; cleared: boolean | null }[]
+  lists_age_hours?: number
 }
 
 export interface StatusJSON {
@@ -108,6 +114,11 @@ export function statusTruthVerdict(page: StatusJSON, health: Healthz, now = Date
     else if (now - Date.parse(r.last_success) > RAIL_FRESH_MS) wrong.push(`${label}'s last success ${r.last_success} is more than 10 minutes old`)
     const unread = (r.capabilities ?? []).filter((c) => typeof c.cleared !== 'boolean').map((c) => c.key)
     if (unread.length > 0) wrong.push(`${label} has no cleared value for ${unread.join(', ')}`)
+    const age = r.lists_age_hours
+    if (service !== 'screening') {
+      if ('lists_age_hours' in r) wrong.push(`${label} carries lists_age_hours, which only the screening rail does`)
+    } else if (!Number.isInteger(age) || age! < 0) wrong.push(`${label} carries no whole lists_age_hours (${JSON.stringify(age)})`)
+    else if (r.status === 'operational' && age! > LISTS_MAX_AGE_H) wrong.push(`${label} reads operational with its lists ${age} h old, more than ${LISTS_MAX_AGE_H}`)
   }
 
   const s = page.rails_summary
@@ -147,7 +158,7 @@ export function statusTruth(): Scenario {
     owner: 'talyvor-lens',
     title: "Lens's status page agrees with its /healthz, and every money rail answered its probe in the last 10 minutes",
     feature: 'Lens API',
-    items: ['B37.1', 'B37.2', 'B37.3', 'B37.11'],
+    items: ['B37.1', 'B37.2', 'B37.3', 'B37.4', 'B37.11'],
     run: async (ctx) => {
       const [page, health] = await Promise.all([ctx.env.lens.as('', 'GET', '/status.json'), ctx.env.lens.as('', 'GET', '/healthz')])
       ctx.evidence.push({ note: `/status.json ${page.status}: ${page.text.slice(0, 2000)}` })
