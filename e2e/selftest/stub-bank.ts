@@ -135,6 +135,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { HOLD_REASON, TaxDesk } from './stub-tax.ts'
 import { VerificationDesk } from './stub-verification.ts'
+import { TermsDesk } from './stub-terms.ts'
 import { type KYAFacts, KYADesk } from './stub-kya.ts'
 import { type Lineage, TrustDesk } from './stub-trust.ts'
 import type { Judge, RoomAgent } from './stub-rooms.ts'
@@ -449,6 +450,8 @@ export class Bank {
   private readonly tax: TaxDesk
   /** B30.117 — the workspace's verification levels (stub-verification.ts). */
   private readonly verification: VerificationDesk
+  /** B30.122 — each B30 capability's terms and the workspace's acceptances (stub-terms.ts). */
+  private readonly terms: TermsDesk
   /** B30.118 — each agent's Know Your Agent credential (stub-kya.ts). */
   private readonly kya: KYADesk
   /** B32.89 — reviews, the trust read and the synthetic card link (stub-trust.ts). */
@@ -458,6 +461,7 @@ export class Bank {
     this.d = d
     this.tax = new TaxDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
     this.verification = new VerificationDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
+    this.terms = new TermsDesk(d.json, (req) => this.body(req), (name) => this.broken(name), B30_CAPABILITIES)
     this.kya = new KYADesk(d.json, (req) => this.body(req), (name) => this.broken(name), (ws, agent) => this.kyaFacts(ws, agent))
     this.trustDesk = new TrustDesk({ json: d.json, body: (req) => this.body(req), broken: (name) => this.broken(name),
       listing: (id, viewer) => { const l = this.listings.get(id); return l !== undefined && this.visible(l, viewer) ? l : undefined },
@@ -2410,6 +2414,8 @@ export class Bank {
     if (await this.tax.route(req, res, ws.id, rest, now)) return true
     // B30.117 — verification levels (stub-verification.ts).
     if (await this.verification.route(req, res, ws.id, rest, now)) return true
+    // B30.122 — each capability's terms (stub-terms.ts).
+    if (await this.terms.route(req, res, ws.id, rest, now)) return true
     // B32.89 — a paying buyer's review of a listing, and its seller's reply (stub-trust.ts).
     if (await this.trustDesk.route(req, res, ws.id, rest, now)) return true
     if (rest === '/marketplace/statements' && method === 'GET') {
