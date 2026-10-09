@@ -1851,8 +1851,9 @@ export function shownRange(text: string): { low: number; high: number; unit: 'US
 
 /**
  * B28.99 — before each of 20 questions in one chat, the price range under the box; after it, the answer's footer. The
- * footer's price — its tokens at the catalog's list rate — must be inside the range every time. Each question carries
- * a word made up for this attempt, so the model answers it rather than the cache — a second attempt included.
+ * footer's price — its tokens at the catalog's list rate — must be inside the range every time. B17.124 — the chat is a
+ * temporary one, served nothing from the cache or the pool, so the model answers every question: a made-up word in
+ * brackets does not keep the similarity pool, or this workspace's own earlier answers, from serving one.
  */
 export function costPreview(seed: number): Scenario {
   return {
@@ -1864,20 +1865,30 @@ export function costPreview(seed: number): Scenario {
       const { page } = ctx.app
       const misses: string[] = []
       const attempt = 1 + Math.floor(Math.random() * 999_999)
-      for (const [k, base] of PREVIEW_QUESTIONS.entries()) {
-        const question = `${base} (${freshWord(seed * 100 + k, attempt)})`
-        await page.locator('#chat-message').fill(question)
-        const shown = (await page.getByTestId('cost-preview').innerText({ timeout: ACTION_TIMEOUT_MS })).replace(/\s+/g, ' ').trim()
-        const t = await ask(ctx, question, `shown before sending: ${shown}`)
-        const noPrice = priced(t)
-        if (noPrice !== undefined) return { pass: false, detail: `question ${k + 1}: ${noPrice}` }
-        if (t.footer.kind !== 'priced' || t.costUSD === undefined) {
-          return { pass: false, detail: `question ${k + 1} was not priced by its tokens: [${t.footerText}]` }
+      const toggle = page.getByRole('button', { name: 'Temporary chat' })
+      await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      const temporary = async (on: boolean) => {
+        if ((await toggle.getAttribute('aria-pressed')) !== String(on)) await toggle.click()
+      }
+      await temporary(true)
+      try {
+        for (const [k, base] of PREVIEW_QUESTIONS.entries()) {
+          const question = `${base} (${freshWord(seed * 100 + k, attempt)})`
+          await page.locator('#chat-message').fill(question)
+          const shown = (await page.getByTestId('cost-preview').innerText({ timeout: ACTION_TIMEOUT_MS })).replace(/\s+/g, ' ').trim()
+          const t = await ask(ctx, question, `in a temporary chat, shown before sending: ${shown}`)
+          const noPrice = priced(t)
+          if (noPrice !== undefined) return { pass: false, detail: `question ${k + 1}: ${noPrice}` }
+          if (t.footer.kind !== 'priced' || t.costUSD === undefined) {
+            return { pass: false, detail: `question ${k + 1}, in a temporary chat, was not priced by its tokens: [${t.footerText}]` }
+          }
+          const range = shownRange(shown)
+          if (range === undefined) return { pass: false, detail: `question ${k + 1}: unreadable range "${shown}"` }
+          const cost = range.unit === 'LXC' ? t.costUSD / ctx.env.usdPerLXC : t.costUSD
+          if (cost < range.low || cost > range.high) misses.push(`question ${k + 1}: shown "${shown}", answer cost ${cost} [${t.footerText}]`)
         }
-        const range = shownRange(shown)
-        if (range === undefined) return { pass: false, detail: `question ${k + 1}: unreadable range "${shown}"` }
-        const cost = range.unit === 'LXC' ? t.costUSD / ctx.env.usdPerLXC : t.costUSD
-        if (cost < range.low || cost > range.high) misses.push(`question ${k + 1}: shown "${shown}", answer cost ${cost} [${t.footerText}]`)
+      } finally {
+        await temporary(false).catch(() => undefined)
       }
       return misses.length === 0
         ? { pass: true, detail: `all ${PREVIEW_QUESTIONS.length} answers cost what the range shown before sending said` }
