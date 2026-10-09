@@ -18,11 +18,16 @@ export function ModelPicker({
   selected,
   onSelect,
   disabled,
+  openAsk = 0,
+  onOpened,
 }: {
   catalog: PickerCatalog
   selected: ChatModel | undefined
   onSelect: (id: string) => void
   disabled: boolean
+  /** B28.135 — the command palette asked for the picker: it opens once there is a catalog to open on. 0 is nothing asked. */
+  openAsk?: number
+  onOpened?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -30,6 +35,13 @@ export function ModelPicker({
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const listId = useId()
+
+  const openable = !disabled && catalog.defaultModel !== undefined
+  useEffect(() => {
+    if (openAsk === 0 || !openable) return
+    setOpen(true)
+    onOpened?.()
+  }, [openAsk, openable, onOpened])
 
   const q = query.trim().toLowerCase()
   const groups = useMemo(

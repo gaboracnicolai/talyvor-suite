@@ -5,7 +5,7 @@
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { deflateSync } from 'node:zlib'
-import type { Page, Request, Response } from 'playwright'
+import type { Locator, Page, Request, Response } from 'playwright'
 import { type AppUser, type Attachment, type ChargeBook, NetworkDropped, type Turn, chargeULXC } from './app.ts'
 import type { SpendCap } from './budget.ts'
 import { CapReached, worstInputTokens } from './budget.ts'
@@ -4442,6 +4442,145 @@ export function chatRichAnswer(seed: number): Scenario {
 }
 
 /**
+ * B28.135 — the command palette and every keyboard shortcut it lists, pressed as a person presses them. Ctrl+K opens the
+ * palette (drawn at 1440 and 390); its New chat leaves a conversation (its answer made up in the browser, so this costs
+ * nothing) for an empty one with the conversation still listed; its Switch model opens the model picker; words that name
+ * no command search the conversations for them; a page typed into it opens. Ctrl+/ lists the shortcuts, and each one
+ * listed is pressed: Ctrl+Shift+O opens a new chat from another screen, / focuses Search conversations, Ctrl+Shift+S hides
+ * and shows the conversations, Esc closes.
+ */
+export function commandPalette(seed: number): Scenario {
+  // The rows Ctrl+/ lists, each pressed below; a shortcut listed and not pressed here fails, so it cannot go untested.
+  const EXERCISED = [
+    'Open the command palette',
+    'New chat',
+    'Search conversations, when not typing',
+    'Show or hide the conversations, in Chat',
+    'Show keyboard shortcuts',
+    'Close the palette or this list',
+  ]
+  return {
+    id: 'command-palette',
+    owner: 'talyvor-suite',
+    items: ['B28.135'],
+    title: 'the command palette opens new chat, search and model switch, and every shortcut it lists works',
+    run: async (ctx) => {
+      const { app, env } = ctx
+      const { page } = app
+      const stamp = `${seed}-${Date.now().toString(36)}`
+      const question = `Palette check ${stamp}`
+      const provider = env.catalog.find((m) => m.display_name === app.modelNameInUse)?.provider ?? 'anthropic'
+      const palette = page.getByRole('dialog', { name: 'Command palette' })
+      const box = palette.getByRole('combobox', { name: 'Type a command or a page' })
+      const search = page.getByRole('searchbox', { name: 'Search conversations' })
+      const shown = (l: Locator) => l.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+      const gone = (l: Locator) => l.waitFor({ state: 'hidden', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+      const focused = (l: Locator) => l.evaluate((el) => el === document.activeElement).catch(() => false)
+      const blur = () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      const openPalette = async () => {
+        await page.keyboard.press('Control+k')
+        return shown(palette)
+      }
+      const fail = (detail: string) => ({ pass: false, detail })
+
+      // A conversation to leave: one question, its answer made up in this browser.
+      await app.newChat()
+      await app.askAnswered(question, madeUpAnswer(provider, 'Answered.', false))
+
+      await blur()
+      if (!(await openPalette())) return fail('Ctrl+K did not open the command palette')
+      const viewport = page.viewportSize()
+      await mkdir(env.outDir, { recursive: true })
+      const wide = join(env.outDir, `command-palette-1440px-user${app.user.index}.png`)
+      const narrow = join(env.outDir, `command-palette-390px-user${app.user.index}.png`)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.screenshot({ path: wide })
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.screenshot({ path: narrow })
+      if (viewport !== null) await page.setViewportSize(viewport)
+      ctx.evidence.push({ note: `the palette open at 1440px: ${wide}; at 390px: ${narrow}` })
+
+      // New chat, from the palette.
+      await palette.getByRole('option', { name: /^New chat/ }).click()
+      const left = await page.locator('[data-testid="turn-user"]').first().waitFor({ state: 'detached', timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+      const kept = await shown(page.getByRole('list', { name: 'Saved conversations' }).getByRole('button', { name: question }))
+      ctx.evidence.push({ note: `the palette's New chat: the thread cleared=${left}, "${question}" still listed=${kept}` })
+      if (!left) return fail('the palette’s New chat left the conversation on screen')
+      if (!kept) return fail('the palette’s New chat lost the conversation it left from the list')
+
+      // Switch model, from the palette.
+      if (!(await openPalette())) return fail('Ctrl+K did not open the command palette a second time')
+      await box.fill('model')
+      await palette.getByRole('option', { name: 'Switch model' }).click()
+      const picker = await shown(page.getByRole('listbox', { name: 'Models' }))
+      const pickerFocused = await focused(page.getByRole('textbox', { name: 'Search models' }))
+      ctx.evidence.push({ note: `the palette's Switch model: the model list open=${picker}, its search box focused=${pickerFocused}` })
+      if (!picker) return fail('the palette’s Switch model did not open the model picker')
+      await page.keyboard.press('Escape')
+      if (!(await gone(page.getByRole('listbox', { name: 'Models' })))) return fail('Esc did not close the model picker')
+
+      // Words that name no command: the conversations searched for them.
+      if (!(await openPalette())) return fail('Ctrl+K did not open the command palette a third time')
+      await box.fill(stamp)
+      await palette.getByRole('option', { name: `Search conversations for “${stamp}”` }).click()
+      const found = await shown(page.getByRole('list', { name: 'Conversations found' }).getByRole('button').filter({ hasText: question }))
+      const searched = await search.inputValue().catch(() => '')
+      const searchFocused = await focused(search)
+      ctx.evidence.push({ note: `searched from the palette for "${stamp}": the box holds "${searched}", focused=${searchFocused}, "${question}" found=${found}` })
+      if (searched !== stamp || !found) return fail(`the palette’s search did not search the conversations for its words: the box holds "${searched}", found=${found}`)
+      await search.fill('')
+
+      // A page, typed into the palette and opened with Enter.
+      await blur()
+      if (!(await openPalette())) return fail('Ctrl+K did not open the command palette a fourth time')
+      await box.fill('ledger')
+      await box.press('Enter')
+      const ledger = await page.waitForURL((u) => u.pathname === '/ledger', { timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+      if (!ledger || !(await shown(page.getByRole('heading', { level: 1, name: 'Ledger' })))) return fail(`"ledger" and Enter in the palette left the page at ${new URL(page.url()).pathname}`)
+
+      // Ctrl+/ lists the shortcuts; each one listed is pressed.
+      await page.keyboard.press('Control+Slash')
+      const list = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+      if (!(await shown(list))) return fail('Ctrl+/ did not open the list of keyboard shortcuts')
+      const rows = await list.getByRole('listitem').allInnerTexts()
+      ctx.evidence.push({ note: `Ctrl+/ lists: ${rows.map((r) => r.replace(/\s+/g, ' ').trim()).join(' | ')}` })
+      const untested = rows.filter((r) => !EXERCISED.some((e) => r.trim().startsWith(e)))
+      if (untested.length > 0 || rows.length !== EXERCISED.length) return fail(`the shortcuts listed are not the ones this scenario presses: ${untested.join(' | ') || `${rows.length} rows`}`)
+      await page.keyboard.press('Escape')
+      if (!(await gone(list))) return fail('Esc did not close the list of keyboard shortcuts')
+
+      // Ctrl+Shift+O, from the Ledger: Chat, on a new chat rather than the conversation it would reopen.
+      await page.keyboard.press('Control+Shift+O')
+      const inChat = await page.waitForURL((u) => u.pathname === '/chat', { timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false)
+      if (!inChat) return fail(`Ctrl+Shift+O from the Ledger left the page at ${new URL(page.url()).pathname}`)
+      await page.locator('button[aria-label^="Model: "]').first().waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+      await page.waitForTimeout(300)
+      const reopened = await page.locator('[data-testid="turn-user"]').count()
+      ctx.evidence.push({ note: `Ctrl+Shift+O from the Ledger: at ${new URL(page.url()).pathname} with ${reopened} question(s) on screen` })
+      if (reopened > 0) return fail('Ctrl+Shift+O opened Chat on the last conversation, not a new chat')
+
+      // / focuses Search conversations.
+      await blur()
+      await page.keyboard.press('Slash')
+      const slashFocused = await shown(search) && (await page.waitForFunction(() => (document.activeElement as HTMLInputElement | null)?.getAttribute('aria-label') === 'Search conversations', null, { timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false))
+      ctx.evidence.push({ note: `/ pressed outside a text field: Search conversations focused=${slashFocused}` })
+      if (!slashFocused) return fail('/ did not focus Search conversations')
+
+      // Ctrl+Shift+S hides the conversations and shows them again.
+      await blur()
+      await page.keyboard.press('Control+Shift+S')
+      const hidden = await shown(page.getByRole('button', { name: 'Show sidebar' }))
+      await page.keyboard.press('Control+Shift+S')
+      const back = await shown(page.getByRole('button', { name: 'Hide sidebar' }))
+      ctx.evidence.push({ note: `Ctrl+Shift+S: hidden=${hidden}, shown again=${back}` })
+      if (!hidden || !back) return fail(`Ctrl+Shift+S did not hide and show the conversations: hidden=${hidden}, shown again=${back}`)
+
+      return { pass: true, detail: `the palette opened a new chat, the model picker, a search for its words and the Ledger; all ${rows.length} shortcuts it lists worked` }
+    },
+  }
+}
+
+/**
  * Which scenarios user `i` runs. Everyone runs the two known-answer questions; one in ten of the users
  * also runs each of the others, so 100 users cover the catalog ten times over; user 0 prices every
  * model. A user runs at most one scenario from each catalog, v1 first. The ledger read-back runs for everyone after all journeys (checkLedger).
@@ -4489,8 +4628,9 @@ export function journeyFor(i: number, users: number, streamable: readonly string
     // B28.81 — then a blank answer and Retry, and an answer cut off at the length limit.
     // B28.99 — and, once a run, 20 questions each inside the price range Chat showed before it was sent.
     // B28.368 — and an answer cut off at a tiny max_tokens, which Continue carries on.
+    // B28.135 — and the command palette's new chat, model switch and search, and every shortcut it lists.
     case 6:
-      list.push(sidebarStaysHidden(), blankThenRetry(i), continueCutOff(i))
+      list.push(sidebarStaysHidden(), commandPalette(i), blankThenRetry(i), continueCutOff(i))
       // B28.369 — and three models asked one question side by side, each column priced at its own spend row.
       list.push(compareModels(i, streamable))
       if (i < 10) list.push(costPreview(i))
