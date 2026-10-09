@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { hostileItemsFor } from '../src/filing.ts'
-import { type Exec, type HostilePR, type HostileReport, changeOnce, execCLI, hostileLine, judge, renderHostile } from '../src/hostile.ts'
+import { type Exec, type HostilePR, type HostileReport, changeOnce, execCLI, hostileLine, judge, renderHostile, runHostile } from '../src/hostile.ts'
 
 /** A one-commit repo whose compose file holds SAFE, and whose workflow runs `guard` on pull requests unless told not to. */
 function repo(workflow = 'on:\n  pull_request:\njobs:\n  g:\n    steps:\n      - run: ./guard\n'): string {
@@ -59,5 +59,17 @@ describe('B28.289 — hostile pull requests', () => {
     expect(hostileItemsFor(first.append, h, 'docs/e2e/report.md').covered).toEqual([{ scenario: 'hostile-pr-compose-secret-lens', by: 'B17.91' }])
     expect(renderHostile(h).join('\n')).toContain('| **NOT CAUGHT**: not run by CI |')
     expect(hostileLine(h)).toEqual(['- **Hostile pull requests**: 1 of 2 stopped by CI; `compose-secret-lens` NOT CAUGHT.'])
+  })
+
+  it('B34.11 — judges a checkout given by a path relative to where the run started, and files a missing one for the harness', async () => {
+    const at = relative(process.cwd(), repo())
+    const h = await runHostile({ 'talyvor-suite': 'none', 'talyvor-lens': 'none', 'talyvor-docs': 'none', 'talyvor-track': at }, {}, exec(real), [pr])
+    expect([h.prs[0].state, h.prs[0].detail]).toEqual(['caught', "red on the change, exit 1: compose.yaml:1: ERROR: secret-shaped variable 'SECRET'"])
+    const gone = await runHostile({ 'talyvor-suite': 'none', 'talyvor-lens': 'none', 'talyvor-docs': 'none', 'talyvor-track': 'out/no-such-src' }, {}, exec(real), [pr])
+    expect([gone.prs[0].state, gone.prs[0].missing]).toEqual(['not run', true])
+    const f = hostileItemsFor('', gone, 'docs/e2e/report.md')
+    expect(f.filed).toEqual([{ id: f.filed[0]?.id, scenario: 'hostile-pr-compose-secret-x' }])
+    expect(f.append).toContain('repo: talyvor-e2e · deps: none · status: OPEN')
+    expect(f.append).toContain(`there is no checkout of talyvor-track at ${join(process.cwd(), 'out/no-such-src')}`)
   })
 })

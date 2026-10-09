@@ -319,14 +319,15 @@ export async function fileCodeItems(path: string, code: CodeReport, reportFile: 
 }
 
 // B28.289 — a hostile pull request CI would let through files one item for its repo, once; one that no longer applies to
-// main files one for the testers' harness, which has stopped testing that guard.
+// main files one for the testers' harness, which has stopped testing that guard, and so (B34.11) does one not run because
+// a checkout or a file in it is not on disk.
 
 /** The items a night's hostile pull requests call for, against BUILD.md as it stands. Pure. */
 export function hostileItemsFor(buildMd: string, hostile: HostileReport, reportFile: string): EdgeFiling {
   const covered = coveredScenarios(buildMd)
   const out: EdgeFiling = { append: '', filed: [], covered: [] }
   let n = nextB17(buildMd)
-  for (const v of hostile.prs.filter((x) => x.state === 'not caught' || x.state === 'stale')) {
+  for (const v of hostile.prs.filter((x) => x.state === 'not caught' || x.state === 'stale' || x.missing === true)) {
     const marker = hostileMarker(v)
     const by = covered.get(marker)
     if (by !== undefined) {
@@ -337,13 +338,15 @@ export function hostileItemsFor(buildMd: string, hostile: HostileReport, reportF
     const stale = v.state === 'stale'
     out.append += [
       '',
-      stale ? `## ${id} — the testers' hostile pull request \`${v.id}\` no longer applies to ${v.repo}'s main`
+      v.missing === true ? `## ${id} — the testers' hostile pull request \`${v.id}\` did not run: a checkout of ${v.repo}, or a file in it, is not there`
+        : stale ? `## ${id} — the testers' hostile pull request \`${v.id}\` no longer applies to ${v.repo}'s main`
         : `## ${id} — the testers found it: CI lets through a pull request that ${v.what.split(';')[0]}`,
-      `repo: ${stale ? NO_OWNER : v.repo} · deps: none · status: OPEN`,
+      `repo: ${stale || v.missing === true ? NO_OWNER : v.repo} · deps: none · status: OPEN`,
       `Filed by the e2e run of ${hostile.read_at.slice(0, 10)} (${reportFile}): the hostile pull request \`${v.id}\` ${v.what}, made against ` +
         `${v.repo}'s main${v.commit === undefined ? '' : ` at ${v.commit}`}. The guard that must stop it: ${v.guard}. ${v.detail}.`,
       `e2e-scenario: ${marker}`,
-      stale ? `DONE = the nightly's \`${v.id}\` applies to ${v.repo}'s main again and its guard goes red on it.`
+      v.missing === true ? `DONE = the nightly's \`${v.id}\` runs against ${v.repo}'s main and its row has a verdict, not NOT RUN.`
+        : stale ? `DONE = the nightly's \`${v.id}\` applies to ${v.repo}'s main again and its guard goes red on it.`
         : `DONE = the nightly's hostile pull request \`${v.id}\` goes red in ${v.repo}'s CI naming the guard that caught it.`,
       '',
     ].join('\n')
