@@ -2582,6 +2582,8 @@ export function everyModelAnswers(streamable: readonly string[]): Scenario {
       ctx.evidence.push({ note: `${models.length} models offered; providers without a key: ${unconfigured.join(', ') || 'none'}` })
       const failures: string[] = []
       const start = app.modelNameInUse
+      // B17.200 — words of this attempt's own: the night's second attempt re-asking the first's words is served from the cache.
+      const salt = 1 + Math.floor(Math.random() * 999_999)
       for (const [n, m] of models.entries()) {
         // One model's failure is that model's FAIL; the rest are still checked.
         try {
@@ -2589,22 +2591,27 @@ export function everyModelAnswers(streamable: readonly string[]): Scenario {
             failures.push(`${m.display_name}: not in the model picker`)
             continue
           }
-          await app.newChat()
           // B35.8 — a word made up tonight, one for each model: a question anybody asked before is served from the pool, and
-          // cannot be priced; and the word coming back is the proof the model answered it.
-          const word = freshWord(n)
-          const t = await ask(ctx, `Reply with the single word: ${word}`, m.display_name)
-          if (t.footer.kind !== 'priced') {
-            failures.push(`${m.display_name}: ${priced(t) ?? `not priced (${t.footer.kind})`}`)
-            continue
+          // cannot be priced; and the word coming back is the proof the model answered it. B17.200 — a model that answers
+          // without its word is asked once more, in a new chat with another; only a second miss is its FAIL.
+          const missed: string[] = []
+          for (const word of [freshWord(n, salt), freshWord(models.length + n, salt)]) {
+            await app.newChat()
+            const t = await ask(ctx, `Reply with the single word: ${word}`, m.display_name)
+            if (t.footer.kind !== 'priced') {
+              failures.push(`${m.display_name}: ${priced(t) ?? `not priced (${t.footer.kind})`}`)
+              break
+            }
+            if (t.footer.model !== m.display_name) failures.push(`${m.display_name}: answered as "${t.footer.model}"`)
+            const list = listPriceUSD(m, t.footer.inputTokens, t.footer.outputTokens)
+            // B28.362 — once Lens says what it charged, the footer is that, every digit: the list price rounded up to a µLXC.
+            const want = t.footer.chargedULXC !== undefined ? chargedFigure(chargeULXC(list, env.usdPerLXC))
+              : expectedFigure(list, t.footer.unit === 'LXC' ? env.usdPerLXC : undefined)
+            if (!t.footerText.startsWith(want + ' · ')) failures.push(`${m.display_name}: shows "${t.footerText}", catalog says ${want}`)
+            if (namesWord(t.answer, word)) break
+            missed.push(`asked to say "${word}", it answered "${t.answer.trim().slice(0, 80)}"`)
           }
-          if (!namesWord(t.answer, word)) failures.push(`${m.display_name}: asked to say "${word}", it answered "${t.answer.trim().slice(0, 80)}"`)
-          if (t.footer.model !== m.display_name) failures.push(`${m.display_name}: answered as "${t.footer.model}"`)
-          const list = listPriceUSD(m, t.footer.inputTokens, t.footer.outputTokens)
-          // B28.362 — once Lens says what it charged, the footer is that, every digit: the list price rounded up to a µLXC.
-          const want = t.footer.chargedULXC !== undefined ? chargedFigure(chargeULXC(list, env.usdPerLXC))
-            : expectedFigure(list, t.footer.unit === 'LXC' ? env.usdPerLXC : undefined)
-          if (!t.footerText.startsWith(want + ' · ')) failures.push(`${m.display_name}: shows "${t.footerText}", catalog says ${want}`)
+          if (missed.length === 2) failures.push(`${m.display_name}: ${missed.join('; then ')}`)
         } catch (e) {
           if (e instanceof CapReached) throw e
           failures.push(`${m.display_name}: ${(e instanceof Error ? e.message : String(e)).split('\n')[0]}`)
