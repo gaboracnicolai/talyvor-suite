@@ -51,6 +51,7 @@ export const NO_SCENARIO: Readonly<Record<string, string>> = {
   'B28.211': "the suite's container image, for running it on Kubernetes; production runs the BFF as a binary under systemd, and CI's image job proves the image's /healthz on every pull request and on main",
   'B28.212': 'Helm charts for running Track and Docs on Kubernetes; production runs them under docker compose',
   'B28.260': "how talyvor-code's CI installs and scans; nothing a person or an agent does reaches it",
+  'B28.263': "how the suite's CI audits its frontend packages; nothing a person or an agent does reaches it",
   'B28.448': "how Track's CI scans; nothing a person or an agent does reaches it",
   'B28.449': "how Docs' CI scans; nothing a person or an agent does reaches it",
   'B28.248': "Docs' /metrics; production serves Docs only to the BFF, on 127.0.0.1, so no request from outside reaches it",
