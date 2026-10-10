@@ -146,9 +146,12 @@ function EndOf({ title, updated }: { title: string; updated: string }) {
 export function LawyerReview({
   children,
   compact = false,
+  label,
 }: {
   children: React.ReactNode
   compact?: boolean
+  /** B27.38 — the marker's own words, where a clause is new rather than a known gap. */
+  label?: string
 }) {
   return (
     <div
@@ -157,7 +160,7 @@ export function LawyerReview({
       }
     >
       <div className="text-caption font-medium text-ink">
-        {compact ? 'Needs legal review' : 'Draft — needs legal review before it is relied on'}
+        {label ?? (compact ? 'Needs legal review' : 'Draft — needs legal review before it is relied on')}
       </div>
       <p className="mt-1 text-reading text-muted">{children}</p>
     </div>

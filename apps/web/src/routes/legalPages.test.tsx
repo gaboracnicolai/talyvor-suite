@@ -40,10 +40,10 @@ describe('the legal pages', () => {
 
     const dates = Array.from(container.querySelectorAll('main time')).map((t) => [t.getAttribute('dateTime'), t.textContent])
     expect(dates).toEqual([
-      ['2026-10-05', '5 October 2026'],
-      ['2026-10-05', '5 October 2026'],
+      ['2026-10-10', '10 October 2026'],
+      ['2026-10-10', '10 October 2026'],
     ])
-    expect(screen.getByText(/Last updated/, { selector: 'header p' })).toHaveTextContent('Last updated 5 October 2026.')
+    expect(screen.getByText(/Last updated/, { selector: 'header p' })).toHaveTextContent('Last updated 10 October 2026.')
 
     const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
     const links = within(screen.getByRole('navigation', { name: 'On this page' })).getAllByRole('link')
@@ -54,7 +54,11 @@ describe('the legal pages', () => {
     }
 
     const end = screen.getByText(new RegExp(`^End of ${title}\\.`))
-    expect(end).toHaveTextContent(`End of ${title}. Last updated 5 October 2026. Back to the contents`)
+    expect(end).toHaveTextContent(`End of ${title}. Last updated 10 October 2026. Back to the contents`)
     expect(screen.getByText(/Draft — needs legal review/)).toBeInTheDocument()
+    // B27.38 — each says what Tare training keeps and why, in a paragraph marked as a draft.
+    const tare = screen.getByRole('heading', { level: 2, name: /Tare training|Learning from your prose/ }).closest('section')!
+    expect(tare).toHaveTextContent(/keep.*prose.*improve how Tare shortens prompts/)
+    expect(within(tare).getByText('Draft — for legal review')).toBeInTheDocument()
   })
 })

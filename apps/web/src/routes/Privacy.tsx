@@ -29,8 +29,8 @@ import {
 //   payouts            areas/marketplace/Marketplace.tsx (Stripe asks; Talyvor never sees bank details)
 //   deletion           areas/lens/StoredAnswers.tsx, areas/track/WorkspaceSettings.tsx
 
-/** The day these words last changed (B32.2 added who runs Talyvor). Change it with them. */
-const UPDATED = '2026-10-05'
+/** The day these words last changed (B27.38 added Tare training). Change it with them. */
+const UPDATED = '2026-10-10'
 
 export function Privacy() {
   return (
@@ -211,6 +211,26 @@ export function Privacy() {
           Sharing is additionally gated deployment-wide by the operator. On a deployment where that
           switch is off, nothing pools regardless of your setting.
         </p>
+      </Section>
+
+      <Section title="Learning from your prose, only if you allow it">
+        <p className="text-reading">
+          Each workspace has a <strong>Tare training</strong> switch in{' '}
+          <a className={inlineLink} href="/features#tare-training">
+            Features
+          </a>
+          , off until the workspace&rsquo;s owner turns it on. While it is on, when Tare cannot shorten
+          the prose in a workspace&rsquo;s newest message, Talyvor keeps that prose and uses it to
+          improve how Tare shortens prompts — for that and nothing else. It never keeps prose from a
+          temporary chat, a chat kept out of the shared pool, a message in which personal data was found
+          or a guardrail stopped, or a workspace whose request logging is off. Talyvor records who turned
+          the switch on or off, and when. Turning it off stops the keeping at once and deletes what was
+          kept from that workspace.
+        </p>
+        <LawyerReview compact label="Draft — for legal review">
+          Keeping a customer&rsquo;s prose to improve Tare needs its legal basis, and how long it is
+          kept while the switch stays on, set before this is relied on.
+        </LawyerReview>
       </Section>
 
       <Section title="How long we keep it">

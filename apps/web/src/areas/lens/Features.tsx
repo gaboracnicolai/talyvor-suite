@@ -47,6 +47,8 @@ export interface FeaturesState {
   tare_policy: ReducerPolicy | null
   /** B27.37 — whether the workspace has opted in to Tare's prose model (talyvor-lens B27.35). */
   tare_model: boolean | null
+  /** B27.38 — whether Talyvor may learn from this workspace's prose to improve Tare (talyvor-lens B27.36). */
+  tare_training: boolean | null
   distill_policy: ReducerPolicy | null
   compression_policy: ReducerPolicy | null
   logging_policy: 'full' | 'metadata' | 'none' | null
@@ -88,6 +90,7 @@ const READ_EVERY_MS = 2_000
 type SettingWrite =
   | { tare_policy: ReducerPolicy }
   | { tare_model: boolean }
+  | { tare_training: boolean }
   | { distill_policy: ReducerPolicy }
   | { cost_optimize_routing: boolean }
   | { distill_poolable: boolean }
@@ -891,6 +894,31 @@ export function Features() {
                   name="Tare prose model"
                   checked={f.tare_model}
                   write={(on) => post('/api/features/tare-model', { tare_model: on })}
+                />
+              ) : undefined
+            }
+          />
+          <Feature
+            id="tare-training"
+            name="Tare training"
+            does="Lets Talyvor learn from this workspace’s chats to shorten prompts better: where Tare could not shorten a message’s prose, Talyvor keeps that prose to improve how Tare shortens it. Temporary chats and chats kept out of the shared pool are never used. Turning it off deletes what was kept from this workspace at once. Separate from Answer sharing and from the Tare prose model, and off until this workspace’s owner switches it on."
+            where={
+              <>
+                The prose of this workspace&rsquo;s messages that Tare could not shorten. What is kept, and what never is, is in{' '}
+                <a className={inlineLink} href="/privacy#learning-from-your-prose-only-if-you-allow-it">
+                  Privacy
+                </a>
+                .
+              </>
+            }
+            evidence="The switch shows what Lens holds for this workspace, and Lens records who switched it and when (measured)."
+            state={stateOf(switchable(f?.tare_training))}
+            control={
+              readable && f?.tare_training != null ? (
+                <SettingSwitch
+                  name="Tare training"
+                  checked={f.tare_training}
+                  write={(on) => post('/api/features/tare-training', { tare_training: on })}
                 />
               ) : undefined
             }

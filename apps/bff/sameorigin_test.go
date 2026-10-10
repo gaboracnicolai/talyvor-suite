@@ -188,6 +188,7 @@ func everyMutatingRoute() []mutatingRoute {
 		{method: http.MethodPost, path: "/api/features/tare", body: `{"tare_policy":"disabled"}`},
 		{method: http.MethodPost, path: "/api/features/cost-optimize-routing", body: `{"cost_optimize_routing":false}`},
 		{method: http.MethodPost, path: "/api/features/tare-model", body: `{"tare_model":false}`},
+		{method: http.MethodPost, path: "/api/features/tare-training", body: `{"tare_training":false}`},
 		{method: http.MethodPost, path: "/api/features/distill-poolable", body: `{"distill_poolable":false}`},
 		{method: http.MethodPost, path: "/api/features/guardrails", body: `{"injection":false}`},
 		{method: http.MethodPost, path: "/api/features/logging", body: `{"logging_policy":"metadata"}`},

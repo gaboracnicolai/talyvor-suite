@@ -199,6 +199,7 @@ const BY_PATH: Record<string, unknown> = {
   '/api/features': {
     tare_policy: 'disabled',
     tare_model: false,
+    tare_training: false,
     distill_policy: 'always',
     compression_policy: 'disabled',
     logging_policy: 'metadata',
