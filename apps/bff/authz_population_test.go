@@ -126,6 +126,8 @@ var publicReadRoutes = map[string]string{
 		"called with no gateway secret and no identity — docs_share_test.go owns both",
 	"/docs/s/{token}": "B28.447 — the page a Docs share link opens, signed out: the SPA shell, " +
 		"answered 404 for a link Docs refuses — docs_share_test.go owns both",
+	"/canvas": "B28.454 — the chat canvas's empty page, which draws only the HTML the app posts it; " +
+		"it holds nothing of anyone's — security_headers_test.go asserts its policy",
 	"/": "the SPA shell. It has to load before anyone can sign in; spa_fallback_test.go owns " +
 		"what it serves and spa_cache_test.go how it is cached. 404 in tests — no bundle is built",
 }

@@ -4306,7 +4306,7 @@ export function chatCanvas(seed: number): Scenario {
   return {
     id: 'chat-canvas',
     owner: 'talyvor-suite',
-    items: ['B28.120'],
+    items: ['B28.120', 'B28.454'],
     title: 'an HTML answer opens in the canvas drawn as a page, and an edit to it is still there after a reload',
     run: async (ctx) => {
       const { app, env } = ctx

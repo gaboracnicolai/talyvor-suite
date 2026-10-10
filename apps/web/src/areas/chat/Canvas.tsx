@@ -9,9 +9,16 @@ import { cn, focusRing } from '@talyvor/ui'
 // ⚠ THE PAGE IS DRAWN IN A SANDBOXED FRAME WITH NO ORIGIN. The HTML is a model's, text from outside this product, and
 // the person may edit it into anything. `sandbox="allow-scripts"` without allow-same-origin gives it an opaque origin:
 // its scripts run, and cannot read this page, its storage or its cookies, open a window, or navigate the console.
+//
+// B28.454 — and in its own document: the frame loads the BFF's /canvas (apps/bff/canvas.go), which has a policy of its
+// own, and is sent the HTML once it says it is ready. A srcdoc frame would inherit the app's policy, which runs no
+// script the app did not write.
 
 /** How long typing stops before an edit is drawn and saved. */
 export const CANVAS_SAVE_AFTER_MS = 400
+
+/** What /canvas says once it can be sent the HTML to draw (canvas.go). */
+export const CANVAS_READY = 'talyvor-canvas-ready'
 
 /** In the bar of an HTML block in an answer: opens it in the canvas; "edited" once the canvas has saved an edit to it. */
 export function OpenInCanvas({ edited, onOpen }: { edited: boolean; onOpen: () => void }) {
@@ -71,6 +78,19 @@ export function Canvas({
     [],
   )
 
+  const frame = useRef<HTMLIFrameElement>(null)
+  const drawing = useRef(shown)
+  drawing.current = shown
+  useEffect(() => {
+    const draw = (e: MessageEvent) => {
+      const page = frame.current?.contentWindow
+      // To '*': the page has no origin to name, which is the point of it.
+      if (page && e.source === page && e.data === CANVAS_READY) page.postMessage(drawing.current, '*')
+    }
+    window.addEventListener('message', draw)
+    return () => window.removeEventListener('message', draw)
+  }, [])
+
   const restore = () => {
     setDraft(original)
     setShown(original)
@@ -110,9 +130,12 @@ export function Canvas({
       </div>
       {view === 'preview' ? (
         <iframe
+          // A new frame for each edit: the page draws once, and what it draws can do anything to it.
+          key={shown}
+          ref={frame}
           title={`${title}, drawn as a page`}
           sandbox="allow-scripts"
-          srcDoc={shown}
+          src="/canvas"
           className="min-h-0 w-full flex-1 border-0 bg-raised"
           data-testid="canvas-preview"
         />

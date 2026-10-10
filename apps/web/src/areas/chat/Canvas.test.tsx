@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App, queryClient } from '../../App'
+import { CANVAS_READY } from './Canvas'
 
 // B28.120 — the canvas. The BFF is mocked at the wire with an answer that writes a page in an ```html block. That the
 // page is drawn in a real browser, and an edit to it is drawn and still there after a reload, is the e2e scenario
@@ -39,6 +40,16 @@ afterEach(() => {
 
 const frame = () => screen.getByTitle('Launch plan, drawn as a page') as HTMLIFrameElement
 
+// What the canvas sends its page (the BFF's /canvas, which jsdom does not load) when the page says it is ready.
+function drawn(): unknown {
+  const page = frame().contentWindow!
+  const post = vi.spyOn(page, 'postMessage').mockImplementation(() => {})
+  window.dispatchEvent(new MessageEvent('message', { data: CANVAS_READY, source: page }))
+  const sent = post.mock.calls.at(-1)?.[0]
+  post.mockRestore()
+  return sent
+}
+
 describe('the canvas (B28.120)', () => {
   it('draws an HTML block as a sandboxed page, keeps an edit to it after a reload, and restores the original', async () => {
     mockBff()
@@ -56,26 +67,27 @@ describe('the canvas (B28.120)', () => {
     expect(within(canvas).getByTestId('canvas-title').textContent).toBe('Launch plan')
     // Its scripts may run; it gets no origin, so it cannot reach the console, its storage or its cookies.
     expect(frame().getAttribute('sandbox')).toBe('allow-scripts')
-    expect(frame().getAttribute('srcdoc')).toBe(page)
+    expect(frame().getAttribute('src')).toBe('/canvas')
+    expect(drawn()).toBe(page)
 
     fireEvent.click(within(canvas).getByRole('button', { name: 'Code' }))
     const edited = page.replace('<h1>Hello</h1>', '<h1>Hello, edited</h1>')
     fireEvent.change(within(canvas).getByLabelText('HTML'), { target: { value: edited } })
     await waitFor(() => expect(within(canvas).getByTestId('canvas-saved').textContent).toBe('Edited · saved in this browser with the conversation'))
     fireEvent.click(within(canvas).getByRole('button', { name: 'Preview' }))
-    expect(frame().getAttribute('srcdoc')).toBe(edited)
+    expect(drawn()).toBe(edited)
 
     // Opened again, the conversation's answer is as it was written and its page as it was edited.
     cleanup()
     queryClient.clear()
     render(<App />)
     fireEvent.click(await screen.findByRole('button', { name: 'Open in canvas · edited' }))
-    expect(frame().getAttribute('srcdoc')).toBe(edited)
+    expect(drawn()).toBe(edited)
     expect(screen.getAllByTestId('turn-reply')[0].textContent).toContain('<h1>Hello</h1>')
 
     // Restored, it is the answer's own again, and so after another reload.
     fireEvent.click(screen.getByRole('button', { name: 'Restore the original' }))
-    await waitFor(() => expect(frame().getAttribute('srcdoc')).toBe(page))
+    await waitFor(() => expect(drawn()).toBe(page))
     fireEvent.click(screen.getByRole('button', { name: 'Close canvas' }))
     expect(screen.queryByTestId('canvas')).toBeNull()
     cleanup()
