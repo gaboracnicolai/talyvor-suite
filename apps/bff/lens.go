@@ -676,6 +676,9 @@ func newApp(cfg config, auth *authenticator) *app {
 	// the SPA and hand back index.html).
 	a.mux.HandleFunc("/api/", a.requireSession(a.handleAPINotFound))
 
+	// B28.454 — the chat canvas's own document, sandboxed with a policy of its own (canvas.go).
+	a.mux.HandleFunc("/canvas", serveCanvas)
+
 	// Everything else is the SPA (client-side routes resolve to index.html).
 	a.mux.Handle("/", a.spaHandler())
 	return a
@@ -1368,6 +1371,9 @@ func (a *app) spaHandler() http.Handler {
 		if isBuildOwnedPath(clean) {
 			http.NotFound(w, r) // a bundle file that is not on disk does not exist; do not hand back a document
 			return
+		}
+		if page, err := os.ReadFile(index); err == nil {
+			w.Header().Set("Content-Security-Policy", appPagePolicy(page))
 		}
 		setMustRevalidate(w)        // the fallback is index.html, which every deploy replaces in place
 		http.ServeFile(w, r, index) // client route (or missing bundle → 404 from ServeFile)

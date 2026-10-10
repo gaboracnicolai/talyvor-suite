@@ -47,7 +47,8 @@ interface VersionAnswer { service?: string; commit?: string; stamped?: boolean; 
 
 /**
  * The app's own reads of the session: /api/version names the build the BFF and the bundle came from, and they agree;
- * /healthz answers {"status":"ok"}; an app page carries a CSP, X-Frame-Options: DENY and Referrer-Policy;
+ * /healthz answers {"status":"ok"}; an app page carries a CSP whose script-src has no 'unsafe-inline',
+ * X-Frame-Options: DENY and Referrer-Policy;
  * /api/workspaces lists exactly the workspace Lens gives this user's token; an /api/ path the BFF does not have answers
  * a JSON 404, never the app's page. Then the person signs in again in a second browser and presses Sign out there: that
  * browser is signed out (its /auth/me, its workspaces refused, an unknown path 401), and the first one still is not.
@@ -56,7 +57,7 @@ export function sessionSignOut(seed: number): Scenario {
   return {
     id: 'session-sign-out',
     owner: 'talyvor-suite',
-    items: ['B28.247'],
+    items: ['B28.247', 'B28.454'],
     title: "the app's version, its workspace list and an unknown /api/ path read as the BFF and Lens hold them; Sign out in a second browser ends that session and only that one",
     run: async (ctx) => {
       const { app, env } = ctx
@@ -83,6 +84,9 @@ export function sessionSignOut(seed: number): Scenario {
       if (!sec.csp.includes("frame-ancestors 'none'") || sec.frame !== 'DENY' || sec.referrer !== 'same-origin') {
         failures.push(`/ledger: CSP "${sec.csp}", X-Frame-Options "${sec.frame}", Referrer-Policy "${sec.referrer}"`)
       }
+      // B28.454 — and a script injected into it does not run: its script-src has no 'unsafe-inline'.
+      const scripts = sec.csp.split(';').map((d) => d.trim()).find((d) => d.startsWith('script-src '))
+      if (scripts === undefined || scripts.includes("'unsafe-inline'")) failures.push(`/ledger: CSP "${sec.csp}" lets any inline script run`)
 
       const mine = await bff<{ id: string }[]>(ctx, 'GET', '/api/workspaces')
       const lens = await env.lens.act<{ id: string }[]>(app.user, 'GET', '/v1/workspaces')
