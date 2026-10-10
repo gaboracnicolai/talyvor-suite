@@ -14,7 +14,7 @@ import type { Answered, LedgerRow, LensClient, SyntheticUser } from './lens.ts'
 import { refusalOf } from './lens.ts'
 import { ACTION_TIMEOUT_MS, agentIn, bookOf, card, fail, openAgent, usdShown, withBank } from './bank.ts'
 import { bff } from './routes.ts'
-import { RUN_SALT, freshWord } from './oracles.ts'
+import { RUN_SALT, freshWord, parseFooter } from './oracles.ts'
 import { CannotTest, eventually, metered } from './scenarios.ts'
 import { DocsPage, FeaturesScreen, TrackScreen, payCheckout, subscribeWithTestCard } from './screens.ts'
 import type { Scenario } from './scenarios.ts'
@@ -1568,8 +1568,8 @@ const TRACK_SYNC_MS = 16 * 60_000
 /**
  * B28.376 — a Track issue attached in Chat, its cost attributed to it. A fresh issue made in Track, then in Chat attached
  * with Track issue, and a question asked afresh: the question links the issue, Lens holds the answer's charge under the
- * issue's identifier (its per-issue read), and the issue's AI cost in Track rises by exactly that charge — the one spend
- * row Lens wrote for the answer, in dollars. Track adds it when its syncer next reads Lens, so that wait is long.
+ * issue's identifier (its per-issue read), and the issue's AI cost in Track rises by exactly that charge — the spend
+ * rows Lens wrote for the answer, one for each request it took, in dollars. Track adds it when its syncer next reads Lens, so that wait is long.
  */
 export function chatTrackIssue(seed: number): Scenario {
   return {
@@ -1630,30 +1630,35 @@ export function chatTrackIssue(seed: number): Scenario {
         }
         if (was !== null) await page.setViewportSize(was)
         ctx.evidence.push({ note: `the question with ${made.identifier} linked, and the answer, at 1440px: ${asked[0]}; at 390px: ${asked[1]}` })
+        // B17.160 — the model may look the issue up in Track before it answers; every request the answer took names the
+        // issue, so its charge is its spend rows together, one a request, as many as its footer counts.
+        const footer = parseFooter(t.footerText)
+        const requests = footer.kind === 'priced' ? footer.requests ?? 1 : 1
         let spend: LedgerRow[] = []
-        for (let tries = 0; tries < 10 && spend.length === 0; tries++) {
+        for (let tries = 0; tries < 10 && spend.length < requests; tries++) {
           if (tries > 0) await page.waitForTimeout(1_000)
           spend = (await env.lens.ledger(app.user)).filter((r) => !seen.has(r.id) && r.type === 'spend')
         }
         ctx.evidence.push({ note: 'the spend rows Lens wrote for the answer', ledger: spend.map((r) => ({ type: r.type, amount_ulxc: r.amount_ulxc, created_at: r.created_at })) })
-        if (spend.length !== 1) return fail(`the answer [${t.footerText}] wrote ${spend.length} spend rows, not one`)
-        const charged = (-spend[0].amount_ulxc / 1e6) * env.usdPerLXC
-        // Lens and Track keep dollars, the ledger µLXC: each reading is within a µLXC, and Track's six places.
-        const near = (usd: number) => Math.abs(usd - charged) <= env.usdPerLXC / 1e6 + 5e-7 + 1e-9
+        if (spend.length !== requests) return fail(`the answer [${t.footerText}] took ${requests} request${requests === 1 ? '' : 's'} and wrote ${spend.length} spend rows`)
+        const ulxc = spend.reduce((n, r) => n - r.amount_ulxc, 0)
+        const charged = (ulxc / 1e6) * env.usdPerLXC
+        // Lens and Track keep dollars, the ledger µLXC: each row's reading is within a µLXC, and Track's six places.
+        const near = (usd: number) => Math.abs(usd - charged) <= spend.length * (env.usdPerLXC / 1e6 + 5e-7) + 1e-9
 
         // Lens holds the answer's charge under the issue (talyvor-lens B28.124), or Track has nothing to add.
         const held = await until(async () => {
           const r = await env.lens.as(app.user.token, 'GET', `/v1/workspaces/${app.user.workspaceID}/anomalies/issue/${encodeURIComponent(made.identifier)}`)
           return { status: r.status, cost: parsed<{ cost_usd: number }>(r.text)?.cost_usd ?? 0, text: r.text.slice(0, 200) }
-        }, (r) => r.cost > 0, 15_000)
+        }, (r) => near(r.cost), 15_000)
         ctx.evidence.push({ note: `Lens's read of ${made.identifier}: ${held.status} ${held.text}; the answer was charged $${charged}` })
-        if (!near(held.cost)) return fail(`Lens holds $${held.cost} under ${made.identifier}; the answer that named it was charged $${charged} (${-spend[0].amount_ulxc} µLXC)`)
+        if (!near(held.cost)) return fail(`Lens holds $${held.cost} under ${made.identifier}; the answer that named it was charged $${charged} (${ulxc} µLXC)`)
 
         // And Track adds it to the issue's AI cost when its syncer next reads Lens.
         const after = await until(async () => {
           const r = await readFrom<{ ai_cost_usd: number }>(page, `/api/track/issues/${encodeURIComponent(made.id)}`)
           return typeof r === 'string' ? before : r.ai_cost_usd
-        }, (usd) => usd > before, TRACK_SYNC_MS)
+        }, (usd) => near(usd - before), TRACK_SYNC_MS)
         const rose = after - before
         ctx.evidence.push({ note: `${made.identifier}'s AI cost in Track: $${before} before, $${after} after` })
         if (!near(rose)) return fail(`${made.identifier}'s AI cost in Track rose by $${rose} ($${before} → $${after}); the answer was charged $${charged}`)
@@ -1672,7 +1677,7 @@ export function chatTrackIssue(seed: number): Scenario {
         } finally {
           await issuePage.close()
         }
-        return { pass: true, detail: `${made.identifier} attached in Chat; the answer's one spend row of ${-spend[0].amount_ulxc} µLXC ($${charged}) is held under it in Lens, and its AI cost in Track rose by $${rose}` }
+        return { pass: true, detail: `${made.identifier} attached in Chat; the answer's ${requests} request${requests === 1 ? '' : 's'}, ${ulxc} µLXC ($${charged}), is held under it in Lens, and its AI cost in Track rose by $${rose}` }
       } finally {
         await app.newChat().catch(() => undefined)
       }
