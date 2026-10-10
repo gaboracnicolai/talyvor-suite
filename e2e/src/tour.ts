@@ -482,25 +482,32 @@ export function chatBrand(): Scenario {
 }
 
 /**
- * B28.267 — /chat/help in full at 1440 and 390: all eleven sections (B28.350 added Launching an agent, B28.352 Setting a rule, B28.359 Handing an agent a task, B28.360 Freezing an agent’s card, B28.98 Downloading a statement), the last one ending on its last
- * sentence, and the top bar showing the whole title "How to use Talyvor Chat" (at 390 it was "H…"),
- * with nothing scrolling sideways. Photographed at both widths.
+ * B28.267 — /chat/help in full at 1440 and 390: every section, in the order apps/web's ChatHelp.tsx (and its
+ * test) lists them, the last one ending on its last sentence, and the top bar showing the whole title "How to use
+ * Talyvor Chat" (at 390 it was "H…"), with nothing scrolling sideways. Photographed at both widths.
+ * B17.166: a section added to the page goes here too, and a new last section moves CHAT_HELP_LAST_SENTENCE.
  */
-export const CHAT_HELP_SECTIONS = ['Asking', 'Launching an agent', 'Setting a rule', 'Handing an agent a task', 'Freezing an agent’s card', 'Downloading a statement', 'Models', 'Attaching documents', 'What an answer costs', 'What each question sends', 'Where conversations are kept'] as const
+export const CHAT_HELP_SECTIONS = [
+  'Asking', 'Launching an agent', 'Setting a rule', 'Handing an agent a task', 'Scheduling a prompt', 'Freezing an agent’s card',
+  'Downloading a statement', 'Models', 'Attaching documents', 'Searching the web', 'Running code', 'Track and Docs in Chat',
+  'Connectors', 'The canvas', 'What an answer costs', 'What each question sends', 'Where conversations are kept',
+  'Sharing a chat', 'Exporting and importing chats',
+] as const
+export const CHAT_HELP_LAST_SENTENCE = 'a conversation already in the list is replaced only by a copy changed after it.'
 
 export function chatHelpInFull(): Scenario {
   return {
     id: 'chat-help-in-full',
     owner: 'talyvor-suite',
     items: ['B28.267'],
-    title: '/chat/help shows all eleven sections, its last sentence, and its whole title, at 1440 and 390',
+    title: '/chat/help shows every section, its last sentence, and its whole title, at 1440 and 390',
     run: async (ctx) => {
       const { dir, link } = ctx.env.shots
       await mkdir(dir, { recursive: true })
       const page = await ctx.app.tab('/chat/help')
       const wrong: string[] = []
       try {
-        await page.getByRole('heading', { name: 'Where conversations are kept' }).waitFor({ timeout: HEADING_TIMEOUT_MS })
+        await page.getByRole('heading', { name: CHAT_HELP_SECTIONS[CHAT_HELP_SECTIONS.length - 1] }).waitFor({ timeout: HEADING_TIMEOUT_MS })
         for (const [width, height] of CHAT_VIEWPORTS) {
           await page.setViewportSize({ width, height })
           await page.waitForTimeout(200)
@@ -512,7 +519,7 @@ export function chatHelpInFull(): Scenario {
               title: title?.textContent ?? null,
               titleCut: title !== null && title.scrollWidth > title.clientWidth,
               headings: sections.map((s) => s.querySelector('h2')?.textContent ?? ''),
-              lastEnds: last.slice(-40),
+              lastEnds: last.replace(/\s+/g, ' ').slice(-120),
               scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
             }
           })
@@ -523,7 +530,7 @@ export function chatHelpInFull(): Scenario {
           if (seen.titleCut) wrong.push(`${at}: the title "How to use Talyvor Chat" is cut off`)
           const missing = CHAT_HELP_SECTIONS.filter((h) => !seen.headings.includes(h))
           if (missing.length > 0) wrong.push(`${at}: missing section(s): ${missing.join(', ')}`)
-          if (!seen.lastEnds.endsWith('New chat starts a fresh one.')) wrong.push(`${at}: the last section ends "…${seen.lastEnds}"`)
+          if (!seen.lastEnds.endsWith(CHAT_HELP_LAST_SENTENCE)) wrong.push(`${at}: the last section ends "…${seen.lastEnds.slice(-40)}"`)
           if (seen.scroll > 0) wrong.push(`${at}: /chat/help scrolls ${seen.scroll}px sideways`)
           ctx.evidence.push({ note: `/chat/help ${width}×${height}: ${seen.headings.length} sections, title ${seen.titleCut ? 'cut' : 'whole'}`, shot: `${link}/${file}` })
         }
@@ -531,7 +538,7 @@ export function chatHelpInFull(): Scenario {
         await page.close()
       }
       return wrong.length === 0
-        ? { pass: true, detail: '/chat/help in full at 1440 and 390: eleven sections, the last sentence, and the whole title' }
+        ? { pass: true, detail: `/chat/help in full at 1440 and 390: ${CHAT_HELP_SECTIONS.length} sections, the last sentence, and the whole title` }
         : { pass: false, detail: wrong.join('; '), where: ['/chat/help'] }
     },
   }
