@@ -871,9 +871,14 @@ export function editResendRerunsThread(seed: number): Scenario {
     title: 'a question edited and sent again re-runs the thread from that turn',
     run: async (ctx) => {
       await ctx.app.newChat()
-      await ask(ctx, `What is ${a} + ${b}? ${NUMBER_ONLY}`, 'the first question')
+      const first = await ask(ctx, `What is ${a} + ${b}? ${NUMBER_ONLY}`, 'the first question')
+      // B17.191 — the thread is measured from the sum the model gave, as a person reading it would: Haiku once said
+      // 12000 for 3730 + 8269, and its follow-up, 24000, was right for the thread it was in.
+      const sum = Number(first.answer.match(/\d[\d,]*/)?.[0].replace(/,/g, ''))
+      if (!Number.isFinite(sum)) return { pass: false, detail: `the first question was not answered with a number: ${describe(first)}` }
+      if (sum !== a + b) ctx.evidence.push({ note: `the model said ${sum} for ${a} + ${b} (${a + b}); the thread is measured from its ${sum}` })
       const before = await ask(ctx, by2, 'the follow-up, before the edit')
-      if (!statesNumber(before.answer, 2 * (a + b))) return { pass: false, detail: `the follow-up was wrong before any edit: ${describe(before)}` }
+      if (!statesNumber(before.answer, 2 * sum)) return { pass: false, detail: `the follow-up was wrong before any edit: ${describe(before)}` }
       const t = record(ctx, await ctx.app.editAndResend(1, by10), 'the follow-up edited to "by 10" and sent')
       if (t.error !== undefined) return { pass: false, detail: `the edited question was refused: ${t.error}` }
       const questions = await ctx.app.page.locator('[data-testid="turn-user"]').allInnerTexts()
@@ -883,9 +888,9 @@ export function editResendRerunsThread(seed: number): Scenario {
         return { pass: false, detail: `after the edit the thread holds ${questions.length} questions and ${answers} answers, not 2 and 2` }
       }
       if (!questions[1]?.includes('by 10')) return { pass: false, detail: `the second question reads "${questions[1]}", not the edited one` }
-      return statesNumber(t.answer, 10 * (a + b))
-        ? { pass: true, detail: `edited to "by 10", the thread re-ran from that turn: ${10 * (a + b)}, the "by 2" answer gone` }
-        : { pass: false, detail: `expected ${10 * (a + b)} from the turn before the edit, got ${describe(t)}` }
+      return statesNumber(t.answer, 10 * sum)
+        ? { pass: true, detail: `edited to "by 10", the thread re-ran from that turn: ${10 * sum}, the "by 2" answer gone` }
+        : { pass: false, detail: `expected ${10 * sum} from the turn before the edit, got ${describe(t)}` }
     },
   }
 }
