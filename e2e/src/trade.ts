@@ -1082,9 +1082,10 @@ export async function clearedBothSides(ctx: ScenarioCtx, bought: { line: BillLin
 }
 
 /** B28.159 — Every earning on Your listings & earnings, as the screen draws it: each row's use and its share, in µUSD. */
-async function earningsShown(page: Page): Promise<{ use_id: string; share: number }[]> {
+async function earningsShown(page: Page): Promise<{ use_id: string; share: number }[] | undefined> {
   const list = page.getByTestId('market-earnings-list')
-  await list.waitFor({ timeout: ACTION_TIMEOUT_MS })
+  // A list taken away never draws: undefined, so the scenario FAILs naming it rather than erroring on a timeout.
+  if (!(await list.waitFor({ timeout: ACTION_TIMEOUT_MS }).then(() => true, () => false))) return undefined
   const rows = await list.getByTestId('market-earning').evaluateAll((els) =>
     els.map((el) => ({ use_id: (el as HTMLElement).dataset.useId ?? '', share: el.querySelector('[data-testid="market-earning-share"]')?.textContent ?? '' })))
   return rows.map((r) => ({ use_id: r.use_id, share: Math.round(Number(r.share.replace(/[$,]/g, '')) * 1e6) }))
@@ -1110,7 +1111,9 @@ async function takeAsCredits(ctx: ScenarioCtx, seller: number, sellerUser: Synth
     const shown = await earningsShown(page)
     const lens1 = await ctx.env.lens.marketEarnings(sellerUser)
     ctx.evidence.push({ note: `the seller's earnings on screen: ${JSON.stringify(shown)}` })
-    const listFault = earningsListFault(shown, [lens0, lens1])
+    const listFault = shown === undefined
+      ? `Your listings & earnings draws no Every earning list, where Lens lists ${JSON.stringify((lens1.earnings ?? []).map((x) => x.use_id))}`
+      : earningsListFault(shown, [lens0, lens1])
     const c = card(page, 'Payouts')
     await c.getByRole('button', { name: /^Take .* as credits$/ }).click({ timeout: ACTION_TIMEOUT_MS })
     const note = c.getByRole('status').filter({ hasText: /credits\.$/ }).or(c.getByRole('alert')).first()
@@ -1126,6 +1129,7 @@ export function marketPayout(seed: number, seller: number): Scenario {
   return {
     id: 'market-payout',
     owner: 'talyvor-lens',
+    items: ['B28.159'],
     title: "a buyer uses another company's listing and pays the bill; past the holdback, the seller's earnings on Your listings & earnings are Lens's earnings list one for one, and the seller takes them as credits there: one credits payout, its credits in the seller's workspace, nothing left available",
     run: async (ctx) => {
       const { env } = ctx
