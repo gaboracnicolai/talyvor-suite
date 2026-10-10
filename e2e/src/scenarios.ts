@@ -68,6 +68,7 @@ import { chatListing } from './chatListing.ts'
 import { marketBuyerCurrency } from './buyerCurrency.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
+import { outsidePayees } from './payees.ts'
 import { capabilityTerms } from './capabilityTerms.ts'
 import { verificationScreen } from './verificationScreen.ts'
 import { termsAndCredentialScreens } from './termsScreen.ts'
@@ -5184,6 +5185,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // versioned and unaccepted; fx's text a draft for legal review; accepting its version 201 naming the person, then listed
   // accepted; a version one higher 409.
   if (i === 1) list.push(capabilityTerms())
+  // B30.126 — saved outside payees, once a run, on a workspace of its own: an exact, a close and a no-match payee saved with
+  // their checks; the no-match confirmed with no assertion 403, then with a software passkey signed over its challenge, still
+  // no_match; a TESTSANCTION payee refused 403 and not on the list.
+  if (i === 2) list.push(outsidePayees())
   // B30.116 — the Verification screen, once a run, in the browser on a workspace of its own: L1 then L2 from its forms on
   // the Test provider, then L2 shown with the live level L0, both checks marked Test, payments_out at L2 and b2b_credit at L3.
   if (i === 7) list.push(verificationScreen())

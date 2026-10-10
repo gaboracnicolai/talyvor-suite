@@ -144,6 +144,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { HOLD_REASON, TaxDesk } from './stub-tax.ts'
 import { VerificationDesk } from './stub-verification.ts'
+import { PayeeDesk } from './stub-payees.ts'
 import { TermsDesk } from './stub-terms.ts'
 import { type KYAFacts, KYADesk } from './stub-kya.ts'
 import { type Lineage, TrustDesk } from './stub-trust.ts'
@@ -443,6 +444,8 @@ export class Bank {
   private readonly cards = new Map<string, { frozen: boolean; frozen_at?: string } & Record<string, unknown>>()
   /** B28.84 — each workspace's passkeys (Lens B19.16): once it has one, a decision must carry an assertion. */
   private readonly passkeys = new Map<string, { credential_id: string; name: string; created_at: string }[]>()
+  /** B30.126 — each passkey's public key (SPKI, base64url), by credential id, which a payee's confirmation is verified with. */
+  private readonly passkeyKeys = new Map<string, string>()
   private readonly reports: Report[] = []
   private readonly accounts = new Map<string, ConnectAccount>()
   private readonly payouts: Payout[] = []
@@ -461,6 +464,8 @@ export class Bank {
   private readonly tax: TaxDesk
   /** B30.117 — the workspace's verification levels (stub-verification.ts). */
   private readonly verification: VerificationDesk
+  /** B30.126 — the workspace's saved outside payees (stub-payees.ts). */
+  private readonly payees: PayeeDesk
   /** B30.122 — each B30 capability's terms and the workspace's acceptances (stub-terms.ts). */
   private readonly terms: TermsDesk
   /** B30.118 — each agent's Know Your Agent credential (stub-kya.ts). */
@@ -472,6 +477,8 @@ export class Bank {
     this.d = d
     this.tax = new TaxDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
     this.verification = new VerificationDesk(d.json, (req) => this.body(req), (name) => this.broken(name))
+    this.payees = new PayeeDesk(d.json, (req) => this.body(req), (name) => this.broken(name),
+      (ws) => (this.passkeys.get(ws) ?? []).map((k) => ({ credential_id: k.credential_id, public_key: this.passkeyKeys.get(k.credential_id) ?? '' })))
     this.terms = new TermsDesk(d.json, (req) => this.body(req), (name) => this.broken(name), B30_CAPABILITIES)
     this.kya = new KYADesk(d.json, (req) => this.body(req), (name) => this.broken(name), (ws, agent) => this.kyaFacts(ws, agent))
     this.trustDesk = new TrustDesk({ json: d.json, body: (req) => this.body(req), broken: (name) => this.broken(name),
@@ -1477,6 +1484,7 @@ export class Bank {
   /** Writes a signed-in person makes outside their workspace: a report on a listing; and wallet lookups. */
   async publicWrite(req: IncomingMessage, res: ServerResponse, path: string, viewer: string): Promise<boolean> {
     const { json } = this.d
+    if (await this.payees.route(req, res, viewer, path)) return true
     if (path === '/v1/wallets/capabilities') {
       const b30 = (this.broken('b30-capability-gone') ? B30_CAPABILITIES.filter((c) => c.capability !== 'fx') : B30_CAPABILITIES)
         .map((c) => (c.capability === 'payments_out' && this.broken('level-needed-wrong') ? { ...c, level_needed: 'L0' } : c))
@@ -1971,8 +1979,9 @@ export class Bank {
       return json(res, 200, { challenge: challenge(), rp_id: new URL(process.env.STUB_APP_URL ?? 'http://localhost').hostname }), true
     }
     if (rest === '/agents/passkeys' && method === 'POST') {
-      const { credential_id = '', name = '' } = await this.body<{ credential_id?: string; name?: string }>(req)
+      const { credential_id = '', name = '', public_key = '' } = await this.body<{ credential_id?: string; name?: string; public_key?: string }>(req)
       if (credential_id === '') return json(res, 400, { error: 'economy: a passkey needs its credential id' }), true
+      this.passkeyKeys.set(credential_id, public_key)
       const k = { credential_id, name, created_at: now }
       this.passkeys.set(ws.id, [...(this.passkeys.get(ws.id) ?? []), k])
       return json(res, 201, k), true
