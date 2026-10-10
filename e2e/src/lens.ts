@@ -927,6 +927,14 @@ const PUBLISH_RESTART_MS = 60_000
 /** B34.1 — how often a request Lens's rate limiter turned away is made again, and the longest it waits for each. */
 const RATE_LIMIT_RETRIES = 3
 const RATE_LIMIT_WAIT_MAX_S = 60
+/** B17.201 — Lens's limit on the synthetic routes, for every run's calls together (talyvor-lens synthetic_handler.go). */
+const SYNTHETIC_PER_MINUTE = 10
+
+/** B17.201 — when the synthetic calls went out, shared by every tagged copy, and where each wait on their limit is noted. */
+export interface SyntheticPace {
+  sent: number[]
+  incidents: string[]
+}
 
 export class LensClient {
   readonly baseURL: string
@@ -938,9 +946,10 @@ export class LensClient {
   private readonly moderatorKey: string
   /** B32.98 — Lens's global admin key (LENS_API_KEY): the platform-reporting export. */
   private readonly adminKey: string
+  private readonly pace: SyntheticPace
 
   constructor(baseURL: string, syntheticKey: string, recorder?: Recorder, tag: Tag = { scenario: 'harness', user: -1 },
-    sessionKeys = new Map<string, Promise<string>>(), moderatorKey = '', adminKey = '') {
+    sessionKeys = new Map<string, Promise<string>>(), moderatorKey = '', adminKey = '', pace: SyntheticPace = { sent: [], incidents: [] }) {
     this.baseURL = baseURL
     this.key = syntheticKey
     this.recorder = recorder
@@ -948,29 +957,43 @@ export class LensClient {
     this.sessionKeys = sessionKeys
     this.moderatorKey = moderatorKey
     this.adminKey = adminKey
+    this.pace = pace
   }
 
   /** B25.5 — the same client, its calls recorded as `tag`'s for the coverage map. */
   tagged(tag: Tag): LensClient {
-    return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys, this.moderatorKey, this.adminKey)
+    return new LensClient(this.baseURL, this.key, this.recorder, tag, this.sessionKeys, this.moderatorKey, this.adminKey, this.pace)
   }
 
   /**
    * Every request to Lens goes through here, so the coverage map sees each one with its time. B34.1 — Lens's rate
    * limiter (a workspace's requests a minute) answers 429 with Retry-After before any handler has run, so the request
    * is made again when it says; an agent rule's own 429 ("requests a minute") is an answer, and is returned.
+   * B17.201 — so is a synthetic route's 429 ("at most 10 synthetic calls a minute"), each wait an incident in the report.
    */
   private async send(method: string, path: string, init: RequestInit = {}): Promise<Response> {
     const t0 = Date.now()
     let status = 0
+    const synthetic = path.startsWith('/v1/synthetic/')
     try {
       for (let attempt = 0; ; attempt++) {
+        if (synthetic && this.pace.sent.push(Date.now()) > SYNTHETIC_PER_MINUTE) this.pace.sent.shift()
         const res = await fetch(this.baseURL + path, { ...init, method })
         status = res.status
-        if (res.status !== 429 || attempt >= RATE_LIMIT_RETRIES || !(await res.clone().text()).includes('"limit_type"')) return res
+        if (res.status !== 429 || attempt >= RATE_LIMIT_RETRIES) return res
+        const text = await res.clone().text()
+        if (!synthetic && !text.includes('"limit_type"')) return res
         await res.body?.cancel()
-        const wait = Math.min(Number(res.headers.get('Retry-After')) || 1, RATE_LIMIT_WAIT_MAX_S)
-        await new Promise((r) => setTimeout(r, wait * 1000))
+        const after = Number(res.headers.get('Retry-After'))
+        let ms = Math.min(after || 1, RATE_LIMIT_WAIT_MAX_S) * 1000
+        if (synthetic) {
+          // Without Retry-After: a minute after the oldest of the last 10 sent, or a whole minute when some were not this run's.
+          const last = this.pace.sent
+          if (!(after > 0)) ms = Math.max(last.length < SYNTHETIC_PER_MINUTE ? 60_000 : last[0] + 60_000 - Date.now(), 1_000)
+          this.pace.incidents.push(`${new Date().toISOString()} ${this.tag.scenario}: ${method} ${path.split('?')[0]} met Lens's synthetic limit ` +
+            `(${refusalOf(text)}); waited ${Math.round(ms / 1000)}s and sent it again (${attempt + 1} of ${RATE_LIMIT_RETRIES})`)
+        }
+        await new Promise((r) => setTimeout(r, ms))
       }
     } finally {
       this.recorder?.hit(this.tag, { kind: 'lens', method, path: path.split('?')[0], status, ms: Date.now() - t0 })

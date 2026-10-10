@@ -75,3 +75,23 @@ describe('the reset (B27.16)', () => {
     expect(bodies.map((b) => JSON.parse(b))).toEqual([{ workspaces: ['ws_1', 'ws_2'] }])
   })
 })
+
+// B17.201 — verification-levels and market-receipts errored before testing anything: Lens answered their
+// POST /v1/synthetic/workspaces 429 "at most 10 synthetic calls a minute". The call now waits and is sent again.
+describe("Lens's synthetic limit (B17.201)", () => {
+  it('waits for Retry-After on each 429 and makes the users, each wait an incident', async () => {
+    let asked = 0
+    server = createServer((_req, res) => {
+      if (++asked <= 2) return res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '1' }).end('{"error":"at most 10 synthetic calls a minute"}')
+      res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ workspaces: [{ workspace_id: 'ws_1', token: 'tok', expires_at: '' }] }))
+    })
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r))
+    const { port } = server.address() as { port: number }
+    const incidents: string[] = []
+    const client = new LensClient(`http://127.0.0.1:${port}`, 'key', undefined, undefined, undefined, '', '', { sent: [], incidents })
+    expect(await client.createUsers(1)).toMatchObject([{ workspaceID: 'ws_1' }])
+    expect(asked).toBe(3)
+    expect(incidents).toHaveLength(2)
+    expect(incidents[1]).toMatch(/POST \/v1\/synthetic\/workspaces met Lens's synthetic limit \(at most 10 synthetic calls a minute\); waited 1s and sent it again \(2 of 3\)/)
+  }, 10_000)
+})
