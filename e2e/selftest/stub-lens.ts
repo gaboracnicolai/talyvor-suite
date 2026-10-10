@@ -471,13 +471,16 @@ function think(messages: Msg[]): string {
   // B28.375 — asked to quote an attached Docs page: its sentence that names the word, as the page says it.
   if ((m = /Quote the sentence in the attached page that mentions ([\w-]+)/.exec(q))) {
     const word = m[1]
-    const said = BREAK === 'docs-page' ? undefined : all.split(/\n|(?<=[.!?])\s+/).find((s) => s.includes(word) && !s.includes('Quote the sentence') && !s.trim().startsWith('#'))
+    // B17.155 — Chat's fence around the page is not a sentence of it (Lens sets it a blank line apart; this stub joins blocks bare).
+    const said = BREAK === 'docs-page' ? undefined : all.replace(/<\/?document[^>]*>/g, '\n').split(/\n|(?<=[.!?])\s+/).find((s) => s.includes(word) && !s.includes('Quote the sentence') && !s.trim().startsWith('#'))
     return said === undefined ? 'I cannot see any page.' : `The page says: "${said.trim()}"`
   }
   // B28.379 — asked what an attached image shows, the stand-in for a model that reads images reads the number the
   // scenario's PNG names in its tEXt chunk (e2e numberPNG), so it answers only when the image arrived whole.
   if (/What number does the attached image show\?/.test(q)) return imageNumber(messages[messages.length - 1]) ?? 'I cannot see any image.'
-  if (/code word in the attached document/.test(q)) return /code word is (\w+)/.exec(all)?.[1] ?? 'I cannot see any document.'
+  // B17.155 — as Claude answered in production: a document's text is the attached document only when Chat fences and
+  // names it; the same words bare read as the user's own, and it says it sees no document.
+  if (/code word in the attached document/.test(q)) return /<document name="[^"]*">[^]*?code word is (\w+)[^]*?<\/document>/.exec(all)?.[1] ?? 'I cannot see any document.'
   if ((m = /from 1 to (\d+)/.exec(q))) return Array.from({ length: Number(m[1]) }, (_, i) => i + 1).join(' ')
   return 'I can only do arithmetic and capitals.'
 }
