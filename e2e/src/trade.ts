@@ -637,6 +637,7 @@ export function marketHeldSeller(seed: number): Scenario {
     id: 'market-held-seller',
     owner: 'talyvor-suite',
     feature: 'Marketplace',
+    items: ['B28.139'],
     title: "a seller's listing Lens holds reads Held for review with Lens's reason on Your listings, and taken down it reads Taken down with " +
       "the moderator's; Discover filtered to a kind and a word nothing matches names them, not that nothing is published",
     run: async (ctx) => {
