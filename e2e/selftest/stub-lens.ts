@@ -178,6 +178,7 @@ interface Settings {
   cache_poolable: boolean
   distill_poolable: boolean
   cost_optimize_routing: boolean
+  tare_training: boolean
 }
 interface Budget {
   id: string; workspace_id: string; scope: string; scope_id: string; period: string; limit_usd: number; spent_usd: number; alert_thresholds: number[]
@@ -216,7 +217,7 @@ function newWorkspace(id: string, token: string): Workspace {
   return {
     id, token, created_at: new Date().toISOString(), balance: 0, ledger: [], answers: new Map(), keys: [], documents: new Map(), tagged: [],
     settings: { tare_policy: 'disabled', distill_policy: 'always', compression_policy: 'disabled', logging_policy: 'full',
-      cache_poolable: true, distill_poolable: false, cost_optimize_routing: false },
+      cache_poolable: true, distill_poolable: false, cost_optimize_routing: false, tare_training: false },
     guardrails: { ...GUARDRAILS },
     budgets: [],
     usage: { total: 0, hits: 0, pooled: 0, converted: 0 },
@@ -1416,6 +1417,13 @@ createServer(async (req, res) => {
         if (v === undefined) return json(res, 400, { error: `${setting} required` })
         if (!(BREAK === 'setting' && setting === 'cost_optimize_routing')) (ws.settings as unknown as Record<string, unknown>)[setting] = v
         return json(res, 200, { [setting]: BREAK === 'setting' && setting === 'cost_optimize_routing' ? v : ws.settings[setting] })
+      }
+      // B27.38 — Tare training (Lens B27.36): {"enabled", "by"}, answered with what Lens holds.
+      if (rest === '/tare-training' && req.method === 'PUT') {
+        const { enabled } = JSON.parse((await read(req)) || '{}') as { enabled?: unknown }
+        if (typeof enabled !== 'boolean') return json(res, 400, { error: 'body must be {"enabled": true} or {"enabled": false}' })
+        ws.settings.tare_training = enabled
+        return json(res, 200, { ok: true, tare_training: enabled, changed_by: 'auth:jwt', changed_at: new Date().toISOString() })
       }
       if (rest === '/guardrails') {
         if (req.method === 'POST') ws.guardrails = { ...GUARDRAILS, ...(JSON.parse((await read(req)) || '{}') as object) } as Workspace['guardrails']

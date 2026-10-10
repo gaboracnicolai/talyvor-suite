@@ -43,8 +43,8 @@ import { dailyReconciliation } from './reconciliation.ts'
 import { statusTruth } from './statusTruth.ts'
 import { crossCompanyTestMoney } from './testmoney.ts'
 import { seatsFree, seatsTeam } from './seats.ts'
-import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit } from './pricing.ts'
-import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions } from './gateway.ts'
+import { type Plan, feeOn, planAgents, pricingApproved, pricingFee, pricingFreeAgents, pricingOwnKey, pricingSellerSplit, within } from './pricing.ts'
+import { gatewayAuth, gatewayKeys, gatewayMCP, gatewayProviders, gatewaySessions, verdictOf } from './gateway.ts'
 import { roomsPrivate } from './rooms.ts'
 import { roomsModeration } from './roomsModeration.ts'
 import { roomInviteLimits } from './roomInvites.ts'
@@ -75,7 +75,7 @@ import { operatorComplianceBoundary } from './operatorCompliance.ts'
 import { agentCredential } from './kya.ts'
 import { lineage } from './lineage.ts'
 import { roomDecideRun, roomInviteScreen } from './roomScreens.ts'
-import { settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
+import { call, said, settingsConfigBudgets, settingsGuardrails, settingsOperatorOnly, settingsPrompts, settingsStoredAnswers, settingsSwitches, settingsTareDistill } from './settings.ts'
 import { creditsTopUp, evals, lensTokens, nodes, outputsAttribution, povi } from './economy.ts'
 import { ledgerCallOnce, ledgerMovesAtOnce } from './concurrency.ts'
 import { webhookReplayed, webhookUnsigned } from './webhooks.ts'
@@ -3105,6 +3105,79 @@ export function tareProseModel(seed: number): Scenario {
   }
 }
 
+/**
+ * B27.38 — Tare training, the owner's opt-in on Features. The owner switches it on from the screen and Lens's own read of
+ * the workspace says tare_training: true. A signed-out stranger's switch is refused by the app, another company's token is
+ * refused by Lens, and the workspace still reads true. Switched off on the screen, it reads back false. Privacy and Terms,
+ * opened signed out, each carry the paragraph on it marked "Draft — for legal review".
+ */
+export function tareTraining(seed: number): Scenario {
+  return {
+    id: 'tare-training',
+    owner: 'talyvor-suite',
+    items: ['B27.38'],
+    title: 'Tare training: the owner switches it on in Features and Lens reads it on; a stranger and another company cannot switch it; off reads back off; Privacy and Terms carry the draft paragraph',
+    run: async (ctx) => {
+      const browser = ctx.app.context.browser()
+      if (browser === null) throw new CannotTest('no browser to open a signed-out context in')
+      const origin = new URL(ctx.app.page.url()).origin
+      const readsBack = (want: boolean) =>
+        within(() => call<{ tare_training?: boolean }>(ctx, 'GET', '/v1/workspaces/{ws}'), (r) => r.value?.tare_training === want, 35_000)
+      const wrong: string[] = []
+      const f = await FeaturesScreen.open(ctx.app)
+      const stranger = await browser.newContext()
+      try {
+        const was = await f.isOn(TARE_TRAINING)
+        if (was === undefined) return { pass: false, detail: `no switch ("${await f.state(TARE_TRAINING)}")` }
+        const on = await f.set(TARE_TRAINING, true)
+        if (on !== undefined) return { pass: false, detail: `could not be switched on: ${on}` }
+        const onRead = await readsBack(true)
+        ctx.evidence.push({ note: `on from the screen ("${await f.state(TARE_TRAINING)}"); Lens reads ${said(onRead)}` })
+        if (onRead.value?.tare_training !== true) wrong.push(`switched on from the screen, Lens reads the workspace ${said(onRead)}`)
+
+        // Not the owner: signed out through the app, and another company's own token straight at Lens.
+        const page = await stranger.newPage()
+        await page.goto(origin + '/privacy')
+        const out = await page.evaluate(async () => {
+          const res = await fetch('/api/features/tare-training', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ tare_training: false }),
+          })
+          return res.status
+        })
+        if (out !== 401) wrong.push(`signed out, switching it off answered ${out}, not 401`)
+        const other = ctx.env.userCount > 1 ? ctx.env.userAt((seed + 1) % ctx.env.userCount) : undefined
+        const theirs = other === undefined ? undefined
+          : await ctx.env.lens.as(other.token, 'PUT', `/v1/workspaces/${ctx.app.user.workspaceID}/tare-training`, { enabled: false, by: 'another company' })
+        if (theirs !== undefined && theirs.status < 400) wrong.push(`another company's token switched it off: ${theirs.status} ${theirs.text.slice(0, 160)}`)
+        const still = await call<{ tare_training?: boolean }>(ctx, 'GET', '/v1/workspaces/{ws}')
+        ctx.evidence.push({ note: `signed out: ${out}; another company: ${theirs?.status ?? 'no other user this run'}; Lens then reads ${said(still)}` })
+        if (still.value?.tare_training !== true) wrong.push(`after the refused switches Lens reads ${said(still)}`)
+
+        const off = await f.set(TARE_TRAINING, false)
+        const offRead = off === undefined ? await readsBack(false) : undefined
+        if (off !== undefined) wrong.push(`could not be switched off: ${off}`)
+        else if (offRead?.value?.tare_training !== false) wrong.push(`switched off from the screen, Lens reads ${offRead && said(offRead)}`)
+        if (was) await f.set(TARE_TRAINING, true)
+
+        for (const [path, heading] of [['/privacy', 'Learning from your prose, only if you allow it'], ['/terms', 'Tare training']]) {
+          await page.goto(origin + path)
+          const section = page.locator('section').filter({ has: page.getByRole('heading', { level: 2, name: heading, exact: true }) })
+          const text = (await section.count()) === 1 ? await section.innerText() : ''
+          ctx.evidence.push({ note: `${path}: ${text.slice(0, 400)}` })
+          if (!/improve how Tare shortens prompts/.test(text)) wrong.push(`${path} has no "${heading}" paragraph saying what is kept and why`)
+          else if (!text.includes('Draft — for legal review')) wrong.push(`${path}'s "${heading}" paragraph is not marked "Draft — for legal review"`)
+        }
+        return verdictOf(wrong, `on from the screen and Lens read it on; refused signed out (${out}) and to another company (${theirs?.status ?? 'none this run'}); off read back off; Privacy and Terms carry the draft paragraph`)
+      } finally {
+        await stranger.close()
+        await f.close()
+      }
+    },
+  }
+}
+
 export function tryConversionPage(seed: number): Scenario {
   const { file, word } = memo(seed)
   return {
@@ -3182,6 +3255,7 @@ async function pastTheLimit(ctx: ScenarioCtx, f: FeaturesScreen, r: () => number
 
 /** The Features switches whose change is a setting Lens records. */
 const TARE_MODEL = 'Tare prose model'
+const TARE_TRAINING = 'Tare training'
 
 const SWITCHES = ['Tare', 'Document conversion', 'Cost-optimised routing', 'Prompt-injection detection', 'Personal-data detection',
   'Answer sharing', 'Shared document conversions']
@@ -4770,7 +4844,8 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // Catalog v2, one in ten again. A scenario that changes the workspace's settings stays off users
   // 9, 19, …: they are the partners another user's question is asked in.
   switch (i % 10) {
-    case 0: list.push(featureSwitches(i), tareProseModel(i)); break
+    // B27.38 — and Tare training, the owner's opt-in, with what Privacy and Terms say about it.
+    case 0: list.push(featureSwitches(i), tareProseModel(i), tareTraining(i)); break
     case 1: list.push(injectionBlocked(i)); break
     // B28.379 — then a PNG showing "42", answered 42; B28.130 — and a PDF dropped on the chat, converted.
     // B28.380 — and a file uploaded in Chat, listed on Uploaded files and deleted there: gone from the list, its id 404.

@@ -10,7 +10,7 @@ import { SharedAnswersFact, StoredAnswersFacts } from '../components/StoredAnswe
 // usage) rather than in terms of what we would prefer them to be.
 
 /** The day these words last changed (B32.2 added who the terms are between). Change it with them. */
-const UPDATED = '2026-10-05'
+const UPDATED = '2026-10-10'
 
 export function Terms() {
   return (
@@ -198,6 +198,24 @@ export function Terms() {
         </p>
         <SharedAnswersFact className="mt-3 text-reading" />
         <StoredAnswersFacts className="mt-3 text-reading" />
+      </Section>
+
+      <Section title="Tare training">
+        <p className="text-reading">
+          If your workspace&rsquo;s owner turns on <strong>Tare training</strong> in{' '}
+          <a className={inlineLink} href="/features#tare-training">
+            Features
+          </a>
+          , you allow Talyvor to keep the prose in your workspace&rsquo;s messages that Tare could not
+          shorten, and to use it only to improve how Tare shortens prompts. Temporary chats and chats
+          kept out of the shared pool are never used. It is off unless the owner turns it on, and turning
+          it off deletes what was kept from your workspace. What is kept, and what never is, is set out
+          in <a className={inlineLink} href="/privacy#learning-from-your-prose-only-if-you-allow-it">Privacy</a>.
+        </p>
+        <LawyerReview compact label="Draft — for legal review">
+          This permission, and what Talyvor may do with what it learned once a workspace turns it off,
+          need review before this is relied on.
+        </LawyerReview>
       </Section>
 
       <Section title="No uptime promise">

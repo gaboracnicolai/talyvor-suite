@@ -488,9 +488,12 @@ func TestLeakSweep_CoversEveryMountedGETRoute(t *testing.T) {
 	// THE HUNDRED-AND-THIRTEENTH IS B28.450'S DOCS TEAM ROSTER, PUT and DELETE only:
 	// /api/docs/teams/{teamID}/members/{memberID}. It relays Docs' answer and holds nothing; who is on each team is read
 	// back through GET /api/docs/teams, which the sweep reaches.
-	if len(methodOnly) > 113 {
+	//
+	// THE HUNDRED-AND-FOURTEENTH IS B27.38'S TARE TRAINING SWITCH, /api/features/tare-training: /api/features/tare-model'S
+	// KIND, read back through GET /api/features as tare_training; it answers only what Lens recorded.
+	if len(methodOnly) > 114 {
 		sort.Strings(methodOnly)
-		t.Fatalf("routes answering 405 to GET = %d, want at most 113 — a route left the leak sweep's "+
+		t.Fatalf("routes answering 405 to GET = %d, want at most 114 — a route left the leak sweep's "+
 			"reach; confirm it is genuinely write-only and raise this bound with the reason:\n  %s",
 			len(methodOnly), strings.Join(methodOnly, "\n  "))
 	}

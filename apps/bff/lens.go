@@ -384,6 +384,8 @@ func newApp(cfg config, auth *authenticator) *app {
 	a.mux.HandleFunc("/api/features/pattern-mining", a.requireTenant(a.handleFeaturePatternMining))
 	// B27.37 — the Tare prose model's opt-in (talyvor-lens B27.35), beside the Tare policy.
 	a.mux.HandleFunc("/api/features/tare-model", a.requireTenant(a.handleFeatureTareModel))
+	// B27.38 — whether Talyvor may learn from this workspace's prose (talyvor-lens B27.36), its own switch.
+	a.mux.HandleFunc("/api/features/tare-training", a.requireTenant(a.handleFeatureTareTraining))
 	// B28.364 — the model Lens recommends for a question's size, behind Chat's cheaper-model hint. See routing.go.
 	a.mux.HandleFunc("/api/routing/recommendation", a.requireTenant(a.handleRoutingRecommendation))
 	// B21.4 — what the workspace has stored, deleting it, and asking Talyvor to delete everything.

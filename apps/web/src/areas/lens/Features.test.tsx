@@ -24,6 +24,7 @@ function mockBff(
 ) {
   let tare = 'disabled'
   let tareModel = false
+  let tareTraining = false
   let distillPoolable = false
   let cachePoolable = true
   let guardrails = { injection: true, pii }
@@ -47,6 +48,12 @@ function mockBff(
       posts.push({ url, body })
       tareModel = body.tare_model
       return json({ tare_model: tareModel })
+    }
+    if (url === '/api/features/tare-training' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { tare_training: boolean }
+      posts.push({ url, body })
+      tareTraining = body.tare_training
+      return json({ tare_training: tareTraining })
     }
     if (url === '/api/features/distill-poolable' && init?.method === 'POST') {
       const body = JSON.parse(String(init.body)) as { distill_poolable: boolean }
@@ -110,6 +117,7 @@ function mockBff(
       return json({
         tare_policy: tare,
         tare_model: tareModel,
+        tare_training: tareTraining,
         distill_policy: 'always',
         compression_policy: 'disabled',
         logging_policy: logging,
@@ -178,6 +186,7 @@ describe('the Features screen', () => {
       'Routing pattern sharing',
       'Tare',
       'Tare prose model',
+      'Tare training',
       'Cost-optimised routing',
       'Issues, cycles and projects',
       'AI on an issue',
@@ -252,6 +261,20 @@ describe('the Features screen', () => {
       expect(within(r()).getByTestId('state-Tare prose model')).toHaveTextContent('On — takes effect once Tare is on'),
     )
     expect(posts).toEqual([{ url: '/api/features/tare-model', body: { tare_model: true } }])
+  })
+
+  it('Tare training is its own switch, off until switched on, saying what is never used and that off deletes (B27.38)', async () => {
+    const posts: Array<{ url: string; body: unknown }> = []
+    mockBff(posts)
+    window.history.pushState({}, '', '/features')
+    render(<App />)
+    const r = () => row('Tare training')
+    await waitFor(() => expect(within(r()).getByTestId('state-Tare training')).toHaveTextContent('Off'))
+    expect(r()).toHaveTextContent('Temporary chats and chats kept out of the shared pool are never used')
+    expect(r()).toHaveTextContent('Turning it off deletes what was kept')
+    fireEvent.click(within(r()).getByRole('switch'))
+    await waitFor(() => expect(within(r()).getByTestId('state-Tare training')).toHaveTextContent('On'))
+    expect(posts).toEqual([{ url: '/api/features/tare-training', body: { tare_training: true } }])
   })
 
   it('a capability with no control this app can reach shows its state and no switch', async () => {

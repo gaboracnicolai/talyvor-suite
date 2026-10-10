@@ -28,6 +28,9 @@ func fakeLensFeatures(t *testing.T, puts *[]string) *app {
 			if strings.HasSuffix(r.URL.Path, "/tare-model") { // Lens answers {"enabled"} with what it holds
 				in = map[string]any{"tare_model": in["enabled"]}
 			}
+			if strings.HasSuffix(r.URL.Path, "/tare-training") {
+				in = map[string]any{"tare_training": in["enabled"], "changed_by": "auth:jwt", "on_behalf_of": in["by"]}
+			}
 			in["ok"] = true
 			_ = json.NewEncoder(w).Encode(in)
 		case strings.HasSuffix(r.URL.Path, "/tare/savings"):
@@ -40,7 +43,7 @@ func fakeLensFeatures(t *testing.T, puts *[]string) *app {
 			_, _ = io.WriteString(w, `{"id":"ws","spend_limit_usd":500,"allowed_models":["gpt-4o"],
 				"tare_policy":"disabled","distill_policy":"always","compression_policy":"disabled",
 				"logging_policy":"verbose","cache_poolable":true,"distill_poolable":false,
-				"cost_optimize_routing":false,"tare_model":false}`)
+				"cost_optimize_routing":false,"tare_model":false,"tare_training":false}`)
 		}
 	}))
 	t.Cleanup(srv.Close)
@@ -64,7 +67,7 @@ func TestFeaturesReadIsTheSettingsAndNothingElseAboutTheTenant(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]any{
-		"tare_policy": "disabled", "tare_model": false, "distill_policy": "always", "compression_policy": "disabled",
+		"tare_policy": "disabled", "tare_model": false, "tare_training": false, "distill_policy": "always", "compression_policy": "disabled",
 		"logging_policy": nil, // "verbose" is not a Lens logging policy: unread, not a claim
 		"cache_poolable": true, "distill_poolable": false, "cost_optimize_routing": false,
 		"guardrails":     map[string]any{"injection": true, "pii": false},
@@ -108,6 +111,20 @@ func TestFeaturesTareModelSwitchWritesLensAndAnswersWhatLensRecorded(t *testing.
 	if len(puts) != 1 || !strings.HasSuffix(strings.Fields(puts[0])[0], "/tare-model") ||
 		!strings.Contains(puts[0], `{"enabled":true}`) {
 		t.Errorf("Lens saw %q, want one PUT …/tare-model {\"enabled\":true}", puts)
+	}
+}
+
+// B27.38 — the training opt-in sends Lens {"enabled", "by"} on its own route, "by" naming the signed-in owner, and
+// answers what Lens holds.
+func TestFeaturesTareTrainingSwitchWritesLensAsTheOwner(t *testing.T) {
+	var puts []string
+	rec := doJSON(fakeLensFeatures(t, &puts), http.MethodPost, "/api/features/tare-training", `{"tare_training":true}`)
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != `{"tare_training":true}` {
+		t.Fatalf("POST /api/features/tare-training = %d %s", rec.Code, rec.Body.String())
+	}
+	if len(puts) != 1 || !strings.HasSuffix(strings.Fields(puts[0])[0], "/tare-training") ||
+		!strings.Contains(puts[0], `{"by":"`+devIdentity+`","enabled":true}`) {
+		t.Errorf("Lens saw %q, want one PUT …/tare-training {\"by\":%q,\"enabled\":true}", puts, devIdentity)
 	}
 }
 

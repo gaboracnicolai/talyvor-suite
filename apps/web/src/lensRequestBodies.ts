@@ -149,6 +149,16 @@ export const LENS_BODIES: LensBody[] = [
     upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/tare-model", func',
     subject: "lensTareModelBody",
   },
+  // B27.38 — the Tare training opt-in, with the signed-in owner as "by".
+  {
+    route: "PUT /v1/workspaces/{wsID}/tare-training",
+    file: "apps/bff/features.go",
+    kind: "map-literal",
+    anchor: 'json.Marshal(map[string]any{"enabled": *in.TareTraining, "by": by})',
+    upstreamFile: "cmd/lens/main.go",
+    upstreamAnchor: 'authed.Put("/v1/workspaces/{wsID}/tare-training", func',
+    subject: "lensTareTrainingBody",
+  },
   // B11.2 — the shared-document-conversions consent, a switch Lens had and nothing called.
   {
     route: "PUT /v1/workspaces/{wsID}/distill-poolable",

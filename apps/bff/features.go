@@ -22,6 +22,7 @@ import (
 //	POST /api/features/budget                → POST or PATCH /v1/workspaces/{ws}/budgets (B18.22)
 //	POST /api/features/pattern-mining        → POST or DELETE /v1/workspaces/{ws}/pattern-mining/opt-in (B18.55)
 //	POST /api/features/tare-model            → PUT /v1/workspaces/{ws}/tare-model     (B27.37)
+//	POST /api/features/tare-training         → PUT /v1/workspaces/{ws}/tare-training  (B27.38)
 //
 // Same posture as /api/distill: session-gated, same-Origin on the write (ServeHTTP), key attached
 // server-side, and a write answers with what Lens RECORDED, never an echo of the request.
@@ -55,6 +56,7 @@ type patternMiningState struct {
 type featuresState struct {
 	TarePolicy          *string             `json:"tare_policy"`
 	TareModel           *bool               `json:"tare_model"`
+	TareTraining        *bool               `json:"tare_training"`
 	DistillPolicy       *string             `json:"distill_policy"`
 	CompressionPolicy   *string             `json:"compression_policy"`
 	LoggingPolicy       *string             `json:"logging_policy"`
@@ -226,6 +228,46 @@ func (a *app) handleFeatureTareModel(w http.ResponseWriter, r *http.Request, t t
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tare_model": *out.TareModel})
+}
+
+// handleFeatureTareTraining — B27.38: POST /api/features/tare-training {"tare_training": bool} writes Lens's
+// PUT /v1/workspaces/{ws}/tare-training {"enabled": bool, "by": "<who>"} (talyvor-lens B27.36) — whether Talyvor may
+// learn from this workspace's prose — with the session's own owner token and the signed-in person as "by".
+func (a *app) handleFeatureTareTraining(w http.ResponseWriter, r *http.Request, t tenant) {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w, http.MethodPost)
+		return
+	}
+	var in struct {
+		TareTraining *bool `json:"tare_training"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&in); err != nil || in.TareTraining == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "tare_training (boolean) required"})
+		return
+	}
+	by := devIdentity // loopback dev has no session; everywhere else it is the signed-in owner
+	if a.auth != nil {
+		if s, ok := a.auth.sessionFrom(r); ok {
+			by = s.email
+		}
+	}
+	// UPSTREAM-BINDS-ONLY lensTareTrainingBody: none
+	body, _ := json.Marshal(map[string]any{"enabled": *in.TareTraining, "by": by})
+	raw, err := a.lensPutWorkspace(r.Context(), t, "/tare-training", body)
+	var out struct {
+		TareTraining *bool `json:"tare_training"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &out)
+	}
+	if err == nil && out.TareTraining == nil {
+		err = fmt.Errorf("tare-training: the reply does not state tare_training")
+	}
+	if err != nil {
+		writeJSON(w, upstreamStatusOr(err, http.StatusBadGateway), map[string]string{"error": "could not record the choice"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tare_training": *out.TareTraining})
 }
 
 // handleFeatureCostRouting records the workspace's consent to cost-optimised routing.
