@@ -321,6 +321,9 @@ const FILE_BUG = /\bfile (?:this|it) as a bug\b/i
 /** B28.122 — "the fingerprint of the text "…"", which the stand-in model answers with a connector's fingerprint tool
  *  (Talyvor test tools, offered as <connector>__fingerprint), when one is offered. */
 const FINGERPRINT = /\bfingerprint of the text "([^"]+)"/i
+/** B17.160 — asked about the attached issue, which the stand-in model first looks up with Track's search_issues by the
+ *  word its question ends with, when it is offered, as Claude did: the answer then takes two requests. */
+const ABOUT_ISSUE = /\bthe attached issue\b.*\(([^()]+)\)\s*$/
 
 /** B28.374 — the issue it files for "file this as a bug": the sentences before it are the bug, the first its title. */
 function bugReport(q: string): { title: string; description: string } {
@@ -422,6 +425,15 @@ function think(messages: Msg[]): string {
     // B28.122 — told what the connector's fingerprint tool answered, it gives that.
     const fingerprinted = FINGERPRINT.exec(messages.map(text).join('\n'))
     if (fingerprinted !== null) return `The fingerprint of "${fingerprinted[1]}" is ${spent}.`
+    // B17.160 — told what Track's search found, it says what the issue is.
+    if (ABOUT_ISSUE.test(text(messages[0] ?? { role: 'user', content: '' }))) {
+      try {
+        const found = (JSON.parse(spent) as { identifier?: string; title?: string }[])[0]
+        return found === undefined ? 'Track found no such issue.' : `${found.identifier} asks for a fix: ${found.title}.`
+      } catch {
+        return `Track's search did not answer: ${spent}`
+      }
+    }
     try {
       return `Your agents spent ${(JSON.parse(spent) as { total_ulxc: number }).total_ulxc / 1e6} LXC today.`
     } catch {
@@ -784,11 +796,13 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
     : offeredTool('wallet_agents_spend') && asked !== null ? 'wallet_agents_spend'
     : offeredTool('create_issue') && FILE_BUG.test(lastAsked) ? 'create_issue'
     : fingerprintTool !== undefined && fingerprint !== null && BREAK !== 'connector' ? fingerprintTool
+    : offeredTool('search_issues') && ABOUT_ISSUE.test(lastAsked) ? 'search_issues'
     : undefined
   if (tool !== undefined) {
     const inTok = tokens(messages.map(text).join(' ')) + 8
     const args = tool === 'create_issue' ? JSON.stringify(bugReport(lastAsked))
       : tool === fingerprintTool ? JSON.stringify({ text: fingerprint?.[1] ?? '' })
+      : tool === 'search_issues' ? JSON.stringify({ query: ABOUT_ISSUE.exec(lastAsked)?.[1] ?? '' })
       : JSON.stringify({ from: new Date().toISOString().slice(0, 10), ...(asked?.[1] === 'my agents' ? {} : { agent: asked?.[1] }) })
     const outTok = tokens(args) + 8
     const toolCharge = Math.ceil(((inTok * model.input_per_1m + outTok * model.output_per_1m) / 1e6 / USD_PER_LXC) * 1e6)
