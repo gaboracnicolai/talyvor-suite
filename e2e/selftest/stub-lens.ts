@@ -1178,6 +1178,11 @@ createServer(async (req, res) => {
     // talyvor-lens B30.12 — the money rails, every one on its Test partner. Screening failed once an hour ago and has answered
     // since, so it is up; planted, its failure is the newer and it is down.
     if (p === '/status.json') return json(res, 200, statusJSON())
+    // talyvor-lens B30.6 — the sanctions lists and the compliance cases screening opened, on the operator read key or the admin key, as Lens.
+    if (p === '/v1/admin/screening') {
+      if (bearer === '' || ![process.env.STUB_OPERATOR_READ_KEY, process.env.STUB_ADMIN_KEY].includes(bearer)) return json(res, 401, { error: 'admin credentials required' })
+      return json(res, 200, { lists: [], cases: bank.complianceCases(url.searchParams.get('status') ?? ''), fuzzy_threshold_bps: 9000 })
+    }
     // talyvor-lens B30.11 — the reconciliation runs and the safeguarding view, on the operator read key or the admin key, as Lens.
     if (p === '/v1/admin/reconciliation' || p === '/v1/admin/safeguarding') {
       if (bearer === '' || ![process.env.STUB_OPERATOR_READ_KEY, process.env.STUB_ADMIN_KEY].includes(bearer)) return json(res, 401, { error: 'admin credentials required' })

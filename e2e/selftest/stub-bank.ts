@@ -488,6 +488,11 @@ export class Bank {
       lineage: (id) => this.lineageOf(id) })
   }
 
+  /** B30.109 — the compliance cases screening opened, in `status` ('' for all), newest first (stub-payees.ts). */
+  complianceCases(status: string): unknown[] {
+    return this.payees.complianceCases(status)
+  }
+
   /** The workspace and agent an agent key belongs to. */
   agentOfKey(key: string): { ws: BankWorkspace; agent: Agent } | undefined {
     const a = this.keys.get(key)

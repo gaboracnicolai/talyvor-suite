@@ -68,6 +68,7 @@ import { chatListing } from './chatListing.ts'
 import { marketBuyerCurrency } from './buyerCurrency.ts'
 import { marketReceipts } from './receipts.ts'
 import { verificationLevels } from './verification.ts'
+import { compliance } from './compliance.ts'
 import { outsidePayees } from './payees.ts'
 import { capabilityTerms } from './capabilityTerms.ts'
 import { verificationScreen } from './verificationScreen.ts'
@@ -5189,6 +5190,10 @@ export function journeyFor(i: number, users: number, streamable: readonly string
   // their checks; the no-match confirmed with no assertion 403, then with a software passkey signed over its challenge, still
   // no_match; a TESTSANCTION payee refused 403 and not on the list.
   if (i === 2) list.push(outsidePayees())
+  // B30.109 — compliance, once a run, on a workspace of its own: a TESTSANCTION payee refused 403 on a blocked compliance case; a
+  // TESTPENDING payee saved held on its case and a payment to it refused 403 naming it; a live payment and a live account refused,
+  // the account naming its class; the GBP account still at zero, no EUR account, no payment row; both cases on the operator's view.
+  if (i === 4) list.push(compliance())
   // B30.116 — the Verification screen, once a run, in the browser on a workspace of its own: L1 then L2 from its forms on
   // the Test provider, then L2 shown with the live level L0, both checks marked Test, payments_out at L2 and b2b_credit at L3.
   if (i === 7) list.push(verificationScreen())
