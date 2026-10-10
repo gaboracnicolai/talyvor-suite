@@ -2850,6 +2850,7 @@ export function documentInChat(seed: number): Scenario {
 /**
  * B28.130 — a PDF dragged from the desktop onto Chat: the chat says where to drop it, and dropped, it is attached, converted
  * to text before the model reads it, and the answer comes from it. The overlay and the question are photographed at 1440 and 390.
+ * B17.186 — and a second memo with another code word, dropped in a new chat and asked the same, is answered from that one.
  */
 export function pdfDroppedInChat(seed: number): Scenario {
   const { file, word } = memoPDF(seed)
@@ -2882,9 +2883,19 @@ export function pdfDroppedInChat(seed: number): Scenario {
         await shoot('answered')
         if (priced(t) !== undefined) return { pass: false, detail: priced(t) as string }
         if (status !== 'Converted to text before the model read it.') return { pass: false, detail: `the dropped PDF was not converted: "${status}"` }
-        return namesWord(t.answer, word)
-          ? { pass: true, detail: `dropped, converted; the answer read "${word}" from it` }
-          : { pass: false, detail: `dropped and converted, but the answer is not the code word "${word}": ${describe(t)}` }
+        if (servedNotAsked(t)) return { pass: false, detail: `dropped and converted, but the answer was SERVED, not read from it: ${describe(t)}` }
+        if (!namesWord(t.answer, word)) return { pass: false, detail: `dropped and converted, but the answer is not the code word "${word}": ${describe(t)}` }
+        // B17.186 — another memo, its code word another, dropped in a new chat and asked the same: answered from it, not
+        // served the answer about the first, which Lens's similarity layers cannot tell from it.
+        const other = memoPDF(seed + 1)
+        await ctx.app.newChat()
+        await (await ctx.app.dragFiles([other.file]))()
+        const t2 = record(ctx, await ctx.app.ask(`What is the code word in the attached document? Reply with the word only.`, undefined, [other.file], true),
+          `dropped ${other.file.name} in a new chat`)
+        if (priced(t2) !== undefined) return { pass: false, detail: priced(t2) as string }
+        return !servedNotAsked(t2) && namesWord(t2.answer, other.word)
+          ? { pass: true, detail: `dropped, converted; the answers read "${word}" and then "${other.word}" from each` }
+          : { pass: false, detail: `a second PDF, code word "${other.word}", was not answered from it: ${describe(t2)}` }
       })
       return typeof out === 'string' ? { pass: false, detail: out } : out
     },

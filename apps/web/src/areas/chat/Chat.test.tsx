@@ -1352,6 +1352,20 @@ describe('attached documents (B10.3)', () => {
     ])
   })
 
+  it('asks about an attached document afresh, never served an answer about another document (B17.186)', async () => {
+    const { posted } = mockChat({ converts: true })
+    renderChat()
+    await chooseModel('Claude Opus 5')
+    await ask('What is 2 + 2?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(1))
+    expect(new Headers(posted.mock.calls[0][0].init.headers).get('X-Talyvor-Cache')).toBeNull()
+    fireEvent.change(document.getElementById('chat-attach') as HTMLInputElement, { target: { files: [pdf()] } })
+    await screen.findByText('report.pdf')
+    await ask('What is the code word in the attached document?')
+    await waitFor(() => expect(posted).toHaveBeenCalledTimes(2))
+    expect(new Headers(posted.mock.calls[1][0].init.headers).get('X-Talyvor-Cache')).toBe('bypass')
+  })
+
   it('refuses a format Lens cannot convert, and a document over the limit, in words', async () => {
     const { posted, uploaded } = mockChat()
     renderChat()

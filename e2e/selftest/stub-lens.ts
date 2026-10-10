@@ -245,6 +245,17 @@ function looseMatch(model: string, said: string): { owner: string; answer: strin
   }
   return undefined
 }
+/** B17.186 — talyvor-lens's similarity layers compare the converted text (cache.LatestTurn reads the body after distill), and
+ *  two short documents asked the same question are near enough to match: the answer a workspace holds about another document. */
+function alikeDocument(answers: Map<string, string>, model: string, asked: string): string | undefined {
+  const question = (t: string) => t.replace(/<document name="[^"]*">[^]*?<\/document>/g, '').trim()
+  if (question(asked) === asked.trim()) return undefined
+  for (const [k, v] of answers) {
+    const [m, msgs] = JSON.parse(k) as [string, [string, string][]]
+    if (m === model && msgs.length === 1 && question(msgs[0][1]) !== msgs[0][1].trim() && question(msgs[0][1]) === question(asked)) return v
+  }
+  return undefined
+}
 /** Open checkouts on the stand-in for Stripe: session → the workspace and the plan it is for. */
 const checkouts = new Map<string, { ws: string; plan: string }>()
 /** B34.5 — each answer's X-Talyvor-Request-ID, and what it answered: Chat's Wrong answer names it (Lens POST /v1/feedback). */
@@ -884,7 +895,8 @@ async function proxy(req: IncomingMessage, res: ServerResponse, provider: string
   let charged: number | undefined
   // B28.368 — the answer stopped at max_tokens, as a model's does.
   let cut = false
-  const own = personal || tooled ? undefined : ws.answers.get(key)
+  const own = personal || tooled ? undefined
+    : ws.answers.get(key) ?? (converted > 0 && messages.length === 1 ? alikeDocument(ws.answers, model.id, text(messages[0])) : undefined)
   const shared = messages.length === 1 && !personal && !tooled && !unpooled ? pool.get(key) ?? (broke('pool-negation') ? looseMatch(model.id, said) : undefined) : undefined
   if (broke('pool-tells') && [...workspaces.values()].some((w) => w.id !== ws.id && w.answers.has(key))) headers['X-Talyvor-Pool-Seen'] = 'elsewhere'
   const inTok = tokens(messages.map(text).join(' ')) + 8
