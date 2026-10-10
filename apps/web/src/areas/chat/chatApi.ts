@@ -847,14 +847,17 @@ export async function streamChat(
   }
 
   const issue = attachedIssue(messages)
+  const documented = messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined))
   const init: RequestInit = {
     method: 'POST',
     credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
       // A document in the turn asks Lens to convert it, so a workspace on `opt_in` converts too.
-      ...(messages.some((m) => m.attachments?.some((a) => a.file_id !== undefined)) ? { 'X-Talyvor-Distill': 'true' } : {}),
-      ...(fresh || conversation?.temporary === true ? { 'X-Talyvor-Cache': 'bypass' } : {}),
+      ...(documented ? { 'X-Talyvor-Distill': 'true' } : {}),
+      // B17.186 — and asks the model afresh. Lens's similarity layers compare the converted text, and two short documents
+      // asked the same question are near enough to match: a dropped PDF was served the answer about another one.
+      ...(fresh || documented || conversation?.temporary === true ? { 'X-Talyvor-Cache': 'bypass' } : {}),
       ...(conversation?.temporary === true ? { [CACHE_STORE_HEADER]: 'off' } : {}),
       ...(conversation?.pool_off === true ? { [POOL_HEADER]: 'off' } : {}),
       ...(paidBy !== undefined && paidBy !== '' ? { [PAID_BY_HEADER]: paidBy } : {}),
