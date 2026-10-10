@@ -2507,6 +2507,9 @@ export function chatCheaperHint(seed: number, streamable: readonly string[]): Sc
       try {
         return await askCheaper(ctx, seed, streamable)
       } finally {
+        // B17.204 — out of the temporary chat the question was asked in, so the scenarios after this one keep theirs.
+        const toggle = ctx.app.page.getByRole('button', { name: 'Temporary chat' })
+        if ((await toggle.getAttribute('aria-pressed').catch(() => null)) === 'true') await toggle.click().catch(() => undefined)
         await ctx.app.chooseModel(start)
         await ctx.app.newChat()
       }
@@ -2525,6 +2528,10 @@ async function askCheaper(ctx: ScenarioCtx, seed: number, streamable: readonly s
   if (asked === undefined) return { pass: false, detail: 'no provider Chat can ask offers two chat models, so no answer can have a cheaper one' }
   await app.newChat()
   if (!(await app.chooseModel(asked.display_name))) return { pass: false, detail: `the model picker does not offer ${asked.display_name}` }
+  // B17.204 — asked and re-asked in a temporary chat, served nothing from the cache or the pool (as chat-feature-spend, B17.134).
+  const toggle = page.getByRole('button', { name: 'Temporary chat' })
+  await toggle.waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS })
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click()
   const q = `Name the largest planet in one word. (${freshWord(seed * 10 + 4, 1 + Math.floor(Math.random() * 999_999))})`
   const t = await ask(ctx, q)
   const noPrice = priced(t)
