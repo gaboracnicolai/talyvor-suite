@@ -9,12 +9,12 @@
 // /loans, /escrows, …) are reached once through the app and once straight on Lens, so both rows of the map are.
 
 import { createECDH, randomBytes, randomUUID } from 'node:crypto'
-import type { AgentLine, AgentTransfer, Answered, Escrow, Loan, MoneyRequest, SyntheticUser } from './lens.ts'
+import type { AgentLine, AgentTransfer, Answered, Escrow, Listing, Loan, MoneyRequest, SyntheticUser } from './lens.ts'
 import { refusalOf } from './lens.ts'
 import { fail, lxcText } from './bank.ts'
 import { RUN_SALT } from './oracles.ts'
 import { otherCompany, until } from './trade.ts'
-import type { Scenario, ScenarioCtx, Verdict } from './scenarios.ts'
+import { CannotTest, type Scenario, type ScenarioCtx, type Verdict } from './scenarios.ts'
 
 const DAY_MS = 24 * 3600e3
 /** How long a licence's sale may take to reach its seller's pending earnings: past 90 s once on production (6 Oct). */
@@ -768,6 +768,15 @@ export function marketRemixLicence(seed: number, partner: number): Scenario {
         { artifact: { template: 'Summarise in one short line: {{text}}', model }, changelog: 'shorter' })
       ctx.evidence.push({ note: `a second version: ${said(v2)}` })
       if (!v2.ok || v2.value.version !== 2) return fail(`publishing version 2 on Lens: ${said(v2)}`)
+      const held = await env.lens.act<Listing>(app.user, 'GET', `/v1/marketplace/listings/${id}`)
+      if (!held.ok) return fail(`the seller reading its listing: ${said(held)}`)
+      if (held.value.review_status !== 'approved') {
+        // B32.46 — a version like another night's holds the listing for review, hidden from the other company; a person approves it.
+        if (!env.lens.canModerate) throw new CannotTest(`the listing was ${held.value.review_status}, and approving it needs a moderator key: LENS_MODERATOR_KEY, from \`lens moderator-keys create\``)
+        const ok = await env.lens.moderate(id, 'approve')
+        ctx.evidence.push({ note: `the listing was ${held.value.review_status}; the operator approves it`, answer: JSON.stringify(ok) })
+        if (!ok.ok) return fail(`approving the held listing ${id}: ${said(ok)}`)
+      }
       const offers = await env.lens.act<{ offers: Offer[] }>(app.user, 'PUT', `/v1/workspaces/{ws}/marketplace/listings/${id}/offers`,
         { offers: [{ kind: 'per_use', licence: 'commercial', price_usd_micros: 100 }, { kind: 'subscribe', licence: 'commercial', price_usd_micros: price, period_days: 30, included_uses: 0 }] })
       ctx.evidence.push({ note: `its offers: ${said(offers)}` })

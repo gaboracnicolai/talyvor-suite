@@ -125,6 +125,8 @@
 //
 // B28.162 adds a listing's versions: each keeps its artifact and changelog, and a use runs the version it names. Its defect:
 //   version-pin-ignored — a use runs the listing's latest version whatever version it names
+// B17.203: not a defect but Lens's B32.46 copy check, as every night's production run meets it on market-remix-licence:
+//   version-held — a new version holds its listing for review, as one near-identical to another night's listing is held
 //
 // B32.93 adds two defects of a bill's tax (Lens B32.39), beside stub-tax.ts's tax-reverse-charged:
 //   bill-gross-untaxed — the bill's gross is its net, the tax left out
@@ -2292,6 +2294,7 @@ export class Bank {
         l.latest_version++
         l.artifact = b.artifact
         l.changelog = b.changelog ?? ''
+        if (this.broken('version-held')) Object.assign(l, { review_status: 'held', review_reason: `version ${l.latest_version}: it is 98% similar to another listing, which it does not declare as a parent` })
         return json(res, 201, { version: l.latest_version, changelog: l.changelog, created_at: now }), true
       }
       if (m[2] === 'offers' && method === 'PUT') {
