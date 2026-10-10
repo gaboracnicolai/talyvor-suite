@@ -4259,14 +4259,16 @@ export function chatTemporary(seed: number): Scenario {
 }
 
 /**
- * B28.381 — a chat kept out of the shared pool (talyvor-lens B28.133). In a new chat Sharing is turned off and a question
- * of the run's own asked; another test user, in another workspace, asks the same and is answered afresh — never served
- * that answer from the pool. Asked in a chat kept out of the pool, a question the other user answered first is not
- * served from the pool either. Then a question asked in a chat that shares is, a moment on, served to the other user
- * from the pool: the pool is live here, so the checks before it are not empty.
+ * B28.381 — an answer in a chat kept out of the shared pool never enters it: another workspace is never served it
+ * (talyvor-lens B28.133). In a new chat Sharing is turned off and a question of the run's own asked; another test user,
+ * in another workspace, asks the same and is answered afresh — never served that answer from the pool. The kept-out
+ * chat may itself be served from the pool (Nicolai, 10 Oct 2026: it only earns no royalties), so what it is served for a
+ * question the other user asked first is evidence, not a check (B17.205). Then a question asked in a chat that shares
+ * is, a moment on, served to the other user from the pool: the pool is live here, so the check before it is not empty.
+ * The sums are salted with the run's, so each night's are new to the pool.
  */
 export function chatPoolOff(seed: number, partner: number): Scenario {
-  const r = seeded(seed * 29 + 3)
+  const r = seeded(seed * 29 + 3 + RUN_SALT)
   const sum = () => [1000 + Math.floor(r() * 9000), 1000 + Math.floor(r() * 9000)] as const
   const salt = 1 + Math.floor(Math.random() * 999_999)
   const question = ([a, b]: readonly [number, number], n: number) => `What is ${a} + ${b}? ${NUMBER_ONLY} (${freshWord(seed * 10 + n, salt)})`
@@ -4275,7 +4277,7 @@ export function chatPoolOff(seed: number, partner: number): Scenario {
     id: 'chat-pool-off',
     owner: 'talyvor-lens',
     items: ['B28.381', 'B28.133'],
-    title: 'an answer in a chat kept out of the shared pool is never served to another workspace, and the chat is served nothing from the pool',
+    title: 'an answer in a chat kept out of the shared pool never enters it: another workspace is never served it',
     run: async (ctx) => {
       const { app, env } = ctx
       const { page } = app
@@ -4318,12 +4320,10 @@ export function chatPoolOff(seed: number, partner: number): Scenario {
           return { pass: false, detail: `another workspace was served the answer of a chat kept out of the shared pool: ${describe(got)} (talyvor-lens B28.133)` }
         }
 
+        // B17.205 — a kept-out chat may be served from the pool; what it was served is kept as evidence only.
         await app.newChat()
         await share(false)
-        const back = await ask(ctx, theirs, `in a chat kept out of the shared pool, what user ${partner} asked first`)
-        if (back.footer.kind === 'pool') {
-          return { pass: false, detail: `a chat kept out of the shared pool was served another workspace's answer from it: ${describe(back)} (talyvor-lens B28.133)` }
-        }
+        await ask(ctx, theirs, `in a chat kept out of the shared pool, what user ${partner} asked first (it may be served from the pool)`)
 
         await app.newChat()
         await share(true)
@@ -4335,7 +4335,7 @@ export function chatPoolOff(seed: number, partner: number): Scenario {
         if (pooled.footer.kind !== 'pool') {
           return { pass: false, detail: `asked in a chat that shares, user ${partner} was not served it from the pool ${describe(pooled)}, so the pool serves nothing here and the checks before it prove nothing` }
         }
-        return { pass: true, detail: `user ${partner} was answered afresh what the chat kept out of the pool asked, and served from the pool what a chat that shares asked; the chat kept out was not served user ${partner}'s answer` }
+        return { pass: true, detail: `user ${partner} was answered afresh what the chat kept out of the pool asked, and served from the pool what a chat that shares asked` }
       } finally {
         await other.close()
       }
