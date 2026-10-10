@@ -640,6 +640,24 @@ describe('conversation history', () => {
     await waitFor(() => expect(screen.getByTestId('turn-assistant').textContent).toContain('answer to Older'))
   })
 
+  // B17.190 — the frame between knowing who is signed in and reading their conversations said "No conversations yet";
+  // a new chat begun in it was taken over by the conversation reopened a moment later.
+  it('never says "No conversations yet" before reading the ones saved', async () => {
+    seed('user-a', { id: 'a', title: 'Kept', updated_at: 1 })
+    mockChat()
+    const said: string[] = []
+    const note = (records: MutationRecord[]) => {
+      for (const r of records) said.push(r.oldValue ?? '', r.target.textContent ?? '', ...[...r.addedNodes].map((n) => n.textContent ?? ''))
+    }
+    const watch = new MutationObserver(note)
+    watch.observe(document.body, { childList: true, subtree: true, characterData: true, characterDataOldValue: true })
+    renderChat()
+    await screen.findByRole('list', { name: 'Saved conversations' })
+    note(watch.takeRecords())
+    watch.disconnect()
+    expect(said.filter((t) => t.includes('No conversations yet'))).toEqual([])
+  })
+
   it('is not shown to a different account on the same browser', async () => {
     seed('user-a', { id: 'a', title: 'Private', updated_at: 1 })
     mockChat({ sub: 'user-b' })

@@ -356,6 +356,8 @@ export function Chat() {
   const scope =
     me.data?.user?.sub ?? me.data?.workspace_id ?? (me.data?.mode === 'disabled' ? 'local' : null)
   const [history, setHistory] = useState<History>({ list: [], error: null })
+  // B17.190 — whose conversations `history` holds; until it is `scope`, the rail says it is still reading, never "none".
+  const [readFor, setReadFor] = useState<string | null>(null)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -456,6 +458,7 @@ export function Chat() {
   // A conversation begun before the identity was known is saved under it now, and stays on screen.
   useEffect(() => {
     if (scope === null) return
+    setReadFor(scope)
     const read = loadConversations(scope)
     const unsaved = unsavedRef.current
     unsavedRef.current = []
@@ -1266,8 +1269,8 @@ export function Chat() {
       history={history}
       activeId={activeId}
       pending={pending}
-      signedIn={scope !== null}
-      readingIdentity={me.isPending}
+      signedIn={scope !== null && readFor === scope}
+      readingIdentity={me.isPending || (scope !== null && readFor !== scope)}
       storageRefused={storageRefused}
       sync={sync}
       search={search}
