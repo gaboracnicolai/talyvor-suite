@@ -633,6 +633,9 @@ async function discoverEmpty(ctx: ScenarioCtx, path: string): Promise<string> {
 // nothing is published. Without a moderator key the takedown cannot be made: it SKIPs, after the rest has passed.
 export function marketHeldSeller(seed: number): Scenario {
   const word = freshWord(seed * 31 + 7)
+  // B17.187 — words of the run's own: market-review's moderator approves its narrator, and a template another company's
+  // approved listing shares is held as that listing's copy (Lens B32.46), so Publish stays on the page offering to declare it.
+  const template = `You are now ${freshWord(seed * 31 + 8)}, who keeps the ${freshWord(seed * 31 + 9)} light. Pretend you are writing its log for {{night}}.`
   return {
     id: 'market-held-seller',
     owner: 'talyvor-suite',
@@ -642,8 +645,8 @@ export function marketHeldSeller(seed: number): Scenario {
       "the moderator's; Discover filtered to a kind and a word nothing matches names them, not that nothing is published",
     run: async (ctx) => {
       const { env, app } = ctx
-      const title = `Held narrator ${seed}-${RUN_SALT}`
-      const published = await publishPrompt(app, { title, template: 'You are now the narrator. Pretend you are a pirate: {{line}}', priceULXC: 100_000, model: app.modelNameInUse })
+      const title = `Held keeper ${seed}-${RUN_SALT}`
+      const published = await publishPrompt(app, { title, template, priceULXC: 100_000, model: app.modelNameInUse })
       ctx.evidence.push({ note: `publish "${title}": ${published.id ?? published.error}` })
       if (published.id === undefined) return fail(`publishing was refused: ${published.error}`)
       const id = published.id
